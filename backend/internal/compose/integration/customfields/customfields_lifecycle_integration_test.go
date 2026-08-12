@@ -3,27 +3,29 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The customfields catalog-lifecycle suite: rename/retire (app-pool,
 // catalog-only), the picklist CHECK regeneration, the admin list, and
 // the RBAC/RLS boundaries. The schema-pool tx dance itself is proven in
-// customfields_integration_test.go, which also owns the shared fixtures
-// (cfAdminPerms, columnOnTable, seedSecondWorkspace, ...).
+// customfields_integration_test.go here, and the fixtures they share come from
+// two places: columnOnTable is this package's, while CustomFieldAdminPerms and
+// SeedSecondWorkspace are the parent's (integration/suitefixtures.go).
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestCustomFieldRename_LabelOnly_ColumnIdentityStable(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	created, err := svc.Create(ctx, dateSpec("Renewal date"))
 	if err != nil {
@@ -59,13 +61,13 @@ func TestCustomFieldRename_LabelOnly_ColumnIdentityStable(t *testing.T) {
 }
 
 func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	created, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Preferred greeting", Type: customfields.TypeText, Source: "ui",
+	created, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Preferred greeting", Type: customfieldsmod.TypeText, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -99,10 +101,10 @@ func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
 
 	// Retirement is terminal: the label is frozen, and the refusal writes
 	// nothing — the audit trail still carries only the one retire.
-	if _, err := svc.Rename(ctx, ids.UUID(created.Id), "Reopened greeting", nil); !errors.Is(err, customfields.ErrFieldRetired) {
+	if _, err := svc.Rename(ctx, ids.UUID(created.Id), "Reopened greeting", nil); !errors.Is(err, customfieldsmod.ErrFieldRetired) {
 		t.Fatalf("renaming a retired field must refuse with ErrFieldRetired, got %v", err)
 	}
-	if !errors.Is(customfields.ErrFieldRetired, apperrors.ErrConflict) {
+	if !errors.Is(customfieldsmod.ErrFieldRetired, apperrors.ErrConflict) {
 		t.Fatal("ErrFieldRetired must read as the 409 conflict sentinel")
 	}
 	if n := e.WsCount(t,
@@ -113,12 +115,12 @@ func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
 }
 
 func TestCustomFieldSetOptions_RegeneratesTheCheck(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	created, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Procurement route", Type: customfields.TypePicklist,
+	created, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Procurement route", Type: customfieldsmod.TypePicklist,
 		Options: []string{"direct", "reseller"}, Source: "ui",
 	})
 	if err != nil {
@@ -149,28 +151,28 @@ func TestCustomFieldSetOptions_RegeneratesTheCheck(t *testing.T) {
 }
 
 func TestCustomFieldSetOptions_Refusals(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	picklist, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Procurement route", Type: customfields.TypePicklist,
+	picklist, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Procurement route", Type: customfieldsmod.TypePicklist,
 		Options: []string{"direct", "reseller"}, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	date, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Onboarding date", Type: customfields.TypeDate, Source: "ui",
+	date, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Onboarding date", Type: customfieldsmod.TypeDate, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.SetOptions(ctx, ids.UUID(date.Id), []string{"a"}); !errors.Is(err, customfields.ErrNotPicklist) {
+	if _, err := svc.SetOptions(ctx, ids.UUID(date.Id), []string{"a"}); !errors.Is(err, customfieldsmod.ErrNotPicklist) {
 		t.Fatalf("options on a non-picklist must refuse with ErrNotPicklist, got %v", err)
 	}
-	if _, err := svc.SetOptions(ctx, ids.UUID(picklist.Id), nil); !errors.Is(err, customfields.ErrLastOption) {
+	if _, err := svc.SetOptions(ctx, ids.UUID(picklist.Id), nil); !errors.Is(err, customfieldsmod.ErrLastOption) {
 		t.Fatalf("an empty option set must refuse with ErrLastOption, got %v", err)
 	}
 	if _, err := svc.SetOptions(ctx, ids.NewV7(), []string{"a"}); !errors.Is(err, apperrors.ErrNotFound) {
@@ -192,20 +194,20 @@ func TestCustomFieldSetOptions_Refusals(t *testing.T) {
 	if _, err := svc.Retire(ctx, ids.UUID(picklist.Id)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SetOptions(ctx, ids.UUID(picklist.Id), []string{"direct", "reseller"}); !errors.Is(err, customfields.ErrFieldRetired) {
+	if _, err := svc.SetOptions(ctx, ids.UUID(picklist.Id), []string{"direct", "reseller"}); !errors.Is(err, customfieldsmod.ErrFieldRetired) {
 		t.Fatalf("options on a retired field must refuse with ErrFieldRetired, got %v", err)
 	}
 }
 
 func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	var created []ids.UUID
 	for _, label := range []string{"Alpha", "Beta", "Gamma"} {
-		f, err := svc.Create(ctx, customfields.FieldSpec{
-			Object: "deal", Label: label, Type: customfields.TypeText, Source: "ui",
+		f, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+			Object: "deal", Label: label, Type: customfieldsmod.TypeText, Source: "ui",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -216,7 +218,7 @@ func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, _, err := svc.List(ctx, customfields.ListInput{Object: "deal"})
+	all, _, err := svc.List(ctx, customfieldsmod.ListInput{Object: "deal"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -224,7 +226,7 @@ func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 		t.Fatalf("the admin list includes retired rows by default: got %d, want 3", len(all))
 	}
 	active := "active"
-	activeOnly, _, err := svc.List(ctx, customfields.ListInput{Object: "deal", Status: &active})
+	activeOnly, _, err := svc.List(ctx, customfieldsmod.ListInput{Object: "deal", Status: &active})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +239,7 @@ func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 	limit := 1
 	var cursor *string
 	for range 3 {
-		page, info, err := svc.List(ctx, customfields.ListInput{Object: "deal", Limit: &limit, Cursor: cursor})
+		page, info, err := svc.List(ctx, customfieldsmod.ListInput{Object: "deal", Limit: &limit, Cursor: cursor})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,11 +262,11 @@ func TestCustomFieldList_IncludesRetiredByDefault_AndPagesKeyset(t *testing.T) {
 }
 
 func TestCustomFieldRBAC_ReadGrantCannotChangeSchema(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	admin := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	admin := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 	reader := e.As(e.Rep2, nil, cfReadPerms)
-	ungranted := e.As(e.Rep3, nil, RepPerms) // no custom_field object at all
+	ungranted := e.As(e.Rep3, nil, integration.RepPerms) // no custom_field object at all
 
 	created, err := svc.Create(admin, dateSpec("Renewal date"))
 	if err != nil {
@@ -280,26 +282,26 @@ func TestCustomFieldRBAC_ReadGrantCannotChangeSchema(t *testing.T) {
 	if _, err := svc.Retire(reader, ids.UUID(created.Id)); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("a read grant must not retire, got %v", err)
 	}
-	if _, _, err := svc.List(ungranted, customfields.ListInput{Object: "deal"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, _, err := svc.List(ungranted, customfieldsmod.ListInput{Object: "deal"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("no custom_field grant at all must not even list, got %v", err)
 	}
-	if fields, _, err := svc.List(reader, customfields.ListInput{Object: "deal"}); err != nil || len(fields) != 1 {
+	if fields, _, err := svc.List(reader, customfieldsmod.ListInput{Object: "deal"}); err != nil || len(fields) != 1 {
 		t.Fatalf("the read grant lists the catalog: %v / %d rows", err, len(fields))
 	}
 }
 
 func TestCustomFieldRLS_IsolatesCatalogsAcrossWorkspaces(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
 
-	created, err := svc.Create(e.As(e.Rep1, nil, cfAdminPerms), dateSpec("Renewal date"))
+	created, err := svc.Create(e.As(e.Rep1, nil, integration.CustomFieldAdminPerms), dateSpec("Renewal date"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, ctxB := seedSecondWorkspace(t, owner)
+	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
 
-	fields, _, err := svc.List(ctxB, customfields.ListInput{Object: "deal"})
+	fields, _, err := svc.List(ctxB, customfieldsmod.ListInput{Object: "deal"})
 	if err != nil {
 		t.Fatalf("List in workspace B: %v", err)
 	}

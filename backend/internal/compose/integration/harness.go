@@ -308,14 +308,24 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 	})
 }
 
-// PersonIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
-// the entity a people-store call targets — the suites' spelling of the
-// contracts-edge ids.From widening (the harness keeps its fixture ids
-// untyped so every module's suite can share them).
-func PersonIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
+// The id wideners assert a harness-seeded untyped id as the entity a people-store
+// call targets — the suites' spelling of the contracts-edge ids.From widening. The
+// harness keeps its fixture ids untyped so every module's suite can share them,
+// and each suite widens at the call it makes.
+//
+// Only PersonIDOf is exported, because integration/channels widens person ids from
+// outside this package. The other three have no caller beyond it, and a suite
+// package that later needs one exports it then.
+
+// PersonIDOf widens a harness fixture id to a person id.
+func PersonIDOf(u ids.UUID) ids.PersonID { return ids.From[ids.PersonKind](u) }
+
+// orgIDOf widens a harness fixture id to an organization id.
 func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
-func leadIDOf(u ids.UUID) ids.LeadID        { return ids.From[ids.LeadKind](u) }
-func projectIDOf(u ids.UUID) ids.ProjectID  { return ids.From[ids.ProjectKind](u) }
+
+// leadIDOf widens a harness fixture id to a lead id.
+func leadIDOf(u ids.UUID) ids.LeadID       { return ids.From[ids.LeadKind](u) }
+func projectIDOf(u ids.UUID) ids.ProjectID { return ids.From[ids.ProjectKind](u) }
 
 // userIDPtr types an optional harness user id (Env keeps its fixture ids
 // untyped so every module's suite can use them) for people's typed inputs.

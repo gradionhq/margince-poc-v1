@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The per-scenario assertion helpers TestCustomFieldsHTTP's subtests call
 // (split from customfields_http_integration_test.go to stay under the
@@ -393,7 +393,7 @@ func assertListFiltering(t *testing.T, e *apptest.AppEnv) {
 	}
 
 	// A DIFFERENT valid target object, not just any string: the object parameter
-	// is membership-checked against customfields.FieldObjects, so a non-target
+	// is membership-checked against the modules/customfields FieldObjects list, so a non-target
 	// (`activity`, `relationship`) answers 422 and would prove nothing about
 	// filtering.
 	var otherObject customFieldListWire

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package integration
+package customfields
 
 // The fieldcatalog cross-module seam (shared/ports/fieldcatalog): proves
 // modules/customfields' Service satisfies the port a record store
@@ -17,17 +17,18 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // var _ fieldcatalog.Reader documents the seam at its call site: the
-// compile-time proof that *customfields.Service satisfies the port
+// compile-time proof that *customfieldsmod.Service satisfies the port
 // people/deals will depend on instead of the concrete module (T2 wires
 // the injection; this line is what would fail to compile first if the
 // two drifted apart).
-var _ fieldcatalog.Reader = (*customfields.Service)(nil)
+var _ fieldcatalog.Reader = (*customfieldsmod.Service)(nil)
 
 func columnNames(cols []fieldcatalog.Column) []string {
 	names := make([]string, len(cols))
@@ -39,18 +40,18 @@ func columnNames(cols []fieldcatalog.Column) []string {
 }
 
 func TestActiveColumns_ActiveOnly_ExcludesRetired(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	stayer, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Preferred greeting", Type: customfields.TypeText, Source: "ui",
+	stayer, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Preferred greeting", Type: customfieldsmod.TypeText, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	toRetire, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Legacy note", Type: customfields.TypeText, Source: "ui",
+	toRetire, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Legacy note", Type: customfieldsmod.TypeText, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -68,19 +69,19 @@ func TestActiveColumns_ActiveOnly_ExcludesRetired(t *testing.T) {
 		t.Fatalf("ActiveColumns(person) = %v, want only %q (retired field must be excluded)", got, *stayer.ColumnName)
 	}
 	for _, c := range cols {
-		if c.Type != customfields.TypeText {
-			t.Fatalf("Column.Type = %q, want %q", c.Type, customfields.TypeText)
+		if c.Type != customfieldsmod.TypeText {
+			t.Fatalf("Column.Type = %q, want %q", c.Type, customfieldsmod.TypeText)
 		}
 	}
 }
 
 func TestActiveColumns_PerObject_DoesNotLeakAcrossObjects(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	personField, err := svc.Create(ctx, customfields.FieldSpec{
-		Object: "person", Label: "Person only", Type: customfields.TypeBoolean, Source: "ui",
+	personField, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Person only", Type: customfieldsmod.TypeBoolean, Source: "ui",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -108,18 +109,18 @@ func TestActiveColumns_PerObject_DoesNotLeakAcrossObjects(t *testing.T) {
 }
 
 func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctxA := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	owner := integration.OwnerConn(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctxA := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	if _, err := svc.Create(ctxA, customfields.FieldSpec{
-		Object: "person", Label: "Tenant A field", Type: customfields.TypeText, Source: "ui",
+	if _, err := svc.Create(ctxA, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Tenant A field", Type: customfieldsmod.TypeText, Source: "ui",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	_, ctxB := seedSecondWorkspace(t, owner)
+	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
 	colsB, err := svc.ActiveColumns(ctxB, "person")
 	if err != nil {
 		t.Fatalf("ActiveColumns as tenant B: %v", err)
@@ -140,9 +141,9 @@ func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
 }
 
 func TestActiveColumns_NoActiveFields_ReturnsEmptyNotError(t *testing.T) {
-	e := Setup(t)
-	svc := customfields.NewService(e.Pool, SchemaPool(t))
-	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
 	cols, err := svc.ActiveColumns(ctx, "activity")
 	if err != nil {

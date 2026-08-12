@@ -151,7 +151,7 @@ var computedFieldNoGrantPerms = principal.Permissions{
 // computedFieldWorkspaceBPerms grants workspace B's synthetic admin
 // exactly what this suite's cross-tenant scenario needs — organization
 // and deal writes plus computed_field:read — narrower than
-// AdminPerms/cfAdminPerms because neither existing fixture carries the
+// AdminPerms/CustomFieldAdminPerms because neither existing fixture carries the
 // organization+deal+computed_field combination this suite exercises.
 var computedFieldWorkspaceBPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
@@ -163,34 +163,6 @@ var computedFieldWorkspaceBPerms = principal.Permissions{
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
-}
-
-// seedComputedFieldsWorkspaceB provisions a second tenant (own workspace
-// + one user) and returns an admin-shaped context scoped to it — the
-// customfields suite's seedSecondWorkspace grants only
-// custom_field+person, which doesn't cover this suite's organization/
-// deal/computed_field needs, so this is its own local variant rather
-// than a shared-fixture edit that would ripple into that suite.
-func seedComputedFieldsWorkspaceB(t *testing.T, owner *pgx.Conn) (ws ids.UUID, ctx context.Context) {
-	t.Helper()
-	ws, user := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "computed-b-"+ws.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
-		user, ws, "b@computed-b.test"); err != nil {
-		t.Fatal(err)
-	}
-	ctx = principal.WithWorkspaceID(context.Background(), ws)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user, Permissions: computedFieldWorkspaceBPerms,
-	})
-	return ws, ctx
 }
 
 // TestOrganizationComputed_GatedVisible_RealValueMatchesDirectViewRead is
@@ -413,7 +385,7 @@ func TestOrganizationComputed_SecurityInvokerNeverLeaksAcrossWorkspaces(t *testi
 	}
 	freezeDealFX(t, owner, ids.UUID(dealA.Id))
 
-	_, ctxB := seedComputedFieldsWorkspaceB(t, owner)
+	_, ctxB := SeedSecondWorkspace(t, owner, computedFieldWorkspaceBPerms)
 	pipelineB, openB := pipelineFixtureFor(ctxB, t, e)
 	orgB := e.SeedOrgAs(ctxB, t, "Acme")
 	dealB, err := e.Deals.CreateDeal(ctxB, deals.CreateDealInput{
