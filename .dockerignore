@@ -16,6 +16,11 @@ frontend/storybook-static
 # build/composition/ is regenerated inside the image; a stale local copy must
 # never ride in.
 build/composition
+# The release workflow restores the BuildKit cache-mount contents here before
+# the bake (actions/cache + buildkit-cache-dance). They reach the build ONLY
+# as mounts — unlisted, `COPY . .` would drag the whole cache tree into the
+# context upload and the builder layers.
+.buildx-mount-cache
 .tmp
 *.log
 # Local/instance runtime configuration never belongs in the build context. The

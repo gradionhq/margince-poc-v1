@@ -271,8 +271,8 @@ Wiring details:
   the runner is ephemeral: `CACHE=gha` exports the layer cache per role
   (its durable win is the dependency-download layer, which busts only on a
   module-pin change), and buildkit-cache-dance + actions/cache carry the
-  BuildKit cache-mount contents (Go compile cache, pnpm store, tsc
-  `.tsbuildinfo`) across runs — mounts are not layers, so no layer cache
+  BuildKit cache-mount contents (Go compile cache, pnpm store, Corepack's
+  pnpm download, tsc `.tsbuildinfo`) across runs — mounts are not layers, so no layer cache
   covers them. Both live in the repo's 10 GB Actions cache, which the CI
   lanes' Go caches keep near the cap, so entries older than a few hours are
   routinely LRU-evicted: the caches bridge releases that land close

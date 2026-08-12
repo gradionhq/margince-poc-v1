@@ -193,13 +193,19 @@ jobs:
       #     durable win is the dependency-download layer, which only busts
       #     when a module pin changes. This step exposes the Actions cache
       #     credentials buildx needs for type=gha.
-      #   - The cache MOUNTS (the Go compile cache, the pnpm store, tsc's
-      #     .tsbuildinfo) are not layers and no layer cache carries them;
-      #     actions/cache + buildkit-cache-dance below save and restore their
-      #     contents around the bake.
+      #   - The cache MOUNTS (the Go compile cache, the pnpm store, corepack's
+      #     pnpm download, tsc's .tsbuildinfo) are not layers and no layer
+      #     cache carries them; actions/cache + buildkit-cache-dance below
+      #     save and restore their contents around the bake.
+      #
+      # Both cache steps carry continue-on-error: they only make the bake
+      # faster, so a cache-service outage or a broken injection must cost this
+      # run a cold bake, never the release. The bake and publish steps after
+      # them stay fatal.
       - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
       - name: Restore the BuildKit cache-mount contents
         id: mount-cache
+        continue-on-error: true
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .buildx-mount-cache
@@ -209,6 +215,7 @@ jobs:
           restore-keys: |
             buildx-mounts-
       - name: Inject the cache-mount contents into the builder
+        continue-on-error: true
         uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
         with:
           utility-image: ghcr.io/containerd/busybox:1.36@sha256:7b3ccabffc97de872a30dfd234fd972a66d247c8cfc69b0550f276481852627c
