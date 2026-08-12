@@ -1087,7 +1087,8 @@
      columns and left the fourth stranded on a row of its own, which reads as
      a table that ran out of room rather than as the account's four answers. */
   grid-template-columns: repeat(var(--today-readings, 4), minmax(0, 1fr));
-  gap: var(--space-3) var(--space-5);
+  grid-template-rows: auto auto;
+  gap: var(--space-1) var(--space-5);
   padding: var(--space-4) var(--space-5);
 }
 @media (max-width: 68rem) {
@@ -1100,10 +1101,16 @@
    between them ended up floating against whichever one happened to wrap, so
    the band read as a sentence that had come apart rather than as four things
    the account is. */
+/* Two rows the whole band shares: every name on one line, every answer
+   beginning on the next. Sized per cell the answers started wherever their
+   own label happened to end, so a reading whose answer wrapped sat a line
+   below its neighbours and the row lost the baseline that makes it scannable. */
 .today-tile {
   display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
   grid-template-columns: auto auto 1fr;
-  align-items: baseline;
+  align-content: start;
   gap: 0 var(--space-2);
   min-width: 0;
 }
