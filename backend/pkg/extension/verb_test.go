@@ -377,7 +377,13 @@ func TestValidateMethodNamesTheAdmittedSet(t *testing.T) {
 			t.Errorf("validateMethod(%q) = nil, want a refusal", method)
 		}
 	}
+	// Fatal, not Errorf: the loop above records failures without stopping, so an
+	// admitted HEAD would reach err.Error() here and panic on a nil dereference —
+	// hiding the regression this test exists to catch behind a crash.
 	err := validateMethod(http.MethodHead)
+	if err == nil {
+		t.Fatal("validateMethod(HEAD) = nil, want a refusal naming the admitted set")
+	}
 	for _, want := range []string{"get", "post", "put", "patch", "delete"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not mention %q: %v", want, err)
