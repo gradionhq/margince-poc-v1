@@ -272,9 +272,34 @@ func transformEmployeesToSizeBand(v any) (any, error) {
 	}
 }
 
-// transformAddressJSON assembles the address property set into the
-// mirror's jsonb address column, dropping properties absent from the
-// incumbent record.
+// addressMemberNames renames the incumbent's address properties onto the
+// contract Address member names. This module is the only layer allowed to
+// know the incumbent's vocabulary, so the rename belongs here: everything
+// downstream of the mirror — the read wire, the flip import — reads one
+// address spelling and would otherwise have to learn HubSpot's.
+//
+//nolint:goconst // each side of a row is its own vocabulary — the key is the incumbent's property name, the value the contract's member name — so a shared constant for either spelling would assert the two are one thing, which is exactly what this table exists to keep apart
+var addressMemberNames = map[string]string{
+	"address": "line1",
+	"city":    "city",
+	"state":   "region",
+	"zip":     "postal_code",
+	"country": "country",
+}
+
+// transformAddressJSON assembles the address property set into the mirror's
+// jsonb address column under the contract's Address member names, dropping
+// properties the incumbent record left empty or null rather than mirroring
+// them as blanks. A property outside addressMemberNames rides through under
+// its own name: the mirror flags what it does not understand and never
+// silently drops it (UC-E18-01 F3), and the contract's Address admits
+// additional properties.
+//
+// A mirror payload whose members still carry incumbent names surfaces only
+// the members whose spelling already agrees (city, country). The incremental
+// poller rewrites each record's payload on its next incumbent change, so
+// those rows heal themselves — a reader that accepted both spellings would
+// outlive the condition it was written for.
 //
 //craft:ignore naked-any transform seam over untyped incoming JSON property values; asserts concrete type within
 func transformAddressJSON(v any) (any, error) {
@@ -284,14 +309,17 @@ func transformAddressJSON(v any) (any, error) {
 	}
 	out := make(map[string]any, len(fields))
 	for k, val := range fields {
-		s, ok := val.(string)
-		if ok && s == "" {
-			continue
-		}
 		if val == nil {
 			continue
 		}
-		out[k] = val
+		if s, isString := val.(string); isString && s == "" {
+			continue
+		}
+		member, known := addressMemberNames[k]
+		if !known {
+			member = k
+		}
+		out[member] = val
 	}
 	return out, nil
 }

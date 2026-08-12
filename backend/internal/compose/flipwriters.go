@@ -275,28 +275,6 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 	}
 }
 
-func flipAddress(fields map[string]any) *crmcontracts.Address {
-	raw, ok := fields["address"].(map[string]any)
-	if !ok || len(raw) == 0 {
-		return nil
-	}
-	get := func(k string) *string {
-		s, ok := raw[k].(string)
-		if !ok || strings.TrimSpace(s) == "" {
-			return nil
-		}
-		return &s
-	}
-	addr := &crmcontracts.Address{
-		Line1: get("address"), City: get("city"), Region: get("state"),
-		PostalCode: get("zip"), Country: get("country"),
-	}
-	if addr.Line1 == nil && addr.City == nil && addr.Region == nil && addr.PostalCode == nil && addr.Country == nil {
-		return nil
-	}
-	return addr
-}
-
 func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
 	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectOrganization)
 	if err != nil {
@@ -310,7 +288,7 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 		DisplayName: name,
 		Industry:    fieldStringPtr(row.Fields, "industry"),
 		OwnerID:     owner,
-		Address:     flipAddress(row.Fields),
+		Address:     overlayAddress(row.Fields),
 		Source:      w.provenance(flipObjectOrganization, row.ExternalID),
 	}
 	if band := crmcontracts.OrganizationSizeBand(fieldString(row.Fields, "size_band")); band.Valid() {
@@ -350,7 +328,7 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		LastName:  fieldStringPtr(row.Fields, "last_name"),
 		Title:     fieldStringPtr(row.Fields, "title"),
 		OwnerID:   owner,
-		Address:   flipAddress(row.Fields),
+		Address:   overlayAddress(row.Fields),
 		Source:    w.provenance(flipObjectPerson, row.ExternalID),
 	}
 	// The mapper lands a TargetChild under a NESTED map, never under its

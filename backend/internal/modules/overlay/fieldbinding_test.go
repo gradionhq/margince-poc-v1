@@ -56,6 +56,9 @@ func checkDisposition(t *testing.T, entity string, b overlay.FieldBinding) {
 		if !strings.HasPrefix(b.IssueURL, "https://") {
 			t.Errorf("%s.%s is deferred but carries no issue URL; a deferral without a tracked issue is a TODO that never returns", entity, b.WireSlot)
 		}
+		if b.CanonicalKey != "" || len(b.Incumbent) > 0 || b.Transform != "" {
+			t.Errorf("%s.%s is deferred but names a canonical key, an incumbent property or a transform; a slot nothing fills must claim no source, or the registry reads as a working mapping", entity, b.WireSlot)
+		}
 	case overlay.DispositionUnmappable, overlay.DispositionNativeOnly:
 		if strings.TrimSpace(b.Reason) == "" {
 			t.Errorf("%s.%s is %s but states no reason", entity, b.WireSlot, b.Disposition)

@@ -97,7 +97,6 @@ func overlayWirePerson(ctx context.Context, rec datasource.Record) (crmcontracts
 		LastName:   fieldStringPtr(fields, "last_name"),
 		Title:      fieldStringPtr(fields, "title"),
 		Address:    overlayAddress(fields),
-		OwnerId:    overlayOwnerID(fields),
 		CreatedAt:  syncedAt,
 		UpdatedAt:  syncedAt,
 		Raw:        &fields,

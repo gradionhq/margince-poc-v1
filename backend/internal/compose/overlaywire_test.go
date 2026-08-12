@@ -285,16 +285,11 @@ func TestOverlayWireTitlePrefersCanonicalFullName(t *testing.T) {
 	}
 }
 
-// The mapper assembles an address and resolves an owner into the mirror, and
-// both were picked up by nothing — the value existed and the slot a client
-// reads stayed empty. Asserting on the marshalled body rather than the Go
-// struct is what makes "pointer left nil" and "slot never filled"
-// distinguishable, which is the shape of the defect.
-func TestOverlayWirePersonPublishesAddressAndOwner(t *testing.T) {
-	owner := ids.NewV7()
+// The mapper assembles an address into the mirror and it was picked up by
+// nothing — the value existed and the slot a client reads stayed empty.
+func TestOverlayWirePersonPublishesAddress(t *testing.T) {
 	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
 		"full_name": "Ada Overlay",
-		"owner_id":  owner.String(),
 		"address": map[string]any{
 			"line1": "Hauptstrasse 1", "city": "Munich",
 			"postal_code": "80331", "country": "DE",
@@ -313,8 +308,60 @@ func TestOverlayWirePersonPublishesAddressAndOwner(t *testing.T) {
 	if person.Address.Line1 == nil || *person.Address.Line1 != "Hauptstrasse 1" {
 		t.Errorf("Address.Line1 = %v, want the mirrored street", person.Address.Line1)
 	}
-	if person.OwnerId == nil || *person.OwnerId != openapi_types.UUID(owner) {
-		t.Errorf("OwnerId = %v, want the app_user the mapping resolved through mirror_user_map", person.OwnerId)
+}
+
+// overlayAddress is the one reader of the canonical address payload, shared
+// by the read wire and the flip import. It answers an Address only when a
+// member carries something: a blank Address stored on a flipped row, or
+// published on a read, asserts a location the incumbent never held.
+func TestOverlayAddressCarriesEveryMemberAndOmitsAnEmptyOne(t *testing.T) {
+	for name, fields := range map[string]map[string]any{
+		"no address key":     {"display_name": "Acme"},
+		"address not a map":  {"address": "12 Main St"},
+		"empty address map":  {"address": map[string]any{}},
+		"only unknown parts": {"address": map[string]any{"floor": "3"}},
+	} {
+		if got := overlayAddress(fields); got != nil {
+			t.Errorf("%s: overlayAddress = %+v, want nil", name, got)
+		}
+	}
+
+	full := overlayAddress(map[string]any{"address": map[string]any{
+		"line1": "12 Main St", "city": "Frankfurt", "region": "HE",
+		"postal_code": "60311", "country": "DE",
+	}})
+	if full == nil {
+		t.Fatal("a populated mirrored address must reach the contract's Address")
+	}
+	// VALUES, not presence: a presence-only check would pass a transposition
+	// that ships a postcode into the region slot of every record.
+	for member, pair := range map[string]struct {
+		got  *string
+		want string
+	}{
+		"line1":       {full.Line1, "12 Main St"},
+		"city":        {full.City, "Frankfurt"},
+		"region":      {full.Region, "HE"},
+		"postal_code": {full.PostalCode, "60311"},
+		"country":     {full.Country, "DE"},
+	} {
+		got := "<nil>"
+		if pair.got != nil {
+			got = *pair.got
+		}
+		if got != pair.want {
+			t.Errorf("%s = %q, want %q — a transposed member ships the wrong value into every record", member, got, pair.want)
+		}
+	}
+
+	// A partial address still lands — dropping it would lose the only
+	// location the incumbent had.
+	partial := overlayAddress(map[string]any{"address": map[string]any{"city": "Berlin"}})
+	if partial == nil || partial.City == nil || *partial.City != "Berlin" {
+		t.Errorf("partial address = %+v, want the city carried", partial)
+	}
+	if partial != nil && partial.Line1 != nil {
+		t.Errorf("absent members must stay nil, got line1 = %v", *partial.Line1)
 	}
 }
 
@@ -331,23 +378,6 @@ func TestOverlayWirePersonOmitsAnEmptyAddress(t *testing.T) {
 	}
 	if person.Address != nil {
 		t.Errorf("Address = %+v, want nil when no member carries a value", person.Address)
-	}
-}
-
-// An owner the mapping could not resolve stays absent: the raw incumbent
-// owner id is not an app_user id, and publishing it in a uuid slot would
-// name a user that does not exist.
-func TestOverlayWirePersonOmitsAnUnresolvedOwner(t *testing.T) {
-	rec := wireRecord(t, datasource.EntityPerson, map[string]any{
-		"full_name": "Ada Overlay",
-		"owner_id":  "1197833249",
-	})
-	person, err := overlayWirePerson(wireCtx(), rec)
-	if err != nil {
-		t.Fatalf("overlayWirePerson: %v", err)
-	}
-	if person.OwnerId != nil {
-		t.Errorf("OwnerId = %v, want nil when the value is an unresolved incumbent owner id", person.OwnerId)
 	}
 }
 

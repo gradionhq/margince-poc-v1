@@ -105,6 +105,50 @@ func TestHubSpotContactMapping(t *testing.T) {
 	}
 }
 
+// TestHubSpotContactAddressLandsOnContractMemberNames runs a live-shaped
+// contact through the declared contacts mapping — the same Mapping + Apply
+// pair ingest runs — and pins the address payload's KEYS. Every layer above
+// the mirror picks the address apart by the contract's Address member names,
+// so a payload still keyed by the incumbent's property names publishes a
+// street, region and postcode nobody can find. Only the mapping's own
+// declared From list decides what the transform sees, which is why this
+// asserts through the real mapping rather than a hand-built property set.
+func TestHubSpotContactAddressLandsOnContractMemberNames(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	raw := rawContact()
+	raw["state"] = "Bayern"
+
+	out, _, err := overlay.Apply(m, raw)
+	if err != nil {
+		t.Fatalf("Apply returned an error: %v", err)
+	}
+	address, ok := out["address"].(map[string]any)
+	if !ok {
+		t.Fatalf("address = %#v, want an assembled jsonb map", out["address"])
+	}
+	// VALUES, not presence: a rename that transposes two members would pass
+	// a presence check while shipping a postcode into the region slot.
+	for member, want := range map[string]string{
+		"line1":       "Hauptstrasse 1",
+		"city":        "Munich",
+		"region":      "Bayern",
+		"postal_code": "80331",
+		"country":     "Germany",
+	} {
+		if got := address[member]; got != want {
+			t.Errorf("address.%s = %#v, want %q", member, got, want)
+		}
+	}
+	for _, incumbent := range []string{"address", "state", "zip"} {
+		if got, present := address[incumbent]; present {
+			t.Errorf("address.%s = %#v, but the incumbent's own property names must not reach the mirror payload", incumbent, got)
+		}
+	}
+}
+
 // TestHubSpotContactFullNameFidelity is the OVA-MAP-3 golden case set: a
 // mirrored contact's full_name is never empty. It is assembled from
 // firstname + lastname (trimmed), falling back to the primary email's local

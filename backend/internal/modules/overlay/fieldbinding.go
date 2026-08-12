@@ -84,12 +84,16 @@ var personBindings = EntityBinding{
 		{WireSlot: "full_name", CanonicalKey: "full_name", Incumbent: []string{"firstname", "lastname", "email"}, Transform: "full_name", Disposition: DispositionMapped},
 		{WireSlot: "title", CanonicalKey: "title", Incumbent: []string{"jobtitle"}, Disposition: DispositionMapped},
 		{WireSlot: "address", CanonicalKey: "address", Incumbent: []string{"address", "city", "state", "zip", "country"}, Transform: "address_json", Disposition: DispositionMapped},
-		{WireSlot: "owner_id", CanonicalKey: "owner_id", Incumbent: []string{"hubspot_owner_id"}, Disposition: DispositionMapped},
 		{WireSlot: "emails", CanonicalKey: "person_email", Incumbent: []string{"email"}, Transform: "lowercase", Disposition: DispositionMapped},
 		{WireSlot: "phones", CanonicalKey: "person_phone", Incumbent: []string{"phone", "mobilephone"}, Disposition: DispositionMapped},
 		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
 		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"lastmodifieddate"}, Disposition: DispositionMapped},
 
+		{
+			WireSlot: "owner_id", Disposition: DispositionDeferred,
+			Reason:   "The mirror holds the incumbent's own owner id, which row visibility is projected from; nothing joins it through mirror_user_map to the app_user the contract's uuid slot names.",
+			IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/994",
+		},
 		{WireSlot: "social", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/985"},
 		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/986"},
 

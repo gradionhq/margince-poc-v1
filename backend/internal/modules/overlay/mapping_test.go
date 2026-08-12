@@ -241,15 +241,17 @@ func TestTransformEmployeesToSizeBandBuckets(t *testing.T) {
 // TestTransformAddressJSONDropsEmptyAndNilFields proves
 // transformAddressJSON's own filtering: an empty-string or nil address
 // sub-property is dropped from the assembled jsonb rather than landing
-// as a spurious empty value, and it rejects a non-map input cleanly.
+// as a spurious empty value. The surviving properties land under the
+// contract's Address member names, and a property the rename does not
+// know rides through under its own name rather than being dropped.
 func TestTransformAddressJSONDropsEmptyAndNilFields(t *testing.T) {
 	m := overlay.ObjectMapping{
 		Source: "contacts", Target: "person",
 		Fields: []overlay.FieldMapping{
-			{From: []string{"address", "city", "state"}, To: "address", Kind: overlay.TargetAssembler, Transform: "address_json"},
+			{From: []string{"address", "city", "state", "floor"}, To: "address", Kind: overlay.TargetAssembler, Transform: "address_json"},
 		},
 	}
-	out, _, err := overlay.Apply(m, map[string]any{"address": "Hauptstrasse 1", "city": "", "state": nil})
+	out, _, err := overlay.Apply(m, map[string]any{"address": "Hauptstrasse 1", "city": "", "state": nil, "floor": "3"})
 	if err != nil {
 		t.Fatalf("Apply returned an error: %v", err)
 	}
@@ -260,11 +262,14 @@ func TestTransformAddressJSONDropsEmptyAndNilFields(t *testing.T) {
 	if _, ok := addr["city"]; ok {
 		t.Errorf("address.city = %v, want absent (empty string dropped)", addr["city"])
 	}
-	if _, ok := addr["state"]; ok {
-		t.Errorf("address.state = %v, want absent (nil dropped)", addr["state"])
+	if _, ok := addr["region"]; ok {
+		t.Errorf("address.region = %v, want absent (nil dropped)", addr["region"])
 	}
-	if addr["address"] != "Hauptstrasse 1" {
-		t.Errorf("address.address = %v, want Hauptstrasse 1", addr["address"])
+	if addr["line1"] != "Hauptstrasse 1" {
+		t.Errorf("address.line1 = %v, want Hauptstrasse 1", addr["line1"])
+	}
+	if addr["floor"] != "3" {
+		t.Errorf("address.floor = %v, want the unrenamed property carried through", addr["floor"])
 	}
 }
 
