@@ -85,9 +85,9 @@ func OverlayBudgetConfig(cfg deployconfig.OverlayBudget) overlaybudget.Config {
 // (jobs_overlay.go's overlayReconcileWorker), which builds its own
 // incumbent adapter from the same overlayIncumbentFactory.
 func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlaybudget.Meter, log *slog.Logger, backfillLimit int, onModeFlip func(workspaceID ids.UUID)) overlay.Handlers {
-	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(InstallationDB(pool), unresolvedOwnerEmails{})
 	incumbent := overlayIncumbentFactory(backfillLimit)
-	svc := overlay.NewService(pool, vault, ms).
+	svc := overlay.NewService(InstallationDB(pool), vault, ms).
 		WithBudgetMeter(meter).
 		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
@@ -126,7 +126,7 @@ func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
 // force-fresh to the mirror honestly (freshness.go's own doc) — never a
 // faked authority claim.
 func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *overlay.Provider {
-	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	ms := overlay.NewMirrorStore(InstallationDB(pool), unresolvedOwnerEmails{})
 	ff := overlay.NewFreshnessReader(resolveIncumbent, ms, meter, hubspot.IncumbentClassesFor)
 	p := overlay.NewProvider(ms, ff)
 	// Wire the write-back path's incumbent resolver too — NewProvider stores
@@ -137,7 +137,7 @@ func NewOverlayProvider(pool *pgxpool.Pool, meter *overlaybudget.Meter, resolveI
 	p.SetFreshnessIncumbentResolver(resolveIncumbent)
 	// Wire the echo-suppression ledger's producer half (OVA-DDL-6): each
 	// write-back opens ledger entries so the webhook receiver can drop its echo.
-	p.SetWriteLedger(overlay.NewWriteLedger(pool), slog.Default())
+	p.SetWriteLedger(overlay.NewWriteLedger(InstallationDB(pool)), slog.Default())
 	return p
 }
 

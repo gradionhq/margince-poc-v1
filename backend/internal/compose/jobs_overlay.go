@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -37,7 +38,6 @@ func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, l
 	if cfg.OverlayVault == nil {
 		return
 	}
-	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	// cmd/worker built the meter over the shared Redis (so the poller's spend
 	// and the api's force-fresh spend land on ONE count); fall back to a
 	// fail-closed meter if a role wired the poller without one.
@@ -47,7 +47,7 @@ func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, l
 	}
 	addDeclaredWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log})
 	addDeclaredWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
-		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		pool: pool, vault: cfg.OverlayVault, meter: meter, log: log,
 		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
 	})
 	// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
@@ -56,7 +56,7 @@ func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, l
 	// vault is present (the receiver only enqueues when the api role has the
 	// app secret wired).
 	addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{
-		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		pool: pool, vault: cfg.OverlayVault, meter: meter, log: log,
 		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
 	})
 }
@@ -156,7 +156,6 @@ func (a OverlayReconcileWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 type overlayReconcileWorkspaceWorker struct {
 	pool         *pgxpool.Pool
 	vault        keyvault.Vault
-	ms           *overlay.MirrorStore
 	meter        *overlaybudget.Meter
 	newIncumbent func(region, token string) overlay.Incumbent
 	log          *slog.Logger
@@ -187,8 +186,12 @@ func (w *overlayReconcileWorkspaceWorker) Work(ctx context.Context, job *river.J
 	// abort with ErrConnectionGone instead. A rate-limit/auth failure leaves
 	// the connection row 'active' (only Disconnect revokes it), so the
 	// legitimate backoff paths still record.
-	recMS := w.ms.WithFenceIdentity(d.ConnectedAt)
-	sweepErr := reconcileConnection(wsCtx, w.pool, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
+	// Built for the workspace THIS pass reconciles: the mirror store writes
+	// tenant rows, and a fleet pass cannot share one across the workspaces it
+	// sweeps (ADR-0091 §9 step 3).
+	ms := overlay.NewMirrorStore(database.BindTo(w.pool, d.Workspace), unresolvedOwnerEmails{})
+	recMS := ms.WithFenceIdentity(d.ConnectedAt)
+	sweepErr := reconcileConnection(wsCtx, w.pool, w.vault, ms, w.meter, w.log, d, w.newIncumbent)
 	if errors.Is(sweepErr, overlay.ErrConnectionGone) {
 		// The connection was disconnected, or disconnected AND reconnected,
 		// mid-sweep: every fenced write aborted, so nothing was resurrected
@@ -293,7 +296,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// growth and does not retain a value_canonical past the window. Best-effort
 	// — correctness never depends on it (Classify already filters by the open
 	// window), so a failure never aborts the record sweep.
-	if _, err := overlay.NewWriteLedger(pool).PruneExpired(ctx); err != nil {
+	if _, err := overlay.NewWriteLedger(database.BindTo(pool, d.Workspace)).PruneExpired(ctx); err != nil {
 		log.WarnContext(ctx, "overlay reconcile: pruning expired write-ledger entries failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}

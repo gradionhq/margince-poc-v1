@@ -28,7 +28,7 @@ import (
 // the upsert statement itself, which is what this test pins.
 func TestBlockCommittedAfterCandidateSelectionStillStopsTheMapping(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -69,7 +69,7 @@ func TestBlockCommittedAfterCandidateSelectionStillStopsTheMapping(t *testing.T)
 // and blocked at once.
 func TestManualMapClearsTheBlockAndWrites(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -103,7 +103,7 @@ func TestManualMapClearsTheBlockAndWrites(t *testing.T) {
 // to run through recomputeForOwnerTx.
 func TestBlockAutoMapRevokesTheVisibilityGrants(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	repCtx, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -139,7 +139,7 @@ func TestBlockAutoMapRevokesTheVisibilityGrants(t *testing.T) {
 // admin's decision, so a retry or a double-click is not an error.
 func TestBlockAutoMapOnAnUnmappedUserIsIdempotent(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -164,7 +164,7 @@ func TestBlockAutoMapOnAnUnmappedUserIsIdempotent(t *testing.T) {
 // mapping (they are the ones an admin has to act on) and mark blocked ones.
 func TestListUserMapIncludesUnmappedAndBlockedUsers(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "mapped@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "mapped@acme.test"})
 	_, mappedRaw := testWorkspaceCtxAsUser(t, ws, "mapped@acme.test")
 	mapped := ids.From[ids.UserKind](mappedRaw)
 	_, unmappedRaw := testWorkspaceCtxAsUser(t, ws, "unmapped@acme.test")
@@ -206,7 +206,7 @@ func TestListUserMapIncludesUnmappedAndBlockedUsers(t *testing.T) {
 // grant mirror visibility to something that should not have it.
 func TestListUserMapExcludesAgentAndArchivedUsers(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	_, humanRaw := testWorkspaceCtxAsUser(t, ws, "human@acme.test")
 	human := ids.From[ids.UserKind](humanRaw)
 	agent := seedAgentUser(t, ws, "agent@acme.test")
@@ -234,8 +234,8 @@ func TestListUserMapExcludesAgentAndArchivedUsers(t *testing.T) {
 // The composite FK, not RLS, is what must reject this: RLS would merely hide
 // the other workspace's user, leaving a block row that references nothing.
 func TestBlockAutoMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	foreign := seedUserInOtherWorkspace(t, "elsewhere@other.test")
 
 	if err := store.BlockAutoMap(ctx, foreign, "hubspot"); !errors.Is(err, apperrors.ErrNotFound) {
@@ -247,8 +247,8 @@ func TestBlockAutoMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
 // row-scope miss on the GRANT path too — 404, not the 500 an unhandled
 // foreign-key violation would produce.
 func TestSetManualUserMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	foreign := seedUserInOtherWorkspace(t, "elsewhere-manual@other.test")
 
 	if err := store.SetManualUserMap(ctx, foreign, "hubspot", "owner-1"); !errors.Is(err, apperrors.ErrNotFound) {
@@ -261,7 +261,7 @@ func TestSetManualUserMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
 // exactly the identities the list refuses to offer.
 func TestSetManualUserMapRefusesAgentAndArchivedUsers(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	agent := seedAgentUser(t, ws, "agent@acme.test")
 	archived := seedArchivedUser(t, ws, "gone@acme.test")
 
@@ -289,7 +289,7 @@ func TestSetManualUserMapRefusesAgentAndArchivedUsers(t *testing.T) {
 // not be turned away.
 func TestBlockAutoMapStillUnmapsAnArchivedUser(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -323,7 +323,7 @@ func TestBlockAutoMapStillUnmapsAnArchivedUser(t *testing.T) {
 // one seat that stopped being grantable must not abort the rest of the sweep.
 func TestEmailSourcedMappingSkipsASeatArchivedAfterTheCandidateRead(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "rep@acme.test"})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
 
@@ -344,8 +344,8 @@ func TestEmailSourcedMappingSkipsASeatArchivedAfterTheCandidateRead(t *testing.T
 // there is nothing to map, and that is a row to pass over rather than a fault
 // that ends the pass.
 func TestEmailSourcedMappingSkipsACandidateTheWorkspaceNoLongerHas(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "gone@other.test"})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "gone@other.test"})
 	foreign := seedUserInOtherWorkspace(t, "gone@other.test")
 
 	if err := store.UpsertUserMap(ctx, foreign, "hubspot", "owner-1", "email"); err != nil {

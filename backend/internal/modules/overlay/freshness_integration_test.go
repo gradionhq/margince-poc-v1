@@ -180,8 +180,8 @@ func seedMirrorAndLiveFixture(ctx context.Context, t *testing.T, ms *MirrorStore
 // ModifiedAt — the one path this port ever answers Authoritative:true
 // on for an overlay-mode workspace.
 func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862042"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -229,8 +229,8 @@ func TestFreshnessReaderUnderThresholdReadsLiveAndSpends(t *testing.T) {
 // than erroring. Charging only on success would let an unbounded run of
 // failing force-fresh reads hammer HubSpot without the meter ever shedding.
 func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862042"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -271,7 +271,7 @@ func TestFreshnessReaderFailedLiveReadStillSpendsAndDegrades(t *testing.T) {
 // NOT emit mirror.budget_degraded.
 func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862077"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
@@ -330,7 +330,7 @@ func TestFreshnessReaderNoIncumbentClassMappingDegradesHonestly(t *testing.T) {
 // silent quality drop would not leave behind.
 func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	const externalID = "100214862099"
 	mirrorTime := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)

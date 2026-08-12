@@ -18,8 +18,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // TestWorkspaceForPortalBindsAndFailsClosed connects a workspace with a portal
@@ -27,8 +29,8 @@ import (
 // resolves to nothing (fail-closed).
 func TestWorkspaceForPortalBindsAndFailsClosed(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, keyvault.NewMemory(), store).
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), store).
 		WithIncumbentFactory(func(_, _ string) Incumbent {
 			return seedIncumbent{portalID: "portal-A"}
 		})
@@ -65,8 +67,8 @@ func TestWorkspaceForPortalBindsAndFailsClosed(t *testing.T) {
 func TestWorkspaceForPortalIsFailClosedUnderAmbiguity(t *testing.T) {
 	const shared = "portal-ambiguity-test"
 	connect := func() *pgxpool.Pool {
-		ctx, pool, _ := testWorkspaceCtx(t)
-		svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})).
+		ctx, pool, ws := testWorkspaceCtx(t)
+		svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})).
 			WithIncumbentFactory(func(_, _ string) Incumbent { return seedIncumbent{portalID: shared} })
 		if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 			t.Fatalf("Connect: %v", err)

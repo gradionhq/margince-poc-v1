@@ -152,9 +152,9 @@ func TestReconcileConnectionPerPhaseFailurePolicy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := integration.Setup(t)
 			vault := keyvault.NewMemory()
-			ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+			ms := overlay.NewMirrorStore(e.DB(), unresolvedOwnerEmails{})
 			adminCtx := overlayAdminCtx(e.WS, e.Rep1)
-			if _, err := overlay.NewService(e.Pool, vault, ms).
+			if _, err := overlay.NewService(e.DB(), vault, ms).
 				Connect(adminCtx, overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 				t.Fatalf("Connect: %v", err)
 			}

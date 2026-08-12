@@ -37,7 +37,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -243,7 +242,7 @@ func (p *Provider) commitUpdateWriteBack(ctx context.Context, inc Incumbent, rec
 	}
 	ms := p.ms.WithResolver(inc).WithFence()
 	var landed bool
-	err := database.WithWorkspaceTx(ctx, ms.pool, func(tx pgx.Tx) error {
+	err := ms.db.Tx(ctx, func(tx pgx.Tx) error {
 		var ingestErr error
 		if landed, ingestErr = ms.ingestTx(ctx, tx, rec); ingestErr != nil {
 			return ingestErr
@@ -268,7 +267,7 @@ func (p *Provider) commitArchiveWriteBack(ctx context.Context, del Deletion, ref
 	}
 	ms := p.ms.WithFence()
 	var existed bool
-	err := database.WithWorkspaceTx(ctx, ms.pool, func(tx pgx.Tx) error {
+	err := ms.db.Tx(ctx, func(tx pgx.Tx) error {
 		var purgeErr error
 		if existed, purgeErr = ms.purgeRecordTx(ctx, tx, del); purgeErr != nil {
 			return purgeErr

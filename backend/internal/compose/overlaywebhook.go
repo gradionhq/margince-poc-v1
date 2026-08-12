@@ -96,7 +96,7 @@ func WithOverlayWebhook(inserter *jobs.Runner, clientSecret string) Option {
 		if clientSecret == "" || inserter == nil {
 			return
 		}
-		ledger := overlay.NewWriteLedger(pool)
+		ledger := overlay.NewWriteLedger(InstallationDB(pool))
 		s.overlayWebhook = &hubspotWebhookHandler{
 			bind: func(ctx context.Context, incumbent, portalID string) (ids.WorkspaceID, error) {
 				return overlay.WorkspaceForPortal(ctx, pool, incumbent, portalID)

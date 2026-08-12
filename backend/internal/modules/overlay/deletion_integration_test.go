@@ -28,8 +28,8 @@ import (
 // It also pins idempotency: purging an already-absent record is a no-op
 // that reports existed=false, never an error (the sweep re-runs freely).
 func TestPurgeRecordRemovesMirrorAssociationAndVisibility(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	const objectClass = "person"
 	const externalID = "555001"
 
@@ -90,7 +90,7 @@ func TestPurgeRecordRemovesMirrorAssociationAndVisibility(t *testing.T) {
 // poller-lane spend.
 func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	const objectClass = "person"
 	const externalID = "777001"
 	deletedAt := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC)
@@ -151,8 +151,8 @@ func TestReconcileDeletionsPurgesMirroredRecordAndEmits(t *testing.T) {
 // BEFORE any row is deleted — never a partial purge with the event silently
 // dropped.
 func TestPurgeRecordRejectsANonNumericExternalID(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 
 	if _, err := store.PurgeRecord(ctx, Deletion{
 		ObjectClass: "person", ExternalID: "not-a-number",
@@ -168,7 +168,7 @@ func TestPurgeRecordRejectsANonNumericExternalID(t *testing.T) {
 // and returns no error — so the full-scan deletion feed is safe to re-run.
 func TestReconcileDeletionsForUnmirroredRecordIsANoOp(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	ms := NewMirrorStore(pool, noOwnerEmails{})
+	ms := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
 	const objectClass = "person"
 	const externalID = "777404"
 	deletedAt := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC)

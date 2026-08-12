@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // TestBackfillCompleteForRequiresEveryEngagementClass proves the plural
@@ -30,9 +31,9 @@ import (
 // engagement classes, so its backfill is complete ONLY when every one of the
 // five cursors has converged — a single lagging class keeps it incomplete.
 func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, keyvault.NewMemory(), store).
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), store).
 		WithIncumbentClassesTranslator(func(canonical string) ([]string, bool) {
 			if canonical == "activity" {
 				return []string{"calls", "meetings", "emails", "notes", "tasks"}, true
@@ -78,8 +79,8 @@ func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
 }
 
 func TestSyncStatusAndBudgetRefuseANativeModeWorkspace(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t) // never flips to overlay mode
-	svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})).
+	ctx, pool, ws := testWorkspaceCtx(t) // never flips to overlay mode
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})).
 		WithBudgetMeter(overlaybudget.New(nil, nil))
 
 	if _, err := svc.SyncStatus(ctx); !errors.Is(err, apperrors.ErrModeNotOverlay) {
@@ -91,8 +92,8 @@ func TestSyncStatusAndBudgetRefuseANativeModeWorkspace(t *testing.T) {
 }
 
 func TestBudgetAnswersAWiringErrorWithNoMeterConfigured(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
-	svc := NewService(pool, keyvault.NewMemory(), NewMirrorStore(pool, noOwnerEmails{})) // no WithBudgetMeter
+	ctx, pool, ws := testWorkspaceCtx(t)
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})) // no WithBudgetMeter
 
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-token"}); err != nil {
 		t.Fatalf("Connect: %v", err)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -196,7 +195,7 @@ func recomputeForOwnerTx(ctx context.Context, tx pgx.Tx, incumbentUserID string)
 // gets the same protection theirs already do, rather than a silent gap
 // waiting for the next straddling sweep to find.
 func (s *MirrorStore) RecomputeForOwner(ctx context.Context, incumbentUserID string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}
@@ -229,7 +228,7 @@ func lockWorkspaceVisibility(ctx context.Context, tx pgx.Tx) error {
 	// STRICT, so a NULL workspace id would turn this into a no-op SELECT
 	// that acquires NO lock — silently bypassing the serialization every
 	// caller relies on. Failing closed on an unset GUC (this is only ever
-	// called inside database.WithWorkspaceTx, which sets it) matches how the
+	// called inside the store's bound transaction, which sets it) matches how the
 	// RLS policies fail closed on the same condition.
 	if _, err := tx.Exec(ctx,
 		`SELECT pg_advisory_xact_lock(hashtext('margince:overlay-visibility:' || current_setting('app.workspace_id'))::bigint)`); err != nil {
@@ -290,7 +289,7 @@ WHERE app_user_id = $1 AND incumbent = $2`
 // owner's records keep whatever stale can_see=true row the prior mapping
 // left behind, so a remapped user silently retains access to records they
 // should no longer see. Doing both recomputes inside ONE
-// database.WithWorkspaceTx alongside the upsert makes the whole
+// the store's bound transaction alongside the upsert makes the whole
 // remap — write + revoke-old + grant-new — atomic: a crash or error
 // partway through can never leave the mapping row and the visibility
 // projections disagreeing about who currently has access.
@@ -304,7 +303,7 @@ WHERE app_user_id = $1 AND incumbent = $2`
 // bypasses the email check entirely, because a human already vouched for
 // the mapping.
 func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, incumbent, incumbentUserID, source string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return s.upsertUserMapTx(ctx, tx, appUser, incumbent, incumbentUserID, source)
 	})
 }

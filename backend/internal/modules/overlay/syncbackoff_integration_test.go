@@ -50,8 +50,8 @@ func isDue(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) b
 func TestSweepBackoffGatesDueOverlayConnections(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	if _, err := NewService(pool, vault, store).
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	if _, err := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store).
 		Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -82,8 +82,8 @@ func TestSweepBackoffGatesDueOverlayConnections(t *testing.T) {
 func TestRequestSweepMakesTheWorkspaceDueNow(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	if _, err := NewService(pool, vault, store).
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	if _, err := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store).
 		Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -106,10 +106,10 @@ func TestRequestSweepMakesTheWorkspaceDueNow(t *testing.T) {
 // A disconnected workspace's sync state stays a never-connected one's: a
 // request racing a teardown must not repopulate what the purge removed.
 func TestRequestSweepIsRefusedAfterDisconnect(t *testing.T) {
-	ctx, pool, _ := testWorkspaceCtx(t)
+	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
-	store := NewMirrorStore(pool, noOwnerEmails{})
-	svc := NewService(pool, vault, store)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, store)
 	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestRequestSweepObjectRBACDeniesReadOnlyAllowsAdmin(t *testing.T) {
 	_, memberUserID := testWorkspaceCtxAsUser(t, ws, "sweep-member@overlay.test")
 	memberCtx := testMemberCtx(ws, memberUserID)
 	vault := keyvault.NewMemory()
-	svc := NewService(pool, vault, NewMirrorStore(pool, noOwnerEmails{}))
+	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), vault, NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{}))
 
 	if _, err := svc.Connect(adminCtx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
 		t.Fatalf("Connect: %v", err)
