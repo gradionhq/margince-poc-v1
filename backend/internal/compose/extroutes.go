@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -62,13 +61,6 @@ type MountedRoute struct {
 	// whether the unit shipped a Handle for it.
 	Implemented bool
 }
-
-// maxExtensionRequestBody bounds the argument document a mounted route reads.
-// A tool's arguments are a small JSON object by construction (the declared
-// input schema is one), and the body is fully buffered before the handler runs,
-// so an unbounded read would be a per-request memory cost any authenticated
-// seat could set.
-const maxExtensionRequestBody = 1 << 20 // 1 MiB
 
 // MountExtensionRoutes mounts one route per declared extension operation onto
 // mux and reports the patterns it registered.
@@ -125,7 +117,14 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 		}
 		seen[pattern] = v.Unit
 		implemented := served[verbKey(v.Unit, v.Tool)]
-		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke))
+		// Resolved HERE rather than inside the handler: this is the one place that
+		// can still refuse, and a declaration whose arguments cannot be described
+		// must stop the boot rather than serve a route that quietly takes none.
+		readArgs, err := argumentReaderFor(v)
+		if err != nil {
+			return nil, fmt.Errorf("compose: extension %q: %w", v.Unit, err)
+		}
+		mux.Handle(pattern, extensionRouteHandler(v, implemented, invoke, readArgs))
 		mounted = append(mounted, MountedRoute{Pattern: pattern, Verb: v, Implemented: implemented})
 	}
 	return mounted, nil
@@ -134,12 +133,16 @@ func MountExtensionRoutes(mux *http.ServeMux, verbs []extension.Verb, served map
 // extensionRouteHandler serves one declared operation by invoking its tool.
 //
 // A REST extension route is deliberately NOT a second execution path. It reads
-// the body, hands it to the registry, and writes what comes back — every
+// its arguments, hands them to the registry, and writes what comes back — every
 // authority decision (scope, tier, staging, row scope) is made inside Invoke,
 // by the same gate the MCP transport goes through. That is what keeps "an
 // extension gets one governed surface" true rather than "two surfaces that
 // agree today".
-func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoker) http.Handler {
+//
+// readArgs is the operation's own argument reader, resolved from its declaration
+// at mount (argumentReaderFor). The handler does not know or ask which side of
+// the request they came from.
+func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoker, readArgs argumentReader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !implemented {
 			// A contract-only declaration is a legitimate state, not an error:
@@ -157,19 +160,9 @@ func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoke
 			httperr.NotImplemented(w, r, v.OperationID)
 			return
 		}
-		args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxExtensionRequestBody))
+		args, err := readArgs(w, r)
 		if err != nil {
-			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body could not be read"))
-			return
-		}
-		if len(args) == 0 {
-			// The declared input schema is an object, so an absent body is the
-			// empty object rather than a refusal: a tool taking no arguments is
-			// callable with no body.
-			args = json.RawMessage(`{}`)
-		}
-		if !json.Valid(args) {
-			httperr.Write(w, r, httperr.Validation("body", "malformed_json", "the request body is not valid JSON"))
+			httperr.Write(w, r, err)
 			return
 		}
 		// The bare verb is the right key HERE, unlike the served lookup above:

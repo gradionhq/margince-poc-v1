@@ -25,7 +25,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -165,6 +164,22 @@ func verbsInPathItem(base, unit, route string, item *yaml.Node) ([]declaredVerb,
 	var out []declaredVerb
 	for i := 0; i+1 < len(item.Content); i += 2 {
 		key := item.Content[i].Value
+		// A path-item-level `parameters` block applies, in OpenAPI, to every
+		// operation beneath it — and this reader only ever looks at an operation's
+		// OWN parameters, so shared ones would be published in the contract a human
+		// reads and never reach the served argument schema. A GET declaring
+		// `limit` here would generate a route that refuses `?limit=5` as an unknown
+		// parameter, forever.
+		//
+		// Refused rather than supported: merging them is a real feature (precedence,
+		// per-operation overrides, dedup against an operation's own) and nothing has
+		// asked for it. Refused rather than ignored, because this is exactly the
+		// "published and never read" fault argumentSchema names one level down.
+		if key == "parameters" {
+			return nil, fmt.Errorf("the path item declares shared `parameters` — this generator reads only an " +
+				"operation's own, so these would be published to every client and read by nothing. " +
+				"Declare them on the operation that takes them")
+		}
 		if !slices.Contains(httpMethodKeys, key) {
 			continue
 		}
@@ -192,7 +207,11 @@ type operationDoc struct {
 	RbacObject  string    `yaml:"x-rbac-object"` // key spelled once in rbacObjectExtension
 	RbacAction  string    `yaml:"x-rbac-action"` // key spelled once in rbacActionExtension
 	RequestBody yaml.Node `yaml:"requestBody"`
-	Responses   yaml.Node `yaml:"responses"`
+	// Parameters is where a BODYLESS operation's arguments live. A GET and a
+	// DELETE carry no body, so the tool's input schema is assembled from the
+	// declared query parameters instead — see argumentSchema.
+	Parameters yaml.Node `yaml:"parameters"`
+	Responses  yaml.Node `yaml:"responses"`
 }
 
 // toolAnnotation is the extension spelling of x-mcp-tool, read strictly: a
@@ -232,7 +251,7 @@ func readOperation(base, unit, route, method string, node *yaml.Node) (declaredV
 	if err != nil {
 		return declaredVerb{}, fmt.Errorf("%s: %w", mcpToolExtension, err)
 	}
-	input, err := requestSchema(&op.RequestBody)
+	input, err := argumentSchema(strings.ToUpper(method), &op.RequestBody, &op.Parameters)
 	if err != nil {
 		return declaredVerb{}, err
 	}
@@ -331,124 +350,6 @@ func decodeStrict[T any](node *yaml.Node) (T, error) {
 		return zero, err
 	}
 	return out, nil
-}
-
-// requestSchema reads the operation's inline JSON request schema. A $ref is
-// refused BY NAME rather than resolved: this generator does not walk
-// references, and a silently unresolved one would advertise `{"$ref": …}` to a
-// model as the tool's argument shape.
-func requestSchema(body *yaml.Node) (json.RawMessage, error) {
-	if body.IsZero() {
-		return nil, fmt.Errorf("the operation declares no requestBody — a served extension operation is a tool invocation and its arguments are the body")
-	}
-	schema := yamlChild(yamlChild(yamlChild(body, "content"), "application/json"), "schema")
-	if schema == nil {
-		return nil, fmt.Errorf("the operation's requestBody declares no application/json schema")
-	}
-	return jsonSchema("requestBody", schema)
-}
-
-// responseSchema reads the 200 response's inline JSON schema. Absent is
-// allowed — a tool may return nothing describable — but a $ref is refused for
-// the same reason as the request's.
-func responseSchema(responses *yaml.Node) (json.RawMessage, error) {
-	schema := yamlChild(yamlChild(yamlChild(yamlChild(responses, "200"), "content"), "application/json"), "schema")
-	if schema == nil {
-		return nil, nil
-	}
-	return jsonSchema("response 200", schema)
-}
-
-func jsonSchema(where string, node *yaml.Node) (json.RawMessage, error) {
-	// Recursive, not a check on the root. The emitted literal IS the standalone
-	// schema an MCP client hands a model, so a `$ref` anywhere inside it — one
-	// property, one array's items, one branch of a oneOf — arrives as an
-	// argument shape nothing can resolve: the client has no document to resolve
-	// it against, and this generator does not walk references to inline it. The
-	// root-only check refused the obvious spelling and passed every nested one,
-	// which is the shape a real fragment is more likely to have.
-	if path, found := findRef(node, ""); found {
-		return nil, fmt.Errorf("%s schema declares a $ref at %s — declare an extension operation's schema inline; this generator does not resolve references, and an unresolved one would be advertised to a model as the argument shape", where, path)
-	}
-	var doc any
-	if err := node.Decode(&doc); err != nil {
-		return nil, err
-	}
-	// Marshalled with sorted keys by encoding/json's map handling, so the
-	// emitted literal and the hashed bytes are stable across YAML key order.
-	encoded, err := json.Marshal(doc)
-	if err != nil {
-		return nil, fmt.Errorf("%s schema is not expressible as JSON: %w", where, err)
-	}
-	return encoded, nil
-}
-
-// schemaDataKeywords hold INSTANCE data, not subschemas. A `$ref` under any of
-// them is a property of the example or the default value being described — a
-// perfectly ordinary object member that happens to be spelled `$ref` — and
-// refusing it would refuse a schema that references nothing.
-var schemaDataKeywords = map[string]bool{
-	"example": true, "examples": true, "default": true, "const": true, "enum": true,
-}
-
-// namedSubschemaKeywords hold subschemas keyed by an AUTHOR-CHOSEN name. The
-// level below them is a set of names, so `properties.$ref` is a property called
-// `$ref` and not a reference; the level below THAT is a schema again.
-//
-// `dependentSchemas` belongs here for exactly the reason `properties` does: in
-// 2020-12 (the dialect an openapi 3.1 contract carries) it maps PROPERTY NAMES
-// to schemas, so a schema conditioned on a property literally named `$ref` was
-// being refused as an unresolved reference — a correct fragment rejected for
-// the name one of its properties happens to have.
-var namedSubschemaKeywords = map[string]bool{
-	"properties": true, "patternProperties": true, "$defs": true, "definitions": true,
-	"dependentSchemas": true,
-}
-
-// findRef walks a SCHEMA node for a `$ref` at any depth, returning the path to
-// the first one so the refusal names a position rather than a document. The
-// path is written the way a reader would say it out loud —
-// `.properties.deal.$ref`, `.allOf[0].$ref` — because the point of naming it is
-// that the author can go to the line.
-//
-// It is a schema walk rather than a document walk, and the distinction is what
-// keeps it from refusing correct fragments: a bare recursive search for the key
-// `$ref` also finds a PROPERTY named `$ref` and a `$ref` member inside an
-// `example`, neither of which is a reference to anything. The two keyword sets
-// above are what tell those apart.
-func findRef(node *yaml.Node, path string) (string, bool) {
-	if node == nil {
-		return "", false
-	}
-	switch node.Kind {
-	case yaml.MappingNode:
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			key, value := node.Content[i].Value, node.Content[i+1]
-			switch {
-			case key == "$ref":
-				return path + ".$ref", true
-			case schemaDataKeywords[key]:
-				continue
-			case namedSubschemaKeywords[key] && value.Kind == yaml.MappingNode:
-				for j := 0; j+1 < len(value.Content); j += 2 {
-					if found, ok := findRef(value.Content[j+1], path+"."+key+"."+value.Content[j].Value); ok {
-						return found, true
-					}
-				}
-			default:
-				if found, ok := findRef(value, path+"."+key); ok {
-					return found, true
-				}
-			}
-		}
-	case yaml.SequenceNode:
-		for i, child := range node.Content {
-			if found, ok := findRef(child, fmt.Sprintf("%s[%d]", path, i)); ok {
-				return found, true
-			}
-		}
-	}
-	return "", false
 }
 
 // yamlChild returns a mapping's value for key, or nil. It tolerates a nil

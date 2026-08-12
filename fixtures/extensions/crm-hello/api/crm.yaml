@@ -21,7 +21,10 @@ info:
 actions:
   - target: $.paths['/ext/crm-hello/ping']
     update:
-      post:
+      # GET: a read taking no arguments. The skeleton exercises the safe method
+      # too, so the declaration path is proven end to end for a bodyless operation
+      # as well as a body-carrying one.
+      get:
         operationId: crmHelloPing
         summary: Acknowledge a ping.
         tags: [Extensions]
@@ -38,13 +41,6 @@ actions:
             extension declaration path end to end, so there is no workspace
             state it reads and none it changes, and nothing in its result to
             carry into a follow-up call.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
         responses:
           '200':
             description: The acknowledgement.

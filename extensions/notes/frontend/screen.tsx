@@ -53,9 +53,14 @@ import {
 // unprefixed and client.ts's baseUrl carries the /v1 mount, so an extension
 // route reads exactly like a core one at the call site.
 //
-// Every operation is a POST because a served extension operation IS a governed
-// tool invocation and its arguments are the request body — the seam admits no
-// GET or DELETE. "list", "add" and "remove" are three verbs, not three methods.
+// Each operation is called with the method its own fragment declares, and where
+// the arguments go follows from that: the reads are GETs sending nothing, `add`
+// POSTs a body, `signing-key` is a PUT because storing replaces, and `remove` is
+// a DELETE whose id rides `params.query` because a DELETE carries no body.
+//
+// `signature` is the one to look twice at — it is a read on a POST, on purpose,
+// because its payload has no business in a URL. See the fragment, which is where
+// that reasoning lives.
 
 /** The RBAC object the unit's record operations gate on. */
 const NOTE_OBJECT = "ext_notes_note";
@@ -106,9 +111,8 @@ function useSigningKeyStatus(enabled: boolean) {
     enabled,
     queryKey: ["ext", "notes", "signing-key"],
     queryFn: async () => {
-      const { data, error, response } = await api.POST(
+      const { data, error, response } = await api.GET(
         "/ext/notes/signing-key/status",
-        { body: {} },
       );
       if (error || !response.ok) {
         throwProblem(error);
@@ -151,7 +155,7 @@ function SigningCard() {
 
   const store = useMutation({
     mutationFn: async (value: string) => {
-      const { error, response } = await api.POST("/ext/notes/signing-key", {
+      const { error, response } = await api.PUT("/ext/notes/signing-key", {
         body: { key: value },
       });
       if (error || !response.ok) {
@@ -272,10 +276,7 @@ function useNotes(enabled: boolean) {
     enabled,
     queryKey: ["ext", "notes", "notes"],
     queryFn: async () => {
-      const { data, error, response } = await api.POST(
-        "/ext/notes/list",
-        { body: {} },
-      );
+      const { data, error, response } = await api.GET("/ext/notes/list");
       if (error || !response.ok) {
         throwProblem(error);
       }
@@ -358,8 +359,10 @@ function NotesCard() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const { error, response } = await api.POST("/ext/notes/remove", {
-        body: { id },
+      // The id rides the query string: the operation is a DELETE, which carries
+      // no body, so the generated client takes it under `params.query`.
+      const { error, response } = await api.DELETE("/ext/notes/remove", {
+        params: { query: { id } },
       });
       if (error || !response.ok) {
         throwProblem(error);

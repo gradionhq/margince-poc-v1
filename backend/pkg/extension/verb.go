@@ -6,7 +6,6 @@ package extension
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 	"unicode"
@@ -138,10 +137,12 @@ const APIBasePath = "/v1"
 
 // routeGrammar: an extension route as the CONTRACT spells it —
 // /ext/<unit>/<segment>[/<segment>…], each segment lower-case [a-z0-9] with
-// single hyphens or underscores. No path parameters ({id}) today — a served
-// extension operation is a tool invocation, whose arguments are the request
-// body, and admitting a template would mean this seam had to route and decode
-// one.
+// single hyphens or underscores. No path parameters ({id}) today: a served
+// operation's arguments are its body or its query string (see CarriesBody), both
+// of which the seam already decodes, and admitting a template would mean it had
+// to route and decode a third place. An operation addressing one record takes
+// the id as an argument — notes's remove is DELETE /ext/notes/remove?id=…,
+// not /ext/notes/{id}.
 //
 // Anchored at /ext, which also makes the one mistake this convention exists to
 // prevent a loud refusal rather than a silent double prefix: a fragment that
@@ -227,6 +228,19 @@ func (v Verb) validateGovernance() error {
 			return fmt.Errorf("operation %s: %w", v.OperationID, err)
 		}
 	}
+	// AFTER the scope and the schemas, because both rules read them: the pairing
+	// compares the method against a scope that has to be in the vocabulary first,
+	// and the query check walks a schema that has to be an object first. Ordered
+	// the other way, an author with a typo'd scope would be told about their
+	// method instead.
+	if err := v.validateMethodAuthority(); err != nil {
+		return err
+	}
+	if !CarriesBody(v.Method) {
+		if err := validateQueryEncodable(v.Method, v.InputSchema); err != nil {
+			return fmt.Errorf("operation %s: %w", v.OperationID, err)
+		}
+	}
 	// The NAMESPACE only. The object-name grammar and the collision rules
 	// against the core vocabulary belong to the module that owns that
 	// vocabulary (identity's internal policy package), and restating them here
@@ -300,19 +314,6 @@ const RoutePrefix = "/ext/"
 // Callers that mount or match HTTP paths want this; callers that speak about
 // the contract — the client, the docs, the operator manifest — want Route.
 func (v Verb) ServedPath() string { return APIBasePath + v.Route }
-
-// validateMethod admits the closed set of methods this seam can mount. The
-// list is short because a served extension operation is a tool invocation
-// with a request body; GET and DELETE are absent rather than forgotten —
-// neither carries one, so an operation declaring either would publish a route
-// whose arguments never arrive.
-func validateMethod(method string) error {
-	switch method {
-	case http.MethodPost, http.MethodPut, http.MethodPatch:
-		return nil
-	}
-	return fmt.Errorf("method %q is not one an extension operation may declare (post, put, patch — a served operation is a tool invocation and carries a request body)", method)
-}
 
 // validateRenderedText checks one declared string a CLIENT renders verbatim —
 // the display title, or the description a model selects by. Absent is allowed

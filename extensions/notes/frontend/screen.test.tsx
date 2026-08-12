@@ -60,7 +60,12 @@ function stubTransport(
   authorization: unknown,
   handlers: Readonly<Record<string, Handler>>,
 ) {
-  const calls: { path: string; body: unknown }[] = [];
+  const calls: {
+    path: string;
+    method: string;
+    query: Record<string, string>;
+    body: unknown;
+  }[] = [];
   // The client is built with `fetch: (request) => globalThis.fetch(request)`,
   // so the stub is handed ONE Request and no init — reading the body off an
   // init argument records null for every call and quietly makes a "what did
@@ -75,10 +80,18 @@ function stubTransport(
     if (url.endsWith("/v1/me")) {
       return json({ user: {}, roles: [], teams: [], authorization });
     }
-    const path = url.slice(url.indexOf("/v1/") + "/v1".length);
+    // The QUERY is split off the path rather than left on it, because the unit's
+    // bodyless operations carry their arguments there: keyed by the whole URL,
+    // the DELETE's handler lookup misses and every remove answers the 503 below
+    // — which reads as "the screen called a route nobody scripted" when what
+    // happened is that the harness could not see a query string.
+    const parsed = new URL(url, "http://stub.invalid");
+    const path = parsed.pathname.slice("/v1".length);
+    const query = Object.fromEntries(parsed.searchParams);
+    const method = input instanceof Request ? input.method : "GET";
     const raw = input instanceof Request ? await input.text() : "";
     const body = raw === "" ? null : JSON.parse(raw);
-    calls.push({ path, body });
+    calls.push({ path, method, query, body });
     const handler = handlers[path];
     if (!handler) {
       return json({ code: "unavailable" }, 503);
@@ -251,15 +264,27 @@ describe("the Demo Notepad screen", () => {
     // heartbeat writes rows nobody clicked, so a screen that patched its cache
     // from responses alone would drift away from the table it is displaying.
     expect(await screen.findByText(/a note/)).toBeTruthy();
-    expect(
-      calls.find((c) => c.path === "/ext/notes/add")?.body,
-    ).toEqual({ body: "a note" });
+    const add = calls.find((c) => c.path === "/ext/notes/add");
+    expect(add?.method).toBe("POST");
+    expect(add?.body).toEqual({ body: "a note" });
+    // The read is a GET and sends nothing. Pinned here because the METHOD is
+    // what the seat ceiling classifies on: a read that goes back to being a POST
+    // is refused for every read seat, and no other assertion in this suite would
+    // notice — the stub answers whatever the path is keyed to either way.
+    const list = calls.find((c) => c.path === "/ext/notes/list");
+    expect(list?.method).toBe("GET");
+    expect(list?.body).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    // The id in the QUERY, on a DELETE — the operation carries no body, so a
+    // client sending one would be sending an argument the route never reads.
+    // Both halves asserted: a `body` assertion alone passed while the id was
+    // going nowhere, since `undefined` is what a missing body records too.
     await waitFor(() => {
-      expect(
-        calls.find((c) => c.path === "/ext/notes/remove")?.body,
-      ).toEqual({ id });
+      const remove = calls.find((c) => c.path === "/ext/notes/remove");
+      expect(remove?.method).toBe("DELETE");
+      expect(remove?.query).toEqual({ id });
+      expect(remove?.body).toBeNull();
     });
     expect(await screen.findByText("No notes yet.")).toBeTruthy();
   });

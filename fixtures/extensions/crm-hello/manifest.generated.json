@@ -11,13 +11,13 @@
       "operation": "agent.tool.invoke",
       "operation_id": "crmHelloPing",
       "route": "/ext/crm-hello/ping",
-      "method": "POST",
+      "method": "GET",
       "scopes": [
         "read"
       ],
       "tier": "confirmation_required",
-      "fragment_hash": "e2521f46fc2ac909f254554c51ed4fc889c11de87fcc4266dfc6b33f8539946c",
-      "digest": "sha256:020126feeab24462abcac95311e0c1efe88202e25adb241bd4adb9cbf3b5a249"
+      "fragment_hash": "d6310bcb4e4a9f121d711da667449afe63ff9cdc3a47325947c43816f3fd7044",
+      "digest": "sha256:6569ff09c395e55010ecc2b7cd716180102c482bd90453f8306a8dbb7ffacdb8"
     }
   ]
 }
