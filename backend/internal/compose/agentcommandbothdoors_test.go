@@ -35,6 +35,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -282,6 +283,11 @@ var bothDoorsFixtures = map[string]bothDoorsFixture{
 // can spell — and a set built from the verb alone would demand a tool fixture
 // for an act the tool door has no way to ask for. A composed entry (`getPerson
 // + listActivities`) matches no operationId and drops out on its own.
+//
+// OpenAPIOp is hand-written prose beside each registration, so what it leaves
+// out is an editorial claim rather than a derived one:
+// assertEveryServedOperationIsComparedOrRatified holds the omissions this gate
+// depends on to the reason each of them costs.
 func twinnedOperations(served *agents.Registry) map[string]string {
 	twins := map[string]string{}
 	for op, route := range agentReachableMutations() {
@@ -297,6 +303,113 @@ func twinnedOperations(served *agents.Registry) map[string]string {
 		}
 	}
 	return twins
+}
+
+// notExpressibleByItsVerb ratifies an operation whose verb can stage and whose
+// verb does not put the route's record type outside its own scope — so nothing
+// about the verb's reach explains the omission — and which no call of that verb
+// can nonetheless be asked to perform, because the operation carries an operand
+// the verb's arguments have no member for.
+//
+// Each of the six is one of the bespoke confirm-first operations
+// (agentcommandoperand.go): a second operand that update_record's
+// {record_type, id, fields} cannot express is exactly what put them there, and
+// it is the same reason they cannot be twinned here. The other two of the eight
+// ride a record type update_record does not serve at all, so the verb answers
+// for them before any of this is asked.
+var notExpressibleByItsVerb = gatekit.Waive(map[string]string{
+	"confirmOrganizationFact": "the fact key is a path segment, and the confirm carries no body at all — " +
+		"an update_record call has no member to put it in and no fields to send",
+	"updateOrganizationFact": "the fact key is a path segment naming WHICH fact, where update_record's " +
+		"fields name an organization's own columns — the key is not one of them",
+	"confirmOrganizationProfileField": "the profile field name is a path segment, and the confirm sends no " +
+		"fields — update_record has no argument that says which field is being confirmed rather than written",
+	"updateOrganizationProfileField": "the path segment selects a CORRECTION of one profile field, and " +
+		"where that field is an organization column an update_record patch of it is the plain write — " +
+		"updateOrganization — with no provenance flip and no sidecar history, which no argument can ask for",
+	"setProjectStakeholder": "the stakeholder is an edge to a second record carrying its own role, which " +
+		"update_record's fields cannot spell — they write columns of the project the route names",
+	"removeProjectStakeholder": "the person is a second path parameter naming the edge to drop, and " +
+		"update_record has no argument for a record other than the one it patches",
+})
+
+// advertisedRecordTypes reads the record types a verb's own published
+// InputSchema names, which is the account of its scope a client actually holds
+// — the same published contract the fixtures above are written from.
+//
+// It is only half the question, because the enum is documentation rather than
+// admission (mcp.ToolSpec says so, and archive_record's own StageInfo repeats
+// it): a verb's guard can admit a type its schema never advertised. The caller
+// unions this with Registry.Performs, the derived answer, so a verb is treated
+// as acting on a record type when EITHER account says it does.
+//
+// An empty result means the verb published no record_type argument at all,
+// which is a verb whose scope is UNBOUNDED here rather than empty — the caller
+// reads it that way, and never as "serves nothing".
+func advertisedRecordTypes(t *testing.T, tool string, spec mcp.ToolSpec) []string {
+	t.Helper()
+	var published struct {
+		Properties struct {
+			RecordType struct {
+				Enum []string `json:"enum"`
+			} `json:"record_type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(spec.InputSchema, &published); err != nil {
+		t.Fatalf("%s publishes an InputSchema that is not JSON, so what it admits cannot be read: %v", tool, err)
+	}
+	return published.Properties.RecordType.Enum
+}
+
+// assertEveryServedOperationIsComparedOrRatified holds the gate's largest
+// exclusion channel to the standard its smallest one already meets.
+//
+// An operation leaves this comparison three ways. Its verb cannot stage at all,
+// which TestEveryVerbTheFloorTightensCanStage already refuses to let happen to
+// a verb the contract tightens; its verb resolves its tier per call, which
+// dynamicTierVerbs ratifies; or OpenAPIOp does not name the operationId —
+// thirty-five of the sixty-nine mutating operations, which until now left in
+// silence. This ratifies the third.
+//
+// Only the omissions that could hide a defect are asked about, and the one
+// thing that makes an omission harmless is the verb's own scope EXCLUDING the
+// record type the route names: archive_record's schema names five record types
+// while twelve routes archive, and demanding a reason for the other seven would
+// be demanding one for the verb's own scope.
+//
+// So the skip turns on a verb being BOUNDED and this record type falling
+// outside the bound — never on the bound being unreadable. A fixed-type verb
+// takes no record_type argument and implements no ServesRecordType, so it
+// excludes nothing and every operation riding it must be compared or ratified.
+// Skipping on "the verb said nothing" instead would have exempted send_email,
+// promote_lead and book_meeting — the verbs with the most to lose from a
+// door-to-door disagreement — from the whole demand.
+func assertEveryServedOperationIsComparedOrRatified(t *testing.T, served *agents.Registry, twins map[string]string) {
+	t.Helper()
+	for op, route := range agentReachableMutations() {
+		if _, compared := twins[op]; compared {
+			continue
+		}
+		pol := agentPolicies[route]
+		spec, registered := served.Spec(pol.Tool)
+		if !registered || !served.Stageable(pol.Tool) {
+			continue
+		}
+		recordType := string(pol.RecordType)
+		advertised := advertisedRecordTypes(t, pol.Tool, spec)
+		bounded := len(advertised) > 0 || served.NamesRecordType(pol.Tool)
+		serves := slices.Contains(advertised, recordType) || served.Performs(pol.Tool, recordType)
+		if bounded && !serves {
+			continue
+		}
+		if !notExpressibleByItsVerb.Waived(t, op) {
+			t.Errorf("%s rides %s, which can stage and does not put %q outside its own scope, and %s's "+
+				"OpenAPIOp does not name the operation — so no two-door fixture is asked for and every "+
+				"comparison below is skipped for it. Either the verb can be asked to perform it, and the "+
+				"operationId belongs in its OpenAPIOp with a fixture here, or it cannot, and what stops it "+
+				"belongs in notExpressibleByItsVerb", op, pol.Tool, pol.RecordType, pol.Tool)
+		}
+	}
 }
 
 // bothDoorsRegistry is the tool door under test: the production registrations,
@@ -403,11 +516,13 @@ func agentDoorCtx() context.Context {
 
 func TestBothDoorsResolveOneOperationToOneCommand(t *testing.T) {
 	defer dynamicTierVerbs.AssertAllMatched(t)
+	defer notExpressibleByItsVerb.AssertAllMatched(t)
 	served := NewRegistry(nil, SendPath{})
 	twins := twinnedOperations(served)
 	if len(twins) == 0 {
 		t.Fatal("no operation has a stageable tool twin — this gate compared nothing")
 	}
+	assertEveryServedOperationIsComparedOrRatified(t, served, twins)
 	for op, tool := range twins {
 		fixture, written := bothDoorsFixtures[op]
 		if !written {
