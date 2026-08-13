@@ -17563,6 +17563,13 @@ type SendAccountEmailRequest struct {
 	// Omit for independently composed mail.
 	DraftRef *string `json:"draft_ref,omitempty"`
 
+	// HtmlBody The same message as markup, or omitted for a plain-text send. It never
+	// REPLACES `body`: a message carrying both goes out as multipart/alternative
+	// with the plain part first, so a client that cannot render HTML still
+	// receives the words. The sender's signature and the unsubscribe footer are
+	// appended to BOTH parts by the server, in each part's own syntax.
+	HtmlBody *string `json:"html_body,omitempty"`
+
 	// Links The records this conversation is filed under — the company it was started from, and
 	// optionally the person and deal it concerns. At least one is required: a message
 	// belonging to no record is one nobody will find again, which is the gap this
@@ -17593,7 +17600,14 @@ type SendEmailRequest struct {
 	// edited-and-sent metadata. Only a guarded, human-authored final edit may become a
 	// `draft_signal` corpus source. Omit for independently composed mail; no voice-learning
 	// outcome is inferred without a valid reference.
-	DraftRef *string               `json:"draft_ref,omitempty"`
+	DraftRef *string `json:"draft_ref,omitempty"`
+
+	// HtmlBody The same message as markup, or omitted for a plain-text send. It never
+	// REPLACES `body`: a message carrying both goes out as multipart/alternative
+	// with the plain part first, so a client that cannot render HTML still
+	// receives the words. The sender's signature and the unsubscribe footer are
+	// appended to BOTH parts by the server, in each part's own syntax.
+	HtmlBody *string               `json:"html_body,omitempty"`
 	Subject  string                `json:"subject"`
 	To       []openapi_types.Email `json:"to"`
 }

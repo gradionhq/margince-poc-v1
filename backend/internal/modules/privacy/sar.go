@@ -307,7 +307,11 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		// addressee in channel_user_id, so a mail-only projection would hand a
 		// channel-only subject a message with no addressee — withholding the
 		// account id the row holds about them.
-		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
+		// html_body rides beside body rather than instead of it: a message
+		// carrying both is ONE message the subject received in two renderings,
+		// and disclosing only the plain one withholds markup the system still
+		// holds about them.
+		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.recipients, o.cc, o.consent_purpose,
 		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)

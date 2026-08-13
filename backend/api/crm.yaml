@@ -16840,6 +16840,14 @@ components:
       properties:
         subject: { type: string }
         body: { type: string, description: The (possibly edited) final body that is sent. }
+        html_body:
+          type: [string, 'null']
+          description: |
+            The same message as markup, or omitted for a plain-text send. It never
+            REPLACES `body`: a message carrying both goes out as multipart/alternative
+            with the plain part first, so a client that cannot render HTML still
+            receives the words. The sender's signature and the unsubscribe footer are
+            appended to BOTH parts by the server, in each part's own syntax.
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
         draft_ref:
@@ -16866,6 +16874,14 @@ components:
       properties:
         subject: { type: string }
         body: { type: string, description: The (possibly edited) final body that is sent. }
+        html_body:
+          type: [string, 'null']
+          description: |
+            The same message as markup, or omitted for a plain-text send. It never
+            REPLACES `body`: a message carrying both goes out as multipart/alternative
+            with the plain part first, so a client that cannot render HTML still
+            receives the words. The sender's signature and the unsubscribe footer are
+            appended to BOTH parts by the server, in each part's own syntax.
         to:
           type: array
           minItems: 1

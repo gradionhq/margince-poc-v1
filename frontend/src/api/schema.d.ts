@@ -11963,6 +11963,14 @@ export interface components {
             subject: string;
             /** @description The (possibly edited) final body that is sent. */
             body: string;
+            /**
+             * @description The same message as markup, or omitted for a plain-text send. It never
+             *     REPLACES `body`: a message carrying both goes out as multipart/alternative
+             *     with the plain part first, so a client that cannot render HTML still
+             *     receives the words. The sender's signature and the unsubscribe footer are
+             *     appended to BOTH parts by the server, in each part's own syntax.
+             */
+            html_body?: string | null;
             to: string[];
             cc?: string[];
             /**
@@ -11988,6 +11996,14 @@ export interface components {
             subject: string;
             /** @description The (possibly edited) final body that is sent. */
             body: string;
+            /**
+             * @description The same message as markup, or omitted for a plain-text send. It never
+             *     REPLACES `body`: a message carrying both goes out as multipart/alternative
+             *     with the plain part first, so a client that cannot render HTML still
+             *     receives the words. The sender's signature and the unsubscribe footer are
+             *     appended to BOTH parts by the server, in each part's own syntax.
+             */
+            html_body?: string | null;
             /**
              * @description At least one addressee. A send whose To: line is empty is refused 422 before
              *     anything is staged — `cc` alone does not make a message addressed to anyone.

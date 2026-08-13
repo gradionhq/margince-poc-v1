@@ -95,6 +95,10 @@ type StageInput struct {
 	Cc         []string
 	Subject    string
 	Body       string // unsubscribe footer already applied
+	// HTMLBody is the same message as markup, NULL for a plain-text send. It
+	// never replaces Body: a retry rebuilds the message from this snapshot, so
+	// a shape stored here is the shape that goes out.
+	HTMLBody string
 	// Attachments is the set this message will carry, snapshotted at staging.
 	// The dispatcher asks the resolved channel whether it can carry them before
 	// anything reaches the wire.
@@ -149,13 +153,13 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
 		  (id, activity_id, user_id, provider, message_id,
-		   recipients, cc, subject, body, consent_purpose, in_reply_to,
+		   recipients, cc, subject, body, html_body, consent_purpose, in_reply_to,
 		   references_chain, thread_key, list_unsubscribe, status, created_at, attachments)
 		VALUES ($1, $2, $3, $4, $5,
-		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
-		        NULLIF($14,''), 'pending', $15, $16)`,
+		        $6, $7, $8, $9, NULLIF($10,''), $11, NULLIF($12,''), $13, NULLIF($14,''),
+		        NULLIF($15,''), 'pending', $16, $17)`,
 		id, in.ActivityID, userID, in.Provider, in.MessageID,
-		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
+		recipients, cc, in.Subject, in.Body, in.HTMLBody, in.ConsentPurpose,
 		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC(), files); err != nil {
 		// The idempotency key is an ANSWER, and it is mapped rather than
 		// wrapped: a raw violation carries the constraint and table names, and
@@ -233,12 +237,12 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			 WHERE id = $1 AND status = 'pending'
 			RETURNING id, activity_id, user_id, provider, coalesce(message_id, ''),
 			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
-			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
+			          coalesce(subject, ''), body, coalesce(html_body, ''), channel_user_id, consent_purpose,
 			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
 			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at,
 			          attachments`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
-			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
+			&recipients, &cc, &d.Subject, &d.Body, &d.HTMLBody, &d.ChannelUserID, &d.ConsentPurpose,
 			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt,
 			&files)
 	})

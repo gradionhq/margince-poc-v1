@@ -15,6 +15,7 @@ package activities
 
 import (
 	"context"
+	"html"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -54,19 +55,68 @@ func (h Handlers) WithSignature(reader SignatureReader) Handlers {
 // arriving under somebody's personal sign-off claims a hand that never touched
 // it.
 func (s *Store) signedBody(ctx context.Context, body string) (string, error) {
-	if s.signature == nil {
+	sign, err := s.senderSignature(ctx)
+	if err != nil {
+		return "", err
+	}
+	if sign == "" {
 		return body, nil
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + sign, nil
+}
+
+// senderSignature is the caller's own sign-off, trimmed, or empty when there is
+// none to add — no reader wired, no human actor, or nothing written.
+//
+// One lookup for both renderings. Two would be two chances for the plain part
+// and the markup part of one message to disagree about who signed it.
+func (s *Store) senderSignature(ctx context.Context) (string, error) {
+	if s.signature == nil {
+		return "", nil
 	}
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman || actor.UserID == ids.Nil {
-		return body, nil
+		return "", nil
 	}
 	sign, err := s.signature.SignatureFor(ctx, actor.UserID)
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(sign) == "" {
-		return body, nil
+	return strings.TrimSpace(sign), nil
+}
+
+// signedHTML is signedBody's markup twin: the same sign-off and the same
+// unsubscribe footer, rendered as HTML.
+//
+// The signature is stored as PLAIN TEXT, so it is escaped before it reaches a
+// markup document. A member whose sign-off contains "Weiß & Konrad <Recht>"
+// must not have it silently become a broken tag, and one who typed a script tag
+// must not have it run in the recipient's client.
+//
+// An empty markup body stays empty: a message with no HTML alternative is sent
+// as a single text/plain part, and manufacturing markup here would make every
+// plain send multipart for no reader's benefit.
+func (s *Store) signedHTML(ctx context.Context, htmlBody string, derived sendDeliverability) (string, error) {
+	if strings.TrimSpace(htmlBody) == "" {
+		return "", nil
 	}
-	return strings.TrimRight(body, "\n") + "\n\n" + strings.TrimSpace(sign), nil
+	sign, err := s.senderSignature(ctx)
+	if err != nil {
+		return "", err
+	}
+	out := htmlBody
+	if sign != "" {
+		out += "\n<p>" + htmlLines(sign) + "</p>"
+	}
+	if footer := derived.htmlFooter(); footer != "" {
+		out += "\n" + footer
+	}
+	return out, nil
+}
+
+// htmlLines escapes plain text for a markup document and keeps its line breaks,
+// which a signature depends on: a name, a company and a phone number written on
+// three lines are three lines to the person who wrote them.
+func htmlLines(text string) string {
+	return strings.ReplaceAll(html.EscapeString(text), "\n", "<br>")
 }

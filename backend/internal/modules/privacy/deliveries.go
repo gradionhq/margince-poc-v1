@@ -96,7 +96,7 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
 		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, subject = $2,
-		       body = '', list_unsubscribe = NULL,
+		       body = '', html_body = NULL, list_unsubscribe = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $3 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NULL`,
@@ -105,7 +105,7 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
-		   SET channel_user_id = '', body = '',
+		   SET channel_user_id = '', body = '', html_body = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $2 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NOT NULL`,

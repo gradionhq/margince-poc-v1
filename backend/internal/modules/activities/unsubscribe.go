@@ -14,6 +14,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"html"
 	"net/url"
 	"strings"
 )
@@ -121,6 +122,23 @@ type sendDeliverability struct {
 	// recorded is the body the timeline row keeps and every authenticated
 	// read of it serves: the same message with the capability redacted.
 	recorded string
+	// unsubURL and manageURL are the same two links the plain footer carries,
+	// kept so the markup alternative can render them as anchors from the SAME
+	// token. Rebuilding them from a second token would let the two parts of one
+	// message offer different unsubscribe capabilities.
+	unsubURL  string
+	manageURL string
+}
+
+// htmlFooter renders the unsubscribe links as markup, for the alternative part.
+// Empty when this send carries no unsubscribe surface, which is what a
+// transactional purpose has: nothing to unsubscribe from and no footer.
+func (d sendDeliverability) htmlFooter() string {
+	if d.unsubURL == "" {
+		return ""
+	}
+	return `<hr><p><a href="` + html.EscapeString(d.unsubURL) + `">Unsubscribe</a>` +
+		` · <a href="` + html.EscapeString(d.manageURL) + `">Manage your preferences</a></p>`
 }
 
 // deliverability derives what a send must carry for a mailbox provider to
@@ -166,6 +184,8 @@ func (s *Store) deliverability(ctx context.Context, body string, recipients []st
 	unsubURL := unsubscribeURL(s.publicBaseURL, token, purposeKey)
 	return sendDeliverability{
 		listUnsubscribe: listUnsubscribeHeader(unsubURL),
+		unsubURL:        unsubURL,
+		manageURL:       s.publicBaseURL + "/v1/public/preferences/" + url.PathEscape(token),
 		transmitted:     appendUnsubscribeFooter(body, s.publicBaseURL, token, unsubURL),
 		recorded: appendUnsubscribeFooter(body, s.publicBaseURL, redactedToken,
 			unsubscribeURL(s.publicBaseURL, redactedToken, purposeKey)),

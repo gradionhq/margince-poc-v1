@@ -65,10 +65,15 @@ type SendEmailInput struct {
 	// they were addressed. Cc below is a SUBSET of it, by design and not by
 	// accident: the delivery's To: line is what remains once the Cc
 	// addresses come out.
-	Recipients     []string
-	Cc             []string
-	Subject        string
-	Body           string
+	Recipients []string
+	Cc         []string
+	Subject    string
+	Body       string
+	// HTMLBody is the same message as markup, empty for a plain-text send.
+	// It never replaces Body: both travel, and the wire renders them as
+	// multipart/alternative so a client that cannot show markup still receives
+	// the words.
+	HTMLBody       string
 	ConsentPurpose string
 	// DraftRef names the voice draft this message came from, so the send can
 	// close the learning signal that draft opened. Empty is the ordinary case:
@@ -103,6 +108,7 @@ type DeliveryRequest struct {
 	Cc             []string
 	Subject        string
 	Body           string // the unsubscribe footer, when there is one, is already applied
+	HTMLBody       string // the markup alternative, empty for a plain-text send
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a conversation
 	References     []string // unbracketed ancestry, oldest first
@@ -219,11 +225,21 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
+	// The markup alternative gets the SAME sign-off and the same unsubscribe
+	// footer, in its own syntax. Two alternatives of one message that disagreed
+	// would be two messages, and which one the recipient reads is their client's
+	// decision rather than ours — including whether they can unsubscribe.
+	htmlBody, err := s.signedHTML(ctx, in.HTMLBody, derived)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
 		body:            derived.transmitted,
 		recordedBody:    derived.recorded,
+		htmlBody:        htmlBody,
 		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
 		links:           links,
@@ -264,69 +280,6 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 		return crmcontracts.Activity{}, err
 	}
 	return sent, nil
-}
-
-// outboundMessage is one send's derived facts, computed before the
-// transaction opens so the transaction holds writes only. The timeline row and
-// the delivery are two renderings of THIS value, which is why they are built
-// side by side: a field that disagreed between them would be a message whose
-// record and whose transmission say different things.
-type outboundMessage struct {
-	in        SendEmailInput
-	messageID string
-	// body is what the recipient receives; recordedBody is what the
-	// workspace keeps. They differ by exactly one thing — the live
-	// preference token the footer carries — because the timeline row is
-	// served back to any seat holding activity:read, and that token is a
-	// bearer credential over the recipient's consent record (see
-	// redactedToken). Only the delivery may read body.
-	body            string
-	recordedBody    string
-	listUnsubscribe string
-	to              []string
-	links           []ActivityLinkInput
-}
-
-// activity is the timeline row the send commits.
-func (m outboundMessage) activity(chain threading) LogActivityInput {
-	direction, sourceSystem := "outbound", SendProvider
-	return LogActivityInput{
-		Kind:         "email",
-		Subject:      &m.in.Subject,
-		Body:         &m.recordedBody,
-		Direction:    &direction,
-		Links:        m.links,
-		Source:       sourceManual,
-		SourceSystem: &sourceSystem,
-		SourceID:     &m.messageID,
-		ThreadKey:    chain.threadKey,
-		// This row IS the sent copy — its natural key is the one the provider's
-		// echo carries, so the echo's upsert will find it and write nothing.
-		// The correspondence evidence the echo used to bring therefore has to
-		// be written here or it is never written at all (ADR-0072 §1: an
-		// outbound activity to an address is what makes it
-		// correspondence-positive).
-		CounterpartyEmail:            primaryCounterparty(m.to, m.in.Recipients),
-		CounterpartyOutboundAttested: true,
-	}
-}
-
-// delivery is the same message as the delivery machinery receives it.
-func (m outboundMessage) delivery(activityID ids.UUID, chain threading) DeliveryRequest {
-	return DeliveryRequest{
-		ActivityID:      ids.From[ids.ActivityKind](activityID),
-		Provider:        SendProvider,
-		MessageID:       m.messageID,
-		Recipients:      m.to,
-		Cc:              m.in.Cc,
-		Subject:         m.in.Subject,
-		Body:            m.body,
-		ConsentPurpose:  m.in.ConsentPurpose,
-		InReplyTo:       chain.inReplyTo,
-		References:      chain.references,
-		ThreadKey:       chain.threadKey,
-		ListUnsubscribe: m.listUnsubscribe,
-	}
 }
 
 // messageIDDomain is the right-hand side of every minted Message-ID: the
