@@ -240,15 +240,15 @@ func refuseTakenColumn(ctx context.Context, tx pgx.Tx, object, column string) er
 	if !columnExists {
 		return nil
 	}
-	var ownedHere bool
+	var claimed bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM custom_field
 		  WHERE object = $1 AND column_name = $2)`,
-		object, column).Scan(&ownedHere); err != nil {
+		object, column).Scan(&claimed); err != nil {
 		return fmt.Errorf("customfields: probing catalog claim: %w", err)
 	}
-	if ownedHere {
-		return fmt.Errorf("a custom field with column %q already exists on %s in this workspace: %w",
+	if claimed {
+		return fmt.Errorf("a custom field with column %q already exists on %s: %w",
 			column, object, apperrors.ErrConflict)
 	}
 	return &ColumnTakenError{Column: column}
