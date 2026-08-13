@@ -106,7 +106,7 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, spec FieldSpec, wsI
 	if err := beginSchemaChange(ctx, tx, wsID, spec.Object); err != nil {
 		return crmcontracts.CustomField{}, err
 	}
-	if err := refuseTakenColumn(ctx, tx, wsID, spec.Object, column); err != nil {
+	if err := refuseTakenColumn(ctx, tx, spec.Object, column); err != nil {
 		return crmcontracts.CustomField{}, err
 	}
 
@@ -138,17 +138,17 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, spec FieldSpec, wsI
 	if err != nil {
 		return crmcontracts.CustomField{}, err
 	}
-	row := tx.QueryRow(ctx, `INSERT INTO custom_field (workspace_id, object, slug, label, type, column_name, currency, options, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	row := tx.QueryRow(ctx, `INSERT INTO custom_field (object, slug, label, type, column_name, currency, options, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING `+catalogColumns,
-		wsID, spec.Object, slug, spec.Label, spec.Type, column, currency, optionsArg, creator)
+		spec.Object, slug, spec.Label, spec.Type, column, currency, optionsArg, creator)
 	out, err := scanCustomField(row)
 	if storekit.IsUniqueViolation(err) {
-		// The per-workspace (object, slug/column_name) unique index fired:
-		// a same-workspace duplicate that raced past the pre-check. The
-		// failed INSERT rolls the whole transaction back, ALTER included.
+		// The (object, slug/column_name) unique index fired: a duplicate
+		// that raced past the pre-check. The failed INSERT rolls the whole
+		// transaction back, ALTER included.
 		return crmcontracts.CustomField{}, fmt.Errorf(
-			"a custom field named %q already exists on %s in this workspace: %w", slug, spec.Object, apperrors.ErrConflict)
+			"a custom field named %q already exists on %s: %w", slug, spec.Object, apperrors.ErrConflict)
 	}
 	if err != nil {
 		return crmcontracts.CustomField{}, fmt.Errorf("customfields: inserting catalog row: %w", err)
@@ -178,10 +178,12 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, spec FieldSpec, wsI
 
 // beginSchemaChange arms the transaction for a governed DDL step: it
 // binds the workspace GUC (the WithWorkspaceTx spelling — parameterized
-// set_config, never string-built SET LOCAL) so every catalog read and
-// write in this transaction is workspace-scoped, then bounds the lock
-// waits and serializes with the per-table advisory lock
-// (serializeSchemaChange).
+// set_config, never string-built SET LOCAL), then bounds the lock waits
+// and serializes with the per-table advisory lock (serializeSchemaChange).
+//
+// The GUC no longer scopes the catalog — that column is gone (ADR-0091 §8
+// phase D) — but the audit row this transaction writes still stamps its
+// workspace from it, so the binding stays until audit_log drops the column.
 func beginSchemaChange(ctx context.Context, tx pgx.Tx, wsID ids.UUID, object string) error {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
 		return fmt.Errorf("customfields: binding workspace GUC: %w", err)
@@ -219,14 +221,15 @@ func serializeSchemaChange(ctx context.Context, tx pgx.Tx, object string) error 
 	return nil
 }
 
-// refuseTakenColumn is the collision answer, decided
-// under the advisory lock BEFORE the ALTER: the per-workspace unique
-// indexes cannot see that the physical column namespace on the shared
-// table is global. A live column with a catalog row in THIS workspace is
-// the ordinary duplicate-slug conflict; a live column with none is
-// another workspace's claim — an honest 409 naming the remedy, because
-// existence of a bare column name discloses nothing about who holds it.
-func refuseTakenColumn(ctx context.Context, tx pgx.Tx, wsID ids.UUID, object, column string) error {
+// refuseTakenColumn is the collision answer, decided under the advisory
+// lock BEFORE the ALTER: the catalog's uniques govern catalog rows, and
+// they cannot see a physical column that no catalog row claims. A live
+// column WITH a catalog row is the ordinary duplicate-slug conflict; a
+// live column without one is a name already taken on the table — a
+// half-applied change, or a core column the cf_ namespace has run into.
+// Either way an honest 409 naming the remedy, rather than an ALTER that
+// fails mid-transaction.
+func refuseTakenColumn(ctx context.Context, tx pgx.Tx, object, column string) error {
 	var columnExists bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM information_schema.columns
@@ -237,13 +240,11 @@ func refuseTakenColumn(ctx context.Context, tx pgx.Tx, wsID ids.UUID, object, co
 	if !columnExists {
 		return nil
 	}
-	// The explicit workspace predicate keeps this correct even where the
-	// schema pool's role bypasses RLS (a superuser owner in dev).
 	var ownedHere bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM custom_field
-		  WHERE workspace_id = $1 AND object = $2 AND column_name = $3)`,
-		wsID, object, column).Scan(&ownedHere); err != nil {
+		  WHERE object = $1 AND column_name = $2)`,
+		object, column).Scan(&ownedHere); err != nil {
 		return fmt.Errorf("customfields: probing catalog claim: %w", err)
 	}
 	if ownedHere {

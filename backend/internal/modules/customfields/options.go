@@ -66,11 +66,11 @@ func (s *Service) SetOptions(ctx context.Context, id ids.UUID, options []string)
 }
 
 // lockPicklistField binds the workspace GUC, takes FOR UPDATE on the
-// catalog row, and refuses a non-picklist or retired target. The GUC
-// binds first so the read is workspace-scoped even where the owner role
-// is subject to the catalog's FORCE RLS; the explicit workspace
-// predicate keeps it correct where it is not (a superuser owner in dev).
-// The type check answers first — type is the operation's precondition;
+// catalog row, and refuses a non-picklist or retired target. The GUC no
+// longer scopes the catalog — that column is gone (ADR-0091 §8 phase D) —
+// but the audit row this transaction goes on to write still stamps its
+// workspace from it, so the binding stays until audit_log drops the column
+// too. The type check answers first — type is the operation's precondition;
 // the status gate then freezes a retired field's options (mutable).
 func lockPicklistField(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUID) (lockedField, error) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
@@ -79,8 +79,8 @@ func lockPicklistField(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUI
 	var f lockedField
 	err := tx.QueryRow(ctx,
 		`SELECT object, column_name, type, status, label, options, version
-		   FROM custom_field WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
-		id, wsID).Scan(&f.Object, &f.ColumnName, &f.Type, &f.Status, &f.Label, &f.OptionsRaw, &f.Version)
+		   FROM custom_field WHERE id = $1 FOR UPDATE`,
+		id).Scan(&f.Object, &f.ColumnName, &f.Type, &f.Status, &f.Label, &f.OptionsRaw, &f.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lockedField{}, apperrors.ErrNotFound
 	}

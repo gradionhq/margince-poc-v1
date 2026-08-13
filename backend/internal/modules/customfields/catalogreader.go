@@ -26,17 +26,17 @@ import (
 // surface.
 
 // ActiveColumns answers the active custom-field columns for one object,
-// scoped to the workspace bound to ctx, ordered by column_name (a stable,
-// deterministic order for SELECT/INSERT column-list building).
+// ordered by column_name (a stable, deterministic order for SELECT/INSERT
+// column-list building).
 //
 // Deliberately runs no auth.Require: this is called from inside a record
 // store's Get/List/Create/Update, whose own RBAC gate already ran before
 // the store reaches for its custom columns. What ActiveColumns exposes —
-// which cf_* columns exist and their type — is workspace-visible schema
-// (the same shape the admin catalog list already answers to anyone
-// holding custom_field:read), not row data a second gate would need to
-// narrow; the row-level RBAC/RLS the calling store enforces is what
-// actually protects the values stored in those columns.
+// which cf_* columns exist and their type — is schema (the same shape the
+// admin catalog list already answers to anyone holding custom_field:read),
+// not row data a second gate would need to narrow; the row-level RBAC the
+// calling store enforces is what actually protects the values stored in
+// those columns.
 func (s *Service) ActiveColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
 	var cols []fieldcatalog.Column
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
