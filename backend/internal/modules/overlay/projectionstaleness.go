@@ -9,9 +9,11 @@ package overlay
 // current declaration would never produce, indefinitely — and the flip freezes
 // the mirror and writes those payloads as durable native rows, so whatever a
 // row holds at flip time becomes permanent. This file owns the one comparison
-// that detects it, shared by the flip preflight (flipstate.go) and the
-// operator-facing sync status (syncstatus.go) so the two can never disagree
-// about which rows are out of date.
+// that detects it, shared by the flip preflight (flipstate.go), the
+// operator-facing sync status (syncstatus.go), and the sweep phase that
+// converges those rows (StaleProjections, below) so the three can never
+// disagree about which rows are out of date — the flip must block on exactly
+// the rows the sweep re-fetches, or it blocks on rows nothing will ever clear.
 
 import (
 	"context"
@@ -61,9 +63,16 @@ func (s *Service) currentProjectionFingerprints(mirroredClasses []string) (strin
 			byClass[class] = fingerprints
 		}
 	}
-	// Encoded here rather than handed to pgx as a map, so the argument's wire
-	// shape is this package's decision and not an inference from how Postgres
-	// happens to resolve the parameter's type behind the cast.
+	return encodeFingerprintSets(byClass)
+}
+
+// encodeFingerprintSets renders the staleProjectionSQL argument — canonical
+// object class → the fingerprints a current declaration could have stamped on
+// its rows — as the jsonb object literal the predicate reads. Encoded here
+// rather than handed to pgx as a map, so the argument's wire shape is this
+// package's decision and not an inference from how Postgres happens to resolve
+// the parameter's type behind the cast.
+func encodeFingerprintSets(byClass map[string][]string) (string, error) {
 	encoded, err := json.Marshal(byClass)
 	if err != nil {
 		return "", fmt.Errorf("overlay: encoding the current projection fingerprints: %w", err)
@@ -98,6 +107,89 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 		return nil
 	}
 	return fingerprints
+}
+
+// staleProjectionIDsSQL names the rows ONE declaration must re-project: the
+// rows it governs (the containment filter, $2 — see governedRowsFilter) whose
+// stored payload it did not produce (staleProjectionSQL over $3, holding that
+// declaration's own current fingerprint). Ordered by external id so a bounded
+// pass takes a stable prefix rather than a different arbitrary slice each time,
+// and a row already re-projected simply drops out of the set.
+//
+// A row with an un-drained local write ($4) is left out: ingest's
+// no-clobber-dirty guard would refuse the re-projection, so re-fetching it
+// would spend an incumbent read on a write that cannot land. Such a row blocks
+// the flip on its own pending state anyway, and it re-enters this set as soon
+// as the write drains.
+const staleProjectionIDsSQL = `
+SELECT external_id FROM overlay_mirror
+WHERE object_class = $1
+  AND fields @> $2::jsonb
+  AND sync_state <> $4
+  AND ` + staleProjectionSQL + `
+ORDER BY external_id
+LIMIT $5`
+
+// StaleProjections answers up to limit external ids of the mirror rows m
+// governs whose payload m's CURRENT declaration did not produce — the set the
+// reconcile sweep re-fetches so they converge on today's mapping. It embeds
+// the same predicate the flip preflight and the sync status count with, so the
+// rows the sweep clears are exactly the rows the flip blocks on.
+//
+// The ids are the INCUMBENT's own (external_id), which is what a re-fetch
+// names, and the caller re-reads them under m.Source.
+func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, limit int) ([]string, error) {
+	governed, err := governedRowsFilter(m)
+	if err != nil {
+		return nil, err
+	}
+	// m's own fingerprint alone, not every declaration projecting onto
+	// m.Target: the containment filter has already narrowed the rows to the
+	// ones m produced, so a sibling declaration's fingerprint cannot appear
+	// among them — and admitting one would spare a row nothing re-projects.
+	current, err := encodeFingerprintSets(map[string][]string{m.Target: {Fingerprint(m)}})
+	if err != nil {
+		return nil, err
+	}
+	var externalIDs []string
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, staleProjectionIDsSQL, m.Target, governed, current, syncStatePendingSync, limit)
+		if err != nil {
+			return fmt.Errorf("overlay: listing the %s rows an older declaration projected: %w", m.Source, err)
+		}
+		externalIDs, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return fmt.Errorf("overlay: collecting the %s rows an older declaration projected: %w", m.Source, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return externalIDs, nil
+}
+
+// governedRowsFilter renders the jsonb containment filter that picks out the
+// mirror rows m's declaration produced, as opposed to a sibling declaration's.
+// The mirror is keyed by the CANONICAL class, and several declarations can
+// project onto one — the five engagement classes all land on "activity" —
+// while a re-fetch names the INCUMBENT class, so a row read back under the
+// wrong sibling would be a live incumbent read for a record that class does
+// not hold. Const is what separates them: its entries are copied verbatim into
+// every payload the declaration projects (mapping.go's Apply), and each
+// registry's own TestEveryDeclarationSharingATargetIsSeparableByItsConstants
+// holds it to declaring constants that contradict between siblings. A
+// declaration with no constants therefore has its target to itself, and the
+// empty object — which every payload contains — is the honest filter for it.
+func governedRowsFilter(m ObjectMapping) (string, error) {
+	if len(m.Const) == 0 {
+		return "{}", nil
+	}
+	encoded, err := json.Marshal(m.Const)
+	if err != nil {
+		return "", fmt.Errorf("overlay: encoding the %s declaration's constant fields: %w", m.Source, err)
+	}
+	return string(encoded), nil
 }
 
 // mirroredClasses lists the canonical object classes overlay_mirror currently

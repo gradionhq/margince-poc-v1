@@ -322,7 +322,11 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	if err := revalidateOwnerEmailMappings(ctx, ms, inc, d, log); err != nil {
 		return err
 	}
-	return sweepObjectClasses(ctx, sweepDeps{inc: inc, ms: ms, meter: meter, log: log}, d)
+	// The re-projection phase's re-fetches ride the River client working this
+	// sweep's own job (ambientRefetchEnqueuer) — the poller has no second
+	// client, and a re-fetch enqueued from anywhere else would be a job the
+	// sweep cannot see the result of.
+	return sweepObjectClasses(ctx, sweepDeps{inc: inc, ms: ms, meter: meter, enqueue: ambientRefetchEnqueuer{}, log: log}, d)
 }
 
 // seedUserMapFromOwners seeds mirror_user_map from the incumbent's owners
@@ -394,7 +398,7 @@ func sweepObjectClasses(ctx context.Context, deps sweepDeps, d overlay.DueOverla
 		// classes are swept best-effort with no requested scope, so a portal
 		// that gates one of them (a 403/404 for that object alone) skips just
 		// that class here — overlaySweepAborts encodes the distinction.
-		if err := sweepObjectClass(ctx, deps, d.Workspace.String(), objectClass, d.ConnectedAt); err != nil {
+		if err := sweepObjectClass(ctx, deps, d.Workspace, objectClass, d.ConnectedAt); err != nil {
 			if overlaySweepAborts(objectClass, err) {
 				return err
 			}
