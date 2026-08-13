@@ -1,13 +1,6 @@
-import {
-  ArrowUpRight,
-  CalendarDays,
-  CircleDollarSign,
-  MoveHorizontal,
-  ShieldCheck,
-  TrendingDown,
-} from "lucide-react";
-import type { ReactNode } from "react";
 import type { components } from "../api/schema";
+import { StatCard } from "../design-system/atoms";
+import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
 
 // The relationship state strip (concept §5.3): six facts that change how a
@@ -33,84 +26,48 @@ export function PersonStrip({
 }>) {
   const t = useT();
   const omitted = new Set(view.sections_omitted ?? []);
-  return (
-    <div className="pe-strip" data-testid="person-strip">
-      <Slot
-        icon={<TrendingDown size={18} aria-hidden="true" />}
-        label={t("person.strip.lastInbound")}
-        value={relativeDays(view.last_inbound_at, t)}
-        withheld={omitted.has("last_touch")}
-      />
-      <Slot
-        icon={<ArrowUpRight size={18} aria-hidden="true" />}
-        label={t("person.strip.lastOutbound")}
-        value={relativeDays(view.last_outbound_at, t)}
-        withheld={omitted.has("last_touch")}
-      />
-      <Slot
-        icon={<MoveHorizontal size={18} aria-hidden="true" />}
-        label={t("person.strip.reciprocity")}
-        value={reciprocity(view, t)}
-        withheld={omitted.has("activities")}
-      />
-      <Slot
-        icon={<CircleDollarSign size={18} aria-hidden="true" />}
-        label={t("person.strip.openDeal")}
-        value={openDeal(view, t)}
-        withheld={omitted.has("commercial")}
-      />
-      <Slot
-        icon={<CalendarDays size={18} aria-hidden="true" />}
-        label={t("person.strip.nextMeeting")}
-        value={nextMeeting(view, t)}
-        withheld={omitted.has("next_meeting")}
-      />
-      <Slot
-        icon={<ShieldCheck size={18} aria-hidden="true" />}
-        label={t("person.strip.consent")}
-        value={consentWord(consentVerdict, t)}
-        tone={consentTone(consentVerdict)}
-        withheld={omitted.has("consent")}
-      />
-    </div>
-  );
-}
-
-function Slot({
-  icon,
-  label,
-  value,
-  tone,
-  withheld,
-}: Readonly<{
-  icon: ReactNode;
-  label: string;
-  value: string;
-  tone?: "good" | "muted";
-  withheld?: boolean;
-}>) {
-  const t = useT();
   // A withheld slot says so. Rendering it empty would read as "there is none",
-  // which is a claim about the record rather than about the reader's grants.
-  const shown = withheld ? t("person.strip.notShown") : value;
-  const toneClass = withheld ? "muted" : tone;
+  // which is a claim about the record rather than about the reader's grants —
+  // and a withheld reading carries no tone, because there is no verdict to
+  // colour.
+  const reading = (value: string, withheld: boolean) =>
+    withheld ? t("person.strip.notShown") : value;
+  const consentIsShown = !omitted.has("consent");
   return (
-    <div className="pe-slot">
-      <span className="pe-slot-icon">{icon}</span>
-      <span className="pe-slot-body">
-        <span className="pe-slot-label">{label}</span>
-        <span
-          className={
-            toneClass
-              ? `pe-slot-value pe-slot-value-${toneClass}`
-              : "pe-slot-value"
-          }
-          title={shown}
-        >
-          {shown}
-        </span>
-      </span>
-    </div>
+    <StatStrip>
+      <StatCard
+        label={t("person.strip.lastInbound")}
+        value={reading(
+          relativeDays(view.last_inbound_at, t),
+          omitted.has("last_touch"),
+        )}
+      />
+      <StatCard
+        label={t("person.strip.lastOutbound")}
+        value={reading(
+          relativeDays(view.last_outbound_at, t),
+          omitted.has("last_touch"),
+        )}
+      />
+      <StatCard
+        label={t("person.strip.reciprocity")}
+        value={reading(reciprocity(view, t), omitted.has("activities"))}
+      />
+      <StatCard
+        label={t("person.strip.openDeal")}
+        value={reading(openDeal(view, t), omitted.has("commercial"))}
+      />
+      <StatCard
+        label={t("person.strip.nextMeeting")}
+        value={reading(nextMeeting(view, t), omitted.has("next_meeting"))}
+      />
+      <StatCard
+        label={t("person.strip.consent")}
+        value={reading(consentWord(consentVerdict, t), !consentIsShown)}
+        tone={consentIsShown ? consentTone(consentVerdict) : undefined}
+        dot={consentIsShown}
+      />
+    </StatStrip>
   );
 }
 
@@ -190,13 +147,16 @@ export function consentWord(
   }
 }
 
+// A verdict slot is coloured in both directions: allowed reads as allowed and
+// blocked reads as blocked. An absent verdict is neither — nobody has judged
+// it yet, so it takes no tone rather than borrowing one.
 function consentTone(
   verdict: string | undefined,
-): "good" | "muted" | undefined {
+): "good" | "danger" | undefined {
   if (verdict === "allowed") {
     return "good";
   }
-  return verdict ? undefined : "muted";
+  return verdict === "blocked" ? "danger" : undefined;
 }
 
 // Money arrives in MINOR units and is rendered whole: the strip shows €95k,

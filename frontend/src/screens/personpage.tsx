@@ -16,10 +16,14 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
 import {
+  hasCommercial,
+  hasCommitments,
+  hasMatters,
   PersonBriefCard,
   PersonCommercialCard,
   PersonCommitmentsCard,
@@ -229,7 +233,7 @@ export function PersonPageV2({
         name={person.full_name}
         avatarSrc={null}
         subtitle={<PersonSubtitle view={view.data} />}
-        controls={<PersonOwner view={view.data} />}
+        pulse={<PersonIdentityLine view={view.data} />}
         actions={
           <PersonActions
             guardAllows={emailAllowed}
@@ -238,9 +242,20 @@ export function PersonPageV2({
             onResearch={() => setDrawer("research")}
           />
         }
+        actionsInline
         zone="Europe/Berlin"
-        asideLabel={t("person.page.asideLabel")}
-        aside={
+        // The readings ride the band, above the columns and across the full
+        // width: they describe the RELATIONSHIP, not one view of it, and a
+        // strip that vanished on the Deals tab would move the tab bar and
+        // re-flow the page under the reader.
+        band={
+          <PersonStrip
+            view={view.data}
+            consentVerdict={emailAllowed ? "allowed" : undefined}
+          />
+        }
+        railLabel={t("person.page.asideLabel")}
+        rail={
           <PersonRail
             view={view.data}
             guard={guard.data}
@@ -250,11 +265,9 @@ export function PersonPageV2({
           />
         }
       >
-        <PersonStrip
-          view={view.data}
-          consentVerdict={emailAllowed ? "allowed" : undefined}
-        />
-
+        {/* The bar leads the column it governs, so it sits in the main column
+            rather than in the band above it: what it chooses is what appears
+            beneath it, not the readings over it. */}
         <div className="pe-tabs">
           <SegmentedControl
             options={PERSON_TABS}
@@ -273,7 +286,10 @@ export function PersonPageV2({
         </div>
 
         {tab === "overview" && (
-          <>
+          // One vertical stack of full-width panels, not a grid of half-width
+          // cards: every panel here is read top to bottom once, and prose in a
+          // half-column column gets a measure too narrow to read as prose.
+          <div className="pe-overview-stack">
             {view.data.moment && (
               <PersonToday
                 moment={view.data.moment}
@@ -281,34 +297,37 @@ export function PersonPageV2({
                 onAction={runAction}
               />
             )}
-
-            <div className="pe-grid">
-              <div className="pe-col">
-                <PersonBriefCard brief={brief.data} loading={brief.isLoading} />
-                <PersonMattersCard view={view.data} firstName={firstName} />
-              </div>
-              <div className="pe-col">
-                <PersonCommercialCard view={view.data} />
-                <PersonCommitmentsCard view={view.data} firstName={firstName} />
-              </div>
-            </div>
-
+            <PersonBriefCard
+              brief={brief.data}
+              loading={brief.isLoading}
+              view={view.data}
+            />
+            {hasCommercial(view.data) && (
+              <PersonCommercialCard view={view.data} />
+            )}
+            {hasCommitments(view.data) && (
+              <PersonCommitmentsCard view={view.data} firstName={firstName} />
+            )}
+            {hasMatters(view.data) && (
+              <PersonMattersCard view={view.data} firstName={firstName} />
+            )}
             <PersonMemory view={view.data} />
-          </>
+          </div>
         )}
 
         {tab !== "overview" && (
           // The other six tabs are addressable and named, and each says what
           // it will hold. An empty panel that looked like a rendering failure
           // would be worse than one that says what is coming.
-          <section className="pe-card">
-            <h3 className="pe-card-title">{t(TAB_LABEL_KEYS[tab])}</h3>
-            <p className="pe-prose">
-              {t("person.page.tabPlaceholder", {
-                topic: t(TAB_TOPIC_KEYS[tab]),
-              })}
-            </p>
-          </section>
+          <Panel title={t(TAB_LABEL_KEYS[tab])}>
+            <PanelBody>
+              <p className="pe-prose">
+                {t("person.page.tabPlaceholder", {
+                  topic: t(TAB_TOPIC_KEYS[tab]),
+                })}
+              </p>
+            </PanelBody>
+          </Panel>
         )}
         <PersonComposer
           personId={id}
@@ -339,86 +358,90 @@ export function PersonPageV2({
 // reader is looking at, and a drawer is a detour from it.
 type Drawer = "composer" | "research" | "meeting" | null;
 
-// The header's second line: title · company, then the contact methods as
-// compact pills (§5.2).
+// The header's second line: what this person does, and where. The company is a
+// link because it is a record of its own, not a label.
 function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
-  const t = useT();
   const person = view.person;
   const employment = view.employments?.data?.[0];
+  return (
+    <div>
+      {person.title}
+      {employment?.organization_name && (
+        <>
+          {person.title ? " · " : ""}
+          <button
+            type="button"
+            className="pe-meta-link"
+            onClick={() =>
+              navigate({
+                screen: "companies",
+                id: employment.organization_id,
+              })
+            }
+          >
+            {employment.organization_name}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The identity line under the name: how to reach them, then who holds the
+// relationship. Two lines, and the split is the point — the first is how to
+// act on this record, the second is who and what it is to us, which is read
+// once rather than scanned. The quieter line is quieter for that reason.
+function PersonIdentityLine({
+  view,
+}: Readonly<{ view: Person360 }>): ReactNode {
+  const t = useT();
+  const person = view.person;
   const email = person.emails?.[0]?.email;
   const phone = person.phones?.[0]?.phone;
+  const role = view.commercial?.role;
   return (
-    <>
-      <div>
-        {person.title}
-        {employment?.organization_name && (
-          <>
-            {person.title ? " · " : ""}
-            <button
-              type="button"
-              className="pe-rail-more"
-              onClick={() =>
-                navigate({
-                  screen: "companies",
-                  id: employment.organization_id,
-                })
-              }
-            >
-              {employment.organization_name}
-            </button>
-          </>
-        )}
-      </div>
-      <div className="pe-chiprow pe-chiprow-spaced">
+    <div className="pe-identity-meta">
+      <div className="pe-meta-line">
         {email && (
-          <span className="pe-memory-channel">
+          <span className="pe-meta-fact">
             <Mail size={13} aria-hidden="true" />
             {email}
           </span>
         )}
         {phone && (
-          <span className="pe-memory-channel">
+          <span className="pe-meta-fact">
             <Phone size={13} aria-hidden="true" />
             {phone}
           </span>
         )}
         {person.address?.city && (
-          <span className="pe-memory-channel">
+          <span className="pe-meta-fact">
             <MapPin size={13} aria-hidden="true" />
             {person.address.city}
           </span>
         )}
         {/* `social` is an open map on the wire, so its values are unknown to
-            the type system. The chip renders only when there is a string to
+            the type system. The fact renders only when there is a string to
             stand behind it — a link with nothing at the end is worse than no
             link at all. */}
         {typeof person.social?.linkedin === "string" && (
-          <span className="pe-memory-channel">
+          <span className="pe-meta-fact">
             <LinkIcon size={13} aria-hidden="true" />
             {t("person.page.linkedin")}
           </span>
         )}
       </div>
-    </>
-  );
-}
-
-// Buying role and owner, top right. The role is what the relationship edge
-// records — never inferred from a job title.
-function PersonOwner({ view }: Readonly<{ view: Person360 }>): ReactNode {
-  const t = useT();
-  const role = view.commercial?.role;
-  return (
-    <div>
-      {role && (
-        <div className="pe-rail-row">
-          <span className="pe-rail-label">{t("person.page.buyingRole")}</span>
-          <span className="pe-rail-value">{role.replace(/_/g, " ")}</span>
-        </div>
-      )}
-      <div className="pe-rail-row">
-        <span className="pe-rail-label">{t("person.page.owner")}</span>
-        <span className="pe-rail-value">
+      <div className="pe-meta-line pe-meta-quiet">
+        {/* The role is what the relationship edge records — never inferred from
+            a job title, which is why a person with a title can still have no
+            buying role and the line simply omits it. */}
+        {role && (
+          <span className="pe-meta-fact">
+            {t("person.page.buyingRole")}: {role.replace(/_/g, " ")}
+          </span>
+        )}
+        <span className="pe-meta-fact">
+          {t("person.page.owner")}:{" "}
           {view.person.owner_id
             ? t("person.page.ownerAssigned")
             : t("person.page.ownerUnassigned")}

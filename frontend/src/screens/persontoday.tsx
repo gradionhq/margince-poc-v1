@@ -8,6 +8,7 @@ import {
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 
 // "Today with {first name}" (concept §5.5, ADR-0096 D2).
@@ -42,36 +43,22 @@ export function PersonToday({
     moment.rule === "gone_quiet" || moment.rule === "overdue_promise";
   const secondary = moment.secondary_actions ?? [];
   return (
-    <section
+    // The page's lead panel: the same titled-card shape as every panel under
+    // it, tinted so it reads as the thing to DO rather than one more thing to
+    // read — the company record's lead panel in the person's own words.
+    <Panel
       className={warn ? "pe-today pe-today-warn" : "pe-today"}
-      data-testid="person-today"
-      data-rule={moment.rule}
-    >
-      <div>
-        <div className="pe-today-head">
+      title={
+        <span className="pe-today-head">
           {warn ? (
             <AlertTriangle size={16} aria-hidden="true" />
           ) : (
             <Sparkles size={16} aria-hidden="true" />
           )}
-          <span>{t("person.today.heading", { name: firstName })}</span>
-        </div>
-        <h2 className="pe-today-headline">{moment.headline}</h2>
-
-        <ul className="pe-today-evidence">
-          {moment.evidence.map((item) => (
-            <li key={`${item.type}-${item.id ?? item.label}`}>
-              {evidenceIcon(item.type)}
-              <span>{item.label}</span>
-            </li>
-          ))}
-        </ul>
-
-        {/* The rule that fired, named. A reader who disagrees with the verdict
-            can see what produced it, which is the difference between a system
-            that judges and one that explains. */}
-        {warn && <p className="pe-today-rule">{moment.why_now}</p>}
-
+          {t("person.today.heading", { name: firstName })}
+        </span>
+      }
+      footer={
         <div className="pe-today-foot">
           <span>
             {t(
@@ -92,29 +79,49 @@ export function PersonToday({
             </>
           )}
         </div>
-      </div>
+      }
+    >
+      <PanelBody className="pe-today-lead">
+        <div>
+          <h3 className="pe-today-headline">{moment.headline}</h3>
 
-      <div className="pe-today-actions">
-        <Button
-          variant="primary"
-          onClick={() => onAction(moment.recommended_action)}
-          disabled={moment.recommended_action.state === "blocked"}
-          title={moment.recommended_action.blocked_reason}
-        >
-          {moment.recommended_action.label}
-        </Button>
-        {secondary.map((action) => (
+          <ul className="pe-today-evidence">
+            {moment.evidence.map((item) => (
+              <li key={`${item.type}-${item.id ?? item.label}`}>
+                {evidenceIcon(item.type)}
+                <span>{item.label}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* The rule that fired, named. A reader who disagrees with the verdict
+              can see what produced it, which is the difference between a system
+              that judges and one that explains. */}
+          {warn && <p className="pe-today-rule">{moment.why_now}</p>}
+        </div>
+
+        <div className="pe-today-actions">
           <Button
-            key={action.label}
-            onClick={() => onAction(action)}
-            disabled={action.state === "blocked"}
-            title={action.blocked_reason}
+            variant="primary"
+            onClick={() => onAction(moment.recommended_action)}
+            disabled={moment.recommended_action.state === "blocked"}
+            title={moment.recommended_action.blocked_reason}
           >
-            {action.label}
+            {moment.recommended_action.label}
           </Button>
-        ))}
-      </div>
-    </section>
+          {secondary.map((action) => (
+            <Button
+              key={action.label}
+              onClick={() => onAction(action)}
+              disabled={action.state === "blocked"}
+              title={action.blocked_reason}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 

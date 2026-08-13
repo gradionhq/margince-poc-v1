@@ -2,6 +2,7 @@ import { ChevronRight, Mail, Phone, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Avatar, Button } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { consentWord } from "./personstrip";
 
@@ -61,25 +62,26 @@ function NextBestActions({
     ...(moment.secondary_actions ?? []),
   ].slice(0, 3);
   return (
-    <section className="pe-card">
-      <h3 className="pe-card-title">{t("person.rail.nextActions")}</h3>
-      {actions.map((action) => (
-        <button
-          key={action.label}
-          type="button"
-          className="pe-rail-row"
-          onClick={() => onAction(action)}
-          disabled={action.state === "blocked"}
-          title={action.blocked_reason}
-        >
-          <span className="pe-rail-label">
-            {actionIcon(action.kind)}
-            {action.label}
-          </span>
-          <span className="pe-rail-value-muted">{whenFor(action, t)}</span>
-        </button>
-      ))}
-    </section>
+    <Panel title={t("person.rail.nextActions")}>
+      <PanelBody>
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className="pe-rail-row"
+            onClick={() => onAction(action)}
+            disabled={action.state === "blocked"}
+            title={action.blocked_reason}
+          >
+            <span className="pe-rail-label">
+              {actionIcon(action.kind)}
+              {action.label}
+            </span>
+            <span className="pe-rail-value-muted">{whenFor(action, t)}</span>
+          </button>
+        ))}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -124,37 +126,41 @@ function RelationshipPulse({
   const twoWay = Boolean(inbound && outbound);
   const colleagues = view.network?.colleagues?.length ?? 0;
   return (
-    <section className="pe-card">
-      <div className="pe-rail-head">
-        <h3 className="pe-card-title" style={{ margin: 0 }}>
-          {t("person.rail.pulseTitle")}
-        </h3>
+    <Panel
+      title={t("person.rail.pulseTitle")}
+      titleAction={
         <Button small onClick={onExplain}>
           {t("person.rail.explain")}
         </Button>
-      </div>
-      <Row
-        label={t("person.rail.direction")}
-        value={twoWay ? t("person.rail.twoWay") : t("person.rail.oneSided")}
-      />
-      <Row label={t("person.rail.lastReply")} value={sinceWords(inbound, t)} />
-      <Row
-        label={t("person.rail.coverage")}
-        value={
-          colleagues === 1
-            ? t("person.rail.colleagueOne")
-            : t("person.rail.colleagues", { count: colleagues })
-        }
-      />
-      <Row label={t("person.rail.trend")} value={trendWord(view, t)} />
-      <div className="pe-pulse-overall">
+      }
+    >
+      <PanelBody>
         <Row
-          label={t("person.rail.overall")}
-          value={overallWord(view, t)}
-          strong
+          label={t("person.rail.direction")}
+          value={twoWay ? t("person.rail.twoWay") : t("person.rail.oneSided")}
         />
-      </div>
-    </section>
+        <Row
+          label={t("person.rail.lastReply")}
+          value={sinceWords(inbound, t)}
+        />
+        <Row
+          label={t("person.rail.coverage")}
+          value={
+            colleagues === 1
+              ? t("person.rail.colleagueOne")
+              : t("person.rail.colleagues", { count: colleagues })
+          }
+        />
+        <Row label={t("person.rail.trend")} value={trendWord(view, t)} />
+        <div className="pe-pulse-overall">
+          <Row
+            label={t("person.rail.overall")}
+            value={overallWord(view, t)}
+            strong
+          />
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -190,29 +196,30 @@ function WhoKnows({
   const t = useT();
   const colleagues = view.network?.colleagues ?? [];
   return (
-    <section className="pe-card">
-      <h3 className="pe-card-title">
-        {t("person.rail.whoKnows", { name: firstName })}
-      </h3>
-      {colleagues.length === 0 && (
-        <p className="pe-prose">{t("person.rail.nobodyYet")}</p>
-      )}
-      {colleagues.slice(0, 3).map((colleague) => (
-        <div className="pe-colleague" key={colleague.user_id}>
-          <Avatar name={colleague.display_name} />
-          <span>
-            <span className="pe-colleague-name">{colleague.display_name}</span>
-            <span className="pe-colleague-proof">
-              {/* The PROOF, never a ranking nobody can check: six unanswered
-                  sends must not read as stronger than two real exchanges. */}
-              {t("person.rail.exchanges", {
-                count: colleague.interactions_90d,
-              })}
+    <Panel title={t("person.rail.whoKnows", { name: firstName })}>
+      <PanelBody>
+        {colleagues.length === 0 && (
+          <p className="pe-prose">{t("person.rail.nobodyYet")}</p>
+        )}
+        {colleagues.slice(0, 3).map((colleague) => (
+          <div className="pe-colleague" key={colleague.user_id}>
+            <Avatar name={colleague.display_name} />
+            <span>
+              <span className="pe-colleague-name">
+                {colleague.display_name}
+              </span>
+              <span className="pe-colleague-proof">
+                {/* The PROOF, never a ranking nobody can check: six unanswered
+                    sends must not read as stronger than two real exchanges. */}
+                {t("person.rail.exchanges", {
+                  count: colleague.interactions_90d,
+                })}
+              </span>
             </span>
-          </span>
-        </div>
-      ))}
-    </section>
+          </div>
+        ))}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -222,18 +229,19 @@ function SignalsAndRisks({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
   const signals = derivedSignals(view, t);
   return (
-    <section className="pe-card">
-      <h3 className="pe-card-title">{t("person.rail.signals")}</h3>
-      {signals.length === 0 && (
-        <p className="pe-prose">{t("person.rail.noSignals")}</p>
-      )}
-      {signals.map((signal) => (
-        <div className="pe-signal" key={signal.text}>
-          <span className={`pe-dot pe-dot-${signal.tone}`} />
-          <span>{signal.text}</span>
-        </div>
-      ))}
-    </section>
+    <Panel title={t("person.rail.signals")}>
+      <PanelBody>
+        {signals.length === 0 && (
+          <p className="pe-prose">{t("person.rail.noSignals")}</p>
+        )}
+        {signals.map((signal) => (
+          <div className="pe-signal" key={signal.text}>
+            <span className={`pe-dot pe-dot-${signal.tone}`} />
+            <span>{signal.text}</span>
+          </div>
+        ))}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -279,30 +287,31 @@ function ConsentAndChannels({
   const email = entries.find((entry) => entry.channel === "email");
   const phone = entries.find((entry) => entry.channel === "phone");
   return (
-    <section className="pe-card" data-testid="person-consent">
-      <h3 className="pe-card-title">{t("person.rail.consentTitle")}</h3>
-      <div className="pe-rail-row">
-        <span className="pe-rail-label">
-          <Mail size={15} aria-hidden="true" />
-          {t("person.rail.email")}
-        </span>
-        <span className={verdictClass(email?.verdict)}>
-          {consentWord(email?.verdict, t)}
-        </span>
-      </div>
-      <div className="pe-rail-row">
-        <span className="pe-rail-label">
-          <Phone size={15} aria-hidden="true" />
-          {t("person.rail.phone")}
-        </span>
-        <span className={verdictClass(phone?.verdict)}>
-          {consentWord(phone?.verdict, t)}
-        </span>
-      </div>
-      {/* The REASON, in the reader's words. A verdict a rep cannot explain to
-          the person in front of them is not usable. */}
-      {email?.reason && <p className="pe-colleague-proof">{email.reason}</p>}
-    </section>
+    <Panel title={t("person.rail.consentTitle")}>
+      <PanelBody>
+        <div className="pe-rail-row">
+          <span className="pe-rail-label">
+            <Mail size={15} aria-hidden="true" />
+            {t("person.rail.email")}
+          </span>
+          <span className={verdictClass(email?.verdict)}>
+            {consentWord(email?.verdict, t)}
+          </span>
+        </div>
+        <div className="pe-rail-row">
+          <span className="pe-rail-label">
+            <Phone size={15} aria-hidden="true" />
+            {t("person.rail.phone")}
+          </span>
+          <span className={verdictClass(phone?.verdict)}>
+            {consentWord(phone?.verdict, t)}
+          </span>
+        </div>
+        {/* The REASON, in the reader's words. A verdict a rep cannot explain to
+            the person in front of them is not usable. */}
+        {email?.reason && <p className="pe-colleague-proof">{email.reason}</p>}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -325,24 +334,29 @@ function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
   const rows = (view.activities?.data ?? []).slice(0, 3);
   return (
-    <section className="pe-card">
-      <h3 className="pe-card-title">{t("person.rail.recentActivity")}</h3>
-      {rows.length === 0 && (
-        <p className="pe-prose">{t("person.rail.nothingCaptured")}</p>
-      )}
-      {rows.map((row) => (
-        <div className="pe-rail-row" key={row.id}>
-          <span className="pe-rail-label">{row.subject ?? row.kind}</span>
-          <span className="pe-rail-value-muted">
-            {sinceWords(row.occurred_at, t)}
-          </span>
-        </div>
-      ))}
-      <span className="pe-rail-more">
-        {t("person.rail.viewAllActivity")}{" "}
-        <ChevronRight size={13} aria-hidden="true" />
-      </span>
-    </section>
+    <Panel
+      title={t("person.rail.recentActivity")}
+      footer={
+        <span className="pe-rail-more">
+          {t("person.rail.viewAllActivity")}{" "}
+          <ChevronRight size={13} aria-hidden="true" />
+        </span>
+      }
+    >
+      <PanelBody>
+        {rows.length === 0 && (
+          <p className="pe-prose">{t("person.rail.nothingCaptured")}</p>
+        )}
+        {rows.map((row) => (
+          <div className="pe-rail-row" key={row.id}>
+            <span className="pe-rail-label">{row.subject ?? row.kind}</span>
+            <span className="pe-rail-value-muted">
+              {sinceWords(row.occurred_at, t)}
+            </span>
+          </div>
+        ))}
+      </PanelBody>
+    </Panel>
   );
 }
 

@@ -14,6 +14,7 @@ import {
   Badge,
   Button,
   Modal,
+  SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -367,7 +368,7 @@ export function PersonComposer({
             before sending. */}
         {draft.data?.reasoning && draft.data.reasoning.length > 0 && (
           <section className="pe-why">
-            <h3 className="pe-card-title">{t("person.composer.why")}</h3>
+            <SectionHeader title={t("person.composer.why")} />
             <ul className="pe-why-list">
               {draft.data.reasoning.map((reason) => (
                 <li key={`${reason.kind}-${reason.label}`}>{reason.label}</li>
@@ -624,9 +625,9 @@ export function PersonMeetingBrief({
         )}
         {brief.data?.sections.map((section) => (
           <section className="pe-brief-section" key={section.kind}>
-            <h3 className="pe-card-title">
-              {t(`person.meeting.${section.kind}` as never)}
-            </h3>
+            <SectionHeader
+              title={t(`person.meeting.${section.kind}` as never)}
+            />
             {section.sentences.map((sentence) => (
               <p className="pe-prose" key={sentence.text}>
                 {sentence.text}
