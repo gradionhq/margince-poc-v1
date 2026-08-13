@@ -167,7 +167,10 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err := auth.Require(ctx, entityPerson, principal.ActionCreate); err != nil {
 		return err
 	}
-	parsed := ParsePersonName(in.DisplayName, in.Email)
+	parsed, err := s.nameCounterparty(ctx, tx, in)
+	if err != nil {
+		return err
+	}
 	name := parsed.Full
 	// The workspace's own consumer-mail list travels with the candidate: the
 	// employer-agreement term must judge a shared domain the same way capture
@@ -399,14 +402,21 @@ func fillMissingPersonName(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	// named. The predicate is also the concurrency guard: a writer who filled
 	// either half between the dedupe read and this write keeps it, because
 	// Postgres re-checks the predicate after waiting on their lock.
+	// full_name moves WITH the split columns, and only when it is still the
+	// shorter thing the parser refused to split. A record displaying "Lars"
+	// while its columns say Lars Jankowfsky is a fill that reported success and
+	// changed nothing a human can see — the defect this predicate closes.
+	// A full_name a person typed is longer or different, and is left alone.
 	tag, err := tx.Exec(ctx, `
 		UPDATE person
 		   SET first_name = $2,
 		       last_name  = $3,
+		       full_name  = CASE WHEN full_name = $2 OR full_name = $3
+		                         THEN $4 ELSE full_name END,
 		       updated_at = now()
 		 WHERE id = $1
 		   AND first_name IS NULL AND last_name IS NULL`,
-		personID, parsed.First, parsed.Last)
+		personID, parsed.First, parsed.Last, parsed.Full)
 	if err != nil {
 		return fmt.Errorf("people: filling the missing name of person %s: %w", personID, err)
 	}
