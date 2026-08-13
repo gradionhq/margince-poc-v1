@@ -47,9 +47,8 @@ func enableStageChangeCreateTask(t *testing.T, e *SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'stage_change_create_task', 'Follow up on stage changes',
+			INSERT INTO automation (key, name, trigger, action, params, enabled)
+			VALUES ('stage_change_create_task', 'Follow up on stage changes',
 			        '{"event_type":"deal.stage_changed"}', '{"kind":"create_task"}', '{}'::jsonb, true)`)
 		return err
 	})
@@ -69,9 +68,8 @@ func enableLeadRouting(t *testing.T, e *SearchEnv, params map[string]any) {
 	}
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			INSERT INTO automation (key, name, trigger, action, params, enabled)
+			VALUES ('assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
 			        $1, true)`, paramsJSON)
 		return err
 	})
@@ -188,9 +186,8 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	var automationID ids.UUID
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			INSERT INTO automation (key, name, trigger, action, params, enabled)
+			VALUES ('assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
 			        $1, false)
 			RETURNING id`, fmt.Sprintf(`{"owners": [%q]}`, e.Rep3.String())).Scan(&automationID)
 	})
