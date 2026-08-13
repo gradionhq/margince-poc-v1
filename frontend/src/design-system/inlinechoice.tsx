@@ -271,8 +271,33 @@ export function InlineText({
   // tell "the reader cancelled" from "the reader tabbed away" and skip the
   // commit only for the former.
   const cancelling = useRef(false);
+  const field = useRef<HTMLInputElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Set by the two exits the reader takes without leaving this field —
+  // Escape, and Enter on a save that succeeds — and read once the resting
+  // trigger has remounted, exactly as InlineChoice does. A blur-commit
+  // deliberately does NOT set it: the reader is already somewhere else, and
+  // dragging focus back here would undo the move they just made.
+  const restoreFocus = useRef(false);
   const fieldId = useId();
   const errorId = useId();
+
+  // The click that opened this asked to TYPE here, so the caret belongs in the
+  // field without a second click. It is also what makes every exit rule below
+  // hold at all: Escape, Enter and the blur-commit are all keyboard and focus
+  // events on this input, and an input nobody ever focused receives none of
+  // them — the box would then sit open until it was clicked into, including
+  // after the reader had moved on to another field.
+  useEffect(() => {
+    if (editing) {
+      field.current?.focus();
+      return;
+    }
+    if (restoreFocus.current) {
+      restoreFocus.current = false;
+      trigger.current?.focus();
+    }
+  }, [editing]);
 
   if (!canEdit || !editing) {
     const shown = value || placeholder;
@@ -292,6 +317,7 @@ export function InlineText({
     }
     return (
       <button
+        ref={trigger}
         type="button"
         className="inline-editable"
         // An empty field is an invitation to fill it and reads as one; a field
@@ -317,7 +343,10 @@ export function InlineText({
     );
   }
 
-  const commit = async () => {
+  // `byKeyboard` is what tells the two exits apart: an Enter press ends the
+  // edit without moving the reader anywhere, so focus goes back to the value
+  // they were on; a blur means they have already moved, and is left alone.
+  const commit = async (byKeyboard = false) => {
     // A commit already in flight owns the next state transition; a second
     // one racing in behind it (Enter, then the blur disabling the input for
     // `saving` fires synchronously) would double-send the same edit.
@@ -329,6 +358,7 @@ export function InlineText({
     // not happen. Blur fires on every exit now, so this guard is what keeps
     // "clicked in, typed nothing, clicked out" silent.
     if (next === value) {
+      restoreFocus.current = byKeyboard;
       setEditing(false);
       return;
     }
@@ -336,6 +366,7 @@ export function InlineText({
     setFailure(null);
     try {
       await onSave(next);
+      restoreFocus.current = byKeyboard;
       setEditing(false);
     } catch (err) {
       // The draft survives and the input stays mounted right where the
@@ -353,6 +384,7 @@ export function InlineText({
         {label}
       </label>
       <TextInput
+        ref={field}
         id={fieldId}
         value={draft}
         maxLength={maxLength}
@@ -363,10 +395,11 @@ export function InlineText({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            void commit();
+            void commit(true);
           }
           if (event.key === "Escape") {
             cancelling.current = true;
+            restoreFocus.current = true;
             setDraft(value);
             setEditing(false);
           }

@@ -155,7 +155,9 @@ function LifecycleRow({
 }: Readonly<{ organization: Organization }>) {
   const t = useT();
   return (
-    <FieldRow label={t("org.lifecycle")}>
+    // The badge is a box, not a line of text, so it centres against its label
+    // rather than sharing the row's top edge with it.
+    <FieldRow label={t("org.lifecycle")} align="middle">
       <CompanyLifecycleControl org={organization} />
     </FieldRow>
   );
@@ -216,31 +218,56 @@ function DomainRow({
 }
 
 // The six address parts this grid draws, in the order the create form's own
-// `ADDRESS_FIELDS` shows them. `normalize` is only non-trivial for country:
-// ISO-3166 alpha-2, canonicalized the same way the full editor's own
-// `addressPatch` does — the server compares on the uppercase spelling, so
-// "de" typed here and "DE" typed in the edit modal read as the same value.
+// `ADDRESS_FIELDS` shows them. Label and placeholder are separate keys per
+// part: a label NAMES the fact and an empty row INVITES one, and reusing the
+// label as the placeholder made every unfilled row read as a second, quieter
+// copy of its own label rather than as something to press. Country is the one
+// row whose label is not the create form's own — the form's carries the
+// ISO-3166 hint inline ("Country (ISO-3166, e.g. DE)"), which is guidance for
+// someone typing, not the name of the field; here the hint sits in the
+// placeholder, where the person about to type is the only one who reads it.
+// `normalize` is likewise only non-trivial for country: ISO-3166 alpha-2,
+// canonicalized the same way the full editor's own `addressPatch` does — the
+// server compares on the uppercase spelling, so "de" typed here and "DE"
+// typed in the edit modal read as the same value.
 const ADDRESS_PARTS: ReadonlyArray<{
   part: AddressPart;
   labelKey: MessageKey;
+  placeholderKey: MessageKey;
   normalize?: (next: string) => string;
 }> = [
-  { part: "line1", labelKey: "create.addressLine1" },
-  { part: "line2", labelKey: "create.addressLine2" },
-  { part: "postal_code", labelKey: "create.postalCode" },
-  { part: "city", labelKey: "create.city" },
-  { part: "region", labelKey: "create.region" },
+  {
+    part: "line1",
+    labelKey: "create.addressLine1",
+    placeholderKey: "field.addAddressLine1",
+  },
+  {
+    part: "line2",
+    labelKey: "create.addressLine2",
+    placeholderKey: "field.addAddressLine2",
+  },
+  {
+    part: "postal_code",
+    labelKey: "create.postalCode",
+    placeholderKey: "field.addPostalCode",
+  },
+  { part: "city", labelKey: "create.city", placeholderKey: "field.addCity" },
+  {
+    part: "region",
+    labelKey: "create.region",
+    placeholderKey: "field.addRegion",
+  },
   {
     part: "country",
-    labelKey: "create.country",
+    labelKey: "field.country",
+    placeholderKey: "field.addCountry",
     normalize: (next) => next.toUpperCase(),
   },
 ];
 
 // One InlineText per address part, each sending the WHOLE object back with
 // only its own part changed — see the docblock above for why a part cannot
-// PATCH alone. `label`/`placeholder` share the create form's own keys
-// rather than minting new ones for the same six facts.
+// PATCH alone.
 function AddressPartRow({
   organization,
   canEdit,
@@ -248,10 +275,12 @@ function AddressPartRow({
   patch,
   part,
   labelKey,
+  placeholderKey,
   normalize = (next) => next,
 }: DetailsRowProps & {
   part: AddressPart;
   labelKey: MessageKey;
+  placeholderKey: MessageKey;
   normalize?: (next: string) => string;
 }) {
   const t = useT();
@@ -260,7 +289,7 @@ function AddressPartRow({
       <InlineText
         label={t(labelKey)}
         value={organization.address?.[part] ?? ""}
-        placeholder={t(labelKey)}
+        placeholder={t(placeholderKey)}
         canEdit={canEdit}
         readOnlyReason={readOnlyReason}
         onSave={(next) =>

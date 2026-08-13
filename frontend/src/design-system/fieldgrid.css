@@ -10,7 +10,11 @@
 .fieldgrid {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
-  align-items: center;
+  /* Both columns start at the row's TOP, so a label that wraps to two lines
+     (and a value that wraps to three) still opens on the same line as its
+     partner. Centring instead floats the shorter side into the middle of the
+     taller one, and the pair stops reading as one row. */
+  align-items: start;
   /* A dense reference surface reads as a compact block, not a spaced-out
      form — the row gap matches the prototype's tighter rhythm rather than
      the wider `--space-2`/`--space-3` this grid used before it carried the
@@ -26,6 +30,16 @@
   min-width: 0;
 }
 
+/* The exception to the top edge, for a row whose value is not text: a badge or
+   a chip is a BOX, taller than the line of text naming it, and a box hung from
+   the top edge sits visibly high beside its label. Those rows centre the pair
+   on each other instead — the label still lines up with the thing it names,
+   which is what the shared top edge was buying everywhere else. */
+.fieldgrid-label--middle,
+.fieldgrid-value--middle {
+  align-self: center;
+}
+
 /* A VALUE reads as a value, not as a link. InlineText and InlineChoice make
    their trigger a button so the whole value is pressable, and a button both
    centres its own text and — as `.link-button` — paints it in the accent at
@@ -35,20 +49,20 @@
    The pressable box stays; only its type goes back to the row's own. */
 .fieldgrid-value .inlinetext,
 .fieldgrid-value .inline-editable {
-  display: block;
-  width: 100%;
   text-align: left;
-  padding: 0;
   font-size: inherit;
   font-weight: var(--fw-regular);
   color: inherit;
 }
-/* The exception, and the reason the accent exists here at all: a field with
-   nothing in it offers to be filled. That IS an invitation, so it keeps the
-   accent — but only on the empty row, where there is no value for it to
-   misrepresent. */
+/* An empty row states an absence, and it states it the way a form's own
+   placeholder does: the "Add …" text sits BELOW the filled values in weight
+   and tone, so a reader scanning the column reads the record's actual facts
+   first and the gaps as gaps. It stays pressable, and the hover fill
+   (inlinechoice.css) is what says so — the invitation is in the affordance,
+   not in the colour. Paint it in the accent instead and every unfilled field
+   shouts louder than every filled one, which is the reading exactly backwards
+   on a record whose values are the point. */
 .fieldgrid-value .inlinetext[data-empty="true"],
 .fieldgrid-value .inline-editable[data-empty="true"] {
-  color: var(--accent);
-  font-weight: var(--fw-medium);
+  color: var(--textTertiary);
 }

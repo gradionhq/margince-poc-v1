@@ -18,15 +18,20 @@
   color: inherit;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid transparent;
   padding: 2px 4px;
   margin: -2px -4px;
   border-radius: var(--r-sm);
   cursor: pointer;
+  transition: background-color 0.12s;
 }
+/* The affordance is a soft fill behind the value, not an underline: an
+   underline reads as a link — somewhere to GO — on the one control whose whole
+   promise is that pressing it keeps you here. The fill is also the shape the
+   field is about to become, so the box a click opens lands where the hover
+   already was. */
 .inline-editable:hover,
 .inline-editable:focus-visible {
-  border-bottom-color: var(--borderStrong);
+  background: var(--bgHover);
 }
 .inline-editable:focus-visible {
   outline: 2px solid transparent;

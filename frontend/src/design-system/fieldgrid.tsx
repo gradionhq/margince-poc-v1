@@ -23,12 +23,25 @@ export function FieldGrid({ children }: Readonly<{ children: ReactNode }>) {
 // instead is the row that broke that edge.
 export function FieldRow({
   label,
+  align = "top",
   children,
-}: Readonly<{ label: ReactNode; children: ReactNode }>) {
+}: Readonly<{
+  label: ReactNode;
+  // Where the label sits against its value. "top" — the default, and right for
+  // every row whose value is text — puts both on the row's first line, so a
+  // label or a value that wraps still opens beside its partner. "middle" is
+  // for a value that is a BOX rather than a line of text (a lifecycle badge, a
+  // chip): taller than the label naming it, and visibly hung too high when the
+  // two share a top edge.
+  align?: "top" | "middle";
+  children: ReactNode;
+}>) {
+  const modifier = align === "middle" ? " fieldgrid-label--middle" : "";
+  const valueModifier = align === "middle" ? " fieldgrid-value--middle" : "";
   return (
     <>
-      <span className="fieldgrid-label">{label}</span>
-      <span className="fieldgrid-value">{children}</span>
+      <span className={`fieldgrid-label${modifier}`}>{label}</span>
+      <span className={`fieldgrid-value${valueModifier}`}>{children}</span>
     </>
   );
 }
