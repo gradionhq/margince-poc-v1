@@ -85,6 +85,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
+import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
 import { JobHealthCard } from "./jobhealth";
@@ -230,6 +231,7 @@ function tabContent(id: SettingsTabId): ReactNode {
               the custom-field editor before, which put "define a field" and
               "delete everything" on one page. Job health had no surface at all —
               an operator watching a stalled queue had nothing to look at. */}
+          <ImportCard />
           <EmbedReindexCard />
           <JobHealthCard />
           <ResetDataCard />

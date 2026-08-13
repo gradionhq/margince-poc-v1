@@ -174,10 +174,14 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 	if run.Mapping != nil {
 		out.SourceKeyUsed = run.Mapping.SourceKey
 	}
+
 	// Predicted counts and actual ones are never summed: a finished run reports
 	// what it did, an awaiting one what it will do. Adding them would report
-	// twice the rows the file holds.
+	// twice the rows the file holds — and the stored report DOES carry both,
+	// because a run's own report is merged into the dry run's so a resumed
+	// attempt keeps what the earlier one already achieved.
 	committed := run.Status == migration.StatusComplete || run.Status == migration.StatusFailed
+	seen := map[int]bool{}
 	for _, o := range run.Report.Objects {
 		out.RowsRead += o.MirrorCount
 		if committed {
@@ -187,15 +191,31 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 			out.Disposition.Created += o.WillCreate
 			out.Disposition.Updated += o.WillUpdate
 		}
-		out.Disposition.Unchanged += o.Unchanged
-		out.Disposition.Skipped += len(o.Skipped)
 		for _, s := range o.Skipped {
+			// The same row skipped by the dry run and again by the commit is
+			// ONE row the human must go fix, named by its line.
+			line := lineOf(s.ExternalID)
+			if seen[line] {
+				continue
+			}
+			seen[line] = true
+			out.Disposition.Skipped++
 			out.Issues = append(out.Issues, crmcontracts.ImportRowIssue{
-				Line:   lineOf(s.ExternalID),
+				Line:   line,
 				Reason: s.Reason,
 			})
 		}
 	}
+
+	// Unchanged is DERIVED, never carried: it is the rows that were read and
+	// then neither created, updated nor skipped. Carrying the stored figure
+	// would add the dry run's count to the commit's and report more rows than
+	// the file holds — which is the contract's own invariant ("the four sum to
+	// the rows read") failing in the one place a human reads it.
+	out.Disposition.Unchanged = max(
+		out.RowsRead-out.Disposition.Created-out.Disposition.Updated-out.Disposition.Skipped,
+		0,
+	)
 	return out
 }
 

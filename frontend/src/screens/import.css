@@ -1,0 +1,114 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion */
+
+.import {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.import__hint {
+  margin: 0;
+  color: var(--textMuted);
+  font-size: var(--fs-sm);
+}
+
+.import__mapping {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* The table scrolls inside its own box: a file with twenty columns must not
+   push the settings column sideways, and the column names and fill rates below
+   are deliberately nowrap. */
+.import__scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.import__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.import__table th,
+.import__table td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--borderSubtle);
+  vertical-align: middle;
+}
+
+.import__table thead th {
+  color: var(--textMuted);
+  font-weight: var(--fw-medium);
+}
+
+.import__colName {
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.import__fill {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Sample values are evidence, not content: they are allowed to be clipped
+   rather than to widen the table past its column. */
+.import__samples {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--textMuted);
+}
+
+.import__empty {
+  font-style: italic;
+}
+
+.import__outcome {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.import__outcomeTitle {
+  margin: 0;
+  font-size: var(--fs-body);
+}
+
+.import__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.import__count dt {
+  color: var(--textMuted);
+  font-size: var(--fs-sm);
+}
+
+.import__count dd {
+  margin: 0;
+  font-size: var(--fs-h3);
+  font-variant-numeric: tabular-nums;
+}
+
+.import__issues {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--textMuted);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
