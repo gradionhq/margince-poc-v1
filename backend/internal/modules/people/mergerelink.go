@@ -72,6 +72,9 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 		`DELETE FROM person_profile_field WHERE person_id = $1`, sourceID.UUID); err != nil {
 		return counts, fmt.Errorf("retire the merged-away enrichment fields: %w", err)
 	}
+	if err = relinkProviderPurchases(ctx, tx, sourceID, targetID); err != nil {
+		return counts, err
+	}
 	if counts.Relationships, err = relinkPersonEdges(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("relink relationships: %w", err)
 	}
@@ -194,4 +197,88 @@ func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Pe
 	_, err := tx.Exec(ctx,
 		`UPDATE person_social SET person_id = $2 WHERE person_id = $1`, sourceID, targetID)
 	return err
+}
+
+// relinkProviderPurchases moves the merged-away record's purchased provider
+// data onto the survivor: the claims, and the runs that bought them.
+//
+// Claims relink outright. They are keyed UNIQUE(run_id, claim_key), so two
+// runs' answers about what is now one human coexist as peer assertions —
+// which is the point: both sides were PAID for, and a merge that dropped one
+// would throw away data the customer bought (PI-AC-11).
+//
+// Runs are the harder half, because at most one LIVE run may exist per
+// (person, provider, fingerprint) and a merge can bring two together. The
+// rule is that nothing which may already have been charged is discarded:
+//
+//   - a run still `queued` never reached the provider, so cancelling it costs
+//     nothing and the survivor's own run buys the same data;
+//   - a run past `queued` may have been paid for, so it keeps its reservation
+//     and runs to its own terminal state. When both sides are past `queued`
+//     the source's run is re-fingerprinted rather than cancelled: that takes
+//     it out of the live-run index — the established idiom, the same one
+//     markSkipped uses — while leaving its money and its outcome intact.
+func relinkProviderPurchases(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) error {
+	if _, err := tx.Exec(ctx,
+		`UPDATE person_provider_claim SET person_id = $2 WHERE person_id = $1`,
+		sourceID.UUID, targetID.UUID); err != nil {
+		return fmt.Errorf("relink provider claims: %w", err)
+	}
+	// The source's queued runs are cancelled unconditionally. Not because the
+	// survivor will buy the same data — it may hold no run at all, or one
+	// parked in submission_unknown that never delivers — but because the
+	// merged-away record has stopped being a subject: nothing left the
+	// building for it, nothing was charged, and a run that would enrich a row
+	// no read returns is work nobody wants. A human who still wants that
+	// purchase asks for it on the survivor.
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run
+		   SET state = 'cancelled', completed_at = now(),
+		       input_fingerprint = 'merged:' || gen_random_uuid()::text
+		 WHERE person_id = $1 AND state = 'queued'`, sourceID.UUID); err != nil {
+		return fmt.Errorf("cancel the merged-away record's queued runs: %w", err)
+	}
+	// A survivor run that is still queued loses to a source run that already
+	// left the building: the source's may have been charged, the survivor's
+	// certainly has not.
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run s
+		   SET state = 'cancelled', completed_at = now(),
+		       input_fingerprint = 'merged:' || gen_random_uuid()::text
+		 WHERE s.person_id = $2 AND s.state = 'queued'
+		   AND EXISTS (
+		     SELECT 1 FROM provider_run o
+		      WHERE o.person_id = $1 AND o.provider = s.provider
+		        AND o.input_fingerprint = s.input_fingerprint
+		        AND o.state IN ('submitting','in_progress','submission_unknown'))`,
+		sourceID.UUID, targetID.UUID); err != nil {
+		return fmt.Errorf("cancel the survivor's unspent colliding runs: %w", err)
+	}
+	// Both sides live and past queued: keep both, and take the source's out
+	// of the live-run index so the relink below cannot violate it. Its
+	// reservation and its terminal state are untouched.
+	//
+	// The survivor set is the past-queued states only. A survivor still
+	// `queued` cannot appear here — the statement above already cancelled
+	// every one of those that collides with a source run in exactly these
+	// states — so naming `queued` would be an arm that can never fire.
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run s
+		   SET input_fingerprint = 'merged:' || gen_random_uuid()::text
+		 WHERE s.person_id = $1
+		   AND s.state IN ('submitting','in_progress','submission_unknown')
+		   AND EXISTS (
+		     SELECT 1 FROM provider_run o
+		      WHERE o.person_id = $2 AND o.provider = s.provider
+		        AND o.input_fingerprint = s.input_fingerprint
+		        AND o.state IN ('submitting','in_progress','submission_unknown'))`,
+		sourceID.UUID, targetID.UUID); err != nil {
+		return fmt.Errorf("re-fingerprint the merged-away record's live runs: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE provider_run SET person_id = $2 WHERE person_id = $1`,
+		sourceID.UUID, targetID.UUID); err != nil {
+		return fmt.Errorf("relink provider runs: %w", err)
+	}
+	return nil
 }

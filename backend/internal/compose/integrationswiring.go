@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -35,8 +35,7 @@ func WithProvider(reg *integrations.Registry, vault keyvault.Vault, inserter *jo
 		if err != nil {
 			panic("compose: integrations store construction failed with live dependencies: " + err.Error())
 		}
-		store = bindProviderDomain(store, InstallationDB(pool)).
-			WithSubmitEnqueue(providerSubmitEnqueue(inserter))
+		store = bindProviderDomain(store).WithSubmitEnqueue(providerSubmitEnqueue(inserter))
 		s.integrationsHandlers = integrationsHandlers{store: store, runs: store}
 	}
 }
@@ -55,11 +54,36 @@ func providerSubmitEnqueue(inserter *jobs.Runner) integrations.EnqueueSubmitFunc
 	}
 }
 
-// bindProviderDomain attaches the owning domain's callbacks to the store.
-// The people-side callbacks (subject fence, duplicate cluster, identifier
-// resolution, claim writer) land with the claim writer itself; until then the
-// store refuses to queue and parks every hand-off, which is the honest
-// posture for a build whose domain edges are not yet compiled.
-func bindProviderDomain(store *integrations.Store, _ *database.DB) *integrations.Store {
-	return store
+// bindProviderDomain attaches the owning domain's callbacks: people decides
+// whether a subject may be enriched, which records might be the same human,
+// what may leave the installation about them, and where the bought values
+// land. THIS is the cross-module edge — integrations may not import people,
+// so compose injects it, and it is injected in exactly one place so the api
+// role and the worker role can never disagree about what is bound.
+func bindProviderDomain(store *integrations.Store) *integrations.Store {
+	return store.
+		WithDomain(providerFence, people.DuplicateCluster, people.SubjectIdentifiers).
+		WithClaimWriter(providerClaimWriter).
+		WithClaimDeleter(providerClaimDeleter)
+}
+
+// providerFence adapts people's verdict to the shape integrations declares.
+// The two refusals stay distinct across the seam: a suppressed subject
+// objected, an ineligible one is a record we should not be buying about.
+func providerFence(ctx context.Context, tx pgx.Tx, personID string) (integrations.FenceVerdict, error) {
+	allowed, reason, err := people.EnrichmentFence(ctx, tx, personID)
+	if err != nil {
+		return integrations.FenceVerdict{}, err
+	}
+	return integrations.FenceVerdict{Allowed: allowed, Reason: reason}, nil
+}
+
+// providerClaimWriter lands one run's values in the table people owns.
+func providerClaimWriter(ctx context.Context, tx pgx.Tx, w integrations.ClaimWrite) error {
+	return people.WriteProviderClaims(ctx, tx, w.RunID, w.PersonID, w.Provider, w.Claims, w.RetrievedAt)
+}
+
+// providerClaimDeleter is the domain half of the delete-data action.
+func providerClaimDeleter(ctx context.Context, tx pgx.Tx, providerName string) (int64, error) {
+	return people.DeleteProviderClaims(ctx, tx, providerName)
 }

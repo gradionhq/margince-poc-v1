@@ -108,6 +108,19 @@ var piiTables = map[string]piiHandling{
 	// cascades to it, because anonymize-in-place leaves the person row
 	// standing, so erasure has to reach it by statement.
 	"person_profile_field": {erasureWrite: true, sarRead: true},
+	// What a licensed data provider asserted about the subject and this
+	// installation retained (ADR-0101). Bought from a third party rather than
+	// given by them, which makes it disclosable twice over — the values and
+	// the fact that they were purchased.
+	"person_provider_claim": {erasureWrite: true, sarRead: true},
+	// The run that bought it. Erasure SCRUBS rather than deletes: the row
+	// stops naming anybody (person_id, fingerprint, job id, requester,
+	// snapshot) while the spend it records survives, because what the
+	// installation paid is an accounting fact about the installation once it
+	// names no one (PI-AC-8). Art. 15 hands back the purpose and the
+	// categories, since a values-only export would say what we hold while
+	// hiding that we went out and bought it.
+	"provider_run": {erasureWrite: true, sarRead: true},
 	// The correction ledger holds what a human typed OVER what the system
 	// inferred — a title, a phone number, a free-text note about the subject.
 	// The verdict is a decision a person made about them, so Art. 15 hands it
@@ -221,6 +234,10 @@ var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",
+	// What a licensed data provider was PAID to tell us about the subject,
+	// and the runs that bought it (ADR-0101). Same Art. 17 transaction, its
+	// own file for the same size reason the timeline has one.
+	"internal/modules/privacy/erasure_provider.go",
 	"internal/modules/privacy/deliveries.go",
 }
 

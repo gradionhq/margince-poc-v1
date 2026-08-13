@@ -9,11 +9,18 @@
 //
 // Tables owned: person, person_email, person_phone, person_consent,
 // organization, organization_domain, relationship, partner, lead,
-// person_signature_enrich_state.
+// person_signature_enrich_state, person_provider_claim.
+// person_provider_claim is what a licensed data provider asserted about
+// one of our people (ADR-0101): the domain owns the VALUES because it
+// decides what a claim means and how it renders, while integrations owns
+// the run that bought it.
 // Merge and promotion additionally relink rows in deal, activity_link,
-// list_member, taggable and consent_event inside their single
-// transaction — the ratified cross-aggregate ownership call of the
+// list_member, taggable, consent_event and provider_run inside their
+// single transaction — the ratified cross-aggregate ownership call of the
 // primary aggregate; nothing else in this module WRITES a sibling table.
+// The provider_run relink is the merge's alone: it decides which of two
+// colliding LIVE runs keeps the one-live-run index, which is knowable
+// only where both records' run states are visible at once.
 // The person list READS two of collections' — tag and taggable — for the
 // contract's `tag` filter: a tagged person is a link row whichever module
 // writes it, and the alternative is a declared filter answered by nobody.

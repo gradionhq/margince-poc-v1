@@ -258,6 +258,13 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, personID).Scan(&subjectName); err != nil {
 		return nil, err
 	}
+	// Also BEFORE, and for the same reason one column over: the provider
+	// purge reaches every person row that IS this subject, and it resolves
+	// them by ADDRESS — which deleteSubjectIdentifierRows destroys below.
+	subjects, err := subjectPersonIDs(ctx, tx, personID, emails)
+	if err != nil {
+		return nil, err
+	}
 	personCustom, err := subjectCustomColumns(ctx, tx, "person")
 	if err != nil {
 		return nil, err
@@ -321,7 +328,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if err != nil {
 		return nil, err
 	}
-	if err := purgePersonDerivedRows(ctx, tx, personID); err != nil {
+	if err := purgePersonDerivedRows(ctx, tx, personID, subjects); err != nil {
 		return nil, err
 	}
 	return wiped, nil
@@ -337,7 +344,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 // read from, and a correction verdict is what a human typed over what the
 // system inferred. Nulling any of them leaves a row asserting something about
 // a person nobody may now assert anything about, so all four are deleted.
-func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
+func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, subjects []ids.UUID) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
 		return err
@@ -356,6 +363,9 @@ func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonI
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM ai_feedback WHERE subject_type = 'person' AND subject_id = $1`, personID); err != nil {
+		return err
+	}
+	if err := purgeProviderPurchases(ctx, tx, subjects); err != nil {
 		return err
 	}
 	return nil

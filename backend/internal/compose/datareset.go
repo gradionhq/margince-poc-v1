@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -221,12 +222,26 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		if err != nil {
 			return err
 		}
-		counts.secretRefs = secretRefs
+		// The provider platform's sealed API keys, collected the same way and
+		// for the same reason — its connection table carries no workspace_id,
+		// so neither the sweep above nor the collection above can see it.
+		providerRefs, err := providerCredentialRefs(ctx, tx)
+		if err != nil {
+			return err
+		}
+		counts.secretRefs = slices.Concat(secretRefs, providerRefs)
 
 		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
 			return err
 		}
-		counts.TablesCleared = len(tables)
+		// The provider platform, swept explicitly: its five tables have no
+		// workspace_id, so the catalog-derived list above does not include
+		// them, and a reset that skipped this would leave purchased personal
+		// data about people it had just deleted.
+		if err := sweepProviderTables(ctx, tx); err != nil {
+			return err
+		}
+		counts.TablesCleared = len(tables) + len(providerResetTables)
 
 		// A first-boot installation is native, and everything overlay mode
 		// depends on was just swept: the incumbent connection, the mirror, the

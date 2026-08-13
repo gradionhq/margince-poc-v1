@@ -62,6 +62,16 @@ type SARPackage struct {
 	// person about them, and the suppressions are the record of which claims
 	// this installation has agreed to stop making.
 	Corrections []map[string]any `json:"corrections"`
+	// ProviderClaims is what a licensed data provider asserted about the
+	// subject and this installation retained — bought from a third party
+	// rather than given by them, which is precisely the holding Art. 15(1)(g)
+	// makes the SOURCE of disclosable too.
+	ProviderClaims []map[string]any `json:"provider_claims"`
+	// ProviderRuns is why and when that purchase happened: which provider was
+	// asked, what was requested, what came back. Art. 15(1)(a)-(d) asks for
+	// the purposes and the categories, and a values-only export would answer
+	// what we hold while hiding that we went out and bought it.
+	ProviderRuns []map[string]any `json:"provider_runs"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -351,6 +361,22 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		          af.captured_by, af.created_at, af.updated_at
 		   FROM ai_feedback af
 		   WHERE af.subject_type = 'person' AND af.subject_id = $1`},
+		// validation_status is deliberately absent: no writer populates that
+		// column, and the per-value validation the provider reports lives
+		// INSIDE value_json, which this exports whole. A column exported as
+		// null on every row would tell the subject their address was never
+		// validated, which is not what the platform knows.
+		{&pkg.ProviderClaims, `SELECT ppc.provider, ppc.claim_key, ppc.value_json, ppc.confidence,
+		          ppc.source, ppc.captured_by, ppc.retrieved_at
+		   FROM person_provider_claim ppc
+		   WHERE ppc.person_id = $1`},
+		// The run history carries no credential and no vault reference: the
+		// closed safe status code is a product reason, never a provider body.
+		{&pkg.ProviderRuns, `SELECT pr.provider, pr.trigger, pr.state, pr.skip_reason,
+		          pr.requested_categories, pr.claims_unwritten, pr.last_safe_status_code,
+		          pr.submitted_at, pr.completed_at, pr.created_at
+		   FROM provider_run pr
+		   WHERE pr.person_id = $1`},
 	}
 }
 

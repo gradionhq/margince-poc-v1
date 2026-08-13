@@ -60,7 +60,7 @@ func providerRunStore(pool *pgxpool.Pool, cfg ProviderRunsConfig, args jobs.Work
 	if err != nil {
 		return nil, err
 	}
-	return bindProviderDomain(store, db), nil
+	return bindProviderDomain(store), nil
 }
 
 // ProviderRunSubmitArgs submits ONE queued run. The workspace travels in the

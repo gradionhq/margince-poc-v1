@@ -33,6 +33,60 @@ var preservedResetTables = map[string]bool{
 	"audit_log": true, "system_log": true,
 }
 
+// providerResetTables are the licensed-data-provider tables, deleted in
+// FK-safe order (children first, the same order migration 0219's down takes).
+//
+// They need naming because the catalog sweep below cannot see them: every one
+// deliberately carries NO workspace_id column — the platform is
+// installation-scoped configuration (ADR-0061/A107), so a reset that only
+// swept workspace_id tables left provider_run and person_provider_claim
+// holding purchased personal data about the very people it had just deleted.
+var providerResetTables = []string{
+	"person_provider_claim",
+	"provider_run_reservation",
+	"provider_run",
+	"provider_connection_budget",
+	"provider_connection",
+}
+
+// providerCredentialRefs collects the sealed API keys the provider
+// connections hold, BEFORE the sweep deletes the rows naming them. Same
+// reasoning as collectWorkspaceSecretRefs: the ciphertext lives in a table
+// with no workspace_id, so these handles are the only thing that will still
+// connect it to this installation once the rows are gone.
+func providerCredentialRefs(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT credential_ref FROM provider_connection WHERE credential_ref IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("data reset: reading provider credential handles: %w", err)
+	}
+	defer rows.Close()
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, fmt.Errorf("data reset: reading a provider credential handle: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("data reset: reading provider credential handles: %w", err)
+	}
+	return refs, nil
+}
+
+// sweepProviderTables clears the provider platform. Ordinary DELETEs rather
+// than the catalog sweep's per-workspace predicate, because these tables have
+// no workspace to predicate on: one installation, one provider platform.
+func sweepProviderTables(ctx context.Context, tx pgx.Tx) error {
+	for _, table := range providerResetTables {
+		if _, err := tx.Exec(ctx, `DELETE FROM `+pgx.Identifier{table}.Sanitize()); err != nil {
+			return fmt.Errorf("data reset: clearing %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
 // resetTargetTables lists every public base table carrying a workspace_id
 // column that is not preserved — derived from the catalog so a newly added
 // tenant table is swept automatically rather than escaping a hand-kept list.

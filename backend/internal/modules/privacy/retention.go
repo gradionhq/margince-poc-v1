@@ -436,6 +436,18 @@ func anonymizePersonRecord(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		_, err = tx.Exec(ctx, `DELETE FROM person_profile_field WHERE person_id = $1`, id)
 	}
 	if err == nil {
+		// Purchased provider values, and the runs that bought them. Same
+		// reasoning as the sidecar above and the same statements the erasure
+		// path uses: anonymize-in-place cascades to nothing, so without these
+		// the person page would show a bought email and employer beside an
+		// "Erased Subject" name.
+		_, err = tx.Exec(ctx, `DELETE FROM person_provider_claim WHERE person_id = $1`, id)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx,
+			`UPDATE provider_run SET`+storekit.ScrubProviderRunColumns+` WHERE person_id = $1`, id)
+	}
+	if err == nil {
 		// The channel identity is a resolution key on the subject as
 		// much as their address: left behind, it would keep binding
 		// inbound messages to the row this sweep just anonymized.

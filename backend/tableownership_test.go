@@ -216,12 +216,18 @@ var tableOwners = map[string]string{
 	"provider_connection_budget": "internal/modules/integrations",
 	"provider_run":               "internal/modules/integrations",
 	"provider_run_reservation":   "internal/modules/integrations",
-	"finance_external_customer":  "internal/modules/finance",
-	"finance_customer_link":      "internal/modules/finance",
-	"finance_invoice":            "internal/modules/finance",
-	"finance_payment":            "internal/modules/finance",
-	"signal":                     "internal/modules/signals",
-	"signal_resolution":          "internal/modules/signals",
+	// The purchased VALUES, owned by people rather than by integrations
+	// (migration 0219 says so in the DDL): the domain decides what a claim
+	// means and how it renders, while integrations owns the run that bought
+	// it. That split is what lets a person page show a bought email beside a
+	// canonical one and say which is which.
+	"person_provider_claim":     "internal/modules/people",
+	"finance_external_customer": "internal/modules/finance",
+	"finance_customer_link":     "internal/modules/finance",
+	"finance_invoice":           "internal/modules/finance",
+	"finance_payment":           "internal/modules/finance",
+	"signal":                    "internal/modules/signals",
+	"signal_resolution":         "internal/modules/signals",
 	// collections
 	"list":        "internal/modules/collections",
 	"list_member": "internal/modules/collections",
@@ -384,6 +390,9 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/activities:embedding":                 "the ADR-0072 noise redaction drops the vectors built from the mail it just nulled, in the same transaction — an embedding of redacted text is that text in another shape, and leaving it would let a similarity probe reconstruct what the workspace decided not to retain. Same obligation as the privacy waiver above, at the other place content is destroyed; the embed lane cannot do it itself because it never observes an archived row",
 	"internal/modules/privacy:raw_capture":                  "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
 	"internal/modules/privacy:person_profile_field":         "Art. 17 and the retention sweep delete the subject's enrichment sidecar inside the single erasure transaction, beside field_provenance and ai_feedback: anonymize-in-place leaves the person row standing, so nothing cascades here, and the row holds the subject's title and employer with the verbatim sentence naming them",
+	"internal/modules/privacy:person_provider_claim":        "Art. 17 and the retention sweep delete what a licensed data provider asserted about the subject, inside the single erasure transaction and for the same reason person_profile_field is here: anonymize-in-place leaves the person row standing, so nothing cascades, and a claim IS the purchased value — a bought email and employer would otherwise sit on the page beside an \"Erased Subject\" name. Deleted rather than nulled, because a claim nulled in place is a row asserting something about a person nobody may now assert anything about",
+	"internal/modules/privacy:provider_run":                 "the same two paths scrub the runs that bought that data, using storekit.ScrubProviderRunColumns — the SAME six-column clause integrations' own delete-data action uses, shared precisely because the two drifted once and the erasure cleaned less than the settings toggle did. It is a scrub and not a delete on purpose: the row stops naming anybody while the spend it records survives, because what the installation paid is an accounting fact about the installation once it names no one (PI-AC-8), and that is what keeps a spend history stable across an erasure",
+	"internal/modules/people:provider_run":                  "the person merge relinks the merged-away record's runs onto the survivor, and must decide the collision between two live runs where the unique index admits only one. It happens inside the merge transaction because that is the only place both person ids and both sides' run states are known at once; integrations cannot see a merge and people cannot hand the decision over mid-transaction. The write touches person_id, state and input_fingerprint only — never a reservation, never a credit — and the rule it enforces is integrations' own: a run past `queued` may have been paid for, so it is re-fingerprinted out of the live-run index rather than cancelled, the same idiom markSkipped uses",
 	"internal/modules/privacy:ai_feedback":                  "Art. 17 deletes the subject's correction ledger inside the single erasure transaction, exactly as it does field_provenance beside it: the ledger holds a human-typed value ABOUT the subject, and a claim nobody may now assert anything about has nothing left to suppress",
 	"internal/modules/privacy:ai_call_payload":              "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
