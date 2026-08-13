@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -101,6 +102,11 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 	}
 	var stored BlockedDomain
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The before-image is read first, because "who unblocked this, and what
+		// was it before" is the question this surface exists to answer. Without
+		// it admission_source says "human" but never WHICH human, and
+		// admission_at is overwritten on every change.
+		before := beforeAdmissionImage(ctx, tx, base)
 		if err := setDomainAdmissionTx(ctx, tx, base, admission, reason, AdmissionSourceHuman); err != nil {
 			return err
 		}
@@ -110,20 +116,29 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 			// nothing would ever ask again on its own, and an admin who unblocked
 			// McKinsey because they became a client would watch nothing happen.
 			//
-			// The owner is stamped from the acting human: triage may not mint rows
-			// for a domain nobody is accountable for, and a machine-suppressed row
-			// has no owner at all.
 			// The owner is stamped from the acting human: triage may not mint
 			// rows for a domain nobody is accountable for, and a
-			// machine-suppressed row has no owner at all.
-			actor, _ := principal.Actor(ctx)
-			if err := reopenAdmittedDomainTx(ctx, tx, base, actor.UserID); err != nil {
+			// machine-suppressed row has no owner at all. An agent acting for
+			// somebody carries that authority in OnBehalfOf, so the same
+			// resolution capture uses applies here — the row records the human
+			// who is answerable, never the machine that typed it.
+			if err := reopenAdmittedDomainTx(ctx, tx, base, actingHuman(ctx)); err != nil {
 				return err
 			}
 		}
 		var err error
 		stored, err = readDomainAdmissionTx(ctx, tx, base)
-		return err
+		if err != nil {
+			return err
+		}
+		// Audit-only (EVT-NOEVT-3): capture posture is not a record change the
+		// event stream carries, but it IS a decision somebody must answer for.
+		_, auditErr := storekit.Audit(ctx, tx, "update", entityOrganization, stored.ID, before,
+			map[string]any{
+				auditKeyDomain: stored.Domain, "admission": stored.Admission,
+				"admission_reason": stored.Reason, "admission_source": stored.Source,
+			})
+		return auditErr
 	})
 	if err != nil {
 		return BlockedDomain{}, err
@@ -236,6 +251,15 @@ func admitClaimedDomainTx(ctx context.Context, tx pgx.Tx, domain string) error {
 	if !ok {
 		return nil
 	}
+	// Only a PERSON's claim lifts a refusal. Creating an organization is a 🟢
+	// auto-execute agent tool, so stamping the source as human unconditionally
+	// would let an agent launder a machine decision into one the sticky rule
+	// then protects for ever — defeating the guard by writing the word it
+	// checks for. An agent's claim creates the company and leaves the standing
+	// refusal exactly as the human left it.
+	if actingHuman(ctx) == nil || !claimedByHuman(ctx) {
+		return nil
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE organization_domain_disposition
 		   SET admission = $2, admission_source = $3, admission_at = now(),
@@ -251,6 +275,9 @@ func admitClaimedDomainTx(ctx context.Context, tx pgx.Tx, domain string) error {
 // BlockedDomain is one domain's standing admission decision, as the admin list
 // shows it.
 type BlockedDomain struct {
+	// ID is the disposition row, which the audit trail names. Not on the wire:
+	// the domain is what an operator identifies a decision by.
+	ID             ids.UUID
 	Domain         string
 	Admission      string
 	Reason         string
@@ -272,7 +299,7 @@ func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedD
 	var out []BlockedDomain
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT domain, admission, COALESCE(admission_reason, ''),
+			SELECT id, domain, admission, COALESCE(admission_reason, ''),
 			       COALESCE(admission_source, ''), admission_at, organization_id
 			  FROM organization_domain_disposition
 			 WHERE admission IS NOT NULL
@@ -281,20 +308,45 @@ func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedD
 		if err != nil {
 			return fmt.Errorf("people: listing domain admissions: %w", err)
 		}
-		defer rows.Close()
+		// Collected BEFORE any per-row visibility query: the rows cursor holds
+		// the connection, and a second query on the same transaction while it
+		// is open answers "conn busy".
+		var orgIDs []*ids.UUID
 		for rows.Next() {
 			var d BlockedDomain
 			var orgID *ids.UUID
-			if err := rows.Scan(&d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID); err != nil {
+			if err := rows.Scan(&d.ID, &d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID); err != nil {
+				rows.Close()
 				return fmt.Errorf("people: reading a domain admission: %w", err)
 			}
-			if orgID != nil {
-				typed := ids.From[ids.OrganizationKind](*orgID)
-				d.OrganizationID = &typed
-			}
 			out = append(out, d)
+			orgIDs = append(orgIDs, orgID)
 		}
-		return rows.Err()
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("people: listing domain admissions: %w", err)
+		}
+		for i, orgID := range orgIDs {
+			if orgID == nil {
+				continue
+			}
+			// The company id is withheld unless the caller could read that
+			// company. An organization captured from mail is owner-PRIVATE
+			// until a human promotes it, and that privacy does not yield to
+			// row_scope=all — so returning the id here would hand every
+			// colleague a pointer to a record the record's own endpoint
+			// correctly 404s. Same rule, and same VisibleTo check, as the
+			// duplicate-domain refusal in organization_domains.go.
+			visible, verr := auth.VisibleTo(ctx, tx, entityOrganization, *orgID)
+			if verr != nil {
+				return verr
+			}
+			if visible {
+				typed := ids.From[ids.OrganizationKind](*orgID)
+				out[i].OrganizationID = &typed
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -309,19 +361,37 @@ func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedD
 // somebody else is deciding about, and it leaves a SETTLED question alone: a
 // domain that already has its company needs no second answer, and the people on
 // it are already employed there.
-func reopenAdmittedDomainTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) error {
+func reopenAdmittedDomainTx(ctx context.Context, tx pgx.Tx, domain string, ownerID *ids.UUID) error {
+	// owner_id is a POINTER, not a zero uuid: the column has a foreign key to
+	// app_user, so a forged zero would fail the constraint rather than record
+	// "nobody". NULL is the honest spelling of an owner we do not have.
 	if _, err := tx.Exec(ctx, `
 		UPDATE organization_domain_disposition
 		   SET pending_reason = NULL,
 		       attempts = 0,
 		       next_attempt_at = now(),
-		       owner_id = COALESCE(owner_id, NULLIF($2, '00000000-0000-0000-0000-000000000000'::uuid)),
+		       owner_id = COALESCE(owner_id, $2),
 		       updated_at = now()
 		 WHERE domain = $1 AND admission = $3 AND status = $4`,
 		domain, ownerID, DomainAdmitted, DomainPending); err != nil {
 		return fmt.Errorf("people: re-opening the company question for %s: %w", domain, err)
 	}
 	return nil
+}
+
+// beforeAdmissionImage is the decision this write is about to replace, or nil
+// when the domain carried none. A read that fails is not worth failing the
+// write over — the audit row is better with an unknown before-image than the
+// admin's decision refused over a missing one.
+func beforeAdmissionImage(ctx context.Context, tx pgx.Tx, domain string) map[string]any {
+	var admission, reason, source string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(admission, ''), COALESCE(admission_reason, ''), COALESCE(admission_source, '')
+		  FROM organization_domain_disposition WHERE domain = $1`, domain).
+		Scan(&admission, &reason, &source); err != nil || admission == "" {
+		return nil
+	}
+	return map[string]any{"admission": admission, "admission_reason": reason, "admission_source": source}
 }
 
 // readDomainAdmissionTx reads back what was actually stored, which is not what
@@ -331,10 +401,10 @@ func readDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain string) (Block
 	var d BlockedDomain
 	var orgID *ids.UUID
 	err := tx.QueryRow(ctx, `
-		SELECT domain, COALESCE(admission, ''), COALESCE(admission_reason, ''),
+		SELECT id, domain, COALESCE(admission, ''), COALESCE(admission_reason, ''),
 		       COALESCE(admission_source, ''), admission_at, organization_id
 		  FROM organization_domain_disposition WHERE domain = $1`, domain).
-		Scan(&d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID)
+		Scan(&d.ID, &d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID)
 	if err != nil {
 		return BlockedDomain{}, fmt.Errorf("people: reading back the admission of %s: %w", domain, err)
 	}
@@ -343,4 +413,33 @@ func readDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain string) (Block
 		d.OrganizationID = &typed
 	}
 	return d, nil
+}
+
+// actingHuman is the app_user answerable for this call, or nil when none is —
+// an agent or connector carries that authority in OnBehalfOf, a human call in
+// UserID, and a system principal has neither.
+func actingHuman(ctx context.Context) *ids.UUID {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return nil
+	}
+	owner := actor.OnBehalfOf
+	if owner.IsZero() {
+		owner = actor.UserID
+	}
+	if owner.IsZero() {
+		return nil
+	}
+	return &owner
+}
+
+// claimedByHuman reports whether this call is a person acting directly, rather
+// than an agent or connector acting on their authority.
+//
+// The distinction matters only where a decision becomes STICKY: an agent may do
+// plenty on somebody's behalf, but it may not record a judgement that later
+// machine decisions are then forbidden to revisit.
+func claimedByHuman(ctx context.Context) bool {
+	actor, ok := principal.Actor(ctx)
+	return ok && actor.OnBehalfOf.IsZero() && !actor.UserID.IsZero()
 }

@@ -12,12 +12,14 @@ package compose
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
@@ -25,6 +27,9 @@ import (
 // installation's refusals fit on one screen-scroll, small enough that the query
 // cannot become a table walk.
 const blockedDomainPageSize = 200
+
+// maxBlockedDomainReason mirrors the contract's maxLength for the reason field.
+const maxBlockedDomainReason = 500
 
 type blockedDomainHandlers struct {
 	people *people.Store
@@ -57,6 +62,28 @@ func (h blockedDomainHandlers) SetBlockedDomain(w http.ResponseWriter, r *http.R
 	var body crmcontracts.SetBlockedDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httperr.Write(w, r, httperr.Validation("body", "invalid_json", "request body is not valid JSON"))
+		return
+	}
+	// Shape is the transport's job, and it is checked HERE so a caller learns
+	// which field is wrong. The store re-checks both — it is reachable from
+	// other callers — but its errors are internal ones, and a 500 for a missing
+	// reason tells an admin nothing they can act on.
+	if strings.TrimSpace(body.Reason) == "" {
+		httperr.Write(w, r, httperr.Validation("reason", "required",
+			"a blocked domain needs a reason somebody can review"))
+		return
+	}
+	// The contract says maxLength: 500 and the generated type does not enforce
+	// it. Unchecked, one caller stores a megabyte per domain and every reader
+	// of the list is served it back in full.
+	if len([]rune(body.Reason)) > maxBlockedDomainReason {
+		httperr.Write(w, r, httperr.Validation("reason", "too_long",
+			"a reason is at most 500 characters"))
+		return
+	}
+	if _, ok := freemail.Hostname(body.Domain); !ok {
+		httperr.Write(w, r, httperr.Validation("domain", "invalid",
+			"that is not a domain name"))
 		return
 	}
 	// The store answers with what it STORED, not what was sent: it normalizes

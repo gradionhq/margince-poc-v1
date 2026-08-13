@@ -659,3 +659,96 @@ func TestTheBlockedDomainListShowsWhatDecidedEachRefusal(t *testing.T) {
 		t.Errorf("saasweekly source = %q, want verdict — an automatic refusal must be distinguishable", bySource["saasweekly.example"])
 	}
 }
+
+// Re-opening a domain stamps the human who is ANSWERABLE for it, and stamps
+// nobody when there is nobody. owner_id has a foreign key to app_user, so a
+// forged zero would fail the constraint rather than record "unknown" — and a
+// domain with no owner is one triage may not mint rows for, which is the state
+// a machine suppression leaves behind.
+func TestUnblockingStampsTheHumanAnswerableForTheDomain(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "ownerless.example", "judged a newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+	// A machine refusal records no owner: no human asked for it.
+	if owner := e.dispositionOwner(ctx, t, "ownerless.example"); owner != nil {
+		t.Fatalf("owner = %v after a machine refusal, want none", owner)
+	}
+
+	if _, err := e.store.SetDomainAdmission(ctx, "ownerless.example", DomainAdmitted,
+		"they turned out to be a customer"); err != nil {
+		t.Fatalf("unblock: %v", err)
+	}
+	owner := e.dispositionOwner(ctx, t, "ownerless.example")
+	if owner == nil {
+		t.Fatal("unblocking recorded no owner; triage refuses to mint rows for a domain nobody is accountable for")
+	}
+	if *owner != e.rep {
+		t.Errorf("owner = %v, want the acting human %v", *owner, e.rep)
+	}
+}
+
+// dispositionOwner reads who is accountable for a domain, if anyone.
+func (e *dedupeEnv) dispositionOwner(ctx context.Context, t *testing.T, domain string) *ids.UUID {
+	t.Helper()
+	var owner *ids.UUID
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT owner_id FROM organization_domain_disposition WHERE domain = $1`, domain).Scan(&owner)
+	}); err != nil {
+		t.Fatalf("reading the owner of %s: %v", domain, err)
+	}
+	return owner
+}
+
+// The blocked-domain list may not hand out a pointer to a record the caller
+// cannot read. An organization captured from mail is owner-PRIVATE until a
+// human promotes it, and that privacy does not yield to row_scope=all — so
+// returning its id here would leak what the record's own endpoint correctly
+// 404s, to every colleague with organization:read.
+func TestTheBlockedDomainListWithholdsAnInvisibleCompany(t *testing.T) {
+	e := setupDedupe(t)
+	owner := e.as()
+
+	// One human's captured company on a domain that then carries a decision.
+	e.openTriage(owner, t, "anna@private.example", "Anna Weber", "private.example")
+	if _, err := e.store.ResolveDomainTriage(owner, ResolveDomainTriageInput{
+		Domain: "private.example", Status: DomainCompany, Source: DomainSourceSiteRead,
+		SeedURL: TriageSeedURL("private.example"), Evidence: "the site names a company",
+		DossierName: "Private Co",
+	}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if _, err := e.store.SetDomainAdmission(owner, "private.example", DomainAdmitted,
+		"a real customer"); err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+
+	// The owner sees the company they captured.
+	mine, err := e.store.ListDomainAdmissions(owner, 50)
+	if err != nil {
+		t.Fatalf("list as the owner: %v", err)
+	}
+	if len(mine) != 1 || mine[0].OrganizationID == nil {
+		t.Fatalf("the owner's list = %+v, want their own company named", mine)
+	}
+
+	// A colleague sees the decision — that is the point of the list — but not
+	// a pointer to the record itself.
+	theirs, err := e.store.ListDomainAdmissions(e.asOther(), 50)
+	if err != nil {
+		t.Fatalf("list as a colleague: %v", err)
+	}
+	if len(theirs) != 1 {
+		t.Fatalf("the colleague's list = %+v, want the decision to be visible", theirs)
+	}
+	if theirs[0].OrganizationID != nil {
+		t.Fatal("the list handed a colleague the id of an owner-private company")
+	}
+	if theirs[0].Domain != "private.example" || theirs[0].Reason == "" {
+		t.Fatalf("the colleague's entry = %+v, want the decision and its reason", theirs[0])
+	}
+}
