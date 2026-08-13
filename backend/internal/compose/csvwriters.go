@@ -5,12 +5,14 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -144,7 +146,7 @@ func (w *csvWriters) reconcile(ctx context.Context, id ids.UUID, row migration.R
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
-	changed, err := changedFields(current, row.Fields)
+	changed, err := changedFields(current, textFields(row.Fields))
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
@@ -160,18 +162,38 @@ func (w *csvWriters) reconcile(ctx context.Context, id ids.UUID, row migration.R
 	return migration.EnsureResult{Disclosure: fmt.Sprintf("row %s: %d field(s) rewritten from the file", row.ExternalID, len(changed))}, nil
 }
 
-func (w *csvWriters) read(ctx context.Context, id ids.UUID) (any, error) {
+// read answers the stored record as its own JSON — the surface changedFields
+// compares against, and the same shape the contract serves for it.
+func (w *csvWriters) read(ctx context.Context, id ids.UUID) ([]byte, error) {
 	switch w.object {
 	case migration.ObjectLead:
-		return w.people.GetLead(ctx, ids.From[ids.LeadKind](id), storekit.LiveOnly)
+		lead, err := w.people.GetLead(ctx, ids.From[ids.LeadKind](id), storekit.LiveOnly)
+		if err != nil {
+			return nil, err
+		}
+		return encodeRecord(lead)
 	case migration.ObjectOrganization:
-		return w.people.GetOrganization(ctx, ids.From[ids.OrganizationKind](id), storekit.LiveOnly)
+		org, err := w.people.GetOrganization(ctx, ids.From[ids.OrganizationKind](id), storekit.LiveOnly)
+		if err != nil {
+			return nil, err
+		}
+		return encodeRecord(org)
 	default:
 		return nil, fmt.Errorf("import: %q is not an importable object", w.object)
 	}
 }
 
-func (w *csvWriters) apply(ctx context.Context, id ids.UUID, changed map[string]any) error {
+// encodeRecord renders one stored record as JSON. Generic so neither wire type
+// is widened to an empty interface on the way through.
+func encodeRecord[T crmcontracts.Lead | crmcontracts.Organization](record T) ([]byte, error) {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return nil, fmt.Errorf("import: reading the stored record: %w", err)
+	}
+	return encoded, nil
+}
+
+func (w *csvWriters) apply(ctx context.Context, id ids.UUID, changed map[string]string) error {
 	switch w.object {
 	case migration.ObjectLead:
 		_, err := w.people.UpdateLead(ctx, ids.From[ids.LeadKind](id), leadUpdateFrom(changed))
@@ -192,7 +214,7 @@ func (w *csvWriters) apply(ctx context.Context, id ids.UUID, changed map[string]
 var errImportReplayed = errors.New("import: the record replayed under its natural key")
 
 func (w *csvWriters) createLead(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	in := leadCreateFrom(row.Fields, csvSourceSystem(), row.ExternalID, w.provenanceOf(row.ExternalID))
+	in := leadCreateFrom(textFields(row.Fields), csvSourceSystem(), row.ExternalID, w.provenanceOf(row.ExternalID))
 	err := w.land(ctx, row.ExternalID, func(tx pgx.Tx) (ids.UUID, error) {
 		lead, created, err := w.people.CreateLeadTx(ctx, tx, in)
 		if err != nil {
@@ -213,7 +235,7 @@ func (w *csvWriters) createLead(ctx context.Context, row migration.Row) (migrati
 }
 
 func (w *csvWriters) createOrganization(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	in := organizationCreateFrom(row.Fields, w.provenanceOf(row.ExternalID))
+	in := organizationCreateFrom(textFields(row.Fields), w.provenanceOf(row.ExternalID))
 	if in.DisplayName == "" {
 		return migration.EnsureResult{Skipped: true, SkipReason: "the mapped display_name is empty, so the row names no company"}, nil
 	}

@@ -67,46 +67,48 @@ func importTargets(ctx context.Context, catalog fieldcatalog.Reader, object stri
 	return targets, nil
 }
 
-// changedFields reports which mapped values differ from what the record
-// already holds.
+// changedFields reports which mapped values differ from what the stored record
+// already holds. encoded is the record's own JSON.
 //
-// The comparison goes through the record's own JSON rather than a hand-written
-// per-field comparator: the wire shape and the mapping targets are the same
-// vocabulary, so a field added to the contract is compared automatically, while
-// a comparator would keep compiling and quietly stop noticing it.
-func changedFields(record any, mapped map[string]any) (map[string]any, error) {
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return nil, fmt.Errorf("import: reading the stored record: %w", err)
-	}
-	var current map[string]any
+// The comparison goes through that JSON rather than a hand-written per-field
+// comparator: the wire shape and the mapping targets are the same vocabulary,
+// so a field added to the contract is compared automatically, while a
+// comparator would keep compiling and quietly stop noticing it.
+func changedFields(encoded []byte, mapped map[string]string) (map[string]string, error) {
+	var current map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &current); err != nil {
 		return nil, fmt.Errorf("import: reading the stored record: %w", err)
 	}
 
-	changed := make(map[string]any, len(mapped))
+	changed := make(map[string]string, len(mapped))
 	for field, incoming := range mapped {
-		if !sameValue(current[field], incoming) {
+		if textOf(current[field]) != strings.TrimSpace(incoming) {
 			changed[field] = incoming
 		}
 	}
 	return changed, nil
 }
 
-// sameValue compares a stored value with an imported one as text. Every value
-// a delimited file can carry arrives as text, so text is the only comparison
-// that can be made without inventing a type the file never declared.
-func sameValue(stored, incoming any) bool {
-	if stored == nil {
-		return false
+// textOf renders one stored JSON value as the text a file would have carried.
+// Every value a delimited file can hold arrives as text, so text is the only
+// comparison that can be made without inventing a type the file never declared.
+// An absent field renders empty, which no non-empty import value equals.
+func textOf(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
 	}
-	return strings.TrimSpace(fmt.Sprint(stored)) == strings.TrimSpace(fmt.Sprint(incoming))
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		return strings.TrimSpace(asString)
+	}
+	// A number, bool or object: its literal JSON is its text.
+	return strings.TrimSpace(string(raw))
 }
 
 // leadCreateFrom builds the create input for one mapped row. Only mapped
 // fields are set: an absent column leaves the field absent rather than
 // clearing it, because the file said nothing about it.
-func leadCreateFrom(fields map[string]any, sourceSystem, externalID, source string) people.CreateLeadInput {
+func leadCreateFrom(fields map[string]string, sourceSystem, externalID, source string) people.CreateLeadInput {
 	in := people.CreateLeadInput{
 		Status:       leadStatusNew,
 		SourceSystem: &sourceSystem,
@@ -123,7 +125,7 @@ func leadCreateFrom(fields map[string]any, sourceSystem, externalID, source stri
 }
 
 // leadUpdateFrom builds the patch for the fields that actually differ.
-func leadUpdateFrom(changed map[string]any) people.UpdateLeadInput {
+func leadUpdateFrom(changed map[string]string) people.UpdateLeadInput {
 	return people.UpdateLeadInput{
 		FullName:     importString(changed, "full_name"),
 		Email:        importString(changed, "email"),
@@ -133,9 +135,9 @@ func leadUpdateFrom(changed map[string]any) people.UpdateLeadInput {
 	}
 }
 
-func organizationCreateFrom(fields map[string]any, source string) people.CreateOrganizationInput {
+func organizationCreateFrom(fields map[string]string, source string) people.CreateOrganizationInput {
 	in := people.CreateOrganizationInput{
-		DisplayName:  strings.TrimSpace(fmt.Sprint(valueOr(fields, "display_name", ""))),
+		DisplayName:  strings.TrimSpace(fields["display_name"]),
 		Source:       source,
 		CustomFields: customFieldsFrom(fields),
 	}
@@ -146,7 +148,7 @@ func organizationCreateFrom(fields map[string]any, source string) people.CreateO
 	return in
 }
 
-func organizationUpdateFrom(changed map[string]any) people.UpdateOrganizationInput {
+func organizationUpdateFrom(changed map[string]string) people.UpdateOrganizationInput {
 	return people.UpdateOrganizationInput{
 		DisplayName:  importString(changed, "display_name"),
 		LegalName:    importString(changed, "legal_name"),
@@ -161,7 +163,7 @@ func organizationUpdateFrom(changed map[string]any) people.UpdateOrganizationInp
 // customFieldsFrom carries the cf_* targets through to the stores' own
 // custom-field handling, which drops anything the active catalog does not
 // admit. Naming them here rather than filtering would duplicate that catalog.
-func customFieldsFrom(fields map[string]any) map[string]any {
+func customFieldsFrom(fields map[string]string) map[string]any {
 	var out map[string]any
 	for name, value := range fields {
 		if !strings.HasPrefix(name, customFieldColumnPrefix) {
@@ -179,21 +181,25 @@ func customFieldsFrom(fields map[string]any) map[string]any {
 // not carry it. A nil is "the file said nothing", never "the file said empty":
 // the source drops blank values before they reach here, so an empty column
 // cannot silently erase a value somebody entered by hand.
-func importString(fields map[string]any, name string) *string {
+func importString(fields map[string]string, name string) *string {
 	value, ok := fields[name]
 	if !ok {
 		return nil
 	}
-	s := strings.TrimSpace(fmt.Sprint(value))
-	if s == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return nil
 	}
-	return &s
+	return &trimmed
 }
 
-func valueOr(fields map[string]any, name string, fallback any) any {
-	if v, ok := fields[name]; ok {
-		return v
+// textFields narrows the engine's JSON-shaped row to the text a delimited file
+// actually carried. Every value in it came from a CSV cell, so the map the rest
+// of this file works with says so in its type.
+func textFields(fields map[string]any) map[string]string {
+	out := make(map[string]string, len(fields))
+	for name, value := range fields {
+		out[name] = strings.TrimSpace(fmt.Sprint(value))
 	}
-	return fallback
+	return out
 }

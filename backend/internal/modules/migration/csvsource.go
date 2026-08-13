@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -188,10 +189,12 @@ func (s *CSVSource) walk(ctx context.Context, visit func(line int, record []stri
 		return fmt.Errorf("import source %q: %w", s.key, err)
 	}
 	defer func() {
-		// The read is finished either way; a close error here cannot change
-		// what was already parsed, and shadowing the parse result with it
-		// would report the wrong failure.
-		_ = body.Close()
+		// A close error cannot change what was already parsed, and shadowing
+		// the parse result with it would report the wrong failure — so it is
+		// logged rather than returned, and never dropped.
+		if cerr := body.Close(); cerr != nil {
+			slog.WarnContext(ctx, "closing the import source", "key", s.key, "err", cerr)
+		}
 	}()
 
 	cr := csv.NewReader(body)

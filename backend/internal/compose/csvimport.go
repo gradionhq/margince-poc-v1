@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -422,7 +423,11 @@ func readImportUpload(w http.ResponseWriter, r *http.Request) (string, []byte, e
 	if err != nil {
 		return "", nil, httperr.Validation("file", "missing", "Attach the file to import as `file`.")
 	}
-	defer func() { _ = file.Close() }()
+	defer func(ctx context.Context) {
+		if cerr := file.Close(); cerr != nil {
+			slog.WarnContext(ctx, "closing the uploaded import part", "err", cerr)
+		}
+	}(r.Context())
 
 	body, err := readAllUpload(file)
 	if err != nil {
