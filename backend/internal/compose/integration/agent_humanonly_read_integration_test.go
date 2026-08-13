@@ -67,6 +67,9 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 		// The pre-flip export bundle: a full-estate read, audit log
 		// included, in a single GET.
 		"/v1/overlay/export",
+		// The domains this installation refuses a company, and why: capture
+		// posture, and an inventory of who the workspace corresponds with.
+		"/v1/capture/blocked-domains",
 	} {
 		t.Run(route, func(t *testing.T) {
 			var problem struct {

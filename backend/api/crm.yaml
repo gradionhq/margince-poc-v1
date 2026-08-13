@@ -6240,6 +6240,71 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  # ------------- /capture/blocked-domains (ADR-0072) -----------------------
+  # The domains this installation refuses a company. A vendor the business
+  # merely USES has a real corporate website, so every piece of evidence a crawl
+  # can gather says "company" — only a standing decision says otherwise, which
+  # is why the refusal lives on the domain rather than on any sender or read.
+  /capture/blocked-domains:
+    get:
+      tags: [Capture]
+      operationId: listBlockedDomains
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The domains refused a company, and why.
+      description: |
+        Every domain carrying a standing admission decision: the vendors and bulk senders the
+        system refused a company, and the ones a human deliberately let back in. Each entry says
+        WHAT decided it — a model verdict, a heuristic, or a person — so an operator can tell an
+        automatic refusal from somebody's deliberate one.
+
+        Every human role may read the list; changing an entry demands `organization:update`
+        (admin/ops). Human-only: this is capture posture, not record data.
+      responses:
+        '200':
+          description: The workspace's blocked and admitted domains.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockedDomainListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Capture]
+      operationId: setBlockedDomain
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Block a domain, or unblock one (admin/ops).
+      description: |
+        `admission: suppressed` refuses the domain a company; `admission: admitted` lets it in
+        and KEEPS it in — a human decision is sticky, so no later verdict or heuristic may
+        re-refuse a domain a person deliberately admitted.
+
+        Unblocking re-opens the company question rather than merely clearing a flag: the domain
+        was already asked and answered, so nothing would ask again on its own. The disposition
+        returns to pending with its attempts reset, the triage sweep picks it up, and the people
+        already captured on that domain get their employment edges when the company lands. That
+        is the McKinsey case — a newsletter publisher that became a client.
+
+        Idempotent on the domain, which is normalized to its registrable form. Audit-only write
+        (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetBlockedDomainRequest' }
+            examples:
+              blockAVendor: { value: { domain: 'expensify.example', admission: suppressed, reason: 'a tool we use, not a customer' } }
+              unblockAClient: { value: { domain: 'mckinsey.example', admission: admitted, reason: 'they became a client' } }
+      responses:
+        '200':
+          description: The stored decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockedDomain' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /capture/consumer-mail-baseline:
     get:
       tags: [Capture]
@@ -11553,6 +11618,52 @@ components:
       properties:
         auto_enrich: { type: boolean, description: Toggle captured-organization auto-enrichment. }
 
+    BlockedDomain:
+      type: object
+      description: |
+        One domain carrying a standing admission decision. `suppressed` refuses it a company —
+        a vendor or bulk sender the business does not sell to — while `admitted` is a human
+        deliberately letting one in, which no later verdict may undo.
+      required: [domain, admission, reason, source, decided_at]
+      properties:
+        domain: { type: string, description: 'The registrable domain the decision is about.' }
+        admission:
+          type: string
+          enum: [suppressed, admitted]
+          description: '`suppressed` — never a company. `admitted` — allowed, and sticky against later machine refusals.'
+        reason: { type: string, description: 'One sentence an operator can act on: why this domain was refused or let in.' }
+        source:
+          type: string
+          enum: [verdict, heuristic, human]
+          description: 'What decided it. `human` decisions outrank every machine one.'
+        decided_at: { type: string, format: date-time }
+        organization_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'The company on this domain, when one exists — an admitted domain usually has one.'
+    SetBlockedDomainRequest:
+      type: object
+      required: [domain, admission, reason]
+      properties:
+        domain: { type: string, description: 'A mail domain; normalized to its registrable form before it is stored.' }
+        admission: { type: string, enum: [suppressed, admitted] }
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 'Why. Required, because a refusal nobody can explain is one nobody can review.'
+    BlockedDomainListResponse:
+      type: object
+      required: [data, total]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/BlockedDomain' } }
+        total:
+          type: integer
+          description: |
+            How many decisions exist, which is not how many are returned. Refusals accumulate
+            automatically from every bulk-sender verdict, so a list that quietly stopped at its
+            page size would tell an operator their domain was never refused when it was.
     ConsumerMailDomain:
       type: object
       description: |

@@ -29,6 +29,9 @@ type dedupeEnv struct {
 	store *Store
 	ws    ids.UUID
 	rep   ids.UUID
+	// otherRep is a second human in the same workspace, seeded on first use by
+	// other(). Zero until a test asks for a colleague.
+	otherRep ids.UUID
 }
 
 func setupDedupe(t *testing.T) *dedupeEnv {
@@ -65,6 +68,15 @@ func setupDedupe(t *testing.T) *dedupeEnv {
 	if _, err := owner.Exec(ctx,
 		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
 		e.rep, e.ws, "rep-"+e.rep.String()+"@dd.test"); err != nil {
+		t.Fatal(err)
+	}
+	// A second human in the same workspace. Seeded here rather than on demand:
+	// a lazy insert would open a transaction inside whichever one the test was
+	// already running, and answer "conn busy".
+	e.otherRep = ids.NewV7()
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Colleague')`,
+		e.otherRep, e.ws, "other-"+e.otherRep.String()+"@dd.test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,4 +313,26 @@ func TestDedupeOrganizationFuzzyTierMeetsAcrossLegalSuffixes(t *testing.T) {
 	if unrelated.Decision != DecisionNoMatch {
 		t.Fatalf("decision = %s, want no_match", unrelated.Decision)
 	}
+}
+
+// asOther is a SECOND human in the same workspace, with the same grants and the
+// same row scope. It exists for the one thing a single identity cannot show:
+// that owner-private capture holds even against a colleague who may read
+// everything the row scope admits.
+func (e *dedupeEnv) asOther() context.Context {
+	other := e.otherRep
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + other.String(), UserID: other,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"person":       {Create: true, Read: true, Update: true},
+				"organization": {Create: true, Read: true, Update: true},
+				"relationship": {Create: true, Read: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	})
 }

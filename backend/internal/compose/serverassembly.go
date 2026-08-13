@@ -134,6 +134,7 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
 	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)

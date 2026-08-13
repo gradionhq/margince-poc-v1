@@ -81,6 +81,7 @@ type Server struct {
 	ownDomainHandlers
 	installationSettingsHandlers
 	consumerMailDomainHandlers
+	blockedDomainHandlers
 	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
