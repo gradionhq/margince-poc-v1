@@ -194,9 +194,26 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 		return crmcontracts.Activity{}, err
 	}
 
+	// The sender's own sign-off, appended by the SERVER rather than written by
+	// the model or typed by the rep.
+	//
+	// Every drafting prompt in this product tells the model not to write one —
+	// "the composer adds the sender's own; a name you guessed would go out over
+	// the wrong signature" — and until now nothing did, so every message went
+	// out unsigned and the instruction described a step that did not exist.
+	//
+	// Before deliverability, so the signature sits under the message and ABOVE
+	// the unsubscribe footer. A sign-off below the legal footer reads as part of
+	// it, which is the arrangement every mail client's own "signature before
+	// quoted text" setting exists to avoid.
+	signed, err := s.signedBody(ctx, in.Body)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	// Deliverability is derived here, after the gates, so both transports
 	// get it and neither can send marketing mail without it.
-	derived, err := s.deliverability(ctx, in.Body, in.Recipients, in.ConsentPurpose)
+	derived, err := s.deliverability(ctx, signed, in.Recipients, in.ConsentPurpose)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}

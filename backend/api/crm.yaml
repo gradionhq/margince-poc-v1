@@ -10296,6 +10296,55 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/email-signature:
+    get:
+      tags: [People]
+      operationId: getMyEmailSignature
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: The sign-off appended to mail you send.
+      description: |
+        Always the CALLER's own, never anybody else's. A signature is the words a
+        person signs their name with, and no seat — including admin — reads or
+        edits another member's through this API.
+
+        A member who has never written one has no row, and that is not an error:
+        `body` is empty and mail goes out unsigned, which is what happens today
+        for everyone.
+      responses:
+        '200':
+          description: The caller's signature.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailSignature' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [People]
+      operationId: saveMyEmailSignature
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Write or clear your own sign-off.
+      description: |
+        An empty `body` CLEARS the signature — a member emptying the field means
+        "send my mail unsigned", not "leave what was there".
+
+        Plain text only. The transport sends `text/plain` and the drafting
+        prompts forbid the model from writing a sign-off of its own, so what is
+        stored here is exactly what arrives under every message the caller sends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveEmailSignatureRequest' }
+      responses:
+        '200':
+          description: The saved signature.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailSignature' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/documents:
     get:
       tags: [Attachments]
@@ -15783,6 +15832,29 @@ components:
         stakeholders: { type: array, items: { $ref: '#/components/schemas/DealCoverageSeat' } }
         our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
         risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
+
+    EmailSignature:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: |
+            The sign-off appended below every message this member sends, plain text.
+            Empty means unsigned, which is the state of every member who has not
+            written one.
+        updated_at: { type: [string, 'null'], format: date-time }
+    SaveEmailSignatureRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          description: |
+            Plain text. Empty clears the signature. The cap is what a signature is
+            FOR — a name, a role, a way to reach the sender — and past it a block
+            is a document riding on every message.
 
     LinkedInAccount:
       type: object

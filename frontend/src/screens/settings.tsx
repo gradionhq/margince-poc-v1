@@ -38,6 +38,7 @@ import {
   Field,
   SegmentedControl,
   Skeleton,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -175,6 +176,7 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <IdentityCard />
+          <EmailSignatureCard />
           <PreferencesCard />
         </>
       );
@@ -652,6 +654,89 @@ function IdentityCard() {
  * theme survives a reload because that store persists it, and the language lasts
  * as long as the session does because the context is where it lives.
  */
+// The sign-off appended below every message this member sends.
+//
+// It lives beside identity rather than under the composer because it is who
+// the sender IS, not something about one mail: a signature written per message
+// would be a different signature every time, which is the opposite of what one
+// is for. Plain text, because the transport sends text/plain — markup here
+// would arrive as tags in the message.
+function EmailSignatureCard() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState<string | null>(null);
+  const signature = useQuery({
+    queryKey: ["me-email-signature"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/me/email-signature");
+      if (error) {
+        throwProblem(error);
+      }
+      return data ?? { body: "" };
+    },
+  });
+  const save = useMutation({
+    mutationFn: async (next: string) => {
+      const { data, error } = await api.PUT("/me/email-signature", {
+        body: { body: next },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (saved) => {
+      // Hand the edit back to the server's answer. It trims what it stores, so
+      // a member who typed trailing spaces would otherwise keep seeing them
+      // over a row that no longer has them — with Save still lit, offering to
+      // save a difference that exists only in the browser.
+      setBody(saved?.body ?? "");
+      queryClient.invalidateQueries({ queryKey: ["me-email-signature"] });
+    },
+  });
+
+  // The saved value until the member types; theirs from then on. Reading state
+  // straight from the query would discard every keystroke the moment a refetch
+  // landed underneath them.
+  const shown = body ?? signature.data?.body ?? "";
+
+  return (
+    <Card
+      title={t("settings.signature")}
+      sub={t("settings.signatureSub")}
+      actions={
+        <Button
+          small
+          disabled={save.isPending || shown === (signature.data?.body ?? "")}
+          onClick={() => save.mutate(shown)}
+        >
+          {save.isPending ? t("settings.signatureSaving") : t("record.save")}
+        </Button>
+      }
+    >
+      <div className="form-stack">
+        <Field label={t("settings.signatureLabel")}>
+          {(control) => (
+            <Textarea
+              {...control}
+              rows={5}
+              value={shown}
+              placeholder={t("settings.signaturePlaceholder")}
+              onChange={(event) => setBody(event.target.value)}
+            />
+          )}
+        </Field>
+        <p className="t-caption">{t("settings.signatureHint")}</p>
+        {save.isError && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {problemMessageOf(save.error, t)}
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function PreferencesCard() {
   const t = useT();
   const [theme] = useTheme();

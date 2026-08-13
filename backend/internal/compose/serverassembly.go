@@ -58,7 +58,12 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		WithPublicBooking(people.NewStore(InstallationDB(pool)), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 		// preference token behind the List-Unsubscribe URL.
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))})
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))}).
+		// The sender's own sign-off (core 0235). people owns the row because
+		// it owns the person the seat belongs to; activities appends it because
+		// it owns the one send. The edge is injected here rather than imported,
+		// like every other cross-module edge on this path.
+		WithSignature(people.NewStore(InstallationDB(pool)))
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture

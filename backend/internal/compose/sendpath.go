@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
 // SendPath is the deployment configuration the send path needs and cannot
@@ -128,6 +129,12 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 		WithSendAuthority(send.SendAuthority).
 		WithChannelReachability(send.ChannelRecipients).
 		WithRecipientDirectory(recipientDirectory{}).
+		// The sender's sign-off, wired here for the same reason the unsubscribe
+		// linker is: a human reaching this store through a passport (ADR-0055
+		// makes one a REST credential too) must not lose their signature merely
+		// because the request arrived on the tool surface. An agent principal
+		// still signs nothing — signedBody decides that, not this wiring.
+		WithSignature(people.NewStore(InstallationDB(pool))).
 		WithDraftOutcome(send.DraftOutcome)
 }
 

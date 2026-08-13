@@ -6534,6 +6534,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/email-signature": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sign-off appended to mail you send.
+         * @description Always the CALLER's own, never anybody else's. A signature is the words a
+         *     person signs their name with, and no seat — including admin — reads or
+         *     edits another member's through this API.
+         *
+         *     A member who has never written one has no row, and that is not an error:
+         *     `body` is empty and mail goes out unsigned, which is what happens today
+         *     for everyone.
+         */
+        get: operations["getMyEmailSignature"];
+        /**
+         * Write or clear your own sign-off.
+         * @description An empty `body` CLEARS the signature — a member emptying the field means
+         *     "send my mail unsigned", not "leave what was there".
+         *
+         *     Plain text only. The transport sends `text/plain` and the drafting
+         *     prompts forbid the model from writing a sign-off of its own, so what is
+         *     stored here is exactly what arrives under every message the caller sends.
+         */
+        put: operations["saveMyEmailSignature"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/documents": {
         parameters: {
             query?: never;
@@ -10862,6 +10897,24 @@ export interface components {
             stakeholders: components["schemas"]["DealCoverageSeat"][];
             our_side: components["schemas"]["PersonNetworkColleague"][];
             risks: components["schemas"]["DealCoverageRisk"][];
+        };
+        EmailSignature: {
+            /**
+             * @description The sign-off appended below every message this member sends, plain text.
+             *     Empty means unsigned, which is the state of every member who has not
+             *     written one.
+             */
+            body: string;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        SaveEmailSignatureRequest: {
+            /**
+             * @description Plain text. Empty clears the signature. The cap is what a signature is
+             *     FOR — a name, a role, a way to reach the sender — and past it a block
+             *     is a document riding on every message.
+             */
+            body: string;
         };
         LinkedInAccount: {
             /** @description Whether this member has authorized LinkedIn. */
@@ -27834,6 +27887,53 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyEmailSignature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's signature. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSignature"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    saveMyEmailSignature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveEmailSignatureRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved signature. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSignature"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
         };
     };
