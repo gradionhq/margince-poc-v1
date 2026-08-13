@@ -13622,6 +13622,15 @@ components:
       properties:
         entity_type: { type: string, enum: [deal, activity, person, organization, fact, profile_field] }
         entity_id: { type: string, format: uuid }
+        name:
+          type: string
+          description: |
+            The record's own display name, when the writer had it at hand — a
+            deal's name, an activity's subject. Absent for evidence kinds with
+            no name of their own (fact, profile_field) and never invented: the
+            writer either already knew the name from the record it read, or
+            leaves this out. Descriptive only — grounding checks type and id,
+            never the name.
 
     OrganizationFinanceSummary:
       type: object

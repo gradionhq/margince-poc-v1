@@ -147,7 +147,10 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 		Version:     storedVersion,
 		GeneratedAt: s.now().UTC(),
 		GeneratedBy: by,
-		Sections:    sections,
+		// Named AFTER grounding, whichever lane wrote the sections: a name is
+		// cosmetic, read from the input the brief was written from rather
+		// than trusted from the model's own reply.
+		Sections: withSectionEvidenceNames(sections, in),
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return crmcontracts.OrganizationBrief{}, err
@@ -189,7 +192,7 @@ func (s *Service) Ask(
 		Question:       question,
 		GeneratedAt:    s.now().UTC(),
 		GeneratedBy:    by,
-		Sentences:      wireSentences(sentences),
+		Sentences:      wireSentences(withEvidenceNames(sentences, in)),
 	}, nil
 }
 
@@ -255,10 +258,14 @@ func wireSentences(in []Sentence) []crmcontracts.OrganizationBriefSentence {
 				malformed = true
 				break
 			}
-			evidence = append(evidence, crmcontracts.OrganizationBriefEvidence{
+			wired := crmcontracts.OrganizationBriefEvidence{
 				EntityId:   openapi_types.UUID(parsed),
 				EntityType: crmcontracts.OrganizationBriefEvidenceEntityType(cited.EntityType),
-			})
+			}
+			if cited.Name != "" {
+				wired.Name = &cited.Name
+			}
+			evidence = append(evidence, wired)
 		}
 		if malformed {
 			continue
