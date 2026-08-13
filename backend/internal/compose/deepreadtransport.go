@@ -170,6 +170,17 @@ func (e *deepReadEngine) report(w http.ResponseWriter, r *http.Request, id, read
 	httperr.WriteJSON(w, http.StatusOK, siteReadReport(read))
 }
 
+// latestReport answers with the newest read on this account, for a page that
+// holds no read id — which is every load after the one that started the crawl.
+func (e *deepReadEngine) latestReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	read, err := e.people.LatestSiteRead(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, siteReadReport(read))
+}
+
 // siteReadReport maps the dossier onto the contract report. Lists are
 // always concrete (empty, never null): the report's whole point is an
 // explicit account.
@@ -241,7 +252,7 @@ func WithDeepRead(inserter *jobs.Runner, brain completer) Option {
 			blob: s.blob,
 		}
 		rollout := s.companyContextRollout
-		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, companyContextRollout: rollout}
+		s.siteReadHandlers = siteReadHandlers{engine: engine, start: engine.start, report: engine.report, latest: engine.latestReport, companyContextRollout: rollout}
 		s.assistant = &onboardingCompanyAssistant{
 			state: s.state, people: people.NewStore(InstallationDB(pool)),
 			brain: brain, runtime: ai.NewRunTransparency(InstallationDB(pool)),
@@ -258,6 +269,7 @@ type siteReadHandlers struct {
 	engine                *deepReadEngine
 	start                 func(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	report                func(w http.ResponseWriter, r *http.Request, id, readID openapi_types.UUID)
+	latest                func(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	companyContextRollout string
 }
 
@@ -275,4 +287,12 @@ func (h siteReadHandlers) GetSiteRead(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	h.report(w, r, id, readID)
+}
+
+func (h siteReadHandlers) GetLatestSiteRead(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if h.latest == nil {
+		httperr.NotImplemented(w, r, "getLatestSiteRead (no crawl runner configured)")
+		return
+	}
+	h.latest(w, r, id)
 }

@@ -966,6 +966,28 @@ function SiteReadPanel({
 function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const [readId, setReadId] = useState<string | null>(null);
+  // A read id lives only in the tab that started the crawl, so a read that
+  // ended after the rep navigated away used to be unfindable — and an account
+  // whose crawl FAILED then looked exactly like one nobody had tried to
+  // enrich. 404 is the honest "never read" and leaves the card offering a
+  // first crawl.
+  const latest = useQuery({
+    queryKey: ["site-read-latest", orgId],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET(
+        "/organizations/{id}/site-reads/latest",
+        { params: { path: { id: orgId } } },
+      );
+      if (response.status === 404) {
+        return null;
+      }
+      if (error) {
+        throwProblem(error);
+      }
+      return data ?? null;
+    },
+  });
+  const shownReadId = readId ?? latest.data?.read_id ?? null;
   const start = useMutation({
     mutationFn: async () => {
       const { data, error, response } = await api.POST(
@@ -1003,7 +1025,7 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
           {problemMessageOf(start.error, t)}
         </p>
       )}
-      {readId && <SiteReadPanel orgId={orgId} readId={readId} />}
+      {shownReadId && <SiteReadPanel orgId={orgId} readId={shownReadId} />}
     </Card>
   );
 }

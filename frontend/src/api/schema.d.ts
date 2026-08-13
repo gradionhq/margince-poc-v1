@@ -1658,6 +1658,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/site-reads/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The newest deep read on this account, so a crawl that failed after the rep navigated away is still visible.
+         * @description A read id lives only in the browser tab that started the crawl, so a read that
+         *     ended after the rep left the page could not be found again. An account whose
+         *     crawl failed then looked exactly like one nobody had tried to enrich — no
+         *     industry, no description, no facts — and a draft written from it had nothing to
+         *     stand on. 404 when the account has never been read, which is the honest
+         *     difference between "never tried" and "tried and got nothing".
+         */
+        get: operations["getLatestSiteRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/site-reads/{readId}": {
         parameters: {
             query?: never;
@@ -18075,6 +18103,31 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getLatestSiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newest read's report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     getSiteRead: {
