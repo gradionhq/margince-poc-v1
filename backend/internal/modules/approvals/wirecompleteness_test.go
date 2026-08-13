@@ -96,7 +96,6 @@ func fullyPopulatedRow(t *testing.T, now time.Time) row {
 	}
 	return row{
 		ID:             ids.New[ids.ApprovalKind](),
-		WorkspaceID:    ids.NewV7(),
 		Kind:           "orgname",
 		Status:         statusPending,
 		ProposedBy:     "agent:test",

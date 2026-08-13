@@ -208,8 +208,8 @@ func (e *WorkflowEngine) claimRun(ctx context.Context, h workflow.Handler, ev wo
 	claimed := false
 	err := e.db.Tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO workflow_run (workspace_id, handler, idempotency_key, trigger_event, planned, status, detail)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+			INSERT INTO workflow_run (handler, idempotency_key, trigger_event, planned, status, detail)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (handler, idempotency_key) DO NOTHING`,
 			h.Spec().Name, runKey(h, ev), ev.ID, planned, status, detail)
 		if err != nil {

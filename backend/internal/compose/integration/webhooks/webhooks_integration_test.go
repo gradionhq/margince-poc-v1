@@ -668,11 +668,11 @@ func (we *webhookEnv) seedProduct(t *testing.T, name string) ids.UUID {
 func (we *webhookEnv) insertApproval(t *testing.T, id ids.UUID, targetType *string, targetID *ids.UUID) {
 	t.Helper()
 	we.execInWorkspace(t, `
-		INSERT INTO approval (id, workspace_id, kind, proposed_by, target_entity_type, target_entity_id,
+		INSERT INTO approval (id, kind, proposed_by, target_entity_type, target_entity_id,
 		                      summary, proposed_change, diff_hash, expires_at)
-		VALUES ($1, $2, 'advance_deal', 'agent:test', $3, $4,
+		VALUES ($1, 'advance_deal', 'agent:test', $2, $3,
 		        'staged change', '{}'::jsonb, 'sha256:test', now() + interval '1 day')`,
-		id, we.wsID, targetType, targetID)
+		id, targetType, targetID)
 }
 
 // execInWorkspace runs one statement under a workspace-bound owner tx so

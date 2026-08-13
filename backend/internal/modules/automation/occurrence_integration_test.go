@@ -54,8 +54,8 @@ func runsForKey(t *testing.T, fx *autoFixture, handler, key string) []clockRun {
 	t.Helper()
 	rows, err := fx.owner.Query(context.Background(), `
 		SELECT status, trigger_event FROM workflow_run
-		WHERE workspace_id = $1 AND handler = $2 AND idempotency_key = $3
-		ORDER BY created_at`, fx.ws, handler, key)
+		WHERE handler = $1 AND idempotency_key = $2
+		ORDER BY created_at`, handler, key)
 	if err != nil {
 		t.Fatal(err)
 	}

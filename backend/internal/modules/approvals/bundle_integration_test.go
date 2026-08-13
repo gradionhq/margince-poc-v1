@@ -407,11 +407,11 @@ func TestABundleTooLargeToDecideIsRefusedAndStillHiddenFromOutsiders(t *testing.
 	// Inserted directly: staging one past the cap through the service would
 	// prove nothing this test is about and would cost a transaction each.
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO approval (workspace_id, kind, proposed_by, on_behalf_of, target_entity_type,
+		INSERT INTO approval (kind, proposed_by, on_behalf_of, target_entity_type,
 		                      target_entity_id, proposed_change, diff_hash, expires_at, bundle_id)
-		SELECT $1, $2, 'human:seed', $3, $4, $5, '{}'::jsonb, 'hash-' || n, now() + interval '1 day', $6
-		FROM generate_series(1, $7) AS n`,
-		e.ws, kindSiteLead, e.rep, tableOrganization, org, bundle, bundleDecisionCap+1); err != nil {
+		SELECT $1, 'human:seed', $2, $3, $4, '{}'::jsonb, 'hash-' || n, now() + interval '1 day', $5
+		FROM generate_series(1, $6) AS n`,
+		kindSiteLead, e.rep, tableOrganization, org, bundle, bundleDecisionCap+1); err != nil {
 		t.Fatalf("seeding an oversized bundle: %v", err)
 	}
 
