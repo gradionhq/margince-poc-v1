@@ -33,6 +33,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 )
 
@@ -40,13 +42,20 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 	ctx := context.Background()
 	admin := connect(t, mustOwnerDSN(t))
 	resetSchema(t, admin)
-	migrator := asMigrator(t, admin)
-	migrateAll(t, migrator)
-
 	core, custom := namespaces(t)
 	for _, namespace := range []dbmigrate.Namespace{core, custom} {
 		for _, repair := range repairMigrations(namespace) {
 			t.Run(namespace.Name+"/"+repair.Version, func(t *testing.T) {
+				// A schema of its own per repair, and the two fixture shapes
+				// below replayed on it one at a time. Role keys are unique
+				// across the installation since ADR-0091 §8 phase B, so the
+				// defective document and the narrowed one cannot sit in two
+				// workspaces side by side — each is a different installation's
+				// state, which is what they always modelled.
+				resetSchema(t, admin)
+				migrator := asMigrator(t, admin)
+				migrateAll(t, migrator)
+
 				want := grantsWrittenBy(t, repair)
 				objects := objectsIn(want)
 
@@ -76,11 +85,6 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				// manager/rep/read_only arm would leave the assertions above passing —
 				// those roles are absent in the main workspace, so the repair writing
 				// them is the expected outcome there.
-				narrowed := seedWorkspace(t, admin, "repair-narrowed-"+namespace.Name+"-"+repair.Version)
-				for _, role := range systemRoleKeys {
-					seedRole(t, admin, narrowed, role, true, documentGranting(t, objects, alteredGrant))
-				}
-
 				// Executed directly rather than through Up: the version is already
 				// recorded, and skipping recorded versions is the behaviour that makes
 				// the repair necessary in the first place.
@@ -106,14 +110,6 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 						}
 					}
 
-					for _, role := range systemRoleKeys {
-						if held, present := readGrant(ctx, t, admin, narrowed, role, object); !present ||
-							held != alteredGrant {
-							t.Errorf("the repair rewrote %q's existing %s grant to %+v; it was %+v, which an "+
-								"operator set deliberately. The only-if-absent guard is what keeps a repair "+
-								"from overruling every installation it touches", role, object, held, alteredGrant)
-						}
-					}
 				}
 
 				// The repair patches one key per object. A jsonb_set on the wrong path,
@@ -125,6 +121,40 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 						t.Errorf("%q lost its person grant (%+v, present=%v) to a repair that should only "+
 							"have added keys; the repair is rewriting documents, not patching them",
 							role, held, present)
+					}
+				}
+
+				// The second shape, on its own schema: an installation where EVERY
+				// system role already holds every one of these objects, deliberately
+				// NARROWED. The repair's only-if-absent guard is the single thing
+				// standing between it and overwriting an operator's decision on every
+				// installation that upgrades, and a guard is only proved by a row it
+				// has to skip.
+				//
+				// All five roles, not just admin: each object is repaired by two or
+				// three statements split by role, so a guard dropped from the
+				// manager/rep/read_only arm would leave the assertions above passing —
+				// those roles are absent in the first shape, so the repair writing
+				// them is the expected outcome there.
+				resetSchema(t, admin)
+				narrowMigrator := repointed(t, admin, migrator)
+				migrateAll(t, narrowMigrator)
+				narrowed := seedWorkspace(t, admin, "repair-narrowed-"+namespace.Name+"-"+repair.Version)
+				for _, role := range systemRoleKeys {
+					seedRole(t, admin, narrowed, role, true, documentGranting(t, objects, alteredGrant))
+				}
+				if _, err := narrowMigrator.Exec(ctx, repair.UpSQL); err != nil {
+					t.Fatalf("applying the %s/%s repair to the narrowed installation: %v",
+						namespace.Name, repair.Version, err)
+				}
+				for _, object := range objects {
+					for _, role := range systemRoleKeys {
+						if held, present := readGrant(ctx, t, admin, narrowed, role, object); !present ||
+							held != alteredGrant {
+							t.Errorf("the repair rewrote %q's existing %s grant to %+v; it was %+v, which an "+
+								"operator set deliberately. The only-if-absent guard is what keeps a repair "+
+								"from overruling every installation it touches", role, object, held, alteredGrant)
+						}
 					}
 				}
 			})
@@ -183,4 +213,36 @@ func objectsIn(grants map[rbacGrant]grant) []string {
 	}
 	sort.Strings(objects)
 	return objects
+}
+
+// repointed makes a migrator connection usable again after resetSchema.
+//
+// DROP SCHEMA public takes the migrator's grants with it, and a role that may
+// not create in any schema on its path fails with Postgres's rather opaque "no
+// schema has been selected to create in". Re-granting and re-issuing the path
+// is all it needs.
+//
+// The connection is REUSED rather than a second role minted, which matters more
+// than it looks: `asMigrator` drops and recreates its role, and the role owns
+// the objects the reset just dropped — recreating it mid-test fails on
+// dependencies that are cleared only when the schema goes.
+func repointed(t *testing.T, admin, conn *pgx.Conn) *pgx.Conn {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := admin.Exec(ctx, `GRANT CREATE, USAGE ON SCHEMA public TO `+migratorRole); err != nil {
+		t.Fatalf("re-granting the migrator's schema privileges: %v", err)
+	}
+	// The extensions the operator installs go with the schema too, and the
+	// migrator may not create them itself — the same division a deployed
+	// installation has (scripts/deploy/db-bootstrap.sql installs them as the
+	// operator; migrations assume they are there).
+	for _, extension := range extensionsTheOperatorInstalls {
+		if _, err := admin.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS `+extension); err != nil {
+			t.Fatalf("reinstalling the %s extension after the reset: %v", extension, err)
+		}
+	}
+	if _, err := conn.Exec(ctx, `SET search_path TO public`); err != nil {
+		t.Fatalf("re-pointing the migrator at the recreated schema: %v", err)
+	}
+	return conn
 }

@@ -30,13 +30,25 @@ import (
 // seedRetentionTenant plants the lead/unconverted anonymize policy and one
 // over-age unconverted lead in ws, through the owner connection so a workspace
 // other than the harness's own can be given a due record.
-func seedRetentionTenant(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
+// seedRetentionPolicy installs the lead/unconverted policy ONCE.
+//
+// It used to be seeded per tenant. `retention_policy_unique` no longer carries
+// a workspace (ADR-0091 §8 phase B), so a policy for an (object_type, category)
+// is the installation's — seeding it twice is a conflict, not a second policy.
+// The pass this suite exercises is still per workspace; what each tenant needs
+// of its own is the over-age record below, not a copy of the rule.
+func seedRetentionPolicy(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(), `
 		INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
 		VALUES ($1, 'lead', 'unconverted', 365, 'anonymize')`, ws); err != nil {
-		t.Fatalf("seeding the retention policy for %s: %v", ws, err)
+		t.Fatalf("seeding the retention policy: %v", err)
 	}
+}
+
+// seedOverageLead gives one tenant a lead old enough for the policy to reach.
+func seedOverageLead(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
+	t.Helper()
 	return integration.SeedRow(t, owner, `
 		INSERT INTO lead (id, workspace_id, full_name, status, source, captured_by, created_at)
 		VALUES ($1, $2, 'Over-age Lead', 'new', 'manual', 'human:x', now() - interval '400 days')`, ws)
@@ -110,8 +122,9 @@ func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	victim := integration.SeedExtraWorkspace(t, owner, "victim", false)
-	victimLead := seedRetentionTenant(t, owner, victim)
-	healthyLead := seedRetentionTenant(t, owner, e.WS)
+	seedRetentionPolicy(t, owner, e.WS)
+	victimLead := seedOverageLead(t, owner, victim)
+	healthyLead := seedOverageLead(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
 
 	// A service per workspace: the handle carries the tenant now (ADR-0091 §9
@@ -160,8 +173,9 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 	owner := integration.OwnerConn(t)
 	victim := integration.SeedExtraWorkspace(t, owner, "victim", false)
 	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
-	victimLead := seedRetentionTenant(t, owner, victim)
-	healthyLead := seedRetentionTenant(t, owner, e.WS)
+	seedRetentionPolicy(t, owner, e.WS)
+	victimLead := seedOverageLead(t, owner, victim)
+	healthyLead := seedOverageLead(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
 
 	ctx := context.Background()

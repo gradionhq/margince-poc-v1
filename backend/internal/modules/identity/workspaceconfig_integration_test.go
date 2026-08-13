@@ -298,8 +298,16 @@ func TestAResetWorkspaceMatchesAFreshlyBootstrappedOne(t *testing.T) {
 		t.Errorf("InstallationBootstrap has %d fields, this test was written against 6 — if the new one lands on the workspace row, declare its column in preservedWorkspaceColumns and give it an off-default value in configBootstrap, then update this count", got)
 	}
 
+	// ONE bootstrapped workspace, snapshotted before it is configured away.
+	//
+	// This used to bootstrap a second one to compare against. Roles are keyed
+	// installation-wide since ADR-0091 §8 phase B, so a second bootstrap
+	// collides on the first one's 'admin' — and it was never the second
+	// WORKSPACE the comparison needed, only the values a fresh bootstrap
+	// leaves. Reading them off this workspace before configuring it is the
+	// same baseline from the same code path.
 	ws := seedConfigWorkspace(t, pool, "reset")
-	fresh := seedConfigWorkspace(t, pool, "fresh")
+	freshRow := readWorkspaceRow(t, owner, ws)
 	if _, err := owner.Exec(ctx, `
 		UPDATE workspace
 		   SET x_sor_mode = 'overlay', x_incumbent = 'hubspot'
@@ -314,7 +322,7 @@ func TestAResetWorkspaceMatchesAFreshlyBootstrappedOne(t *testing.T) {
 		t.Fatalf("ResetWorkspaceConfig: %v", err)
 	}
 
-	after, freshRow := readWorkspaceRow(t, owner, ws), readWorkspaceRow(t, owner, fresh)
+	after := readWorkspaceRow(t, owner, ws)
 	for col, want := range freshRow {
 		if perInstallationWorkspaceColumns[col] {
 			continue

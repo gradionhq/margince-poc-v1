@@ -494,26 +494,13 @@ func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *test
 		VALUES ($1, $2, 'offering', 'service', 'CRM rollout', 'crm rollout',
 		        '', '', 1, 'human', $3)`, e.WS, saved.OrganizationID, "human:"+e.Rep1.String())
 
-	foreignWS, foreignOrg := ids.NewV7(), ids.NewV7()
-	owner := integration.OwnerConn(t)
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		foreignWS, "foreign-"+foreignWS.String()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-		VALUES ($1, $2, 'Foreign Secret', true, 'manual', 'human:foreign')`,
-		foreignOrg, foreignWS); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO organization_profile_field
-		  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ($1, $2, 'offer_summary', 'Secret foreign offer', '', '', 1, 'human', 'human:foreign')`,
-		foreignWS, foreignOrg); err != nil {
-		t.Fatal(err)
-	}
+	// The cross-tenant arm is gone with the mechanism it tested. It seeded a
+	// second workspace with its own ANCHOR organization and asserted this
+	// tenant's context read did not reach it — and `uq_organization_anchor` is
+	// installation-wide since ADR-0091 §8 phase B, so a second anchor cannot
+	// exist to be reached. What is left below is what the read is FOR: the
+	// scopes it assembles, the provenance it carries, and the fingerprint that
+	// moves only when the profile does.
 
 	first, err := store.GetCompanyContext(ctx, []people.CompanyContextScope{
 		people.CompanyContextOffer, people.CompanyContextPositioning,
@@ -529,23 +516,6 @@ func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *test
 	}
 	if len(first.Scopes[1].Items) != 2 {
 		t.Fatalf("offer context = %#v, want summary and repeatable service", first.Scopes[1].Items)
-	}
-	foreignCtx := principal.WithWorkspaceID(context.Background(), foreignWS)
-	foreignCtx = principal.WithCorrelationID(foreignCtx, ids.NewV7())
-	foreignCtx = principal.WithActor(foreignCtx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:foreign", UserID: ids.NewV7(), Permissions: integration.AdminPerms,
-	})
-	// The foreign tenant is read through a store of its own: the workspace a
-	// read is scoped to is the handle's, so asking this tenant's store with the
-	// other tenant's ctx would answer THIS tenant's rows and the isolation arm
-	// below would pass without proving anything.
-	foreignStore := people.NewStore(e.DBFor(foreignWS))
-	foreign, err := foreignStore.GetCompanyContext(foreignCtx, []people.CompanyContextScope{people.CompanyContextOffer})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(foreign.Scopes) != 1 || len(foreign.Scopes[0].Items) != 1 || foreign.Scopes[0].Items[0].Value != "Secret foreign offer" {
-		t.Fatalf("foreign workspace context = %#v", foreign.Scopes)
 	}
 	again, err := store.GetCompanyContext(ctx, []people.CompanyContextScope{
 		people.CompanyContextPositioning, people.CompanyContextOffer,
