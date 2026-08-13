@@ -4,6 +4,11 @@ Margince is source-available (BUSL-1.1) and AI-native: most of this code
 is authored by agents under human accountability. Contributions are
 welcome — held to the same craftsmanship bar as our own AI-authored code.
 
+Participation is covered by our [Code of Conduct](CODE_OF_CONDUCT.md),
+which includes one clause specific to a repository built this way:
+submitting volume you cannot explain is treated as disrespect for
+reviewers' time, not as enthusiasm.
+
 ## Human accountability
 
 **You are accountable for every line you submit, and must be able to
@@ -45,6 +50,51 @@ certifying you have the right to submit the change under the project's
 license. The DCO check is required — a pull-request commit without the
 trailer blocks the merge. Amend with `git commit --amend -s` if you
 forget.
+
+## A working tree in four commands
+
+You need **Go ≥ 1.26**, **Docker**, `golangci-lint`, and Node with pnpm
+for the frontend half.
+
+```
+make install    # FE deps, gate tools, and the git hooks — run once
+make db-up      # PG16 + Redis 7 containers, and the app role
+make migrate    # core + custom migrations
+make dev        # the whole stack: API on :8080, worker, Vite
+```
+
+Two things about `make dev` that save an hour of confusion. It **sweeps
+first** — exactly one dev stack may run on the machine, so a bare
+`make dev` kills every other margince process before booting, and is
+therefore always safe to run. And the API is **compiled**: Vite
+hot-reloads the frontend, the binary does not, so every backend change
+needs `make dev` again. A stale binary on :8080 is indistinguishable from
+a broken feature.
+
+Full target list, including `DEV_SLUG` for an isolated parallel stack:
+[docs/reference/make-targets.md](docs/reference/make-targets.md).
+
+## Branch, commit, merge
+
+- **Branch off `main`**: `git switch -c <type>/<slug> origin/main`.
+  Direct pushes to `main` are blocked; there is no other path to merge.
+- **Conventional commit subjects**, scoped to the module:
+  `fix(overlay): a mirrored deal reports the incumbent's last-modified`.
+  Write the subject as the behaviour after the change, not as the task
+  you performed.
+- **Sign off every commit** — `git commit -s`; see DCO above.
+- **Squash-merge** is the house style, and only over green checks.
+
+### Contributing from a fork
+
+Be aware before you start: **a pull request from a fork cannot currently
+be merged here.** One of the required checks is a SonarCloud analysis,
+and its token is deliberately withheld from fork-triggered workflows, so
+the check can never report and the merge stays blocked — a limitation of
+our gate wiring, not a judgement about your change. If you plan more than
+a drive-by fix, open an issue first and ask for write access so you can
+push a branch in this repository instead. Small fixes are still welcome
+as fork PRs; a maintainer will land them for you.
 
 ## The gates
 
@@ -88,9 +138,16 @@ they are noise.
 - Session state and pickup points live in [STATUS.md](STATUS.md);
   start there, and read [AGENTS.md](AGENTS.md) for the binding
   engineering rules.
-- Defects and proposals go to GitHub issues. Security vulnerabilities
-  go through [SECURITY.md](SECURITY.md) (private reporting), never a
-  public issue.
+- Defects and proposals go to GitHub issues, which are templated: a bug,
+  a **deferred follow-up** (anything you found but deliberately did not
+  fix in the change at hand — that becomes an issue rather than a
+  comment in the source), a capability gap or proposal, or a
+  documentation defect. Security vulnerabilities go through
+  [SECURITY.md](SECURITY.md) (private reporting), never a public issue.
+- **This repository is public.** Nothing you write in an issue, a PR, or
+  a commit may carry a secret, customer or personal data, a local
+  machine path, or a private specification path or its contents — cite
+  the spec by chapter, ADR, or pin ID instead.
 
 Margince is built contract-first: `backend/api/crm.yaml` is the
 authoritative surface, and when this code and the specification

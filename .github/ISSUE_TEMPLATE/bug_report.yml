@@ -1,0 +1,125 @@
+name: Bug report
+description: Something behaves differently than the contract, the docs, or common sense say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **Not for security findings.** A tenant-isolation, RBAC, agent-governance
+        or authentication defect goes through
+        [private reporting](https://github.com/gradionhq/margince-poc-v1/security/advisories/new),
+        never a public issue — a public report before a fix ships puts every
+        deployment at risk.
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: The observed behaviour, and what you expected instead.
+      placeholder: >-
+        Listing deals with a keyset cursor returns the first page again instead
+        of the second. I expected the page after the cursor.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >-
+        The smallest sequence that shows it — requests with payloads, a failing
+        test, or the UI steps. A failing test is the most useful form.
+      placeholder: |
+        1. make db-up && make migrate && make dev
+        2. POST /v1/deals ... (x3)
+        3. GET /v1/deals?limit=2  -> note next_cursor
+        4. GET /v1/deals?limit=2&cursor=<next_cursor>  -> same two rows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Which module
+      description: >-
+        The bounded capability the defect lives in, if you know. See
+        docs/reference/modules.md for what each one owns. Pick "not sure" rather
+        than guessing.
+      options:
+        - not sure
+        - activities
+        - agents
+        - ai
+        - approvals
+        - automation
+        - capture
+        - collections
+        - comms
+        - consent
+        - customfields
+        - deals
+        - finance
+        - identity
+        - integrations
+        - migration
+        - overlay
+        - people
+        - privacy
+        - quotas
+        - search
+        - signals
+        - webhooks
+        - platform (database/auth/events/httpserver)
+        - compose (cross-module wiring)
+        - frontend
+        - infrastructure (CI, migrations, tooling)
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: >-
+        The commit you observed this on (`git rev-parse --short HEAD`). Only
+        `main` is supported — there are no release branches yet.
+      placeholder: 27f95a96
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gates
+    attributes:
+      label: Gate status on that commit
+      description: >-
+        Whether the repo's own gates catch this. "Gates green" means the bug is
+        also a test-coverage gap, which is useful to know up front.
+      options:
+        - Gates are green — the bug is invisible to them
+        - A gate fails (paste the output below)
+        - I have not run the gates
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, gate output, or RFC 7807 body
+      description: >-
+        Paste the relevant excerpt. Redact anything real — see the hygiene
+        confirmation below.
+      render: text
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      description: >-
+        This repository is public. Everything you paste here is public
+        permanently, including in the git history of edits.
+      options:
+        - label: >-
+            No secrets, tokens, or credentials, no customer or personal data, no
+            local filesystem paths, and no private specification paths or
+            contents — the specification is cited by chapter, ADR, or pin ID.
+          required: true

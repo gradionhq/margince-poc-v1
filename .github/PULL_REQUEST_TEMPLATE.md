@@ -16,6 +16,7 @@
 - [ ] `make check` is green
 - [ ] `make test-integration` is green (or: this change does not touch tenant data / RLS / the write shape)
 - [ ] `make craft-static` reports no new blockers
+- [ ] This diff and description carry no secrets, no customer data, no local machine paths, and no private specification paths or contents — the spec is cited by chapter, ADR, or pin ID (this repository is public)
 
 ## AI involvement
 
@@ -26,4 +27,5 @@
 
 By opening this PR I confirm I am **accountable** for this change and can
 **explain every line** in it — human-written or AI-assisted. Commits are signed
-off (`git commit -s`, DCO). See [CONTRIBUTING.md](../CONTRIBUTING.md).
+off (`git commit -s`, DCO). See [CONTRIBUTING.md](/CONTRIBUTING.md) and the
+[Code of Conduct](/CODE_OF_CONDUCT.md).

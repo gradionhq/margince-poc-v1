@@ -1,0 +1,75 @@
+name: Deferred follow-up
+description: Something found while making a change but deliberately not fixed in it.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        This is the repository's standard way to keep a finding from evaporating.
+        Anything noticed but **not** fixed in the change under way — a bug, a
+        gap, a cleanup — becomes one of these rather than a comment in the
+        source: history belongs to git, and a rationalized gap in a comment is
+        itself a craftsmanship finding.
+
+  - type: textarea
+    id: deferred
+    attributes:
+      label: What was left undone
+      description: >-
+        State the invariant that does not hold yet, not a narration of the
+        change that skipped it. Someone picking this up months from now should
+        be able to act on it without reading the originating pull request.
+      placeholder: >-
+        The deletion feed does not reconcile a row deleted upstream between two
+        sync windows, so a mirrored record can outlive its source indefinitely.
+    validations:
+      required: true
+
+  - type: input
+    id: origin
+    attributes:
+      label: Where it was deferred
+      description: The pull request, commit, or file and line that this came out of.
+      placeholder: "#1039, or backend/internal/modules/overlay/mapping.go:214"
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-safe
+    attributes:
+      label: Why deferring was safe
+      description: >-
+        What bounds the damage until this is fixed — the case it cannot reach,
+        the gate that would catch it, or the fact that no caller exercises it
+        yet. If nothing bounds it, say so plainly and label this a bug instead.
+      placeholder: >-
+        No production installation runs the overlay yet, so the only affected
+        rows are in dev fixtures.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Correctness gap (wrong behaviour reachable today)
+        - Missing test or gate (behaviour may be right, nothing proves it)
+        - Cleanup or simplification (behaviour is right, shape is not)
+        - Missing capability (spec asks for it, code does not do it yet)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      description: >-
+        This repository is public. Everything you paste here is public
+        permanently, including in the git history of edits.
+      options:
+        - label: >-
+            No secrets, no customer or personal data, no local filesystem paths,
+            and no private specification paths or contents — the specification
+            is cited by chapter, ADR, or pin ID.
+          required: true
