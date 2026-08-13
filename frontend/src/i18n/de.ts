@@ -4427,10 +4427,23 @@ export const de = {
   "person.composer.why": "Warum dieser Entwurf",
   "person.composer.consentUnknown":
     "Für diesen Kanal ist keine Einwilligungsentscheidung erfasst.",
-  "person.composer.confirmFirst":
-    "Der Versand erfolgt erst nach Freigabe. Dieser Entwurf wird nicht ohne Ihre Zustimmung gesendet.",
-  "person.composer.reviewSend": "Prüfen & senden",
-  "person.composer.staged": "Zur Freigabe vorgemerkt",
+  "person.composer.sendNote":
+    "Mit dem Senden geht diese Nachricht aus Ihrem eigenen Postfach raus.",
+  "person.composer.purpose": "Einwilligungszweck",
+  "person.composer.consentPickPurpose":
+    "Wählen Sie, wofür diese Nachricht ist — die Einwilligung gilt je Zweck.",
+  "person.composer.intent": "Worum soll es gehen?",
+  "person.composer.intentHint":
+    "Optional — z. B. um einen Termin in der ersten Septemberwoche bitten",
+  "person.composer.draftWithAi": "Mit KI entwerfen",
+  "person.composer.intentAgenda":
+    "eine Agenda für den anstehenden Termin vorschlagen",
+  "person.composer.intentReply": "auf die letzte Nachricht antworten",
+  "person.composer.intentCommitment": "einlösen, was wir zugesagt haben",
+  "person.composer.intentFollowUp": "nachfassen — es ist still geworden",
+  "person.composer.send": "Senden",
+  "person.composer.sending": "Wird gesendet…",
+  "person.composer.sent": "Gesendet",
   "person.composer.aiDisclosure":
     "KI-unterstützter Entwurf · jedes Wort prüfen",
   "person.research.title": "Tiefenrecherche · {name}",

@@ -4431,10 +4431,22 @@ export const en = {
   "person.composer.why": "Why this draft",
   "person.composer.consentUnknown":
     "No consent decision is recorded for this channel.",
-  "person.composer.confirmFirst":
-    "Sending is confirm-first. This draft is not sent until you approve.",
-  "person.composer.reviewSend": "Review & send",
-  "person.composer.staged": "Staged for approval",
+  "person.composer.sendNote":
+    "Pressing send delivers this message from your own mailbox.",
+  "person.composer.purpose": "Consent purpose",
+  "person.composer.consentPickPurpose":
+    "Choose what this message is for — consent is decided per purpose.",
+  "person.composer.intent": "What should it be about?",
+  "person.composer.intentHint":
+    "Optional — e.g. ask for a date in the first week of September",
+  "person.composer.draftWithAi": "Draft with AI",
+  "person.composer.intentAgenda": "propose an agenda for the upcoming meeting",
+  "person.composer.intentReply": "reply to their last message",
+  "person.composer.intentCommitment": "deliver what we promised them",
+  "person.composer.intentFollowUp": "follow up — it has gone quiet",
+  "person.composer.send": "Send",
+  "person.composer.sending": "Sending…",
+  "person.composer.sent": "Sent",
   "person.composer.aiDisclosure": "AI-assisted draft · review every word",
   "person.research.title": "Deep research · {name}",
   "person.research.publicOnly": "Public sources only",
