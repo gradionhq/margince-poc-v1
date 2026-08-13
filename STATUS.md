@@ -574,9 +574,53 @@ the product gives for resolving to one. An archived tenant's rows therefore
 survive and are readable after the drop. That is written into 0217 rather than
 left to be discovered.
 
-**Next: phases B → C → D**, sequenced by dependency across the whole schema (B
-for a referenced table must precede C for its referrer), with A and D fanning
-out. `check-rls-store-path.sh` stays until §5 collapses the two `Tx` helpers.
+### Phases C and B are done — the keys are single-column, D is next
+
+One PR (#1104), because the two cannot be separated: a composite UNIQUE cannot
+be dropped while a foreign key still references it, so **C runs first** — 198
+foreign keys rewritten to their single-column referent (0218) — and **B** then
+collapses 106 constraints and 39 indexes (0224). A key that was `workspace_id`
+ALONE becomes `CREATE UNIQUE INDEX … ON t ((true))`: the default pipeline and
+the organization anchor are singletons now, and that is how a singleton is
+spelled. No unique or primary key mentions `workspace_id` any more; the only
+multi-column keys left are the business ones — a stage within its pipeline, a
+voice profile version.
+
+Four things this phase taught, all of them cheaper to read here than to
+rediscover:
+
+- **Every phase splits into a core half and a custom half.** Core migrations run
+  before the custom namespace exists, so a core sweep that names an
+  overlay/import table fails on a fresh database. `app_user`'s collapse is
+  deferred to the custom half for the mirror reason: a historical overlay
+  migration foreign-keys against its composite unique, and dropping that in core
+  breaks the replay of a migration nobody may edit.
+- **A down migration enrols only what still carries the key**, which is what
+  makes the two halves order-independent. Written the other way they collide.
+- **`ON CONFLICT (workspace_id, …)` matches nothing after B**, and the compiler
+  cannot see it. The sweep covered 61 Go files; `scripts/seed-dev.sql` was
+  missed and `live-boot` was what found it, on the first statement to reach a
+  collapsed target. A conflict target is a schema dependency written in a
+  string — grep SQL and Go alike.
+- **Eleven fixtures seeded a second workspace to hold a duplicate.** They now
+  either seed once (a retention policy, a workspace snapshot) or seed the
+  distinct rows per tenant. Two arms are retired outright rather than rewritten:
+  a cross-tenant company probe, and the webhook portal-ambiguity test, whose
+  premise — two connections carrying one portal id — the singleton index now
+  forbids. The fail-closed branch it exercised stays, with the comment saying
+  why an unreachable guard is still worth its lines.
+
+**Next: phase D** — drop the `workspace_id` columns and narrow the 119 indexes
+that still lead with them — then §9 step 6 retires the orphaned gates
+(`check-rls-store-path.sh`, ADR-0061 §3's bootstrap check) and §5 collapses the
+two `Tx` helpers, which is where `principal.WorkspaceID` and
+`storekit.MustWorkspace` finally fall.
+
+**Renumber late, and expect to do it twice.** This branch collided with `main`
+on migration 0219, then 0222, then 0223, and the last of those also landed
+`NULLS NOT DISTINCT` on `retention_policy_unique` — a qualifier the collapse
+would have silently dropped along with the tenant column. A migration PR's
+rebase is not mechanical: re-read what the base added to the tables you touch.
 
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
