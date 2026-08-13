@@ -42,7 +42,7 @@ import (
 // disposition id in the prompt. A confidence below the floor stays below it on
 // the re-ask too, which is how the terminal-unsure path is reached.
 type scriptedVerdictBrain struct {
-	verdicts   map[string]string  // by disposition id; default "real"
+	verdicts   map[string]string  // by disposition id; default the person kind
 	confidence map[string]float64 // by disposition id; default 0.95
 	calls      int
 }
@@ -57,7 +57,7 @@ func (s *scriptedVerdictBrain) Complete(_ context.Context, req model.Request) (m
 	for _, id := range askedFor {
 		verdict := s.verdicts[id]
 		if verdict == "" {
-			verdict = capture.PendingStatusReal
+			verdict = capture.KindPerson
 		}
 		conf, ok := s.confidence[id]
 		if !ok {
@@ -79,7 +79,7 @@ func TestVerdictRealCreatesTheCounterpartyCaptureWithheld(t *testing.T) {
 	activityID := seedCapturedMail(t, e, "ada@realco.example", "quote request")
 	dispositionID := seedPendingDisposition(t, e, "ada@realco.example", "realco.example", activityID)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusReal}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindPerson}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -119,7 +119,7 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	activityID := seedBulkCapturedMail(t, e, "blast@bulk.example", "🚀 growth hacks")
 	dispositionID := seedPendingDisposition(t, e, "blast@bulk.example", "bulk.example", activityID)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -182,7 +182,7 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 
 	// The model says "noise" — but never confidently enough to act on it.
 	brain := &scriptedVerdictBrain{
-		verdicts:   map[string]string{dispositionID.String(): capture.PendingStatusNoise},
+		verdicts:   map[string]string{dispositionID.String(): capture.KindSpam},
 		confidence: map[string]float64{dispositionID.String(): 0.4},
 	}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
@@ -410,7 +410,7 @@ func (b *promptRecordingBrain) Complete(_ context.Context, req model.Request) (m
 		return model.Response{}, fmt.Errorf("prompt carried %d fenced senders, want 1 (0 means no declared boundary)", len(ids))
 	}
 	payload, err := json.Marshal(map[string]any{"results": []map[string]any{
-		{"id": ids[0], "verdict": capture.PendingStatusReal, "confidence": 0.95},
+		{"id": ids[0], "verdict": capture.KindPerson, "confidence": 0.95},
 	}})
 	if err != nil {
 		return model.Response{}, err
@@ -432,8 +432,8 @@ func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{
 		verdicts: map[string]string{
-			victim.String():   capture.PendingStatusReal,
-			attacker.String(): capture.PendingStatusNoise,
+			victim.String():   capture.KindPerson,
+			attacker.String(): capture.KindSpam,
 		},
 	}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
@@ -497,7 +497,7 @@ func TestAnAddressErasedBeforeTheVerdictRecordsSuppressedNotReal(t *testing.T) {
 	dispositionID := seedPendingDisposition(t, e, "gone@erased.example", "erased.example", activityID)
 	suppressAddress(t, e, "gone@erased.example")
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusReal}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindPerson}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -525,5 +525,69 @@ func suppressAddress(t *testing.T, e *integration.Env, email string) {
 	})
 	if err != nil {
 		t.Fatalf("suppressing the address: %v", err)
+	}
+}
+
+// Only a person becomes a person. The binary vocabulary put "a person or
+// company" on one side of a single line, so every above-floor `real` ran the
+// person-creation path and an organization writing under its own name became a
+// contact named after the company — a real import produced people called
+// "Docsign" (on a vendor's support address), "VINASA" and "Expensify".
+func TestOnlyThePersonKindCreatesAPerson(t *testing.T) {
+	e := integration.Setup(t)
+	cases := []struct {
+		kind        string
+		email       string
+		wantPersons int
+		wantStatus  string
+		wantHidden  bool
+	}{
+		{kind: capture.KindPerson, email: "anna@realco.example", wantPersons: 1, wantStatus: capture.PendingStatusReal},
+		// Real correspondence, no human to name. The mail stays visible; the
+		// contact is what is withheld.
+		{kind: capture.KindRoleMailbox, email: "support@respacio.example", wantPersons: 0, wantStatus: capture.PendingStatusReal},
+		{kind: capture.KindOrganizationSender, email: "contact@vinasa.example", wantPersons: 0, wantStatus: capture.PendingStatusReal},
+		// Bulk and automated mail is hidden as before.
+		{kind: capture.KindNewsletter, email: "digest@saasweekly.example", wantPersons: 0, wantStatus: capture.PendingStatusNoise, wantHidden: true},
+		{kind: capture.KindTransactional, email: "receipts@expensify.example", wantPersons: 0, wantStatus: capture.PendingStatusNoise, wantHidden: true},
+		{kind: capture.KindSpam, email: "deals@peinsights.example", wantPersons: 0, wantStatus: capture.PendingStatusNoise, wantHidden: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			activity := seedCapturedMail(t, e, tc.email, "hello")
+			id := seedPendingDisposition(t, e, tc.email, "example", activity)
+			brain := &scriptedVerdictBrain{verdicts: map[string]string{id.String(): tc.kind}}
+			engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+			if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
+				t.Fatalf("verdict pass: %v", err)
+			}
+
+			if got := dispositionStatus(t, e, id); got != tc.wantStatus {
+				t.Errorf("disposition = %q, want %q", got, tc.wantStatus)
+			}
+			if n := countIn(t, e, `
+				SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+				WHERE pe.email = $1`, tc.email); n != tc.wantPersons {
+				t.Errorf("%d persons for a %s sender, want %d", n, tc.kind, tc.wantPersons)
+			}
+			live := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, activity)
+			if tc.wantHidden && live != 0 {
+				t.Errorf("a %s sender's mail is still visible", tc.kind)
+			}
+			if !tc.wantHidden && live != 1 {
+				t.Errorf("a %s sender's mail was hidden — only bulk and automated mail is", tc.kind)
+			}
+			// The ledger records WHO wrote, not just what happened to the row.
+			var kind string
+			if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+				return tx.QueryRow(context.Background(),
+					`SELECT COALESCE(kind, '') FROM capture_pending_counterparty WHERE id = $1`, id).Scan(&kind)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if kind != tc.kind {
+				t.Errorf("ledger kind = %q, want %q", kind, tc.kind)
+			}
+		})
 	}
 }

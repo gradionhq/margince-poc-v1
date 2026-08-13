@@ -42,6 +42,35 @@ const (
 	PendingStatusRejected = "rejected"
 )
 
+// The sender kinds a verdict can report — WHO wrote, which is a different
+// question from the row's lifecycle status above and is stored in its own
+// column (migration 0222).
+//
+// Only KindPerson may become a person record. The old binary vocabulary put "a
+// person or company" on one side of a single line, so an organization writing
+// under its own name became a contact named after the company — the real import
+// produced people called "Docsign", "VINASA" and "Expensify".
+const (
+	// KindPerson is a human with an interest in this business.
+	KindPerson = "person"
+	// KindRoleMailbox is an address an organization answers rather than a
+	// person: support@, info@, a shared team mailbox. The correspondence is
+	// real; there is simply no human named to record.
+	KindRoleMailbox = "role_mailbox"
+	// KindOrganizationSender is the organization itself writing under its own
+	// name.
+	KindOrganizationSender = "organization_sender"
+	// KindNewsletter is bulk editorial mail. Subscribing to one is not a
+	// business relationship.
+	KindNewsletter = "newsletter"
+	// KindTransactional is automated mail from a service — receipts,
+	// notifications, delivery reports.
+	KindTransactional = "transactional"
+	// KindSpam is unsolicited commercial mail, including the kind a human
+	// replied to only in order to decline it.
+	KindSpam = "spam"
+)
+
 // PendingMaxAttempts bounds the verdict retries (ADR-0072 §5: retries=2). A row
 // that exhausts them is retired to `unsure` by RetireExhausted rather than
 // retried forever — exhaustion is a terminal state, never a row nothing will
@@ -292,12 +321,20 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 // It takes the claimed row rather than an id so the token cannot be lost or
 // mismatched on the way here.
 func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterparty, status, reason string) (bool, error) {
+	return s.ResolveAs(ctx, tx, p, status, "", reason)
+}
+
+// ResolveAs is Resolve that also records WHAT KIND of sender the row turned out
+// to be. An empty kind leaves the column untouched, which is what a caller with
+// no opinion — a registry rule, an erasure — should say rather than guessing.
+func (s *PendingStore) ResolveAs(ctx context.Context, tx pgx.Tx, p PendingCounterparty, status, kind, reason string) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE capture_pending_counterparty
 		   SET status = $2, disposition_reason = NULLIF($3, ''),
+		       kind = COALESCE(NULLIF($5, ''), kind),
 		       resolved_at = now(), next_attempt_at = NULL,
 		       claimed_until = NULL, claimed_by = NULL, updated_at = now()
-		 WHERE id = $1 AND status = 'pending' AND claimed_by = $4`, p.ID, status, reason, p.Claim)
+		 WHERE id = $1 AND status = 'pending' AND claimed_by = $4`, p.ID, status, reason, p.Claim, kind)
 	if err != nil {
 		return false, fmt.Errorf("capture: resolving disposition %s: %w", p.ID, err)
 	}

@@ -44,7 +44,7 @@ func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
 	third := seedBulkCapturedMail(t, e, "bulk@flood.example", "offer three")
 	dispositionID := seedPendingDisposition(t, e, "bulk@flood.example", "flood.example", first)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -90,7 +90,7 @@ func TestAForgedSenderCannotReachTheWorkspacesOwnCorrespondence(t *testing.T) {
 	forged := seedCapturedMail(t, e, victim, "🚀 buy followers now")
 	dispositionID := seedPendingDisposition(t, e, victim, "corp.example", forged)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -153,7 +153,7 @@ func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
 	activityID := seedBulkCapturedMail(t, e, "loud@bulk.example", "offer")
 	dispositionID := seedPendingDisposition(t, e, "loud@bulk.example", "bulk.example", activityID)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -190,7 +190,7 @@ func TestANoiseVerdictWithoutBulkCorroborationHidesButNeverDestroys(t *testing.T
 	activityID := seedCapturedMail(t, e, "real.person@partner.example", "about the contract")
 	dispositionID := seedPendingDisposition(t, e, "real.person@partner.example", "partner.example", activityID)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
@@ -241,7 +241,7 @@ func TestANoiseVerdictCannotReachMailSentLongAfterIt(t *testing.T) {
 	poisoned := seedCapturedMail(t, e, "cfo@bigcorp.example", "🚀 crypto deals")
 	dispositionID := seedPendingDisposition(t, e, "cfo@bigcorp.example", "bigcorp.example", poisoned)
 
-	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.KindSpam}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)

@@ -84,7 +84,7 @@ func TestVerdictRequestMintsAFreshBoundaryPerCall(t *testing.T) {
 func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}
 	other := ids.NewV7()
-	ok := verdictResult{ID: asked.ID.String(), Verdict: capture.PendingStatusReal, Confidence: 0.9}
+	ok := verdictResult{ID: asked.ID.String(), Verdict: capture.KindPerson, Confidence: 0.9}
 
 	cases := []struct {
 		name    string
@@ -99,7 +99,7 @@ func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 			// An answer about someone who was not the subject of this call must
 			// never be applied.
 			name:    "an id nobody asked about",
-			results: []verdictResult{{ID: other.String(), Verdict: capture.PendingStatusReal, Confidence: 0.9}},
+			results: []verdictResult{{ID: other.String(), Verdict: capture.KindPerson, Confidence: 0.9}},
 			wantMsg: "was not requested",
 		},
 		{
@@ -112,16 +112,16 @@ func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 			// derived from the floor, never self-declared.
 			name:    "a verdict outside the closed set",
 			results: []verdictResult{{ID: asked.ID.String(), Verdict: capture.PendingStatusUnsure, Confidence: 0.9}},
-			wantMsg: "is not real|noise",
+			wantMsg: "is not one of person|role_mailbox",
 		},
 		{
 			name:    "confidence above one",
-			results: []verdictResult{{ID: asked.ID.String(), Verdict: capture.PendingStatusReal, Confidence: 1.5}},
+			results: []verdictResult{{ID: asked.ID.String(), Verdict: capture.KindPerson, Confidence: 1.5}},
 			wantMsg: "outside [0,1]",
 		},
 		{
 			name:    "confidence below zero",
-			results: []verdictResult{{ID: asked.ID.String(), Verdict: capture.PendingStatusReal, Confidence: -0.1}},
+			results: []verdictResult{{ID: asked.ID.String(), Verdict: capture.KindPerson, Confidence: -0.1}},
 			wantMsg: "outside [0,1]",
 		},
 		{
@@ -154,7 +154,7 @@ func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}
 	flood := strings.Repeat("A", 100_000)
 	msg := validateVerdictPayload(verdictPayload{
-		Results: []verdictResult{{ID: flood, Verdict: capture.PendingStatusReal, Confidence: 0.9}},
+		Results: []verdictResult{{ID: flood, Verdict: capture.KindPerson, Confidence: 0.9}},
 	}, asked)
 
 	if msg == "" {
@@ -170,7 +170,7 @@ func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
 // result to keep — so a reply that is right but quoted must be read, not
 // deferred.
 func TestVerdictPayloadReadsAQuotedConfidence(t *testing.T) {
-	const reply = `{"results":[{"id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61","verdict":"noise","confidence":"0.94"}]}`
+	const reply = `{"results":[{"id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61","verdict":"spam","confidence":"0.94"}]}`
 
 	var payload verdictPayload
 	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
@@ -189,7 +189,7 @@ func TestVerdictPayloadReadsAQuotedConfidence(t *testing.T) {
 // read and then rejected rather than being read as a number the floor accepts.
 func TestVerdictPayloadStillRefusesAnOutOfRangeConfidence(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}
-	reply := `{"results":[{"id":"` + asked.ID.String() + `","verdict":"noise","confidence":"1.4"}]}`
+	reply := `{"results":[{"id":"` + asked.ID.String() + `","verdict":"spam","confidence":"1.4"}]}`
 
 	var payload verdictPayload
 	if err := json.Unmarshal([]byte(reply), &payload); err != nil {

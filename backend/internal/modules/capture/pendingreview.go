@@ -99,11 +99,18 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 // the redeemed approval, not a worker's lease, and an `unsure` row is held by
 // nobody. The CAS on `unsure` is what makes a replayed redemption a no-op.
 func (s *PendingStore) ResolveReviewed(ctx context.Context, tx pgx.Tx, id ids.UUID, status, reason string) error {
+	return s.ResolveReviewedAs(ctx, tx, id, status, "", reason)
+}
+
+// ResolveReviewedAs is ResolveReviewed that also records the sender kind the
+// human's decision implies. An empty kind leaves whatever the model recorded.
+func (s *PendingStore) ResolveReviewedAs(ctx context.Context, tx pgx.Tx, id ids.UUID, status, kind, reason string) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE capture_pending_counterparty
 		   SET status = $2, disposition_reason = NULLIF($3, ''),
+		       kind = COALESCE(NULLIF($4, ''), kind),
 		       resolved_at = now(), next_attempt_at = NULL, updated_at = now()
-		 WHERE id = $1 AND status = 'unsure'`, id, status, reason)
+		 WHERE id = $1 AND status = 'unsure'`, id, status, reason, kind)
 	if err != nil {
 		return fmt.Errorf("capture: resolving reviewed disposition %s: %w", id, err)
 	}

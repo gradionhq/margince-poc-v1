@@ -15,7 +15,7 @@ fixture:
     priya
 expect:
   outcome: accepted
-  answer: real
+  answer: person
   rubric: >
     This is the release-blocking false-noise case (ADR-0072/A118 §4). The sender
     is an unmistakable inbound prospect: a named human, a specific commercial

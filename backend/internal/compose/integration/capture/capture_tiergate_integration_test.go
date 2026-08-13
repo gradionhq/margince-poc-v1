@@ -368,3 +368,79 @@ func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
 		t.Fatalf("budget spent = %d, want 0 — nothing here started a read, so nothing may stay reserved", n)
 	}
 }
+
+// Declining is not a relationship. The T1 gate reads what the one outbound
+// message SAYS, because "not interested" is the reply a person writes to end a
+// conversation they never wanted — and admitting the sender on the strength of
+// it is how a real import ended up with a customer-grade record for a firm that
+// had cold-mailed the founder.
+func TestCaptureTierGateRefusesToAdmitASenderTheOwnerDeclined(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
+
+	t.Run("a single declining reply does not admit the sender", func(t *testing.T) {
+		sync(t, email("deals@peinsights.example", "PE Insights", captureOwner, "pe1@peinsights.example", ""))
+		syncSent(t, map[string]bool{"pe2@myco.example": true},
+			emailSaying("deals@peinsights.example", "pe2@myco.example", "pe1@peinsights.example",
+				"Thanks, but we are not interested. Please remove me from your list."))
+
+		// The reply IS attested outbound — the evidence exists, and the gate
+		// still refuses it, which is the whole point.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM activity
+			WHERE counterparty_email = 'deals@peinsights.example' AND counterparty_outbound_attested`); n != 1 {
+			t.Fatalf("%d attested outbound activities, want 1 — the scenario needs the evidence present", n)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'deals@peinsights.example'`); n != 0 {
+			t.Fatalf("%d persons for a sender the owner declined, want 0", n)
+		}
+		// Not dropped — deferred. The verdict engine reads the thread and has
+		// the final say; refusing T1 only means the question stays open.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'deals@peinsights.example' AND status = 'pending'`); n != 1 {
+			t.Fatalf("%d open questions for the declined sender, want exactly 1", n)
+		}
+	})
+
+	t.Run("a reply that engages admits the sender immediately", func(t *testing.T) {
+		// The other half, and the reason the rule reads words rather than
+		// direction: answering a prospect is the most ordinary correspondence
+		// there is, and a gate that demoted every reply would refuse it.
+		sync(t, email("buyer@northwind.example", "Buyer", captureOwner, "nw1@northwind.example", ""))
+		syncSent(t, map[string]bool{"nw2@myco.example": true},
+			emailSaying("buyer@northwind.example", "nw2@myco.example", "nw1@northwind.example",
+				"Happy to help — can you do a call on Thursday to talk through pricing?"))
+
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'buyer@northwind.example'`); n != 1 {
+			t.Fatalf("%d persons for a prospect the owner engaged, want exactly 1", n)
+		}
+	})
+
+	t.Run("a second outbound admits the sender whatever the first said", func(t *testing.T) {
+		// Nobody declines twice and keeps writing. Two attested outbounds are a
+		// correspondence regardless of the words in either.
+		sync(t, email("sales@laterdeal.example", "Later Deal", captureOwner, "ld1@laterdeal.example", ""))
+		syncSent(t, map[string]bool{"ld2@myco.example": true},
+			emailSaying("sales@laterdeal.example", "ld2@myco.example", "ld1@laterdeal.example",
+				"Not interested right now."))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'sales@laterdeal.example'`); n != 0 {
+			t.Fatalf("%d persons after the decline alone, want 0", n)
+		}
+
+		syncSent(t, map[string]bool{"ld3@myco.example": true},
+			emailSaying("sales@laterdeal.example", "ld3@myco.example", "ld1@laterdeal.example",
+				"Actually, let us revisit this in Q3."))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'sales@laterdeal.example'`); n != 1 {
+			t.Fatalf("%d persons after a second outbound, want exactly 1", n)
+		}
+	})
+}

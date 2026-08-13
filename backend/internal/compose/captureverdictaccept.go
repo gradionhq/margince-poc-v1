@@ -167,6 +167,9 @@ func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store
 		return "", pending.ResolveReviewed(ctx, tx, proposal.DispositionID,
 			capture.PendingStatusSuppressed, "the address was erased before the review was accepted")
 	}
-	return created.TriageDomain, pending.ResolveReviewed(ctx, tx, proposal.DispositionID, capture.PendingStatusReal,
-		"accepted in the review queue")
+	// Accepting the offer IS the assertion that a person is behind the address —
+	// the queue's whole question is whether to create this contact — so the
+	// ledger records that kind rather than leaving the model's guess standing.
+	return created.TriageDomain, pending.ResolveReviewedAs(ctx, tx, proposal.DispositionID,
+		capture.PendingStatusReal, capture.KindPerson, "accepted in the review queue")
 }
