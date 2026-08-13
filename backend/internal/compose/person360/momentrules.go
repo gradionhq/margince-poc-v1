@@ -57,9 +57,38 @@ func roleChangeMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.P
 	}, true
 }
 
+// withheld reports whether any of these sections was kept from this reader.
+//
+// A section the caller may not read comes back NIL, exactly like a section that
+// is genuinely empty, and assemble.go records the difference in SectionsOmitted
+// instead. A rule that reads nil as "there is nothing here" therefore tells a
+// reader without the grant that nothing is scheduled, that nothing has been
+// captured, that nobody is waiting — three confident statements about data the
+// page was not allowed to look at.
+//
+// So every rule whose FINDING IS AN ABSENCE asks this first. A rule that fires
+// on something present (a meeting exists, a promise is overdue) does not need
+// it: what it saw, it saw.
+func withheld(page *crmcontracts.Person360, sections ...crmcontracts.Person360SectionsOmitted) bool {
+	for _, omitted := range page.SectionsOmitted {
+		for _, section := range sections {
+			if omitted == section {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // missingNextStepMoment: there is an open deal and nothing scheduled with the
 // person who sits on it. The gap is the finding.
 func missingNextStepMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+	// "Nothing is scheduled" is only true if this reader could see the schedule.
+	if withheld(page, crmcontracts.Person360SectionsOmittedNextMeeting,
+		crmcontracts.Person360SectionsOmittedNextSteps,
+		crmcontracts.Person360SectionsOmittedCommercial) {
+		return crmcontracts.PersonMoment{}, false
+	}
 	if page.Commercial == nil || page.Commercial.Deal == nil {
 		return crmcontracts.PersonMoment{}, false
 	}

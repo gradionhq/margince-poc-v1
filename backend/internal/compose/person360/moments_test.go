@@ -4,6 +4,7 @@
 package person360
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -325,5 +326,58 @@ func TestTheFingerprintIgnoresProse(t *testing.T) {
 	}})
 	if first != reworded {
 		t.Fatal("the same evidence under a different label is the same evidence")
+	}
+}
+
+// A section this reader may not see comes back NIL, exactly like a section that
+// is genuinely empty. A rule that reads nil as "there is nothing here" then
+// states a confident fact about data the page was never allowed to look at:
+// "nothing is scheduled" when the schedule was withheld, "nobody is waiting on
+// a reply" when the timeline was.
+//
+// That is the same defect the drafting program exists to remove — asserting
+// something the evidence does not carry — arriving through the record page
+// instead of through a draft.
+func TestARuleDoesNotClaimAbsenceForASectionItCouldNotRead(t *testing.T) {
+	deal := &crmcontracts.Person360Commercial{Deal: &crmcontracts.Person360CommercialDeal{
+		DealId: openapi_types.UUID(ids.NewV7()), Title: "Dispatch integration",
+	}}
+
+	// An open deal with no visible schedule. Allowed to look, the page says
+	// nothing is scheduled; forbidden to look, it must not.
+	visible := &crmcontracts.Person360{Commercial: deal}
+	if got := deriveMoment(now, visible).Rule; got != crmcontracts.PersonMomentRuleMissingNextStep {
+		t.Fatalf("with the schedule readable and empty, the gap IS the finding, got %q", got)
+	}
+
+	withheldSchedule := &crmcontracts.Person360{
+		Commercial: deal,
+		SectionsOmitted: []crmcontracts.Person360SectionsOmitted{
+			crmcontracts.Person360SectionsOmittedNextMeeting,
+		},
+	}
+	if got := deriveMoment(now, withheldSchedule).Rule; got == crmcontracts.PersonMomentRuleMissingNextStep {
+		t.Error("the schedule was withheld, so 'nothing is scheduled' is not something this page knows")
+	}
+}
+
+// And the quiet fall-through says so too, rather than reporting a withheld
+// timeline as a clean bill of health.
+func TestNothingNeededAdmitsWhenItCouldNotSeeEverything(t *testing.T) {
+	full := deriveMoment(now, &crmcontracts.Person360{})
+	if full.Rule != crmcontracts.PersonMomentRuleNothingNeeded {
+		t.Fatalf("an empty readable page is the quiet state, got %q", full.Rule)
+	}
+
+	partial := deriveMoment(now, &crmcontracts.Person360{
+		SectionsOmitted: []crmcontracts.Person360SectionsOmitted{
+			crmcontracts.Person360SectionsOmittedActivities,
+		},
+	})
+	if partial.WhyNow == full.WhyNow {
+		t.Error("a reader shown only part of the record must not be told nobody is waiting on a reply")
+	}
+	if !strings.Contains(partial.WhyNow, "not yours to see") {
+		t.Errorf("and it must say WHY the picture is partial, got %q", partial.WhyNow)
 	}
 }

@@ -90,7 +90,7 @@ func (s *Service) momentsSection(ctx context.Context, tx pgx.Tx, personID ids.Pe
 		// Dismissed against THIS evidence. The quiet success state is what the
 		// reader asked for by dismissing, and it is a moment of its own rather
 		// than an empty card.
-		quiet := nothingNeededMoment(now)
+		quiet := nothingNeededMoment(now, out)
 		out.Moment = &quiet
 		return nil
 	}
@@ -151,7 +151,7 @@ func deriveMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.Pers
 	}
 	// 10. Nothing needs you today. A quiet success state, not a blank card:
 	// "there is nothing here" is an answer, and the reader came for an answer.
-	return nothingNeededMoment(now)
+	return nothingNeededMoment(now, page)
 }
 
 // momentLadder is the ladder itself, named so a test can walk every rung.
@@ -418,14 +418,27 @@ func logInteraction() crmcontracts.PersonMomentAction {
 // It is a moment rather than an absence because the reader opened the page to
 // be told what to do, and "nothing" is a legitimate answer that an empty card
 // fails to give.
-func nothingNeededMoment(now time.Time) crmcontracts.PersonMoment {
+func nothingNeededMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
+	why := "No meeting is close, nothing is owed, and nobody is waiting on a reply."
+	// Every rung above this one either fired or found nothing, and "found
+	// nothing" includes "was not allowed to look". Saying nobody is waiting on
+	// a reply when the timeline was withheld states a fact about data this
+	// reader could not see, so the sentence says what is actually true instead.
+	if withheld(page, crmcontracts.Person360SectionsOmittedActivities,
+		crmcontracts.Person360SectionsOmittedLastTouch,
+		crmcontracts.Person360SectionsOmittedNextMeeting,
+		crmcontracts.Person360SectionsOmittedNextSteps,
+		crmcontracts.Person360SectionsOmittedClaims,
+		crmcontracts.Person360SectionsOmittedCommercial) {
+		why = "Nothing needs you in what this record shows you. Parts of it are not yours to see, so this is not the whole picture."
+	}
 	return crmcontracts.PersonMoment{
 		ClaimKey:            "moment:nothing_needed",
 		Rule:                crmcontracts.PersonMomentRuleNothingNeeded,
 		RuleVersion:         ptr(ruleVersion),
 		EvidenceFingerprint: "quiet",
 		Headline:            "Nothing needs you today",
-		WhyNow:              "No meeting is close, nothing is owed, and nobody is waiting on a reply.",
+		WhyNow:              why,
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            []crmcontracts.PersonMomentEvidence{},
 		FreshnessAt:         &now,
