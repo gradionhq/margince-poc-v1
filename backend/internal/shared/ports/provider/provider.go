@@ -183,7 +183,7 @@ const (
 	OutcomeCompleted Outcome = "completed"
 	OutcomeNoMatch   Outcome = "no_match"
 
-	OutcomeInvalidCredentials  Outcome = "invalid_credentials"
+	OutcomeInvalidCredentials  Outcome = "invalid_credentials" //nolint:gosec // G101 false positive: an outcome NAME the adapter returns, not a credential
 	OutcomeInsufficientCredits Outcome = "insufficient_credits"
 	OutcomeRateLimited         Outcome = "rate_limited"
 	OutcomeProviderError       Outcome = "provider_error"
