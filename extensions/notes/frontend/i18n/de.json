@@ -15,6 +15,7 @@
   "extNotes.notes.addFailed": "Das Hinzufügen der Notiz ist fehlgeschlagen. Ob sie gespeichert wurde, ist offen — prüfen Sie die Liste unten, bevor Sie sie erneut hinzufügen.",
   "extNotes.notes.bodyLabel": "Neue Notiz",
   "extNotes.notes.empty": "Noch keine Notizen.",
+  "extNotes.notes.filed": "Abgelegt",
   "extNotes.notes.noGrant": "Sie haben keinen Lesezugriff auf die Notizen dieser Erweiterung.",
   "extNotes.notes.remove": "Entfernen",
   "extNotes.notes.removeFailed": "Das Entfernen der Notiz ist fehlgeschlagen. Prüfen Sie die Liste unten.",

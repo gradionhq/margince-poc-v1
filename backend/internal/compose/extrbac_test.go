@@ -72,14 +72,62 @@ func TestTwoUnitsDerivingOneRbacObjectAreRefusedByName(t *testing.T) {
 			t.Errorf("the refusal does not name %s: %v", want, err)
 		}
 	}
-	// And it reaches the boot rather than being a local nicety.
+	// And the boot refuses the pair — EARLIER than this check, and for the
+	// reason underneath it. The two unit names that can derive one object name
+	// are exactly the two whose namespaces open one another (`ext_crm`,
+	// `ext_crm_demo`), and reserveNamespace turns that pair away before any
+	// capability is read: the ambiguity was never confined to RBAC objects — an
+	// identifier like ext_crm_demo_widget names a table, a ledger subject and an
+	// event subject either unit could own. The check above remains the one that
+	// catches two units declaring one object they did not both DERIVE.
 	t.Cleanup(identity.ResetRbacObjectsForTest)
 	t.Cleanup(func() { setComposedTools(nil); setComposedVerbs(nil) })
 	bootErr := RegisterExtensions([]extension.Extension{
 		{Name: "crm", Version: "0.1.0"}, {Name: "crm-demo", Version: "0.1.0"},
 	}, []extension.Verb{crm, crmDemo}, nil)
-	if bootErr == nil || !strings.Contains(bootErr.Error(), "both derive RBAC object") {
-		t.Fatalf("boot err = %v, want the derived-name collision", bootErr)
+	if bootErr == nil || !strings.Contains(bootErr.Error(), "one opens the other") {
+		t.Fatalf("boot err = %v, want the overlapping-namespace refusal", bootErr)
+	}
+	for _, want := range []string{`"crm"`, `"crm-demo"`} {
+		if !strings.Contains(bootErr.Error(), want) {
+			t.Errorf("the boot refusal does not name %s: %v", want, bootErr)
+		}
+	}
+}
+
+// TestOverlappingUnitNamespacesAreRefused: two units whose namespaces open one
+// another cannot both compose, whatever they declare.
+//
+// It is the hazard the generator's derived-identifier check already names —
+// "unit a-b table c and unit a table b_c both derive ext_a_b_c" — seen from the
+// other end. That one refuses the two units DECLARING one table; this refuses
+// the pair existing at all, because a unit NAMING the ambiguous identifier at
+// run time (a ledger row's subject, an event's subject) has no honest owner and
+// nothing downstream holds the split.
+func TestOverlappingUnitNamespacesAreRefused(t *testing.T) {
+	t.Cleanup(func() { setComposedExtensions(nil); setComposedSubscriptions(nil) })
+	for name, set := range map[string][]extension.Extension{
+		"a hyphen that becomes an underscore": {
+			{Name: "crm", Version: "0.1.0"}, {Name: "crm-demo", Version: "0.1.0"},
+		},
+		// Declaration order must not decide it: the longer name first is the
+		// same clash read the other way round.
+		"the longer name first": {
+			{Name: "crm-demo", Version: "0.1.0"}, {Name: "crm", Version: "0.1.0"},
+		},
+	} {
+		if err := RegisterExtensions(set, nil, nil); err == nil {
+			t.Errorf("%s: the boot composed two units whose namespaces overlap", name)
+		}
+	}
+
+	// Names that merely SHARE A PREFIX compose fine — `ext_crmdemo_x` can never
+	// be read as a table of `ext_crm`, because every derivation joins with an
+	// underscore. A refusal here would be this check overreaching.
+	if err := RegisterExtensions([]extension.Extension{
+		{Name: "crm", Version: "0.1.0"}, {Name: "crmdemo", Version: "0.1.0"},
+	}, nil, nil); err != nil {
+		t.Errorf("two units with distinct namespaces were refused: %v", err)
 	}
 }
 

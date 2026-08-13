@@ -88,6 +88,33 @@ func TestFilingWritesTheNoteAndTheActivityTogether(t *testing.T) {
 	}
 }
 
+// TestAFilingRecordsBothHistories: the port wrote the ACTIVITY's ledger row —
+// that record's history is the core's — and this asserts the other half, the
+// notepad's own, which no core write could have made because no core code knows
+// this table exists. The record the note reached rides in the evidence, because
+// the note's own columns name the activity and not what it sits on.
+func TestAFilingRecordsBothHistories(t *testing.T) {
+	rt := filingRuntime()
+	if _, err := fileOne(t, rt, "a filed note"); err != nil {
+		t.Fatalf("fileNote: %v", err)
+	}
+	if len(rt.tx.audited) != 1 {
+		t.Fatalf("the filing recorded %d ledger rows of its own, want 1", len(rt.tx.audited))
+	}
+	change := rt.tx.audited[0]
+	if change.Action != extension.AuditCreate || change.Entity != noteEntity {
+		t.Errorf("recorded %s on %s, want a create of %s", change.Action, change.Entity, noteEntity)
+	}
+	for _, want := range []string{"person", subjectID} {
+		if !strings.Contains(string(change.Detail), want) {
+			t.Errorf("the evidence does not name the record the note was filed to (%q): %s", want, change.Detail)
+		}
+	}
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventNoteFiled {
+		t.Errorf("published %v, want one %s", rt.tx.published, eventNoteFiled)
+	}
+}
+
 // The activity is written FIRST, so a refused core write leaves no note behind
 // — the whole point of one transaction, asserted on the half that would
 // otherwise be silent.

@@ -328,23 +328,82 @@ func TestAddNotePropagatesTheWriteFailure(t *testing.T) {
 	}
 }
 
+// TestAddNoteRecordsItsOwnWrite: the notepad's rows are the unit's, so nothing
+// in the core can describe a write to them — this unit says what happened, in
+// the same ledger the product keeps for its own records, and tells anybody
+// listening.
+func TestAddNoteRecordsItsOwnWrite(t *testing.T) {
+	const addedID = "11111111-1111-4111-8111-111111111111"
+	rt := newRuntime()
+	rt.tx.row = noteRow(addedID, kindNote, "hello", callerUserID, false, stamp)
+	if _, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"hello"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.tx.audited) != 1 {
+		t.Fatalf("the insert recorded %d ledger rows, want 1", len(rt.tx.audited))
+	}
+	change := rt.tx.audited[0]
+	if change.Action != extension.AuditCreate || change.Entity != noteEntity || change.ID != addedID {
+		t.Errorf("recorded %s on %s/%s, want a create of %s/%s",
+			change.Action, change.Entity, change.ID, noteEntity, addedID)
+	}
+	if change.Before != nil {
+		t.Errorf("a create recorded a before image: %s", change.Before)
+	}
+	// The after image is the row the DATABASE wrote, not the arguments this
+	// handler sent: the two differ wherever a default, a trigger or a CHECK has
+	// an opinion, and the ledger records what is there.
+	if !strings.Contains(string(change.After), addedID) {
+		t.Errorf("the after image is not the row that was written: %s", change.After)
+	}
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventNoteAdded {
+		t.Fatalf("published %v, want one %s", rt.tx.published, eventNoteAdded)
+	}
+	// The payload carries what a listener needs to DECIDE whether to read the
+	// row — the kind, which separates a person's note from the heartbeat's.
+	if !strings.Contains(string(rt.tx.published[0].Payload), string(kindNote)) {
+		t.Errorf("the payload does not name the kind: %s", rt.tx.published[0].Payload)
+	}
+}
+
+// TestAddNoteFailsWhenItsHistoryCannotBeWritten: the ledger row rides the same
+// transaction as the insert, so a note that could exist with no history must
+// not exist at all — the handler propagates rather than answering a stored note
+// whose write nothing recorded.
+func TestAddNoteFailsWhenItsHistoryCannotBeWritten(t *testing.T) {
+	rt := newRuntime()
+	rt.tx.row = noteRow("11111111-1111-4111-8111-111111111111", kindNote, "hello", callerUserID, false, stamp)
+	rt.tx.recordErr = errors.New("the ledger row could not be written")
+	if _, err := addNote(context.Background(), rt, json.RawMessage(`{"body":"hello"}`)); err == nil {
+		t.Fatal("a note whose ledger row failed was answered as stored")
+	}
+}
+
+const removedNoteID = "11111111-1111-4111-8111-111111111111"
+
 func TestRemoveNoteReportsWhetherItRemovedAnything(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		affected int64
-		want     string
+		name string
+		// row is what the DELETE returned: the note that went, or nothing at
+		// all. It RETURNs the row rather than a count because an erase's ledger
+		// row carries the only remaining image of what was there.
+		row  []any
+		want string
 	}{
-		{"a note this workspace holds", 1, `{"removed":true}`},
+		{
+			"a note this workspace holds",
+			noteRow(removedNoteID, kindNote, "gone", callerUserID, false, time.Now().UTC()),
+			`{"removed":true}`,
+		},
 		// Not an error: the policy makes another tenant's row invisible rather
 		// than forbidden, so "no such note here" and "no such note anywhere"
 		// are the same answer — and the only one this unit is entitled to give.
-		{"an id this workspace does not hold", 0, `{"removed":false}`},
+		{"an id this workspace does not hold", nil, `{"removed":false}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rt := newRuntime()
-			rt.tx.affected = tc.affected
-			out, err := removeNote(context.Background(), rt,
-				json.RawMessage(`{"id":"11111111-1111-4111-8111-111111111111"}`))
+			rt.tx.row = tc.row
+			out, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"`+removedNoteID+`"}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -355,6 +414,44 @@ func TestRemoveNoteReportsWhetherItRemovedAnything(t *testing.T) {
 				t.Errorf("the delete does not cast the id, so an unparseable one would match nothing silently:\n%s", sql)
 			}
 		})
+	}
+}
+
+// TestRemoveNoteRecordsTheEraseWithTheRowThatWent: an erase leaves nothing
+// behind, so the ledger's before-image is the only remaining trace of what the
+// notepad held — and an id that matched nothing must record NOTHING, rather
+// than a history of a deletion that never happened.
+func TestRemoveNoteRecordsTheEraseWithTheRowThatWent(t *testing.T) {
+	rt := newRuntime()
+	rt.tx.row = noteRow(removedNoteID, kindNote, "gone", callerUserID, false, time.Now().UTC())
+	if _, err := removeNote(context.Background(), rt, json.RawMessage(`{"id":"`+removedNoteID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.tx.audited) != 1 {
+		t.Fatalf("the erase recorded %d ledger rows, want 1", len(rt.tx.audited))
+	}
+	change := rt.tx.audited[0]
+	if change.Action != extension.AuditErase || change.Entity != noteEntity || change.ID != removedNoteID {
+		t.Errorf("recorded %s on %s/%s, want an erase of %s/%s",
+			change.Action, change.Entity, change.ID, noteEntity, removedNoteID)
+	}
+	if !strings.Contains(string(change.Before), "gone") {
+		t.Errorf("the before image does not carry the row that went: %s", change.Before)
+	}
+	if change.After != nil {
+		t.Errorf("an erase recorded an after image: %s", change.After)
+	}
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventNoteRemoved {
+		t.Errorf("published %v, want one %s", rt.tx.published, eventNoteRemoved)
+	}
+
+	unmatched := newRuntime()
+	if _, err := removeNote(context.Background(), unmatched, json.RawMessage(`{"id":"`+removedNoteID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(unmatched.tx.audited) != 0 || len(unmatched.tx.published) != 0 {
+		t.Errorf("an id that matched nothing recorded %d changes and %d events, want none",
+			len(unmatched.tx.audited), len(unmatched.tx.published))
 	}
 }
 

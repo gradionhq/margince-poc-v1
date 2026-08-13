@@ -58,11 +58,12 @@ type extensionCore struct {
 	// live caller could not have made. What a handler passes now contributes
 	// cancellation, deadline and its own values — never an identity.
 	authority func(context.Context) (context.Context, error)
-	// tick marks an invocation with no human behind it. Held rather than
-	// re-derived because the reason a tick is refused is about the INVOCATION,
-	// not about the context the handler passes in.
-	tick bool
-	deps extensionRuntimeBinding
+	// unattended marks an invocation with nobody behind it — a scheduled job
+	// tick, a bus delivery. Held rather than re-derived because the reason it
+	// is refused is about the INVOCATION, not about the context the handler
+	// passes in.
+	unattended bool
+	deps       extensionRuntimeBinding
 }
 
 //nolint:ireturn // returning the published repo IS the seam: a unit holds extension.ActivityRepo, never a core type.
@@ -74,11 +75,12 @@ type extensionActivities struct{ core extensionCore }
 
 // Create files one activity through the product's own write path.
 func (a extensionActivities) Create(ctx context.Context, in crm.CreateActivityRequest) (crm.Activity, error) {
-	// The tick refusal is FIRST, before anything is bound or read, because it
-	// is about what the invocation IS rather than about anything it asked for:
-	// there is no caller here whose authority a core write could be checked
-	// against, so nothing later in this function has a question to answer.
-	if err := a.core.refuseTick(); err != nil {
+	// The unattended refusal is FIRST, before anything is bound or read,
+	// because it is about what the invocation IS rather than about anything it
+	// asked for: there is no caller here whose authority a core write could be
+	// checked against, so nothing later in this function has a question to
+	// answer.
+	if err := a.core.refuseUnattended(); err != nil {
 		return crm.Activity{}, err
 	}
 	ctx, err := a.core.authorised(ctx)
@@ -135,17 +137,27 @@ func (c extensionCore) authorised(ctx context.Context) (context.Context, error) 
 	return bound, nil
 }
 
-// refuseTick refuses the invocation that has no caller behind it.
-func (c extensionCore) refuseTick() error {
-	if c.tick {
-		// A tick runs as the unit, with nobody behind it. Core writes are
-		// checked against the CALLER's live RBAC, and there is no caller to
-		// check — the alternatives are a system principal, which passes every
-		// check ever written, or resolving the workspace's agent seat, which is
-		// a governance surface of its own. Both are features; this is a
-		// refusal. A tick's own tables stay writable, which is what a tick is
-		// for.
-		return fmt.Errorf("%w: a scheduled job runs with no caller, and a core write is checked against the caller's own permissions", extension.ErrForbidden)
+// refuseUnattended refuses the invocation that has no caller behind it.
+func (c extensionCore) refuseUnattended() error {
+	if c.unattended {
+		// A job tick and a bus delivery both run with nobody behind them. Core
+		// writes are checked against the CALLER's live RBAC, and there is no
+		// caller to check — the alternatives are a system principal, which
+		// passes every check ever written, or resolving the workspace's agent
+		// seat, which is a governance surface of its own. Both are features;
+		// this is a refusal.
+		//
+		// It is load-bearing rather than tidy, and most sharply for a delivery:
+		// that one runs as PrincipalSystem, which auth.Require bypasses
+		// entirely, so without this refusal the GOVERNED door would be wide
+		// open to a caller nothing checks. It does not make a unit unable to
+		// touch a core table — Tx's three SQL verbs run on the shared
+		// application role and reach whatever that role reaches, which
+		// runtime.go states in the open and issue #628 tracks closing. What it
+		// keeps shut is the door that would make such a write look authorized.
+		// The unit's OWN tables stay writable, which is what an unattended run
+		// is for.
+		return fmt.Errorf("%w: a scheduled job and a bus delivery run with no caller, and a core write is checked against the caller's own permissions", extension.ErrForbidden)
 	}
 	return nil
 }

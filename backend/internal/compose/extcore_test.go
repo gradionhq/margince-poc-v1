@@ -29,7 +29,7 @@ import (
 func TestAJobTickCannotWriteACoreRecord(t *testing.T) {
 	// No pool and no transaction, deliberately. If admit ever stopped refusing
 	// first, this test would panic rather than pass.
-	core := extensionCore{tick: true}
+	core := extensionCore{unattended: true}
 
 	_, err := core.Activities().Create(context.Background(), crm.CreateActivityRequest{
 		Kind: crm.CreateActivityRequestKindNote, Source: "extension:probe",

@@ -60,6 +60,14 @@ type unitManifest struct {
 	// the tree predates this field, so an unconditional key would rewrite
 	// every one of them for a field they do not use.
 	Secrets []secretsRequest `json:"secrets,omitempty"`
+
+	// Subscriptions are the events the unit listens for (see
+	// extension.Subscription). They carry no tier and no scope — a listener has
+	// nothing an operator RESOLVES — so they sit apart from RiskTiers, and what
+	// they record is REACH: which of the installation's facts this unit
+	// consumes, readable without opening its source. omitempty for the reason
+	// Secrets has it: every manifest already in the tree predates the field.
+	Subscriptions []subscriptionRequest `json:"subscriptions,omitempty"`
 }
 
 // secretsRequest is one declared secret key and scope (see
@@ -68,6 +76,15 @@ type unitManifest struct {
 type secretsRequest struct {
 	Key   string `json:"key"`
 	Scope string `json:"scope"`
+}
+
+// subscriptionRequest is one declared listener: its name and the event types it
+// wants, both sorted so the encoding does not depend on declaration order. The
+// handler is absent by design — it is behavior, and this file is read without
+// compiling the unit.
+type subscriptionRequest struct {
+	Name   string   `json:"name"`
+	Events []string `json:"events"`
 }
 
 // riskTierRequest is one governed operation and the risk tier it requests,
