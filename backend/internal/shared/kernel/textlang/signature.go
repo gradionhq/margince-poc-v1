@@ -70,7 +70,6 @@ var footerLeads = []string{
 	"the information contained in this message",
 	"this transmission is intended",
 	"if you are not the intended recipient",
-	"please consider the environment",
 	"confidentiality notice",
 	// German.
 	"diese e-mail und etwaige",

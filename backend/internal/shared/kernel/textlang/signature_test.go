@@ -133,7 +133,7 @@ func TestTheEarliestBoundaryWins(t *testing.T) {
 	// A short reply, a signature, and then a quoted German thread. Cutting at
 	// the sig-dash is what saves it: leaving the English signature in the pool
 	// let it outvote the reply above it.
-	quoted := "Hallo Marek, danke dir für die Unterlagen, ich schaue sie mir an.\n\n-- \n" +
+	quoted := "Danke dir, das schaue ich mir an und melde mich.\n\n-- \n" +
 		"Best regards from all of us here at the office, and do let us know\n" +
 		"if there is anything further we can help you with at any time.\n\n" +
 		"On Monday, Marek wrote:\n> Hallo Lars, anbei die Unterlagen zum Angebot.\n"
@@ -175,5 +175,60 @@ func TestACurtReplyUnderTheWordFloorIsStillRead(t *testing.T) {
 		if got := Detect(body); got != German {
 			t.Errorf("Detect(%q…) = %q, want %q", reply[:20], got, German)
 		}
+	}
+}
+
+// Three ways a cut can run on something that is not a reply. Each was a live
+// defect: the detector answered a language, so the whole quoted thread below it
+// was thrown away on the strength of a metadata line or a single word.
+func TestOnlyWrittenWordsCanAuthorizeACut(t *testing.T) {
+	cases := []struct {
+		name string
+		kept string
+	}{
+		{
+			// Zero authored words, and three English stopwords inside the
+			// header itself. Counting words after stripping headers while
+			// scoring stopwords before stripping them is what let this through.
+			name: "a subject line is metadata, not a message",
+			kept: "Subject: Update on the plan and the budget",
+		},
+		{
+			// The Vietnamese path reads the SHARE of accented runes, and two of
+			// six letters clears it. A lone word is not a reply in any language.
+			name: "one accented word is not a reply",
+			kept: "Résumé",
+		},
+		{
+			name: "an envelope header pair says nothing either",
+			kept: "From: marek@example.com\nTo: lars@example.com",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if saysSomething([]rune(c.kept)) {
+				t.Errorf("saysSomething(%q) = true, so this would authorize cutting the thread below it", c.kept)
+			}
+		})
+	}
+}
+
+// A lead phrase has to head a line long enough to BE boilerplate. The floor is
+// what separates a company's notice from somebody opening a sentence with the
+// same words, so it is pinned rather than left as a constant nothing reads.
+func TestAFooterLeadNeedsARealFooterUnderIt(t *testing.T) {
+	const lead = "This email and any attachments are confidential"
+
+	short := lead + "."
+	if len([]rune(short)) >= footerMinRunes {
+		t.Fatalf("this case must sit UNDER the rune floor to be worth anything, got %d", len([]rune(short)))
+	}
+	if got := footerStart([]rune("Hallo,\n\n" + short)); got >= 0 {
+		t.Errorf("a lead phrase on a short line is a sentence, not a footer, got offset %d", got)
+	}
+
+	long := lead + " and intended solely for the use of the addressee named above."
+	if got := footerStart([]rune("Hallo,\n\n" + long)); got < 0 {
+		t.Error("a real notice, at full length, is a footer")
 	}
 }
