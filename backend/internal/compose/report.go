@@ -33,6 +33,19 @@ const (
 	colPipelineID     = "t.pipeline_id"
 	colStageID        = "t.stage_id"
 	whereArchivedNull = "t.archived_at IS NULL"
+
+	// joinStageForWinProbability is the one join a spec adds when it needs the
+	// deal's current stage for win_probability — a to-one lookup (deal.stage_id
+	// is NOT NULL, stage.id is its PK), so it never widens the row grain.
+	joinStageForWinProbability = "JOIN stage s ON s.id = t.stage_id"
+	colWinProbability          = "s.win_probability"
+
+	// weightedAmountMinorExpr is the one spelling of "weighted value" (formulas
+	// §6, AC-F1): round PER DEAL, half away from zero, so a roll-up over it
+	// equals the sum of its own rows exactly. Shared by every spec that joins
+	// stage for win_probability, so the forecast report and any other
+	// per-stage weighted figure cannot drift apart (review-loop rule 1).
+	weightedAmountMinorExpr = "round((t.amount_minor * s.win_probability) / 100.0)::bigint"
 )
 
 type reportAggregate struct {
@@ -112,14 +125,23 @@ var prebuiltReports = map[string]reportSpec{
 		},
 	},
 	"deals-by-stage": {
-		entity:     datasource.EntityDeal,
-		table:      "deal",
-		baseWhere:  whereArchivedNull,
-		basePlain:  "live (unarchived) deals",
-		dimensions: map[string]string{"stage_id": colStageID, "status": "t.status", "pipeline_id": colPipelineID},
-		measures:   map[string]string{"amount_minor": colAmountMinor},
-		filters:    map[string]string{"pipeline_id": colPipelineID, "status": "t.status", "owner_id": colOwnerID},
-		defaultBy:  []string{"stage_id"},
+		entity:    datasource.EntityDeal,
+		table:     "deal",
+		joins:     []string{joinStageForWinProbability},
+		baseWhere: whereArchivedNull,
+		basePlain: "live (unarchived) deals",
+		dimensions: map[string]string{
+			"stage_id":        colStageID,
+			"status":          "t.status",
+			"pipeline_id":     colPipelineID,
+			"win_probability": colWinProbability,
+		},
+		measures: map[string]string{
+			"amount_minor":          colAmountMinor,
+			"weighted_amount_minor": weightedAmountMinorExpr,
+		},
+		filters:   map[string]string{"pipeline_id": colPipelineID, "status": "t.status", "owner_id": colOwnerID, "stage_id": colStageID},
+		defaultBy: []string{"stage_id"},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "amount_minor_sum"},

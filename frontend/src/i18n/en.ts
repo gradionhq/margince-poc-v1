@@ -1235,6 +1235,7 @@ export const en = {
   "deal.fcBestCase": "Best case",
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Omitted",
+  "deal.fcSlipped": "Slipped",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Stalled only",

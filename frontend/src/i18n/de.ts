@@ -1226,6 +1226,7 @@ export const de = {
   "deal.fcBestCase": "Best Case",
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Ausgeschlossen",
+  "deal.fcSlipped": "Verschoben",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Nur ins Stocken geraten",

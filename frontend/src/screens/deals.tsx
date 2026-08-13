@@ -391,13 +391,25 @@ export function buildColumns(
       const raw = currency
         ? stageDeals.reduce((sum, deal) => sum + (deal.amount_minor ?? 0), 0)
         : null;
+      // Weighted rounds PER DEAL then sums (formulas §6 / AC-F1), matching
+      // the forecast report's own methodology — rounding the column sum
+      // once instead disagrees by the rounding residue of every deal in it.
+      const weighted = currency
+        ? stageDeals.reduce(
+            (sum, deal) =>
+              sum +
+              Math.round(
+                ((deal.amount_minor ?? 0) * stage.win_probability) / 100,
+              ),
+            0,
+          )
+        : null;
       return {
         stage: stage.id,
         label: stage.name,
         probabilityPct: stage.win_probability,
         rawMinor: raw ?? 0,
-        weightedMinor:
-          raw === null ? 0 : Math.round((raw * stage.win_probability) / 100),
+        weightedMinor: weighted ?? 0,
         currency: currency ?? "EUR",
         deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
         sumHidden: raw === null,

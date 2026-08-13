@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import {
   Button,
   Card,
@@ -32,9 +33,9 @@ import { QuotasView } from "./quotas";
 type StageAgg = {
   stageId: string;
   stageName: string;
-  probabilityPct: number;
   count: number;
   rawMinor: number;
+  weightedMinor: number;
   currency: string | null;
 };
 
@@ -49,6 +50,31 @@ const REPORT_GROUP_BY: Record<ReportKey, string> = {
   "deals-by-stage": "stage_id",
   forecast: "forecast_category",
   "open-deals-per-company": "organization_id",
+};
+
+type ReportAggregate = NonNullable<
+  components["schemas"]["RunReportRequest"]["aggregates"]
+>[number];
+
+// Which aggregates each report's own vocabulary serves (report.go's
+// per-spec measures) — `weighted_amount_minor` only exists where a stage
+// join computes it (deals-by-stage, forecast); requesting it against
+// open-deals-per-company's narrower vocabulary would 422.
+const REPORT_AGGREGATES: Record<ReportKey, ReportAggregate[]> = {
+  "deals-by-stage": [
+    { fn: "sum", field: "amount_minor", as: "raw_minor" },
+    { fn: "sum", field: "weighted_amount_minor", as: "weighted_minor" },
+    { fn: "count", as: "deal_count" },
+  ],
+  forecast: [
+    { fn: "sum", field: "amount_minor", as: "raw_minor" },
+    { fn: "sum", field: "weighted_amount_minor", as: "weighted_minor" },
+    { fn: "count", as: "deal_count" },
+  ],
+  "open-deals-per-company": [
+    { fn: "sum", field: "amount_minor", as: "raw_minor" },
+    { fn: "count", as: "deal_count" },
+  ],
 };
 
 // Parse a server-minted `derivation_url` into the typed derivation query.
@@ -73,33 +99,49 @@ function derivationReportKey(url: string): string {
   return url.match(/reports\/([^/?]+)\/derivation/)?.[1] ?? "";
 }
 
+// forecast_category dimension values (report.go's forecastCategoryExpr):
+// the four the deal itself can carry, plus the server-derived "slipped" —
+// a claimed commit/best_case deal whose close date is past, missing, or
+// still provisional (formulas §11). Omitting it here doesn't shrink the
+// total; it moves the deal's amount into no tile at all.
 const FORECAST_CATEGORIES = [
   { key: "commit", labelKey: "deal.fcCommit" },
   { key: "best_case", labelKey: "deal.fcBestCase" },
   { key: "pipeline", labelKey: "deal.fcPipeline" },
   { key: "omitted", labelKey: "deal.fcOmitted" },
+  { key: "slipped", labelKey: "deal.fcSlipped" },
 ] as const;
 
 // Prop-driven money tile for a forecast category — exported for the
 // Storybook task so it can render without a live fetch (mirrors how
-// FxLine in deals.tsx typed its `locale`).
+// FxLine in deals.tsx typed its `locale`). `weightedMinor` is optional so
+// the tile still renders (raw only) for a caller with no weighted figure
+// to hand — the storybook task among them.
 export function ForecastTile({
   label,
   amountMinor,
+  weightedMinor,
   currency,
   locale,
 }: Readonly<{
   label: string;
   amountMinor: number;
+  weightedMinor?: number;
   currency: string;
   locale: Locale;
 }>) {
+  const t = useT();
   return (
     <Card>
       <span className="t-label">{label}</span>
       <p className="t-mono t-display">
         {formatMoney(amountMinor, currency, locale)}
       </p>
+      {weightedMinor != null && (
+        <p className="t-mono t-caption">
+          {t("reports.weighted")}: {formatMoney(weightedMinor, currency, locale)}
+        </p>
+      )}
     </Card>
   );
 }
@@ -141,10 +183,7 @@ export function ReportsScreen() {
         params: { path: { report } },
         body: {
           group_by: [REPORT_GROUP_BY[report]],
-          aggregates: [
-            { fn: "sum", field: "amount_minor", as: "raw_minor" },
-            { fn: "count", as: "deal_count" },
-          ],
+          aggregates: REPORT_AGGREGATES[report],
         },
       });
       if (error) {
@@ -258,6 +297,7 @@ export function ReportsScreen() {
                         key={category.key}
                         label={t(category.labelKey)}
                         amountMinor={Number(row?.raw_minor ?? 0)}
+                        weightedMinor={Number(row?.weighted_minor ?? 0)}
                         currency={
                           typeof row?.currency === "string"
                             ? row.currency
@@ -320,9 +360,12 @@ export function ReportsScreen() {
               return {
                 stageId,
                 stageName: stage?.name ?? stageId,
-                probabilityPct: stage?.win_probability ?? 0,
                 count: Number(row.deal_count ?? 0),
                 rawMinor: Number(row.raw_minor ?? 0),
+                // AC-F1: the server's own per-deal-rounded weighted sum
+                // (weighted_amount_minor), never round(rawMinor × p / 100)
+                // — that rounds the column sum once instead of every deal.
+                weightedMinor: Number(row.weighted_minor ?? 0),
                 currency:
                   typeof row.currency === "string" ? row.currency : "EUR",
               };
@@ -359,7 +402,7 @@ export function ReportsScreen() {
                     render: (row: StageAgg) => (
                       <span className="t-mono">
                         {formatMoney(
-                          Math.round((row.rawMinor * row.probabilityPct) / 100),
+                          row.weightedMinor,
                           row.currency ?? "EUR",
                           locale,
                         )}

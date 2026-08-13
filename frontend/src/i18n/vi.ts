@@ -1223,6 +1223,7 @@ export const vi = {
   "deal.fcBestCase": "Khả quan nhất",
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Loại trừ",
+  "deal.fcSlipped": "Trượt tiến độ",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Chỉ deal đình trệ",
