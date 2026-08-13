@@ -120,6 +120,18 @@ export function FxRatesCard() {
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
         {t("settings.rates.fxIntro")}
       </p>
+      {/* A sheet whose write affordances are all withheld says so ONCE, here,
+          rather than annotating each absent control. The rule (design-system
+          README): a permission-withheld SURFACE states it, while individual write
+          affordances inside a readable surface may simply be absent — provided
+          the surface has said what a reader is looking at. Without this the page
+          was a rate table with no editor and no reason given, which reads as a
+          bug rather than as a permission. */}
+      {!canManage && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("settings.rates.readOnly")}
+        </p>
+      )}
       <QueryGate query={query}>
         {(rows) =>
           rows.length === 0 ? (
@@ -299,6 +311,18 @@ export function ModelCostsCard() {
       <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
         {t("settings.rates.modelIntro")}
       </p>
+      {/* A sheet whose write affordances are all withheld says so ONCE, here,
+          rather than annotating each absent control. The rule (design-system
+          README): a permission-withheld SURFACE states it, while individual write
+          affordances inside a readable surface may simply be absent — provided
+          the surface has said what a reader is looking at. Without this the page
+          was a rate table with no editor and no reason given, which reads as a
+          bug rather than as a permission. */}
+      {!canManage && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("settings.rates.readOnly")}
+        </p>
+      )}
       <QueryGate query={query}>
         {(rows) =>
           rows.length === 0 ? (

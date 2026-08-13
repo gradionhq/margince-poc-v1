@@ -3489,6 +3489,7 @@ export const de = {
   "settings.rates.fxTitle": "Währungskurse",
   "settings.rates.fxIntro":
     "Wechselkurse, die Fremdwährungsbeträge in deine Basiswährung umrechnen. Neue Kurse gelten ab heute oder später; vergangene Kurse werden nie geändert.",
+  "settings.rates.readOnly": "Nur-Lese-Ansicht — du darfst Kurse nicht ändern.",
   "settings.rates.fxAdd": "Kurs setzen",
   "settings.rates.fxEmpty": "Noch keine Währungskurse.",
   "settings.rates.fxModalTitle": "Währungskurs setzen",

@@ -3478,6 +3478,8 @@ export const vi = {
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
     "Tỷ giá quy đổi số tiền ngoại tệ về tiền tệ gốc của bạn. Tỷ giá mới có hiệu lực từ hôm nay trở đi; tỷ giá quá khứ không bao giờ bị sửa.",
+  "settings.rates.readOnly":
+    "Chế độ chỉ đọc — bạn không có quyền thay đổi tỷ giá.",
   "settings.rates.fxAdd": "Đặt tỷ giá",
   "settings.rates.fxEmpty": "Chưa có tỷ giá nào.",
   "settings.rates.fxModalTitle": "Đặt một tỷ giá",
