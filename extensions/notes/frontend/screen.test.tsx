@@ -460,6 +460,11 @@ describe("filing a note to a record", () => {
       screen.getByLabelText("Record id"),
       "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     );
+    // Through the Select, not on its default: the narrowing that turns the
+    // control's string back into the contract's enum is the code this case is
+    // about, and a filing that never touches the control never runs it.
+    await user.click(screen.getByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
     await user.click(screen.getByRole("button", { name: "File to record" }));
 
     await waitFor(() => {
@@ -468,7 +473,7 @@ describe("filing a note to a record", () => {
     const filed = calls.find((call) => call.path === "/ext/notes/file");
     expect(filed?.body).toEqual({
       body: "a filed note",
-      subject_type: "person",
+      subject_type: "deal",
       subject_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     });
     // Both halves landed, so the form clears and says so.
@@ -502,9 +507,14 @@ describe("filing a note to a record", () => {
 
     expect(
       await screen.findByText(
-        "The note was not filed, and nothing was written.",
+        "The note may not have been filed. Check the notepad below before trying again.",
       ),
     ).toBeTruthy();
+    // Nothing clears on a failure: retyping a note whose outcome is unknown is
+    // how a person files it twice.
+    expect(screen.getByLabelText<HTMLInputElement>("Note to file").value).toBe(
+      "a filed note",
+    );
   });
 });
 
@@ -539,6 +549,35 @@ describe("the signing card's answer", () => {
       await screen.findByText("Nothing was signed. Store a signing key first."),
     ).toBeTruthy();
     expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
+  // The other half of the same defect: a signature left standing through a
+  // LATER attempt that failed still reads as the answer for the payload on
+  // screen. Cleared at the start of the mutation, not on its success.
+  it("clears the signature when a later attempt fails", async () => {
+    let firstCall = true;
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => {
+        if (firstCall) {
+          firstCall = false;
+          return { algorithm: "HMAC-SHA256", signature: "abc123" };
+        }
+        throw new Error("refused");
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await sign(user, "sign me");
+    expect(await screen.findByText("HMAC-SHA256 abc123")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sign" }));
+    await waitFor(() => {
+      expect(screen.queryByText("HMAC-SHA256 abc123")).toBeNull();
+    });
   });
 
   // A signature belongs to the payload it was computed over. Left standing, it
@@ -604,5 +643,14 @@ describe("a refused removal", () => {
     const rows = screen.getAllByRole("listitem");
     expect(rows[1].textContent).toContain(refusal);
     expect(rows[0].textContent).not.toContain(refusal);
+
+    // And it does not outlive the next attempt: a message from the row before
+    // last is the other half of what one flag over a list got wrong.
+    await user.click(removes[0]);
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")[1].textContent).not.toContain(
+        refusal,
+      );
+    });
   });
 });

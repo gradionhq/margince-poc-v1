@@ -109,10 +109,15 @@ export function navTrail(
   top: NavTrailLevel,
   route: Route,
   section?: NavSection,
+  // Which of the top level's rows the route makes current. It defaults to the
+  // route's screen, which is what a primary entry's id is for every
+  // destination the PRODUCT owns — and is passed explicitly by the caller that
+  // knows better: a composed unit's row is `ext/<unit>` while its route's
+  // screen is `ext`, so deriving it here would mark nothing current on every
+  // unit route.
+  activeId: string = route.screen,
 ): readonly NavTrailLevel[] {
-  // The primary level's entries ARE screens, so the route's first segment is
-  // what marks one current.
-  const trail: NavTrailLevel[] = [{ ...top, activeId: route.screen }];
+  const trail: NavTrailLevel[] = [{ ...top, activeId }];
   if (!section || section.screen !== route.screen) {
     return trail;
   }

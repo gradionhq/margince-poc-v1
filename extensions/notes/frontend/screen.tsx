@@ -383,14 +383,21 @@ function FilingCard() {
     },
     // Both halves landed or neither did, so the whole form clears on success
     // and nothing clears on failure: a person who was refused still has what
-    // they typed, and the note they were filing has not appeared in the list
-    // either.
+    // they typed.
     onSuccess: () => {
       setBody("");
       setSubjectID("");
       setFiled(true);
-      queryClient.invalidateQueries({ queryKey: ["ext", "notes", "list"] });
     },
+    // onSettled, and the same key the notepad reads under — the two spellings
+    // of one query key are how a list silently stops refreshing. A request
+    // that FAILED did not necessarily fail to write: the server's write is one
+    // transaction, but a response lost on the way back leaves it committed
+    // while the client sees an error, so the list is re-read either way and
+    // the failure copy leaves the outcome open. The store and add mutations on
+    // this screen take the same posture, for the same reason.
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["ext", "notes", "notes"] }),
   });
 
   if (!canFile) {
@@ -442,7 +449,10 @@ function FilingCard() {
             {...control}
             value={subjectID}
             onChange={(event) => {
-              setSubjectID(event.target.value);
+              // Trimmed at the edge: the contract declares format: uuid, and a
+              // pasted id with a stray space is a request the server refuses
+              // for a reason the person cannot see.
+              setSubjectID(event.target.value.trim());
               setFiled(false);
             }}
           />

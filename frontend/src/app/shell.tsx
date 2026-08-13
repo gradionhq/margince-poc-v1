@@ -770,8 +770,9 @@ export function PageHead({
   // than yielding to a surface that will not name itself either.
   //
   // No crumb, unlike a record: a record's trail leads back to its list, and
-  // there is no `#/ext` index to lead back to. Task 13/14 owns a unit's place in
-  // the rail; when it lands, this is where a trail would go.
+  // there is no `#/ext` index to lead back to. A unit's place in the
+  // rail is the primary level's Units group (nav.ts); what would go HERE is a
+  // level a unit publishes BELOW its own screen, and none does.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
 

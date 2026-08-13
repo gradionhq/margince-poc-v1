@@ -162,12 +162,22 @@ function primaryLevel(units: readonly ExtensionDescriptor[]): NavTrailLevel {
 // No badge and no phone-bar slot: BADGE_SCREENS and MOBILE_PRIMARY are the
 // product's judgement about what wants a person's attention, and that is not a
 // call this layer can make for a surface it did not write.
+// Which primary row a route makes current. It is the route's screen for every
+// destination the product owns, and `ext/<unit>` for a unit's — a unit screen
+// routes as `{screen: "ext", id: "<unit>"}`, so a level whose ids are screens
+// alone marks NOTHING current on the only routes this group exists for.
+function activeRowFor(route: Route): string {
+  return route.screen === EXTENSION_SCREEN && route.id
+    ? `${EXTENSION_SCREEN}/${route.id}`
+    : route.screen;
+}
+
 function unitsGroup(units: readonly ExtensionDescriptor[]): NavLevelGroup {
   return {
     headingKey: "nav.group.units",
     items: units.map((unit) => ({
       id: `${EXTENSION_SCREEN}/${unit.name}`,
-      labelKey: "nav.units.entry" as MessageKey,
+      labelKey: "nav.units.entry",
       label: unit.name,
       icon: Blocks,
     })),
@@ -181,5 +191,5 @@ export function railTrail(
   section?: NavSection,
   units: readonly ExtensionDescriptor[] = composedExtensions,
 ): readonly NavTrailLevel[] {
-  return navTrail(primaryLevel(units), route, section);
+  return navTrail(primaryLevel(units), route, section, activeRowFor(route));
 }

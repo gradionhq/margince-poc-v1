@@ -194,7 +194,13 @@ function NavLevelRow({
   onSelect: (entry: NavLevelEntry) => void;
 }>) {
   const t = useT();
-  const label = t(entry.labelKey);
+  // The entry's OWN label when it has one: a composed unit is named by the
+  // installation, so its row has no message key to translate. This is the row
+  // the primary level renders, which makes it the site that matters — the
+  // label feeds the row text, the aria-label and the collapsed-rail tooltip
+  // below, and a fallback missing here shows every unit as the literal word
+  // "Unit".
+  const label = entry.label ?? t(entry.labelKey);
   const active = level.activeId === entry.id;
   const key = navTipKey(level, entry.id);
   return (

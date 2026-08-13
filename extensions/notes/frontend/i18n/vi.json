@@ -1,7 +1,7 @@
 {
   "extNotes.filing.bodyLabel": "Ghi chú cần đính",
   "extNotes.filing.deal": "Thương vụ",
-  "extNotes.filing.failed": "Ghi chú chưa được đính; không có gì được ghi.",
+  "extNotes.filing.failed": "Ghi chú có thể chưa được đính. Hãy kiểm tra sổ ghi chú bên dưới trước khi thử lại.",
   "extNotes.filing.file": "Đính vào bản ghi",
   "extNotes.filing.filed": "Đã đính vào dòng thời gian của bản ghi.",
   "extNotes.filing.lead": "Khách hàng tiềm năng",

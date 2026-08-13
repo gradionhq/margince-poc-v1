@@ -1,7 +1,7 @@
 {
   "extNotes.filing.bodyLabel": "Zu heftende Notiz",
   "extNotes.filing.deal": "Deal",
-  "extNotes.filing.failed": "Die Notiz wurde nicht geheftet; es wurde nichts geschrieben.",
+  "extNotes.filing.failed": "Die Notiz wurde möglicherweise nicht geheftet. Prüfen Sie den Notizblock unten, bevor Sie es erneut versuchen.",
   "extNotes.filing.file": "An Datensatz heften",
   "extNotes.filing.filed": "An die Chronik des Datensatzes geheftet.",
   "extNotes.filing.lead": "Lead",

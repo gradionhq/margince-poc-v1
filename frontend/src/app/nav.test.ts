@@ -72,4 +72,20 @@ describe("the composed units group", () => {
     expect(primary.badgeIds?.has("ext/notes")).toBe(false);
     expect(primary.barIds?.has("ext/notes")).toBe(false);
   });
+
+  // The route a unit screen dispatches on is {screen: "ext", id: "<unit>"},
+  // while its row's id is "ext/<unit>". A level whose active row is the
+  // route's SCREEN marks nothing current on the only routes this group exists
+  // for — no aria-current, no active styling, on every unit page.
+  it("marks the unit's own row current on that unit's route", () => {
+    const [primary] = railTrail({ screen: "ext", id: "notes" }, undefined, [
+      notes,
+    ]);
+    expect(primary.activeId).toBe("ext/notes");
+  });
+
+  it("leaves the product's rows marking themselves", () => {
+    const [primary] = railTrail({ screen: "deals" }, undefined, [notes]);
+    expect(primary.activeId).toBe("deals");
+  });
 });
