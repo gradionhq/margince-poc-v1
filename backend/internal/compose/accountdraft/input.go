@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -131,12 +132,32 @@ type ActIn struct {
 	// differently from one that follows up on what we said, and the direction
 	// is the only thing that tells them apart.
 	Inbound bool `json:"inbound"`
+	// Snippet is the opening of what this message says.
+	//
+	// A subject line says a message happened; the words say what it was about.
+	// Without them a draft can only gesture at a conversation it never read, and
+	// on a thread whose every subject is the same string — a support thread, an
+	// onboarding sequence, anything answered in place — subjects alone carry no
+	// information at all, so the model fills the gap with plausible invention.
+	//
+	// It is what the message SAYS, not a claim about who wrote it. An activity
+	// reaches an account through activity_link and the employment walk, both of
+	// which record what a message concerns rather than who authored it, and the
+	// 360 carries no participants — so authorship is not knowable here.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // draftInputActivities bounds how much of the conversation the draft reads.
 // A follow-up is about the last exchange, not the relationship's history; a
 // longer window costs prefill and buys older news.
 const draftInputActivities = 6
+
+// draftInputSnippetRunes bounds how much of each message the draft reads.
+//
+// Enough for the opening of a real business email — a greeting, the reason for
+// writing, and the ask. Past that an email is detail, which a new message asks
+// about rather than repeats, and every rune of it is prompt cost on every draft.
+const draftInputSnippetRunes = 400
 
 // FromView projects the caller's 360 onto the one recipient and one deal this
 // draft is about. It returns the recipient it resolved, or an error naming the
@@ -282,6 +303,9 @@ func foldRecent(view crmcontracts.Organization360) []ActIn {
 		}
 		if act.Subject != nil {
 			item.Subject = *act.Subject
+		}
+		if act.Body != nil {
+			item.Snippet = textlang.MessageOpening(*act.Body, draftInputSnippetRunes)
 		}
 		out = append(out, item)
 	}
