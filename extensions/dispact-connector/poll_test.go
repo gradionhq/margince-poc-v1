@@ -104,6 +104,7 @@ func (p *fakeProvider) writeInbox(w http.ResponseWriter, r *http.Request) {
 	p.writeJSON(w, map[string]any{"items": page, "has_more": hasMore})
 }
 
+//craft:ignore naked-any the fake serves whichever provider shape a test scripts, which is what the real provider's JSON is
 func (p *fakeProvider) writeJSON(w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(body); err != nil {

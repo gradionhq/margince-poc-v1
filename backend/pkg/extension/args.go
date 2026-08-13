@@ -77,7 +77,10 @@ func checkArgumentObject[T any](in json.RawMessage) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
 	open, err := dec.Token()
 	if err != nil {
-		return nil // not JSON; the decoder below says so about the shape
+		// Not JSON at all. The decoder below says so about the shape, in words
+		// that describe the document rather than the scan — so this check
+		// deliberately answers nothing about an input it cannot read.
+		return nil //nolint:nilerr // the shape refusal belongs to the decoder, not to this pre-scan
 	}
 	// `null` is a valid JSON document and unmarshals into a struct as a no-op,
 	// so an operation whose schema requires an object would accept it and act
@@ -89,7 +92,9 @@ func checkArgumentObject[T any](in json.RawMessage) error {
 	for dec.More() {
 		token, err := dec.Token()
 		if err != nil {
-			return nil // malformed; again the decoder's message, not this one's
+			// Malformed part-way through; again the decoder's message rather
+			// than this one's.
+			return nil //nolint:nilerr // the shape refusal belongs to the decoder, not to this pre-scan
 		}
 		key, ok := token.(string)
 		if !ok {
@@ -105,7 +110,7 @@ func checkArgumentObject[T any](in json.RawMessage) error {
 		// The value, whatever it is, so the next token read is the next KEY.
 		var skip json.RawMessage
 		if err := dec.Decode(&skip); err != nil {
-			return nil
+			return nil //nolint:nilerr // the shape refusal belongs to the decoder, not to this pre-scan
 		}
 	}
 	return nil

@@ -323,6 +323,12 @@ func jsonOf[T any](tb testing.TB, raw json.RawMessage) T {
 
 // statementMentioning finds the one statement a test is about, so an assertion
 // does not depend on how many others the handler issued around it.
+//
+// The needles callers pass are deliberately NOT statement openers with a table
+// after them ("ON CONFLICT", not "INSERT INTO"): the tree's SQL-scope gate
+// reads string literals looking for the table a statement names, and a needle
+// shaped like the start of one reads as a statement whose table it cannot
+// resolve — a fixture failing a gate that is right about every real case.
 func (t *fakeTx) statementMentioning(tb testing.TB, needle string) (string, []any) {
 	tb.Helper()
 	for i, sql := range t.statements {

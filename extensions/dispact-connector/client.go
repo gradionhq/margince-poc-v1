@@ -345,6 +345,7 @@ func (c *client) users(ctx context.Context, ids []string) (map[string]providerUs
 	return resolved, nil
 }
 
+//craft:ignore naked-any the decode target is whatever the caller reads a provider answer into — the same contract encoding/json itself has, and there is no method-level type parameter in Go to state it with
 func (c *client) get(ctx context.Context, path string, query url.Values, into any) error {
 	endpoint := *c.base
 	endpoint.Path += path
@@ -356,6 +357,7 @@ func (c *client) get(ctx context.Context, path string, query url.Values, into an
 	return c.do(req, into)
 }
 
+//craft:ignore naked-any the request body and the decode target are both the caller's shapes; see get
 func (c *client) post(ctx context.Context, path string, body any, into any) error {
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -372,6 +374,8 @@ func (c *client) post(ctx context.Context, path string, body any, into any) erro
 }
 
 // do runs one request and classifies whatever comes back.
+//
+//craft:ignore naked-any the decode target is the caller's shape; see get
 func (c *client) do(req *http.Request, into any) error {
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
@@ -384,6 +388,7 @@ func (c *client) do(req *http.Request, into any) error {
 		// next tick meets the same wall.
 		return fmt.Errorf("%w: %s", errTransient, err.Error())
 	}
+	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for this call's result
 	defer func() { _ = resp.Body.Close() }()
 	if err := classify(resp.StatusCode); err != nil {
 		return err

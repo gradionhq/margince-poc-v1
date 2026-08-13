@@ -42,7 +42,7 @@ func TestConnectBindsTheTokenToTheCallersOwnMember(t *testing.T) {
 	if string(stored) != "pat_abc" {
 		t.Errorf("deposited %q, want the token as given", stored)
 	}
-	_, args := rt.tx.statementMentioning(t, "INSERT INTO")
+	_, args := rt.tx.statementMentioning(t, "ON CONFLICT")
 	if args[0] != callerUserID {
 		t.Errorf("the row names member %v, want the caller %s — a member a client can name is a member a client can forge", args[0], callerUserID)
 	}
@@ -114,7 +114,7 @@ func TestReconnectingKeepsTheCursorAndRecordsAnUpdate(t *testing.T) {
 	if _, err := connect(context.Background(), rt, connectArgs(testBaseURL, "pat_new")); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	upsert, _ := rt.tx.statementMentioning(t, "INSERT INTO")
+	upsert, _ := rt.tx.statementMentioning(t, "ON CONFLICT")
 	// The SET clause alone: the projection this statement RETURNS names every
 	// column, so searching the whole statement would find the cursor in a
 	// clause that only reads it.
@@ -179,7 +179,7 @@ func TestStatusReportsTheCallersOwnConnectionOrItsAbsence(t *testing.T) {
 	if absent.Connected || absent.Connection != nil {
 		t.Fatalf("an unconnected member reads as %+v, want connected:false and no connection", absent)
 	}
-	_, args := rt.tx.statementMentioning(t, "SELECT")
+	_, args := rt.tx.statementMentioning(t, "SELECT ")
 	if args[0] != callerUserID {
 		t.Errorf("status read member %v, want the caller's own — a connection says when somebody was last messaged", args[0])
 	}
@@ -199,7 +199,7 @@ func TestDisconnectRemovesTheCredentialAndTheRow(t *testing.T) {
 	if len(rt.secrets.stored) != 0 {
 		t.Errorf("the credential survived the disconnect: %v", rt.secrets.stored)
 	}
-	if sql, _ := rt.tx.statementMentioning(t, "DELETE FROM"); !strings.Contains(sql, connectionTable) {
+	if sql, _ := rt.tx.statementMentioning(t, "DELETE"); !strings.Contains(sql, connectionTable) {
 		t.Errorf("the delete does not name this unit's table: %s", sql)
 	}
 	if got := jsonOf[struct {

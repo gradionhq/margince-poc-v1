@@ -149,12 +149,16 @@ func depositCredential(t *testing.T, e *extRuntimeEnv, member ids.UUID) {
 	}
 }
 
-// ingestingRuntimeFor mints the Runtime an unattended run holds — a job tick's
-// — for the probe unit.
-func (e *ingressEnv) ingestingRuntime() (*callRuntime, context.Context) {
-	ctx := e.callCtx(e.WS)
-	rt := jobRuntimeFor(ctx, ingressUnit, "1.0.0", "job/probe", boundExtensionRuntime())
-	return rt, ctx
+// ingestingRuntime mints the Runtime an unattended run holds — a job tick's —
+// for the probe unit.
+//
+// The invocation's context stays INSIDE: a Runtime derives its tenant from the
+// context it was minted with, and every call below deliberately passes a plain
+// background context, which is what a handler does. Handing the invocation's
+// context back would let a test pass the one context the port is designed not
+// to need.
+func (e *ingressEnv) ingestingRuntime() *callRuntime {
+	return jobRuntimeFor(e.callCtx(e.WS), ingressUnit, "1.0.0", "job/probe", boundExtensionRuntime())
 }
 
 // aProviderRecord is one directed message, keyed the way a connector keys one.
@@ -193,7 +197,7 @@ func mailDomainOf(email string) string {
 // ledger row and an outbox event — none of which the unit wrote or could write.
 func TestAUnitsRecordLandsAsAnActivityWithEvidenceAndTheWriteShape(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	result, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
 		aProviderRecord("ws-7:1042", "outside@example.test"))
@@ -251,7 +255,7 @@ func TestAUnitsRecordLandsAsAnActivityWithEvidenceAndTheWriteShape(t *testing.T)
 // unit may re-ingest anything it is not sure about, and does.
 func TestASecondIngestOfTheSameRecordLandsNothingNew(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 	record := aProviderRecord("ws-7:1042", "outside@example.test")
 
 	first, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()), record)
@@ -279,7 +283,7 @@ func TestASecondIngestOfTheSameRecordLandsNothingNew(t *testing.T) {
 // pending inbox, and that is the common case for a chat connector.
 func TestAFirstTimeCorporateSenderDefersItsCounterparty(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	if _, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
 		aProviderRecord("ws-7:2001", "buyer@acme-corp.test")); err != nil {
@@ -300,7 +304,7 @@ func TestAFirstTimeCorporateSenderDefersItsCounterparty(t *testing.T) {
 // one would describe the pipeline as doing whichever it happened to check.
 func TestAFreemailSenderMintsThePerson(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	if _, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
 		aProviderRecord("ws-7:2002", "someone@gmail.com")); err != nil {
@@ -317,7 +321,7 @@ func TestAFreemailSenderMintsThePerson(t *testing.T) {
 func TestAMemberWhoDepositedNothingCannotBeActedFor(t *testing.T) {
 	e := setupIngress(t)
 	grantCapture(t, e.extRuntimeEnv, e.Rep2)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	_, err := rt.Ingest(context.Background(), extension.UserID(e.Rep2.String()),
 		aProviderRecord("ws-7:3001", "outside@example.test"))
@@ -335,7 +339,7 @@ func TestAMemberWhoDepositedNothingCannotBeActedFor(t *testing.T) {
 // taken away, with no restart and nothing re-bound.
 func TestADemotedMemberLandsNothingFromTheNextCallOn(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	if _, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
 		aProviderRecord("ws-7:4001", "outside@example.test")); err != nil {
@@ -359,7 +363,7 @@ func TestADemotedMemberLandsNothingFromTheNextCallOn(t *testing.T) {
 // row-scope miss answers.
 func TestAMemberOfAnotherWorkspaceCannotBeActedFor(t *testing.T) {
 	e := setupIngress(t)
-	rt, _ := e.ingestingRuntime()
+	rt := e.ingestingRuntime()
 
 	_, err := rt.Ingest(context.Background(), extension.UserID(ids.NewV7().String()),
 		aProviderRecord("ws-7:5001", "outside@example.test"))

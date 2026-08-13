@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package backendarch
+package compose
 
 // The published ingress record and the core's own capture envelope are two
 // hand-written type sets describing one thing, and nothing compiles them
@@ -19,9 +19,12 @@ package backendarch
 // on the published surface, or waived HERE with the reason it is absent. A new
 // field arrives as a failing test naming itself.
 //
-// It lives in this package rather than beside the published types because
-// pkg-purity forbids pkg/extension importing anything under internal, in test
-// files and external test files alike (arch_test.go). This package reaches both.
+// It lives in COMPOSE rather than beside the published types, and rather than
+// in the root fitness package. pkg/extension may import nothing under internal,
+// in test files and external test files alike, so it cannot see the envelope;
+// and the root package is not permitted to depend on a module (go-arch-lint),
+// so it cannot see capture's activity shape. Compose depends on both already —
+// it is where the conversion under test lives.
 
 import (
 	"reflect"
