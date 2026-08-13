@@ -391,13 +391,13 @@ describe("the connected-inboxes card's richer health line", () => {
 });
 
 // The OAuth return outcome (Task 2): the backend now lands the callback on
-// #/settings/integrations/{outcome} — the route parses to
-// {screen:"settings", id:"integrations", id2:<outcome>} and the card renders
+// #/settings/connections/{outcome} — the route parses to
+// {screen:"settings", id:"connections", id2:<outcome>} and the card renders
 // a dismissible inline note from that segment, never a claim the server
 // hasn't confirmed.
 describe("the OAuth return outcome", () => {
   it("renders an honest denial note when the user declined access", async () => {
-    globalThis.location.hash = "#/settings/integrations/denied";
+    globalThis.location.hash = "#/settings/connections/denied";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
@@ -407,7 +407,7 @@ describe("the OAuth return outcome", () => {
   });
 
   it("renders an honest failure note when the connection could not complete", async () => {
-    globalThis.location.hash = "#/settings/integrations/error";
+    globalThis.location.hash = "#/settings/connections/error";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
@@ -420,7 +420,7 @@ describe("the OAuth return outcome", () => {
   // API is not enabled for this deployment, and only an administrator can
   // change that.
   it("names the remedy when the provider's API is not enabled here", async () => {
-    globalThis.location.hash = "#/settings/integrations/misconfigured";
+    globalThis.location.hash = "#/settings/connections/misconfigured";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
@@ -432,7 +432,7 @@ describe("the OAuth return outcome", () => {
   });
 
   it("tells the reader to accept every permission when the provider declined", async () => {
-    globalThis.location.hash = "#/settings/integrations/rejected";
+    globalThis.location.hash = "#/settings/connections/rejected";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
@@ -443,7 +443,7 @@ describe("the OAuth return outcome", () => {
   });
 
   it("renders a brief success note on ok — never an error", async () => {
-    globalThis.location.hash = "#/settings/integrations/ok";
+    globalThis.location.hash = "#/settings/connections/ok";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
     });
@@ -454,7 +454,7 @@ describe("the OAuth return outcome", () => {
   });
 
   it("renders no outcome note when the route carries none", async () => {
-    globalThis.location.hash = "#/settings/integrations";
+    globalThis.location.hash = "#/settings/connections";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
@@ -464,7 +464,7 @@ describe("the OAuth return outcome", () => {
   });
 
   it("dismisses the note and clears it", async () => {
-    globalThis.location.hash = "#/settings/integrations/denied";
+    globalThis.location.hash = "#/settings/connections/denied";
     installFetchStub({
       "GET /connectors": () => jsonResponse({ data: [] }),
     });

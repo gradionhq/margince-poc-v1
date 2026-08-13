@@ -1,4 +1,4 @@
-import { ChevronsUpDown, LogOut, Settings, UserRound } from "lucide-react";
+import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import { useT } from "../i18n";
@@ -57,8 +57,17 @@ function IdentityLines({
 }
 
 /**
- * This person's three rows: their own account, the installation's settings, and
- * the way out.
+ * This person's two rows: their own account, and the way out.
+ *
+ * Their account, and NOT a second row into settings generally. The rail already
+ * carries that door, and a menu offering both put two rows a click apart that
+ * landed on the same surface — one of them on its first entry, which is the page
+ * the other one names. Two doors that mean different things is the shape worth
+ * keeping; a third that means what one of them already means is not.
+ *
+ * At phone width this sheet is the ONLY way in, because the rail's door is
+ * hidden there — the deep link still lands inside settings, where the page head's
+ * section switcher opens every other entry.
  *
  * Shared by the menu and the phone sheet, so the two surfaces cannot offer
  * different rows, a different order, or a second way to sign out. The separator
@@ -73,10 +82,6 @@ function AccountLinks() {
       <a href="#/settings/account">
         <UserRound size={15} aria-hidden />
         {t("shell.account")}
-      </a>
-      <a href="#/settings">
-        <Settings size={15} aria-hidden />
-        {t("nav.settings")}
       </a>
       <hr />
       <button

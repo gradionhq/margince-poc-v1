@@ -88,7 +88,6 @@ export const vi = {
   "nav.reports": "Báo cáo",
   "nav.ai": "Hỏi Margince",
   "nav.settings": "Cài đặt",
-  "nav.design": "Hệ thống thiết kế",
   "nav.automations": "Tự động hoá",
   "nav.group.records": "Dữ liệu",
   "nav.group.work": "Công việc",
@@ -96,8 +95,6 @@ export const vi = {
   "nav.group.units": "Đơn vị",
   "nav.units.entry": "Đơn vị",
   "nav.dedupe": "Trùng lặp",
-  "nav.products": "Sản phẩm",
-  "nav.offerTemplates": "Mẫu báo giá",
   "nav.offers": "Báo giá",
   "nav.share": "Chia sẻ",
   "nav.search": "Kết quả tìm kiếm",
@@ -394,7 +391,7 @@ export const vi = {
     "Không dùng được khi đang đọc từ HubSpot — hãy mở bên HubSpot",
   "overlay.chipLabel": "Đang đọc từ HubSpot",
   "overlay.chipAria":
-    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Overlay để quản lý kết nối.",
+    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Kết nối để quản lý kết nối.",
   "overlay.refused":
     "Không dùng được khi đang đọc từ HubSpot — bản sao không phục vụ được lượt ghi này.",
   "overlay.filterUnsupported":
@@ -1751,10 +1748,6 @@ export const vi = {
   "settings.revoke": "Thu hồi",
   "settings.revokeConfirm":
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
-  "settings.automations": "Tự động hoá",
-  "settings.automationsSub":
-    "danh mục khởi đầu có giới hạn — bật, đặt tham số, tạm dừng",
-  "settings.openAutomations": "Mở trình sửa tự động hoá",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
     "chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này",
@@ -1770,7 +1763,49 @@ export const vi = {
     "Đã xoá {tables} bảng, {jobs} dòng tác vụ, {streams} luồng sự kiện, {keys} khoá bộ nhớ đệm và {objects} tệp đã lưu.",
   "settings.resetDataDrainWarning":
     "Khi bắt đầu xoá sạch, vẫn còn một tác vụ nền đang chạy. Tác vụ đó sẽ thất bại vì dữ liệu đã bị xoá — vô hại, nhưng sẽ có một lỗi trong nhật ký.",
-  "settings.audit": "Nhật ký kiểm toán",
+
+  "settings.jobs": "Tác vụ nền",
+  "settings.jobsSub": "hàng đợi đang giữ gì, và công việc của ai đã thất bại",
+  "jobs.adminOnly":
+    "Chỉ quản trị viên xem được tình trạng tác vụ nền. Báo cáo này bao trùm công việc của toàn bộ bản triển khai, nên không hiển thị rộng hơn.",
+  "jobs.empty":
+    "Không có gì trong hàng đợi nền — không có việc đang chờ, đang chạy, đang thử lại hay đã chết.",
+  "jobs.workspaceKinds": "Workspace này",
+  "jobs.workspaceEmpty":
+    "Không có công việc nền thuộc loại nào trong workspace này.",
+  "jobs.dispatcherKinds": "Bộ điều phối toàn hệ thống",
+  "jobs.dispatcherSub":
+    "Những dòng không thuộc workspace nào: bộ điều phối phân việc cho mọi workspace và tự nó không làm gì. Các con số này thuộc bản triển khai, không thuộc bạn.",
+  "jobs.dispatcherEmpty":
+    "Không có dòng điều phối nào. Các nhịp định kỳ sẽ thêm lại, nên danh sách trống nghĩa là hiện chưa có cái nào được lên lịch.",
+  "jobs.count.waiting": "{count} đang chờ",
+  "jobs.count.running": "{count} đang chạy",
+  "jobs.count.retrying": "{count} đang thử lại",
+  "jobs.count.dead": "{count} đã chết",
+  "jobs.queue": "hàng đợi {queue}",
+  "jobs.waitedSeconds.one": "cũ nhất đã chờ {count} giây",
+  "jobs.waitedSeconds.other": "cũ nhất đã chờ {count} giây",
+  "jobs.waitedMinutes.one": "cũ nhất đã chờ {count} phút",
+  "jobs.waitedMinutes.other": "cũ nhất đã chờ {count} phút",
+  "jobs.waitedHours.one": "cũ nhất đã chờ {count} giờ",
+  "jobs.waitedHours.other": "cũ nhất đã chờ {count} giờ",
+  "jobs.waitedDays.one": "cũ nhất đã chờ {count} ngày",
+  "jobs.waitedDays.other": "cũ nhất đã chờ {count} ngày",
+  "jobs.deadTitle": "Việc đã chết cần bạn ra tay",
+  "jobs.deadBody":
+    "{count} tác vụ đã bị loại bỏ hoặc bị huỷ: công việc đó sẽ không tự diễn ra nữa. Một tác vụ bị loại bỏ đã dùng hết mọi lần thử; một tác vụ bị huỷ là do có người chủ động dừng. Hãy đọc các lỗi bên dưới trước khi xếp lại vào hàng đợi.",
+  "jobs.failures": "Lỗi gần đây",
+  "jobs.failuresSub":
+    "Mới nhất trước, tối đa 50. Một danh sách có giới hạn, không phải nhật ký.",
+  "jobs.failuresEmpty": "Chưa ghi nhận lỗi nào.",
+  "jobs.state.retryable": "đang thử lại",
+  "jobs.state.discarded": "đã loại bỏ",
+  "jobs.state.cancelled": "đã huỷ",
+  "jobs.attempt": "lần thử {attempt} trên {max} · {when}",
+  "jobs.reasonVetted":
+    "Mỗi lý do là câu chữ của chính tầng tác vụ. Nguyên nhân thô từ worker không bao giờ được gửi tới đây, nên một lỗi mà tầng đó không diễn đạt được sẽ báo bằng một câu thay thế cố định.",
+  "jobs.generatedAt": "Đọc lúc {time}",
+
   "audit.you": "Bạn",
   "audit.teammate": "Một đồng nghiệp",
   "audit.system": "Hệ thống",
@@ -1778,8 +1813,10 @@ export const vi = {
   "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
+  "settings.auditAdminOnly":
+    "Chỉ quản trị viên đọc được toàn bộ dấu vết. Nó ghi lại mọi người thực hiện và mọi bản ghi họ chạm tới, nên không mở rộng hơn.",
   "settings.auditFilters": "Bộ lọc",
-  "settings.auditEntries": "Bản ghi",
+  "settings.auditEntries": "Nhật ký kiểm toán",
   "settings.auditActor": "Tác nhân",
   "settings.auditEntity": "Loại thực thể",
   "settings.auditEntityId": "ID thực thể",
@@ -2327,7 +2364,7 @@ export const vi = {
     "Việc thu thập gặp một vấn đề chưa phân loại được. Chúng tôi sẽ tiếp tục thử lại.",
 
   // The OAuth return outcome (Task 2): the callback lands back on
-  // #/settings/integrations/{outcome} — a dismissible inline note driven by
+  // #/settings/connections/{outcome} — a dismissible inline note driven by
   // that route segment, never a claim the server hasn't confirmed.
   "connectors.oauthOk": "Đã kết nối. Hộp thư của bạn bắt đầu thu thập.",
   "connectors.oauthDenied":
@@ -3409,22 +3446,19 @@ export const vi = {
   "cf.propagate.list": "Thành một cột trong danh sách / báo cáo",
   "cf.propagate.export": "Trong bản xuất CSV",
   "cf.propagate.api": "Trên API REST / MCP công khai",
-  "nav.customFields": "Trường tuỳ chỉnh",
-  "settings.customFields": "Trường tuỳ chỉnh",
-  "settings.customFieldsSub":
-    "Thêm một trường có kiểu vào đối tượng lõi — không cần code, không cần triển khai.",
-  "settings.openCustomFields": "Mở trường tuỳ chỉnh",
+  // "Chung" thay vì "Tổ chức" cho mục đầu tiên: tiêu đề nhóm phía trên đã nói
+  // từ đó, và một dòng lặp lại tiêu đề của chính nó thì không gọi tên được gì.
   "settings.tab.account": "Tài khoản",
-  "settings.tab.company": "Bối cảnh công ty",
-  "settings.tab.ai": "AI & tự chủ",
-  "settings.tab.data": "Mô hình dữ liệu",
-  "settings.tab.catalog": "Danh mục",
-  "settings.tab.rates": "Tỷ giá & chi phí",
-  "settings.tab.privacy": "Quyền riêng tư & chấp thuận",
-  "settings.tab.audit": "Nhật ký kiểm toán",
-  "settings.tab.voice": "Voice DNA",
-  "settings.tab.integrations": "Tích hợp",
-  "settings.tab.overlay": "Overlay",
+  "settings.tab.voice": "Giọng viết",
+  "settings.tab.agents": "Tác nhân của bạn",
+  "settings.tab.general": "Chung",
+  "settings.tab.people": "Người dùng & quyền truy cập",
+  "settings.tab.connections": "Kết nối",
+  "settings.tab.capture": "Thu thập",
+  "settings.tab.data-model": "Mô hình dữ liệu",
+  "settings.tab.ai": "AI",
+  "settings.tab.privacy": "Quyền riêng tư & kiểm toán",
+  "settings.tab.maintenance": "Bảo trì",
   "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",
   "settings.rates.fxTitle": "Tỷ giá",
@@ -3552,7 +3586,6 @@ export const vi = {
     "Đã xếp hàng — sẽ xong trong chốc lát và tự cập nhật.",
   "settings.voice.buildStatus.pending":
     "Vẫn đang dựng — việc này có thể mất một lát; xong sẽ tự cập nhật ở đây.",
-  "settings.tab.extensions": "Tiện ích mở rộng",
   "extAccess.title": "Tiện ích mở rộng & quyền truy cập",
   "extAccess.sub":
     "Mỗi đơn vị tiện ích đã ghép vào bản cài đặt này mang theo những gì, và vai trò nào được dùng. Chỉ dành cho quản trị viên.",
@@ -3586,7 +3619,6 @@ export const vi = {
   "extAccess.systemRole": "Vai trò dựng sẵn",
   "extAccess.nobodyReads":
     "Không vai trò nào được đọc {object}, nên mọi thành viên chỉ thấy màn hình trống ở nơi lẽ ra là tiện ích này. Hãy cấp quyền đọc cho ít nhất một vai trò bên dưới.",
-  "settings.tab.users": "Người dùng & vai trò",
   "users.title": "Người dùng & vai trò",
   "users.sub":
     "Mời thành viên, đặt vai trò và vô hiệu hoá quyền truy cập. Chỉ quản trị viên.",
@@ -3681,6 +3713,7 @@ export const vi = {
   "settings.companyClass.unchanged": "Không đổi",
   "settings.companyResolution.keep_current": "Giữ hiện tại",
   "settings.companyResolution.accept_proposal": "Nhận theo website",
+  "settings.companyResolution.useValueFor": "Giá trị giữ lại cho {field}",
   "settings.companyResolution.use_value": "Dùng giá trị tôi đã sửa",
   "settings.companyManualKicker": "Thiết lập thủ công, riêng tư",
   "settings.companyManualTitle": "Cho Margince biết những điều cốt lõi",
@@ -3690,7 +3723,6 @@ export const vi = {
   "product.title": "Sản phẩm",
   "product.settingsSub":
     "Các mục bảng giá mà dòng báo giá chụp lại giá trị từ đó.",
-  "product.open": "Mở sản phẩm",
   "product.new": "Sản phẩm mới",
   "product.edit": "Sửa sản phẩm",
   "product.archive": "Lưu trữ sản phẩm",
@@ -3714,7 +3746,6 @@ export const vi = {
 
   "template.title": "Mẫu báo giá",
   "template.settingsSub": "Bố cục PDF DE/EN có thương hiệu cho báo giá.",
-  "template.open": "Mở mẫu báo giá",
   "template.new": "Mẫu mới",
   "template.edit": "Sửa mẫu",
   "template.archive": "Lưu trữ mẫu",
@@ -3777,6 +3808,8 @@ export const vi = {
   "aicalls.title": "Dấu vết lượt gọi AI",
   "aicalls.sub":
     "Mọi lượt gọi mô hình — danh tính định tuyến, token, số lần thử lại, nội dung đã ghi.",
+  "aicalls.col.detail": "Chi tiết",
+  "aicalls.expandCall": "Xem chuỗi lần thử của {task} lúc {when}",
   "aicalls.col.when": "Lúc",
   "aicalls.col.task": "Tác vụ",
   "aicalls.col.model": "Mô hình",
@@ -3887,8 +3920,6 @@ export const vi = {
   "quotas.archive.confirm":
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
-  "settings.tab.installation": "Cài đặt hệ thống",
-  "settings.tab.capture": "Thu thập",
   "installationSettings.orgTitle": "Tổ chức",
   "installationSettings.orgSub":
     "Tên của bản cài đặt này và múi giờ dùng để tính mọi kỳ báo cáo.",

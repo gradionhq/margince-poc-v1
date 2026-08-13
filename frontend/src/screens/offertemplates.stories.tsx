@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { OfferTemplatesScreen } from "./offertemplates";
+import { OfferTemplatesAdmin } from "./offertemplates";
 import {
   emptyPage,
   installFetchStub,
@@ -36,7 +36,7 @@ export const List: Story = {
     });
     return (
       <StoryProviders>
-        <OfferTemplatesScreen />
+        <OfferTemplatesAdmin />
       </StoryProviders>
     );
   },
@@ -48,7 +48,7 @@ export const Empty: Story = {
     });
     return (
       <StoryProviders>
-        <OfferTemplatesScreen />
+        <OfferTemplatesAdmin />
       </StoryProviders>
     );
   },
@@ -64,7 +64,7 @@ export const LoadError: Story = {
     });
     return (
       <StoryProviders>
-        <OfferTemplatesScreen />
+        <OfferTemplatesAdmin />
       </StoryProviders>
     );
   },

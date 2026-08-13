@@ -36,7 +36,7 @@ import (
 func (h connectorHandlers) landingURL(outcome, returnTo, provider string) string {
 	route := "/#/onboarding/connect/"
 	if returnTo == returnToSettings {
-		route = "/#/settings/integrations/"
+		route = "/#/settings/connections/"
 	}
 	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome + "/" + provider
 }

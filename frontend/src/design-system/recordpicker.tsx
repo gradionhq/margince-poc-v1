@@ -2,14 +2,19 @@ import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SearchField } from "./atoms";
 
-// The shared debounced search→candidate-list→pick pattern: this used to
-// live duplicated, near-identically, inline in MergeAction
-// (screens/merge.tsx) and AddRelationshipAction (screens/relationships.tsx)
-// — both wire a search transport, debounce 250ms, render candidates as
-// pickable buttons, and surface a search failure inline rather than
-// throwing it. Neither call site has been migrated onto this extraction
-// yet; offers.tsx (buyer-org and product pickers) is its only consumer
-// today.
+// The shared debounced search→candidate-list→pick pattern: this used to live
+// duplicated, near-identically, inline in MergeAction (screens/merge.tsx) and
+// AddRelationshipAction (screens/relationships.tsx) — both wire a search
+// transport, debounce 250ms, render candidates as pickable buttons, and
+// surface a search failure inline rather than throwing it. Neither of those
+// two has been migrated onto this extraction yet.
+//
+// It is now PUBLISHED to the extension tier (surface/design-system.ts), which
+// makes this comment something third parties read. Two things it does not do,
+// so nobody builds on a promise it does not keep: a stale answer is ignored
+// rather than aborted (the request still reaches the server), and the
+// candidate list is a list of buttons rather than a combobox — no
+// role=combobox, no aria-expanded, no arrow-key navigation.
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -37,6 +42,36 @@ export function RecordPicker({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<RecordPickerCandidate[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  // A NEW search space empties the list, at once.
+  //
+  // The effect below cancels the update the previous searchTargets would have
+  // made, but cancelling a future answer does nothing about the answers
+  // already on screen: they stay rendered, and clickable, until the new search
+  // debounces and resolves. A caller that changes searchTargets has changed
+  // what it is asking about — notes' filing control does it when the record
+  // TYPE changes — so a candidate from the old space is not a wrong-looking
+  // answer, it is an answer to a question nobody asked any more, and picking
+  // one hands the caller a record of the wrong kind.
+  //
+  // Done in RENDER rather than in an effect, which is React's own shape for
+  // adjusting state when a prop changes: an effect would paint one frame with
+  // the stale rows still on screen, and one frame is a click.
+  //
+  // The TERM survives on purpose: the same words usually mean the same search
+  // in the new space, and the effect below re-runs on searchTargets anyway, so
+  // the list refills without the person retyping.
+  // Both halves take the FUNCTIONAL form because the value is a function:
+  // useState(fn) reads fn as a lazy initializer and calls it, and
+  // setState(fn) reads it as an updater — so the plain spellings store the
+  // RESULT of searching for nothing, which is a promise that never equals the
+  // prop, which is an infinite render.
+  const [searchSpace, setSearchSpace] = useState(() => searchTargets);
+  if (searchSpace !== searchTargets) {
+    setSearchSpace(() => searchTargets);
+    setCandidates([]);
+    setSearchError(null);
+  }
 
   useEffect(() => {
     const query = term.trim();

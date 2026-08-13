@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
-import { RatesScreen } from "./rates";
+import { FxRatesCard, ModelCostsCard } from "./rates";
 
 // The rates editor renders both price sheets read-only for any role that
 // reaches the tab, and shows the write affordances (Set rate / Add model
@@ -99,14 +99,26 @@ function render(ui: ReactNode) {
   );
 }
 
-describe("RatesScreen", () => {
+// The two sheets are on different settings pages now (FX under Organization,
+// model prices under AI). They are rendered as a pair here because one fixture
+// backend answers both, and every case below asserts on one of them alone.
+function RateSheets() {
+  return (
+    <>
+      <FxRatesCard />
+      <ModelCostsCard />
+    </>
+  );
+}
+
+describe("the rate sheets", () => {
   beforeEach(() => {
     globalThis.localStorage?.setItem("margince.workspaceSlug", "acme");
   });
 
   it("renders both price sheets with their current rows", async () => {
     vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
-    render(<RatesScreen />);
+    render(<RateSheets />);
     // trimDecimal turns the numeric(20,10) value into a readable 0.92.
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByText("0.92")).toBeTruthy();
@@ -116,7 +128,7 @@ describe("RatesScreen", () => {
 
   it("shows write affordances for an admin", async () => {
     vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
-    render(<RatesScreen />);
+    render(<RateSheets />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Set rate" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add model rate" })).toBeTruthy();
@@ -128,7 +140,7 @@ describe("RatesScreen", () => {
 
   it("hides write affordances for a non-admin role", async () => {
     vi.stubGlobal("fetch", ratesBackend({}));
-    render(<RatesScreen />);
+    render(<RateSheets />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
@@ -140,7 +152,7 @@ describe("RatesScreen", () => {
   // card to stay read-only.
   it("opens the FX sheet alone on an fx_rate create grant", async () => {
     vi.stubGlobal("fetch", ratesBackend({ fx_rate: ["create"] }));
-    render(<RatesScreen />);
+    render(<RateSheets />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
 
     const fx = rateCard("Currency rates");
@@ -165,7 +177,7 @@ describe("RatesScreen", () => {
     // `update` and not `create`: the upsert admits either, so the mirror case
     // also proves the card asks the union rather than one hard-coded verb.
     vi.stubGlobal("fetch", ratesBackend({ ai_model_rate: ["update"] }));
-    render(<RatesScreen />);
+    render(<RateSheets />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
 
     const model = rateCard("AI model costs");
@@ -192,7 +204,7 @@ describe("RatesScreen", () => {
       "fetch",
       ratesBackend({ fx_rate: ["read"], ai_model_rate: ["read"] }),
     );
-    render(<RatesScreen />);
+    render(<RateSheets />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
 

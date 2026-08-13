@@ -326,10 +326,10 @@ describe("ConnectedAgentsCard", () => {
   });
 });
 
-describe("the AI tab's two passport cards", () => {
+describe("the two passport cards on Your agents", () => {
   it("keeps a connection out of the passports a human may lend", async () => {
     vi.stubGlobal("fetch", backend({}));
-    render(<SettingsScreen tab="ai" />);
+    render(<SettingsScreen tab="agents" />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
     // The minted passport is listed as lendable...
     const passports = document.querySelector('[data-passport="pp-minted"]');

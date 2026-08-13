@@ -188,7 +188,7 @@ describe("AgentDock", () => {
     render(<AgentDock approvalsWaiting={3} />);
     await openDock();
     const row = screen.getByRole("link", { name: /^Agent tools/ });
-    expect(row.getAttribute("href")).toBe("#/settings/ai");
+    expect(row.getAttribute("href")).toBe("#/settings/agents");
     expect(row.querySelector(".agentvalue")?.textContent).toBe(
       "2 auto · 1 confirm",
     );

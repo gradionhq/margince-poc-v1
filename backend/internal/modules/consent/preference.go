@@ -44,10 +44,9 @@ func LockedPurpose(key string) bool {
 	return strings.TrimSpace(strings.ToLower(key)) == PurposeTransactional
 }
 
-// PreferenceRef is a token's resolution: which workspace, whose consent.
+// PreferenceRef is a token's resolution: whose consent.
 type PreferenceRef struct {
-	WorkspaceID ids.WorkspaceID
-	PersonID    ids.PersonID
+	PersonID ids.PersonID
 }
 
 // PurposeChoice is one row of the preference center: the purpose, the
@@ -79,18 +78,22 @@ const preferenceTokenTTLDays = 30
 // one TTL.
 const preferenceTokenMaxAgeDays = 180
 
-// ResolvePreferenceToken answers the token→tenant lookup the public
-// middleware binds the workspace from. preference_token is deliberately
-// outside RLS (it IS the resolver — 0048); an unknown, revoked or expired
-// token reads as absent, all three identically, so the surface never becomes
-// an oracle for which of the three it was.
+// ResolvePreferenceToken answers which recipient a public preference link
+// speaks for. An unknown, revoked or expired token reads as absent, all three
+// identically, so the surface never becomes an oracle for which of the three
+// it was.
+//
+// The token used to answer WHICH TENANT as well — preference_token sat outside
+// row-level security (0048) precisely because it was the resolver for a
+// surface that has no session. There is one installation now, and the identity
+// middleware binds it into every request context before this runs.
 func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (PreferenceRef, error) {
 	var ref PreferenceRef
 	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			SELECT workspace_id, person_id FROM preference_token
+			SELECT person_id FROM preference_token
 			 WHERE token = $1 AND revoked_at IS NULL AND expires_at > now()`,
-			token).Scan(&ref.WorkspaceID, &ref.PersonID)
+			token).Scan(&ref.PersonID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -178,8 +181,7 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 	err := tx.QueryRow(ctx, `
 		UPDATE preference_token
 		   SET expires_at = now() + make_interval(days => $2)
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND person_id = $1 AND revoked_at IS NULL
+		 WHERE person_id = $1 AND revoked_at IS NULL
 		   AND expires_at > now()
 		   AND created_at > now() - make_interval(days => $3)
 		RETURNING token`, personID, preferenceTokenTTLDays, preferenceTokenMaxAgeDays).Scan(&token)
@@ -197,8 +199,7 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 	// declared for in 0048 and never had.
 	if _, err := tx.Exec(ctx, `
 		UPDATE preference_token SET revoked_at = now()
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND person_id = $1 AND revoked_at IS NULL`, personID); err != nil {
+		 WHERE person_id = $1 AND revoked_at IS NULL`, personID); err != nil {
 		return "", err
 	}
 	fresh, err := newPreferenceToken()
@@ -206,9 +207,8 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 		return "", err
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO preference_token (workspace_id, person_id, token, expires_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2,
-		        now() + make_interval(days => $3))
+		INSERT INTO preference_token (person_id, token, expires_at)
+		VALUES ($1, $2, now() + make_interval(days => $3))
 		ON CONFLICT (person_id) WHERE revoked_at IS NULL DO NOTHING
 		RETURNING token`, personID, fresh, preferenceTokenTTLDays).Scan(&token)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -217,8 +217,7 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 		// value rather than the zero one this scan is about to overwrite.
 		if err := tx.QueryRow(ctx, `
 			SELECT token FROM preference_token
-			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND person_id = $1 AND revoked_at IS NULL`, personID).Scan(&token); err != nil {
+			 WHERE person_id = $1 AND revoked_at IS NULL`, personID).Scan(&token); err != nil {
 			return "", err
 		}
 		return token, nil

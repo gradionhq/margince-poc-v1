@@ -34,6 +34,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
+// objectWorkspace names the installation's own row. It is one string doing the
+// two jobs this repo keeps aligned on purpose: the table, and the audit/RBAC
+// object that operations on the installation itself are recorded against.
+const objectWorkspace = "workspace"
+
 // errResetConfirmationMismatch means the caller's typed confirmation did not
 // match the workspace's organization name — the reset is refused before any
 // data is touched.
@@ -234,14 +239,12 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		if err := sweepWorkspaceData(ctx, tx, tables); err != nil {
 			return err
 		}
-		// The provider platform, swept explicitly: its five tables have no
-		// workspace_id, so the catalog-derived list above does not include
-		// them, and a reset that skipped this would leave purchased personal
-		// data about people it had just deleted.
-		if err := sweepProviderTables(ctx, tx); err != nil {
-			return err
-		}
-		counts.TablesCleared = len(tables) + len(providerResetTables)
+		// The provider platform needs no pass of its own any more. It used to:
+		// its five tables carry no workspace_id, so the sweep's old
+		// column-derived list could not see them, and a reset left purchased
+		// personal data about people it had just deleted. The list is derived
+		// by exclusion now, so they are ordinary targets.
+		counts.TablesCleared = len(tables)
 
 		// A first-boot installation is native, and everything overlay mode
 		// depends on was just swept: the incumbent connection, the mirror, the
@@ -306,7 +309,7 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 		}
 
 		// Record the reset under the invoking admin principal.
-		_, err = storekit.AuditWithEvidence(ctx, tx, "reset_data", "workspace", wsID, nil, nil,
+		_, err = storekit.AuditWithEvidence(ctx, tx, "reset_data", objectWorkspace, wsID, nil, nil,
 			resetEvidence(*counts))
 		return err
 	})

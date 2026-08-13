@@ -3,7 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { meFixture } from "../app/mefixture";
-import { RatesScreen } from "./rates";
+import { FxRatesCard, ModelCostsCard } from "./rates";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 function admin() {
@@ -53,12 +53,26 @@ const MODELS = {
   ],
 };
 
-const meta: Meta<typeof RatesScreen> = {
+// The two sheets no longer share a page — FX rates sit under Organization, next
+// to the base currency they convert to, and model prices under AI, next to the
+// runtime they price. They are pictured together here because the fixture that
+// feeds them is one backend, and a reader comparing the two shapes wants both in
+// one frame.
+function RateSheets() {
+  return (
+    <>
+      <FxRatesCard />
+      <ModelCostsCard />
+    </>
+  );
+}
+
+const meta: Meta<typeof RateSheets> = {
   title: "Screens/rates",
-  component: RatesScreen,
+  component: RateSheets,
 };
 export default meta;
-type Story = StoryObj<typeof RatesScreen>;
+type Story = StoryObj<typeof RateSheets>;
 
 // An admin sees both price sheets populated, each with its "Set rate" /
 // "Add model rate" affordance.
@@ -71,7 +85,7 @@ export const Populated: Story = {
     });
     return (
       <StoryProviders>
-        <RatesScreen />
+        <RateSheets />
       </StoryProviders>
     );
   },
@@ -87,7 +101,7 @@ export const Empty: Story = {
     });
     return (
       <StoryProviders>
-        <RatesScreen />
+        <RateSheets />
       </StoryProviders>
     );
   },

@@ -737,7 +737,7 @@ function SendRefusal({
     return (
       <div className="compose-refusal" role="alert">
         <p className="t-body">{t("compose.mailboxNotSendCapable")}</p>
-        <a href="#/settings/integrations" className="link-button">
+        <a href="#/settings/connections" className="link-button">
           {t("compose.mailboxNotSendCapableGoto")}
         </a>
       </div>

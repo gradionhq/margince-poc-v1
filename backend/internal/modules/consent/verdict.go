@@ -333,10 +333,9 @@ func RecordDerivedQualifyingEvent(ctx context.Context, tx pgx.Tx, personID strin
 	// source record is what actually makes this idempotent.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO consent_qualifying_event
-			(workspace_id, person_id, kind, source_entity_type, source_entity_id,
+			(person_id, kind, source_entity_type, source_entity_id,
 			 occurred_at, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, 'derived', $6)
+		VALUES ($1, $2, $3, $4, $5, 'derived', $6)
 		ON CONFLICT (person_id, source_entity_type, source_entity_id)
 		  WHERE source_entity_id IS NOT NULL
 		  DO NOTHING`,

@@ -740,7 +740,16 @@ function ComparisonRow(
             label={t("settings.companyResolution.use_value")}
           />
           {props.resolution?.action === "use_value" && (
+            /* Named, because this field decides what gets written to the company
+               record and it had no accessible name at all — no label, no
+               aria-label, not even a placeholder. It is revealed by the radio
+               above it, so it takes that radio's words plus the field this
+               conflict is about: "Keep this value" alone would be one of several
+               identical names on a page resolving several conflicts. */
             <TextInput
+              aria-label={t("settings.companyResolution.useValueFor", {
+                field: fieldLabel,
+              })}
               value={props.resolution.value ?? ""}
               onChange={(event) =>
                 props.onResolve({

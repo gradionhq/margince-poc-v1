@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { meFixture } from "./app/mefixture";
 import { pickOption } from "./design-system/select-testing";
 import { LocaleProvider } from "./i18n";
 import { memoryStorage, sessionOnlyFetch } from "./testing/appharness";
@@ -38,22 +39,27 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-describe("custom-fields route", () => {
-  it("renders the Custom fields admin screen at #/custom-fields", async () => {
-    // Every query the screen fires must resolve, or QueryGate paints its error
-    // card instead of the heading: /me (admin so the builder mounts), the
-    // per-object field list, and the audit rail.
+describe("the custom-fields admin, at its address inside settings", () => {
+  // It used to be a route of its own, reached by a card whose only job was to
+  // send you there. It is a section of Settings → Data model now, so the claim
+  // this test makes is that the surface still MOUNTS through the real router —
+  // and the address it mounts at is the one that changed.
+  it("mounts the field builder on the Data model page", async () => {
+    // Every query the surface fires must resolve, or QueryGate paints its error
+    // card instead of the heading: /me (an admin holding the custom_field write
+    // the entry is gated on), the per-object field list, and the audit rail.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: Request | string | URL) => {
         const url = String(input instanceof Request ? input.url : input);
         if (url.endsWith("/v1/me")) {
           return new Response(
-            JSON.stringify({
-              user: { id: "u1" },
-              roles: ["admin"],
-              teams: [],
-            }),
+            JSON.stringify(
+              meFixture({
+                roles: ["admin"],
+                allow: { custom_field: ["read", "create", "update"] },
+              }),
+            ),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
@@ -75,7 +81,7 @@ describe("custom-fields route", () => {
         });
       }),
     );
-    window.location.hash = "#/custom-fields";
+    window.location.hash = "#/settings/data-model";
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -86,10 +92,9 @@ describe("custom-fields route", () => {
         </LocaleProvider>
       </QueryClientProvider>,
     );
-    // The SCREEN's own section header, at level 2. The shell's page head now
-    // titles every route from the router alone, so a level-1 "Custom fields"
-    // would be on screen even if this route rendered nothing — anchoring there
-    // would stop proving that the admin surface mounted.
+    // The SURFACE's own section header, at level 2. The shell's page head titles
+    // the PAGE — "Data model" — so anchoring at level 1 would pass even if this
+    // section never mounted.
     expect(
       await screen.findByRole("heading", { level: 2, name: "Custom fields" }),
     ).toBeTruthy();

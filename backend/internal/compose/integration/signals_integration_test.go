@@ -122,13 +122,13 @@ func (e *SearchEnv) grantConsent(t *testing.T, personID ids.UUID) {
 	t.Helper()
 	purposeID := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO consent_purpose (id, workspace_id, key, label) VALUES ($1, $2, 'outreach', 'Outreach')`,
-		purposeID, e.WS); err != nil {
+		`INSERT INTO consent_purpose (id, key, label) VALUES ($1, 'outreach', 'Outreach')`,
+		purposeID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO person_consent (id, workspace_id, person_id, purpose_id, state, source)
-		 VALUES ($1, $2, $3, $4, 'granted', 'manual')`, ids.NewV7(), e.WS, personID, purposeID); err != nil {
+		`INSERT INTO person_consent (id, person_id, purpose_id, state, source)
+		 VALUES ($1, $2, $3, 'granted', 'manual')`, ids.NewV7(), personID, purposeID); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -62,16 +62,16 @@ func SeedPurposesTx(ctx context.Context, tx pgx.Tx, purposes []PurposeSeed) erro
 		{Key: "business_correspondence", Label: "Business correspondence", Class: ClassBusinessCorrespondence},
 	} {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO consent_purpose (workspace_id, key, label, requires_double_opt_in, class)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, false, $3)`,
+			INSERT INTO consent_purpose (key, label, requires_double_opt_in, class)
+			VALUES ($1, $2, false, $3)`,
 			invariant.Key, invariant.Label, invariant.Class); err != nil {
 			return err
 		}
 	}
 	for _, p := range purposes {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO consent_purpose (workspace_id, key, label, requires_double_opt_in, class)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)`,
+			INSERT INTO consent_purpose (key, label, requires_double_opt_in, class)
+			VALUES ($1, $2, $3, $4)`,
 			p.Key, p.Label, p.DoubleOptIn, p.classOrMarketing()); err != nil {
 			return err
 		}

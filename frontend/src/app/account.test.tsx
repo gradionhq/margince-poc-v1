@@ -77,19 +77,17 @@ describe("AccountMenu", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
-  // The two destinations are different surfaces: this person's own account, and
-  // the installation's settings. A single Settings row would send both readers
-  // to the same place.
-  it("offers the account surface and the settings surface, in that order", async () => {
+  // ONE destination, and it is this person's own account. A second row into
+  // settings generally would land on the same page — settings opens on its first
+  // entry, which is Account — while the rail already carries that door.
+  it("offers this person's account, and no second door into settings", async () => {
     render(<AccountMenu collapsed={false} />);
     await openMenu();
     const links = screen.getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "#/settings/account",
-      "#/settings",
     ]);
     expect(links[0].textContent).toBe("Account");
-    expect(links[1].textContent).toBe("Settings");
   });
 
   // A preference is not a destination: the menu offers the two surfaces and the
@@ -150,15 +148,13 @@ describe("AccountMenu", () => {
 });
 
 describe("AccountRows", () => {
-  it("offers the same three rows, flat, in the menu's order", () => {
+  it("offers the same rows, flat, in the menu's order", () => {
     render(<AccountRows />);
     const links = screen.getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "#/settings/account",
-      "#/settings",
     ]);
     expect(links[0].textContent).toBe("Account");
-    expect(links[1].textContent).toBe("Settings");
     // No trigger to open first, and nothing that could hide the rows behind one:
     // in the sheet the rows ARE the surface.
     expect(screen.queryByRole("button", { name: /Account$/ })).toBeNull();

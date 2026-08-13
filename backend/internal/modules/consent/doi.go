@@ -92,8 +92,8 @@ func (s *Store) IssueDoubleOptIn(ctx context.Context, personID ids.PersonID, pur
 		// entity, so the row id stays untyped.
 		var tokenRowID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO consent_doi_token (workspace_id, person_id, purpose_id, token_hash, issued_at, expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+			INSERT INTO consent_doi_token (person_id, purpose_id, token_hash, issued_at, expires_at)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id`,
 			personID, purposeID, hashDOIToken(token), issued, issued.Add(doiTokenTTL)).Scan(&tokenRowID); err != nil {
 			return err

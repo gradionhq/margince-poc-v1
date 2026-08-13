@@ -85,9 +85,9 @@ func setupChannelConsent(t *testing.T) *channelConsentEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO consent_purpose (id, workspace_id, key, label, requires_double_opt_in)
-		VALUES ($1, $3, 'newsletter', 'Newsletter', false), ($2, $3, 'doi_newsletter', 'DOI Newsletter', true)`,
-		e.newsletter, e.doiNews, e.ws); err != nil {
+		INSERT INTO consent_purpose (id, key, label, requires_double_opt_in)
+		VALUES ($1, 'newsletter', 'Newsletter', false), ($2, 'doi_newsletter', 'DOI Newsletter', true)`,
+		e.newsletter, e.doiNews); err != nil {
 		t.Fatal(err)
 	}
 	// A Telegram-only subject: no person_email row at all, which is exactly the

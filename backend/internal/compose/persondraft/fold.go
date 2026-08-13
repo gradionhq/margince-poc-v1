@@ -198,64 +198,11 @@ func foldClaims(in *Input, view crmcontracts.Person360, now time.Time) {
 
 // snippetOf is the opening of a message, bounded and tidied.
 //
-// A stored mail body begins with the envelope headers the capture path wrote
-// above it, and those are addresses rather than anything a reply is about. They
-// are dropped, and what remains is cut on a rune boundary so a multi-byte word
-// is not sliced in half.
+// The work lives in textlang.MessageOpening, beside the header vocabulary it
+// needs: this snippet and the account drafter's ask the same question of the
+// same stored bodies, and a second copy here is how the answers would drift.
 func snippetOf(body string) string {
-	text := strings.TrimSpace(stripMailHeaders(body))
-	runes := []rune(text)
-	if len(runes) > draftInputSnippetRunes {
-		return strings.TrimSpace(string(runes[:draftInputSnippetRunes]))
-	}
-	return text
-}
-
-// stripMailHeaders drops the leading From:/To: block the capture path writes
-// above a stored body.
-//
-// It requires the block to open on From: and to be followed by a blank line,
-// which is the shape capture really writes. Any leading run of header-shaped
-// lines would eat real prose: "From: our finance team's perspective" over
-// "To: make this work we need..." is a sentence, not an envelope.
-//
-// A body that is ONLY headers strips to nothing, and nothing is the right
-// answer — an attachment-only mail has no words for a reply to be about, and
-// returning the addresses instead would put them in the prompt, which is what
-// this function exists to prevent.
-func stripMailHeaders(body string) string {
-	lines := strings.Split(body, "\n")
-	if len(lines) == 0 || !isMailHeaderLine(strings.TrimSpace(lines[0])) {
-		return body
-	}
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if isMailHeaderLine(trimmed) {
-			continue
-		}
-		if trimmed == "" {
-			// The blank line that closes a header block: everything after it is
-			// the message. Empty after it is an honest answer — an
-			// attachment-only mail has no words for a reply to be about, and
-			// returning the addresses instead would put them in the prompt.
-			return strings.Join(lines[i+1:], "\n")
-		}
-		// A non-header, non-blank line inside the run means this was never a
-		// header block. Keep the whole thing rather than guess where it ends.
-		return body
-	}
-	// Every line looked like a header and no blank line ever closed the block.
-	// The real capture shape always has that separator, so this is prose that
-	// happens to be shaped like headers — keep it rather than return nothing.
-	return body
-}
-
-// isMailHeaderLine defers to the shared vocabulary rather than keeping a second
-// list. Two lists is how this drifted: the language detector knew two headers
-// and this knew six, and neither knew what the other knew — which is how a
-// German thread kept drafting in English.
-func isMailHeaderLine(line string) bool {
-	return textlang.IsMailHeader(line)
+	return textlang.MessageOpening(body, draftInputSnippetRunes)
 }
 
 // isOverdueOurs reports whether this claim is a promise WE made, still open,

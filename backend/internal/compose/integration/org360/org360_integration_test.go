@@ -152,10 +152,9 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 		integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
 	}
 
-	purpose := integration.SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
-		VALUES ($1, $2, 'marketing_email', 'Marketing email')`, e.WS)
-	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state)
-		VALUES ($1, $2, $3, 'granted')`, e.WS, contact, purpose)
+	purpose := seedConsentPurpose(t, owner, "marketing_email", "Marketing email")
+	e.WsExec(t, `INSERT INTO person_consent (person_id, purpose_id, state)
+		VALUES ($1, $2, 'granted')`, contact, purpose)
 
 	view, err := svc.Assemble(admin, ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -207,8 +206,7 @@ func TestOrganization360ConsentReportsEveryPurposeEvenWithoutARow(t *testing.T) 
 	contact := e.SeedPerson(t, "Silent Contact", &e.Rep1)
 	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-	integration.SeedRow(t, owner, `INSERT INTO consent_purpose (id, workspace_id, key, label)
-		VALUES ($1, $2, 'product_updates', 'Product updates')`, e.WS)
+	seedConsentPurpose(t, owner, "product_updates", "Product updates")
 
 	view, err := svc.Assemble(e.Admin(), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -630,6 +628,19 @@ var org360NoActivityPerms = principal.Permissions{
 // pgx will not decode into time.Time. Every 360 request 500'd the moment any
 // deal on the account carried a close date — invisible to a test that hands
 // the fold rows it built itself, and immediately visible on real data.
+// seedConsentPurpose plants one purpose and returns its id. SeedRow cannot
+// serve here: it supplies a workspace for $2, and consent_purpose has no tenant
+// column to put it in.
+func seedConsentPurpose(t *testing.T, owner *pgx.Conn, key, label string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO consent_purpose (id, key, label) VALUES ($1, $2, $3)`, id, key, label); err != nil {
+		t.Fatalf("seeding the %s consent purpose: %v", key, err)
+	}
+	return id
+}
+
 func TestOrg360_StateStripPricesOpenDealsAndNamesTheirCloseDate(t *testing.T) {
 	e := integration.Setup(t)
 	pipeline, stage, _ := integration.DealFixture(t, e)
