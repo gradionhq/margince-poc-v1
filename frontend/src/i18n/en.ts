@@ -607,7 +607,7 @@ export const en = {
   "co.description.placeholder": "Add description",
   "co.chip.linkedin": "LinkedIn",
   "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
-  "co.strip.netInvoiced": "Net invoiced · 12 months",
+  "co.strip.netInvoiced": "Net invoiced · 12 mo",
   "co.strip.overdue": "Overdue",
   // The collapsed slot's label, shown once in place of the strip's money
   // readings when the connection cannot answer any of them. Generic on
@@ -628,7 +628,7 @@ export const en = {
   "co.strip.expectedClose": "Expected close",
   "co.strip.health": "Relationship",
   "co.strip.healthOneSided": "One-sided",
-  "co.strip.healthBalanced": "Balanced exchange",
+  "co.strip.healthBalanced": "Balanced",
   "co.strip.replyShare": "{percent}% of the exchange is theirs",
   "co.strip.healthActive": "In conversation",
   "co.strip.healthQuiet": "Gone quiet",

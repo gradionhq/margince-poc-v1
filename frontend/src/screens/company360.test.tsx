@@ -2201,7 +2201,7 @@ describe("a customer's KPI row reports what the account is worth", () => {
     await waitFor(() => expect(region.textContent).not.toMatch(/Loading…/));
 
     expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
-    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 mo")).toBeTruthy();
     // Abbreviated: the strip's slots share its width, and a full euro amount
     // wraps mid-number there. The finance card renders the exact figure.
     expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
@@ -2414,7 +2414,7 @@ describe("the money row collapses only when every slot shares one cause", () => 
     // The three individual questions are gone with it, not just deduplicated
     // text — a reader sweeping the row sees one statement, not three blanks.
     expect(within(region).queryByText("Net invoiced · lifetime")).toBeNull();
-    expect(within(region).queryByText("Net invoiced · 12 months")).toBeNull();
+    expect(within(region).queryByText("Net invoiced · 12 mo")).toBeNull();
     expect(within(region).queryByText("Overdue")).toBeNull();
   });
 
@@ -2437,7 +2437,7 @@ describe("the money row collapses only when every slot shares one cause", () => 
     expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
     // The other two still ask their own question, each carrying the shared
     // reason on its own line rather than one line speaking for the row.
-    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 mo")).toBeTruthy();
     expect(within(region).getByText("Overdue")).toBeTruthy();
     expect(
       within(region).getAllByText("Not matched to a customer yet").length,
@@ -2513,7 +2513,7 @@ describe("the money row collapses only when every slot shares one cause", () => 
     expect(within(region).getByText("Relationship")).toBeTruthy();
     expect(within(region).getByText("Health")).toBeTruthy();
     expect(within(region).getByText("Net invoiced · lifetime")).toBeTruthy();
-    expect(within(region).getByText("Net invoiced · 12 months")).toBeTruthy();
+    expect(within(region).getByText("Net invoiced · 12 mo")).toBeTruthy();
     expect(within(region).getByText("Overdue")).toBeTruthy();
     expect(within(region).getByText(/428(\.0)?K/i)).toBeTruthy();
     expect(within(region).getByText(/186(\.4)?K/i)).toBeTruthy();
