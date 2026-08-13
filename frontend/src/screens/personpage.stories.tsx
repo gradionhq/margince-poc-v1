@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
+import { meFixture } from "../app/mefixture";
 import { ProviderCard } from "./integrations-provider";
 import {
   PersonBriefCard,
@@ -403,43 +404,47 @@ export const LeadMomentWarning: Story = {
 // --- Rail --------------------------------------------------------------------
 
 export const Rail: Story = {
-  render: () => (
-    <StoryProviders>
-      <div style={{ maxWidth: 320 }}>
-        <PersonRail
-          view={populated}
-          guard={{
-            person_id: "p-1",
-            entries: [
-              {
-                purpose_key: "business_correspondence",
-                purpose_class: "business_correspondence",
-                channel: "email",
-                verdict: "allowed",
-                reason: "She wrote to you on 1 Aug 2026.",
-              },
-              {
-                purpose_key: "phone_outreach",
-                purpose_class: "phone_outreach",
-                channel: "phone",
-                verdict: "unknown",
-                reason: "No consent recorded.",
-              },
-            ],
-          }}
-          firstName="Dana"
-          onExplain={() => {}}
-        />
-      </div>
-    </StoryProviders>
-  ),
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse(meFixture({ allow: { person: ["update"] } })),
+    });
+    return (
+      <StoryProviders>
+        <div style={{ maxWidth: 320 }}>
+          <PersonRail
+            view={populated}
+            guard={{
+              person_id: "p-1",
+              entries: [
+                {
+                  purpose_key: "business_correspondence",
+                  purpose_class: "business_correspondence",
+                  channel: "email",
+                  verdict: "allowed",
+                  reason: "She wrote to you on 1 Aug 2026.",
+                },
+                {
+                  purpose_key: "phone_outreach",
+                  purpose_class: "phone_outreach",
+                  channel: "phone",
+                  verdict: "unknown",
+                  reason: "No consent recorded.",
+                },
+              ],
+            }}
+            firstName="Dana"
+            onExplain={() => {}}
+          />
+        </div>
+      </StoryProviders>
+    );
+  },
 };
 
 // The Companies section with two employment edges — one current, one former
 // — so the current/former distinction and the add/mark-ended/remove verbs
-// are all on screen at once. `GET /me` is stubbed with the `person:update`
-// grant DetailsGrid's own edit affordances gate on, since the Rail story
-// above leaves it unstubbed and renders every verb hidden.
+// are all on screen at once.
 const twoEmployers: View = {
   ...populated,
   employments: {
@@ -469,12 +474,13 @@ const twoEmployers: View = {
 
 export const RailEmployments: Story = {
   render: () => {
+    // The rail's editable rows read the grant map, so the fixture has to be
+    // the real /me shape rather than a hand-written stand-in: an object absent
+    // from `allow` is absent the way the server omits it, which is the case a
+    // client that treats "missing" as "permitted" gets wrong.
     installFetchStub({
       "GET /me": () =>
-        jsonResponse({
-          user: { id: "u-1", display_name: "Mira Voss" },
-          authorization: { objects: { person: { update: true } } },
-        }),
+        jsonResponse(meFixture({ allow: { person: ["update"] } })),
     });
     return (
       <StoryProviders>
