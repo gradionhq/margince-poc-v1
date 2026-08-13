@@ -435,6 +435,10 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 		Fields:          out,
 		ModifiedAt:      modifiedAt,
 		OwnerExternalID: ownerID,
+		// Stamped from the declaration that produced Fields just above, so the
+		// row the mirror stores names its own projection rather than whichever
+		// declaration is current when someone later asks.
+		ProjectionFingerprint: overlay.Fingerprint(m),
 	}, nil
 }
 

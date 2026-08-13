@@ -59,6 +59,10 @@ type Record struct {
 	Fields          map[string]any
 	ModifiedAt      time.Time
 	OwnerExternalID string
+	// ProjectionFingerprint identifies the mapping declaration that produced
+	// Fields, so a row projected by a declaration that has since changed is
+	// detectable without re-reading the incumbent.
+	ProjectionFingerprint string
 }
 
 // WriteResult is what a write through the Incumbent seam (Create/Update)
