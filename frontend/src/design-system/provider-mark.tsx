@@ -122,5 +122,34 @@ export function ProviderMark({
       </svg>
     );
   }
+  if (providerKey === "surfe") {
+    return (
+      <svg
+        className="provider-mark"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {/* Surfe's own dark, on the same badge shape the others use.
+            Deliberately their INITIAL rather than a redrawing of their logo:
+            the marks above are each vendor's published logo geometry, and
+            approximating one from memory would put a wrong mark in their
+            colours — worse than a plain letter that claims to be nothing more
+            than a letter. Replace it if Surfe publish usage terms and artwork. */}
+        <rect width="24" height="24" rx="4" fill="#1A1A2E" />
+        <text
+          x="12"
+          y="17"
+          textAnchor="middle"
+          fill="#fff"
+          fontSize="14"
+          fontWeight="700"
+          fontFamily="system-ui, sans-serif"
+        >
+          S
+        </text>
+      </svg>
+    );
+  }
   return <KeyRound className="provider-mark" aria-hidden="true" />;
 }

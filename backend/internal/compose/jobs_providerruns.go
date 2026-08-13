@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ProviderRunsConfig is the provider-run lanes' slice of the runner's boot
@@ -96,6 +97,7 @@ func (w *providerRunSubmitWorker) Work(ctx context.Context, job *river.Job[Provi
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
+	wsCtx = providerJobActor(wsCtx)
 	store, err := providerRunStore(w.pool, w.cfg, job.Args)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
@@ -112,6 +114,24 @@ func (ProviderRunPollSweepArgs) Kind() string { return "provider_run_poll_sweep"
 // FleetWide marks this a dispatcher: it enumerates and enqueues, and does no
 // tenant work of its own (jobs.FleetWide).
 func (ProviderRunPollSweepArgs) FleetWide() {}
+
+// providerJobActor binds the principal a provider run executes as.
+//
+// The connector is the actor because every value these runs write is bought
+// from the provider, not typed by anybody: the claim rows carry
+// `connector:surfe` provenance, and a reader must be able to tell purchased
+// data from a colleague's entry. It also carries a correlation id, which the
+// outbox envelope requires.
+//
+// Without this the hand-off refused with "no actor bound to context" and every
+// polled run stayed in_progress forever — the run was paid for, the provider
+// had answered, and the values reached nobody.
+func providerJobActor(ctx context.Context) context.Context {
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "connector:surfe",
+	})
+	return principal.WithCorrelationID(ctx, ids.NewV7())
+}
 
 // providerRunPollSweepWorker fans one drain job out per live workspace.
 type providerRunPollSweepWorker struct {
@@ -148,6 +168,7 @@ func (w *providerRunPollWorker) Work(ctx context.Context, job *river.Job[Provide
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
+	wsCtx = providerJobActor(wsCtx)
 	store, err := providerRunStore(w.pool, w.cfg, job.Args)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)

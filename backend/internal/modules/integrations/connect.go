@@ -197,6 +197,18 @@ func (s *Store) Disconnect(ctx context.Context, name string) error {
 			 WHERE provider = $1 AND state = 'queued'`, name); err != nil {
 			return fmt.Errorf("integrations: cancelling queued runs: %w", err)
 		}
+		// The balance goes with the credential that read it. It was obtained BY
+		// presenting the key we just destroyed, so keeping it would leave the
+		// card showing "19 credits left" beside "Not connected" — a number we
+		// have no way to refresh and no standing to assert. The ceilings stay:
+		// those are the customer's own policy, not the provider's reading.
+		if _, err := tx.Exec(ctx, `
+			UPDATE provider_connection_budget b
+			   SET last_known_balance = NULL, balance_read_at = NULL
+			  FROM provider_connection c
+			 WHERE c.id = b.connection_id AND c.provider = $1`, name); err != nil {
+			return fmt.Errorf("integrations: clearing the provider balance: %w", err)
+		}
 		if _, err := storekit.Audit(ctx, tx, "disconnect", "provider_connection", uuidOf(id),
 			map[string]any{auditKeyProvider: name}, nil); err != nil {
 			return err

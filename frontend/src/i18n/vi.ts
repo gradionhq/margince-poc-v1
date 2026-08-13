@@ -4349,6 +4349,10 @@ export const vi = {
   "provider.connect": "Kết nối",
   "provider.reconnect": "Thay khoá",
   "provider.apiKey": "Khoá API",
+  "provider.apiKeyStored": "Thay khóa API",
+  "provider.apiKeyReplaceHint":
+    "Đã có một khóa được lưu và đang dùng. Khóa không thể hiển thị lại nên ô này để trống — chỉ dán khóa mới nếu bạn muốn thay.",
+  "provider.apiKeyReplacePlaceholder": "Dán khóa mới để thay khóa đang lưu",
   "provider.apiKeyHint":
     "Được niêm phong ngay sau khi xác minh. Khoá không bao giờ hiển thị lại và chỉ rời bản cài đặt này để đến nhà cung cấp.",
   "provider.connectConfirm.title": "Kết nối nhà cung cấp dữ liệu này?",
@@ -4369,15 +4373,18 @@ export const vi = {
   "provider.credits": "Tín dụng còn lại ở nhà cung cấp",
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "Nhà cung cấp chưa cho biết số dư.",
+  "provider.credits.notConnected":
+    "Kết nối khóa API để xem số dư của bạn với nhà cung cấp.",
   "provider.constraints": "Giới hạn đang áp dụng",
   "provider.spend": "Chúng ta đã dùng bao nhiêu",
   "provider.spend.hint":
     "Ghi nhận của chính chúng ta về chi phí làm giàu dữ liệu. Đây không phải hoá đơn của nhà cung cấp — cùng số tín dụng đó có thể được tiêu qua ứng dụng của họ, nên hai con số lệch nhau là chuyện bình thường.",
   "provider.spend.thisMonth": "Tháng này",
-  "provider.spend.charged":
-    "{pool}: {credits} tín dụng cho {count} lượt tra cứu",
-  "provider.spend.held":
-    "Trong đó {credits} đang bị giữ cho những lượt tra cứu mà chúng ta không bao giờ biết kết quả.",
+  "provider.spend.month": "Tháng",
+  "provider.spend.pool": "Nhóm tín dụng",
+  "provider.spend.chargedHead": "Tín dụng",
+  "provider.spend.heldHead": "Đang giữ",
+  "provider.spend.runsHead": "Lượt tra cứu",
   "provider.spend.none": "Chưa mua gì cả.",
   "provider.mode": "Khi nào làm giàu",
   "provider.mode.automatic_on_create": "Ngay khi liên hệ được tạo",
