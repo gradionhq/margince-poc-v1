@@ -201,9 +201,9 @@ func seedOwnedNoActivityReminder(t *testing.T, owner *pgx.Conn, ws, ownerID ids.
 	t.Helper()
 	params := fmt.Sprintf(`{"no_activity_days":%d}`, days)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled)
-		 VALUES ($1, $2, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', $3::jsonb, $4, true)`,
-		ids.NewV7(), ws, params, ownerID); err != nil {
+		`INSERT INTO automation (id, key, name, trigger, action, params, owner_id, enabled)
+		 VALUES ($1, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', $2::jsonb, $3, true)`,
+		ids.NewV7(), params, ownerID); err != nil {
 		t.Fatalf("seeding the owner-authored no_activity_reminder instance: %v", err)
 	}
 }

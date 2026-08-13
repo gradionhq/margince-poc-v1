@@ -141,9 +141,9 @@ func seedGenuineTouch(t *testing.T, owner *pgx.Conn, ws, dealID ids.UUID, kind s
 func seedNoActivityReminder(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
-		 VALUES ($1, $2, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, true)`,
-		ids.NewV7(), ws); err != nil {
+		`INSERT INTO automation (id, key, name, trigger, action, params, enabled)
+		 VALUES ($1, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, true)`,
+		ids.NewV7()); err != nil {
 		t.Fatalf("seeding the no_activity_reminder instance: %v", err)
 	}
 }

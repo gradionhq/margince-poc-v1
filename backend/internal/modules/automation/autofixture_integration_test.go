@@ -126,9 +126,9 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled, tier)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true, 'auto_execute')`,
-		id, fx.ws, key)
+		INSERT INTO automation (id, key, name, trigger, action, params, enabled, tier)
+		VALUES ($1, $2, $2, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true, 'auto_execute')`,
+		id, key)
 	return id
 }
 
@@ -140,9 +140,9 @@ func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner i
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled, tier)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true, 'auto_execute')`,
-		id, fx.ws, key, owner)
+		INSERT INTO automation (id, key, name, trigger, action, params, owner_id, enabled, tier)
+		VALUES ($1, $2, $2, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $3, true, 'auto_execute')`,
+		id, key, owner)
 }
 
 // seedRun inserts one recorded firing for the automation, linked the way
