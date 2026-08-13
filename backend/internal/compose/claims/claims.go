@@ -30,6 +30,20 @@ import (
 type Evidence struct {
 	EntityType string `json:"entity_type"`
 	EntityID   string `json:"entity_id"`
+	// Name is the record's own display name, when the caller had it at hand —
+	// a deal's name, an activity's subject. Descriptive only: it plays no part
+	// in identity, so Grounded compares type and id alone (a citation the
+	// writer forgot to name must still ground on the pair it actually has).
+	Name string `json:"name,omitempty"`
+}
+
+// identity is the pair Grounded and Dedupe key on: the record a citation
+// names, never the name it happens to carry alongside that. Comparing full
+// Evidence values would make a citation's grounding depend on whether SOME
+// caller remembered to set Name — the known-set built at knownRecords time
+// never does, so a name-bearing sentence would fail every lookup against it.
+func identity(e Evidence) Evidence {
+	return Evidence{EntityType: e.EntityType, EntityID: e.EntityID}
 }
 
 // Sentence is one claim plus the records it was written from.
@@ -75,8 +89,10 @@ func Grounded(sentence Sentence, known map[Evidence]bool) bool {
 	}
 	for _, cited := range sentence.Evidence {
 		// Keyed on the (kind, identity) PAIR, so a valid identity of the wrong
-		// kind is still dropped.
-		if !known[cited] {
+		// kind is still dropped. Stripped to identity() first: known is built
+		// with no Name set, and comparing the full struct would fail a
+		// name-bearing citation against a record it correctly cites.
+		if !known[identity(cited)] {
 			return false
 		}
 	}
@@ -143,10 +159,14 @@ func Dedupe(sentences []Sentence) []Sentence {
 		seen := make(map[Evidence]bool, len(sentence.Evidence))
 		unique := make([]Evidence, 0, len(sentence.Evidence))
 		for _, cited := range sentence.Evidence {
-			if seen[cited] {
+			// Keyed on identity(), not the citation itself: two citations of
+			// the same record must collapse into one chip even if only one
+			// of them happened to carry the record's Name.
+			key := identity(cited)
+			if seen[key] {
 				continue
 			}
-			seen[cited] = true
+			seen[key] = true
 			unique = append(unique, cited)
 		}
 		sentence.Evidence = unique
