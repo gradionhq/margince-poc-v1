@@ -29,23 +29,31 @@ import "github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 // thread and no call whatsoever was drafted an opener reading "Marine, it was a
 // pleasure connecting earlier this week." Every band's list was checked against
 // that text and every one of them passed it.
+// Every entry asserts a COMPLETED exchange on its own, which is the bar an
+// entry has to clear. "Great to connect" does not: "it would be great to
+// connect next week" is an ask, and the same words a sentence later are a
+// memory. "We can cover that in our call tomorrow" is a plan. A list that
+// refuses those refuses the drafts this product exists to write, so the past
+// tense has to be IN the phrase rather than assumed around it.
 var spokenExchange = map[textlang.Lang][]string{
 	textlang.English: {
-		"pleasure connecting", "pleasure speaking", "pleasure meeting",
-		"pleasure talking", "good to connect", "great to connect",
-		"good speaking", "great speaking", "good talking", "great talking",
-		"nice to connect", "nice speaking", "enjoyed our",
-		"after our call", "on our call", "during our call", "in our call",
-		"our conversation earlier", "when we spoke",
+		"it was a pleasure connecting", "was a pleasure speaking",
+		"was a pleasure meeting", "was a pleasure talking",
+		"was good speaking", "was great speaking", "was good talking",
+		"was great talking", "was good to connect", "was great to connect",
+		"was nice to connect", "was nice speaking",
+		"after our call", "after our conversation", "during our call",
+		"on the call last", "our conversation earlier", "when we spoke",
+		"thanks for taking the time to speak",
 	},
 	textlang.German: {
-		"freute mich", "freut mich, dass wir", "gefreut, sie kennenzulernen",
-		"gefreut, dich kennenzulernen", "schön, sie kennenzulernen",
-		"nach unserem gespräch", "in unserem gespräch", "unserem telefonat",
-		"unser telefonat", "nach unserem call",
+		"freute mich", "hat mich gefreut, sie kennenzulernen",
+		"hat mich gefreut, dich kennenzulernen",
+		"nach unserem gespräch", "nach unserem telefonat", "nach unserem call",
+		"in unserem gespräch letzte", "danke für das gespräch",
 	},
 	textlang.Vietnamese: {
-		"rất vui được trao đổi", "sau cuộc gọi", "trong cuộc gọi",
+		"rất vui được trao đổi với", "sau cuộc gọi", "sau buổi trao đổi",
 	},
 }
 

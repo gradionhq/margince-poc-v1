@@ -174,7 +174,11 @@ func Reasoning(labels []string, lang textlang.Lang, band convstate.Band) []Findi
 				})
 			}
 		}
-		findings = append(findings, Body(label, lang, band)...)
+		// A chip is checked as an unthreaded body whatever the draft beside it
+		// is. It is the product's own claim about what it wrote from, so a call
+		// named there is asserted by us rather than echoed from the
+		// counterparty's message — the reply surface's ground does not reach it.
+		findings = append(findings, Body(label, lang, band, false)...)
 	}
 	return findings
 }
@@ -231,27 +235,20 @@ var resolvedEvent = map[textlang.Lang][]string{
 
 // Body reads a draft body against the state it was written in.
 //
-// Two lists run at every band and the rest are band-gated, and the split is the
+// Two lists ignore the band and the rest are gated by it, and the split is the
 // point. "As discussed" is a claim about the recipient's MEMORY, which a live
 // exchange supports and eight months of silence does not — so it is gated. A
 // call that never happened, or a sentence the recipient never said, is a claim
-// about the WORLD, and no band makes it true.
-// firstMatch reports the first phrase of a list the text carries, as one
-// finding or none.
+// about the WORLD, and no length of silence makes it true or false.
 //
-// One rather than all, because the finding is fed back to the model as a
-// correction and a list of six ways it said the same wrong thing is not six
-// corrections. The first is enough to name what to stop doing.
-func firstMatch(lowered string, phrases []string, rule, why string) []Finding {
-	for _, phrase := range phrases {
-		if contains(lowered, phrase) {
-			return []Finding{{Rule: rule, Phrase: phrase, Why: why}}
-		}
-	}
-	return nil
-}
-
-func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
+// threaded is what those two ARE gated on instead, and it is a different
+// question from the band. A reply is written from the counterparty's own
+// message: if they wrote "as I mentioned on our call", a reply that answers the
+// call they named is grounded in text the drafter can actually see. A message
+// opening a new conversation has no such ground — whatever it says about a
+// call, it invented. So the world-claim rules run on unthreaded drafts, where
+// the claim cannot be sourced, and stand down on replies, where it can.
+func Body(body string, lang textlang.Lang, band convstate.Band, threaded bool) []Finding {
 	lowered := strings.ToLower(body)
 	var findings []Finding
 
@@ -268,15 +265,17 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 		}
 	}
 
-	findings = append(findings, firstMatch(lowered, spokenExchange[lang],
-		"invented-conversation",
-		"nothing in the input says a call or meeting took place — write from "+
-			"the messages on the record, and never claim a conversation")...)
+	if !threaded {
+		findings = append(findings, firstMatch(lowered, spokenExchange[lang],
+			"invented-conversation",
+			"this message opens a new conversation, so nothing in the input says a "+
+				"call or meeting took place — write from the messages on the record")...)
 
-	findings = append(findings, firstMatch(lowered, attributedClaim[lang],
-		"attributed-claim",
-		"the input says what a message was about, never who wrote it — "+
-			"name the topic instead of attributing it to the recipient")...)
+		findings = append(findings, firstMatch(lowered, attributedClaim[lang],
+			"attributed-claim",
+			"the input says what a message was about, never who wrote it — "+
+				"name the topic instead of attributing it to the recipient")...)
+	}
 
 	if lang == textlang.German && mixedRegister(body) {
 		findings = append(findings, Finding{
@@ -286,6 +285,15 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 				"familiarly in another — pick the one the correspondence uses and hold it",
 		})
 	}
+
+	return append(findings, bandGated(lowered, lang, band)...)
+}
+
+// bandGated are the rules the length of the silence decides — every one of them
+// a claim about what the recipient still has in mind, which a live exchange
+// supports and a long gap does not.
+func bandGated(lowered string, lang textlang.Lang, band convstate.Band) []Finding {
+	var findings []Finding
 
 	if band == convstate.BandNone {
 		for _, phrase := range invention[lang] {
@@ -403,4 +411,19 @@ func boundary(text string, i int) bool {
 	}
 	r := rune(text[i])
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\''
+}
+
+// firstMatch reports the first phrase of a list the text carries, as one
+// finding or none.
+//
+// One rather than all, because the finding is fed back to the model as a
+// correction and a list of six ways it said the same wrong thing is not six
+// corrections. The first is enough to name what to stop doing.
+func firstMatch(lowered string, phrases []string, rule, why string) []Finding {
+	for _, phrase := range phrases {
+		if contains(lowered, phrase) {
+			return []Finding{{Rule: rule, Phrase: phrase, Why: why}}
+		}
+	}
+	return nil
 }
