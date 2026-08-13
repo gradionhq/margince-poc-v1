@@ -377,7 +377,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// "no provider connected" configuration (PI-AC-9): every surface
 		// answers honestly and nothing can reach the network. WithProvider
 		// is what registers one.
-		integrationsHandlers: newIntegrationsHandlers(pool, nil),
+		integrationsHandlers: newIntegrationsHandlers(pool, nil, nil, nil),
 		signalsHandlers:      signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
 		privacyHandlers:      privacy.NewHandlers(InstallationDB(pool)),
 		automationHandlers:   automation.NewHandlers(InstallationDB(pool)),

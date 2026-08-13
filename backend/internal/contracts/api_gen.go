@@ -3866,19 +3866,19 @@ func (e IssuePassportRequestScopes) Valid() bool {
 
 // Defines values for JobFailureState.
 const (
-	Cancelled JobFailureState = "cancelled"
-	Discarded JobFailureState = "discarded"
-	Retryable JobFailureState = "retryable"
+	JobFailureStateCancelled JobFailureState = "cancelled"
+	JobFailureStateDiscarded JobFailureState = "discarded"
+	JobFailureStateRetryable JobFailureState = "retryable"
 )
 
 // Valid indicates whether the value is a known member of the JobFailureState enum.
 func (e JobFailureState) Valid() bool {
 	switch e {
-	case Cancelled:
+	case JobFailureStateCancelled:
 		return true
-	case Discarded:
+	case JobFailureStateDiscarded:
 		return true
-	case Retryable:
+	case JobFailureStateRetryable:
 		return true
 	default:
 		return false
@@ -4569,6 +4569,27 @@ func (e Organization360ContactConsent) Valid() bool {
 	case Organization360ContactConsentUnknown:
 		return true
 	case Organization360ContactConsentWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360ContactTitleSource.
+const (
+	Organization360ContactTitleSourceCanonical   Organization360ContactTitleSource = "canonical"
+	Organization360ContactTitleSourceLessThannil Organization360ContactTitleSource = "<nil>"
+	Organization360ContactTitleSourceProvider    Organization360ContactTitleSource = "provider"
+)
+
+// Valid indicates whether the value is a known member of the Organization360ContactTitleSource enum.
+func (e Organization360ContactTitleSource) Valid() bool {
+	switch e {
+	case Organization360ContactTitleSourceCanonical:
+		return true
+	case Organization360ContactTitleSourceLessThannil:
+		return true
+	case Organization360ContactTitleSourceProvider:
 		return true
 	default:
 		return false
@@ -5577,6 +5598,7 @@ const (
 	Person360SectionsOmittedNextMeeting         Person360SectionsOmitted = "next_meeting"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedProviderProfile     Person360SectionsOmitted = "provider_profile"
 	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
 	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
 	Person360SectionsOmittedStrength            Person360SectionsOmitted = "strength"
@@ -5610,6 +5632,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedProviderProfile:
 		return true
 	case Person360SectionsOmittedRelationshipChanges:
 		return true
@@ -6080,19 +6104,115 @@ func (e PersonProfileFieldField) Valid() bool {
 
 // Defines values for PersonProfileFieldVerdict.
 const (
-	Confirmed  PersonProfileFieldVerdict = "confirmed"
-	Corrected  PersonProfileFieldVerdict = "corrected"
-	Suppressed PersonProfileFieldVerdict = "suppressed"
+	PersonProfileFieldVerdictConfirmed  PersonProfileFieldVerdict = "confirmed"
+	PersonProfileFieldVerdictCorrected  PersonProfileFieldVerdict = "corrected"
+	PersonProfileFieldVerdictSuppressed PersonProfileFieldVerdict = "suppressed"
 )
 
 // Valid indicates whether the value is a known member of the PersonProfileFieldVerdict enum.
 func (e PersonProfileFieldVerdict) Valid() bool {
 	switch e {
-	case Confirmed:
+	case PersonProfileFieldVerdictConfirmed:
 		return true
-	case Corrected:
+	case PersonProfileFieldVerdictCorrected:
 		return true
-	case Suppressed:
+	case PersonProfileFieldVerdictSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonProviderEmailEmailType.
+const (
+	PersonProviderEmailEmailTypeLessThannil  PersonProviderEmailEmailType = "<nil>"
+	PersonProviderEmailEmailTypePersonal     PersonProviderEmailEmailType = "personal"
+	PersonProviderEmailEmailTypeProfessional PersonProviderEmailEmailType = "professional"
+)
+
+// Valid indicates whether the value is a known member of the PersonProviderEmailEmailType enum.
+func (e PersonProviderEmailEmailType) Valid() bool {
+	switch e {
+	case PersonProviderEmailEmailTypeLessThannil:
+		return true
+	case PersonProviderEmailEmailTypePersonal:
+		return true
+	case PersonProviderEmailEmailTypeProfessional:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonProviderEmailEmailTypeSource.
+const (
+	PersonProviderEmailEmailTypeSourceLessThannil      PersonProviderEmailEmailTypeSource = "<nil>"
+	PersonProviderEmailEmailTypeSourceProvider         PersonProviderEmailEmailTypeSource = "provider"
+	PersonProviderEmailEmailTypeSourceRequestedCascade PersonProviderEmailEmailTypeSource = "requested_cascade"
+)
+
+// Valid indicates whether the value is a known member of the PersonProviderEmailEmailTypeSource enum.
+func (e PersonProviderEmailEmailTypeSource) Valid() bool {
+	switch e {
+	case PersonProviderEmailEmailTypeSourceLessThannil:
+		return true
+	case PersonProviderEmailEmailTypeSourceProvider:
+		return true
+	case PersonProviderEmailEmailTypeSourceRequestedCascade:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonProviderProfileState.
+const (
+	PersonProviderProfileStateCompleted                PersonProviderProfileState = "completed"
+	PersonProviderProfileStateCompletedClaimsUnwritten PersonProviderProfileState = "completed_claims_unwritten"
+	PersonProviderProfileStateInProgress               PersonProviderProfileState = "in_progress"
+	PersonProviderProfileStateInsufficientCredits      PersonProviderProfileState = "insufficient_credits"
+	PersonProviderProfileStateInvalidCredentials       PersonProviderProfileState = "invalid_credentials"
+	PersonProviderProfileStateNeverRun                 PersonProviderProfileState = "never_run"
+	PersonProviderProfileStateNoMatch                  PersonProviderProfileState = "no_match"
+	PersonProviderProfileStateNotConnected             PersonProviderProfileState = "not_connected"
+	PersonProviderProfileStateNotEligible              PersonProviderProfileState = "not_eligible"
+	PersonProviderProfileStateProviderError            PersonProviderProfileState = "provider_error"
+	PersonProviderProfileStateQueued                   PersonProviderProfileState = "queued"
+	PersonProviderProfileStateRateLimited              PersonProviderProfileState = "rate_limited"
+	PersonProviderProfileStateStale                    PersonProviderProfileState = "stale"
+	PersonProviderProfileStateSubmissionUnknown        PersonProviderProfileState = "submission_unknown"
+)
+
+// Valid indicates whether the value is a known member of the PersonProviderProfileState enum.
+func (e PersonProviderProfileState) Valid() bool {
+	switch e {
+	case PersonProviderProfileStateCompleted:
+		return true
+	case PersonProviderProfileStateCompletedClaimsUnwritten:
+		return true
+	case PersonProviderProfileStateInProgress:
+		return true
+	case PersonProviderProfileStateInsufficientCredits:
+		return true
+	case PersonProviderProfileStateInvalidCredentials:
+		return true
+	case PersonProviderProfileStateNeverRun:
+		return true
+	case PersonProviderProfileStateNoMatch:
+		return true
+	case PersonProviderProfileStateNotConnected:
+		return true
+	case PersonProviderProfileStateNotEligible:
+		return true
+	case PersonProviderProfileStateProviderError:
+		return true
+	case PersonProviderProfileStateQueued:
+		return true
+	case PersonProviderProfileStateRateLimited:
+		return true
+	case PersonProviderProfileStateStale:
+		return true
+	case PersonProviderProfileStateSubmissionUnknown:
 		return true
 	default:
 		return false
@@ -8009,31 +8129,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -8453,16 +8573,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
-	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+	Active WebhookSubscriptionState = "active"
+	Paused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case WebhookSubscriptionStateActive:
+	case Active:
 		return true
-	case WebhookSubscriptionStatePaused:
+	case Paused:
 		return true
 	default:
 		return false
@@ -13816,6 +13936,9 @@ type Organization360Contact struct {
 	PersonId     openapi_types.UUID        `json:"person_id"`
 	PrimaryEmail *string                   `json:"primary_email,omitempty"`
 
+	// ProviderTitle A provider-sourced job title, populated ONLY where the canonical title is empty (PO-EXT-9): a bought title fills a blank, never overwrites or seconds one a human typed.
+	ProviderTitle *string `json:"provider_title,omitempty"`
+
 	// Routes Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
 	//
 	// The company page answers this per CONTACT rather than as a contact x
@@ -13835,10 +13958,16 @@ type Organization360Contact struct {
 	// `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
 	Strength RelationshipStrength `json:"strength"`
 	Title    *string              `json:"title,omitempty"`
+
+	// TitleSource Which title the roster is showing — the installation's own record, or the provider fallback. Null when there is no title at all.
+	TitleSource *Organization360ContactTitleSource `json:"title_source,omitempty"`
 }
 
 // Organization360ContactConsent defines model for Organization360Contact.Consent.
 type Organization360ContactConsent string
+
+// Organization360ContactTitleSource Which title the roster is showing — the installation's own record, or the provider fallback. Null when there is no title at all.
+type Organization360ContactTitleSource string
 
 // Organization360ContactRoutes Who on our side can actually reach this contact, strongest first (ADR-0089/A134).
 //
@@ -15283,6 +15412,9 @@ type Person360 struct {
 	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
 	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
 
+	// ProviderProfile The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`.
+	ProviderProfile *PersonProviderProfile `json:"provider_profile,omitempty"`
+
 	// RelationshipChanges What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold.
 	RelationshipChanges *[]PersonRelationshipChange `json:"relationship_changes,omitempty"`
 
@@ -15818,6 +15950,83 @@ type PersonProfileFieldField string
 // PersonProfileFieldVerdict What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
 type PersonProfileFieldVerdict string
 
+// PersonProviderEmail defines model for PersonProviderEmail.
+type PersonProviderEmail struct {
+	// EmailType May be classified from the frozen requested cascade when Surfe omits `emailType`.
+	EmailType *PersonProviderEmailEmailType `json:"email_type,omitempty"`
+
+	// EmailTypeSource Prevents a request-context label from masquerading as a provider-returned type.
+	EmailTypeSource *PersonProviderEmailEmailTypeSource `json:"email_type_source,omitempty"`
+
+	// ValidationStatus Surfe's returned validation status, displayed without relabelling every value ‘verified’.
+	ValidationStatus *string             `json:"validation_status,omitempty"`
+	Value            openapi_types.Email `json:"value"`
+}
+
+// PersonProviderEmailEmailType May be classified from the frozen requested cascade when Surfe omits `emailType`.
+type PersonProviderEmailEmailType string
+
+// PersonProviderEmailEmailTypeSource Prevents a request-context label from masquerading as a provider-returned type.
+type PersonProviderEmailEmailTypeSource string
+
+// PersonProviderEmployment defines model for PersonProviderEmployment.
+type PersonProviderEmployment struct {
+	CompanyDomain *string `json:"company_domain,omitempty"`
+	CompanyName   *string `json:"company_name,omitempty"`
+	JobTitle      *string `json:"job_title,omitempty"`
+}
+
+// PersonProviderJobHistory defines model for PersonProviderJobHistory.
+type PersonProviderJobHistory struct {
+	CompanyName string     `json:"company_name"`
+	EndedAt     *time.Time `json:"ended_at,omitempty"`
+	JobTitle    *string    `json:"job_title,omitempty"`
+	LinkedinUrl *string    `json:"linkedin_url,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+}
+
+// PersonProviderPhone defines model for PersonProviderPhone.
+type PersonProviderPhone struct {
+	Confidence *float32 `json:"confidence,omitempty"`
+	Value      string   `json:"value"`
+}
+
+// PersonProviderProfile Separate “Provided by Surfe” snapshot for the Person360 response. Provider provenance is
+// not an underlying webpage citation; these values never silently overwrite canonical fields.
+type PersonProviderProfile struct {
+	CategoriesNotRequested []string `json:"categories_not_requested"`
+	City                   *string  `json:"city,omitempty"`
+
+	// ContributingRuns Every retained completed run whose claims contribute to this snapshot. Normally the
+	// single latest run; after a merge it spans both sides so purchased values stay visible
+	// rather than merely stored (PI-AC-11).
+	ContributingRuns  *[]ProviderRun             `json:"contributing_runs,omitempty"`
+	Country           *string                    `json:"country,omitempty"`
+	CurrentEmployment *PersonProviderEmployment  `json:"current_employment,omitempty"`
+	Departments       []string                   `json:"departments"`
+	Emails            []PersonProviderEmail      `json:"emails"`
+	JobHistory        []PersonProviderJobHistory `json:"job_history"`
+	LatestRun         *ProviderRun               `json:"latest_run,omitempty"`
+	LinkedinUrl       *string                    `json:"linkedin_url,omitempty"`
+	Location          *string                    `json:"location,omitempty"`
+	MobilePhones      []PersonProviderPhone      `json:"mobile_phones"`
+
+	// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
+	Provider *Provider `json:"provider,omitempty"`
+
+	// Region Geographic state/province as the provider returned it. Named `region` because
+	// `state` on this schema is the run lifecycle state above; a duplicate key here
+	// silently dropped the lifecycle field until ADR-0101 Decision 6.
+	Region         *string                    `json:"region,omitempty"`
+	RetrievedAt    *time.Time                 `json:"retrieved_at,omitempty"`
+	SafeStatusCode *string                    `json:"safe_status_code,omitempty"`
+	Seniorities    []string                   `json:"seniorities"`
+	State          PersonProviderProfileState `json:"state"`
+}
+
+// PersonProviderProfileState defines model for PersonProviderProfile.State.
+type PersonProviderProfileState string
+
 // PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
 // `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
 type PersonReachability struct {
@@ -16163,10 +16372,14 @@ type ProviderConnection struct {
 	LastVerifiedAt       *time.Time `json:"last_verified_at,omitempty"`
 
 	// Provider Licensed provider adapter key; the domain/run contract remains provider-neutral.
-	Provider       Provider                 `json:"provider"`
-	SafeStatusCode *string                  `json:"safe_status_code,omitempty"`
-	Status         ProviderConnectionStatus `json:"status"`
-	UpdatedAt      time.Time                `json:"updated_at"`
+	Provider       Provider `json:"provider"`
+	SafeStatusCode *string  `json:"safe_status_code,omitempty"`
+
+	// Spend A bounded consumption series: the current month plus a small number of prior
+	// months, so the connection read stays one round trip.
+	Spend     *ProviderSpend           `json:"spend,omitempty"`
+	Status    ProviderConnectionStatus `json:"status"`
+	UpdatedAt time.Time                `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -16187,6 +16400,32 @@ type ProviderConnectionStatus string
 type ProviderCredits struct {
 	Pools  map[string]*int `json:"pools"`
 	ReadAt *time.Time      `json:"read_at,omitempty"`
+}
+
+// ProviderMonthlySpend One calendar month's consumption for one credit pool, from this installation's own
+// reservation ledger (PI-FORM-3) — the same rows the ceiling is enforced against, so
+// this figure and the one that refuses a run cannot disagree.
+//
+// Credits only. There is deliberately no currency field: credits are bought in bulk
+// at negotiated discounts, so a credit has no single price and any money total would
+// be invented. The provider invoice is the only document that knows what was paid.
+type ProviderMonthlySpend struct {
+	// ChargedCredits Credits consumed: the provider's actual charge where it reported one, otherwise
+	// the reservation still held. An unreconciled hold counts as charged, because
+	// assuming a refund nobody promised understates the bill.
+	ChargedCredits int `json:"charged_credits"`
+
+	// HeldCredits Credits held by runs in `submission_unknown` — outcome never learned (PI-AC-4).
+	// Reported separately and NEVER inside charged_credits: a total that folded these
+	// in either direction would assert something the platform does not know.
+	HeldCredits int `json:"held_credits"`
+
+	// Month First day of the UTC calendar month, matching the ceiling's window.
+	Month openapi_types.Date `json:"month"`
+
+	// Pool The provider's own pool name.
+	Pool string `json:"pool"`
+	Runs int    `json:"runs"`
 }
 
 // ProviderPoolBudget Ceilings for one of the provider's credit pools (Surfe meters `email` and `mobile`
@@ -16271,6 +16510,12 @@ type ProviderRunSubjectKind string
 
 // ProviderRunTrigger defines model for ProviderRun.Trigger.
 type ProviderRunTrigger string
+
+// ProviderSpend A bounded consumption series: the current month plus a small number of prior
+// months, so the connection read stays one round trip.
+type ProviderSpend struct {
+	Months []ProviderMonthlySpend `json:"months"`
+}
 
 // PutOnboardingStateRequest defines model for PutOnboardingStateRequest.
 type PutOnboardingStateRequest struct {
