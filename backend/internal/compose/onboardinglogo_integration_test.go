@@ -498,8 +498,15 @@ func claimedOnboardingRead(t *testing.T, e *integration.Env) (SiteDeepReadArgs, 
 func endedOnboardingRead(t *testing.T, e *integration.Env, status string) (SiteDeepReadArgs, people.SiteReadClaim) {
 	t.Helper()
 	args, claim := claimedOnboardingRead(t, e)
+	outcome := people.FinishSiteReadInput{Status: status}
+	if status == "failed" {
+		// A failure names its cause; the store refuses one that does not. What
+		// this test is about is the parked mark, so any honest diagnosis does.
+		outcome.StatusCode = "unreadable"
+		outcome.StatusDetail = "The site could not be read."
+	}
 	if err := e.People.FinishSiteRead(deepReadWorkerCtx(context.Background(), args),
-		args.SiteReadID, people.FinishSiteReadInput{Status: status}); err != nil {
+		args.SiteReadID, outcome); err != nil {
 		t.Fatalf("end the onboarding read as %s: %v", status, err)
 	}
 	return args, claim

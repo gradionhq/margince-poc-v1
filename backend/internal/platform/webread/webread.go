@@ -68,6 +68,28 @@ const (
 // a failure.
 var ErrRobotsDisallowed = errors.New("webread: robots.txt disallows this path")
 
+// StatusError is a page or asset that answered with a status other than 200.
+//
+// The status travels as a TYPED value rather than inside a formatted string
+// because callers act on it differently: a 403 from an edge's bot protection is
+// worth another attempt later, a 404 is not. A caller that reconstructed the
+// number by parsing an error message would be guessing at its own data.
+type StatusError struct {
+	Status int
+	URL    string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("webread: %s answered %d", e.URL, e.Status)
+}
+
+// Retryable reports whether the status is one that commonly changes on its own.
+// Bot protection (403, 429) and server faults (5xx) do; a 404 does not.
+func (e *StatusError) Retryable() bool {
+	return e.Status == http.StatusForbidden || e.Status == http.StatusTooManyRequests ||
+		e.Status >= http.StatusInternalServerError
+}
+
 // Fetcher is the production fetcher. Safe for concurrent use.
 type Fetcher struct {
 	client *http.Client
@@ -178,7 +200,7 @@ func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (body, me
 		return "", "", nil, err
 	}
 	if got.status != http.StatusOK {
-		return "", "", nil, fmt.Errorf("webread: page answered %d", got.status)
+		return "", "", nil, &StatusError{Status: got.status, URL: rawURL}
 	}
 	final = got.finalURL
 	if final == nil {
@@ -214,7 +236,7 @@ func (f *Fetcher) FetchAsset(ctx context.Context, rawURL string) ([]byte, string
 		return nil, "", err
 	}
 	if got.status != http.StatusOK {
-		return nil, "", fmt.Errorf("webread: asset answered %d", got.status)
+		return nil, "", &StatusError{Status: got.status, URL: rawURL}
 	}
 	if len(got.body) > maxAssetBytes {
 		return nil, "", fmt.Errorf("webread: asset exceeds the %d-byte cap", maxAssetBytes)
@@ -292,6 +314,27 @@ func (f *Fetcher) pathAllowed(ctx context.Context, page *url.URL) (bool, error) 
 		f.mu.Unlock()
 	}
 	return entry.policy.allows(robotsTarget(page)), nil
+}
+
+// CrawlDelay reports the pause the URL's host asks between requests, and false
+// when it asks for none or has not been consulted yet.
+//
+// It reads only the cache a fetch already populated — it never fetches
+// robots.txt itself. A caller asks AFTER its first fetch of the host, which is
+// when the policy is known; before that the honest answer is "no opinion
+// recorded", not a network round trip from a pacing helper.
+func (f *Fetcher) CrawlDelay(rawURL string) (time.Duration, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return 0, false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	entry, cached := f.robots[parsed.Scheme+"://"+parsed.Host]
+	if !cached || entry.policy.crawlDelay <= 0 {
+		return 0, false
+	}
+	return entry.policy.crawlDelay, true
 }
 
 // robotsTarget renders the URL the way a robots rule is written against it:

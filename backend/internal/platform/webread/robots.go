@@ -3,16 +3,29 @@
 
 package webread
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
 
 // robotsPolicy is the REP (RFC 9309) rule set this bot obeys: the union of
 // every group addressed to it (by product name, falling back to the union of
 // the * groups), longest-match wins, Allow beating Disallow at equal length,
 // with `*` (any run) and `$` (end anchor) interpreted as REP operators.
-// Crawl-delay/sitemap directives are ignored here — pacing is the crawler's
-// own, stricter policy.
+// Crawl-delay is honored: the pacer's own floor is a burst budget (8 in flight,
+// 25ms apart), which is far MORE aggressive than a site asking for seconds
+// between requests, so ignoring the directive would mean claiming to respect
+// robots while walking past the one line that governs rate. Sitemap and unknown
+// directives remain out of scope — this type answers "may I read this path",
+// and a sitemap is a discovery hint, not a permission.
 type robotsPolicy struct {
 	rules []robotsRule
+	// crawlDelay is the pause the site asks for between requests, zero when it
+	// asks for none. Non-standard (it predates RFC 9309 and is absent from it)
+	// but widely published and widely honored, so a crawler that ignores it is
+	// the impolite one regardless of what the RFC enumerates.
+	crawlDelay time.Duration
 }
 
 type robotsRule struct {
@@ -22,8 +35,9 @@ type robotsRule struct {
 
 // robotsGroup is one User-agent block and its rules.
 type robotsGroup struct {
-	agents []string
-	rules  []robotsRule
+	crawlDelay time.Duration
+	agents     []string
+	rules      []robotsRule
 }
 
 // allows reports whether the policy permits fetching target — the escaped
@@ -144,8 +158,14 @@ func parseRobots(body string) robotsPolicy {
 				continue
 			}
 			current.rules = append(current.rules, robotsRule{path: value, allow: key == "allow"})
+		case "crawl-delay":
+			inAgentRun = false
+			if current == nil {
+				continue // a delay before any User-agent line addresses nobody
+			}
+			current.crawlDelay = parseCrawlDelay(value)
 		default:
-			// Sitemap, Crawl-delay, unknown directives: not this policy's job.
+			// Sitemap and unknown directives: not this policy's job.
 			inAgentRun = false
 		}
 	}
@@ -160,6 +180,12 @@ func parseRobots(body string) robotsPolicy {
 // neither, everything is allowed.
 func selectPolicy(groups []robotsGroup) robotsPolicy {
 	var named, wildcard []robotsRule
+	var namedDelay, wildcardDelay time.Duration
+	// Whether a group ADDRESSED us at all, which is not the same as whether it
+	// carried rules: a group whose only directive is Crawl-delay still speaks
+	// to this bot, and reading its presence off a nil rule slice would discard
+	// the rate it asked for.
+	var addressed bool
 	for i := range groups {
 		namesUs, isWildcard := false, false
 		for _, agent := range groups[i].agents {
@@ -170,13 +196,37 @@ func selectPolicy(groups []robotsGroup) robotsPolicy {
 		// whole agent list decides, not whichever line happens to come first.
 		switch {
 		case namesUs:
+			addressed = true
 			named = append(named, groups[i].rules...)
+			// The LONGEST delay across matching groups wins: combining groups
+			// must not let a second one buy a faster rate than the first asked
+			// for, the same way a second Disallow cannot be bypassed.
+			namedDelay = max(namedDelay, groups[i].crawlDelay)
 		case isWildcard:
 			wildcard = append(wildcard, groups[i].rules...)
+			wildcardDelay = max(wildcardDelay, groups[i].crawlDelay)
 		}
 	}
-	if named != nil {
-		return robotsPolicy{rules: named}
+	if addressed {
+		return robotsPolicy{rules: named, crawlDelay: namedDelay}
 	}
-	return robotsPolicy{rules: wildcard}
+	return robotsPolicy{rules: wildcard, crawlDelay: wildcardDelay}
+}
+
+// maxHonoredCrawlDelay bounds what a site can ask for. A crawl runs under a wall
+// clock, so an unbounded delay would not make the read polite — it would make it
+// impossible, and the read would end as a timeout that reads like the site was
+// broken. Past this the delay is capped and the crawl reads fewer pages.
+const maxHonoredCrawlDelay = 10 * time.Second
+
+// parseCrawlDelay reads the directive's value: seconds, integer or decimal.
+// Anything unparseable, negative, or absent is no delay — a value we cannot
+// read is not a licence to invent one, in either direction.
+func parseCrawlDelay(value string) time.Duration {
+	seconds, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	delay := time.Duration(seconds * float64(time.Second))
+	return min(delay, maxHonoredCrawlDelay)
 }
