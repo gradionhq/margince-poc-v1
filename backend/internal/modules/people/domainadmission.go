@@ -108,7 +108,7 @@ func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, rea
 		  (workspace_id, domain, status, admission, admission_reason, admission_source, admission_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, $2, $3, $4, $5, now())
-		ON CONFLICT (workspace_id, domain) DO UPDATE
+		ON CONFLICT (domain) DO UPDATE
 		   SET admission = EXCLUDED.admission,
 		       admission_reason = EXCLUDED.admission_reason,
 		       admission_source = EXCLUDED.admission_source,
