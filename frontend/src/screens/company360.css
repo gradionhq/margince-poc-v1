@@ -37,9 +37,8 @@
   margin-bottom: 0;
 }
 
-/* Owned by the reading that FOLLOWS it, same rule as .today-tile's own
-   separator above: a line that wraps never leaves a dot stranded at its
-   end. */
+/* The dot between two readings on one line. Owned by the reading that FOLLOWS
+   it, so a line that wraps never leaves a separator stranded at its end. */
 .co-sep {
   color: var(--textMeta);
 }
@@ -1180,19 +1179,50 @@
 .co-lead .co-move {
   align-items: center;
 }
+/* The ask carries a little more air under it than the rest of the column: it
+   names the move, and the two lines below it are the case FOR that move, so
+   they belong closer to each other than to the thing they argue for. */
 .co-lead .co-move-ask {
   font-size: var(--fs-body);
   font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  margin-bottom: var(--space-1);
 }
 /* Two columns for the whole row: the left is what the move CLAIMS — ask,
    reason, the evidence it rests on — and the right is what a reader can do
    about it. That split is what keeps a column of verbs starting at the same
    margin whether or not the move above it gave a reason. */
+/* One rhythm down the left column: the reason and the provenance under it sit
+   at the same interval, so the case for the move reads as one block rather
+   than as a line with a footnote. */
 .co-lead .co-move-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto;
   align-items: center;
-  gap: var(--space-1) var(--space-4);
+  gap: var(--space-3) var(--space-4);
+}
+/* The rows the verbs span have to be EXPLICIT rows. `grid-row: 1 / -1` counts
+   its end line in the explicit grid, so on a grid that declares columns only,
+   -1 resolves to the first line and the verbs land in row one alone — sizing
+   that row to the button and pushing the ask half a button away from its own
+   reason. The count follows what the left column actually holds, because an
+   explicit row with nothing in it still draws its gap. */
+.co-lead .co-move-body:has(.co-move-why) {
+  grid-template-rows: auto auto;
+}
+.co-lead .co-move-body:has(.co-move-why):has(.co-move-cites) {
+  grid-template-rows: auto auto auto;
+}
+/* An equal `gap` does NOT draw equal gutters: half-leading lives inside each
+   line's own box, so three lines at three sizes push their neighbours apart by
+   three different amounts and the column reads as unevenly spaced however the
+   gap is set. Trimming the leading makes the box end where the letters do, so
+   the gap above is the whole distance a reader sees. A browser that does not
+   support it falls back to the leading it always had. */
+.co-lead .co-move-ask,
+.co-lead .co-move-why {
+  text-box: trim-both cap alphabetic;
 }
 .co-lead .co-move-ask,
 .co-lead .co-move-why,
@@ -1206,11 +1236,14 @@
 .co-lead .co-move-cites {
   font-size: var(--fs-meta);
   color: var(--textMeta);
+  /* Pulled up against the reason it belongs to: the chip is a bordered box and
+     an equal gap reads as a wider one, so the correction is optical. */
+  margin-top: -2px;
 }
 /* Citations START this line here rather than trailing a sentence, so they drop
    the inline gap that separates them from prose everywhere else. Kept, it
-   indents the first chip against the ask and the reason above it, and three
-   left edges that nearly agree read as a mistake rather than as a hierarchy. */
+   indents the first citation against the ask and the reason above it, and
+   three left edges that nearly agree read as a mistake, not as a hierarchy. */
 .co-lead .co-move-cites > .co-brief-cites {
   margin-inline-start: 0;
 }
