@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -64,6 +65,32 @@ var extensionRuntimeDeps struct {
 type extensionRuntimeBinding struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
+	// captureSink is the ONE fully-guarded capture pipeline a unit's ingress
+	// lands through, bound separately by BindExtensionCapture.
+	//
+	// It IS a binding, unlike the core port above, and the difference is that
+	// this dependency is not derivable from the pool: newCaptureSink attaches
+	// the file keeper, the merge stager and the counterparty ensurer — three
+	// cross-module adapters — plus the deployment's suppression config. A sink
+	// built here from the pool alone would compile, run, land activities and
+	// silently create no people, which is the failure this field exists to make
+	// impossible. Nil on a role that composed no capture, and the port then
+	// refuses by name rather than half-working.
+	captureSink *capture.Sink
+}
+
+// BindExtensionCapture records the capture pipeline a unit's ingress lands
+// through. Called by the roles that compose capture, after the sink exists.
+//
+// Separate from BindExtensionRuntime rather than a fourth parameter on it,
+// because the two answer different questions: every role has a pool and a
+// custodian, and only some compose a capture pipeline. A role that never calls
+// this leaves ingress refusing with errIngressUnwired, which is the honest
+// answer for a process that has nowhere to put a captured record.
+func BindExtensionCapture(sink *capture.Sink) {
+	extensionRuntimeDeps.mu.Lock()
+	defer extensionRuntimeDeps.mu.Unlock()
+	extensionRuntimeDeps.captureSink = sink
 }
 
 // BindExtensionRuntime records what a governed extension tool's per-call
@@ -141,6 +168,48 @@ type callRuntime struct {
 	// the WORK — see usable.
 	mu   sync.RWMutex
 	live bool
+
+	// txDepth counts the transactions this Runtime currently holds open, and it
+	// is a COUNTER rather than a flag on purpose. A handler may call Tx twice
+	// concurrently; with a boolean the first to return would clear it while the
+	// second still held a connection, and an ingest nested inside that second
+	// one would pass the check and then wait for a connection the same runtime
+	// is holding — which on a small pool does not fail, it hangs.
+	//
+	// It is deliberately per-RUNTIME, and so is its guarantee. Two DIFFERENT
+	// runtimes — one holding a transaction while the other ingests — are not
+	// visible to each other and can still deadlock a pool of one. No
+	// per-runtime mechanism sees that, and this is the ordinary distance
+	// between a shape check and a proof rather than a claim of safety.
+	txDepth int
+}
+
+// enterTx and leaveTx bracket one open transaction. They take the write lock
+// the flag already uses, so the count and the liveness answer cannot disagree.
+func (r *callRuntime) enterTx() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.txDepth++
+}
+
+func (r *callRuntime) leaveTx() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.txDepth--
+}
+
+// insideTx reports whether this Runtime is holding a transaction open.
+//
+// A handler goroutine ingesting while an UNRELATED transaction of the same
+// runtime is open is refused too. That false positive is accepted rather than
+// engineered away: the alternative — marking the context Tx hands its callback
+// — is evaded by a handler that ingests with the outer context from inside the
+// callback, which still hangs. Refusing a call that would have worked is a
+// better failure than hanging a worker.
+func (r *callRuntime) insideTx() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.txDepth > 0
 }
 
 var _ extension.Runtime = (*callRuntime)(nil)
@@ -335,6 +404,8 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 	if err != nil {
 		return fmt.Errorf("compose: the invoking unit's name has no SQL namespace: %w", err)
 	}
+	r.enterTx()
+	defer r.leaveTx()
 	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
 		// Re-checked inside: opening a transaction is a round trip, and a
 		// Runtime released during it must not reach the callback with a live
