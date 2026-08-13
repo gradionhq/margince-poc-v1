@@ -34,7 +34,7 @@ export function PersonStrip({
     withheld ? t("person.strip.notShown") : value;
   const consentIsShown = !omitted.has("consent");
   return (
-    <StatStrip>
+    <StatStrip testId="person-strip">
       <StatCard
         label={t("person.strip.lastInbound")}
         value={reading(

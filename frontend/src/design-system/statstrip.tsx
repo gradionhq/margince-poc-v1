@@ -17,7 +17,8 @@ import "./statstrip.css";
 export function StatStrip({
   children,
   className,
-}: Readonly<{ children: ReactNode; className?: string }>) {
+  testId,
+}: Readonly<{ children: ReactNode; className?: string; testId?: string }>) {
   // The column count follows the slots the caller actually drew. A fixed
   // template reserves cells nobody fills, and an empty cell on a plate reads
   // as a reading that failed to load rather than as one this record does not
@@ -28,6 +29,7 @@ export function StatStrip({
     <section
       className={["stat-strip", className ?? ""].filter(Boolean).join(" ")}
       style={{ "--stat-strip-slots": slots } as React.CSSProperties}
+      data-testid={testId}
     >
       {children}
     </section>
