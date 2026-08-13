@@ -525,12 +525,18 @@ function stagedField(draft: NewFieldDraft, createdBy: string): CustomField {
   };
 }
 
-// The custom-fields admin screen (AC-custom-fields-1..8): pick an object, read
+// The custom-fields admin surface (AC-custom-fields-1..8): pick an object, read
 // its fields with the audit rail, and — for an admin/ops role — add one via the
 // governed create (optimistic "writing…" row → commit) or rename/archive an
 // existing one. Every mutation is server-authorized; the UI mirror only keeps
 // affordances that a call could actually honour. Copy is i18n throughout.
-export function CustomFieldsScreen() {
+//
+// This is CONTENT inside a settings page, not a route of its own. The page owns
+// the .wrap reading column (a second one nested inside it would double the page
+// padding) and the h1 in the shell's page head, so this returns a bare
+// .cf-screen block and its SectionHeader keeps SectionHeader's default level 2 —
+// an h2 under that h1, so the document never carries two page titles.
+export function CustomFieldsAdmin() {
   const t = useT();
   const queryClient = useQueryClient();
   const me = useMe();
@@ -693,7 +699,7 @@ export function CustomFieldsScreen() {
   };
 
   return (
-    <div className="wrap cf-screen">
+    <div className="cf-screen">
       <SectionHeader title={t("cf.title")} sub={t("cf.subtitle")} />
 
       <fieldset className="cf-objbar" aria-label={t("cf.object")}>

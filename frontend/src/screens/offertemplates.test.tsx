@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { OfferTemplatesScreen } from "./offertemplates";
+import { OfferTemplatesAdmin } from "./offertemplates";
 
 afterEach(() => {
   cleanup();
@@ -41,7 +41,7 @@ const template = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
-describe("OfferTemplatesScreen", () => {
+describe("OfferTemplatesAdmin", () => {
   it("renders a template row with its locale and a default badge", async () => {
     vi.stubGlobal(
       "fetch",
@@ -52,7 +52,7 @@ describe("OfferTemplatesScreen", () => {
         }),
       ),
     );
-    render(<OfferTemplatesScreen />);
+    render(<OfferTemplatesAdmin />);
     expect(await screen.findByText("Standard DE")).toBeTruthy();
     expect(screen.getByText("de-DE")).toBeTruthy();
     expect(
@@ -85,7 +85,7 @@ describe("OfferTemplatesScreen", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<OfferTemplatesScreen />);
+    render(<OfferTemplatesAdmin />);
     await userEvent.click(await screen.findByTestId("new-record"));
     // The column header is a sort button named "Sort by Name" now, so the
     // form field is asked for as a textbox rather than by a loose text match.

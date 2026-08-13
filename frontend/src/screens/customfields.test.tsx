@@ -9,14 +9,14 @@ import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import {
   AuditRail,
-  CustomFieldsScreen,
+  CustomFieldsAdmin,
   FieldBuilder,
   FieldTable,
 } from "./customfields";
 
 afterEach(cleanup);
 
-// The screen sits behind the app auth gate: useMe only asks /v1/me once a
+// The surface sits behind the app auth gate: useMe only asks /v1/me once a
 // workspace slug is resolved, so the integration harness seeds one and clears
 // the stubbed globals between cases.
 beforeEach(() => {
@@ -305,26 +305,46 @@ function customFieldsBackend(
   });
 }
 
-const renderScreen = () => {
+const renderAdmin = () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">
-        <CustomFieldsScreen />
+        <CustomFieldsAdmin />
       </LocaleProvider>
     </QueryClientProvider>,
   );
 };
 
-describe("CustomFieldsScreen", () => {
+describe("CustomFieldsAdmin", () => {
+  // The settings page that hosts this owns the .wrap reading column and the h1,
+  // so the surface must contribute neither: a nested .wrap double-pads the page
+  // and a second h1 gives the document two page titles.
+  it("renders as a section — no reading column of its own, heading at level 2", async () => {
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend([field({ id: "d1", label: "Renewal date" })], [], []),
+    );
+    const { container } = renderAdmin();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    expect(container.querySelector(".wrap")).toBeNull();
+    expect(container.querySelector(".cf-screen")).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Custom fields" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the four object chips and the selected object's fields", async () => {
     vi.stubGlobal(
       "fetch",
       customFieldsBackend([field({ id: "d1", label: "Renewal date" })], [], []),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
@@ -351,7 +371,7 @@ describe("CustomFieldsScreen", () => {
         calls,
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
@@ -368,7 +388,7 @@ describe("CustomFieldsScreen", () => {
   it("creates a field with source:manual and shows the success toast", async () => {
     const calls: Recorded[] = [];
     vi.stubGlobal("fetch", customFieldsBackend([], [], calls));
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: /Confirm & add field/i }),
@@ -404,7 +424,7 @@ describe("CustomFieldsScreen", () => {
         {},
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
@@ -429,7 +449,7 @@ describe("CustomFieldsScreen", () => {
         { custom_field: ["update"] },
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
     expect(
       screen.getAllByRole("button", { name: /Archive field/i }).length,
@@ -450,7 +470,7 @@ describe("CustomFieldsScreen", () => {
         { custom_field: ["create"] },
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
     // Positive as well as negative: without this a broken create binding would
     // pass, since "no archive control" is also true when nothing renders.
@@ -472,7 +492,7 @@ describe("CustomFieldsScreen", () => {
         { failCreate: true },
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Existing field")).toBeInTheDocument(),
     );
@@ -505,7 +525,7 @@ describe("CustomFieldsScreen", () => {
         calls,
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
@@ -536,7 +556,7 @@ describe("CustomFieldsScreen", () => {
         calls,
       ),
     );
-    renderScreen();
+    renderAdmin();
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );

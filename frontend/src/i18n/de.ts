@@ -79,7 +79,6 @@ export const de = {
   "nav.reports": "Berichte",
   "nav.ai": "Margince fragen",
   "nav.settings": "Einstellungen",
-  "nav.design": "Designsystem",
   "nav.automations": "Automatisierungen",
   "nav.group.records": "Datensätze",
   "nav.group.work": "Arbeit",
@@ -87,8 +86,6 @@ export const de = {
   "nav.group.units": "Einheiten",
   "nav.units.entry": "Einheit",
   "nav.dedupe": "Duplikate",
-  "nav.products": "Produkte",
-  "nav.offerTemplates": "Angebotsvorlagen",
   "nav.offers": "Angebot",
   "nav.share": "Freigabe",
   "nav.search": "Suchergebnisse",
@@ -395,7 +392,7 @@ export const de = {
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
   "overlay.chipLabel": "Liest aus HubSpot",
   "overlay.chipAria":
-    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Verbindungen, um die Verbindung zu verwalten.",
   "overlay.refused":
     "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
   "overlay.filterUnsupported":
@@ -1759,10 +1756,6 @@ export const de = {
   "settings.revoke": "Widerrufen",
   "settings.revokeConfirm":
     "Das Credential dieses Passports wird sofort ungültig — der Agent verliert beim nächsten Aufruf den Zugriff.",
-  "settings.automations": "Automatisierungen",
-  "settings.automationsSub":
-    "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
-  "settings.openAutomations": "Automatisierungs-Editor öffnen",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
     "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
@@ -1778,7 +1771,46 @@ export const de = {
     "{tables} Tabellen, {jobs} Job-Einträge, {streams} Event-Streams, {keys} Cache-Schlüssel und {objects} gespeicherte Dateien gelöscht.",
   "settings.resetDataDrainWarning":
     "Beim Start des Zurücksetzens lief noch ein Hintergrund-Job. Er schlägt gegen die gelöschten Daten fehl — unkritisch, aber es erscheint ein Fehler im Log.",
-  "settings.audit": "Audit-Log",
+
+  "settings.jobs": "Hintergrund-Jobs",
+  "settings.jobsSub":
+    "was in der Warteschlange hängt und wessen Arbeit gescheitert ist",
+  "jobs.adminOnly":
+    "Nur ein Admin sieht den Zustand der Hintergrund-Jobs. Der Bericht umfasst die Arbeit der ganzen Installation und wird deshalb nicht breiter gezeigt.",
+  "jobs.empty":
+    "Nichts in der Hintergrund-Warteschlange — nichts wartet, läuft, wiederholt sich oder ist tot.",
+  "jobs.workspaceKinds": "Dieser Workspace",
+  "jobs.workspaceEmpty":
+    "Keine Hintergrundarbeit irgendeiner Art in diesem Workspace.",
+  "jobs.dispatcherKinds": "Flotten-Dispatcher",
+  "jobs.dispatcherSub":
+    "Einträge ohne Workspace: ein Dispatcher verteilt Arbeit an jeden Workspace und erledigt selbst keine. Diese Zahlen gehören der Installation, nicht dir.",
+  "jobs.dispatcherEmpty":
+    "Keine Dispatcher-Einträge. Die periodischen Ticks legen sie neu an — eine leere Liste heißt also, dass gerade keiner geplant ist.",
+  "jobs.count.waiting": "{count} warten",
+  "jobs.count.running": "{count} laufen",
+  "jobs.count.retrying": "{count} wiederholen",
+  "jobs.count.dead": "{count} tot",
+  "jobs.queue": "Queue {queue}",
+  "jobs.waitedSeconds": "ältester wartet seit {count} Sekunden",
+  "jobs.waitedMinutes": "ältester wartet seit {count} Minuten",
+  "jobs.waitedHours": "ältester wartet seit {count} Stunden",
+  "jobs.waitedDays": "ältester wartet seit {count} Tagen",
+  "jobs.deadTitle": "Tote Arbeit braucht deine Hand",
+  "jobs.deadBody":
+    "{count} Jobs sind verworfen oder abgebrochen: diese Arbeit passiert ohne Eingriff nicht mehr. Ein verworfener Job hat alle Versuche verbraucht, ein abgebrochener wurde absichtlich gestoppt. Lies die Fehler unten, bevor du etwas neu einreihst.",
+  "jobs.failures": "Letzte Fehler",
+  "jobs.failuresSub":
+    "Neueste zuerst, maximal 50. Eine begrenzte Liste, kein Log.",
+  "jobs.failuresEmpty": "Keine Fehler erfasst.",
+  "jobs.state.retryable": "wiederholt",
+  "jobs.state.discarded": "verworfen",
+  "jobs.state.cancelled": "abgebrochen",
+  "jobs.attempt": "Versuch {attempt} von {max} · {when}",
+  "jobs.reasonVetted":
+    "Jeder Grund ist die Formulierung der Job-Schicht selbst. Die Rohursache des Workers wird nie hierher gesendet — ein Fehler, den sie nicht formulieren kann, meldet stattdessen einen festen Ersatztext.",
+  "jobs.generatedAt": "Gelesen um {time}",
+
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",
   "audit.system": "System",
@@ -1786,7 +1818,7 @@ export const de = {
   "audit.onBehalfOfTeammate": "im Auftrag eines Teammitglieds",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
   "settings.auditFilters": "Filter",
-  "settings.auditEntries": "Einträge",
+  "settings.auditEntries": "Audit-Log",
   "settings.auditActor": "Akteur",
   "settings.auditEntity": "Entitätstyp",
   "settings.auditEntityId": "Entitäts-ID",
@@ -2334,7 +2366,7 @@ export const de = {
     "Bei der Erfassung ist ein Problem aufgetreten, das wir noch nicht einordnen können. Wir versuchen es weiter.",
 
   // Das OAuth-Rückkehrergebnis (Task 2): der Callback landet auf
-  // #/settings/integrations/{outcome} — ein schließbarer Hinweis, gesteuert
+  // #/settings/connections/{outcome} — ein schließbarer Hinweis, gesteuert
   // von diesem Routensegment.
   "connectors.oauthOk": "Verbunden. Ihr Postfach erfasst jetzt.",
   "connectors.oauthDenied":
@@ -3417,22 +3449,20 @@ export const de = {
   "cf.propagate.list": "Als Listen-/Berichtsspalte",
   "cf.propagate.export": "Im CSV-Export",
   "cf.propagate.api": "In der öffentlichen REST-/MCP-API",
-  "nav.customFields": "Benutzerdefinierte Felder",
-  "settings.customFields": "Benutzerdefinierte Felder",
-  "settings.customFieldsSub":
-    "Füge einem Kernobjekt ein typisiertes Feld hinzu — ohne Code, ohne Deploy.",
-  "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
+  // "Allgemein" statt "Organisation" für den ersten Eintrag: die Gruppen-
+  // überschrift darüber sagt das Wort schon, und eine Zeile, die ihre eigene
+  // Überschrift wiederholt, benennt nichts.
   "settings.tab.account": "Konto",
-  "settings.tab.company": "Firmenkontext",
-  "settings.tab.ai": "KI & Autonomie",
-  "settings.tab.data": "Datenmodell",
-  "settings.tab.catalog": "Katalog",
-  "settings.tab.rates": "Kurse & Kosten",
-  "settings.tab.privacy": "Datenschutz & Einwilligung",
-  "settings.tab.audit": "Audit-Log",
-  "settings.tab.voice": "Voice DNA",
-  "settings.tab.integrations": "Integrationen",
-  "settings.tab.overlay": "Overlay",
+  "settings.tab.voice": "Schreibstimme",
+  "settings.tab.agents": "Deine Agenten",
+  "settings.tab.general": "Allgemein",
+  "settings.tab.people": "Personen & Zugriff",
+  "settings.tab.connections": "Verbindungen",
+  "settings.tab.capture": "Erfassung",
+  "settings.tab.data-model": "Datenmodell",
+  "settings.tab.ai": "KI",
+  "settings.tab.privacy": "Datenschutz & Audit",
+  "settings.tab.maintenance": "Wartung",
   "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",
@@ -3561,7 +3591,6 @@ export const de = {
     "In der Warteschlange — sie wird gleich fertig und aktualisiert sich automatisch.",
   "settings.voice.buildStatus.pending":
     "Wird noch gebaut — das kann einen Moment dauern; es aktualisiert sich hier, sobald es fertig ist.",
-  "settings.tab.extensions": "Erweiterungen",
   "extAccess.title": "Erweiterungen & Zugriff",
   "extAccess.sub":
     "Was jede zusammengesetzte Erweiterungseinheit in diese Installation eingebracht hat und welche Rolle sie nutzen darf. Nur für Admins.",
@@ -3594,7 +3623,6 @@ export const de = {
   "extAccess.systemRole": "Eingebaute Rolle",
   "extAccess.nobodyReads":
     "Keine Rolle darf {object} lesen — jedes Mitglied sieht dort eine leere Seite, wo diese Erweiterung stehen sollte. Vergeben Sie unten mindestens einer Rolle das Leserecht.",
-  "settings.tab.users": "Nutzer & Rollen",
   "users.title": "Nutzer & Rollen",
   "users.sub":
     "Mitglieder einladen, Rollen setzen und Zugriff deaktivieren. Nur für Admins.",
@@ -3697,7 +3725,6 @@ export const de = {
   "product.title": "Produkte",
   "product.settingsSub":
     "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",
-  "product.open": "Produkte öffnen",
   "product.new": "Neues Produkt",
   "product.edit": "Produkt bearbeiten",
   "product.archive": "Produkt archivieren",
@@ -3721,7 +3748,6 @@ export const de = {
 
   "template.title": "Angebotsvorlagen",
   "template.settingsSub": "Markenkonforme DE/EN-PDF-Layouts für Angebote.",
-  "template.open": "Angebotsvorlagen öffnen",
   "template.new": "Neue Vorlage",
   "template.edit": "Vorlage bearbeiten",
   "template.archive": "Vorlage archivieren",
@@ -3893,8 +3919,6 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
-  "settings.tab.installation": "Installation",
-  "settings.tab.capture": "Erfassung",
   "installationSettings.orgTitle": "Organisation",
   "installationSettings.orgSub":
     "Wie diese Installation heißt und in welcher Zeitzone jede Auswertungsperiode berechnet wird.",

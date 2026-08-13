@@ -31,15 +31,6 @@ function trimDecimal(value: string): string {
   return value.replace(/0+$/, "").replace(/\.$/, "");
 }
 
-export function RatesScreen() {
-  return (
-    <>
-      <FxRatesCard />
-      <ModelCostsCard />
-    </>
-  );
-}
-
 // RefreshFromSources enqueues an async refresh that stages proposals into the
 // approvals inbox (the job runs in the background — nothing to poll here). The
 // button stays available so an admin can trigger another refresh; success and

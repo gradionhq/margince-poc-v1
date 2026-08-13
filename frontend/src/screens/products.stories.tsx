@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ProductsScreen } from "./products";
+import { ProductsAdmin } from "./products";
 import {
   emptyPage,
   installFetchStub,
@@ -41,7 +41,7 @@ export const List: Story = {
     });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },
@@ -51,7 +51,7 @@ export const Empty: Story = {
     installFetchStub({ "GET /products": () => jsonResponse(emptyPage) });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },
@@ -67,7 +67,7 @@ export const LoadError: Story = {
     });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },

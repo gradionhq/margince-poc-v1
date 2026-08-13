@@ -59,14 +59,30 @@ export function useBuiltinCommands(): Command[] {
         route: { screen: "book" },
       },
     ];
-    // Settings-reached screens (not in NAV), added to the command surface
-    // explicitly so ⌘K still reaches them.
+    // Settings surfaces that are not rail destinations, added explicitly so ⌘K
+    // still reaches them. Each carries the words it USED to be addressed by:
+    // three screens of their own collapsed into the data-model page and the
+    // automations editor into the AI page, and somebody who learned "custom
+    // fields" or "automations" must not be told the product no longer has one.
+    //
+    // Deliberately not the whole settings level: which entries a principal may
+    // open is a grant question the settings screen answers, and a palette that
+    // listed all eleven would offer destinations that silently fall back to
+    // Account. These two are the ones that lost their own address.
     const settingsScreens: Command[] = [
       {
-        id: "screen:custom-fields",
-        label: t("nav.customFields"),
+        id: "screen:settings-data-model",
+        label: t("settings.tab.data-model"),
+        keywords: ["custom-fields", "products", "offer-templates", "pipelines"],
         type: "screen",
-        route: { screen: "custom-fields" },
+        route: { screen: "settings", id: "data-model" },
+      },
+      {
+        id: "screen:settings-ai",
+        label: t("settings.tab.ai"),
+        keywords: ["automations"],
+        type: "screen",
+        route: { screen: "settings", id: "ai" },
       },
     ];
     return [...screens, ...actions, ...settingsScreens];

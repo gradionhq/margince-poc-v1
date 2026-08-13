@@ -404,12 +404,17 @@ export function AutomationRow({
   );
 }
 
-export function AutomationsScreen() {
+// Set-and-forget configuration, so it lives inside Settings → AI rather than
+// on a nav destination of its own: this renders as one SECTION of that page.
+// The page owns the `.wrap` reading column and the h1 naming the tab, so this
+// contributes neither — a second `.wrap` would double the page padding and a
+// second h1 would give the document two page titles.
+export function AutomationsAdmin() {
   const t = useT();
   const queryClient = useQueryClient();
   const [template, setTemplate] = useState<CatalogEntry | null>(null);
   // Grants come from the session (/v1/me); until they arrive every predicate
-  // is false, so the screen shows no mutation affordance until one is confirmed.
+  // is false, so the section shows no mutation affordance until one is confirmed.
   const me = useMe();
   const canViewRuns = useCan("automation", "read");
   const canCreate = useCanWrite("automation", "create");
@@ -471,7 +476,9 @@ export function AutomationsScreen() {
     catalog.data?.data.find((entry) => entry.key === key);
 
   return (
-    <div className="wrap">
+    // One addressable region, so a reader — and a test — can say "the
+    // automations surface" rather than "the whole settings page".
+    <section data-automations-admin>
       <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
       {me.isSuccess && !canCreate && !canEdit && !canDelete && (
         <p className="t-caption" style={{ marginBottom: 10 }}>
@@ -580,6 +587,6 @@ export function AutomationsScreen() {
           </QueryGate>
         </Card>
       </div>
-    </div>
+    </section>
   );
 }

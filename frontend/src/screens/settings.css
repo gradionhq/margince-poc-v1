@@ -3,6 +3,19 @@
    tabs' own content: this sheet owns the cards, never the navigation between
    them. */
 
+/* A settings page that sets its own vertical rhythm. `.wrap > .card + .card`
+   (app/shell.css) is the default and it matches a card FOLLOWING a card, which
+   covers every entry whose page is a stack of cards. Data model is not: it holds
+   the field editor, which is a block of its own, and two list surfaces that are a
+   section heading plus a table. The gap here is the same --space-4 that rule
+   gives, so the two kinds of page read alike; a section heading's own top margin
+   still adds to it, which is what separates a new subject from the next card. */
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .company-context-shell {
   display: flex;
   flex-direction: column;

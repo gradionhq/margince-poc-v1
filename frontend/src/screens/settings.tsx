@@ -5,23 +5,19 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
-  Building,
   Building2,
   ChevronDown,
-  Coins,
   Database,
-  Factory,
-  Layers,
+  KeyRound,
   type LucideIcon,
   Mail,
   Mic,
-  Package,
-  Puzzle,
-  ScrollText,
+  Plug,
   ShieldCheck,
   Sparkles,
+  UserRound,
   UsersRound,
-  Webhook,
+  Wrench,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
@@ -66,6 +62,7 @@ import type { MessageKey } from "../i18n/en";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
+import { AutomationsAdmin } from "./automations";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
@@ -83,19 +80,23 @@ import { ConnectedAgentsCard } from "./connected-agents";
 import { ConnectorsCard } from "./connectors";
 import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
+import { CustomFieldsAdmin } from "./customfields";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
+import { JobHealthCard } from "./jobhealth";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
+import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { OwnDomainsCard } from "./own-domains";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
-import { RatesScreen } from "./rates";
+import { ProductsAdmin } from "./products";
+import { FxRatesCard, ModelCostsCard } from "./rates";
 import { RetentionCard } from "./retention";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
@@ -107,49 +108,51 @@ import "./settings.css";
 // token shown once and never re-disclosed), consent purposes (DOI flags),
 // the privacy inbox (DSRs + statutory deadlines), the attributable
 // audit-log view with live filters — plus the locked autonomy-tier table
-// and the door to the automations editor. EP09 renders governance; it
-// never authors policy.
+// and the automations the installation runs unattended. EP09 renders
+// governance; it never authors policy.
 
-// The tab register: one section nav entry per real settings surface. Only
-// surfaces this app actually renders get a tab — the mockup's Members /
-// Booking / Flow / Connected-surfaces tabs have no live seam here, so they are
-// omitted rather than stubbed (STATE-5). The tab is selected by the route id
-// (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
+// The entry register: one section nav entry per settings SUBJECT. Only surfaces
+// this app actually renders get one — the mockup's Booking / Flow /
+// Connected-surfaces tabs have no live seam here, so they are omitted rather
+// than stubbed (STATE-5). The entry is selected by the route id
+// (#/settings/<id>), so it is linkable and the palette can deep-link one.
+//
+// Eleven, and it used to be fifteen tabs plus nine routes outside them. What
+// collapsed and why: two surfaces both called "Capture" became one; the
+// installation and the company profile were always the same organization;
+// currency rates joined the base currency they convert to while model prices
+// joined the AI runtime they price; user administration and extension
+// permissions are one question about authority; connectors and the overlay are
+// both "what are we connected to"; the field editor, pipeline designer, product
+// list and offer templates all define the shape a record takes; and the
+// operational verbs that were hiding beside the field editor — a reindex, job
+// health, the danger zone — became a place of their own.
+//
 // Two groups: "you" (per-user, every member) and "org" (organization config).
-// Every org tab carries its OWN predicate — the grant the cards on it actually
+// Every org entry carries its OWN predicate — the grant the cards on it actually
 // ask for — and the group heading renders when at least one member survives.
 // One predicate for the whole group could only ever be a guess about a
-// heterogeneous set: it spans surfaces with clean object grants (catalog,
-// rates, data, company) and surfaces with no RBAC object at all (users,
-// privacy, audit), which the server gates on the role itself. The server stays
-// the RBAC authority on every card within.
-// `ai` stays in the personal group: it carries the caller's own agent passports
-// (per-user), so hiding the whole tab from a rep would regress passport minting.
-// The admin-only cards inside it (usage, call trace) are gated per-card already.
-// `integrations` is in the personal group for the same reason and a plainer
-// one: connecting YOUR mailbox and importing YOUR LinkedIn network is work
-// every seat does for itself. Listing it under Organization put a per-user
-// task beneath an admin heading. The org-owned card on the tab (webhooks)
-// gates itself per-card, exactly as the AI tab's do.
-// `capture` is the org-group counterpart: the own-email-domain list is
-// workspace-shared capture posture an admin curates, so it lives under
-// Organization rather than beside the per-user mailbox connections.
+// heterogeneous set: it spans surfaces with clean object grants (data model,
+// organization) and surfaces with no RBAC object at all (people, privacy),
+// which the server gates on the role itself. The server stays the RBAC
+// authority on every card within.
+//
+// The personal group is where a credential the PERSON holds lives: `agents`
+// carries the caller's own passports, so gating it would regress passport
+// minting for every seat that is not an admin. `ai` is its organizational
+// counterpart — spend, model prices, and the automations the installation runs.
 const SETTINGS_TABS = [
-  { id: "account", icon: Building2, group: "you" },
+  { id: "account", icon: UserRound, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
-  { id: "ai", icon: Sparkles, group: "you" },
-  { id: "installation", icon: Building, group: "org" },
+  { id: "agents", icon: KeyRound, group: "you" },
+  { id: "general", icon: Building2, group: "org" },
+  { id: "people", icon: UsersRound, group: "org" },
+  { id: "connections", icon: Plug, group: "org" },
   { id: "capture", icon: Mail, group: "org" },
-  { id: "company", icon: Factory, group: "org" },
-  { id: "users", icon: UsersRound, group: "org" },
-  { id: "extensions", icon: Puzzle, group: "org" },
-  { id: "data", icon: Database, group: "org" },
-  { id: "catalog", icon: Package, group: "org" },
-  { id: "rates", icon: Coins, group: "org" },
+  { id: "data-model", icon: Database, group: "org" },
+  { id: "ai", icon: Sparkles, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
-  { id: "audit", icon: ScrollText, group: "org" },
-  { id: "integrations", icon: Webhook, group: "you" },
-  { id: "overlay", icon: Layers, group: "org" },
+  { id: "maintenance", icon: Wrench, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
@@ -169,34 +172,39 @@ function tabContent(id: SettingsTabId): ReactNode {
       );
     case "voice":
       return <VoiceDnaCard />;
-    case "installation":
-      return <InstallationSettingsCard />;
+    case "agents":
+      return <AgentsTab />;
+    case "general":
+      return <GeneralTab />;
+    case "people":
+      return (
+        <>
+          <UsersAdminCard />
+          {/* Beside the member list because it answers the same question one
+              level up: that card says which role a person holds, this one says
+              what a role may reach. */}
+          <ExtensionAccessCard />
+        </>
+      );
+    case "connections":
+      return <ConnectionsTab />;
     case "capture":
-      return <OwnDomainsCard />;
-    case "company":
-      return <CompanyContextCard />;
-    case "users":
-      return <UsersAdminCard />;
-    case "extensions":
-      return <ExtensionAccessCard />;
+      return (
+        <>
+          {/* Which domains are OURS, then what to do with mail from the rest,
+              then which of the rest are consumer mailboxes — the posture, then
+              the two judgements that read it. Before this they sat on two
+              different tabs that shared the word "Capture" and neither said
+              which one the other meant. */}
+          <OwnDomainsCard />
+          <CaptureSettingsCard />
+          <ConsumerMailDomainsCard />
+        </>
+      );
+    case "data-model":
+      return <DataModelTab />;
     case "ai":
       return <AiSettingsTab />;
-    case "data":
-      return (
-        <>
-          <CustomFieldsLinkCard />
-          <EmbedReindexCard />
-          <ResetDataCard />
-        </>
-      );
-    case "catalog":
-      return (
-        <>
-          <ProductsLinkCard />
-          <OfferTemplatesLinkCard />
-          <PipelinesCard />
-        </>
-      );
     case "privacy":
       return (
         <>
@@ -207,42 +215,92 @@ function tabContent(id: SettingsTabId): ReactNode {
               renders nothing without a retention_policy read grant. */}
           <RetentionCard />
           <PrivacyInboxCard />
+          {/* Last, and on the same page: the trail is what proves the three
+              surfaces above it were honoured. It gates itself on the admin
+              role, which the purpose registry above does not. */}
+          <AuditLogCard />
         </>
       );
-    case "rates":
-      return <RatesScreen />;
-    case "audit":
-      return <AuditLogCard />;
-    case "integrations":
+    case "maintenance":
       return (
         <>
-          <ConnectorsCard />
-          <ProviderCard />
-          <CaptureSettingsCard />
-          <ConsumerMailDomainsCard />
-          <LinkedInImportCard />
-          {/* No review queue here: a match a human must judge is a proposal,
-              and proposals live in the approvals inbox. This tab shows what the
-              import bought — which accounts the network reaches. */}
-          <LinkedInReachCard />
-          <WebhooksCard />
-        </>
-      );
-    case "overlay":
-      // Everything overlay lives here — connect, live sync/budget health
-      // (OverlayCard renders OverlayLiveSection itself once a connection is
-      // active/error — this tab does not render it a second time), and the
-      // user mapping. The tab is NOT gated on useSorMode() === "overlay": a
-      // workspace is native until an overlay is connected, so mode-gating
-      // would hide the only surface that can connect one. In native mode
-      // OverlayCard renders its connect form and the rest stays quiet.
-      return (
-        <>
-          <OverlayCard />
-          <MirrorUserMapCard />
+          {/* Three operational verbs, in ascending order of consequence: a
+              reindex that costs tokens, a read of what the background system is
+              holding, and a reset that empties the installation. They hid beside
+              the custom-field editor before, which put "define a field" and
+              "delete everything" on one page. Job health had no surface at all —
+              an operator watching a stalled queue had nothing to look at. */}
+          <EmbedReindexCard />
+          <JobHealthCard />
+          <ResetDataCard />
         </>
       );
   }
+}
+
+// What we are connected to. The connector half of the old Integrations tab plus
+// the whole of Overlay: both answer "which outside system is talking to us",
+// and the tab beside this one answers "what do we do with what arrives".
+//
+// Neither half is gated at the entry (see useOrgTabVisibility): connecting YOUR
+// mailbox is work every seat does for itself, and the system-of-record chip in
+// the topbar points every seat here.
+function ConnectionsTab() {
+  return (
+    <>
+      <ConnectorsCard />
+      <ProviderCard />
+      <LinkedInImportCard />
+      {/* No review queue here: a match a human must judge is a proposal, and
+          proposals live in the approvals inbox. This shows what the import
+          bought — which accounts the network reaches. */}
+      <LinkedInReachCard />
+      <WebhooksCard />
+      {/* Everything overlay — connect, live sync/budget health (OverlayCard
+          renders OverlayLiveSection itself once a connection is active or in
+          error, so it is not rendered a second time here), and the user
+          mapping. Deliberately NOT gated on useSorMode() === "overlay": a
+          workspace is native until an overlay is connected, so mode-gating
+          would hide the only surface that can connect one. In native mode
+          OverlayCard renders its connect form and the rest stays quiet. */}
+      <OverlayCard />
+      <MirrorUserMapCard />
+    </>
+  );
+}
+
+// The organization, once. The installation's own settings, the company profile
+// the AI reads, and the currency table — the base currency is declared in the
+// first card and converted by the last, and before this the lock reason was
+// explained on one tab while the consequence landed on another.
+function GeneralTab() {
+  return (
+    <>
+      <InstallationSettingsCard />
+      <CompanyContextCard />
+      <FxRatesCard />
+    </>
+  );
+}
+
+// The shape a record takes: which fields it carries, which stages it moves
+// through, and the priced things that go on an offer. Four surfaces that were
+// three separate screens behind door-cards and one editor inline — a door is
+// not a section, and the doors are gone.
+function DataModelTab() {
+  // It sets its own rhythm because it is the one entry whose surfaces are not
+  // all cards: `.wrap > .card + .card` (shell.css) matches a card following a
+  // card, and the field editor is a block of its own while the two list
+  // surfaces are a heading plus a table. Left to that rule the pipeline card
+  // would sit flush against the editor above it.
+  return (
+    <div className="settings-stack">
+      <CustomFieldsAdmin />
+      <PipelinesCard />
+      <ProductsAdmin />
+      <OfferTemplatesAdmin />
+    </div>
+  );
 }
 
 const SETTINGS_GROUPS = ["you", "org"] as const;
@@ -253,17 +311,16 @@ export const SETTINGS_SCREEN = "settings";
 
 type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 
-// Which Organization tabs this principal can use, one answer per tab, each
-// asking for the grant the tab's own cards ask for. The nav then describes the
-// seat instead of the role name it was assigned: a principal granted product
-// writes by an edited role reaches Catalog, and nobody is offered a tab whose
-// every card would refuse them.
+// Which Organization entries this principal can use, one answer per entry, each
+// asking for the grant the cards on it ask for. The nav then describes the seat
+// instead of the role name it was assigned: a principal granted product writes by
+// an edited role reaches the data model, and nobody is offered a page whose every
+// card would refuse them.
 //
-// The object questions are WRITE grants rather than reads, because these are
-// authoring surfaces — the rate table, the field editor, the pipeline
-// designer. `read` on them is held by every seeded role, so gating on it would
-// put the whole group in front of everyone, which answers a different question
-// than "can you use this".
+// A merged entry takes the UNION of what its parts asked for, never the
+// intersection: an entry that opened before this change must still open, or a
+// restructure quietly becomes a permission change. Where a part is narrower than
+// its page, that part gates itself inside.
 //
 // The licensing seat is deliberately not folded in (see capability.ts): a read
 // seat still reads the pages behind these entries.
@@ -282,56 +339,76 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   const customField = useHoldsWriteGrant("custom_field");
   const embeddingReindex = useHoldsWriteGrant("embedding_reindex");
   const organization = useHoldsWriteGrant("organization");
-  // User administration, the DSR queue and the audit log map to no RBAC object
-  // at all — the server gates them on the role and on an unbounded row scope,
-  // so the role is their own honest predicate rather than a stand-in for one.
-  // The same call InstallationSettingsCard makes, so the tab and the fields
-  // inside it can never disagree about who may edit.
+  // User administration, the DSR queue, the audit trail and job health map to no
+  // RBAC object at all — the server gates them on the role, so the role is their
+  // own honest predicate rather than a stand-in for one.
+  //
+  // The installation grant is the same call InstallationSettingsCard makes, so
+  // the entry and the fields inside it can never disagree about who may edit.
   const canEditInstallation = useCanWrite("installation_settings", "update");
-  // The capture tab carries the own-email-domain list, whose writes gate on
-  // capture_settings:update — the same grant the card's controls ask for.
+  // Adding a domain is `create`, curating the list is `update`, and the entry
+  // opens on either: a rep who may add their own sending domain reaches the
+  // page, and the controls they may not use gate themselves.
+  const canAddCapture = useCanWrite("capture_settings", "create");
   const canEditCapture = useCanWrite("capture_settings", "update");
+  const automation = useHoldsWriteGrant("automation");
   const isAdmin = useHoldsAdminRole();
   const isConsentAdmin = useHoldsConsentAdminRole();
   return {
-    catalog: pipeline || product || offerTemplate,
-    rates: fxRate || aiModelRate,
-    data: customField || embeddingReindex,
-    // The company profile is the one tab whose second condition is a rollout
-    // flag rather than a permission, so the grant ANDs with it: PUT /company
-    // is gated on organization writes, and the flag says whether the surface
-    // exists on this installation at all.
-    company: organization && (capabilities.data?.read_enabled ?? false),
-    users: isAdmin,
-    // Extension access sits beside Users on the same predicate: editing role
-    // permissions is an admin surface the server gates on the role, and no RBAC
-    // object describes it. The three of them are admin-ONLY, not admin-or-ops:
-    // the server refuses ops on every one, so including it rendered three tabs
-    // that either dead-ended on a refusal state or, in the audit log's case,
-    // handed over a compliance read the governance matrix reserves.
-    extensions: isAdmin,
-    // Privacy is the one that genuinely differs. The consent purpose registry
-    // is an Admin/Ops surface; the subject-request queue beside it is the
-    // admin's. Ops therefore reaches the tab and finds the registry, while the
-    // queue inside gates itself.
+    // The organization, its profile and its currency table are one entry now, so
+    // the predicate is the union of what they each asked for. Each is gated on
+    // the SAME live grant the card inside asks for rather than on a role name:
+    // deriving it from admin/ops would disagree with the cards in both
+    // directions — an admin whose installation_settings grant was removed would
+    // get a page of disabled fields, and a principal holding the grant under an
+    // edited role could not reach the surface they may use.
+    //
+    // The company profile carries a second condition that is a rollout FLAG
+    // rather than a permission, so its grant ANDs with it: PUT /company is gated
+    // on organization writes, and the flag says whether the surface exists on
+    // this installation at all.
+    general:
+      canEditInstallation ||
+      (organization && (capabilities.data?.read_enabled ?? false)) ||
+      fxRate,
+    // Members, roles and what a role may reach: one question about authority,
+    // and the server gates every part of it on the admin role rather than on any
+    // RBAC object. Admin-ONLY, not admin-or-ops — the server refuses ops here,
+    // so admitting it would render a page that can only dead-end on a refusal.
+    people: isAdmin,
+    // Ungated, deliberately, and both halves have their own reason. Connecting
+    // YOUR mailbox and importing YOUR LinkedIn network is work every seat does
+    // for itself, and putting it behind an admin predicate would take a personal
+    // task away on the strength of a group heading. The overlay half is the same
+    // exemption it always had: the system-of-record chip in the topbar is shown
+    // to EVERY seat and points here, so hiding this would strand whoever follows
+    // it on the Account fallback. Hiding buys no security either — the server
+    // 403s the privileged reads regardless, and every card here gates itself, so
+    // a viewer without the grants gets the honest read-only view, not a dead
+    // link.
+    connections: true,
+    capture: canAddCapture || canEditCapture,
+    // Everything that defines the shape a record takes. The object questions are
+    // WRITE grants rather than reads because these are authoring surfaces — the
+    // field editor, the pipeline designer, the product list. `read` on them is
+    // held by every seeded role, so gating on it would put the page in front of
+    // everyone, which answers a different question than "can you use this".
+    "data-model": customField || pipeline || product || offerTemplate,
+    // Spend, model prices, and the automations the installation runs. Model
+    // prices follow their own grant; the spend cards and the automation editor
+    // both follow the automation grants, and each still gates itself inside.
+    ai: automation || aiModelRate,
+    // Privacy is the one that genuinely differs. The consent purpose registry is
+    // an Admin/Ops surface; the subject-request queue and the audit trail beside
+    // it are the admin's. Ops therefore reaches the page and finds the registry,
+    // while the two below it gate themselves.
     privacy: isConsentAdmin,
-    audit: isAdmin,
-    // Overlay is exempt, and stays exempt: the system-of-record chip in the
-    // topbar is deliberately shown to EVERY seat and points here, so hiding
-    // the tab would strand any non-admin who follows it on the Account
-    // fallback. Hiding buys no security either — the server 403s the
-    // privileged reads regardless, and both cards on the tab already gate
-    // themselves on the overlay_connection grants, so a viewer without them
-    // gets the honest read-only view instead of a dead link.
-    overlay: true,
-    // Installation is gated on the SAME live grant the card inside asks for,
-    // not on the role name. Deriving it from admin/ops would disagree with the
-    // card in both directions: an admin whose installation_settings grant was
-    // removed would get a tab of disabled fields, and a principal holding the
-    // grant under another role could not reach the surface they may use. The
-    // tab exists to change these values, so it follows the write grant.
-    installation: canEditInstallation,
-    capture: canEditCapture,
+    // The operational verbs. Admin-only in substance — the danger zone and job
+    // health both refuse anyone else — but the reindex is an ordinary write
+    // grant an edited role can hold, and it was reachable before this change.
+    // Taking it away would be a regression dressed as a tidy-up, so the entry
+    // opens on either and the cards inside decide.
+    maintenance: isAdmin || embeddingReindex,
   };
 }
 
@@ -401,25 +478,42 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   );
 }
 
-// The AI & autonomy tab. AiUsageCard (GET /ai/usage) and AiCallsCard
-// (GET /ai/calls) are reads the server gates on automation:update — the AI
-// runtime's spend is treated as operator information, so seeing it takes the
-// automation write grant and not any AI-named object. Binding these to
-// something more intuitive would 403 the cards for exactly the roles meant to
-// read them. EconomyBanner gates the same seam the same way.
+// The organization's AI: what it spent, what it charges per model, and what it
+// runs unattended. AiUsageCard (GET /ai/usage) and AiCallsCard (GET /ai/calls)
+// are reads the server gates on automation:update — the AI runtime's spend is
+// treated as operator information, so seeing it takes the automation write grant
+// and not any AI-named object. Binding these to something more intuitive would
+// 403 the cards for exactly the roles meant to read them. EconomyBanner gates
+// the same seam the same way.
+//
+// Automations render here rather than in the rail: they are set-and-forget
+// configuration, and the product already offered a second door to them from
+// this very tab. They gate themselves per affordance on the automation grants.
 function AiSettingsTab() {
   const canSeeRuntime = useCan("automation", "update");
   return (
     <>
       {canSeeRuntime && <AiUsageCard />}
       {canSeeRuntime && <AiCallsCard />}
+      <ModelCostsCard />
+      <AutomationsAdmin />
+    </>
+  );
+}
+
+// This person's own agent authority: what an agent may do unattended, the
+// credentials they have minted, the clients holding one, and the governed tools
+// those credentials reach. Every seat gets it, ungated — a passport is lent by
+// the human, so an admin-only surface here would mean only admins could lend.
+function AgentsTab() {
+  return (
+    <>
       <AutonomyCard />
       <PassportCard />
       {/* Directly after the passports, because it is the second half of one
           story: mint a passport, then lend it to a client that connects. */}
       <ConnectedAgentsCard />
       <AgentToolsCard />
-      <AutomationsLinkCard />
     </>
   );
 }
@@ -872,31 +966,6 @@ function AgentToolsCard() {
           </ul>
         )}
       </QueryGate>
-    </Card>
-  );
-}
-
-// The door to the automations editor (B-EP09.15) — a settings entry, not a
-// rail item: the 9-item rail is canonical (AC-shell-1).
-function AutomationsLinkCard() {
-  const t = useT();
-  return (
-    <Card title={t("settings.automations")} sub={t("settings.automationsSub")}>
-      <a href="#/automations">{t("settings.openAutomations")}</a>
-    </Card>
-  );
-}
-
-// The door to the custom-fields admin (CF-T06) — a settings entry, not a
-// rail item: the 9-item rail is canonical (AC-shell-1).
-function CustomFieldsLinkCard() {
-  const t = useT();
-  return (
-    <Card
-      title={t("settings.customFields")}
-      sub={t("settings.customFieldsSub")}
-    >
-      <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
     </Card>
   );
 }
@@ -1396,24 +1465,6 @@ export function PipelinesCard() {
   );
 }
 
-function ProductsLinkCard() {
-  const t = useT();
-  return (
-    <Card title={t("product.title")} sub={t("product.settingsSub")}>
-      <a href="#/products">{t("product.open")}</a>
-    </Card>
-  );
-}
-
-function OfferTemplatesLinkCard() {
-  const t = useT();
-  return (
-    <Card title={t("template.title")} sub={t("template.settingsSub")}>
-      <a href="#/offer-templates">{t("template.open")}</a>
-    </Card>
-  );
-}
-
 // The two-tier table (03b): informational, and the advance-stage row is
 // locked 🟡 — there is no toggle that could soften it (AC-settings).
 function AutonomyCard() {
@@ -1799,9 +1850,12 @@ export function AuditLogCard() {
   const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);
   return (
     <>
-      {/* "Filters", not the log's own name: the page head above already says
-          which log this is, and a card repeating it read as the heading the
-          entries below belonged to. */}
+      {/* "Filters" here and the log's own name on the card BELOW, which is the
+          one that holds it. The page head used to name the log — it was an entry
+          of its own — and now says "Privacy & audit" over four cards, so a
+          filter row and a card of "Entries" left nothing on the page saying
+          which log this is. Naming the filters instead would put the name above
+          the question rather than above the answer. */}
       <Card title={t("settings.auditFilters")}>
         <AuditLogFilterFields filters={filters} onChange={setFilters} />
       </Card>

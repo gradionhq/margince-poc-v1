@@ -192,6 +192,29 @@ numbers appear here when releases start.
 
 ### Changed
 
+- **Settings had 24 doors; it has 11 entries.** Fifteen tabs plus nine
+  routes outside them collapsed into eleven, in two groups: Account,
+  Voice and Your agents under *You*; General, People & access,
+  Connections, Capture, Data model, AI, Privacy & audit and Maintenance
+  under *Organization*. What merged, merged because it was one subject
+  all along — the installation and the company profile describe the same
+  organization, currency rates belong beside the base currency they
+  convert to while model prices belong beside the runtime they price, and
+  two different surfaces were both called "Capture". Four screens that
+  were reached only by a card whose job was to send you there are now
+  content on the page that owns them (`#/custom-fields`, `#/products`,
+  `#/offer-templates` and `#/automations` are gone as routes;
+  Automations' primary-nav slot went to the dedupe queue, which had no
+  address of its own outside a home digest card). `#/design` is deleted.
+  `GET /admin/job-health` shipped with no UI at all and now has one, on
+  Maintenance beside the search-index rebuild and the danger zone. **No
+  seat lost a surface it could use**: a merged entry opens on the union of
+  what its parts asked for, never the intersection, and the parts that
+  are narrower than their page gate themselves inside it. The connector
+  OAuth callback's return route moved with the page it lands on: the
+  server redirects to `#/settings/connections`, which is a hard-coded
+  string in `internal/compose/connectors_outcome.go` and the one part of
+  this change that a rename alone would have broken silently.
 - **Every dropdown in the product is the design system's, not the
   browser's.** `Select` is a button trigger plus a portalled listbox with
   the full keyboard contract (arrows, Home/End, typeahead, Escape without

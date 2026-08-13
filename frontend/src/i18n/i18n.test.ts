@@ -131,9 +131,9 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.rail.tokensUnit",
   "share.ceiling.post",
 
-  // Tab and section labels that are proper nouns in the product.
-  "settings.tab.voice",
-  "settings.tab.overlay",
+  // Tab and section labels that are proper nouns in the product. The settings
+  // ENTRY for the voice surface is no longer one of them — it was renamed off
+  // the feature name to "Voice", which vi translates.
   "settings.voice.title",
   "co.decisions.group",
   "partner.role.hosting",
@@ -145,6 +145,10 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "consent.actorAgent",
   "consent.actorConnector",
   "users.agentSeat",
+  // Same reason, one level up: vi carries "AI" as the loanword throughout this
+  // catalog, so spelling out "trí tuệ nhân tạo" on the settings entry alone
+  // would make one subject read as two.
+  "settings.tab.ai",
 
   // Other cases verified individually against the source.
   "shell.logoAria",
