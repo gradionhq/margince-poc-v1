@@ -292,6 +292,13 @@ func Groups() []Group {
 		// keyed on the contact, and an account appearing enriches nobody
 		// until a person is filed against it, which is itself a person event.
 		{Name: "cg:person-auto-enrich", Streams: forEntities(personStreamEntity)},
+		// Automatic enrichment from a LICENSED provider (ADR-0101/PI-EVT-1).
+		// Its own group rather than a second handler on the pass above,
+		// because the two differ in what a failure costs: that one reads a
+		// page the workspace already crawled, this one SPENDS the customer's
+		// credits, and a consumer whose retries buy data must not share a
+		// cursor with one whose retries are free.
+		{Name: "cg:person-data", Streams: forEntities(personStreamEntity)},
 		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
 		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},

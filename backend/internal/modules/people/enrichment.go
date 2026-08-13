@@ -180,7 +180,7 @@ func SubjectIdentifiers(ctx context.Context, tx pgx.Tx, personID string) (provid
 	// is worth the join; its absence is not, which is why this is a LEFT
 	// JOIN over the domain rather than a second failing query.
 	if err := tx.QueryRow(ctx, `
-		SELECT coalesce(o.name, ''), coalesce(d.domain, '')
+		SELECT coalesce(o.display_name, ''), coalesce(d.domain, '')
 		  FROM relationship r
 		  JOIN organization o ON o.id = r.organization_id
 		  LEFT JOIN organization_domain d

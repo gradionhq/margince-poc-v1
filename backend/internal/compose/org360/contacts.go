@@ -38,7 +38,7 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 	for i, s := range strengths {
 		personIDs[i] = s.PersonID
 	}
-	identity, err := contactIdentity(ctx, tx, personIDs)
+	identity, err := contactIdentity(ctx, tx, orgID, personIDs)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}
@@ -90,10 +90,28 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 			card.FullName = who.fullName
 			card.Title = who.title
 			card.PrimaryEmail = who.primaryEmail
+			card.ProviderTitle = who.providerTitle
+			card.TitleSource = titleSource(who)
 		}
 		out = append(out, card)
 	}
 	return out, page, nil
+}
+
+// titleSource says which title the roster is showing, so the page can mark a
+// purchased one as purchased. Null where there is no title at all: a contact
+// nobody has a role for is a gap, not a source.
+func titleSource(who contactCard) *crmcontracts.Organization360ContactTitleSource {
+	switch {
+	case who.title != nil && *who.title != "":
+		source := crmcontracts.Organization360ContactTitleSourceCanonical
+		return &source
+	case who.providerTitle != nil:
+		source := crmcontracts.Organization360ContactTitleSourceProvider
+		return &source
+	default:
+		return nil
+	}
 }
 
 // contactCard is the display identity of one contact.
@@ -101,20 +119,54 @@ type contactCard struct {
 	fullName     string
 	title        *string
 	primaryEmail *string
+	// providerTitle is a PURCHASED job title, shown only where the canonical
+	// one is empty (PO-EXT-9). It fills a blank; it never overwrites or
+	// seconds a title a human typed.
+	providerTitle *string
 }
 
 // contactIdentity reads name, title and the primary email address for a
 // contact set. The address arrives through a correlated subquery so a
 // contact with none on file still appears: the strength read already
 // decided who is on this list, and a join could only shorten it.
-func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (map[ids.PersonID]contactCard, error) {
+func contactIdentity(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, personIDs []ids.PersonID) (map[ids.PersonID]contactCard, error) {
+	// The purchased title rides the same correlated-subquery shape as the
+	// address, under two conditions.
+	//
+	// It is read ONLY where the canonical title is empty: a bought title
+	// beside one a human typed would be a second opinion, which PO-EXT-9
+	// forbids — what the installation knows wins, and the purchase fills a
+	// gap.
+	//
+	// And only where the claim is about THIS company. A purchased employment
+	// claim names its own employer, and a contact whose newest claim says
+	// "VP Sales, Globex" must not have "VP Sales" rendered on Acme's roster:
+	// that is a false employment assertion on an account page, which is the
+	// harm the precedence rule exists to prevent. Matched on the claim's own
+	// company_domain against this organization's domains, or on its
+	// company_name against the display name.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, p.full_name, p.title,
 		       (SELECT e.email FROM person_email e
 		         WHERE e.person_id = p.id AND e.archived_at IS NULL
 		         ORDER BY e.is_primary DESC, e.position, e.id
-		         LIMIT 1)
-		FROM person p WHERE p.id = ANY($1)`, personIDs)
+		         LIMIT 1),
+		       CASE WHEN coalesce(p.title, '') <> '' THEN NULL ELSE
+		         (SELECT NULLIF(c.value_json->>'job_title', '')
+		            FROM person_provider_claim c
+		           WHERE c.person_id = p.id AND c.claim_key = 'current_employment'
+		             AND (
+		               EXISTS (SELECT 1 FROM organization_domain d
+		                        WHERE d.organization_id = $2 AND d.archived_at IS NULL
+		                          AND lower(d.domain) = lower(c.value_json->>'company_domain'))
+		               OR EXISTS (SELECT 1 FROM organization o
+		                           WHERE o.id = $2
+		                             AND lower(o.display_name) = lower(c.value_json->>'company_name'))
+		             )
+		           ORDER BY c.retrieved_at DESC
+		           LIMIT 1)
+		       END
+		FROM person p WHERE p.id = ANY($1)`, personIDs, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +175,7 @@ func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (
 	for rows.Next() {
 		var id ids.PersonID
 		var card contactCard
-		if err := rows.Scan(&id, &card.fullName, &card.title, &card.primaryEmail); err != nil {
+		if err := rows.Scan(&id, &card.fullName, &card.title, &card.primaryEmail, &card.providerTitle); err != nil {
 			return nil, err
 		}
 		out[id] = card

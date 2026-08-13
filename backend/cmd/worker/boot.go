@@ -172,6 +172,20 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	if err := backfillConnectorCredentials(ctx, pool, stdout, logger); err != nil {
 		return lanes, err
 	}
+	// Automatic enrichment on create, which needs BOTH halves the run lanes
+	// need: an adapter to call and the vault that unseals its credential.
+	// keyvault.FromEnv is resolved here rather than passed down because this
+	// is the first lane in this role that needs it.
+	providerVault, vaultConfigured, err := keyvault.FromEnv(pool)
+	if err != nil {
+		return lanes, fmt.Errorf("worker: keyvault: %w", err)
+	}
+	if !vaultConfigured {
+		providerVault = nil
+	}
+	if err := startPersonDataEnrich(laneCtx, pool, rdb, providers, providerVault, lanes.background, logger, stdout); err != nil {
+		return lanes, err
+	}
 
 	if err := startWebhookLane(laneCtx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
 		return lanes, err

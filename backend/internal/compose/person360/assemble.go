@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
 
 // sectionCap bounds every nested collection. These are summaries, not
@@ -48,6 +49,9 @@ type Service struct {
 	// dismissed does not come back.
 	feedback *ai.FeedbackStore
 	now      func() time.Time
+	// providers is the adapter registry the provider section reads its
+	// category vocabulary from. Nil where no adapter is compiled in.
+	providers providerDescriptors
 }
 
 // NewService binds the composite read to its module stores. now is the
@@ -61,6 +65,26 @@ func NewService(
 	now func() time.Time,
 ) *Service {
 	return &Service{pool: pool, people: peopleStore, consent: consentStore, feedback: feedbackStore, now: now}
+}
+
+// WithProviders binds the licensed-data-provider registry, which the provider
+// section reads the category vocabulary from — what a run did NOT ask for is
+// the difference between the provider's full offering and what it requested,
+// and only the descriptor knows the first half.
+//
+// Optional: a deployment with no adapter shows the section in its
+// "not connected" state, and a nil registry there simply leaves the
+// not-requested list empty rather than asserting a vocabulary nobody offers.
+func (s *Service) WithProviders(reg providerDescriptors) *Service {
+	s.providers = reg
+	return s
+}
+
+// providerDescriptors is the slice of the adapter registry this package
+// needs. Narrowed to one method so person360 does not depend on the
+// integrations module for a read that only wants a category list.
+type providerDescriptors interface {
+	Descriptor(name string) (provider.Descriptor, error)
 }
 
 // Assemble reads the whole person page inside ONE workspace transaction.
@@ -155,6 +179,11 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 		}},
 		{name: crmcontracts.Person360SectionsOmittedCommercial, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.commercialSection(ctx, tx, personID, out)
+		}},
+		// What a licensed provider was PAID to tell us about this person
+		// (ADR-0101). Beside the canonical record, never folded into it.
+		{name: crmcontracts.Person360SectionsOmittedProviderProfile, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.providerProfileSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedNextMeeting, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.nextMeetingSection(ctx, tx, personID, now, out)

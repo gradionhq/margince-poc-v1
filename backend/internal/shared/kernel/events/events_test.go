@@ -134,18 +134,24 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// resolution is what most unmatched ghosts are waiting on.
 		"cg:linkedin-match":     {"gw:events:crm:organization", "gw:events:crm:person"},
 		"cg:person-auto-enrich": {"gw:events:crm:person"},
-		"cg:overnight-agent":    {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
-		"cg:workflows":          all,
-		"cg:capture":            {"gw:events:crm:capture"},
-		"cg:flow-bridge":        {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:person"},
-		"cg:read-model":         all,
-		"cg:audit-stream":       all,
-		"cg:webhooks":           all,
+		// Automatic enrichment from a licensed provider (ADR-0101). Its own
+		// group rather than a second handler on the pass above: that one
+		// reads pages already crawled, this one SPENDS credits, and a
+		// consumer whose retries buy data must not share a cursor with one
+		// whose retries are free.
+		"cg:person-data":     {"gw:events:crm:person"},
+		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
+		"cg:workflows":       all,
+		"cg:capture":         {"gw:events:crm:capture"},
+		"cg:flow-bridge":     {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:person"},
+		"cg:read-model":      all,
+		"cg:audit-stream":    all,
+		"cg:webhooks":        all,
 	}
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, and the two ADR-0078 consumers (graph-edge projection, LinkedIn matcher)", len(groups), len(want))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the two ADR-0078 consumers (graph-edge projection, LinkedIn matcher), and the ADR-0101 provider-enrichment consumer", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {
