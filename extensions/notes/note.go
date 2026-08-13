@@ -267,7 +267,19 @@ func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 			`INSERT INTO `+noteTable+` (workspace_id, kind, body, author_user_id, author_is_agent)
 			 VALUES (`+callerWorkspace+`, $1, $2, $3::uuid, $4::boolean)
 			 RETURNING `+noteColumns, string(kindNote), body, authorID, authorIsAgent).Scan)
-		return scanErr
+		if scanErr != nil {
+			return scanErr
+		}
+		payload, err := notePayload(n)
+		if err != nil {
+			return err
+		}
+		// In the SAME transaction as the insert, which is the whole point of
+		// the ledger hanging off the transaction rather than the runtime: a
+		// note that exists with no ledger row, or a ledger row for a note the
+		// insert rolled back, would each be a history that disagrees with the
+		// notepad.
+		return recordNote(ctx, tx, extension.AuditCreate, eventNoteAdded, nil, &n, nil, payload)
 	})
 	if err != nil {
 		return nil, err
@@ -324,17 +336,35 @@ func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 	if !isCanonicalUUID(id) {
 		return nil, fmt.Errorf("notes: %q is not a note id — an id is a canonical UUID, as the contract declares", id)
 	}
-	var affected int64
+	var removed bool
 	err = rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		affected, err = tx.Exec(ctx, `DELETE FROM `+noteTable+` WHERE id = $1::uuid`, id)
-		return err
+		// RETURNING rather than a row count, because an erase's ledger row is
+		// the ONLY remaining trace of what was there: the row is gone, so a
+		// before-image read after the fact is impossible and one read before it
+		// would be a second answer that could differ from what was deleted.
+		gone, err := scanNote(tx.QueryRow(ctx,
+			`DELETE FROM `+noteTable+` WHERE id = $1::uuid RETURNING `+noteColumns, id).Scan)
+		if errors.Is(err, extension.ErrNoRows) {
+			// Not here, or not this workspace's — the policy makes those the
+			// same answer, and it is the one this unit is entitled to give.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		removed = true
+		payload, err := notePayload(gone)
+		if err != nil {
+			return err
+		}
+		return recordNote(ctx, tx, extension.AuditErase, eventNoteRemoved, &gone, nil, nil, payload)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(struct {
 		Removed bool `json:"removed"`
-	}{Removed: affected > 0})
+	}{Removed: removed})
 }
 
 // decode reads a handler's arguments strictly.

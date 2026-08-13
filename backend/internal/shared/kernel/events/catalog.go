@@ -5,6 +5,7 @@ package events
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -31,6 +32,47 @@ const (
 // once because the catalog below repeats it across every mirror.* entry.
 const streamOverlay = "overlay"
 
+// extensionStreamEntity is the one stream every EXTENSION-authored event rides,
+// whichever unit published it.
+//
+// One stream for the whole tier rather than one per unit, because the stream SET
+// is static everywhere it is read — the ops surface enumerates it, the purge
+// unlinks it, a consumer group declares its streams at construction — while the
+// composed unit set is a property of the build. Per-unit streams would make
+// every one of those depend on which units an installation happens to ship.
+const extensionStreamEntity = "extension"
+
+// ExtensionEventVersion is the payload schema version every extension event
+// carries, and it is 1 forever.
+//
+// A unit changes the shape of what it publishes by naming a NEW VERB, never by
+// bumping this. The alternative is version negotiation across a boundary with no
+// shared schema registry: the core cannot validate a unit's payload against
+// anything, so a number here would be a promise neither side could keep, and a
+// consumer trusting it would be trusting the publisher's own word about a shape
+// nobody checked.
+const ExtensionEventVersion = 1
+
+// extensionTypeGrammar is the extension event type law, `ext_<namespace>.<verb>`
+// — the SQL namespace a unit owns (`ext_` plus its name with hyphens turned to
+// underscores), then a lower snake_case verb.
+//
+// The namespace half keeps one unit's events out of another's name and out of
+// the core families entirely, and it is the same token that opens the unit's
+// tables and its database role, so a reader who knows one knows the others.
+// Nothing here is a grant: the publisher's namespace is derived from the
+// INVOCATION at the port, where a unit never spells it, and this grammar only
+// says what such a type looks like so the bus can route one.
+var extensionTypeGrammar = regexp.MustCompile(`^ext_[a-z0-9_]+\.[a-z][a-z0-9_]*$`)
+
+// IsExtensionType reports whether an event type is extension-authored. It is a
+// question about SHAPE, not a registry lookup: the catalog below is the core's
+// closed set, while the extension set is whatever the composed units publish —
+// which no file in this repository can enumerate.
+func IsExtensionType(eventType string) bool {
+	return extensionTypeGrammar.MatchString(eventType)
+}
+
 // streamEntities are the V1 family streams from events.md, plus the §5.6a
 // identity/access-revocation stream, the voice owner-private lifecycle
 // stream, and the §5.10 overlay-mirror stream (overlay-mode-only).
@@ -42,15 +84,43 @@ var streamEntities = []string{
 	streamOverlay,
 }
 
-// Streams returns the full stream key set, sorted, for the subscriber
-// and the ops surface to enumerate.
+// Streams returns the full stream key set, sorted, for the ops surface to
+// enumerate — the core families AND the extension tier's one stream. A stream
+// left out here is one the data reset does not unlink and no operator can see,
+// which is a worse outcome than the entries it would leave behind.
 func Streams() []string {
+	out := make([]string, 0, len(streamEntities)+1)
+	for _, e := range streamEntities {
+		out = append(out, StreamPrefix+e)
+	}
+	out = append(out, StreamPrefix+extensionStreamEntity)
+	sort.Strings(out)
+	return out
+}
+
+// coreStreams is what a CORE consumer group means when it subscribes to
+// "everything": the family streams, and deliberately NOT the extension one.
+//
+// A core consumer has nothing to do with a unit's event and no way to act on
+// one. The automation engine would load every live instance and match no
+// trigger; the webhook deliverer would query subscriptions for a type the
+// public catalog cannot name. Both are pure cost on every extension event, both
+// are invisible, and both grow with the tier. A unit's event is delivered to
+// the units that ASKED for it, through their own groups.
+func coreStreams() []string {
 	out := make([]string, len(streamEntities))
 	for i, e := range streamEntities {
 		out[i] = StreamPrefix + e
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ExtensionStream is the stream key every extension-authored event rides. The
+// composition builds a unit's consumer group over it by name, and the routing
+// test pins that no core group carries it.
+func ExtensionStream() string {
+	return StreamPrefix + extensionStreamEntity
 }
 
 // catalog is the enumerable V1 event catalog (events.md §5.1–§5.10, plus
@@ -230,20 +300,34 @@ func Types() []string {
 // StreamFor routes an event type to its stream key. An unknown type is a
 // programming error the publisher must surface before the outbox write —
 // an unroutable row would wedge the relay forever.
+//
+// The catalog is consulted FIRST and the extension grammar second, so a core
+// type can never be routed by shape. That ordering is belt to the braces of
+// TestNoCatalogTypeLooksLikeAnExtensionType, which holds the two vocabularies
+// apart at their source.
 func StreamFor(eventType string) (string, error) {
-	spec, ok := catalog[eventType]
-	if !ok {
-		return "", fmt.Errorf("events: %q is not in the events.md §5 catalog", eventType)
+	if spec, ok := catalog[eventType]; ok {
+		return StreamPrefix + spec.stream, nil
 	}
-	return StreamPrefix + spec.stream, nil
+	if IsExtensionType(eventType) {
+		return ExtensionStream(), nil
+	}
+	return "", fmt.Errorf("events: %q is neither an events.md §5 catalog type nor an ext_<namespace>.<verb> extension type", eventType)
 }
 
 // VersionOf returns the current payload schema version of a catalog type
-// (0 for an unknown type; Validate rejects those via StreamFor first).
-// Publishers stamp envelopes from here — never a literal — so a future
-// v2 bump happens in exactly one place.
+// (0 for an unknown type; Validate rejects those via StreamFor first), and
+// ExtensionEventVersion for an extension type. Publishers stamp envelopes
+// from here — never a literal — so a future v2 bump happens in exactly one
+// place, and so the extension port has no version of its own to get wrong.
 func VersionOf(eventType string) int {
-	return catalog[eventType].version
+	if spec, ok := catalog[eventType]; ok {
+		return spec.version
+	}
+	if IsExtensionType(eventType) {
+		return ExtensionEventVersion
+	}
+	return 0
 }
 
 // Group is a §4.3 consumer group: one per consuming module, so each
@@ -260,7 +344,7 @@ type Group struct {
 // consumer groups can only partition by stream, not by envelope field —
 // the actor filter is in-process, like the workspace filter.
 func Groups() []Group {
-	all := Streams()
+	all := coreStreams()
 	forEntities := func(entities ...string) []string {
 		keys := make([]string, len(entities))
 		for i, e := range entities {

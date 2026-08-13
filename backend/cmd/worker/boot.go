@@ -191,7 +191,34 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startWorkflowLane(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
+	startExtensionSubscriptionLanes(laneCtx, pool, rdb, lanes.background, logger, stdout)
 	return lanes, nil
+}
+
+// startExtensionSubscriptionLanes starts one consumer per composed unit
+// subscription — the tier's half of the bus, and this role's alone: every role
+// composes the same units, and the worker is the role that consumes.
+//
+// A listener whose group cannot be built is LOGGED and skipped rather than
+// failing the boot, because the boot already refused the only way that can
+// happen: RegisterExtensions preflights every declared type against the
+// catalog. Reaching this branch means those two disagree, which is a defect in
+// this binary rather than in the deployment — and taking down the worker's
+// other lanes over one unit's listener would turn a unit-sized fault into an
+// installation-sized one.
+func startExtensionSubscriptionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, background *sync.WaitGroup, logger *slog.Logger, stdout io.Writer) {
+	for _, sub := range compose.ComposedSubscriptions() {
+		group, err := sub.Group()
+		if err != nil {
+			logger.Error("worker: an extension subscription has no consumer group, so it would receive nothing",
+				"unit", string(sub.Unit), "subscription", sub.Sub.Name, "error", err)
+			continue
+		}
+		handler := sub.Handler(pool)
+		_, _ = fmt.Fprintf(stdout, "worker delivering %s to %s/%s (%s)\n",
+			strings.Join(sub.Sub.Events, ", "), sub.Unit, sub.Sub.Name, group.Name)
+		background.Go(func() { runGroupSubscriber(ctx, rdb, group, handler, logger, 0) })
+	}
 }
 
 // startWorkflowLane starts the cg:workflows dispatcher. It needs nothing the job

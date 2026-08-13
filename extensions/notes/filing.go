@@ -79,7 +79,29 @@ func fileNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (js
 			`INSERT INTO `+noteTable+` (workspace_id, kind, body, author_user_id, author_is_agent, filed_activity_id)
 			 VALUES (`+callerWorkspace+`, $1, $2, $3::uuid, $4::boolean, $5::uuid)
 			 RETURNING `+noteColumns, string(kindNote), body, authorID, authorIsAgent, filed.Id).Scan)
-		return scanErr
+		if scanErr != nil {
+			return scanErr
+		}
+		// The note's OWN ledger row, beside the activity's. The port wrote one
+		// for the activity above — that record's history belongs to the core —
+		// and this is the notepad's: one write recorded once on each side of
+		// the seam, so either can be read without the other.
+		//
+		// The RECORD the note was filed to rides in the evidence rather than
+		// the image, because the note's own columns say which ACTIVITY it
+		// reached and not which record that activity sits on.
+		detail, err := json.Marshal(struct {
+			SubjectType string `json:"subject_type"`
+			SubjectID   string `json:"subject_id"`
+		}{SubjectType: args.SubjectType, SubjectID: args.SubjectID})
+		if err != nil {
+			return err
+		}
+		payload, err := notePayload(n)
+		if err != nil {
+			return err
+		}
+		return recordNote(ctx, tx, extension.AuditCreate, eventNoteFiled, nil, &n, detail, payload)
 	})
 	if err != nil {
 		return nil, filingRefusal(err)

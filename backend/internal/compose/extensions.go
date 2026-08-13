@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -75,6 +76,7 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobD
 		return err
 	}
 	setComposedJobs(composedSet)
+	setComposedSubscriptions(buildExtensionSubscriptions(exts))
 	setComposedTools(tools)
 	setComposedVerbs(verbs)
 	setComposedExtensions(exts)
@@ -167,8 +169,77 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightJobs(e); err != nil {
 			return err
 		}
+		if err := preflightSubscriptions(e); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// preflightSubscriptions validates one unit's listeners through the same
+// published Subscription.Validate a unit's own tests run, and then asks the one
+// question the published type cannot: is every declared event type ROUTABLE?
+//
+// The catalog is not reachable from pkg/extension (it is stdlib-only), so this
+// is the first and only place the answer exists — and it has to be an answer at
+// BOOT rather than at delivery, because an unroutable type has no stream, which
+// means its listener would be created, hold a cursor, and never receive
+// anything. A subscription that silently never fires is indistinguishable from
+// a product where that fact never happens.
+func preflightSubscriptions(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Subscriptions))
+	for _, sub := range e.Subscriptions {
+		if err := sub.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[sub.Name] {
+			return fmt.Errorf("compose: extension %q declares subscription %q twice", e.Name, sub.Name)
+		}
+		seen[sub.Name] = true
+		for _, eventType := range sub.Events {
+			if _, err := kevents.StreamFor(eventType); err != nil {
+				return fmt.Errorf("compose: extension %q, subscription %q: %w", e.Name, sub.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// composedSubscriptions holds this boot's registered listeners, written once by
+// RegisterExtensions before any surface serves. Same shape and same reason as
+// composedTools: the mutex guards the write-then-read ORDERING across the
+// boot/serve boundary, not concurrent registrations.
+var composedSubscriptions struct {
+	mu   sync.RWMutex
+	subs []ComposedSubscription
+}
+
+func setComposedSubscriptions(subs []ComposedSubscription) {
+	composedSubscriptions.mu.Lock()
+	defer composedSubscriptions.mu.Unlock()
+	composedSubscriptions.subs = subs
+}
+
+// ComposedSubscriptions returns this boot's registered listeners, each already
+// carrying the unit identity its deliveries are attributed to. The worker role
+// reads it to start one consumer per listener; every other role composes them
+// and starts none, because consuming the bus is the worker's job.
+func ComposedSubscriptions() []ComposedSubscription {
+	composedSubscriptions.mu.RLock()
+	defer composedSubscriptions.mu.RUnlock()
+	return slices.Clone(composedSubscriptions.subs)
+}
+
+// buildExtensionSubscriptions flattens the validated set into one list of
+// listeners, each stamped with the unit that declared it.
+func buildExtensionSubscriptions(exts []extension.Extension) []ComposedSubscription {
+	var subs []ComposedSubscription
+	for _, e := range exts {
+		for _, sub := range e.Subscriptions {
+			subs = append(subs, ComposedSubscription{Unit: e.Name, Version: e.Version, Sub: sub})
+		}
+	}
+	return subs
 }
 
 // validateVerbSet refuses two operations that would mount the same route.

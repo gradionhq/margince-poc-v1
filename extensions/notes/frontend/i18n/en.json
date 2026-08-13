@@ -15,6 +15,7 @@
   "extNotes.notes.addFailed": "The note was not added. Nothing was changed.",
   "extNotes.notes.bodyLabel": "New note",
   "extNotes.notes.empty": "No notes yet.",
+  "extNotes.notes.filed": "Filed",
   "extNotes.notes.noGrant": "You do not hold read access to this extension's notes.",
   "extNotes.notes.remove": "Remove",
   "extNotes.notes.removeFailed": "The note was not removed. Nothing was changed.",

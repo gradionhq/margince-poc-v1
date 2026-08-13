@@ -119,6 +119,15 @@ type fakeTx struct {
 	// lastRows is the cursor Query handed the handler, kept so a test can ask
 	// whether the handler closed it.
 	lastRows *fakeRows
+
+	// audited and published are what the handler recorded about its own write.
+	// recordErr is their own error script rather than failFrom's, because a
+	// ledger write is not a statement this fake counts — and because "the
+	// record failed" and "the third statement failed" are different failures a
+	// handler must propagate from different places.
+	audited   []extension.Change
+	published []extension.Event
+	recordErr error
 }
 
 func (t *fakeTx) record(sql string, args []any) {
@@ -130,6 +139,31 @@ func (t *fakeTx) record(sql string, args []any) {
 // file, which is the accurate answer for those: a handler that reached for the
 // core port when the test did not expect one panics rather than passing.
 func (t *fakeTx) Core() extension.Core { return t.core }
+
+// Record records the ledger row and the event a handler asked for.
+//
+// It runs the PUBLISHED Validate on both halves rather than accepting whatever
+// it is given, because that is the part of the real port a unit's own suite can
+// and should feel: an entity outside this unit's namespace, an id that is not a
+// UUID, an image that is not JSON, a verb that is not a verb are all refusals
+// the core would make, and a fake that waved them through would let a handler
+// ship a call the real port rejects. What it deliberately does NOT model is the
+// core's half — the actor, the workspace, the attribution, the namespace the
+// event type is built from — which is tested where it lives.
+func (t *fakeTx) Record(_ context.Context, ch extension.Change, ev extension.Event) error {
+	if err := ch.Validate(); err != nil {
+		return err
+	}
+	if err := ev.Validate(); err != nil {
+		return err
+	}
+	if t.recordErr != nil {
+		return t.recordErr
+	}
+	t.audited = append(t.audited, ch)
+	t.published = append(t.published, ev)
+	return nil
+}
 
 // fakeCore is the governed port as a filing test needs it: it records what the
 // unit asked the core to write, and answers with what the test scripted.

@@ -15,6 +15,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -128,10 +129,12 @@ type callRuntime struct {
 	// are the published Runtime's and cannot grow a parameter for it.
 	callCtx context.Context //nolint:containedctx // the invocation's tenant scope IS this value's lifetime; see above.
 
-	// systemCaller forces Caller to answer the zero value whatever principal
-	// callCtx carries. Exactly one path sets it — a job tick — and the reason
-	// is in jobRuntimeFor.
-	systemCaller bool
+	// unattended forces Caller to answer the zero value whatever principal
+	// callCtx carries, and refuses the core port. Two paths set it — a job tick
+	// (jobRuntimeFor) and a bus delivery (deliveryRuntimeFor) — and they share
+	// the one fact that decides both: nobody is there, so there is no authority
+	// a core write could be checked against.
+	unattended bool
 
 	// mu orders live: it is read and written under the same lock, so release
 	// and a handler-spawned goroutine cannot race the FLAG. It does not order
@@ -170,7 +173,22 @@ func runtimeFor(ctx context.Context, unit, version, via string, deps extensionRu
 // one every capability and every policy sees.
 func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
 	rt := runtimeFor(ctx, unit, version, via, deps)
-	rt.systemCaller = true
+	rt.unattended = true
+	return rt
+}
+
+// deliveryRuntimeFor mints the Runtime for one BUS DELIVERY — a subscription
+// hearing that something happened.
+//
+// It is unattended for a plainer reason than a tick's: a tick at least ran
+// because a schedule the installation configured said so, while a delivery ran
+// because a fact arrived. Neither has a person behind it, and this one's
+// principal is the system actor the subscriber binds (see
+// extsubscribe.go), which auth.Require does not check at all — so the
+// unattended flag is what keeps the core port shut rather than wide open.
+func deliveryRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	rt := runtimeFor(ctx, unit, version, via, deps)
+	rt.unattended = true
 	return rt
 }
 
@@ -290,6 +308,14 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 	if err != nil {
 		return err
 	}
+	// Derived BEFORE the transaction opens. The unit name was validated at
+	// registration, so an invalid one here is a composition that should never
+	// have booted — and learning that inside a transaction would only make the
+	// report harder to read than it needs to be.
+	namespace, err := extension.Name(r.unit).Namespace()
+	if err != nil {
+		return fmt.Errorf("compose: the invoking unit's name has no SQL namespace: %w", err)
+	}
 	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
 		// Re-checked inside: opening a transaction is a round trip, and a
 		// Runtime released during it must not reach the callback with a live
@@ -297,9 +323,13 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 		if err := r.usable(); err != nil {
 			return err
 		}
-		return fn(ctx, extensionTx{tx: tx, core: extensionCore{
-			tx: tx, tick: r.systemCaller, deps: r.deps, authority: r.scoped,
-		}})
+		return fn(ctx, extensionTx{
+			tx: tx,
+			core: extensionCore{
+				tx: tx, unattended: r.unattended, deps: r.deps, authority: r.scoped,
+			},
+			ledger: extensionLedger{tx: tx, namespace: namespace, authority: r.scoped},
+		})
 	})
 }
 
@@ -322,7 +352,7 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 // holds.
 func (r *callRuntime) Caller() extension.Caller {
 	actor, ok := principal.Actor(r.callCtx)
-	if !ok || r.systemCaller {
+	if !ok || r.unattended {
 		// No principal is the unauthenticated or unbound path, and the zero
 		// Caller is CallerSystem — the least authority, so a wiring gap reads
 		// as "nobody" rather than as a human whose id happens to be empty.

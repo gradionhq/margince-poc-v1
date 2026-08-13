@@ -175,6 +175,39 @@ describe("the Demo Notepad screen", () => {
     expect(screen.getByText(/heartbeat — tick #7/)).toBeTruthy();
   });
 
+  it("marks a note as filed only while the row still names an activity", async () => {
+    // The badge is read from the ROW, which is what makes it survivable: a
+    // filing is withdrawn when the activity is archived on the timeline —
+    // nowhere near this screen — and the unit's subscription clears the
+    // column. A badge this component remembered would go on claiming a filing
+    // the notepad no longer has.
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/notes/list": () => ({
+        notes: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            body: "still filed",
+            filed_activity_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            created_at: "2026-08-09T09:14:00Z",
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            body: "filing withdrawn",
+            created_at: "2026-08-09T09:10:00Z",
+          },
+        ],
+      }),
+      "/ext/notes/signing-key/status": () => ({ stored: false }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    const filedRow = (await screen.findByText(/still filed/)).closest("li");
+    expect(filedRow?.textContent).toContain("Filed");
+    const withdrawnRow = screen.getByText(/filing withdrawn/).closest("li");
+    expect(withdrawnRow?.textContent).not.toContain("Filed");
+  });
+
   it("reports the signing key as absent, then present, without ever showing it", async () => {
     let stored = false;
     const { fetchStub, calls } = stubTransport(FULL_GRANT, {

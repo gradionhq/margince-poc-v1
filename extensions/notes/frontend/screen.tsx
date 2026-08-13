@@ -613,6 +613,14 @@ function NotesCard() {
             {notes.data?.map((item) => (
               <li key={item.id}>
                 {formatDateTime(item.created_at, locale, zone)} — {item.body}
+                {/* The filing, as the ROW reports it rather than as this screen
+                    remembers it. A note stops being filed when the activity it
+                    reached is archived — which happens on the timeline, not
+                    here, and reaches this unit through its subscription — so
+                    the column is the only rendering that stays true. */}
+                {item.filed_activity_id ? (
+                  <Badge tone="success">{t("extNotes.notes.filed")}</Badge>
+                ) : null}
                 {canRemove ? (
                   <Button
                     variant="ghost"
