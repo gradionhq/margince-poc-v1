@@ -229,7 +229,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          colCurrency,
+			fieldCurrency:       colCurrency,
 			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
@@ -241,7 +241,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          colCurrency,
+			fieldCurrency:       colCurrency,
 		},
 		defaultBy: []string{"forecast_category"},
 		defaultAggs: []reportAggregate{
