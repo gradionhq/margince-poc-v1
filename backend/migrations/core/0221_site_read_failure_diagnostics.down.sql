@@ -6,6 +6,13 @@
 -- real loss of information, and it is the price of the revert — the failures
 -- themselves are preserved, only the reason they failed is dropped.
 
+-- Order matters, and getting it wrong makes the rollback impossible: the new
+-- CHECK requires a failed row to NAME its cause, so nulling those columns while
+-- it is still active violates it on every diagnosed failure — including the rows
+-- the up migration backfilled. The constraint comes off FIRST, and the old one
+-- goes on only once the data fits it again.
+ALTER TABLE site_read DROP CONSTRAINT site_read_outcome_shape;
+
 DO $$
 DECLARE ws uuid;
 BEGIN
@@ -19,8 +26,6 @@ BEGIN
        AND site_read.workspace_id = ws;
   END LOOP;
 END $$;
-
-ALTER TABLE site_read DROP CONSTRAINT site_read_outcome_shape;
 
 ALTER TABLE site_read
   ADD CONSTRAINT site_read_deferral_shape CHECK (

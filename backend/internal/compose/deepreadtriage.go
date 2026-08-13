@@ -241,6 +241,14 @@ func (w *siteDeepReadWorker) finishTriageRead(ctx context.Context, args SiteDeep
 	if warning != "" {
 		in.Warnings = []string{warning}
 	}
+	if status == siteReadWireStatusFailed {
+		// A failed dossier must name its cause. The triage lane reaches here
+		// having already decided the site said nothing usable — it has no error
+		// to classify, so it records exactly that rather than a guess, and the
+		// warning it already wrote is the sentence a human reads.
+		in.StatusCode = people.SiteReadFailureUnreadable
+		in.StatusDetail = triageFailureDetail(warning)
+	}
 	if payload != nil {
 		in.Pages = siteReadPages(payload.Crawl.Pages)
 		in.FactCount = len(payload.Fields) + len(payload.Facts)
@@ -360,4 +368,15 @@ func triageCompanyEvidence(stated string, entities int) string {
 // people.TriageSeedURL and not a parse of anything a human typed.
 func triageDomainOf(seedURL string) string {
 	return freemail.Registrable(strings.TrimPrefix(seedURL, people.TriageSeedScheme))
+}
+
+// triageFailureDetail is the sentence a failed triage dossier carries. The
+// lane's own warning already says what happened, so it is reused verbatim; the
+// fallback exists because status_detail is required and an empty one would fail
+// the write on a path that has nothing left to report.
+func triageFailureDetail(warning string) string {
+	if warning != "" {
+		return warning
+	}
+	return "The site could not be read, and nothing said why."
 }

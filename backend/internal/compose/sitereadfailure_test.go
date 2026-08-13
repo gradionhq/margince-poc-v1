@@ -77,9 +77,12 @@ func TestDiagnoseCrawlFailureNamesTheCauseAndItsRetryPolicy(t *testing.T) {
 			wantCode: "timeout", wantRetry: true,
 		},
 		{
-			name:     "anything else is recorded as unreadable rather than guessed at",
+			// An unrecognized error is OUR machinery failing, not evidence about
+			// the site. Filing it as unreadable would blame the company's
+			// website for our bug and settle the domain permanently.
+			name:     "an unrecognized error is ours, not the site's",
 			cause:    errors.New("something went sideways"),
-			wantCode: "unreadable", wantRetry: false,
+			wantCode: "internal", wantRetry: false,
 		},
 		{
 			name:     "a failure with no cause still says so",

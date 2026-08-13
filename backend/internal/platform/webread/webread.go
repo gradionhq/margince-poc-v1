@@ -382,6 +382,11 @@ func (f *Fetcher) fetchRobots(ctx context.Context, origin string) (robotsPolicy,
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
 		return robotsPolicy{}, nil // no policy declared — allow-all
 	default:
-		return robotsPolicy{}, fmt.Errorf("webread: robots.txt answered %d (refusing to guess what %s permits)", resp.StatusCode, origin)
+		// Typed, so a caller classifying the failure sees the STATUS: a 5xx on
+		// robots.txt is the site being unwell, which clears on its own, and
+		// reporting it as an opaque error would file a transient outage as a
+		// permanent verdict on the domain.
+		return robotsPolicy{}, fmt.Errorf("refusing to guess what %s permits: %w",
+			origin, &StatusError{Status: resp.StatusCode, URL: origin + "/robots.txt"})
 	}
 }

@@ -68,6 +68,21 @@ type FinishSiteReadInput struct {
 	ProposalHash  string
 }
 
+// The failure codes, named so callers cite the vocabulary instead of repeating
+// its spellings. Every one appears in the CHECK migration 0221 installs.
+const (
+	SiteReadFailureBotBlocked   = "bot_blocked"
+	SiteReadFailureServerError  = "http_server_error"
+	SiteReadFailureTimeout      = "timeout"
+	SiteReadFailureClientError  = "http_client_error"
+	SiteReadFailureDNS          = "dns"
+	SiteReadFailureTLS          = "tls"
+	SiteReadFailureRobots       = "robots_disallowed"
+	SiteReadFailureUnreadable   = "unreadable"
+	SiteReadFailureInternal     = "internal"
+	SiteReadFailureStaleReclaim = "stale_reclaim"
+)
+
 // SiteReadFailureCodes is the closed vocabulary a failed read is diagnosed
 // with, and the retry policy that goes with each. True means the cause commonly
 // clears on its own, so another attempt is worth scheduling.
@@ -77,15 +92,20 @@ type FinishSiteReadInput struct {
 // naming the field, rather than as a constraint violation from three layers
 // down that no operator can act on.
 var SiteReadFailureCodes = map[string]bool{
-	"bot_blocked":       true,  // 403/429 from an edge or bot protection
-	"http_server_error": true,  // 5xx — the site's own fault, usually transient
-	"timeout":           true,  // the site did not answer in time
-	"http_client_error": false, // 404 and friends: the page is simply not there
-	"dns":               false, // the name does not resolve
-	"tls":               false, // the certificate does not verify
-	"robots_disallowed": false, // the site's own answer, not a failure to retry
-	"unreadable":        false, // fetched, but nothing readable came back
-	"internal":          false, // our bug, not the site's — fix it, don't retry
+	SiteReadFailureBotBlocked:  true,  // 403/429 from an edge or bot protection
+	SiteReadFailureServerError: true,  // 5xx — the site's own fault, usually transient
+	SiteReadFailureTimeout:     true,  // the site did not answer in time
+	SiteReadFailureClientError: false, // 404 and friends: the page is simply not there
+	SiteReadFailureDNS:         false, // the name does not resolve
+	SiteReadFailureTLS:         false, // the certificate does not verify
+	SiteReadFailureRobots:      false, // the site's own answer, not a failure to retry
+	SiteReadFailureUnreadable:  false, // fetched, but nothing readable came back
+	SiteReadFailureInternal:    false, // our bug, not the site's — fix it, don't retry
+	// stale_reclaim is written by the triage sweep (RetireStaleTriageRead), not
+	// by a crawl: a read that stopped reporting is retired so the DOMAIN can be
+	// asked again. The domain's own disposition carries that retry, so the
+	// dossier itself needs none.
+	SiteReadFailureStaleReclaim: false,
 }
 
 // validateSiteReadOutcome enforces the shape the outcome CHECK requires, at the

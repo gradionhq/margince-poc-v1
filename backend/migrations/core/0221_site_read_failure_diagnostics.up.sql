@@ -57,9 +57,16 @@ ALTER TABLE site_read
     -- it is set for the causes worth retrying (a 403 from bot protection, a
     -- 5xx, a timeout) and left NULL for the ones that will not change on their
     -- own (a robots refusal, a domain that does not resolve).
-    (status = 'failed' AND status_code IN (
+    -- status_code IS NOT NULL is not redundant with the IN list: a NULL makes
+    -- `status_code IN (...)` evaluate to UNKNOWN, and a CHECK passes on UNKNOWN.
+    -- Without it the database would accept exactly the undiagnosed failure this
+    -- migration exists to end, while the Go validator refused it.
+    (status = 'failed' AND status_code IS NOT NULL AND status_code IN (
         'bot_blocked', 'http_client_error', 'http_server_error', 'timeout',
-        'dns', 'tls', 'robots_disallowed', 'unreadable', 'internal')
+        'dns', 'tls', 'robots_disallowed', 'unreadable', 'internal',
+        -- Written by the triage sweep rather than a crawl: a read that stopped
+        -- reporting, retired so its domain can be asked again.
+        'stale_reclaim')
       AND status_detail IS NOT NULL)
     OR
     (status IN ('queued', 'running', 'done', 'partial', 'cancelled') AND

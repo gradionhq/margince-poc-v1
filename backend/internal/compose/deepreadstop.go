@@ -40,38 +40,42 @@ const siteReadRetryAfter = 6 * time.Hour
 func diagnoseCrawlFailure(cause error) (code, detail string) {
 	switch {
 	case cause == nil:
-		return "internal", "The read failed without recording a cause."
+		return people.SiteReadFailureInternal, "The read failed without recording a cause."
 	case errors.Is(cause, webread.ErrRobotsDisallowed):
-		return "robots_disallowed", "The site's robots.txt asks this crawler not to read the page."
+		return people.SiteReadFailureRobots, "The site's robots.txt asks this crawler not to read the page."
 	}
 	var status *webread.StatusError
 	if errors.As(cause, &status) {
 		if status.Retryable() {
 			if status.Status == http.StatusForbidden || status.Status == http.StatusTooManyRequests {
-				return "bot_blocked", fmt.Sprintf(
+				return people.SiteReadFailureBotBlocked, fmt.Sprintf(
 					"The site answered %d — bot protection or rate limiting refused the read. Another attempt is scheduled.",
 					status.Status)
 			}
-			return "http_server_error", fmt.Sprintf(
+			return people.SiteReadFailureServerError, fmt.Sprintf(
 				"The site answered %d. Another attempt is scheduled.", status.Status)
 		}
-		return "http_client_error", fmt.Sprintf("The site answered %d for its own front page.", status.Status)
+		return people.SiteReadFailureClientError, fmt.Sprintf("The site answered %d for its own front page.", status.Status)
 	}
 	var netErr net.Error
 	if errors.As(cause, &netErr) && netErr.Timeout() || errors.Is(cause, context.DeadlineExceeded) {
-		return "timeout", "The site did not answer in time. Another attempt is scheduled."
+		return people.SiteReadFailureTimeout, "The site did not answer in time. Another attempt is scheduled."
 	}
 	var certErr *tls.CertificateVerificationError
 	var hostErr x509.HostnameError
 	var authErr x509.UnknownAuthorityError
 	if errors.As(cause, &certErr) || errors.As(cause, &hostErr) || errors.As(cause, &authErr) {
-		return "tls", "The site's HTTPS certificate could not be verified, so it was not read."
+		return people.SiteReadFailureTLS, "The site's HTTPS certificate could not be verified, so it was not read."
 	}
 	var dnsErr *net.DNSError
 	if errors.As(cause, &dnsErr) {
-		return "dns", "The domain name does not resolve to a server."
+		return people.SiteReadFailureDNS, "The domain name does not resolve to a server."
 	}
-	return "unreadable", "The site could not be read; no page returned usable content."
+	// Nothing recognized it, so it is not evidence about the SITE. Most callers
+	// of fail() are our own machinery — the settings store, a proposal hash, a
+	// finding write — and blaming those on the company's website would file our
+	// bug under their domain and settle it as permanently unreadable.
+	return people.SiteReadFailureInternal, "The read failed inside this system rather than at the site."
 }
 
 // autoEnrichMaxPages is the page ceiling every AUTOMATIC read runs under
