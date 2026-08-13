@@ -617,8 +617,10 @@ rediscover:
 
 Phase D fans out (§8): each module drops the column from its own tables and
 narrows its own indexes, in one PR with the Go change that stops naming it.
-Signals went first (#1124), then collections and quotas. **Roughly 130 tables
-remain**, so what a slice costs is worth knowing before starting the next one.
+Six slices are in: signals (#1124), collections + quotas (#1137), customfields
+(#1146), finance + comms (#1154), consent (#1164), and the approval spine
+(#1171). **114 tables and 127 tenant-leading indexes remain**, so what a slice
+costs is worth knowing before starting the next one.
 
 Three kinds of object go, and only the first is obvious: the **column** (which
 takes its foreign key into `workspace` with it, unasked); the **indexes that
@@ -643,11 +645,42 @@ names the table, not every file in the module — and re-read the row STRUCT and
 its scanner, which is where a dropped select column turns into "number of field
 descriptions must equal number of destinations" at runtime.
 
-**Webhooks is deliberately deferred.** Its retry sweep is one job row per live
-tenant, with an integration suite built on a second tenant's parked delivery
-and a fault injected through the workspace GUC. Dropping the column first would
-leave that suite asserting an isolation the schema no longer has, so the tables
-and the fleet loop go together (§5).
+**A reset stopped covering the tables that lost the column, and nothing said
+so.** `compose/datasweep.go` derived its targets from the presence of a
+`workspace_id` column — a proxy for "holds this tenant's data" that phase D is
+removing table by table. Under it, a module that dropped the column silently
+stopped being reset; `consent_purpose` was the first, and the reset then failed
+re-seeding purposes it had never deleted. The derivation is inverted now: the
+sweep deletes every public base table the **preserve set** does not name, so
+what a reset must KEEP is the whole definition and forgetting an entry fails
+loudly (the admin loses their session) rather than quietly leaving rows behind.
+Watch for the same shape elsewhere — any code that asks "does this table have a
+workspace_id" is asking a question that is becoming "no" everywhere.
+
+**Four modules are deliberately deferred, for two different reasons.**
+
+- **Webhooks and agents** are entangled with per-tenant job fan-out. The
+  webhook retry sweep is one job row per live tenant, with a suite built on a
+  second tenant's parked delivery and a fault injected through the workspace
+  GUC; the agent scheduler's suite injects its fault through a trigger keyed on
+  `NEW.workspace_id`. Dropping the columns first would leave those suites
+  asserting an isolation the schema no longer has, so the tables go with the
+  fleet loops (§5). Privacy's retention sweep and search's re-embed fan-out sit
+  in the same family.
+- **Automation and activity** are held by MIGRATION REPLAY. Migrations 0148 and
+  0149 are a one-off reminder repair whose SQL reads `automation.workspace_id`
+  and `activity.workspace_id`, and two integration suites replay that SQL
+  against the head schema to prove the repair did what it claimed. Dropping
+  either column retires eleven tests as a side effect. That is a real decision —
+  replaying a shipped migration against a schema that has moved past it tests a
+  combination production never has, and phase D can only make it harder — but it
+  deserves its own change rather than being settled inside a column drop.
+
+One table has already been renamed as well as narrowed: `workspace_signing_key`
+is `signing_key` (#1171). ADR-0091 §1 asks for it, and the reason is worth
+keeping in mind for `workspace_email_domain`, the other one — a table called
+`workspace_*` with no workspace column is the worst of both, since the reader
+still has to ask which workspace and the schema no longer answers.
 
 After phase D: §9 step 6 retires the remaining orphaned gates
 (`check-rls-store-path.sh`, ADR-0061 §3's bootstrap check) and §5 collapses the
