@@ -63,8 +63,9 @@ copy.
 Everything optional is off by default. Turn features on in `margince.env`
 next to the launcher — generated on first run with every supported setting
 documented and commented out, so it doubles as the reference for what exists:
-AI keys, S3-compatible storage for attachments, Gmail/Outlook capture,
-outbound webhooks, log level, and the port.
+S3-compatible storage for attachments, Gmail/Outlook capture, outbound
+webhooks, log level, the port, and the credentials that drive the AI
+surfaces.
 
 ```
 # margince.env
