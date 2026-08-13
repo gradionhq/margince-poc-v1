@@ -14,7 +14,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -66,11 +65,11 @@ func (s *Store) mirrorPayment(
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO finance_payment
-		       (workspace_id, connection_id, organization_id, external_id, invoice_id,
+		       (connection_id, organization_id, external_id, invoice_id,
 		        paid_at, currency, amount_minor, source_updated_at, sync_hash,
 		        source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		storekit.MustWorkspace(ctx), args.connectionID, args.organizationID,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		args.connectionID, args.organizationID,
 		pay.ExternalID, resolveInvoice(pay, args.rowIDs), pay.PaidAt, pay.Currency, pay.AmountMinor,
 		pay.UpdatedAt, hash, OfflineProviderName, args.capturedBy)
 	if err != nil {

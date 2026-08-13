@@ -35,13 +35,13 @@ const (
 // than a failure.
 var ErrTerminal = errors.New("comms: delivery is already terminal")
 
-// ErrDuplicateMessage marks a second staging of a message identity this
-// workspace already staged. It is the (workspace_id, message_id) idempotency
-// key answering, phrased so the caller learns what to do without learning what
-// the database is called: a wrapped pgx violation carries the constraint and
-// table names, and a client is owed neither.
+// ErrDuplicateMessage marks a second staging of a message identity already
+// staged. It is the message_id idempotency key answering, phrased so the
+// caller learns what to do without learning what the database is called: a
+// wrapped pgx violation carries the constraint and table names, and a client
+// is owed neither.
 var ErrDuplicateMessage = fmt.Errorf(
-	"comms: this message identity is already staged for delivery in this workspace: %w", apperrors.ErrConflict)
+	"comms: this message identity is already staged for delivery: %w", apperrors.ErrConflict)
 
 // ErrNoAddressee marks a delivery staged with nobody to reach. A message with
 // neither a To nor a Cc address can only be refused later — the consent gate
@@ -148,10 +148,10 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
-		  (id, workspace_id, activity_id, user_id, provider, message_id,
+		  (id, activity_id, user_id, provider, message_id,
 		   recipients, cc, subject, body, consent_purpose, in_reply_to,
 		   references_chain, thread_key, list_unsubscribe, status, created_at, attachments)
-		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5,
+		VALUES ($1, $2, $3, $4, $5,
 		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
 		        NULLIF($14,''), 'pending', $15, $16)`,
 		id, in.ActivityID, userID, in.Provider, in.MessageID,

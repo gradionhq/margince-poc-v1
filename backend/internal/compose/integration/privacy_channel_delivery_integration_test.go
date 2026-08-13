@@ -97,11 +97,11 @@ func seedChannelDelivery(t *testing.T, e *Env, age, body, status string, person 
 		// DEFAULT of an empty JSON array, and a channel row that inherited it
 		// would be refused by comms_outbound_shape.
 		_, err := tx.Exec(ctx, `
-			INSERT INTO comms_outbound (id, workspace_id, activity_id, user_id, provider,
+			INSERT INTO comms_outbound (id, activity_id, user_id, provider,
 			                            channel_user_id, body, consent_purpose, status,
 			                            cc, references_chain,
 			                            sent_at, provider_message_id)
-			VALUES ($1, `+wsClause+`, $2, $3, 'telegram', $4, $5, 'transactional', $6,
+			VALUES ($1, $2, $3, 'telegram', $4, $5, 'transactional', $6,
 			        NULL, NULL,
 			        CASE WHEN $6 = 'sent' THEN now() END,
 			        CASE WHEN $6 = 'sent' THEN $7 END)`,

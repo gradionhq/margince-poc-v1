@@ -208,12 +208,12 @@ BEGIN
 
   SELECT id INTO conn
     FROM finance_connection
-   WHERE workspace_id = ws AND provider = 'offline_demo' AND archived_at IS NULL;
+   WHERE provider = 'offline_demo' AND archived_at IS NULL;
 
   IF conn IS NULL THEN
     INSERT INTO finance_connection
-           (workspace_id, provider, status, credential_ref, source, captured_by)
-    VALUES (ws, 'offline_demo', 'active', 'offline://demo', 'system', 'system:seed')
+           (provider, status, credential_ref, source, captured_by)
+    VALUES ('offline_demo', 'active', 'offline://demo', 'system', 'system:seed')
     RETURNING id INTO conn;
   END IF;
 
@@ -226,9 +226,9 @@ BEGIN
        AND lifecycle = 'customer'
   LOOP
     INSERT INTO finance_customer_link
-           (workspace_id, connection_id, organization_id, external_customer_id,
+           (connection_id, organization_id, external_customer_id,
             sync_hash, source, captured_by)
-    VALUES (ws, conn, org.id, 'DEMO-' || left(replace(org.id::text, '-', ''), 8),
+    VALUES (conn, org.id, 'DEMO-' || left(replace(org.id::text, '-', ''), 8),
             'seed', 'system', 'system:seed')
     ON CONFLICT DO NOTHING;
   END LOOP;

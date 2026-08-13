@@ -281,14 +281,14 @@ func insertInvoice(
 	inv := args.invoice
 	_, err := tx.Exec(ctx, `
 		INSERT INTO finance_invoice
-		       (id, workspace_id, connection_id, organization_id, external_id, number,
+		       (id, connection_id, organization_id, external_id, number,
 		        issued_at, due_at, status, currency, net_minor, tax_minor, gross_minor,
 		        open_minor, credited_minor, fully_paid_at, disputed_at, void_at,
 		        credits_invoice_id, source_updated_at, sync_hash, fx_rate_to_base,
 		        fx_rate_date, source, captured_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-		        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
-		id, storekit.MustWorkspace(ctx), args.connectionID, args.organizationID,
+		        $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+		id, args.connectionID, args.organizationID,
 		inv.ExternalID, nullable(inv.Number), inv.IssuedOn, inv.DueOn, values.status,
 		inv.Currency, inv.NetMinor, inv.TaxMinor, inv.GrossMinor, values.openMinor,
 		values.credited, inv.FullyPaidAt, values.disputedAt, values.voidAt,

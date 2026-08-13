@@ -51,9 +51,9 @@ func (s *deliveryWritingStager) StageTx(ctx context.Context, tx pgx.Tx, in Deliv
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO comms_outbound
-		  (id, workspace_id, activity_id, user_id, provider, message_id,
+		  (id, activity_id, user_id, provider, message_id,
 		   recipients, subject, body, consent_purpose)
-		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		ids.NewV7(), in.ActivityID, s.userID, in.Provider, in.MessageID,
 		recipients, in.Subject, in.Body, in.ConsentPurpose)
 	if err != nil {
@@ -70,7 +70,7 @@ func (e *sendEnv) deliveryCount(t *testing.T) int {
 	t.Helper()
 	var n int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM comms_outbound WHERE workspace_id = $1`, e.ws).Scan(&n); err != nil {
+		`SELECT count(*) FROM comms_outbound`).Scan(&n); err != nil {
 		t.Fatalf("counting staged deliveries: %v", err)
 	}
 	return n
