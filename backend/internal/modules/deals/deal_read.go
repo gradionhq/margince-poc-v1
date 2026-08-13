@@ -153,13 +153,11 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	if in.PartnerOrgID != nil {
 		where = append(where, storekit.SQLf("partner_org_id = $%d", arg(*in.PartnerOrgID)))
 	}
-	// partner_sourced is attribution presence, not a value match: true is
-	// the partner-sourced pipeline slice, false its direct complement.
 	if in.PartnerSourced != nil {
 		if *in.PartnerSourced {
-			where = append(where, "partner_org_id IS NOT NULL")
+			where = append(where, PartnerSourcedSQL(""))
 		} else {
-			where = append(where, "partner_org_id IS NULL")
+			where = append(where, "NOT "+PartnerSourcedSQL(""))
 		}
 	}
 	if in.Status != nil {
@@ -167,9 +165,9 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	}
 	if in.Stalled != nil {
 		if *in.Stalled {
-			where = append(where, stalledSQL)
+			where = append(where, StalledSQL(""))
 		} else {
-			where = append(where, "NOT "+stalledSQL)
+			where = append(where, "NOT "+StalledSQL(""))
 		}
 	}
 	return where

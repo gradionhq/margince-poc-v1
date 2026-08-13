@@ -41,7 +41,7 @@ func TestAppendDealFiltersPartnerAttribution(t *testing.T) {
 		{
 			name:        "partner_sourced false selects direct deals",
 			in:          ListDealsInput{PartnerSourced: &direct},
-			wantClauses: []string{"archived_at IS NULL", "partner_org_id IS NULL"},
+			wantClauses: []string{"archived_at IS NULL", "NOT partner_org_id IS NOT NULL"},
 			wantArgs:    []any{},
 		},
 		{

@@ -177,6 +177,58 @@ function useDeals(f: DealFilters) {
   });
 }
 
+// dealsByStageReportFilters translates the board's own filter dials into
+// the deals-by-stage report's filter shape — the SAME dials dealsQueryParams
+// sends to /deals, so a card's stage total and the cards shown for it never
+// disagree about which deals are in scope. stage_id is deliberately absent:
+// the report is grouped BY stage_id, which already answers "per stage".
+function dealsByStageReportFilters(f: DealFilters): Record<string, unknown> {
+  const { filters } = f;
+  const out: Record<string, unknown> = {};
+  if (f.pipelineId) out.pipeline_id = f.pipelineId;
+  if (filters.owner_id) out.owner_id = filters.owner_id;
+  if (filters.organization_id) out.organization_id = filters.organization_id;
+  if (filters.stalled === "true") out.stalled = true;
+  if (filters.partner_sourced === "true") out.partner_sourced = true;
+  return out;
+}
+
+// useStageTotals reads the board's per-column totals from the
+// deals-by-stage report — a full aggregate over every matching deal, not
+// just the capped page useDeals fetches. Grouped by
+// [stage_id, currency] so a mixed-currency stage arrives as more than one
+// row, which buildStageTotals reads as "hide the sum" — the report never
+// includes archived deals (like every report), so the totals reflect the
+// live pipeline regardless of the board's "show archived" toggle.
+function useStageTotals(f: DealFilters) {
+  return useQuery({
+    queryKey: ["deals-by-stage-totals", f],
+    enabled: !f.overlay,
+    queryFn: async () => {
+      const { data, error } = await api.POST("/reports/{report}", {
+        params: { path: { report: "deals-by-stage" } },
+        body: {
+          group_by: ["stage_id", "currency"],
+          aggregates: [
+            { fn: "count", as: "deals" },
+            { fn: "sum", field: "amount_minor", as: "raw_minor" },
+            {
+              fn: "sum",
+              field: "weighted_amount_minor",
+              as: "weighted_minor",
+            },
+          ],
+          filters: dealsByStageReportFilters(f),
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return buildStageTotals(data.rows);
+    },
+  });
+}
+
 // OverlayDealsTable is the overlay-mode deals view: a flat mirror table
 // (a stage-keyed board cannot place a mirror deal, whose pipeline/stage is
 // null — OVA-MAP-6) that walks the keyset cursor the API returns
@@ -373,46 +425,77 @@ export function dealEditFields(
   ];
 }
 
+// StageTotals is one stage's count/raw/weighted total, sourced from the
+// deals-by-stage report rather than the board's own (capped) card fetch —
+// a pipeline with more deals than the board's one-screenful cap was
+// showing a confidently wrong sum.
+export type StageTotals = {
+  count: number;
+  rawMinor: number;
+  weightedMinor: number;
+  currency: string;
+  sumHidden: boolean;
+};
+
+// buildStageTotals shapes a deals-by-stage report grouped by
+// `["stage_id","currency"]` into one entry per stage. More than one
+// currency row for a stage means the sum is genuinely cross-currency — the
+// same rule the board has always applied, decided here from the report's
+// full row set rather than from whichever cards happened to load.
+export function buildStageTotals(
+  rows: Record<string, unknown>[],
+): Map<string, StageTotals> {
+  const byStage = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const stageId = String(row.stage_id ?? "");
+    const forStage = byStage.get(stageId) ?? [];
+    forStage.push(row);
+    byStage.set(stageId, forStage);
+  }
+  const totals = new Map<string, StageTotals>();
+  for (const [stageId, stageRows] of byStage) {
+    const count = stageRows.reduce(
+      (sum, row) => sum + Number(row.deals ?? 0),
+      0,
+    );
+    const mixed = stageRows.length > 1;
+    const single = stageRows[0];
+    totals.set(stageId, {
+      count,
+      rawMinor: mixed ? 0 : Number(single.raw_minor ?? 0),
+      weightedMinor: mixed ? 0 : Number(single.weighted_minor ?? 0),
+      currency:
+        !mixed && typeof single.currency === "string" ? single.currency : "EUR",
+      sumHidden: mixed,
+    });
+  }
+  return totals;
+}
+
 export function buildColumns(
   stages: Stage[],
   deals: Deal[],
+  totals: Map<string, StageTotals>,
   orgs?: OrgMarks,
 ): BoardColumn[] {
   return [...stages]
     .sort((a, b) => a.position - b.position)
     .map((stage) => {
       const stageDeals = deals.filter((deal) => deal.stage_id === stage.id);
-      const currencies = new Set(
-        stageDeals.map((deal) => deal.currency ?? "EUR"),
-      );
-      const currency = currencies.size === 1 ? [...currencies][0] : null;
-      // Sub-lines are page-local, same-currency display sums only; a mixed
-      // column shows no figure rather than a cross-currency lie.
-      const raw = currency
-        ? stageDeals.reduce((sum, deal) => sum + (deal.amount_minor ?? 0), 0)
-        : null;
-      // Weighted rounds PER DEAL then sums (formulas §6 / AC-F1), matching
-      // the forecast report's own methodology — rounding the column sum
-      // once instead disagrees by the rounding residue of every deal in it.
-      const weighted = currency
-        ? stageDeals.reduce(
-            (sum, deal) =>
-              sum +
-              Math.round(
-                ((deal.amount_minor ?? 0) * stage.win_probability) / 100,
-              ),
-            0,
-          )
-        : null;
+      const stageTotals = totals.get(stage.id);
       return {
         stage: stage.id,
         label: stage.name,
         probabilityPct: stage.win_probability,
-        rawMinor: raw ?? 0,
-        weightedMinor: weighted ?? 0,
-        currency: currency ?? "EUR",
+        rawMinor: stageTotals?.rawMinor ?? 0,
+        weightedMinor: stageTotals?.weightedMinor ?? 0,
+        currency: stageTotals?.currency ?? "EUR",
         deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
-        sumHidden: raw === null,
+        // The true count, not the loaded page's — falls back to the page
+        // count while totals are still loading, so the column shows SOME
+        // number rather than a misleading 0.
+        count: stageTotals?.count ?? stageDeals.length,
+        sumHidden: stageTotals?.sumHidden ?? false,
       };
     });
 }
@@ -659,13 +742,19 @@ export function DealsScreen({
     pipelinesQuery.data?.find((p) => p.id === pipelineId) ??
     pipelinesQuery.data?.find((p) => p.is_default) ??
     pipelinesQuery.data?.[0];
-  const dealsQuery = useDeals({
+  const dealFilters: DealFilters = {
     pipelineId: effectivePipeline?.id ?? "",
     sort: query.sort,
     includeArchived: query.includeArchived,
     filters: query.filters,
     overlay,
-  });
+  };
+  const dealsQuery = useDeals(dealFilters);
+  // The board's column totals: a per-stage server aggregate
+  // over EVERY matching deal, not just the capped page useDeals fetches —
+  // built from the SAME filter dials so cards and totals never disagree
+  // about which deals are in view.
+  const stageTotalsQuery = useStageTotals(dealFilters);
   // A stage-keyed board cannot place a mirror deal (its pipeline/stage is the
   // null pipeline/stage), so overlay mode opens on the flat table and hides the toggle
   // (below) — the mode is fixed for the page's life, so a static initial value
@@ -953,6 +1042,7 @@ export function DealsScreen({
                       columns={buildColumns(
                         effectivePipeline.stages ?? [],
                         page.data,
+                        stageTotalsQuery.data ?? new Map(),
                         orgMarks,
                       )}
                       onOpen={openDeal}
