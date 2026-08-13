@@ -1,4 +1,4 @@
--- 0223: a company needs EVIDENCE, and a domain can be refused one outright.
+-- 0224: a company needs EVIDENCE, and a domain can be refused one outright.
 --
 -- Two problems, one ledger.
 --
