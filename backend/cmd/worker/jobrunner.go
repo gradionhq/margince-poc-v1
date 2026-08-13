@@ -136,8 +136,15 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		WebhookRetry: compose.WebhookRetryConfig{Interval: cfg.webhookRetryInterval, Deliverer: lanes.deliverer},
 		// A nil service (no declared model) registers neither half.
 		AgentScheduler: compose.AgentSchedulerConfig{Interval: cfg.runnerInterval, Service: lanes.runner},
-		GmailRegistry:  captureReg,
-		GmailWatch:     watchCfg,
+		// Provider-run execution. Both halves are required: an adapter to
+		// call and a vault to unseal its credential with. Either absent
+		// registers nothing, which is the honest posture for a deployment
+		// with no provider configured — nothing can reach a vendor at all
+		// (PI-AC-9). lanes.providers is nil unless MARGINCE_PROVIDER_SURFE
+		// named a mode.
+		ProviderRuns:  compose.ProviderRunsConfig{Registry: lanes.providers, Vault: configuredVault},
+		GmailRegistry: captureReg,
+		GmailWatch:    watchCfg,
 		// The Telegram ingest worker builds its Sink from this — the same
 		// suppression-list config every other capture path shares.
 		CaptureConfig: cfg.captureConfig,

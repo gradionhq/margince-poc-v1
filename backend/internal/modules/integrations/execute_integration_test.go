@@ -19,6 +19,7 @@ package integrations
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,8 +94,11 @@ func TestSubmitPollParksTheClaimsPendingMarkerInTheTerminalCommit(t *testing.T) 
 
 	// The sweep polls; the fake completes on the first poll. The hand-off then
 	// fails (no claim writer is bound), which must NOT lose the marker.
-	if err := e.store.RunDueSweep(e.ctx); err == nil {
-		t.Fatal("the sweep hid the failed hand-off — an unbound claim writer must surface, not pass silently")
+	// Asserted on the message, not merely on non-nil: RunDueSweep joins every
+	// due run's error, so any unrelated failure would otherwise satisfy this.
+	err := e.store.RunDueSweep(e.ctx)
+	if err == nil || !strings.Contains(err.Error(), "no claim writer is bound") {
+		t.Fatalf("the sweep hid the failed hand-off — an unbound claim writer must surface, not pass silently: %v", err)
 	}
 	state, next, _ := runRow(t, e, run.ID)
 	if state != string(provider.RunCompleted) {
@@ -218,6 +222,140 @@ func TestDisconnectInFlightParksTheRunAndStoresNothing(t *testing.T) {
 	}
 	if held == 0 {
 		t.Fatal("the hold was released for a run that may have been paid")
+	}
+}
+
+// An AMBIGUOUS POLL is terminal but not a refusal, and terminalize used to
+// route it into recordRefusal — which zeroes actual_credits on a
+// per-successful-result provider, releasing credits the customer may already
+// have been charged and letting an identical retry buy the same answer again.
+func TestAmbiguousPollHoldsTheReservationAndParksUnknown(t *testing.T) {
+	e := setupRuns(t, runsConfig{})
+	sealCredential(t, e)
+	run := queueFor(t, e, e.mine.String())
+	if err := e.store.ExecuteSubmit(e.ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The run is in flight; the provider's poll comes back indeterminate.
+	if err := e.store.settlePoll(e.ctx, e.fake.Descriptor(), "surfe", run.ID,
+		pollLease{epoch: currentEpoch(t, e), jobID: "offline-x", person: e.mine.String()},
+		provider.PollStatus{Outcome: provider.OutcomeAmbiguous, SafeStatusCode: "poll_timeout"}); err != nil {
+		t.Fatal(err)
+	}
+
+	state, _, _ := runRow(t, e, run.ID)
+	if state != string(provider.RunSubmissionUnknown) {
+		t.Fatalf("an ambiguous poll left the run %s, want submission_unknown", state)
+	}
+	var released int
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT count(*) FROM provider_run_reservation
+		 WHERE run_id = $1 AND actual_credits = 0`, run.ID).Scan(&released); err != nil {
+		t.Fatal(err)
+	}
+	if released > 0 {
+		t.Fatal("an ambiguous poll released the hold — the ceiling now under-counts a possible charge and an identical retry could buy it again")
+	}
+}
+
+// currentEpoch reads the connection's live execution epoch, so a test can
+// build a lease the settle path will accept.
+func currentEpoch(t *testing.T, e *runsEnv) int64 {
+	t.Helper()
+	var epoch int64
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT execution_epoch FROM provider_connection WHERE provider = 'surfe'`).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	return epoch
+}
+
+// A hand-off that can never proceed must still exhaust. The ladder used to
+// advance only after a successful lease, so a completed run whose connection
+// was withdrawn stayed due forever: marker set, counter frozen, and the UI
+// reporting a clean `completed` while the paid values never arrived.
+func TestAWithdrawnConnectionExhaustsThePendingHandoffRatherThanLoopingForever(t *testing.T) {
+	e := setupRuns(t, runsConfig{})
+	sealCredential(t, e)
+	run := queueFor(t, e, e.mine.String())
+	if err := e.store.ExecuteSubmit(e.ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Complete it (no claim writer is bound, so the hand-off fails and the
+	// pending marker stands), then withdraw the connection.
+	if err := e.store.RunDueSweep(e.ctx); err == nil || !strings.Contains(err.Error(), "no claim writer is bound") {
+		t.Fatalf("the unbound claim writer did not surface: %v", err)
+	}
+	if _, err := e.owner.Exec(context.Background(), `
+		UPDATE provider_connection SET status = 'disconnected', credential_ref = NULL,
+		       execution_epoch = execution_epoch + 1
+		 WHERE provider = 'surfe'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Five due passes. Each is one spent attempt whether or not it could
+	// lease, so the ladder reaches its cap and the run stops being due.
+	for i := 0; i < claimAttemptCap; i++ {
+		if _, err := e.owner.Exec(context.Background(),
+			`UPDATE provider_run SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`,
+			run.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.store.RunDueSweep(e.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var unwritten bool
+	var next *time.Time
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT claims_unwritten, next_attempt_at FROM provider_run WHERE id = $1`,
+		run.ID).Scan(&unwritten, &next); err != nil {
+		t.Fatal(err)
+	}
+	if !unwritten {
+		t.Error("the hand-off never exhausted: the run still reports completed with claims delivered, which is not what happened")
+	}
+	if next != nil {
+		t.Error("the run is still due: the sweep will re-select it forever")
+	}
+}
+
+// An accepted job the provider never resolves must not poll forever: the
+// live-run index covers in_progress, so a stuck run would block every future
+// enrichment of that subject and hold its credits against the month.
+func TestAnUnresolvableInProgressRunExpiresRatherThanPollingForever(t *testing.T) {
+	e := setupRuns(t, runsConfig{})
+	sealCredential(t, e)
+	run := queueFor(t, e, e.mine.String())
+	if err := e.store.ExecuteSubmit(e.ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE provider_run SET submitted_at = now() - interval '2 hours' WHERE id = $1`,
+		run.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	before := e.fake.Calls()
+	if err := e.store.RunDueSweep(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	state, _, _ := runRow(t, e, run.ID)
+	if state != string(provider.RunSubmissionUnknown) {
+		t.Fatalf("the unresolvable run is %s, want submission_unknown", state)
+	}
+	if e.fake.Calls() != before {
+		t.Error("the expired run was polled again — expiry must never cause egress")
+	}
+	var held int
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT count(*) FROM provider_run_reservation WHERE run_id = $1 AND actual_credits IS NULL`,
+		run.ID).Scan(&held); err != nil {
+		t.Fatal(err)
+	}
+	if held == 0 {
+		t.Error("expiry released the hold on a run that may have been paid")
 	}
 }
 

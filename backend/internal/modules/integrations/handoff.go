@@ -50,45 +50,66 @@ func (s *Store) WithClaimWriter(fn WriteClaimsFunc) *Store {
 	return s
 }
 
-// handoffClaims writes one run's claims: re-fence, write, clear the marker,
-// one transaction. An error leaves the marker standing for the sweep.
+// handoffClaims writes one run's claims in its own transaction: re-fence,
+// write, clear the marker. An error leaves the marker standing for the sweep.
 func (s *Store) handoffClaims(ctx context.Context, runID, personID, name string, claims []provider.Claim) error {
-	if s.writeClaims == nil || s.fence == nil {
-		return errors.New("integrations: no claim writer is bound, so the hand-off must wait for the sweep")
-	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		verdict, err := s.fence(ctx, tx, personID)
-		if err != nil {
-			return err
-		}
-		if !verdict.Allowed {
-			// Paid, but the subject may no longer receive the values
-			// (suppressed or erased mid-flight). The values are discarded and
-			// the run says so; the spend stands because the purchase happened.
-			if _, err := tx.Exec(ctx, `
-				UPDATE provider_run SET claims_unwritten = true, next_attempt_at = NULL, updated_at = now()
-				 WHERE id = $1`, runID); err != nil {
-				return fmt.Errorf("integrations: recording the discarded claims: %w", err)
-			}
-			return nil
-		}
-		if err := s.writeClaims(ctx, tx, ClaimWrite{RunID: runID, PersonID: personID, Provider: name, Claims: claims}); err != nil {
-			return err
-		}
-		// Cleared with the write: a crash after the claims commit but before
-		// a separate clear would merely re-run an idempotent upsert.
-		if _, err := tx.Exec(ctx, `
-			UPDATE provider_run SET next_attempt_at = NULL, updated_at = now()
-			 WHERE id = $1`, runID); err != nil {
-			return fmt.Errorf("integrations: clearing the claims-pending marker: %w", err)
-		}
-		return nil
+		return s.writeClaimsInline(ctx, tx, runID, personID, name, claims)
 	})
 }
 
+// writeClaimsInline is the hand-off itself, inside a transaction the caller
+// already holds — the polled path opens one for it, the synchronous path
+// reuses its own terminal transaction because it has no handle to recover by.
+func (s *Store) writeClaimsInline(ctx context.Context, tx pgx.Tx, runID, personID, name string, claims []provider.Claim) error {
+	if s.writeClaims == nil || s.fence == nil {
+		return errors.New("integrations: no claim writer is bound, so the hand-off must wait for the sweep")
+	}
+	verdict, err := s.fence(ctx, tx, personID)
+	if err != nil {
+		return err
+	}
+	if !verdict.Allowed {
+		// Paid, but the subject may no longer receive the values (suppressed
+		// or erased mid-flight). The values are discarded and the run says
+		// so; the spend stands because the purchase happened.
+		return s.discardClaims(ctx, tx, runID)
+	}
+	if err := s.writeClaims(ctx, tx, ClaimWrite{RunID: runID, PersonID: personID, Provider: name, Claims: claims}); err != nil {
+		return err
+	}
+	// Cleared with the write: a crash after the claims commit but before a
+	// separate clear would merely re-run an idempotent upsert.
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run SET next_attempt_at = NULL, updated_at = now()
+		 WHERE id = $1`, runID); err != nil {
+		return fmt.Errorf("integrations: clearing the claims-pending marker: %w", err)
+	}
+	return nil
+}
+
+// discardClaims closes a hand-off that will never deliver: the run keeps its
+// money truth (completed, paid) and claims_unwritten says the values never
+// reached the subject.
+func (s *Store) discardClaims(ctx context.Context, tx pgx.Tx, runID string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run SET claims_unwritten = true, next_attempt_at = NULL, updated_at = now()
+		 WHERE id = $1`, runID); err != nil {
+		return fmt.Errorf("integrations: recording the discarded claims: %w", err)
+	}
+	return nil
+}
+
 // recoverClaims re-attempts one pending hand-off: bump the ladder, re-read
-// the result by provider job id, hand off. The bump commits BEFORE the
-// provider call so a crash mid-recovery still advanced the ladder.
+// the result by provider job id, hand off.
+//
+// The ladder advances on EVERY due pass, before and independently of the
+// lease. A recovery that cannot proceed — the connection was withdrawn, or
+// the run carries no provider job id to re-read — is still an attempt spent,
+// and it must reach claims_unwritten like any other exhaustion. Bumping only
+// after a successful lease left those runs re-selected by the sweep forever:
+// marker set, counter frozen, and a paid result reported as a clean
+// `completed` while its values never arrived.
 func (s *Store) recoverClaims(ctx context.Context, runID string) error {
 	name, err := s.runProviderName(ctx, runID)
 	if errors.Is(err, errRunVanished) {
@@ -104,12 +125,12 @@ func (s *Store) recoverClaims(ctx context.Context, runID string) error {
 	var lease pollLease
 	var leased bool
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		l, ok, err := s.leaseForPoll(ctx, tx, name, runID, string(provider.RunCompleted))
-		if err != nil || !ok {
-			return err
-		}
 		exhausted, err := s.bumpClaimAttempt(ctx, tx, runID)
 		if err != nil || exhausted {
+			return err
+		}
+		l, ok, err := s.leaseForPoll(ctx, tx, name, runID, string(provider.RunCompleted))
+		if err != nil || !ok {
 			return err
 		}
 		lease, leased = l, true
@@ -129,29 +150,36 @@ func (s *Store) recoverClaims(ctx context.Context, runID string) error {
 }
 
 // bumpClaimAttempt advances the ladder, exhausting it at the cap. Reports
-// exhausted=true when this run just crossed into claims_unwritten.
+// exhausted=true when this run just crossed into claims_unwritten. It runs on
+// every due pass, before the lease, so a recovery that cannot proceed still
+// spends an attempt and reaches its end rather than repeating forever.
 func (s *Store) bumpClaimAttempt(ctx context.Context, tx pgx.Tx, runID string) (bool, error) {
 	var attempts int
 	if err := tx.QueryRow(ctx, `
-		UPDATE provider_run SET attempt_count = attempt_count + 1,
-		       next_attempt_at = now() + $2::interval, updated_at = now()
-		 WHERE id = $1 RETURNING attempt_count`, runID,
-		claimBackoff().String()).Scan(&attempts); err != nil {
+		UPDATE provider_run SET attempt_count = attempt_count + 1, updated_at = now()
+		 WHERE id = $1 RETURNING attempt_count`, runID).Scan(&attempts); err != nil {
 		return false, fmt.Errorf("integrations: advancing the hand-off ladder: %w", err)
 	}
-	if attempts < claimAttemptCap {
-		return false, nil
+	if attempts >= claimAttemptCap {
+		if err := s.discardClaims(ctx, tx, runID); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE provider_run SET claims_unwritten = true, next_attempt_at = NULL, updated_at = now()
-		 WHERE id = $1`, runID); err != nil {
-		return false, fmt.Errorf("integrations: exhausting the hand-off ladder: %w", err)
+		UPDATE provider_run SET next_attempt_at = now() + $2::interval
+		 WHERE id = $1`, runID, claimBackoff(attempts).String()); err != nil {
+		return false, fmt.Errorf("integrations: scheduling the next hand-off attempt: %w", err)
 	}
-	return true, nil
+	return false, nil
 }
 
-// claimBackoff spaces the recovery attempts. A flat three minutes reaches the
-// cap in ~15 minutes, the window PI-PARAM-10 names; an exponential ladder
-// buys nothing here because the failure being ridden out is our own write
-// path, not a rate limit.
-func claimBackoff() time.Duration { return 3 * time.Minute }
+// claimBackoff is PI-PARAM-10's exponential ladder: one minute doubling per
+// attempt, so five attempts span ~15 minutes (1 + 2 + 4 + 8). The spec pins
+// both the shape and the window, and the shape is the half that matters when
+// the failure being ridden out is the domain's write path rather than a rate
+// limit — a flat interval retries hardest exactly when a slow recovery is
+// least likely to be ready.
+func claimBackoff(attempt int) time.Duration {
+	return time.Minute << (attempt - 1)
+}

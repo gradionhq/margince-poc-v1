@@ -163,13 +163,16 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		WebhookRetryWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&webhookRetryWorkspaceWorker{}).Work(ctx, &river.Job[WebhookRetryWorkspaceArgs]{})
 		},
+		ProviderRunPollArgs{}.Kind(): func(ctx context.Context) error {
+			return (&providerRunPollWorker{}).Work(ctx, &river.Job[ProviderRunPollArgs]{})
+		},
 		ProviderRunSubmitArgs{}.Kind(): func(ctx context.Context) error {
+			// RunID travels through the worker unparsed, so the zero value
+			// would do; a real id keeps the args honest to what a live
+			// insert carries.
 			return (&providerRunSubmitWorker{}).Work(ctx, &river.Job[ProviderRunSubmitArgs]{
 				Args: ProviderRunSubmitArgs{RunID: ids.NewV7().String()},
 			})
-		},
-		ProviderRunPollArgs{}.Kind(): func(ctx context.Context) error {
-			return (&providerRunPollWorker{}).Work(ctx, &river.Job[ProviderRunPollArgs]{})
 		},
 
 		// The reindex worker takes its LAST attempt out of the pending set

@@ -48,13 +48,20 @@ func (s *Store) RunDueSweep(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// expireDeadInflight calls time on submissions whose worker died: past the
-// expiry nobody will ever settle them, and the only honest terminal state is
-// the one that says the outcome was never learned. Never a resubmit — the
-// request may have landed, and a retry is how one ambiguous charge becomes
-// two certain ones (PI-AC-4). inflight_at deliberately stands.
+// expireDeadInflight calls time on the two ways a run can stop being
+// settleable, and gives both the same terminal state: submission_unknown,
+// reservation held, inflight_at standing as the fact it carries. Never a
+// resubmit — the request may have landed, and a retry is how one ambiguous
+// charge becomes two certain ones (PI-AC-4).
+//
+// Both arms are bounded on purpose. A run left in either state forever would
+// keep occupying the live-run index (which covers submitting AND in_progress),
+// so the customer could never re-enrich that subject, and its hold would count
+// against the monthly ceiling for the rest of the month — a stuck row denying
+// service to the record it belongs to.
 func (s *Store) expireDeadInflight(ctx context.Context) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The worker died mid-submission: nobody will ever learn the outcome.
 		if _, err := tx.Exec(ctx, `
 			UPDATE provider_run
 			   SET state = 'submission_unknown', completed_at = now(),
@@ -62,6 +69,17 @@ func (s *Store) expireDeadInflight(ctx context.Context) error {
 			 WHERE state = 'submitting' AND inflight_at < now() - $1::interval`,
 			inflightExpiry.String()); err != nil {
 			return fmt.Errorf("integrations: expiring dead in-flight submissions: %w", err)
+		}
+		// The provider accepted the job and never resolved it — a handle that
+		// expired, or one their side garbage-collected. Measured from
+		// submitted_at, because that is when the clock on their answer started.
+		if _, err := tx.Exec(ctx, `
+			UPDATE provider_run
+			   SET state = 'submission_unknown', completed_at = now(),
+			       last_safe_status_code = 'poll_expired', updated_at = now()
+			 WHERE state = 'in_progress' AND submitted_at < now() - $1::interval`,
+			pollExpiry.String()); err != nil {
+			return fmt.Errorf("integrations: expiring unresolvable in-progress runs: %w", err)
 		}
 		return nil
 	})
@@ -173,19 +191,21 @@ func (s *Store) leaseForPoll(ctx context.Context, tx pgx.Tx, name, runID, wantSt
 		return none, false, nil
 	}
 	conn, err := s.readLiveConnection(ctx, tx, name)
-	withdrawn := errors.Is(err, errNoLiveConnection)
-	if err != nil && !withdrawn {
+	unusable := errors.Is(err, errNoLiveConnection) || errors.Is(err, errConnectionImpaired)
+	if err != nil && !unusable {
 		return none, false, err
 	}
-	if withdrawn || conn.epoch != runEpoch {
+	if unusable || conn.epoch != runEpoch {
 		if wantState == string(provider.RunInProgress) {
 			if err := s.parkUnknown(ctx, tx, runID, "disconnected_in_flight"); err != nil {
 				return none, false, err
 			}
 		}
-		// A completed run recovering its claims stays completed: the purchase
-		// already happened, and the marker stands until the attempts exhaust
-		// into claims_unwritten.
+		// A completed run recovering its claims stays completed — the
+		// purchase already happened — but its ladder keeps running: the
+		// caller bumps before it leases, so a connection that never comes
+		// back exhausts into claims_unwritten instead of leaving the run due
+		// forever with a marker nothing can act on.
 		return none, false, nil
 	}
 	cred, err := s.unseal(ctx, tx, conn.credentialRef)
@@ -210,11 +230,11 @@ func (s *Store) settlePoll(ctx context.Context, desc provider.Descriptor, name, 
 			return err
 		}
 		conn, err := s.readLiveConnection(ctx, tx, name)
-		withdrawn := errors.Is(err, errNoLiveConnection)
-		if err != nil && !withdrawn {
+		unusable := errors.Is(err, errNoLiveConnection) || errors.Is(err, errConnectionImpaired)
+		if err != nil && !unusable {
 			return err
 		}
-		if withdrawn || conn.epoch != lease.epoch {
+		if unusable || conn.epoch != lease.epoch {
 			return s.parkUnknown(ctx, tx, runID, "disconnected_in_flight")
 		}
 		if status.Outcome == provider.OutcomeCompleted {
@@ -262,6 +282,13 @@ func (s *Store) terminalize(ctx context.Context, tx pgx.Tx, desc provider.Descri
 		if err := s.reconcile(ctx, tx, desc, runID, nil, false); err != nil {
 			return err
 		}
+	case provider.OutcomeAmbiguous:
+		// Terminal, but NOT a refusal: the outcome was never learned, so the
+		// hold stands. Routing it into recordRefusal would zero every
+		// actual_credits on a per-successful-result provider, releasing
+		// credits the customer may already have been charged and letting the
+		// next run spend them again.
+		return s.parkUnknown(ctx, tx, runID, status.SafeStatusCode)
 	default:
 		return s.recordRefusal(ctx, tx, desc, name, runID, status.Outcome, status.SafeStatusCode)
 	}

@@ -13,13 +13,16 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
@@ -114,6 +117,10 @@ type workerLanes struct {
 	runner    *compose.RunnerService
 	deliverer func(*database.DB) *webhooks.Deliverer
 	blob      blobstore.Store
+	// providers is the licensed-data-provider adapter registry this boot was
+	// configured with (MARGINCE_PROVIDER_SURFE). Nil is a deployment with no
+	// provider: the run lanes register nothing and nothing can reach a vendor.
+	providers *integrations.Registry
 }
 
 // join ends the lanes and waits for the handler each is in. It is what makes the
@@ -151,6 +158,17 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		_, _ = fmt.Fprintln(stdout, "worker storing site-read logos and erasing attachment objects (blobstore configured)")
 	}
 	lanes.blob = blob
+	// The adapter registry the provider-run lanes execute through, read from
+	// the same variable cmd/api reads: the role that queues a run and the
+	// role that executes it must agree about who they are calling.
+	providers, providersConfigured, err := compose.ProviderRegistryFromEnv(time.Now)
+	if err != nil {
+		return lanes, fmt.Errorf("worker: %w", err)
+	}
+	if providersConfigured {
+		_, _ = fmt.Fprintf(stdout, "worker executing provider enrichment runs (%s)\n", strings.Join(providers.Names(), ", "))
+	}
+	lanes.providers = providers
 	if err := backfillConnectorCredentials(ctx, pool, stdout, logger); err != nil {
 		return lanes, err
 	}

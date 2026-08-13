@@ -22,6 +22,15 @@ import (
 // objectIntegrations is the RBAC object every entry point below gates on.
 const objectIntegrations = "integrations"
 
+// The audit image keys this module's rows carry. Spelled once because a spend
+// or access investigation filters on them: a typo in one writer would make
+// that row invisible to the query that goes looking for it.
+const (
+	auditKeyProvider = "provider"
+	auditKeyMode     = "mode"
+	auditKeyPreset   = "preset"
+)
+
 // Store owns the four platform tables. Every exported method gates before it
 // reads or writes: the connection is installation-wide configuration that
 // spends the customer's money, so there is no ungated path to it.

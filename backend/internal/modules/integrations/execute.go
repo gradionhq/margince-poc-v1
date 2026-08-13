@@ -47,6 +47,12 @@ const (
 	// the outcome unknown. Long enough for any real submission round trip;
 	// after it the worker is dead and nobody will ever settle the run.
 	inflightExpiry = 10 * time.Minute
+	// pollExpiry is how long an accepted job may stay in_progress before the
+	// sweep gives up on it. Generous against inflightExpiry because the wait
+	// is the PROVIDER's — Surfe resolves a bulk enrichment in seconds, so an
+	// hour without an answer means the handle will never resolve, not that
+	// they are slow.
+	pollExpiry = time.Hour
 )
 
 // execLease is what the lease transaction hands the provider call: the
@@ -65,9 +71,15 @@ type execLease struct {
 var (
 	// errRunVanished: the row is gone — erased under the worker.
 	errRunVanished = errors.New("integrations: the run no longer exists")
-	// errNoLiveConnection: absent, not connected, or holding no credential —
-	// no egress may be authorized.
+	// errNoLiveConnection: REVOKED — absent, disconnected, or holding no
+	// credential. Queued work under a revoked connection is cancelled, the
+	// posture Disconnect itself takes.
 	errNoLiveConnection = errors.New("integrations: no connected, credentialed connection")
+	// errConnectionImpaired: the credential is present but the provider
+	// refused it. Not a revocation: queued work WAITS for the rotation that
+	// fixes it rather than being cancelled, and no egress is attempted —
+	// re-presenting a refused key buys nothing and can trip lockouts.
+	errConnectionImpaired = errors.New("integrations: the connection's credential was refused and awaits rotation")
 )
 
 // ExecuteSubmit advances one queued run through its submission (T2). The
@@ -147,19 +159,20 @@ func (s *Store) leaseForSubmit(ctx context.Context, tx pgx.Tx, name, runID strin
 		return none, false, nil
 	}
 	conn, err := s.readLiveConnection(ctx, tx, name)
-	withdrawn := errors.Is(err, errNoLiveConnection)
-	if err != nil && !withdrawn {
-		return none, false, err
-	}
-	if withdrawn || conn.epoch != runEpoch {
-		// Withdrawn before inflight_at was ever set: nothing was sent and
-		// nothing was held against a submission, so cancelling is honest.
-		if _, err := tx.Exec(ctx, `
-			UPDATE provider_run SET state = 'cancelled', completed_at = now(), updated_at = now()
-			 WHERE id = $1`, runID); err != nil {
-			return none, false, fmt.Errorf("integrations: cancelling the withdrawn run: %w", err)
-		}
+	switch {
+	case errors.Is(err, errConnectionImpaired):
+		// The stored key was refused. The run WAITS: an admin rotating the
+		// credential is the expected resolution, and cancelling here would
+		// throw away a backlog the rotation was about to serve.
 		return none, false, nil
+	case errors.Is(err, errNoLiveConnection):
+		// Revoked before inflight_at was ever set: nothing was sent and
+		// nothing was held against a submission, so cancelling is honest.
+		return none, false, s.cancelWithdrawn(ctx, tx, runID)
+	case err != nil:
+		return none, false, err
+	case conn.epoch != runEpoch:
+		return none, false, s.cancelWithdrawn(ctx, tx, runID)
 	}
 	req, err := s.frozenRequest(ctx, tx, name, *person, corr, cats)
 	if err != nil {
@@ -202,14 +215,31 @@ func (s *Store) frozenRequest(ctx context.Context, tx pgx.Tx, name, person, corr
 	}, nil
 }
 
+// cancelWithdrawn closes a run whose connection was revoked before any egress:
+// still queued, so no reservation was ever taken against a submission and
+// nothing anyone paid for is being released.
+func (s *Store) cancelWithdrawn(ctx context.Context, tx pgx.Tx, runID string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE provider_run SET state = 'cancelled', completed_at = now(), updated_at = now()
+		 WHERE id = $1`, runID); err != nil {
+		return fmt.Errorf("integrations: cancelling the withdrawn run: %w", err)
+	}
+	return nil
+}
+
 // liveConnection is the connection state the lease reads under its lock.
 type liveConnection struct {
 	epoch         int64
 	credentialRef string
 }
 
-// readLiveConnection answers errNoLiveConnection when the connection cannot
-// authorize egress: absent, not connected, or holding no credential.
+// readLiveConnection distinguishes the three answers a connection can give an
+// egress request. Revoked (errNoLiveConnection): absent, disconnected, or no
+// credential. Impaired (errConnectionImpaired): the stored key was refused —
+// present, but not worth re-presenting. Degraded-but-credentialed statuses
+// (rate_limited, insufficient_credits, provider_error) still authorize
+// egress: they are recoverable provider conditions, and a later success is
+// exactly what proves recovery and restores `connected`.
 func (s *Store) readLiveConnection(ctx context.Context, tx pgx.Tx, name string) (liveConnection, error) {
 	var status string
 	var epoch int64
@@ -223,8 +253,11 @@ func (s *Store) readLiveConnection(ctx context.Context, tx pgx.Tx, name string) 
 	if err != nil {
 		return liveConnection{}, fmt.Errorf("integrations: reading the connection for egress: %w", err)
 	}
-	if status != "connected" || ref == nil {
+	if ref == nil || status == "disconnected" || status == "validating" {
 		return liveConnection{}, errNoLiveConnection
+	}
+	if status == "invalid_credentials" {
+		return liveConnection{}, errConnectionImpaired
 	}
 	return liveConnection{epoch: epoch, credentialRef: *ref}, nil
 }
@@ -265,8 +298,7 @@ func cascadesFor(desc provider.Descriptor, requested []provider.Category) []prov
 // out means the answer must not be stored — the run parks in
 // submission_unknown with its reservation held, PI-AC-4's exact state.
 func (s *Store) settleSubmit(ctx context.Context, desc provider.Descriptor, name, runID string, lease execLease, sub provider.Submission) error {
-	var completed *provider.Result
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := storekit.LockWriteIdentity(ctx, tx, "provider_connection", name); err != nil {
 			return err
 		}
@@ -275,38 +307,46 @@ func (s *Store) settleSubmit(ctx context.Context, desc provider.Descriptor, name
 			return err
 		}
 		conn, err := s.readLiveConnection(ctx, tx, name)
-		withdrawn := errors.Is(err, errNoLiveConnection)
-		if err != nil && !withdrawn {
+		unusable := errors.Is(err, errNoLiveConnection) || errors.Is(err, errConnectionImpaired)
+		if err != nil && !unusable {
 			return err
 		}
-		if withdrawn || conn.epoch != lease.epoch {
+		if unusable || conn.epoch != lease.epoch {
 			return s.parkUnknown(ctx, tx, runID, "disconnected_in_flight")
 		}
-		switch sub.Outcome {
-		case provider.OutcomeAccepted:
-			if _, err := tx.Exec(ctx, `
-				UPDATE provider_run SET state = 'in_progress', provider_job_id = $2, updated_at = now()
-				 WHERE id = $1`, runID, sub.ProviderJobID); err != nil {
-				return fmt.Errorf("integrations: recording the accepted submission: %w", err)
-			}
-			return nil
-		case provider.OutcomeCompleted, provider.OutcomeNoMatch:
-			// A synchronous provider answered in the submit call itself.
-			completed = sub.Result
-			return s.terminalize(ctx, tx, desc, name, runID, pollFrom(sub))
-		case provider.OutcomeAmbiguous:
-			return s.parkUnknown(ctx, tx, runID, sub.SafeStatusCode)
-		default:
-			return s.recordRefusal(ctx, tx, desc, name, runID, sub.Outcome, sub.SafeStatusCode)
-		}
+		return s.recordSubmission(ctx, tx, desc, name, runID, lease, sub)
 	})
-	if err != nil {
-		return err
+}
+
+// recordSubmission writes one submission's outcome, inside the settlement
+// transaction that has already re-checked the epoch.
+func (s *Store) recordSubmission(ctx context.Context, tx pgx.Tx, desc provider.Descriptor, name, runID string, lease execLease, sub provider.Submission) error {
+	switch sub.Outcome {
+	case provider.OutcomeAccepted:
+		if _, err := tx.Exec(ctx, `
+			UPDATE provider_run SET state = 'in_progress', provider_job_id = $2, updated_at = now()
+			 WHERE id = $1`, runID, sub.ProviderJobID); err != nil {
+			return fmt.Errorf("integrations: recording the accepted submission: %w", err)
+		}
+		return nil
+	case provider.OutcomeCompleted, provider.OutcomeNoMatch:
+		// A synchronous provider answered in the submit call itself. Its
+		// claims are written INSIDE this transaction (PI-PARAM-10, and the
+		// Transport doc): there is no re-readable handle, so a hand-off that
+		// failed separately could never be recovered — the sweep would find a
+		// marker it has no way to act on.
+		if err := s.terminalize(ctx, tx, desc, name, runID, pollFrom(sub)); err != nil {
+			return err
+		}
+		if sub.Result == nil {
+			return nil
+		}
+		return s.writeClaimsInline(ctx, tx, runID, lease.person, name, sub.Result.Claims)
+	case provider.OutcomeAmbiguous:
+		return s.parkUnknown(ctx, tx, runID, sub.SafeStatusCode)
+	default:
+		return s.recordRefusal(ctx, tx, desc, name, runID, sub.Outcome, sub.SafeStatusCode)
 	}
-	if completed != nil {
-		return s.handoffClaims(ctx, runID, lease.person, name, completed.Claims)
-	}
-	return nil
 }
 
 // lockRunState takes the run's row lock and answers its current state.
@@ -334,12 +374,29 @@ func (s *Store) parkUnknown(ctx context.Context, tx pgx.Tx, runID, safeCode stri
 	return nil
 }
 
+// definiteRefusals is the closed set of outcomes that prove the provider did
+// NO work — the only outcomes whose hold may be released. It is spelled as a
+// set rather than as a default branch so a new outcome added to the port
+// cannot fall into the release path by omission: recordRefusal refuses to
+// settle anything not named here.
+var definiteRefusals = map[provider.Outcome]string{
+	provider.OutcomeInvalidCredentials:  "invalid_credentials",
+	provider.OutcomeInsufficientCredits: "insufficient_credits",
+	provider.OutcomeRateLimited:         "rate_limited",
+	provider.OutcomeProviderError:       "provider_error",
+}
+
 // recordRefusal handles a definite pre-work refusal: the provider named a
 // reason and did no work, so the hold is released and inflight_at cleared —
 // the ONE case that may release, because it is the one case that is provably
-// not a charge. Credential and credit refusals write through to the
-// connection status so the settings card tells the truth without a re-probe.
+// not a charge. The refusal also writes through to the connection status so
+// the settings card tells the truth without a re-probe, audited like every
+// other write to that row.
 func (s *Store) recordRefusal(ctx context.Context, tx pgx.Tx, desc provider.Descriptor, name, runID string, outcome provider.Outcome, safeCode string) error {
+	status, definite := definiteRefusals[outcome]
+	if !definite {
+		return fmt.Errorf("integrations: %q is not a definite refusal, so run %s's hold must not be released", outcome, runID)
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE provider_run SET state = 'failed', completed_at = now(), inflight_at = NULL,
 		       last_safe_status_code = $2, updated_at = now()
@@ -349,19 +406,33 @@ func (s *Store) recordRefusal(ctx context.Context, tx pgx.Tx, desc provider.Desc
 	if err := s.reconcile(ctx, tx, desc, runID, nil, false); err != nil {
 		return err
 	}
-	status, writeThrough := map[provider.Outcome]string{
-		provider.OutcomeInvalidCredentials:  "invalid_credentials",
-		provider.OutcomeInsufficientCredits: "insufficient_credits",
-		provider.OutcomeRateLimited:         "rate_limited",
-		provider.OutcomeProviderError:       "provider_error",
-	}[outcome]
-	if !writeThrough {
+	return s.writeStatusThrough(ctx, tx, name, status, safeCode)
+}
+
+// writeStatusThrough records a provider refusal on the connection the settings
+// card reads, audited in the same transaction — every other write to this row
+// (connect, disconnect, update) carries an audit image, and a status an
+// operator will ask "when and why" about is not the one to make an exception
+// for. The image names the provider and the closed safe status code, never
+// the key and never a balance.
+func (s *Store) writeStatusThrough(ctx context.Context, tx pgx.Tx, name, status, safeCode string) error {
+	var id *string
+	var before string
+	err := tx.QueryRow(ctx, `
+		UPDATE provider_connection SET status = $2, last_safe_status_code = $3, updated_at = now()
+		 WHERE provider = $1 AND status <> $2
+		 RETURNING id::text, $2`, name, status, safeCode).Scan(&id, &before)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Already in this status: nothing changed, so there is nothing to
+		// audit and no second identical row to write.
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE provider_connection SET status = $2, last_safe_status_code = $3, updated_at = now()
-		 WHERE provider = $1 AND status = 'connected'`, name, status, safeCode); err != nil {
+	if err != nil {
 		return fmt.Errorf("integrations: writing the refusal through to the connection: %w", err)
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "provider_connection", uuidOf(id),
+		nil, map[string]any{auditKeyProvider: name, "status": status, "safe_status_code": safeCode}); err != nil {
+		return err
 	}
 	return nil
 }

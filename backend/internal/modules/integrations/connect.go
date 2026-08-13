@@ -110,7 +110,7 @@ func (s *Store) Connect(ctx context.Context, in ConnectInput) (Connection, error
 		// The audit image names the provider and the policy; it never carries
 		// the key, the vault handle, or a balance.
 		if _, err := storekit.Audit(ctx, tx, "connect", "provider_connection", uuidOf(old.id),
-			nil, map[string]any{"provider": in.Provider, "mode": cfg.Mode, "preset": cfg.Preset}); err != nil {
+			nil, map[string]any{auditKeyProvider: in.Provider, auditKeyMode: cfg.Mode, auditKeyPreset: cfg.Preset}); err != nil {
 			return err
 		}
 		conns, err := s.loadConnections(ctx, tx)
@@ -198,7 +198,7 @@ func (s *Store) Disconnect(ctx context.Context, name string) error {
 			return fmt.Errorf("integrations: cancelling queued runs: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "disconnect", "provider_connection", uuidOf(id),
-			map[string]any{"provider": name}, nil); err != nil {
+			map[string]any{auditKeyProvider: name}, nil); err != nil {
 			return err
 		}
 		return nil
