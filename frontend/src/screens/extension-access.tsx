@@ -10,7 +10,7 @@ import {
 import { type ReactNode, useEffect } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCanMutate } from "../app/capability";
+import { useCanMutate, useHoldsAdminRole } from "../app/capability";
 import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
 import { routeHash } from "../app/router";
 import { Badge, Card, Checkbox, EmptyState } from "../design-system/atoms";
@@ -251,7 +251,7 @@ export function ExtensionAccessCard() {
   // should hold it, so the grant would be a constant, and an admin who revoked
   // their own would have no way back. The role check is the ratified answer,
   // not a stand-in for one.
-  const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const isAdmin = useHoldsAdminRole();
   const canMutate = useCanMutate();
   const query = useExtensionAccess(isAdmin);
   const composed = query.data;

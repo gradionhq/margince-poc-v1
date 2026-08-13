@@ -69,15 +69,27 @@ type AuditPage struct {
 	HasMore    bool
 }
 
-// ListAuditLog reads the workspace's audit history, newest first. The
-// surface is x-agent-access: human-only AND unbounded: the agent gate
-// only fronts mutating routes, so the human check lives here — an agent
-// reading the log that records its own governance would let it observe
-// exactly the oversight trail that bounds it.
+// ListAuditLog reads the workspace's audit history, newest first.
+//
+// Human-only: the agent gate only fronts mutating routes, so the check lives
+// here — an agent reading the log that records its own governance would let it
+// observe exactly the oversight trail that bounds it.
+//
+// Admin-only, and deliberately NOT "unbounded row scope". This is the
+// unrestricted compliance read, distinct from the per-record history every
+// member may read on records they can see, and the spec's governance matrix
+// reserves it for the admin alone. Row scope is the wrong predicate for it:
+// ops and read_only both seed with scope `all`, so an unbounded check handed
+// the whole governance trail to two roles the matrix denies — the compliance
+// read is oversight OF ops' machine-origin actions and cannot sit with the
+// role it oversees.
 func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPage, error) {
 	actor, ok := principal.Actor(ctx)
-	if !ok || actor.Type != principal.PrincipalHuman || !auth.Unbounded(actor) {
+	if !ok || actor.Type != principal.PrincipalHuman {
 		return AuditPage{}, apperrors.ErrPermissionDenied
+	}
+	if err := auth.RequireAdmin(ctx); err != nil {
+		return AuditPage{}, err
 	}
 
 	limit := storekit.ClampLimit(f.Limit)

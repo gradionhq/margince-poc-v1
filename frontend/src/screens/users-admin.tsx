@@ -15,6 +15,7 @@ import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
+import { useHoldsAdminRole } from "../app/capability";
 import { isOption } from "../app/options";
 import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 
@@ -59,7 +60,7 @@ function useMembers(enabled: boolean) {
 export function UsersAdminCard() {
   const t = useT();
   const me = useMe();
-  const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const isAdmin = useHoldsAdminRole();
   const members = useMembers(isAdmin);
   // The server answers whether THIS caller can mint set-password links: admin,
   // on an installation with no email channel and a configured base URL. Where

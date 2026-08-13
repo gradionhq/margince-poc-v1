@@ -5,11 +5,12 @@
 
 package integration
 
-// The audit-log governance read (GET /audit-log, feedback/13): admin
-// (unbounded human) reads the workspace trail newest-first with live
-// filters and a stable keyset walk; a bounded rep and an agent
-// principal are refused outright — the surface never narrows to a
-// misleading partial view.
+// The audit-log governance read (GET /audit-log): an admin human reads the
+// workspace trail newest-first with live filters and a stable keyset walk.
+// Everyone else is refused outright — a bounded rep, an agent principal, and
+// the two roles that hold an unbounded row scope without holding the
+// compliance authority. The surface never narrows to a misleading partial
+// view.
 
 import (
 	"errors"
@@ -21,7 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func TestAuditLogReadRequiresUnboundedHuman(t *testing.T) {
+func TestAuditLogReadRequiresAdminHuman(t *testing.T) {
 	e := Setup(t)
 
 	e.SeedPerson(t, "Audit Subject", nil)
@@ -30,6 +31,21 @@ func TestAuditLogReadRequiresUnboundedHuman(t *testing.T) {
 	repCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
 	if _, err := privacy.ListAuditLog(repCtx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("bounded rep reads audit log: err=%v, want permission denied", err)
+	}
+
+	// An unbounded row scope is NOT the predicate. ops and read_only both seed
+	// with scope `all`, and the governance matrix reserves the compliance read
+	// for the admin alone — the read is oversight of ops' own machine-origin
+	// actions, so it cannot sit with the role it oversees.
+	for _, role := range []string{"ops", "read_only"} {
+		unboundedCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+			RoleKeys: []string{role},
+			Objects:  map[string]principal.ObjectGrant{"person": {Read: true}},
+			RowScope: principal.RowScopeAll,
+		})
+		if _, err := privacy.ListAuditLog(unboundedCtx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("%s reads audit log: err=%v, want permission denied", role, err)
+		}
 	}
 
 	// An agent principal is refused even with unbounded grants: the
