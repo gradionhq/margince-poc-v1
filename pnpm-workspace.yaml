@@ -16,3 +16,21 @@ packages:
 # esbuild ships a platform binary and needs its install script to run.
 allowBuilds:
   esbuild: true
+
+# Transitive-dependency floors we hold ourselves because the direct dependency
+# pins below them. Each one is a patch-level lift with a reason to exist and a
+# condition for going away — never a blanket "newest wins".
+overrides:
+  # GHSA-5p4m-2wfm-xmqj: quadratic CPU consumption resolving `!!omap`, fixed in
+  # 4.3.1. Reached only through openapi-typescript -> @redocly/openapi-core,
+  # which depends on the EXACT version 4.3.0, so no update can lift it and an
+  # override is the only route. The exposure here is small — the tool parses our
+  # own backend/api/*.yaml at build time, never anything a user supplies — but
+  # the fix is a patch bump, and a high advisory sitting open on a public
+  # repository costs more than it saves. Drop this once @redocly/openapi-core
+  # ships a range that admits 4.3.1.
+  #
+  # Pinned to the 4.x line on purpose: an open `>=4.3.1` resolves to 5.x, whose
+  # API the consumer was never written against, and swapping a DoS advisory for
+  # a broken type generator is not a trade.
+  js-yaml: '^4.3.1'

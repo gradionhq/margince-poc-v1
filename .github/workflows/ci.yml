@@ -119,6 +119,16 @@ jobs:
               # that edits what the lane does — and nothing else — would skip
               # the lane that runs it.
               - 'Makefile'
+              # And the install inputs, because they decide WHICH code the lane
+              # would have run against. A lockfile bump or a pnpm override swaps
+              # the dependency the SPA builds on and the one openapi-typescript
+              # parses the contract with — every frontend job would skip, and a
+              # dependency change is exactly the kind that needs fe-drift,
+              # fe-unit and fe-bundle to have an opinion. pnpm-workspace.yaml is
+              # named because `overrides` lives there: it resolves versions the
+              # lockfile then merely records.
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
             e2e:
               - 'backend/**'
               - 'frontend/**'
@@ -145,6 +155,10 @@ jobs:
               - '**/go.sum'
               - '**/package.json'
               - '**/pnpm-lock.yaml'
+              # `overrides` lives here, so this file decides resolved versions
+              # the same way a manifest does — the SBOM and licence lanes must
+              # see a change to it even when nothing else moves.
+              - 'pnpm-workspace.yaml'
               - '.syft.yaml'
               - '.grant.yaml'
               - 'sbom-schemas/**'
