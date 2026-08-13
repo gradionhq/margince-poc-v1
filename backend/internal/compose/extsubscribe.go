@@ -15,6 +15,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -89,16 +90,42 @@ func (c ComposedSubscription) Group() (kevents.Group, error) {
 // system principal — the same one every core bus consumer writes under — and
 // the Runtime is minted unattended, which shuts the core port. Those two facts
 // belong together: PrincipalSystem is a principal auth.Require does not check,
-// so the port's refusal is the whole distance between a bus event and an
-// unchecked core write. The unit's own tables stay writable, auditable and
-// publishable, which is what reacting to a fact consists of.
+// so without the port's refusal the governed door would stand open to a caller
+// nothing checks. It is not a containment claim about core TABLES — Tx's three
+// SQL verbs run on the shared application role here as everywhere else, which
+// runtime.go states in the open and issue #628 tracks. The unit's own tables
+// stay writable, auditable and publishable, which is what reacting to a fact
+// consists of.
 //
 // The correlation id CARRIES THROUGH from the triggering event and the event
 // itself becomes the causation, so a fact, the reaction to it, and whatever the
 // reaction publishes read as one story rather than three unrelated ones.
-func (c ComposedSubscription) Handler(pool *pgxpool.Pool) func(context.Context, kevents.Envelope) error {
+func (c ComposedSubscription) Handler(pool *pgxpool.Pool, log *slog.Logger) func(context.Context, kevents.Envelope) error {
 	db := InstallationDB(pool)
-	return func(ctx context.Context, env kevents.Envelope) error {
+	return func(ctx context.Context, env kevents.Envelope) (err error) {
+		// Installed FIRST, so it covers the whole delivery rather than the
+		// handler alone: a panic anywhere under this frame — the unit's code,
+		// or the core's own on its behalf — becomes a failed delivery. There is
+		// nothing above it but the subscriber's goroutine, so an unrecovered
+		// one takes the entire worker down: the relay, the job runner, every
+		// other unit's lane. The entry is then un-acked, so the restarted
+		// worker is handed the same event and dies again — one bad delivery
+		// would be an installation-wide crash loop. The job seam recovers its
+		// tick for a weaker version of the same reason (extjobsrun.go).
+		//
+		// It becomes an error rather than an ack, deliberately: the entry stays
+		// pending and re-delivers, which is right for a panic a retry can clear
+		// and merely repetitive for one it cannot. Acking would silently drop a
+		// fact somebody's unit was written to react to. The log names the unit
+		// and the subscription, which the bus entry cannot.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error("extension subscription delivery panicked",
+					"unit", string(c.Unit), "subscription", c.Sub.Name,
+					"event", env.EventID.String(), "type", env.Type, "panic", r)
+				err = fmt.Errorf("compose: extension %q subscription %q panicked: %v", c.Unit, c.Sub.Name, r)
+			}
+		}()
 		if !slices.Contains(c.Sub.Events, env.Type) {
 			// The group's streams carry more than this listener asked for —
 			// one activity event means the whole activity stream — so the

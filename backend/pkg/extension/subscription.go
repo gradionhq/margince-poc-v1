@@ -87,8 +87,10 @@ type Delivery struct {
 // fix.
 type EventHandler func(ctx context.Context, rt Runtime, d Delivery) error
 
-// Subscription is the BEHAVIOR half of one thing a unit listens for: which
-// events, and the Go function that runs when one arrives.
+// Subscription is one thing a unit listens for: which events, and the Go
+// function that runs when one arrives. Unlike a Tool or a Job it is BOTH halves
+// in one value — there is no contract fragment to carry the declaration, so the
+// event list and the behavior are declared together (see Extension).
 //
 // The event list is DECLARED rather than filtered in code, and that is a
 // governance property rather than a convenience: it is derived into the unit's
@@ -103,7 +105,14 @@ type Subscription struct {
 
 	// Events are the event types this subscription wants, spelled in full —
 	// `activity.archived`, `ext_notes.note_added`. A type the installation
-	// cannot route is refused at boot rather than silently never delivered.
+	// cannot ROUTE is refused at boot rather than silently never delivered.
+	//
+	// Routable is not the same as real, and the difference is worth knowing
+	// before a debugging session: a core type is checked against the catalog,
+	// so a typo in one is refused; an extension type is checked against its
+	// grammar, so `ext_notse.note_added` boots clean and simply never arrives.
+	// Nothing declares which verbs a unit publishes, so nothing can check the
+	// right-hand side of one.
 	//
 	// A unit may name any routable type, its own or the product's. What a unit
 	// learns from one is an id and a verb; reading the record behind it is

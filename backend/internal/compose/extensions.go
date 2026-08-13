@@ -6,6 +6,7 @@ package compose
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -145,6 +146,7 @@ func ComposedVerbs() []extension.Verb {
 // capabilities registered while the boot reports failure.
 func validateExtensionSet(exts []extension.Extension) error {
 	seen := make(map[extension.Name]bool, len(exts))
+	namespaces := make(map[string]extension.Name, len(exts))
 	packCodes := make(map[jurisdiction.Code]extension.Name, len(exts))
 	for _, e := range exts {
 		if err := e.Name.Validate(); err != nil {
@@ -154,6 +156,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 			return fmt.Errorf("compose: extension %q composed twice — the enabled set under extensions/ carries one directory per unit", e.Name)
 		}
 		seen[e.Name] = true
+		if err := reserveNamespace(e.Name, namespaces); err != nil {
+			return err
+		}
 		if err := e.Version.Validate(); err != nil {
 			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
 		}
@@ -176,6 +181,43 @@ func validateExtensionSet(exts []extension.Extension) error {
 	return nil
 }
 
+// reserveNamespace refuses a composed set in which one unit's SQL namespace is
+// a PREFIX of another's.
+//
+// Unit `foo` owns `ext_foo`, unit `foo-bar` owns `ext_foo_bar`, and every
+// identifier derived from a namespace is `<namespace>_<suffix>` — so
+// `ext_foo_bar_note` is a legitimate spelling for BOTH: foo's table named
+// `bar_note`, and foo-bar's table named `note`. Nothing downstream can tell
+// them apart, because nothing downstream holds the split.
+//
+// The generator already refuses the case where the two units both DECLARE that
+// table (checkDerivedIdentifiers, "the collision is at the join"). What it
+// cannot see is a unit merely NAMING the ambiguous identifier at run time — a
+// ledger row, an event's subject — where the honest answer to "whose table is
+// this" does not exist. Refusing the pair at boot is what makes every such
+// answer exact, and it costs an installation only a rename.
+//
+// The names are reported both ways round, because an author reading this has no
+// other way to find the other side of the clash.
+func reserveNamespace(name extension.Name, taken map[string]extension.Name) error {
+	namespace, err := name.Namespace()
+	if err != nil {
+		return fmt.Errorf("compose: %w", err)
+	}
+	for other, owner := range taken {
+		short, long, shortOwner, longOwner := other, namespace, owner, name
+		if len(namespace) < len(other) {
+			short, long, shortOwner, longOwner = namespace, other, name, owner
+		}
+		if strings.HasPrefix(long, short+"_") {
+			return fmt.Errorf("compose: extensions %q and %q derive the namespaces %q and %q, and one opens the other — an identifier like %s_… names a table either unit could own, so no ledger row or event about it has one honest owner. Rename one of them",
+				shortOwner, longOwner, short, long, long)
+		}
+	}
+	taken[namespace] = name
+	return nil
+}
+
 // preflightSubscriptions validates one unit's listeners through the same
 // published Subscription.Validate a unit's own tests run, and then asks the one
 // question the published type cannot: is every declared event type ROUTABLE?
@@ -186,6 +228,15 @@ func validateExtensionSet(exts []extension.Extension) error {
 // means its listener would be created, hold a cursor, and never receive
 // anything. A subscription that silently never fires is indistinguishable from
 // a product where that fact never happens.
+//
+// WHAT IT CANNOT CATCH, so nobody reads more into a green boot than it says: an
+// EXTENSION type is routable by SHAPE. `ext_notse.note_added` — a typo for a
+// sibling unit's event — boots clean, builds a group over the extension stream
+// and never fires, exactly the silence this check removes for core types. It is
+// not checkable here and would not be checkable anywhere: a unit's verbs are
+// chosen where they are published, at the Record call, and nothing declares
+// them in advance. A misspelt core type is caught; a misspelt extension type is
+// the unit author's to notice.
 func preflightSubscriptions(e extension.Extension) error {
 	seen := make(map[string]bool, len(e.Subscriptions))
 	for _, sub := range e.Subscriptions {

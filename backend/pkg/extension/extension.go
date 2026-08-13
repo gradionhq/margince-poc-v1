@@ -38,18 +38,18 @@
 //     mutation returning change descriptors. It is now joined by two doors
 //     instead. Tx.Core() makes the core's own write onto the product's records
 //     — the RBAC check, the audit row, the outbox event, the attribution — and
-//     Tx.Audit records what the unit's own SQL did in the same ledger, handing
-//     back the receipt its event is published through. Between them a unit's
-//     write can carry everything a core write carries, which is what the
-//     descriptor design was reaching for; Tx's three SQL verbs stay for the
-//     unit's OWN tables, which is what they were always the right shape for.
+//     Tx.Record writes the ledger row and the bus event for what the unit's own
+//     SQL did. Between them a unit's write can carry everything a core write
+//     carries, which is what the descriptor design was reaching for; Tx's three
+//     SQL verbs stay for the unit's OWN tables, which is what they were always
+//     the right shape for.
 //
 //     What remains unstable is their REACH: a unit's SQL runs on the shared
 //     application role today, and narrowing it to a per-unit database role
-//     (issue #628) is a change every unit's SQL feels. And the ledger doors are
-//     OFFERED, not enforced — a unit may still write its tables and record
-//     nothing — so a later release that makes recording mandatory would be
-//     felt by any unit that had not adopted them.
+//     (issue #628) is a change every unit's SQL feels. And Record is OFFERED,
+//     not enforced — a unit may still write its tables and record nothing — so
+//     a later release that makes recording mandatory would be felt by any unit
+//     that had not adopted it.
 //
 //   - The frontend surface a unit screen imports, whose exported client type
 //     currently infers foreign types (openapi-fetch) into the published shape.

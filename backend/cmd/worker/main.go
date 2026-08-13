@@ -122,6 +122,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer stopJobs()
+	// AFTER the job runner, because that is where this role's unconditional
+	// BindExtensionRuntime happens and a delivery needs it: a unit's handler
+	// reaches the installation through the per-call Runtime, which refuses
+	// while nothing is bound. Started earlier, a retained entry redelivered in
+	// that window would fail on the wiring and then wait out the subscriber's
+	// whole reclaim interval before anyone tried again — on a worker with no
+	// model configured, which never reaches the runner lane's own binding.
+	// The context is the LANES', which is this function's own ctx with their
+	// cancel around it (startEventLanes) — carried on the value rather than
+	// re-derived here, so this lane ends when its siblings do instead of
+	// outliving them under a second shutdown.
+	startExtensionSubscriptionLanes(lanes.ctx, pool, rdb, lanes.background, logger, stdout) //nolint:contextcheck // the lanes' ctx IS derived from this one; see above.
 	// Every phase a replica needs to do work has returned; /readyz may say so.
 	started.complete()
 	// Deferred AFTER complete, so LIFO runs it FIRST: readiness goes false at

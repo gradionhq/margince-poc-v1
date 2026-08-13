@@ -24,8 +24,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -229,55 +232,143 @@ func TestAFailedUnitWriteTakesItsLedgerRowAndItsEventWithIt(t *testing.T) {
 	}
 }
 
-// TestADeliveryMayRecordItsOwnWriteAndMayNotWriteACoreRecord is the unattended
-// pair, asserted together because they are one decision.
+// TestADeliveryThroughTheRealHandlerRecordsAndRefuses drives the whole
+// delivery path: an ENVELOPE goes into the handler the worker actually runs,
+// and what comes out is a ledger row, an event, and a refused core write.
 //
-// A bus delivery runs as the system principal, which auth.Require does not
-// check at all — so the port's refusal is the whole distance between an event
-// arriving and an unchecked core write. And the LEDGER stays open, because
-// recording what the unit did to its own rows needs no authority over anything
-// else: a reaction nobody can audit would be the worse half of the trade.
-func TestADeliveryMayRecordItsOwnWriteAndMayNotWriteACoreRecord(t *testing.T) {
+// It is deliberately not built out of deliveryRuntimeFor and a context of this
+// test's own. Everything that would make a delivery wrong is established inside
+// ComposedSubscription.Handler — the workspace it resolves, the system actor it
+// binds, the correlation it carries through, the causation it links, and the
+// unattended Runtime that shuts the core port — so a test that supplied those
+// itself would be asserting its own arithmetic and would stay green through
+// exactly the regression that matters.
+func TestADeliveryThroughTheRealHandlerRecordsAndRefuses(t *testing.T) {
 	e := setupExtRuntime(t)
-	ctx := e.callCtx(e.WS)
-	rt := deliveryRuntimeFor(ctx, "alpha", "1.0.0", "subscription/probe",
-		extensionRuntimeBinding{pool: e.Pool, vault: e.vault})
-	rowID := ids.NewV7()
+	rowID, correlation, cause := ids.NewV7(), ids.NewV7(), ids.NewV7()
 
-	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		_, coreErr := tx.Core().Activities().Create(ctx, crm.CreateActivityRequest{
-			Kind: crm.CreateActivityRequestKindNote, Source: "extension:probe",
-		})
-		if !errors.Is(coreErr, extension.ErrForbidden) {
-			t.Errorf("a delivery's core write answered %v, want ErrForbidden", coreErr)
-		}
-		return tx.Record(ctx,
-			extension.Change{
-				Action: extension.AuditUpdate, Entity: ledgerEntity, ID: rowID.String(),
-				After: json.RawMessage(`{"filed_activity_id":null}`),
+	var coreErr error
+	sub := ComposedSubscription{
+		Unit: "alpha", Version: "1.0.0",
+		Sub: extension.Subscription{
+			Name: "probe", Events: []string{"activity.archived"},
+			Handle: func(ctx context.Context, rt extension.Runtime, d extension.Delivery) error {
+				if rt.Caller() != (extension.Caller{}) {
+					t.Errorf("the handler was given caller %+v, want nobody", rt.Caller())
+				}
+				if d.Type != "activity.archived" || d.Entity.Type != "activity" {
+					t.Errorf("delivery = %+v, want the archived activity", d)
+				}
+				return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
+					_, coreErr = tx.Core().Activities().Create(ctx, crm.CreateActivityRequest{
+						Kind: crm.CreateActivityRequestKindNote, Source: "extension:probe",
+					})
+					return tx.Record(ctx,
+						extension.Change{
+							Action: extension.AuditUpdate, Entity: ledgerEntity, ID: rowID.String(),
+							After: json.RawMessage(`{"filed_activity_id":null}`),
+						},
+						extension.Event{Verb: "thing_changed"})
+				})
 			},
-			extension.Event{Verb: "thing_changed"})
-	}); err != nil {
-		t.Fatal(err)
+		},
 	}
 
-	if _, action, _, evidence := auditedRow(t, e, rowID); action != string(extension.AuditUpdate) {
-		t.Errorf("the delivery's ledger row records %q, want an update", action)
-	} else if !json.Valid(evidence) {
-		t.Errorf("the delivery's ledger row carries no readable evidence: %s", evidence)
+	// The envelope a real archive puts on the bus, correlation and all.
+	if err := sub.Handler(e.Pool, slog.New(slog.DiscardHandler))(context.Background(), events.Envelope{
+		EventID: cause, Type: "activity.archived", OccurredAt: time.Now().UTC(),
+		Entity: events.EntityRef{Type: "activity", ID: ids.NewV7()},
+		Trace:  events.Trace{CorrelationID: correlation, AuditLogID: ids.NewV7()},
+	}); err != nil {
+		t.Fatalf("the delivery failed: %v", err)
 	}
-	// And the attribution says which listener carried it, not merely which
-	// unit: an audit reader asking "what did this" gets the subscription.
-	_, _, _, evidence := auditedRow(t, e, rowID)
+
+	// The core port is shut for a caller auth.Require would not have checked.
+	if !errors.Is(coreErr, extension.ErrForbidden) {
+		t.Errorf("a delivery's core write answered %v, want ErrForbidden", coreErr)
+	}
+
+	// And the unit's own write landed, under the identity the HANDLER bound.
+	_, action, actorID, evidence := auditedRow(t, e, rowID)
+	if action != string(extension.AuditUpdate) {
+		t.Errorf("the delivery's ledger row records %q, want an update", action)
+	}
+	if actorID != "system" {
+		t.Errorf("actor_id = %q, want the system principal a delivery runs as", actorID)
+	}
 	var recorded struct {
-		Extension struct {
-			Via string `json:"via"`
-		} `json:"extension"`
+		Extension struct{ Via string } `json:"extension"`
 	}
 	if err := json.Unmarshal(evidence, &recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded.Extension.Via != "subscription/probe" {
 		t.Errorf("evidence.extension.via = %q, want the subscription that ran", recorded.Extension.Via)
+	}
+
+	// The trace is the whole point of a reaction: the event this published
+	// carries the correlation of the fact that caused it, and names that fact
+	// as its cause. Read together they are one story.
+	envelope := publishedEnvelope(t, e, "ext_alpha.thing_changed")
+	if envelope.Trace.CorrelationID != correlation {
+		t.Errorf("the reaction's correlation is %s, want the triggering event's %s",
+			envelope.Trace.CorrelationID, correlation)
+	}
+	if envelope.Trace.CausationID == nil || *envelope.Trace.CausationID != cause {
+		t.Errorf("the reaction's causation is %v, want the event that caused it (%s)",
+			envelope.Trace.CausationID, cause)
+	}
+}
+
+// TestAPanickingHandlerFailsTheDeliveryRatherThanTheWorker: nothing sits above
+// a delivery but the subscriber's goroutine, so an unrecovered panic in one
+// unit's listener takes down the relay, the job runner and every other unit's
+// lane — and the entry that caused it is un-acked, so the restarted worker is
+// handed the same event and dies again. One bad delivery would be an
+// installation-wide crash loop.
+//
+// It runs in the database lane because the panic has to happen where the real
+// one would: inside a handler that the real Handler actually reached, past the
+// tenant read a fake pool cannot answer.
+func TestAPanickingHandlerFailsTheDeliveryRatherThanTheWorker(t *testing.T) {
+	e := setupExtRuntime(t)
+	var ran bool
+	sub := ComposedSubscription{
+		Unit: "alpha", Version: "1.0.0",
+		Sub: extension.Subscription{
+			Name: "probe", Events: []string{"activity.archived"},
+			Handle: func(context.Context, extension.Runtime, extension.Delivery) error {
+				ran = true
+				panic("a unit's own nil map")
+			},
+		},
+	}
+
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the panic escaped the delivery and reached the lane: %v", r)
+			}
+		}()
+		err = sub.Handler(e.Pool, slog.New(slog.DiscardHandler))(context.Background(), events.Envelope{
+			EventID: ids.NewV7(), Type: "activity.archived", OccurredAt: time.Now().UTC(),
+			Entity: events.EntityRef{Type: "activity", ID: ids.NewV7()},
+			Trace:  events.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		})
+	}()
+
+	if !ran {
+		t.Fatal("the handler never ran, so this proves nothing about a panic inside one")
+	}
+	if err == nil {
+		t.Fatal("a panicking delivery was acked — the fact it panicked on would be dropped")
+	}
+	// The failure names the unit and the subscription: the bus entry cannot,
+	// and an operator reading a failed delivery has nothing else to go on.
+	for _, want := range []string{"alpha", "probe"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the failure does not name %q: %v", want, err)
+		}
 	}
 }

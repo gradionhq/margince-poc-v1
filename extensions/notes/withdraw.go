@@ -32,9 +32,11 @@ import (
 // happen would be worse than no trail at all.
 func withdrawFiling(ctx context.Context, rt extension.Runtime, d extension.Delivery) error {
 	if d.Entity.Type != "activity" || !isCanonicalUUID(d.Entity.ID) {
-		// A delivery this handler cannot act on is ACKED, not failed. It can
-		// never succeed on a retry either, and an entry that fails forever
-		// stalls every later event on the same group.
+		// A delivery this handler cannot act on is ACKED, not failed. Failing
+		// it would put it back in the pending set for the reclaim pass to hand
+		// over again, forever, at the cost of one wasted handler run per pass —
+		// and it would say "this failed" about an event that simply is not this
+		// handler's business.
 		return nil
 	}
 	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {

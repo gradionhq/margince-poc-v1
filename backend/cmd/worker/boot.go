@@ -113,7 +113,13 @@ type workerLanes struct {
 	background *sync.WaitGroup
 	// stop ends every lane goroutine. It pairs with background: join() is the
 	// only thing that should call either, so the lanes have one shutdown.
-	stop      context.CancelFunc
+	stop context.CancelFunc
+	// laneCtx is what stop cancels, carried so a lane started LATER than this
+	// value — the extension subscriptions, which wait for the runtime binding
+	// the job runner makes — still lives and dies with all the others. A second
+	// context there would be a second shutdown, and join() would return with a
+	// consumer still reading the bus.
+	ctx       context.Context //nolint:containedctx // the lanes' lifetime IS this value; join() is the only thing that ends it.
 	runner    *compose.RunnerService
 	deliverer func(*database.DB) *webhooks.Deliverer
 	blob      blobstore.Store
@@ -142,7 +148,7 @@ func (l workerLanes) join() {
 // stack trace where the boot error belongs.
 func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, logger *slog.Logger, stdout io.Writer) (workerLanes, error) {
 	laneCtx, stopLanes := context.WithCancel(ctx)
-	lanes := workerLanes{background: &sync.WaitGroup{}, stop: stopLanes}
+	lanes := workerLanes{background: &sync.WaitGroup{}, stop: stopLanes, ctx: laneCtx}
 
 	if err := startRunnerLane(laneCtx, cfg, pool, rdb, modelPath, &lanes, logger, stdout); err != nil {
 		return lanes, err
@@ -191,13 +197,20 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startWorkflowLane(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
-	startExtensionSubscriptionLanes(laneCtx, pool, rdb, lanes.background, logger, stdout)
 	return lanes, nil
 }
 
 // startExtensionSubscriptionLanes starts one consumer per composed unit
 // subscription — the tier's half of the bus, and this role's alone: every role
 // composes the same units, and the worker is the role that consumes.
+//
+// It is started from run(), AFTER the job runner, rather than with the lanes
+// above. A delivery reaches the installation through the per-call Runtime, and
+// this role's unconditional BindExtensionRuntime is the job runner's; started
+// with its siblings, a retained entry redelivered in the window before that
+// bind would fail on the wiring and then wait out the subscriber's whole
+// reclaim interval before anything tried again. It still runs on the LANES'
+// context, so it ends when they do.
 //
 // A listener whose group cannot be built is LOGGED and skipped rather than
 // failing the boot, because the boot already refused the only way that can
@@ -214,7 +227,7 @@ func startExtensionSubscriptionLanes(ctx context.Context, pool *pgxpool.Pool, rd
 				"unit", string(sub.Unit), "subscription", sub.Sub.Name, "error", err)
 			continue
 		}
-		handler := sub.Handler(pool)
+		handler := sub.Handler(pool, logger)
 		_, _ = fmt.Fprintf(stdout, "worker delivering %s to %s/%s (%s)\n",
 			strings.Join(sub.Sub.Events, ", "), sub.Unit, sub.Sub.Name, group.Name)
 		background.Go(func() { runGroupSubscriber(ctx, rdb, group, handler, logger, 0) })

@@ -76,19 +76,42 @@ func TestWithdrawFilingClearsTheFilingAndRecordsWhy(t *testing.T) {
 	}
 }
 
-// TestWithdrawFilingIsSafeToRunTwice: the bus is at-least-once, and the second
-// delivery matches nothing because the first already cleared the column. A
-// ledger row for a write that changed nothing would be a history of an event
-// that did not happen.
+// TestWithdrawFilingIsSafeToRunTwice: the bus is at-least-once, so the SAME
+// delivery arrives twice and the second one must leave nothing behind. A ledger
+// row for a write that changed nothing is a history of an event that did not
+// happen.
+//
+// It runs the handler twice against a fake whose table remembers the first run,
+// rather than asserting the second run's shape from a fixture set up to look
+// like one: what makes the redelivery a no-op is that the first run cleared the
+// column its UPDATE matches on, and a test that pre-cleared it would prove
+// only that this handler does nothing when handed nothing.
 func TestWithdrawFilingIsSafeToRunTwice(t *testing.T) {
 	rt := newRuntime()
-	rt.tx.rows = nil // the UPDATE matched no rows the second time round
-	if err := withdrawFiling(context.Background(), rt, archivedDelivery()); err != nil {
+	// The UPDATE matches on the filing, so the row comes back once and never
+	// again — which is exactly what the database does after the first commit.
+	rt.tx.rows = [][]any{
+		filedNoteRow(removedNoteID, kindNote, "filed once", callerUserID, false, "", time.Now().UTC()),
+	}
+
+	first := archivedDelivery()
+	if err := withdrawFiling(context.Background(), rt, first); err != nil {
 		t.Fatal(err)
 	}
-	if len(rt.tx.audited) != 0 || len(rt.tx.published) != 0 {
-		t.Errorf("a redelivery recorded %d changes and %d events, want none",
+	if len(rt.tx.audited) != 1 || len(rt.tx.published) != 1 {
+		t.Fatalf("the first delivery recorded %d changes and %d events, want 1 and 1",
 			len(rt.tx.audited), len(rt.tx.published))
+	}
+
+	if err := withdrawFiling(context.Background(), rt, first); err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.tx.audited) != 1 || len(rt.tx.published) != 1 {
+		t.Errorf("the redelivery recorded %d changes and %d events in total, want the first run's 1 and 1",
+			len(rt.tx.audited), len(rt.tx.published))
+	}
+	if len(rt.tx.statements) != 2 {
+		t.Errorf("the handler issued %d statements over two deliveries, want one each", len(rt.tx.statements))
 	}
 }
 
@@ -116,9 +139,10 @@ func TestWithdrawFilingClearsEveryNoteFiledToTheActivity(t *testing.T) {
 }
 
 // TestWithdrawFilingIgnoresADeliveryItCannotActOn: an event whose subject is
-// not an activity, or whose id is not a UUID, can never succeed on a retry
-// either — and an entry that fails forever stalls every later event on the
-// group. It is acked without touching the database.
+// not an activity, or whose id is not a UUID, is ACKED without touching the
+// database. Failing it would re-deliver it forever — the reclaim pass hands
+// back an entry nothing can ever make succeed — where an ack says the honest
+// thing, that this handler has nothing to do with it.
 func TestWithdrawFilingIgnoresADeliveryItCannotActOn(t *testing.T) {
 	for name, d := range map[string]extension.Delivery{
 		"a subject that is not an activity": {

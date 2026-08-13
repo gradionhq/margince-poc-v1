@@ -105,8 +105,15 @@ type fakeTx struct {
 	statements []string
 	args       [][]any
 
-	core     *fakeCore
-	rows     [][]any // what Query hands back, one slice per row
+	core *fakeCore
+	// rows is what the NEXT Query hands back, one slice per row, and it is
+	// CONSUMED by that call. A second Query in the same test therefore matches
+	// nothing — which is what the database does to the statement these rows
+	// stand in for: `UPDATE … WHERE filed_activity_id = $1 RETURNING` returns
+	// its rows once and never again, because the first run is what stopped them
+	// matching. A fake that answered the same rows forever could not tell a
+	// handler that is idempotent from one that is not.
+	rows [][]any
 	row      []any   // what QueryRow scans into dest
 	affected int64
 	err      error
@@ -207,6 +214,7 @@ func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Ro
 		return nil, err
 	}
 	t.lastRows = &fakeRows{rows: t.rows}
+	t.rows = nil
 	return t.lastRows, nil
 }
 

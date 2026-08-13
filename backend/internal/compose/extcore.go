@@ -149,9 +149,14 @@ func (c extensionCore) refuseUnattended() error {
 		//
 		// It is load-bearing rather than tidy, and most sharply for a delivery:
 		// that one runs as PrincipalSystem, which auth.Require bypasses
-		// entirely, so this refusal is the whole distance between a bus event
-		// and an unchecked core write. The unit's OWN tables stay writable,
-		// which is what an unattended run is for.
+		// entirely, so without this refusal the GOVERNED door would be wide
+		// open to a caller nothing checks. It does not make a unit unable to
+		// touch a core table — Tx's three SQL verbs run on the shared
+		// application role and reach whatever that role reaches, which
+		// runtime.go states in the open and issue #628 tracks closing. What it
+		// keeps shut is the door that would make such a write look authorized.
+		// The unit's OWN tables stay writable, which is what an unattended run
+		// is for.
 		return fmt.Errorf("%w: a scheduled job and a bus delivery run with no caller, and a core write is checked against the caller's own permissions", extension.ErrForbidden)
 	}
 	return nil

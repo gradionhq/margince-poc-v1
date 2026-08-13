@@ -10,6 +10,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,7 +36,8 @@ func composedSubscription(events ...string) ComposedSubscription {
 // about: an event it does not want is not filtered in process, it is not read.
 func TestAListenersGroupCoversTheStreamsItsTypesRouteTo(t *testing.T) {
 	group, err := composedSubscription(
-		"activity.archived", "activity.captured", "person.archived", "ext_notes.note_added").Group()
+		"activity.archived", "activity.captured", "person.archived", "ext_notes.note_added",
+	).Group()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestADeliveryOfAnUndeclaredTypeIsAckedWithoutRunningTheHandler(t *testing.T
 	}
 	// A nil pool is safe here BECAUSE the filter runs first; if it ever stopped
 	// running first, this test would fail on the tenant read rather than pass.
-	err := sub.Handler(nil)(context.Background(), kevents.Envelope{
+	err := sub.Handler(nil, slog.New(slog.DiscardHandler))(context.Background(), kevents.Envelope{
 		EventID: ids.NewV7(), Type: "activity.captured",
 		Entity: kevents.EntityRef{Type: "activity", ID: ids.NewV7()},
 	})

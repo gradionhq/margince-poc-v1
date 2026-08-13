@@ -3,9 +3,9 @@
 
 package compose
 
-// The core's half of extension.Tx.Audit and extension.Receipt: the ledger row
-// and the bus event a unit's OWN write records, written through the product's
-// own storekit seam on the transaction the unit already holds.
+// The core's half of extension.Tx.Record: the ledger row and the bus event a
+// unit's OWN write records, written through the product's own storekit seam on
+// the transaction the unit already holds.
 //
 // Everything here is a translation and a set of refusals. The WRITES are
 // storekit.Audit and storekit.Emit — the same two calls every module store

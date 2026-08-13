@@ -215,7 +215,7 @@ type Tx interface {
 	// published as an event — is a property of going through it rather than
 	// around it. See Core.
 	//
-	// It is the door onto the PRODUCT's records; Audit below is the one onto
+	// It is the door onto the PRODUCT's records; Record below is the one onto
 	// the unit's own.
 	Core() Core
 

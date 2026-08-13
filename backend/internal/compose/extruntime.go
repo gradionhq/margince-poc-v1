@@ -172,9 +172,7 @@ func runtimeFor(ctx context.Context, unit, version, via string, deps extensionRu
 // call. Nothing else about the tick changes: the actor on callCtx is still the
 // one every capability and every policy sees.
 func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
-	rt := runtimeFor(ctx, unit, version, via, deps)
-	rt.unattended = true
-	return rt
+	return unattendedRuntimeFor(ctx, unit, version, via, deps)
 }
 
 // deliveryRuntimeFor mints the Runtime for one BUS DELIVERY — a subscription
@@ -183,10 +181,20 @@ func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensio
 // It is unattended for a plainer reason than a tick's: a tick at least ran
 // because a schedule the installation configured said so, while a delivery ran
 // because a fact arrived. Neither has a person behind it, and this one's
-// principal is the system actor the subscriber binds (see
-// extsubscribe.go), which auth.Require does not check at all — so the
-// unattended flag is what keeps the core port shut rather than wide open.
+// principal is the system actor the subscriber binds (see extsubscribe.go),
+// which auth.Require does not check at all — so the unattended flag is what
+// keeps the governed core port shut for a caller nothing else would refuse.
 func deliveryRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	return unattendedRuntimeFor(ctx, unit, version, via, deps)
+}
+
+// unattendedRuntimeFor is what both of the above are: a Runtime for an
+// invocation with nobody behind it. They stay separate NAMES because the two
+// call sites are the two kinds of unattended work and a reader at either one
+// should see which it is — but the behaviour is one fact, spelled here, so a
+// later change to what "unattended" means cannot reach one kind and miss the
+// other.
+func unattendedRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
 	rt := runtimeFor(ctx, unit, version, via, deps)
 	rt.unattended = true
 	return rt
@@ -272,6 +280,17 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 	}
 	if correlation, bound := principal.CorrelationID(r.callCtx); bound {
 		ctx = principal.WithCorrelationID(ctx, correlation)
+	}
+	// The CAUSATION travels the same way, and it matters most where the
+	// invocation is a reaction: a bus delivery binds the event that triggered
+	// it, so what the unit publishes chains back to what caused it. Left to the
+	// handler's context it would be right only while the handler passed the
+	// context it was given — and wrong in the two ways a handler gets it wrong,
+	// each silently: a context built fresh publishes a reaction with no cause,
+	// and one retained from an earlier delivery publishes this reaction as
+	// caused by that earlier event.
+	if causation, bound := principal.CausationEvent(r.callCtx); bound {
+		ctx = principal.WithCausationEvent(ctx, causation)
 	}
 	// And WHAT carried the action, which is a second dimension beside who took
 	// it: every core write made under this context records the unit, its
