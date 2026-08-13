@@ -27,16 +27,32 @@ const (
 	// no mirror could ever supply it (a version counter, a relationship
 	// strength computed from captured interactions).
 	DispositionNativeOnly Disposition = "native_only"
+	// DispositionDerived means the mirror carries this slot's INPUTS and the
+	// wire computes the slot from them, so it reads no canonical key of its
+	// own. It exists because the alternative spellings are both false: mapped
+	// would claim a key a second slot already reads, and the registry rejects
+	// two slots claiming one key precisely so a real double-write cannot hide;
+	// native_only would say no mirror could help, when the mirror is exactly
+	// where the value comes from. The line between the two is whose data the
+	// computation runs over — native_only computes from THIS installation's
+	// own rows, derived computes from mirrored ones. DerivedFrom names the
+	// wire slots it is computed from, and each must be mapped on the same
+	// entity: a slot derived from something the mirror does not carry is
+	// native_only wearing a friendlier name.
+	DispositionDerived Disposition = "derived"
 )
 
 // FieldBinding is one contract field's overlay disposition for one entity.
 // CanonicalKey is the mirror's own jsonb key, which keeps the core column's
 // spelling rather than the contract's where the two differ; it is empty
-// unless the field is mapped.
+// unless the field is mapped. DerivedFrom names the wire slots a derived
+// field is computed from — slots, not canonical keys, so the dependency is
+// stated in the vocabulary the wire assembly itself reads back.
 type FieldBinding struct {
 	WireSlot     string
 	CanonicalKey string
 	Incumbent    []string
+	DerivedFrom  []string
 	Transform    string
 	Disposition  Disposition
 	Reason       string
