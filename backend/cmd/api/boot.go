@@ -24,21 +24,26 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
-// bindInstallation runs the boot state machine (A107/ADR-0061): bootstrap an
-// empty database from the deployment file, bind an existing singleton, refuse a
-// multi-workspace database. It runs before the listener opens — the API never
-// serves an unbound installation — and the deployment precondition that must
-// fail before any of it is checked here first, so a boot that would publish an
-// unreachable connector never gets as far as bootstrapping an organization. The
-// loaded deployment config is returned: every later boot phase reads it.
-func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger) (deployconfig.Config, error) {
+// bindInstallation settles what this installation IS before anything serves:
+// the boot state machine (A107/ADR-0061) — bootstrap an empty database from the
+// deployment file, bind an existing singleton, refuse a multi-workspace database
+// — and then what it is ENTITLED to. Both belong to this phase for the same
+// reason: each must hold before the listener opens, and each refuses the boot on
+// an answer this build cannot honor. The deployment precondition that must fail
+// before any of it is checked here first, so a boot that would publish an
+// unreachable connector never gets as far as bootstrapping an organization.
+//
+// Returns the loaded deployment config every later boot phase reads, and the
+// license watcher whose posture baseComposeOptions reports.
+func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger) (deployconfig.Config, *licensecheck.Watcher, error) {
 	deployCfg, err := deployconfig.Load(cfg.configPath)
 	if err != nil {
-		return deployconfig.Config{}, err
+		return deployconfig.Config{}, nil, err
 	}
 	// The connector's OAuth audience and its advertised MCP resource are
 	// both derived from --public-base-url, never from the Host header an
@@ -46,17 +51,32 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	// be satisfied without it.
 	if deployCfg.MCP.ConnectorEnabled {
 		if cfg.publicBaseURL == "" {
-			return deployconfig.Config{}, errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
+			return deployconfig.Config{}, nil, errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
 				"audience and the advertised MCP resource must not be derived from the Host header")
 		}
 		if err := validatePublicBaseURL(cfg.publicBaseURL); err != nil {
-			return deployconfig.Config{}, err
+			return deployconfig.Config{}, nil, err
 		}
 	}
 	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
-		return deployconfig.Config{}, err
+		return deployconfig.Config{}, nil, err
 	}
-	return deployCfg, nil
+	// After the installation binds, so an installation that cannot bind fails on
+	// that rather than on its license.
+	license, err := compose.EnsureLicense(ctx, logger, deployCfg)
+	if err != nil {
+		return deployconfig.Config{}, nil, err
+	}
+	// The re-check runs on the process context — the signal context main built —
+	// so it lives exactly as long as this role serves and needs no stop of its
+	// own. What cancellation actually ends is the WAIT between ticks: wazero is
+	// built without WithCloseOnContextDone, so a check already inside the module
+	// runs to completion whatever happens to the context. That is why the loop
+	// holds nothing open and answers nobody — there is no work here for a
+	// shutdown to interrupt safely, only a reading the process was about to stop
+	// reporting.
+	go license.RunRecheck(ctx)
+	return deployCfg, license, nil
 }
 
 // declaredSurfaceOptions wires the surfaces a deployment declares rather than

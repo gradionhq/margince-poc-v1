@@ -68,6 +68,9 @@ coverage.out
 # seeded alongside. Anchored so the committed .example template is never matched.
 /config/margince.yaml
 /config/margince-admin-password
+# The entitlement token license.token_file points at, if an engineer keeps one
+# here: a real license is a credential, and this is a public repository.
+/config/margince-license
 
 # Storybook static build + fe-uat capture artifacts
 frontend/storybook-static/

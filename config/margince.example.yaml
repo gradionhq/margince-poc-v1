@@ -45,6 +45,20 @@ bootstrap_admin:
 #   retention:
 #     default_policy: retain_only
 
+# Entitlement (optional). The token is verified offline against the validation
+# module bundled in the binary — no callout, so an air-gapped installation proves
+# its entitlement like any other. A file reference, never an inline value: the
+# token is a credential and this file is not.
+#
+# Omitted, the installation runs unlicensed, which is what every dev and CI
+# process here does. Configured and REFUSED, the api and the worker both refuse
+# to boot — a license that is present and unhonored is an operator mistake, not a
+# downgrade to choose silently. MARGINCE_LICENSE overrides the file when it holds
+# a non-empty value; exporting it empty falls through to the file rather than
+# switching the installation off.
+# license:
+#   token_file: config/margince-license
+
 # AI runtime posture (optional). Uncomment to turn on Layer-3 AI payload capture
 # (ai_call_payload) — OFF by default because it stores special-category-adjacent
 # content that then ages under the retention engine and the Art. 17 erasure

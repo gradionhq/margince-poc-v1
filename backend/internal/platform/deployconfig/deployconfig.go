@@ -31,6 +31,7 @@ type Config struct {
 	BootstrapAdmin *BootstrapAdmin `yaml:"bootstrap_admin"`
 	Seeds          Seeds           `yaml:"seeds"`
 	Auth           Auth            `yaml:"auth"`
+	License        License         `yaml:"license"`
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
 	Rates          RatesConfig     `yaml:"rates"`
