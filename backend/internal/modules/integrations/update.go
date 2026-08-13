@@ -102,8 +102,8 @@ func (s *Store) UpdateConfig(ctx context.Context, name string, patch ConfigPatch
 			}
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "provider_connection", uuidOf(current.id),
-			map[string]any{"mode": current.Mode, "preset": current.Preset},
-			map[string]any{"mode": merged.Mode, "preset": merged.Preset}); err != nil {
+			map[string]any{auditKeyMode: current.Mode, auditKeyPreset: current.Preset},
+			map[string]any{auditKeyMode: merged.Mode, auditKeyPreset: merged.Preset}); err != nil {
 			return err
 		}
 		conns, err := s.loadConnections(ctx, tx)
@@ -170,7 +170,7 @@ func (s *Store) DeleteProviderData(ctx context.Context, name string) error {
 			return fmt.Errorf("integrations: scrubbing run metadata: %w", err)
 		}
 		if _, err := storekit.LogSystem(ctx, tx, "provider_data_deleted",
-			map[string]any{"provider": name}); err != nil {
+			map[string]any{auditKeyProvider: name}); err != nil {
 			return err
 		}
 		return nil

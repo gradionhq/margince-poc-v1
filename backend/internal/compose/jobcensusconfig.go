@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -84,12 +85,24 @@ func censusJobConfig() JobRunnerConfig {
 		Embedder:          seam,
 		AgentScheduler:    AgentSchedulerConfig{Interval: censusInterval, Service: &RunnerService{}},
 		WebhookRetry:      WebhookRetryConfig{Interval: censusInterval, Deliverer: func(*database.DB) *webhooks.Deliverer { return &webhooks.Deliverer{} }},
+		ProviderRuns:      ProviderRunsConfig{Registry: censusProviderRegistry(), Vault: keyvault.NewMemory()},
 		PrivacyRetention:  PrivacyRetentionConfig{Interval: censusInterval},
 		CloseDateInterval: censusInterval,
 		ReconcileInterval: censusInterval,
 		TimeScanInterval:  censusInterval,
 		OverlayInterval:   censusInterval,
 	}
+}
+
+// censusProviderRegistry is an empty adapter registry: present, so the
+// provider-run kinds count as wired, and closed, so the census could never
+// name a provider it would then be asked to call.
+func censusProviderRegistry() *integrations.Registry {
+	reg, err := integrations.NewRegistry()
+	if err != nil {
+		panic("compose: an empty provider registry cannot fail to construct: " + err.Error())
+	}
+	return reg
 }
 
 // censusInterval is a positive duration and nothing more: the kinds that

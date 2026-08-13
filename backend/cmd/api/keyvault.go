@@ -6,10 +6,14 @@ package main
 import (
 	"fmt"
 	"io"
+	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -41,5 +45,34 @@ func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit 
 	// the overlay handlers off the backfill-limit field the former sets
 	// (the same documented option-ordering WithKeyvault↔WithGmailCapture
 	// already relies on).
-	return []compose.Option{compose.WithOverlayBackfillLimit(overlayBackfillLimit), compose.WithKeyvault(vault)}, nil
+	opts := []compose.Option{compose.WithOverlayBackfillLimit(overlayBackfillLimit), compose.WithKeyvault(vault)}
+	provider, err := providerOption(pool, vault, stdout)
+	if err != nil {
+		return nil, err
+	}
+	return append(opts, provider...), nil
+}
+
+// providerOption wires the licensed-data-provider surface when an adapter is
+// configured (MARGINCE_PROVIDER_SURFE). It needs the vault, so it lives here
+// beside the option that supplies one and rides the same ordering: the store
+// seals credentials through it and the run endpoints resolve them from it.
+//
+// The inserter is insert-only, which is what the api role holds: QueueRun
+// commits its submit job in the run row's transaction and the worker role
+// executes it.
+func providerOption(pool *pgxpool.Pool, vault keyvault.Vault, stdout io.Writer) ([]compose.Option, error) {
+	registry, configured, err := compose.ProviderRegistryFromEnv(time.Now)
+	if err != nil {
+		return nil, fmt.Errorf("api: %w", err)
+	}
+	if !configured {
+		return nil, nil
+	}
+	inserter, err := jobs.NewInserter(pool, slog.Default())
+	if err != nil {
+		return nil, fmt.Errorf("api: the provider submit inserter: %w", err)
+	}
+	_, _ = fmt.Fprintf(stdout, "api serving the provider surface (%s)\n", strings.Join(registry.Names(), ", "))
+	return []compose.Option{compose.WithProvider(registry, vault, inserter)}, nil
 }

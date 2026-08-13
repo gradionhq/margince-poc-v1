@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "1955c23b18d2e7317dc2735b2f72bcbbc01b021756d19149f58dc23134ca9c43"
+const JobContractHash = "c57f44fde67442422a9f135d3bdc623566f2ff2c3acacf326b63b16cd8737d7b"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -528,6 +528,39 @@ var specs = map[string]Spec{
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
 		Args:        []ArgField{{Name: "Workspace"}},
+	},
+	"provider_run_poll": {
+		Kind:         "provider_run_poll",
+		GoType:       "ProviderRunPollArgs",
+		Role:         Workspace,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		MaxAttempts:  3,
+		OptsOwner:    OptsFanOut,
+		Registration: Registration{When: []string{"ProviderRuns.Registry", "ProviderRuns.Vault"}},
+		Args:         []ArgField{{Name: "Workspace"}},
+	},
+	"provider_run_poll_sweep": {
+		Kind:         "provider_run_poll_sweep",
+		GoType:       "ProviderRunPollSweepArgs",
+		Role:         Dispatcher,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		FanOutUnit:   FanOutWorkspace,
+		FanOutTo:     "provider_run_poll",
+		OptsOwner:    OptsCaller,
+		Cadence:      Cadence{Fixed: 30 * time.Second},
+		Registration: Registration{When: []string{"ProviderRuns.Registry", "ProviderRuns.Vault"}},
+	},
+	"provider_run_submit": {
+		Kind:         "provider_run_submit",
+		GoType:       "ProviderRunSubmitArgs",
+		Role:         Workspace,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		OptsOwner:    OptsArgs,
+		Registration: Registration{When: []string{"ProviderRuns.Registry", "ProviderRuns.Vault"}},
+		Args:         []ArgField{{Name: "RunID"}, {Name: "Workspace"}},
 	},
 	"signal_scan": {
 		Kind:       "signal_scan",
