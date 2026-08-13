@@ -52,7 +52,14 @@ var storeBuilders = regexp.MustCompile(`(providerRunStore|workspaceJobDB)\(`)
 
 // actorBinders are the ways a worker legitimately names its principal: the
 // helper in this package, or principal.WithActor directly.
-var actorBinders = regexp.MustCompile(`(providerJobActor|principal\.WithActor)\(`)
+//
+// The ASSIGNMENT is part of the pattern, not decoration. Both calls return a
+// new context and mutate nothing, so `providerJobActor(wsCtx)` on its own line
+// compiles, reads like a binding, and leaves the store holding a context with
+// no actor in it — the precise bug this gate exists to catch, sailing past a
+// check that only asked whether the name appeared.
+var actorBinders = regexp.MustCompile(
+	`\w+\s*(=|:=)\s*(providerJobActor|principal\.WithActor)\(`)
 
 // workMethod matches a River worker's entry point and captures its receiver,
 // which is the worker's name in the failure message.
@@ -68,8 +75,11 @@ func TestEveryJobWorkerThatReachesAStoreBindsAnActor(t *testing.T) {
 	offenders := map[string]string{}
 	var checked int
 	for _, f := range files {
+		// Every .go file in the package, not just jobs_*.go: a worker lives
+		// wherever its author put it (capturejobs.go, for one), and a gate that
+		// trusts a filename convention misses the file that broke it.
 		name := f.Name()
-		if !strings.HasPrefix(name, "jobs_") || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		src, err := os.ReadFile(name)
