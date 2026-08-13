@@ -5,45 +5,19 @@
 
 package compose
 
-// The deals-by-stage report's weighted figure (AC-F1): the
-// per-stage weighted total must equal the sum of each constituent deal's
-// OWN rounded weighted value, not the stage's probability applied once to
-// the summed raw total — the same invariant the forecast report already
-// proves for itself in report_forecast_integration_test.go. The board
-// (frontend/src/screens/deals.tsx) and the reports screen's deals-by-stage
-// table both need this figure; neither carries per-deal rows to round
-// client-side, so the engine has to compute it the AC-F1 way.
+// The deals-by-stage report's weighted figure (AC-F1): the per-stage
+// weighted total must equal the sum of each constituent deal's OWN rounded
+// weighted value, not the stage's probability applied once to the summed
+// raw total — the same invariant the forecast report already proves for
+// itself in report_forecast_integration_test.go. The reports screen's
+// deals-by-stage table reads a server aggregate with no per-deal rows to
+// round client-side, so the engine has to compute it the AC-F1 way.
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-func (e *forecastEnv) runDealsByStage(ctx context.Context, t *testing.T, body string) reportResultWire {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/reports/deals-by-stage", strings.NewReader(body)).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	e.handlers.RunReport(rec, req, "deals-by-stage")
-	var result reportResultWire
-	decodeWire(t, rec, http.StatusOK, &result)
-	return result
-}
-
-func (e *forecastEnv) explainDealsByStage(ctx context.Context, t *testing.T, handleURL string) derivationWire {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, handleURL, nil).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	e.handlers.ExplainReport(rec, req, "deals-by-stage", crmcontracts.ExplainReportParams{})
-	var result derivationWire
-	decodeWire(t, rec, http.StatusOK, &result)
-	return result
-}
 
 func TestDealsByStageWeightedReconcilesToPerDealRounding(t *testing.T) {
 	e := setupForecast(t)
@@ -55,23 +29,21 @@ func TestDealsByStageWeightedReconcilesToPerDealRounding(t *testing.T) {
 	const dealAmount = int64(12341)
 	e.seedOpenDeal(t, "Alpha", 60, nil, int64p(dealAmount), stringp("commit"))
 	e.seedOpenDeal(t, "Beta", 60, nil, int64p(dealAmount), stringp("commit"))
+	// A different stage's deal must not fold into the group under test.
+	e.seedOpenDeal(t, "Elsewhere", 20, nil, int64p(999999), stringp("commit"))
 
-	result := e.runDealsByStage(e.Admin(), t, fmt.Sprintf(
-		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}],"filters":{"stage_id":%q}}`,
-		e.stages[60].String()))
-	if len(result.Rows) != 1 {
-		t.Fatalf("rows = %+v, want exactly one stage group", result.Rows)
-	}
-	row := result.Rows[0]
+	result := e.runReport(t, e.Admin(), "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
 
 	wantWeighted := weightedMinor(dealAmount, 60) + weightedMinor(dealAmount, 60)
-	wrongWeighted := weightedMinor(2*dealAmount, 60) // round(Σamount × p / 100): the bug this measure fixes
-	if wantWeighted == wrongWeighted {
+	sumFirstWeighted := weightedMinor(2*dealAmount, 60) // round(Σamount × p / 100) — the rejected methodology
+	if wantWeighted == sumFirstWeighted {
 		t.Fatal("fixture is broken: the two methodologies agree, so this test cannot discriminate between them")
 	}
 	if got := wireInt(t, row, "weighted_minor"); got != wantWeighted {
-		if got == wrongWeighted {
-			t.Fatalf("weighted_minor = %d (round(sum)×p/100), want %d (Σround(amount×p/100) — per-deal rounding)", got, wantWeighted)
+		if got == sumFirstWeighted {
+			t.Fatalf("weighted_minor = %d (rounded the column sum once), want %d (Σround(amount×p/100) — rounded per deal, then summed)", got, wantWeighted)
 		}
 		t.Fatalf("weighted_minor = %d, want %d", got, wantWeighted)
 	}
@@ -80,36 +52,25 @@ func TestDealsByStageWeightedReconcilesToPerDealRounding(t *testing.T) {
 	}
 }
 
-// The measure's vocabulary membership (catalog advertises it, engine
-// accepts it) is already proven generically, for every measure of every
-// report, by TestReportToolCatalogPublishesOnlyWhatTheEngineAccepts and
-// TestReportToolCatalogOmitsNothingTheEngineAccepts in reportcatalog_test.go
-// — both derive their expectations from prebuiltReports, so this measure
-// is covered the moment it exists in the spec. What those generic tests
-// cannot prove is that "Explain This Number" resolves it correctly: the
-// drill-through source rows must carry weighted_amount_minor and reconcile
-// exactly to the displayed weighted_minor, the same AC-F1 guarantee the
-// forecast report proves for itself.
+// "Explain This Number" must resolve the new measure too: its drill-through
+// source rows carry weighted_amount_minor and reconcile exactly to the
+// displayed weighted_minor, the same AC-F1 guarantee the forecast report
+// proves for itself in TestForecastDerivationDrillThroughReconcilesExactly.
 func TestDealsByStageWeightedDerivationReconcilesExactly(t *testing.T) {
 	e := setupForecast(t)
 	e.seedOpenDeal(t, "Alpha", 60, nil, int64p(12341), stringp("commit"))
 	e.seedOpenDeal(t, "Beta", 60, nil, int64p(12341), stringp("commit"))
-	// A different stage's deal must not leak into the group being explained.
 	e.seedOpenDeal(t, "Elsewhere", 20, nil, int64p(999999), stringp("commit"))
 
-	result := e.runDealsByStage(e.Admin(), t, fmt.Sprintf(
-		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}],"filters":{"stage_id":%q}}`,
-		e.stages[60].String()))
-	if len(result.Rows) != 1 {
-		t.Fatalf("rows = %+v, want exactly one stage group", result.Rows)
-	}
-	row := result.Rows[0]
+	result := e.runReport(t, e.Admin(), "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
 	handle, ok := row["derivation_url"].(string)
 	if !ok || handle == "" {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
 
-	derivation := e.explainDealsByStage(e.Admin(), t, handle)
+	derivation := e.explainReport(t, e.Admin(), "deals-by-stage", handle)
 	if len(derivation.Rows) != 2 || derivation.TotalRows != 2 {
 		t.Fatalf("drill-through = %d rows (total %d), want the stage's 2 deals: %+v",
 			len(derivation.Rows), derivation.TotalRows, derivation.Rows)
@@ -128,4 +89,50 @@ func TestDealsByStageWeightedDerivationReconcilesExactly(t *testing.T) {
 	if weighted != wireInt(t, row, "weighted_minor") {
 		t.Errorf("drill-through weighted sum %d != displayed %d", weighted, wireInt(t, row, "weighted_minor"))
 	}
+}
+
+// The stage join must not widen what a team-scoped rep's drill-through sees:
+// the same row-scope clause the forecast suite proves in
+// TestForecastDerivationHonorsRowScope applies here too, and a foreign
+// owner's deal in the SAME stage must stay invisible.
+func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
+	e := setupForecast(t)
+	e.seedOpenDeal(t, "Mine", 60, &e.Rep1, int64p(10000), stringp("commit"))
+	e.seedOpenDeal(t, "Theirs", 60, &e.Rep3, int64p(999999), stringp("commit"))
+
+	rep := e.dealReadCtx(e.Rep1, nil, principal.RowScopeOwn)
+	result := e.runReport(t, rep, "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
+	if got := wireInt(t, row, "deals"); got != 1 {
+		t.Fatalf("deals = %d, want 1 — the foreign rep's deal in the same stage must not be counted", got)
+	}
+	if got := wireInt(t, row, "weighted_minor"); got != weightedMinor(10000, 60) {
+		t.Errorf("weighted_minor = %d, want %d (only the caller's own deal)", got, weightedMinor(10000, 60))
+	}
+
+	handle, ok := row["derivation_url"].(string)
+	if !ok || handle == "" {
+		t.Fatalf("aggregate row has no derivation_url: %+v", row)
+	}
+	derivation := e.explainReport(t, rep, "deals-by-stage", handle)
+	if derivation.TotalRows != 1 {
+		t.Errorf("own-scope drill-through total = %d, want 1 (never the foreign deal)", derivation.TotalRows)
+	}
+}
+
+// dealsByStageRow picks the aggregate row for one stage out of a
+// group-by-stage_id result — the report is fetched with no stage_id
+// filter (there is no caller for one; grouping already answers "per
+// stage"), so the test selects its row the way TestForecastByOwnerCounts…
+// selects by owner_id.
+func dealsByStageRow(t *testing.T, result reportResultWire, stageID string) map[string]any {
+	t.Helper()
+	for _, row := range result.Rows {
+		if row["stage_id"] == stageID {
+			return row
+		}
+	}
+	t.Fatalf("no row for stage_id %q in %+v", stageID, result.Rows)
+	return nil
 }

@@ -35,8 +35,12 @@ const (
 	whereArchivedNull = "t.archived_at IS NULL"
 
 	// joinStageForWinProbability is the one join a spec adds when it needs the
-	// deal's current stage for win_probability — a to-one lookup (deal.stage_id
-	// is NOT NULL, stage.id is its PK), so it never widens the row grain.
+	// deal's current stage for win_probability. It is safe from BOTH directions
+	// a join can go wrong: it cannot MULTIPLY rows (a to-one lookup — deal.stage_id
+	// is NOT NULL, stage.id is its PK) and it cannot DROP one under the workspace
+	// GUC either — every deal's stage_id is validated against the SAME workspace
+	// at write time (modules/deals writes inside the RLS tx), so a deal's stage row
+	// is never invisible to the deal's own scope.
 	joinStageForWinProbability = "JOIN stage s ON s.id = t.stage_id"
 	colWinProbability          = "s.win_probability"
 
@@ -44,11 +48,23 @@ const (
 	// §6, AC-F1): round PER DEAL, half away from zero, so a roll-up over it
 	// equals the sum of its own rows exactly. Shared by every spec that joins
 	// stage for win_probability, so the forecast report and any other
-	// per-stage weighted figure cannot drift apart (review-loop rule 1).
-	weightedAmountMinorExpr = "round((t.amount_minor * s.win_probability) / 100.0)::bigint"
+	// per-stage weighted figure cannot drift apart. The multiply casts to
+	// numeric first — amount_minor is an unbounded bigint, and bigint × smallint
+	// overflows before the /100.0 below would otherwise widen it.
+	weightedAmountMinorExpr = "round((t.amount_minor::numeric * s.win_probability) / 100.0)::bigint"
 	// fieldWeightedAmountMinor is the API-facing measure name every spec that
 	// defines weightedAmountMinorExpr registers it under.
 	fieldWeightedAmountMinor = "weighted_amount_minor"
+
+	// fieldStageID, fieldStatus and fieldWinProbability are report-vocabulary
+	// field NAMES (map keys) — distinct from the col* constants above, which
+	// are the SQL expressions those names resolve to. Declared here, not
+	// borrowed from an unrelated surface's vocabulary (overlay's query-param
+	// names happen to share these spellings, but renaming one must never
+	// rename the other).
+	fieldStageID        = "stage_id"
+	fieldStatus         = "status"
+	fieldWinProbability = "win_probability"
 )
 
 type reportAggregate struct {
@@ -134,17 +150,21 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere: whereArchivedNull,
 		basePlain: "live (unarchived) deals",
 		dimensions: map[string]string{
-			paramStageID:      colStageID,
-			paramStatus:       "t.status",
-			paramPipelineID:   colPipelineID,
-			"win_probability": colWinProbability,
+			fieldStageID:        colStageID,
+			fieldStatus:         "t.status",
+			"pipeline_id":       colPipelineID,
+			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
 			"amount_minor":           colAmountMinor,
 			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
-		filters:   map[string]string{paramPipelineID: colPipelineID, paramStatus: "t.status", paramOwnerID: colOwnerID, paramStageID: colStageID},
-		defaultBy: []string{paramStageID},
+		// No stage_id filter: nothing serves it (the screen groups BY stage_id
+		// instead), and a filter key this report has no caller for is public
+		// agent surface (the run_report catalog, mcp-info.{json,md}) with no
+		// concrete use behind it.
+		filters:   map[string]string{"pipeline_id": colPipelineID, fieldStatus: "t.status", "owner_id": colOwnerID},
+		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "amount_minor_sum"},
@@ -179,21 +199,21 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
-			paramOwnerID:        colOwnerID,
-			paramStageID:        colStageID,
-			paramPipelineID:     colPipelineID,
+			"owner_id":          colOwnerID,
+			fieldStageID:        colStageID,
+			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
-			"win_probability":   colWinProbability,
+			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
 			"amount_minor":           colAmountMinor,
 			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		filters: map[string]string{
-			paramOwnerID:        colOwnerID,
-			paramStageID:        colStageID,
-			paramPipelineID:     colPipelineID,
+			"owner_id":          colOwnerID,
+			fieldStageID:        colStageID,
+			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 		},
