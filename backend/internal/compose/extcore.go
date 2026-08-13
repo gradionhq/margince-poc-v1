@@ -96,11 +96,18 @@ func (c extensionCore) admit(ctx context.Context) error {
 	if !bound {
 		return database.ErrNoWorkspace
 	}
-	// FRESH, never cached, and for the reason the dispatcher's own uncached
-	// read carries: a write routed on a stale mode is silent divergence rather
-	// than a stale screen. An overlay workspace's native tables are not the
-	// live ones, so this write would land where nothing reads it.
-	overlaid, err := overlayModeOf(ctx, c.deps.pool, workspace)
+	// FRESH, never cached, and for the reason the dispatcher's own uncached read
+	// carries: a write routed on a stale mode is silent divergence rather than a
+	// stale screen. An overlay workspace's native tables are not the live ones,
+	// so this write would land where nothing reads it.
+	//
+	// Read on the CALLER'S transaction, which is both safer and stronger than a
+	// connection of its own. Safer: a second acquire inside a borrowed
+	// transaction is the deadlock shape this programme removed from the store
+	// seams. Stronger: the mode and the write it guards are then the same
+	// transaction, so the answer cannot go stale between them — the dispatcher's
+	// own read narrows that window and cannot close it.
+	overlaid, err := overlayModeOf(ctx, c.tx, workspace)
 	if err != nil {
 		return fmt.Errorf("compose: resolving the workspace's record mode for an extension core write: %w", err)
 	}
