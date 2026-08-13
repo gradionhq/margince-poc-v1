@@ -333,8 +333,11 @@ export const RefreshReview: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    // The refresh button only exists once GET /company has resolved AND the
+    // effect that seeds `form` from it has run: two async hops past mount,
+    // so the query has to wait for it rather than assume it's already there.
     await userEvent.click(
-      canvas.getByRole("button", { name: /Refresh from website/ }),
+      await canvas.findByRole("button", { name: /Refresh from website/ }),
     );
     await canvas.findByText("Review what changed");
   },

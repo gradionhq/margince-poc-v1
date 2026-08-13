@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
+import { useT } from "../i18n";
 import {
   AccountBrief,
   CommercialPanel,
@@ -12,6 +13,8 @@ import {
   RecentActivityPanel,
   StateStrip,
 } from "./company360";
+import { LIFECYCLE_LABELS } from "./companylookups";
+import { RELATIONSHIP_TYPE_LABELS } from "./organizations";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // The company view's Panel-shaped cards, rendered straight from a payload
@@ -201,6 +204,30 @@ const populated = {
       next_close_on: "2026-08-15",
     },
   },
+  // Two rated dimensions, not one: HealthSummaryStat's verdict is a worst-of
+  // over relationship, commercial and payment, and a fixture that only ever
+  // rated one dimension could never show the "N of 3 rated" count meaning
+  // anything. Days-since-inbound matches the engagement block's own
+  // last_inbound_at (as_of minus two days), and reply_balance sits inside the
+  // 0.34-0.66 band on purpose: that is the branch HealthStat calls "Balanced"
+  // rather than one-sided, so the fixture exercises the reading the state
+  // strip most often shows for a healthy account.
+  health: {
+    relationship: {
+      rating: "strong",
+      reason: "Two contacts active, replies arrive within a day.",
+    },
+    commercial: {
+      rating: "good",
+      reason: "One deal stalled, the other moving on schedule.",
+    },
+    days_since_last_inbound: 2,
+    reply_balance: 0.5,
+    last_meeting_at: "2026-07-05T14:00:00Z",
+    active_contacts: 2,
+    single_threaded: false,
+    open_commitments: 1,
+  },
 } as unknown as View;
 
 // The same account read by someone whose role cannot see deals, people or
@@ -368,12 +395,61 @@ const connectedFinance: FinanceSummary = {
   median_days_after_due: 4,
 };
 
+// The two lookups below are keyed on the real wire enums (Lifecycle,
+// RelationshipType), but StateStrip's own label props take a bare `string` —
+// it draws whatever the account's enum happens to be without knowing the
+// lookup's key type. A type guard narrows the string to the lookup's key
+// rather than casting it, which is what the real caller
+// (organizations.tsx's CompanyBand) reaches for with `as` because it already
+// knows the value came off `Organization["lifecycle"]`; the strip here has
+// no such upstream guarantee to lean on.
+function isLifecycleLabelKey(
+  value: string,
+): value is keyof typeof LIFECYCLE_LABELS {
+  return value in LIFECYCLE_LABELS;
+}
+
+function isRelationshipTypeLabelKey(
+  value: string,
+): value is keyof typeof RELATIONSHIP_TYPE_LABELS {
+  return value in RELATIONSHIP_TYPE_LABELS;
+}
+
 // StateStrip: the record's own KPI row, above the tabs. Withheld is the
 // state this gallery exists for — no seeded demo account carries it, so
 // this story is the only place it renders. Connected is the other state
 // nothing seeded reaches for a story: the demo stack's finance stub always
 // answers `no_connection`, so the money figure and the provider name on its
 // detail line (FinanceStat) never render anywhere else.
+//
+// `Strip` itself returns `<StoryProviders>`, so it sits outside the
+// LocaleProvider it renders and cannot call `useT` directly; `StripBody`
+// is the inner component that mounts inside that context, mirroring the
+// real caller's label wiring (organizations.tsx's CompanyBand) rather than
+// the identity functions that used to stand in for it and rendered the raw
+// wire enum instead of its copy.
+function StripBody({ view }: Readonly<{ view?: View }>) {
+  const t = useT();
+  return (
+    <StateStrip
+      orgId="o-1"
+      view={view}
+      lifecycleLabel={(value) =>
+        isLifecycleLabelKey(value) ? t(LIFECYCLE_LABELS[value]) : value
+      }
+      relationshipLabels={(values) =>
+        values
+          .map((value) =>
+            isRelationshipTypeLabelKey(value)
+              ? t(RELATIONSHIP_TYPE_LABELS[value])
+              : value,
+          )
+          .join(" · ")
+      }
+    />
+  );
+}
+
 function Strip({
   view,
   finance = { organization_id: "o-1", state: "no_connection" },
@@ -387,13 +463,13 @@ function Strip({
   });
   return (
     <StoryProviders>
-      <div style={{ maxWidth: 720 }}>
-        <StateStrip
-          orgId="o-1"
-          view={view}
-          lifecycleLabel={(value) => value}
-          relationshipLabels={(values) => values.join(", ")}
-        />
+      {/* company360.css flips the strip to a 3-column grid at max-width
+          68rem (1088px); 720px sat well below that line and wrapped the
+          six-to-seven slots into two rows, which the real page never does.
+          1200px clears the breakpoint with room to spare while still
+          reading as a bounded card rather than the full viewport. */}
+      <div style={{ maxWidth: 1200 }}>
+        <StripBody view={view} />
       </div>
     </StoryProviders>
   );

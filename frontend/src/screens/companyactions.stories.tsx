@@ -118,14 +118,22 @@ export const NewDealNoTarget: Story = {
 // Open: the stage select carries both open stages, currency defaults to the
 // first option, and the deal name is still blank — Save stays disabled on
 // the one field the form cannot default.
+//
+// The trigger lives in canvasElement, but CreateAction's modal is Modal
+// (design-system/atoms), which portals to document.body rather than
+// rendering in place (so a dialog opened from a collapsed menu survives the
+// menu's own collapse): every query for something the modal shows has to
+// scope past canvasElement to the document it sits in, or it never sees the
+// form at all.
 export const NewDealOpen: Story = {
   render: () => <NewDeal pipeline={openPipeline} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "New deal" }),
     );
-    await canvas.findByLabelText("Deal name");
+    await body.findByRole("textbox", { name: "Deal name" });
   },
 };
 
@@ -138,15 +146,16 @@ export const NewDealPending: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "New deal" }),
     );
     await userEvent.type(
-      await canvas.findByLabelText("Deal name"),
+      await body.findByRole("textbox", { name: "Deal name" }),
       "Fleet renewal",
     );
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByRole("button", { name: "Creating…" });
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByRole("button", { name: "Creating…" });
   },
 };
 
@@ -172,15 +181,16 @@ export const NewDealFailed: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "New deal" }),
     );
     await userEvent.type(
-      await canvas.findByLabelText("Deal name"),
+      await body.findByRole("textbox", { name: "Deal name" }),
       "Fleet renewal",
     );
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByText(/travel together/);
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByText(/travel together/);
   },
 };
 
@@ -222,10 +232,11 @@ export const TagOpen: Story = {
   render: () => <TagCompany tags={[]} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add tag" }),
     );
-    await canvas.findByLabelText("Tag name");
+    await body.findByRole("textbox", { name: "Tag name" });
   },
 };
 
@@ -235,12 +246,16 @@ export const TagPending: Story = {
   render: () => <TagCompany tags={[]} apply={() => new Promise(() => {})} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add tag" }),
     );
-    await userEvent.type(await canvas.findByLabelText("Tag name"), "VIP");
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByRole("button", { name: "Creating…" });
+    await userEvent.type(
+      await body.findByRole("textbox", { name: "Tag name" }),
+      "VIP",
+    );
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByRole("button", { name: "Creating…" });
   },
 };
 
@@ -265,12 +280,16 @@ export const TagFailed: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add tag" }),
     );
-    await userEvent.type(await canvas.findByLabelText("Tag name"), "VIP");
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByText(/cannot tag this account/);
+    await userEvent.type(
+      await body.findByRole("textbox", { name: "Tag name" }),
+      "VIP",
+    );
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByText(/cannot tag this account/);
   },
 };
 
@@ -313,10 +332,11 @@ export const ListOpen: Story = {
   render: () => <ListCompany lists={[]} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add to list" }),
     );
-    await canvas.findByLabelText("List name");
+    await body.findByRole("textbox", { name: "List name" });
   },
 };
 
@@ -328,15 +348,16 @@ export const ListPending: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add to list" }),
     );
     await userEvent.type(
-      await canvas.findByLabelText("List name"),
+      await body.findByRole("textbox", { name: "List name" }),
       "Renewal Q3",
     );
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByRole("button", { name: "Creating…" });
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByRole("button", { name: "Creating…" });
   },
 };
 
@@ -360,14 +381,15 @@ export const ListFailed: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
       await canvas.findByRole("button", { name: "Add to list" }),
     );
     await userEvent.type(
-      await canvas.findByLabelText("List name"),
+      await body.findByRole("textbox", { name: "List name" }),
       "Renewal Q3",
     );
-    await userEvent.click(canvas.getByRole("button", { name: "Create" }));
-    await canvas.findByText(/cannot add this account/);
+    await userEvent.click(body.getByRole("button", { name: "Create" }));
+    await body.findByText(/cannot add this account/);
   },
 };
