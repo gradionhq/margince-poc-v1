@@ -85,6 +85,31 @@ export function isPersonTab(value: string | undefined): value is PersonTab {
   return PERSON_TABS.includes((value ?? "") as PersonTab);
 }
 
+// The intent phrases a moment action can ask the composer to open with. The
+// server names the reason in its own vocabulary ("agenda", "follow_up"); the
+// composer hands what it holds to a language model and shows it to a rep, so
+// both need a sentence rather than an enum value.
+const COMPOSER_INTENT_KEYS: Readonly<Record<string, MessageKey>> = {
+  agenda: "person.composer.intentAgenda",
+  reply: "person.composer.intentReply",
+  deliver_commitment: "person.composer.intentCommitment",
+  follow_up: "person.composer.intentFollowUp",
+};
+
+// What the composer opens with, from an action's prefill.
+//
+// An intent this client does not know opens an EMPTY composer rather than
+// passing the raw token through: "deliver_commitment" in the intent field is
+// worse than nothing, because a rep reads it as something the product meant to
+// say, and the model reads it as an instruction nobody wrote.
+function composerIntentOf(
+  prefill: Readonly<Record<string, string>> | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  const key = COMPOSER_INTENT_KEYS[prefill?.intent ?? ""];
+  return key ? t(key) : "";
+}
+
 export function PersonPageV2({
   id,
   tab,
@@ -132,6 +157,11 @@ export function PersonPageV2({
   // Which drawer is open, if any. One at a time: two surfaces over the same
   // record would each claim to be the thing the reader is doing.
   const [drawer, setDrawer] = useState<Drawer>(null);
+  // What the action that opened the composer wanted written. A rung knows WHY
+  // it fired and says so in its prefill; before this the client dropped that
+  // on the floor and opened the same empty composer as the generic button, so
+  // "Draft a follow-up" and "Write an email" did exactly the same thing.
+  const [composerIntent, setComposerIntent] = useState("");
 
   if (view.isLoading) {
     return <div className="wrap">{t("person.page.loading")}</div>;
@@ -142,8 +172,14 @@ export function PersonPageV2({
 
   const person = view.data.person;
   const firstName = person.full_name.split(" ")[0];
-  const emailVerdict = guard.data?.entries.find(
-    (entry) => entry.channel === "email",
+  // Consent is decided per PURPOSE, so the guard carries one email entry per
+  // purpose. The hero button asks a wider question than any single entry —
+  // "is there anything we may write to them about" — and reading only the
+  // first entry answered it with whichever purpose sorted first, disabling the
+  // button on a contact the product would happily let you mail transactionally.
+  // Which purpose applies is then the composer's own question.
+  const emailAllowed = (guard.data?.entries ?? []).some(
+    (entry) => entry.channel === "email" && entry.verdict === "allowed",
   );
 
   // The action loop. Every surface the contract can name routes here.
@@ -158,12 +194,14 @@ export function PersonPageV2({
       // An action with no destination is its own destination — the composer is
       // the sensible home for the drafting kinds.
       if (action.kind === "draft_reply") {
+        setComposerIntent("");
         setDrawer("composer");
       }
       return;
     }
     switch (destination.surface) {
       case "composer":
+        setComposerIntent(composerIntentOf(destination.prefill, t));
         setDrawer("composer");
         return;
       case "research":
@@ -194,7 +232,7 @@ export function PersonPageV2({
         controls={<PersonOwner view={view.data} />}
         actions={
           <PersonActions
-            guardAllows={emailVerdict?.verdict === "allowed"}
+            guardAllows={emailAllowed}
             personId={id}
             onEmail={() => setDrawer("composer")}
             onResearch={() => setDrawer("research")}
@@ -212,7 +250,10 @@ export function PersonPageV2({
           />
         }
       >
-        <PersonStrip view={view.data} consentVerdict={emailVerdict?.verdict} />
+        <PersonStrip
+          view={view.data}
+          consentVerdict={emailAllowed ? "allowed" : undefined}
+        />
 
         <div className="pe-tabs">
           <SegmentedControl
@@ -274,6 +315,7 @@ export function PersonPageV2({
           view={view.data}
           guard={guard.data}
           open={drawer === "composer"}
+          intent={composerIntent}
           onClose={() => setDrawer(null)}
         />
         <PersonResearchDrawer

@@ -4416,10 +4416,22 @@ export const vi = {
   "person.composer.why": "Vì sao có bản nháp này",
   "person.composer.consentUnknown":
     "Chưa có quyết định về sự đồng ý cho kênh này.",
-  "person.composer.confirmFirst":
-    "Việc gửi cần xác nhận trước. Bản nháp này chỉ được gửi sau khi bạn duyệt.",
-  "person.composer.reviewSend": "Xem lại & gửi",
-  "person.composer.staged": "Đã đưa vào chờ duyệt",
+  "person.composer.sendNote":
+    "Khi bấm gửi, thư sẽ đi từ hộp thư của chính bạn.",
+  "person.composer.purpose": "Mục đích đồng ý",
+  "person.composer.consentPickPurpose":
+    "Hãy chọn mục đích của thư này — sự đồng ý được xét theo từng mục đích.",
+  "person.composer.intent": "Nội dung nên nói về điều gì?",
+  "person.composer.intentHint":
+    "Tùy chọn — ví dụ: xin một buổi hẹn trong tuần đầu tháng 9",
+  "person.composer.draftWithAi": "Soạn bằng AI",
+  "person.composer.intentAgenda": "đề xuất chương trình cho buổi hẹn sắp tới",
+  "person.composer.intentReply": "trả lời tin nhắn gần nhất của họ",
+  "person.composer.intentCommitment": "thực hiện điều chúng ta đã hứa",
+  "person.composer.intentFollowUp": "nhắc lại — đã lâu không có phản hồi",
+  "person.composer.send": "Gửi",
+  "person.composer.sending": "Đang gửi…",
+  "person.composer.sent": "Đã gửi",
   "person.composer.aiDisclosure": "Bản nháp có hỗ trợ AI · hãy đọc kỹ từng từ",
   "person.research.title": "Nghiên cứu sâu · {name}",
   "person.research.publicOnly": "Chỉ nguồn công khai",
