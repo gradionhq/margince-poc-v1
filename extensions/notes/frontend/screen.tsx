@@ -17,7 +17,7 @@ import {
   TextInput,
 } from "@margince/frontend/design-system";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 // #/ext/notes — "Demo Notepad", the reference extension's one screen.
 //
@@ -160,7 +160,13 @@ function SigningCard() {
   // beside text it does not sign — which reads as verification of the new
   // payload.
   const [signatureFailed, setSignatureFailed] = useState(false);
+  // What the payload IS, readable from a callback that fires later. A
+  // mutation's onSuccess closes over the render it was created in, so
+  // comparing against the state directly would compare against the value at
+  // the time of the request — which is the value being asked about.
+  const latestPayload = useRef("");
   const changePayload = (value: string) => {
+    latestPayload.current = value;
     setPayload(value);
     setSignature("");
     setSignatureFailed(false);
@@ -191,6 +197,7 @@ function SigningCard() {
 
   const sign = useMutation({
     mutationFn: async (value: string) => {
+      latestPayload.current = value;
       setSignature("");
       setSignatureFailed(false);
       const { data, error, response } = await api.POST("/ext/notes/signature", {
@@ -208,7 +215,14 @@ function SigningCard() {
     // help, and rendering them unchecked puts the string "undefined undefined"
     // on screen as a signature. A signature a person cannot tell from a real
     // one is the worst thing this card can show.
-    onSuccess: (data) => {
+    onSuccess: (data, signed) => {
+      // The payload stayed editable while this was in flight, so an answer can
+      // arrive for text nobody is looking at any more. Showing it would put a
+      // valid signature beside a payload it does not sign — the same defect
+      // the payload-change clear fixes, arriving from the other direction.
+      if (signed !== latestPayload.current) {
+        return;
+      }
       if (
         typeof data?.algorithm !== "string" ||
         typeof data?.signature !== "string"
@@ -218,6 +232,14 @@ function SigningCard() {
         return;
       }
       setSignature(`${data.algorithm} ${data.signature}`);
+    },
+    // And a REFUSAL for an abandoned payload says nothing about the one on
+    // screen either.
+    onError: (_error, signed) => {
+      if (signed !== latestPayload.current) {
+        return;
+      }
+      setSignatureFailed(true);
     },
   });
 
@@ -288,9 +310,10 @@ function SigningCard() {
         {t("extNotes.signing.sign")}
       </Button>
       {signature === "" ? null : <p>{signature}</p>}
-      {sign.isError || signatureFailed ? (
-        <p>{t("extNotes.signing.signFailed")}</p>
-      ) : null}
+      {/* signatureFailed, not sign.isError: the mutation's own flag is true
+          for a refusal of a payload nobody is looking at any more, and this
+          line is about the text on screen. */}
+      {signatureFailed ? <p>{t("extNotes.signing.signFailed")}</p> : null}
     </Card>
   );
 }

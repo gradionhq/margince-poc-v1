@@ -580,6 +580,53 @@ describe("the signing card's answer", () => {
     });
   });
 
+  // The payload stays editable while a signing is in flight, so an answer can
+  // arrive for text nobody is looking at any more.
+  it("ignores an answer for a payload that has since changed", async () => {
+    let release: (() => void) | undefined;
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => ({
+        algorithm: "HMAC-SHA256",
+        signature: "abc123",
+      }),
+    });
+    const gated = async (input: Request | string | URL) => {
+      const answer = fetchStub(input);
+      if (
+        String(input instanceof Request ? input.url : input).includes(
+          "signature",
+        )
+      ) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return answer;
+    };
+    vi.stubGlobal("fetch", vi.fn(gated));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await sign(user, "sign me");
+    // In flight: the person moves on to a different payload.
+    await user.type(screen.getByLabelText("Payload to sign"), " and again");
+    release?.();
+
+    // The answer has to have ARRIVED before its absence means anything: the
+    // Sign button is disabled for the whole flight, so waiting for it to come
+    // back is waiting for the mutation to settle. Without this the assertion
+    // below passes while the request is still in the air, which is a test that
+    // cannot fail.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign" }).hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    expect(screen.queryByText("HMAC-SHA256 abc123")).toBeNull();
+  });
+
   // A signature belongs to the payload it was computed over. Left standing, it
   // sits beside text it does not sign — which reads as verification of the new
   // payload.
