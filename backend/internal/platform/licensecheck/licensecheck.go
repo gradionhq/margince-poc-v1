@@ -45,9 +45,11 @@ const (
 	generation = 0
 )
 
-// The bundled module and the release it came from. Both are rewritten together
-// by `make license-module`; module_test.go holds the blob to the recorded digest
-// so a swapped or truncated one fails the build gate rather than a boot.
+// The bundled module and the release it came from, installed together by the
+// publisher's own tooling (margince-constellation's `licensecheck-wasm-install`)
+// and never by hand — this repository holds the artifact, not the machinery for
+// fetching it. module_test.go holds the blob to the recorded digest, so a swapped
+// or truncated one fails the build gate rather than a boot.
 //
 // The file name says nothing about compression on purpose. Upstream's framing is
 // upstream's to change — it moved from gzip to brotli once already — and the host

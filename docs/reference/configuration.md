@@ -687,7 +687,9 @@ The `license:` block points at the installation's entitlement token. It is
 verified **offline**, in-process, against the license-validation WebAssembly
 module bundled at `backend/internal/platform/licensecheck/module/` — no callout
 of any kind, so an air-gapped installation proves its entitlement exactly the
-way a connected one does. `make license-module` is how that module is refreshed.
+way a connected one does. The module, its pin and its digest are installed
+together by the publisher's own tooling and are never edited by hand; a blob
+that stops matching its recorded digest fails `make check`.
 
 | field | default | effect |
 |---|---|---|

@@ -36,7 +36,7 @@ func TestBundledModuleMatchesItsRecordedDigest(t *testing.T) {
 	sum := sha256.Sum256(bundledModule)
 	if got := hex.EncodeToString(sum[:]); got != want {
 		t.Errorf("the bundled module hashes to %s but module/licensecheck.wasm.module.sha256 records %s —\n"+
-			"if the module was refreshed on purpose, `make license-module` rewrites both together", got, want)
+			"a refresh installs both together; neither is edited by hand", got, want)
 	}
 }
 
