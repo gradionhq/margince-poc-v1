@@ -94,7 +94,7 @@ type DerivedEvidence struct {
 // It returns false rather than an error on a repeat: a producer pass over an
 // unchanged account is the normal case, not a failure, and the fingerprint
 // index covers dismissed rows so a dismissal is never undone by the next pass.
-func RecordDerived(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, in DerivedSignal, detectedAt time.Time) (bool, error) {
+func RecordDerived(ctx context.Context, tx pgx.Tx, in DerivedSignal, detectedAt time.Time) (bool, error) {
 	evidence, err := json.Marshal(derivedEvidenceRows(in.Evidence))
 	if err != nil {
 		return false, fmt.Errorf("encode derived signal evidence: %w", err)
@@ -110,14 +110,14 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, in Deri
 	var signalID ids.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO signal
-		  (workspace_id, kind, entity_type, entity_id, resolved_org_id, summary,
+		  (kind, entity_type, entity_id, resolved_org_id, summary,
 		   evidence, fingerprint, source_channel, resolution_state, severity,
 		   status, detected_at, source, captured_by, visibility, owner_id)
-		VALUES ($1, $2, 'organization', $3, $3, $4, $5, $6,
-		        'derived', 'resolved', $7, 'open', $8, 'signal-scan', $9, $10, $11)
+		VALUES ($1, 'organization', $2, $2, $3, $4, $5,
+		        'derived', 'resolved', $6, 'open', $7, 'signal-scan', $8, $9, $10)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
-		wsID, in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
+		in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
 		in.Severity, detectedAt, by,
 		visibility, nullableOwner(in.PrivateTo)).Scan(&signalID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -206,9 +206,9 @@ func AcknowledgeTx(ctx context.Context, tx pgx.Tx, signalID ids.UUID) (bool, err
 	// triage endpoint writes — the outcome is a human's, whoever's hands the
 	// write passed through.
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO signal_resolution (id, workspace_id, signal_id, outcome, resolved_by, source, captured_by)
-		 VALUES ($1, $2, $3, 'acknowledged', $4, 'approval', $5)`,
-		ids.NewV7(), storekit.MustWorkspace(ctx), signalID,
+		`INSERT INTO signal_resolution (id, signal_id, outcome, resolved_by, source, captured_by)
+		 VALUES ($1, $2, 'acknowledged', $3, 'approval', $4)`,
+		ids.NewV7(), signalID,
 		storekit.UUIDOrNil(actor.UserID), actor.ID); err != nil {
 		return false, fmt.Errorf("append the signal outcome: %w", err)
 	}

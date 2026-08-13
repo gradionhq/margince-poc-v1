@@ -52,13 +52,13 @@ func seedOpenContractEnded(t *testing.T, e *integration.Env, org ids.UUID) ids.U
 		// No fingerprint: these stand for signals a human filed, and the point
 		// of several is that they are several rows rather than one deduped one.
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO signal (id, workspace_id, kind, source_channel, entity_type, entity_id,
+			INSERT INTO signal (id, kind, source_channel, entity_type, entity_id,
 			                    resolved_org_id, resolution_state, severity, summary, status,
 			                    detected_at, source, captured_by)
-			VALUES ($1, $2, 'contract_ended', 'derived', 'organization', $3, $3, 'resolved',
+			VALUES ($1, 'contract_ended', 'derived', 'organization', $2, $2, 'resolved',
 			        'warn', 'They wrote that the contract ends on 31 July.', 'open',
 			        now(), 'signal-scan', 'agent:contract_ended')`,
-			signal, e.WS, org)
+			signal, org)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -360,13 +360,13 @@ func seedOpenContractEndedOnDeal(t *testing.T, e *integration.Env, org, deal ids
 	signal := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO signal (id, workspace_id, kind, source_channel, entity_type, entity_id,
+			INSERT INTO signal (id, kind, source_channel, entity_type, entity_id,
 			                    resolved_org_id, resolution_state, severity, summary, status,
 			                    detected_at, source, captured_by)
-			VALUES ($1, $2, 'contract_ended', 'derived', 'deal', $3, $4, 'resolved',
+			VALUES ($1, 'contract_ended', 'derived', 'deal', $2, $3, 'resolved',
 			        'warn', 'Their renewal will not proceed.', 'open',
 			        now(), 'signal-scan', 'agent:contract_ended')`,
-			signal, e.WS, deal, org)
+			signal, deal, org)
 		return err
 	}); err != nil {
 		t.Fatal(err)

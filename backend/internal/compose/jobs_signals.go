@@ -111,7 +111,7 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	now := w.now()
 	var ghosted GhostedPass
 	if err := database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
-		pass, err := WriteGhostedSignals(wsCtx, tx, wsID, now)
+		pass, err := WriteGhostedSignals(wsCtx, tx, now)
 		ghosted = pass
 		return err
 	}); err != nil {

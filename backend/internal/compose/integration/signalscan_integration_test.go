@@ -41,8 +41,7 @@ func ghostedPass(t *testing.T, e *Env, now time.Time) compose.GhostedPass {
 	ctx := e.Admin()
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		var err error
-		pass, err = compose.WriteGhostedSignals(ctx, tx,
-			ids.From[ids.WorkspaceKind](e.WS), now)
+		pass, err = compose.WriteGhostedSignals(ctx, tx, now)
 		return err
 	}); err != nil {
 		t.Fatalf("ghosted scan: %v", err)
