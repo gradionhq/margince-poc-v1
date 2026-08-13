@@ -20,6 +20,7 @@ import {
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
+import { refusalOf, SendRefusal } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
 
@@ -176,6 +177,28 @@ function PurposePicker({
       />
     </>
   );
+}
+
+// Why a send was refused, in terms the rep can act on.
+//
+// The three named refusals are the SAME ones the company composer meets, so
+// they are named once rather than twice: a consent gate that says which record
+// to open, a mailbox whose grant predates sending, and an unsubscribe token
+// belonging to one recipient. Anything else falls back to the problem's own
+// message, which is still better than "something went wrong".
+function SendFailure({
+  error,
+  personId,
+}: Readonly<{ error: unknown; personId: string }>) {
+  const t = useT();
+  if (error == null) {
+    return null;
+  }
+  const refusal = refusalOf(error);
+  if (refusal !== null) {
+    return <SendRefusal refusal={refusal} personId={personId} />;
+  }
+  return <p className="pe-send-error">{problemMessageOf(error, t)}</p>;
 }
 
 export function PersonComposer({
@@ -367,9 +390,10 @@ export function PersonComposer({
           <AlertTriangle size={14} aria-hidden="true" />
           {t("person.composer.sendNote")}
         </span>
-        {send.isError && (
-          <p className="pe-send-error">{problemMessageOf(send.error, t)}</p>
-        )}
+        <SendFailure
+          error={send.isError ? send.error : null}
+          personId={personId}
+        />
         <Button
           variant="primary"
           disabled={!sendable || send.isPending}
