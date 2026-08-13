@@ -222,6 +222,28 @@ describe("the import card", () => {
     expect(await screen.findByText("The import finished.")).toBeInTheDocument();
   });
 
+  it("counts the rows it will write in words that read as English", async () => {
+    stubRoutes({
+      "GET /imports": () =>
+        jsonResponse({
+          ...dryRun,
+          disposition: { created: 1, updated: 0, unchanged: 2, skipped: 1 },
+        }),
+    });
+    render(<ImportCard />);
+    await upload();
+    await screen.findByRole("row", { name: /Notes/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check what this will do" }),
+    );
+
+    // "1 rows" is how a machine counts. This button is the last thing a human
+    // reads before the least reversible write in the product.
+    expect(
+      await screen.findByRole("button", { name: "Import 1 row" }),
+    ).toBeInTheDocument();
+  });
+
   it("refuses to validate a mapping that identifies no row", async () => {
     stubRoutes({
       "POST /imports/sources": () =>

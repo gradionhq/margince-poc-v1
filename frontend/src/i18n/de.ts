@@ -1794,7 +1794,8 @@ export const de = {
   "import.issuesLead":
     "Einige Zeilen können nicht importiert werden. Sie sind mit der Zeilennummer in Ihrer Datei aufgeführt.",
   "import.issueLine": "Zeile {line}:",
-  "import.commit": "{rows} Zeilen importieren",
+  "import.commit.one": "1 Zeile importieren",
+  "import.commit.other": "{rows} Zeilen importieren",
   "import.importing": "Wird importiert…",
   "import.done": "Der Import ist abgeschlossen.",
   "import.failed":

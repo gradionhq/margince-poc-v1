@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { useCan } from "../app/capability";
 import { Button, Card, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
-import { useT } from "../i18n";
+import { type MessageKey, useT } from "../i18n";
 import { problemMessageOf } from "./common";
 import { useImportFlow } from "./importflow";
 import { ImportMappingTable } from "./importmapping";
@@ -200,10 +200,7 @@ function ImportOutcome({
             ? t("import.importing")
             : resumable
               ? t("import.resume")
-              : t("import.commit").replace(
-                  "{rows}",
-                  String(d.created + d.updated),
-                )}
+              : commitLabel(t, d.created + d.updated)}
         </Button>
       )}
       {error ? (
@@ -216,6 +213,15 @@ function ImportOutcome({
       ) : null}
     </div>
   );
+}
+
+// commitLabel counts the rows the commit will write. One row is "1 row": the
+// button is the last thing a human reads before the least reversible write in
+// the product, and "1 rows" reads like a machine wrote it.
+function commitLabel(t: (key: MessageKey) => string, rows: number): string {
+  const key: MessageKey =
+    rows === 1 ? "import.commit.one" : "import.commit.other";
+  return t(key).replace("{rows}", String(rows));
 }
 
 function Count({ label, value }: Readonly<{ label: string; value: number }>) {

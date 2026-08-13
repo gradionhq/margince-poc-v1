@@ -1785,7 +1785,8 @@ export const vi = {
   "import.issuesLead":
     "Một số dòng không nhập được. Danh sách kèm số dòng để bạn mở trong tệp.",
   "import.issueLine": "Dòng {line}:",
-  "import.commit": "Nhập {rows} dòng",
+  "import.commit.one": "Nhập 1 dòng",
+  "import.commit.other": "Nhập {rows} dòng",
   "import.importing": "Đang nhập…",
   "import.done": "Đã nhập xong.",
   "import.failed":

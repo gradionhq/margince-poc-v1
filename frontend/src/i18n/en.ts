@@ -1795,7 +1795,8 @@ export const en = {
   "import.issuesLead":
     "Some rows cannot be imported. They are listed with the line to open in your file.",
   "import.issueLine": "Line {line}:",
-  "import.commit": "Import {rows} rows",
+  "import.commit.one": "Import 1 row",
+  "import.commit.other": "Import {rows} rows",
   "import.importing": "Importing…",
   "import.done": "The import finished.",
   "import.failed":

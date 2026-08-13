@@ -198,6 +198,47 @@ func TestImportProblemNamesAVanishedUploadAsNotFound(t *testing.T) {
 	}
 }
 
+// The disposition is what a human judges an import by, and the contract states
+// its invariant outright: the four counts sum to the rows read. A completed
+// run's stored report carries BOTH the prediction and the outcome — the engine
+// merges them so a resumed attempt keeps what the first one achieved — so a
+// mapper that carried each figure through would report more rows than the file
+// holds. This is the shape that failed live: 5 rows read, 6 unchanged.
+func TestTheDispositionAlwaysSumsToTheRowsRead(t *testing.T) {
+	merged := migration.Report{Objects: []migration.ObjectReport{{
+		Object: migration.ObjectLead, MirrorCount: 5,
+		// What the dry run predicted...
+		WillCreate: 0, WillUpdate: 1,
+		// ...and what the commit then did, in the same stored report.
+		Created: 0, Updated: 1, Unchanged: 6,
+		Skipped: []migration.SkippedRow{
+			{ExternalID: "line 5", Reason: "no key"},
+			{ExternalID: "line 5", Reason: "no key"},
+		},
+	}}}
+
+	for _, status := range []string{
+		migration.StatusAwaitingApproval,
+		migration.StatusComplete,
+		migration.StatusFailed,
+	} {
+		t.Run(status, func(t *testing.T) {
+			got := toContractImportReport(migration.Run{
+				Status: status, Report: &merged,
+				Mapping: &migration.RunMapping{Object: migration.ObjectLead},
+			})
+			d := got.Disposition
+			if total := d.Created + d.Updated + d.Unchanged + d.Skipped; total != got.RowsRead {
+				t.Fatalf("disposition sums to %d but %d rows were read: %+v", total, got.RowsRead, d)
+			}
+			// One row the human must go fix, not two reports of the same one.
+			if d.Skipped != 1 || len(got.Issues) != 1 {
+				t.Fatalf("skipped = %d with %d issues, want the one row named once", d.Skipped, len(got.Issues))
+			}
+		})
+	}
+}
+
 func TestToContractReportNeverSumsAPredictionWithAnOutcome(t *testing.T) {
 	report := migration.Report{Objects: []migration.ObjectReport{{
 		Object: migration.ObjectLead, MirrorCount: 3,
