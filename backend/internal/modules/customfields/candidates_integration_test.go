@@ -76,6 +76,18 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`, ws, "candidates-"+ws.String()); err != nil {
 		t.Fatal(err)
 	}
+	// custom_field.created_by carries a real FK to app_user (the write
+	// shape stamps captured_by/created_by from the authenticated
+	// principal, never the request body) — a hand-picked UUID with no
+	// backing row fails that constraint, so the principal below MUST be
+	// a real seeded user, mirroring automation's own
+	// autofixture_integration_test.go.
+	userID := ids.NewV7()
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Candidates Test')`,
+		userID, ws, "candidates-test-"+userID.String()+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
 
 	appPool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
@@ -91,7 +103,7 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 	svc := NewService(appPool, schemaPool)
 	fctx := principal.WithActor(principal.WithCorrelationID(principal.WithWorkspaceID(ctx, ws), ids.NewV7()),
 		principal.Principal{
-			Type: principal.PrincipalHuman, ID: "human:candidates-test", UserID: ids.NewV7(),
+			Type: principal.PrincipalHuman, ID: "human:candidates-test", UserID: userID,
 			Permissions: principal.Permissions{
 				RoleKeys: []string{"test"},
 				RowScope: principal.RowScopeAll,
