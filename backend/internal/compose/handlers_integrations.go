@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
@@ -200,20 +201,22 @@ func writeRunError(w http.ResponseWriter, r *http.Request, err error) {
 	httperr.Write(w, r, err)
 }
 
-// newIntegrationsHandlers builds the surface. A nil registry means no adapter
-// is compiled in, which is a supported configuration rather than a broken
-// one: the store still answers, every card renders "not connected", and no
-// code path exists that could reach a provider (PI-AC-9).
-func newIntegrationsHandlers(pool *pgxpool.Pool, reg *integrations.Registry) integrationsHandlers {
-	if reg == nil {
+// newIntegrationsHandlers builds the surface. A nil registry or vault means
+// the provider platform is not wired on this role, which is a supported
+// configuration rather than a broken one: every operation answers 501 and no
+// code path exists that could reach a provider (PI-AC-9). A nil run service
+// leaves only the run endpoints on 501 — the connection lifecycle still
+// serves. Construction with live dependencies must succeed: a store that
+// cannot be built with the vault and registry in hand is a wiring bug, and a
+// boot that panics is more honest than a production surface quietly serving
+// 501s.
+func newIntegrationsHandlers(pool *pgxpool.Pool, vault keyvault.Vault, reg *integrations.Registry, runs provider.RunService) integrationsHandlers {
+	if reg == nil || vault == nil {
 		return integrationsHandlers{}
 	}
-	store, err := integrations.NewStore(InstallationDB(pool), nil, reg, time.Now)
+	store, err := integrations.NewStore(InstallationDB(pool), vault, reg, time.Now)
 	if err != nil {
-		// Construction only fails on a missing dependency, which is a wiring
-		// bug rather than a runtime condition — answer 501 rather than
-		// serving a half-built store.
-		return integrationsHandlers{}
+		panic("compose: integrations store construction failed with live dependencies: " + err.Error())
 	}
-	return integrationsHandlers{store: store, runs: provider.NotConnected{}}
+	return integrationsHandlers{store: store, runs: runs}
 }

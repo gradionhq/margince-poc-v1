@@ -8114,6 +8114,44 @@ export interface components {
             /** Format: date-time */
             read_at?: string | null;
         };
+        /**
+         * @description One calendar month's consumption for one credit pool, from this installation's own
+         *     reservation ledger (PI-FORM-3) — the same rows the ceiling is enforced against, so
+         *     this figure and the one that refuses a run cannot disagree.
+         *
+         *     Credits only. There is deliberately no currency field: credits are bought in bulk
+         *     at negotiated discounts, so a credit has no single price and any money total would
+         *     be invented. The provider invoice is the only document that knows what was paid.
+         */
+        ProviderMonthlySpend: {
+            /**
+             * Format: date
+             * @description First day of the UTC calendar month, matching the ceiling's window.
+             */
+            month: string;
+            /** @description The provider's own pool name. */
+            pool: string;
+            /**
+             * @description Credits consumed: the provider's actual charge where it reported one, otherwise
+             *     the reservation still held. An unreconciled hold counts as charged, because
+             *     assuming a refund nobody promised understates the bill.
+             */
+            charged_credits: number;
+            /**
+             * @description Credits held by runs in `submission_unknown` — outcome never learned (PI-AC-4).
+             *     Reported separately and NEVER inside charged_credits: a total that folded these
+             *     in either direction would assert something the platform does not know.
+             */
+            held_credits: number;
+            runs: number;
+        };
+        /**
+         * @description A bounded consumption series: the current month plus a small number of prior
+         *     months, so the connection read stays one round trip.
+         */
+        ProviderSpend: {
+            months: components["schemas"]["ProviderMonthlySpend"][];
+        };
         ProviderConnection: {
             provider: components["schemas"]["Provider"];
             status: components["schemas"]["ProviderConnectionStatus"];
@@ -8123,6 +8161,7 @@ export interface components {
             /** @description Named deployment/provider ceilings that make behavior stricter than the saved policy. */
             effective_constraints?: string[];
             credits: components["schemas"]["ProviderCredits"];
+            spend?: components["schemas"]["ProviderSpend"];
             /** Format: date-time */
             connected_at?: string | null;
             /** Format: date-time */
@@ -9141,6 +9180,13 @@ export interface components {
             person_id: string;
             full_name: string;
             title?: string | null;
+            /** @description A provider-sourced job title, populated ONLY where the canonical title is empty (PO-EXT-9): a bought title fills a blank, never overwrites or seconds one a human typed. */
+            provider_title?: string | null;
+            /**
+             * @description Which title the roster is showing — the installation's own record, or the provider fallback. Null when there is no title at all.
+             * @enum {string|null}
+             */
+            title_source?: "canonical" | "provider" | null;
             primary_email?: string | null;
             strength: components["schemas"]["RelationshipStrength"];
             /** @description This contact's stakeholder roles on the account's deals (champion, economic_buyer, …). */
@@ -9605,8 +9651,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory")[];
+            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory" | "provider_profile")[];
             strength?: components["schemas"]["RelationshipStrength"];
+            /** @description The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`. */
+            provider_profile?: components["schemas"]["PersonProviderProfile"];
             /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
             relationship_changes?: components["schemas"]["PersonRelationshipChange"][];
             /** @description The ONE thing this contact needs today, selected server-side by the fixed ladder in `PersonMoment.rule` (ADR-0096 D2). Exactly one primary moment wins: a page that offers five reasons has told the reader to choose, which is the work the ladder exists to do. Deterministic and computed at read from captured data. Absent when the caller lacks a grant the ladder needs, named in `sections_omitted` as `moments`; the quiet success state is a moment of kind `nothing_needed`, not an absence. */

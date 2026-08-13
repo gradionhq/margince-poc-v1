@@ -12357,6 +12357,50 @@ components:
           additionalProperties: { type: [integer, 'null'], minimum: 0 }
         read_at: { type: [string, 'null'], format: date-time }
 
+    ProviderMonthlySpend:
+      type: object
+      description: |
+        One calendar month's consumption for one credit pool, from this installation's own
+        reservation ledger (PI-FORM-3) — the same rows the ceiling is enforced against, so
+        this figure and the one that refuses a run cannot disagree.
+
+        Credits only. There is deliberately no currency field: credits are bought in bulk
+        at negotiated discounts, so a credit has no single price and any money total would
+        be invented. The provider invoice is the only document that knows what was paid.
+      required: [month, pool, charged_credits, held_credits, runs]
+      properties:
+        month:
+          type: string
+          format: date
+          description: First day of the UTC calendar month, matching the ceiling's window.
+        pool: { type: string, description: The provider's own pool name. }
+        charged_credits:
+          type: integer
+          minimum: 0
+          description: |
+            Credits consumed: the provider's actual charge where it reported one, otherwise
+            the reservation still held. An unreconciled hold counts as charged, because
+            assuming a refund nobody promised understates the bill.
+        held_credits:
+          type: integer
+          minimum: 0
+          description: |
+            Credits held by runs in `submission_unknown` — outcome never learned (PI-AC-4).
+            Reported separately and NEVER inside charged_credits: a total that folded these
+            in either direction would assert something the platform does not know.
+        runs: { type: integer, minimum: 0 }
+
+    ProviderSpend:
+      type: object
+      description: |
+        A bounded consumption series: the current month plus a small number of prior
+        months, so the connection read stays one round trip.
+      required: [months]
+      properties:
+        months:
+          type: array
+          items: { $ref: '#/components/schemas/ProviderMonthlySpend' }
+
     ProviderConnection:
       type: object
       required: [provider, status, credential_present, configuration, credits, version, created_at, updated_at]
@@ -12372,6 +12416,10 @@ components:
           description: Named deployment/provider ceilings that make behavior stricter than the saved policy.
           items: { type: string }
         credits: { $ref: '#/components/schemas/ProviderCredits' }
+        # The provider's remaining balance answers "can we still buy"; this answers
+        # "what has this cost us" (PI-WIRE-7). Ours, not theirs — a customer may also
+        # spend the same credits through the provider's own app.
+        spend: { $ref: '#/components/schemas/ProviderSpend' }
         connected_at: { type: [string, 'null'], format: date-time }
         last_verified_at: { type: [string, 'null'], format: date-time }
         last_used_at: { type: [string, 'null'], format: date-time }
@@ -13629,6 +13677,16 @@ components:
         person_id: { type: string, format: uuid }
         full_name: { type: string }
         title: { type: [string, 'null'] }
+        provider_title:
+          type: [string, 'null']
+          description: >-
+            A provider-sourced job title, populated ONLY where the canonical title is
+            empty (PO-EXT-9): a bought title fills a blank, never overwrites or seconds
+            one a human typed.
+        title_source:
+          type: [string, 'null']
+          enum: [canonical, provider, null]
+          description: Which title the roster is showing — the installation's own record, or the provider fallback. Null when there is no title at all.
         primary_email: { type: [string, 'null'] }
         strength: { $ref: '#/components/schemas/RelationshipStrength' }
         deal_roles:
@@ -14162,8 +14220,15 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory]
+            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory, provider_profile]
         strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        provider_profile:
+          description: >-
+            The purchased person-data snapshot (PO-EXT-9): what a connected provider
+            returned about this person, kept beside the canonical record and never
+            silently folded into it. Absent when the caller lacks the person grant,
+            named in `sections_omitted` as `provider_profile`.
+          allOf: [{ $ref: '#/components/schemas/PersonProviderProfile' }]
         relationship_changes:
           type: array
           description: >-
