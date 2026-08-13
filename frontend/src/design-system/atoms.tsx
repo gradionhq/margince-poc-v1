@@ -1,6 +1,7 @@
 import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
+  type ComponentPropsWithRef,
   type CSSProperties,
   type ElementType,
   type FormEventHandler,
@@ -135,7 +136,11 @@ export function Avatar({
   );
 }
 
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
+// `ComponentPropsWithRef`, not the bare attribute set: a caller that opens
+// this field itself — an edit-in-place value that has to put the caret where
+// the reader just clicked — needs the node, and React 19 passes `ref` as an
+// ordinary prop to a function component.
+export function TextInput(props: ComponentPropsWithRef<"input">) {
   return (
     <input {...props} className={`input ${props.className ?? ""}`.trim()} />
   );

@@ -40,13 +40,11 @@ body {
  * way, and a class selector outranks both rules here).
  */
 :root {
+  /* The colour only. The caret keeps the platform's own BAR: a block caret is
+     opaque, so it covers the glyph at the insertion point — the character you
+     are typing next to is the one you cannot see — and in a dense field it
+     reads as a selected cell rather than a cursor. */
   caret-color: var(--accent);
-  /* A block caret rather than a bar. Two things to know before changing it: it
-     OCCLUDES the glyph at the insertion point, because the block is opaque accent
-     and is drawn over the character — verified on screen, not assumed — and it is
-     Chromium-only for now, so other engines keep the bar. Both are why it is one
-     line in one place. */
-  caret-shape: block;
   /* Native controls that have an accent of their own: checkbox and radio ticks,
      range thumbs, progress fills. This replaces the same declaration repeated in
      three screens — see quotas.css and onboarding-facts.css, now redundant. */

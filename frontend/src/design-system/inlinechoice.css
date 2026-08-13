@@ -18,20 +18,43 @@
   color: inherit;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid transparent;
   padding: 2px 4px;
   margin: -2px -4px;
   border-radius: var(--r-sm);
   cursor: pointer;
+  transition: background-color 0.12s;
 }
+/* The affordance is a soft fill behind the value, not an underline: an
+   underline reads as a link — somewhere to GO — on the one control whose whole
+   promise is that pressing it keeps you here. The fill is also the shape the
+   field is about to become, so the box a click opens lands where the hover
+   already was. */
 .inline-editable:hover,
 .inline-editable:focus-visible {
-  border-bottom-color: var(--borderStrong);
+  background: var(--bgHover);
 }
 .inline-editable:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+/* The OPEN text field, sized to the value it replaces rather than to a form.
+ * `.input` is a form control: its own font size and its 9px/11px padding make a
+ * box half again as tall as the line of text it opens over, so the row jumped
+ * every time a reader clicked into it and jumped back when they left — the
+ * record moving under the hand that touched it. Here the box is the text's own
+ * metrics plus a 1px border, and the border+padding is cancelled by the same
+ * negative margin the resting button uses, so the glyph does not move either:
+ * the character under the pointer at the click is the character under the caret
+ * after it. The width adds those margins back so the field still fills its
+ * column edge to edge, which is the one thing it should be bigger than the
+ * value for — there has to be room to type. */
+.inlinetext-edit .input {
+  font: inherit;
+  padding: 1px 3px; /* ds:ignore the border's own 1px + this = the resting button's 2px/4px, so the glyph does not move; a scale step here would move it */
+  margin: -2px -4px;
+  width: calc(100% + 8px);
 }
 
 /* The caret only a chooser draws, and only once the reader has already

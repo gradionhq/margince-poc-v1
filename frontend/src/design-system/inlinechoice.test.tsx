@@ -210,6 +210,45 @@ function renderText(
 }
 
 describe("editing free text where it is read", () => {
+  it("opens with the caret already in the field", async () => {
+    renderText();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Change Industry" }),
+    );
+    // Every rule below — Enter, Escape, the blur-commit — is a keyboard or
+    // focus event ON this input, so an input the browser never focused obeys
+    // none of them: the box would sit open behind a reader who had already
+    // clicked into the next field.
+    expect(document.activeElement).toBe(screen.getByLabelText("Industry"));
+  });
+
+  it("closes when focus moves away, leaving no editor open behind the reader", async () => {
+    renderText();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Change Industry" }),
+    );
+    await userEvent.click(document.body);
+    expect(screen.queryByLabelText("Industry")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Change Industry" }),
+    ).toHaveTextContent("Automotive");
+  });
+
+  it("puts the reader back on the value after Escape", async () => {
+    renderText();
+    const trigger = screen.getByRole("button", { name: "Change Industry" });
+    await userEvent.click(trigger);
+    await userEvent.type(screen.getByLabelText("Industry"), "{Escape}");
+    // Backing out of an edit must not drop a keyboard reader onto the body:
+    // they land on the value they opened, the same as InlineChoice's own
+    // revert does.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Change Industry" }),
+      ),
+    );
+  });
+
   it("commits on Enter, with no Save button anywhere", async () => {
     const { onSave } = renderText();
     await userEvent.click(
