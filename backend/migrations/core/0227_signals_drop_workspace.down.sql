@@ -1,4 +1,4 @@
--- Reverse of 0226: the signals tables carry the tenant column again.
+-- Reverse of 0227: the signals tables carry the tenant column again.
 --
 -- The column comes back nullable, is filled from the installation's single
 -- workspace, and only then becomes NOT NULL. The backfill reads `workspace`

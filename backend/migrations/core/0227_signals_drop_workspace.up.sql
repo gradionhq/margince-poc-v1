@@ -1,4 +1,4 @@
--- 0226: the signals module drops the tenant column (ADR-0091 §8 phase D).
+-- 0227: the signals module drops the tenant column (ADR-0091 §8 phase D).
 --
 -- Phase D per module, and signals is the first: two tables, six indexes that
 -- lead with `workspace_id`, and one unique that exists only to be a composite
