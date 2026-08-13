@@ -151,15 +151,20 @@ func queryLiteralCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quotedC
 // queryRecurringCandidates is the yearly-recurrence shape: compares the
 // column's MONTH/DAY (to_char(...,'MMDD')) against the window's own
 // MMDD bounds. A window that does not cross the year boundary
-// (fromMMDD <= toMMDD) is a single BETWEEN; a window that crosses Dec 31
-// → Jan 1 (fromMMDD > toMMDD, e.g. Dec 20 → Jan 15) cannot be expressed
-// as one BETWEEN over a non-cyclic string domain, so it becomes an OR of
-// the two ranges either side of the wrap.
+// (fromMMDD < toMMDD) is a single BETWEEN; a window that crosses Dec 31
+// → Jan 1, OR spans a full year (fromMMDD >= toMMDD — days_before: 365
+// lands back on the SAME month/day, which a strict BETWEEN would wrongly
+// read as "match only that one day" instead of "every day recurs within
+// a full year"), cannot be expressed as one BETWEEN over a non-cyclic
+// string domain, so it becomes an OR of the two ranges either side of
+// the wrap — which is a tautology (matches every MMDD) exactly when
+// fromMMDD == toMMDD, giving the full-year case the "match everything"
+// answer it needs without a separate special case.
 func queryRecurringCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quotedCol string, from, to time.Time, limit int) ([]dateFieldRow, error) {
 	fromMMDD := from.Format("0102")
 	toMMDD := to.Format("0102")
 	var predicate string
-	if fromMMDD <= toMMDD {
+	if fromMMDD < toMMDD {
 		predicate = fmt.Sprintf(`to_char(%[1]s,'MMDD') BETWEEN $1 AND $2`, quotedCol)
 	} else {
 		predicate = fmt.Sprintf(`(to_char(%[1]s,'MMDD') >= $1 OR to_char(%[1]s,'MMDD') <= $2)`, quotedCol)
@@ -200,10 +205,15 @@ func scanDateFieldRows(ctx context.Context, tx pgx.Tx, query string, limit int, 
 // birthday's stored value never changes year to year).
 //
 // A window that does not cross the year boundary has exactly one
-// candidate year (to's — the window's own later, "current" boundary);
-// a window that DOES cross Dec 31 → Jan 1 splits in two: an MMDD on or
-// after fromMMDD is this pass's DECEMBER side and belongs to from's
-// year, everything else is the JANUARY side and belongs to to's year.
+// candidate year (to's — the window's own later, "current" boundary); a
+// window that DOES cross Dec 31 → Jan 1, OR spans a full year
+// (fromMMDD >= toMMDD — the same days_before: 365 case
+// queryRecurringCandidates' own doc explains) splits in two: an MMDD on
+// or after fromMMDD belongs to from's year, everything else to to's
+// year. The `<` here (not `<=`) MUST match queryRecurringCandidates'
+// own predicate choice — the two decide, independently, which of two
+// mutually exclusive shapes a given (from, to) pair takes, and they
+// must always agree on which shape that is.
 //
 // time.Date normalizes an out-of-range day for its month (most visibly
 // Feb 29 in a non-leap projected year, which rolls to Mar 1) — accepted
@@ -213,7 +223,7 @@ func scanDateFieldRows(ctx context.Context, tx pgx.Tx, query string, limit int, 
 func projectOccurrence(month time.Month, day int, from, to time.Time) time.Time {
 	fromMMDD := from.Format("0102")
 	toMMDD := to.Format("0102")
-	if fromMMDD <= toMMDD {
+	if fromMMDD < toMMDD {
 		return time.Date(to.Year(), month, day, 0, 0, 0, 0, to.Location())
 	}
 	candMMDD := fmt.Sprintf("%02d%02d", int(month), day)

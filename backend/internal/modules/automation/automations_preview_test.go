@@ -8,12 +8,13 @@ package automation
 // building a previewDef around a workspace-controlled table/column pair,
 // including the live-catalog check (validateRenewalPreviewDateField) via
 // a fake fieldcatalog.Reader — no database needed since fieldcatalog.Reader
-// is exactly the seam that lets this run without one. The true end-to-end
+// is exactly the seam that lets this run without one. The end-to-end
 // proof — that the resulting previewDef's predicate actually matches real
-// seeded rows under storekit.CompilePredicate and RLS scope — needs a real
-// Postgres and lives in the compose integration lane; this file only
-// proves the refusal/acceptance logic resolvePreviewRecipe runs before
-// ever reaching the database.
+// seeded rows under storekit.CompilePredicate and RLS scope — is
+// TestRenewalReminderPreviewMatchesTheRealSeededRows
+// (compose/integration/renewal_reminder_integration_test.go); this file
+// only proves the refusal/acceptance logic resolvePreviewRecipe runs
+// before ever reaching the database.
 
 import (
 	"context"
@@ -96,6 +97,21 @@ func TestResolvePreviewRecipeRenewalReminder(t *testing.T) {
 		var paramErr *ParamError
 		if err == nil || !errors.As(err, &paramErr) {
 			t.Fatalf("resolvePreviewRecipe = %v, want a *ParamError for a wrong-typed date_field", err)
+		}
+	})
+
+	t.Run("a recurs_yearly instance refuses preview honestly instead of answering a misleading zero", func(t *testing.T) {
+		stored := Automation{
+			Key:    renewalReminderName,
+			Params: json.RawMessage(`{"object":"person","date_field":"cf_renewal","days_before":15,"recurs_yearly":true}`),
+		}
+		_, _, err := resolvePreviewRecipe(context.Background(), catalog, stored, AutomationPreviewInput{}, now)
+		var paramErr *ParamError
+		if err == nil || !errors.As(err, &paramErr) {
+			t.Fatalf("resolvePreviewRecipe(recurs_yearly=true) = %v, want a *ParamError refusing the preview", err)
+		}
+		if paramErr.Reason != recurringPreviewUnsupportedReason {
+			t.Errorf("ParamError.Reason = %q, want %q", paramErr.Reason, recurringPreviewUnsupportedReason)
 		}
 	})
 

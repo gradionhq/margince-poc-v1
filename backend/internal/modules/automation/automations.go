@@ -48,6 +48,16 @@ func NewAutomationStore(db *database.DB) *AutomationStore {
 	return &AutomationStore{db: db, now: time.Now}
 }
 
+// WithClock overrides the store's clock — the fixture a Preview proof
+// pins so "MatchesNow"/"WouldHaveFired" are measured against seeded
+// timestamps, never the wall clock (T11: no real-clock flakiness in a
+// test), mirroring TimeScanner's own NewTimeScannerWithClock. Returns
+// the store for chaining, like WithFieldCatalog above.
+func (s *AutomationStore) WithClock(now func() time.Time) *AutomationStore {
+	s.now = now
+	return s
+}
+
 // WithFieldCatalog wires the workspace custom-field catalog in (compose
 // injects modules/customfields' Service here — ADR-0054: a module never
 // imports a sibling), so renewal_reminder's preview can validate a

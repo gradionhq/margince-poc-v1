@@ -34,6 +34,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -80,7 +81,7 @@ func TestRenewalReminderFiresWithinWindowButNotBeyondIt(t *testing.T) {
 	}
 
 	owner := OwnerConn(t)
-	seedRenewalReminder(t, owner, "person", col, 30, false)
+	seedRenewalReminder(t, owner, col, false)
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scanner := compose.NewTimeScannerWithClock(e.DB(), now, quiet)
@@ -94,6 +95,82 @@ func TestRenewalReminderFiresWithinWindowButNotBeyondIt(t *testing.T) {
 	if got := personTaskCount(t, e, ids.UUID(dueLater.Id)); got != 0 {
 		t.Fatalf("reminder tasks for the out-of-window person = %d, want 0 — 40 days out is past the 30-day horizon", got)
 	}
+}
+
+// TestRenewalReminderPreviewMatchesTheRealSeededRows is the real-Postgres
+// proof PLAN.md's Task 3 asked for and the unit-only
+// TestResolvePreviewRecipeRenewalReminder (automations_preview_test.go)
+// cannot give: that the dynamically built previewDef's predicate — a
+// literal storekit.FieldDate expression over a workspace's own cf_*
+// column, quoted and validated against the LIVE customfields catalog —
+// actually matches real seeded rows under storekit.CompilePredicate AND
+// the row-scope clause AutomationStore.Preview applies, not just that
+// resolvePreviewRecipe's pre-database refusal logic is internally
+// consistent.
+func TestRenewalReminderPreviewMatchesTheRealSeededRows(t *testing.T) {
+	e := Setup(t)
+	svc := customfields.NewService(e.Pool, SchemaPool(t))
+	peopleStore := people.NewStore(e.DB()).WithFieldCatalog(svc)
+	fieldCtx := e.As(e.Rep1, nil, CustomFieldAdminPerms)
+
+	field, err := svc.Create(fieldCtx, customfields.FieldSpec{
+		Object: "person", Label: "Renewal Date", Type: customfields.TypeDate, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("defining the renewal-date field: %v", err)
+	}
+	col := *field.ColumnName
+
+	previewNow := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	dueSoon, err := peopleStore.CreatePerson(fieldCtx, people.CreatePersonInput{
+		FullName: "Due Soon", Source: "manual",
+		CustomFields: map[string]any{col: previewNow.AddDate(0, 0, 10).Format(time.DateOnly)},
+	})
+	if err != nil {
+		t.Fatalf("creating the in-window person: %v", err)
+	}
+	dueLater, err := peopleStore.CreatePerson(fieldCtx, people.CreatePersonInput{
+		FullName: "Due Later", Source: "manual",
+		CustomFields: map[string]any{col: previewNow.AddDate(0, 0, 40).Format(time.DateOnly)},
+	})
+	if err != nil {
+		t.Fatalf("creating the out-of-window person: %v", err)
+	}
+
+	owner := OwnerConn(t)
+	id := seedRenewalReminder(t, owner, col, false)
+
+	automationStore := automation.NewAutomationStore(e.DB()).
+		WithClock(func() time.Time { return previewNow }).
+		WithFieldCatalog(svc)
+	// automation:Read authorizes reading the instance being previewed;
+	// person:Read is the target-table read gate Preview applies on top
+	// (automations_preview.go's own doc: "a preview is a read... gated
+	// like a read"). RowScopeAll matches CustomFieldAdminPerms — this
+	// test is proving the predicate/scope wiring works, not exercising a
+	// row-scope denial (that is gate_integration_test.go's job).
+	previewCtx := e.As(e.Rep1, nil, principal.Permissions{
+		RoleKeys: []string{"test"},
+		RowScope: principal.RowScopeAll,
+		Objects: map[string]principal.ObjectGrant{
+			"automation": {Read: true},
+			"person":     {Read: true},
+		},
+	})
+	result, err := automationStore.Preview(previewCtx, id, automation.AutomationPreviewInput{})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if result.MatchesNow != 1 {
+		t.Fatalf("MatchesNow = %d, want exactly 1 (the in-window person only)", result.MatchesNow)
+	}
+	if len(result.Sample) != 1 || result.Sample[0] != ids.UUID(dueSoon.Id) {
+		t.Fatalf("Sample = %v, want exactly [%s] (the in-window person, never the out-of-window one)", result.Sample, dueSoon.Id)
+	}
+	if result.ExcludedByPermission != 0 {
+		t.Errorf("ExcludedByPermission = %d, want 0 — this caller can see everything it matched", result.ExcludedByPermission)
+	}
+	_ = dueLater // asserted by absence: MatchesNow/Sample above already exclude it
 }
 
 // TestRenewalReminderRecurringAnchorReArmsEachYear proves
@@ -132,7 +209,7 @@ func TestRenewalReminderRecurringAnchorReArmsEachYear(t *testing.T) {
 	}
 
 	owner := OwnerConn(t)
-	seedRenewalReminder(t, owner, "person", col, 30, true)
+	seedRenewalReminder(t, owner, col, true)
 
 	// The clock is mutable across two scans with the SAME scanner — the
 	// same "one clock, captured per call" contract timescan_integration_test.go
@@ -199,7 +276,7 @@ func TestRenewalReminderMisconfiguredInstanceDoesNotAbortTheWorkspacePass(t *tes
 	// was) an active date-typed custom field on person — the same shape of
 	// failure a retired field leaves behind, since both reach
 	// DateFieldCandidates as customfields.ErrUnknownDateColumn.
-	seedRenewalReminder(t, owner, "person", "cf_does_not_exist", 30, false)
+	seedRenewalReminder(t, owner, "cf_does_not_exist", false)
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scanner := compose.NewTimeScannerWithClock(e.DB(), now, quiet)
@@ -213,25 +290,30 @@ func TestRenewalReminderMisconfiguredInstanceDoesNotAbortTheWorkspacePass(t *tes
 }
 
 // seedRenewalReminder enrolls one enabled, ownerless renewal_reminder
-// instance configured over the given object/column — the
-// DateFieldScan-driven counterpart of timescan_integration_test.go's
-// seedNoActivityReminder. Ownerless (no owner_id) skips the match-time
-// owner gate exactly like that precedent, since gate.go's own RBAC path is
-// proven separately.
-func seedRenewalReminder(t *testing.T, owner *pgx.Conn, object, dateField string, daysBefore int, recursYearly bool) {
+// instance watching the given column on person — the DateFieldScan-driven
+// counterpart of timescan_integration_test.go's seedNoActivityReminder.
+// Ownerless (no owner_id) skips the match-time owner gate exactly like
+// that precedent, since gate.go's own RBAC path is proven separately.
+// object is always "person" and days_before always 30 here: every
+// scenario in this suite watches a person field on the same 30-day
+// horizon, so caller-given values for either would be unexercised
+// parameters (T3/T8) until a test actually needs to vary one.
+func seedRenewalReminder(t *testing.T, owner *pgx.Conn, dateField string, recursYearly bool) ids.AutomationID {
 	t.Helper()
 	params, err := json.Marshal(map[string]any{
-		"object": object, "date_field": dateField, "days_before": daysBefore, "recurs_yearly": recursYearly,
+		"object": "person", "date_field": dateField, "days_before": 30, "recurs_yearly": recursYearly,
 	})
 	if err != nil {
 		t.Fatalf("encoding renewal_reminder params: %v", err)
 	}
+	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO automation (id, key, name, trigger, action, params, enabled)
 		 VALUES ($1, 'renewal_reminder', 'Renewal Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', $2::jsonb, true)`,
-		ids.NewV7(), params); err != nil {
+		id, params); err != nil {
 		t.Fatalf("seeding the renewal_reminder instance: %v", err)
 	}
+	return ids.AutomationID{UUID: id}
 }
 
 // personTaskCount counts the create_task activities renewal_reminder

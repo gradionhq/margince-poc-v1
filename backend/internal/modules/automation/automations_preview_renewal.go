@@ -25,6 +25,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
+// recurringPreviewUnsupportedReason is why a recurs_yearly renewal_reminder
+// instance's preview refuses rather than answering — the same
+// honest-gap posture previewNotYetSupported (automations_preview.go)
+// takes for the two clock handlers whose static shape can't fit either:
+// this dynamic previewDef's match is a LITERAL [now, now+days_before]
+// snapshot over the column's raw stored value, which for a recurring
+// field (a birthday stored as, say, 1990-08-01) almost never falls
+// inside any real-world window — silently answering "0 matches" would
+// read as "this automation is broken" when the real answer is "preview
+// cannot project a recurring occurrence yet" (DESIGN.md's own "what
+// stays out of scope"). Fabricating a number here is worse than an
+// honest refusal, for the identical reason previewNotYetSupported's own
+// doc gives.
+const recurringPreviewUnsupportedReason = "preview is not yet supported for a recurring (recurs_yearly) renewal_reminder instance: the literal snapshot preview cannot project what a yearly-recurring window would match"
+
 // renewalPreviewParams decodes and validates the params in effect for a
 // renewal_reminder preview — the draft override's if given, else the
 // stored instance's own — reusing renewalDateFieldScanParams
@@ -120,11 +135,13 @@ func validateRenewalPreviewDateField(ctx context.Context, catalog fieldcatalog.R
 // wraps, reached directly here rather than through customfields (a
 // module never imports a sibling, ADR-0054 §9).
 //
-// match is a literal [now, now+days_before] snapshot regardless of
-// recurs_yearly: projecting "would this fire again next year" into a
-// preview is a second, separate UX question this ticket does not answer
-// (DESIGN.md's own "what stays out of scope") — a recurring instance's
-// preview answers today's literal window exactly like a one-time one.
+// match is a literal [now, now+days_before] snapshot — correct for a
+// one-time instance, which is the only kind that reaches this function:
+// the caller (resolvePreviewRecipe) refuses a recurs_yearly instance
+// before ever calling this with recurringPreviewUnsupportedReason, since
+// a literal snapshot would almost always answer a misleading "0 matches"
+// for a field whose stored value is a birth year, not a real-world date
+// (DESIGN.md's own "what stays out of scope").
 //
 // date_field's existence and DATE type are checked BEFORE this function
 // ever runs (renewalPreviewParams' catalog validation, above) — by the

@@ -11,6 +11,7 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
@@ -30,10 +31,15 @@ type Automation = components["schemas"]["Automation"];
 
 export type ParamField = {
   key: string;
-  kind: "integer" | "string" | "boolean" | "date_field";
+  kind: "integer" | "string" | "boolean" | "date_field" | "enum";
   min?: number;
   max?: number;
   initial: string;
+  // Set only for kind "enum" — the schema's own closed value list (e.g.
+  // renewal_reminder's object property), rendered as a picker instead of
+  // a free-text box so a typo can't silently name a value the backend
+  // would refuse.
+  options?: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,6 +68,18 @@ function paramKind(type: unknown): ParamField["kind"] | null {
   return null;
 }
 
+// enumOptions reads a schema property's own closed value list, when it
+// has one — a string-typed "enum" array is the schema's way of saying
+// "pick one of these", which renders as a picker rather than free text
+// so a typo can't silently name a value the backend would refuse.
+function enumOptions(raw: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(raw.enum)) {
+    return undefined;
+  }
+  const values = raw.enum.filter((v): v is string => typeof v === "string");
+  return values.length > 0 ? values : undefined;
+}
+
 // The ONLY source of editable parameters: the catalog entry's JSON schema.
 export function paramFields(schema: Record<string, unknown>): ParamField[] {
   const properties = isRecord(schema.properties) ? schema.properties : {};
@@ -78,10 +96,13 @@ export function paramFields(schema: Record<string, unknown>): ParamField[] {
     if (!isRecord(raw)) {
       return [];
     }
+    const options = enumOptions(raw);
     const kind: ParamField["kind"] | null =
       key === "date_field" && isDateFieldPicker
         ? "date_field"
-        : paramKind(raw.type);
+        : options
+          ? "enum"
+          : paramKind(raw.type);
     if (kind === null) {
       return [];
     }
@@ -92,6 +113,7 @@ export function paramFields(schema: Record<string, unknown>): ParamField[] {
         min: typeof raw.minimum === "number" ? raw.minimum : undefined,
         max: typeof raw.maximum === "number" ? raw.maximum : undefined,
         initial: scalarText(raw.default),
+        options,
       },
     ];
   });
@@ -158,6 +180,13 @@ function ParamFieldControl({
           value={value}
           onChange={onChange}
           labelId={`${formId}-${field.key}`}
+        />
+      ) : field.kind === "enum" ? (
+        <Select
+          aria-labelledby={`${formId}-${field.key}`}
+          options={(field.options ?? []).map((v) => ({ value: v, label: v }))}
+          value={value}
+          onChange={onChange}
         />
       ) : (
         <TextInput

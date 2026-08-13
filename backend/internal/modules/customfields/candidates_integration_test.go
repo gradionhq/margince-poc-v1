@@ -233,3 +233,33 @@ func TestDateFieldCandidates_RecurringWrapsTheYearBoundary(t *testing.T) {
 		t.Errorf("Jan-side OccurrenceDate = %s, want %s (the window's later year)", janCand.OccurrenceDate, wantJan)
 	}
 }
+
+// TestDateFieldCandidates_RecurringFullYearWindowMatchesEveryMonthDay
+// proves the days_before: 365 boundary: from and to land on the SAME
+// month/day (fromMMDD == toMMDD), which a plain BETWEEN would read as
+// "match only that one day" instead of "a full year recurs, so every
+// month/day matches." Seeds a lead far from that shared boundary date
+// (Mar 1, against an Aug 13 → Aug 13-next-year window) and asserts it
+// still matches — the case that was silently dropped before the fix.
+func TestDateFieldCandidates_RecurringFullYearWindowMatchesEveryMonthDay(t *testing.T) {
+	f := setupCandidates(t)
+	farFromBoundary := f.seedLead(t, time.Date(1990, 3, 1, 0, 0, 0, 0, time.UTC))
+
+	from := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, 365)
+	if from.Format("0102") != to.Format("0102") {
+		t.Fatalf("test setup: expected fromMMDD == toMMDD, got %s vs %s", from.Format("0102"), to.Format("0102"))
+	}
+
+	got, err := f.svc.DateFieldCandidates(f.ctx, "lead", f.dateCol, from, to, true, 50)
+	if err != nil {
+		t.Fatalf("DateFieldCandidates: %v", err)
+	}
+	if len(got) != 1 || got[0].EntityID != farFromBoundary {
+		t.Fatalf("full-year window candidates = %+v, want exactly the one lead (a full year must match every month/day, not just Aug 13)", got)
+	}
+	wantOccurrence := time.Date(2027, 3, 1, 0, 0, 0, 0, got[0].OccurrenceDate.Location())
+	if !got[0].OccurrenceDate.Equal(wantOccurrence) {
+		t.Errorf("OccurrenceDate = %s, want %s", got[0].OccurrenceDate, wantOccurrence)
+	}
+}

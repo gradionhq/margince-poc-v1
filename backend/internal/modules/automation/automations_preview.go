@@ -323,6 +323,9 @@ func resolvePreviewRecipe(ctx context.Context, catalog fieldcatalog.Reader, stor
 		if err != nil {
 			return previewDef{}, 0, err
 		}
+		if p.RecursYearly {
+			return previewDef{}, 0, &ParamError{Field: "key", Reason: recurringPreviewUnsupportedReason}
+		}
 		return renewalPreviewDef(now, p), window, nil
 	}
 	def, ok := previewDefs()[key]

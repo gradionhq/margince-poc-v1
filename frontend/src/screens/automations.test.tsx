@@ -560,6 +560,7 @@ const renewalReminderSchema = {
     },
     object: {
       type: "string",
+      enum: ["person", "organization", "deal", "lead", "project"],
       description: "Which record type owns the watched date field.",
     },
     recurs_yearly: {
@@ -664,16 +665,21 @@ function renewalBackend(calls: Recorded[]) {
 }
 
 describe("renewal_reminder's schema-driven params (GH-706)", () => {
-  it("paramFields reads days_before/object/recurs_yearly, and gives date_field its own picker kind", () => {
+  it("paramFields reads days_before/object/recurs_yearly, gives date_field its own picker kind, and object its enum options", () => {
     expect(paramFields(renewalReminderSchema)).toEqual([
       { key: "date_field", kind: "date_field", initial: "" },
       { key: "days_before", kind: "integer", min: 1, max: 365, initial: "30" },
-      { key: "object", kind: "string", initial: "" },
+      {
+        key: "object",
+        kind: "enum",
+        initial: "",
+        options: ["person", "organization", "deal", "lead", "project"],
+      },
       { key: "recurs_yearly", kind: "boolean", initial: "false" },
     ]);
   });
 
-  it("the boolean param renders as a checkbox, and date_field renders as a select rather than free text", async () => {
+  it("the boolean param renders as a checkbox, and object/date_field render as selects rather than free text", async () => {
     vi.stubGlobal("fetch", renewalBackend([]));
     render(<AutomationsAdmin />);
     await waitFor(() =>
@@ -686,10 +692,12 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     const recurring = screen.getByRole("checkbox", { name: "recurs_yearly" });
     expect(recurring).not.toBeChecked();
 
-    // date_field: a combobox (the Select control), never a native <select>
-    // and never a plain textbox — object/days_before stay ordinary controls.
+    // object: a combobox sourced from the schema's own enum, and date_field:
+    // a combobox (the Select control) too — neither a native <select> nor a
+    // plain textbox a typo could break. days_before stays an ordinary
+    // spinbutton.
+    expect(screen.getByRole("combobox", { name: "object" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "date_field" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "object" })).toBeTruthy();
     expect(
       screen.getByRole("spinbutton", { name: "days_before" }),
     ).toBeTruthy();
@@ -710,8 +718,9 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
       screen.getByText("Choose an object first to list its date fields."),
     ).toBeTruthy();
 
-    await userEvent.type(
-      screen.getByRole("textbox", { name: "object" }),
+    await pickOption(
+      userEvent.setup(),
+      screen.getByRole("combobox", { name: "object" }),
       "person",
     );
 
@@ -743,8 +752,9 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Use template" }));
 
-    await userEvent.type(
-      screen.getByRole("textbox", { name: "object" }),
+    await pickOption(
+      userEvent.setup(),
+      screen.getByRole("combobox", { name: "object" }),
       "person",
     );
     await waitFor(() =>

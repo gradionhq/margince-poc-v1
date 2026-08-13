@@ -50,6 +50,25 @@ func TestProjectOccurrence(t *testing.T) {
 		}
 	})
 
+	t.Run("a full-year window (days_before: 365, fromMMDD == toMMDD) treats every month/day as this pass's, not just the one coinciding day", func(t *testing.T) {
+		from := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+		to := from.AddDate(0, 0, 365) // no leap day in between: lands on the SAME month/day one year later
+		if from.Format("0102") != to.Format("0102") {
+			t.Fatalf("test setup: expected fromMMDD == toMMDD, got %s vs %s", from.Format("0102"), to.Format("0102"))
+		}
+		// A month/day nowhere near either boundary (Mar 1) must still
+		// resolve to a real occurrence — the bug this proves against
+		// treated fromMMDD==toMMDD as a single-day BETWEEN, which would
+		// have made queryRecurringCandidates match only Aug 13 candidates
+		// and left projectOccurrence with no defined answer for anything
+		// else in a full-year sweep.
+		got := projectOccurrence(time.March, 1, from, to)
+		want := time.Date(2027, time.March, 1, 0, 0, 0, 0, time.UTC)
+		if !got.Equal(want) {
+			t.Errorf("projectOccurrence(Mar 1, full-year window) = %v, want %v (the wrap formula's to's-year branch, since Mar 1 < Aug 13)", got, want)
+		}
+	})
+
 	t.Run("Feb 29 projected into a non-leap year normalizes to Mar 1", func(t *testing.T) {
 		from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC) // non-wrap: projects onto to's year, 2026 (not a leap year)
