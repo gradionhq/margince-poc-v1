@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { api } from "../api/client";
@@ -5,6 +8,7 @@ import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
 import { useT } from "../i18n";
+import { throwProblem } from "./common";
 import {
   canEnrichNow,
   isRunning,
@@ -19,7 +23,6 @@ import {
 // colleague typed are different kinds of fact and a page that renders them
 // alike invites a rep to treat a purchase as a confirmation.
 
-type Person360 = components["schemas"]["Person360"];
 type Profile = components["schemas"]["PersonProviderProfile"];
 
 /** The mark every value in this section carries: bought from a named third
@@ -58,8 +61,20 @@ export function PersonProviderSection({
       </header>
       <ProviderValues profile={profile} />
       <EnrichNow personId={personId} profile={profile} />
+      <RunWatch personId={personId} profile={profile} />
     </section>
   );
+}
+
+// A component rather than a hook call in the section, so the watch mounts
+// only where a profile exists — the section returns early without one, and a
+// hook cannot sit behind that return.
+function RunWatch({
+  personId,
+  profile,
+}: Readonly<{ personId: string; profile: Profile }>) {
+  useRunWatch(personId, profile);
+  return null;
 }
 
 function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
@@ -202,23 +217,9 @@ function EnrichNow({
     },
     onSuccess: () => {
       // The run is durable and the provider has not been called yet, so the
-      // page re-reads and the poll below picks the run up from there.
+      // page re-reads and RunWatch picks the run up from there.
       void queryClient.invalidateQueries({ queryKey: ["person360", personId] });
     },
-  });
-
-  // While a run is moving, ask again — and ONLY while it is moving. Polling a
-  // terminal run spends requests to learn nothing.
-  useQuery({
-    queryKey: ["person360-provider-poll", personId],
-    queryFn: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["person360", personId],
-      });
-      return null;
-    },
-    enabled: isRunning(profile.state),
-    refetchInterval: 2500,
   });
 
   if (!canEnrichNow(profile.state)) {
@@ -236,11 +237,48 @@ function EnrichNow({
   );
 }
 
-/** The section's own read of the assembled page, for a caller that already
- *  holds it. Exported so personpage can pass what it fetched rather than the
- *  section fetching the whole 360 again. */
-export function providerProfileOf(
-  view: Person360 | undefined,
-): Profile | undefined {
-  return view?.provider_profile;
+/** Watches a run that is still moving and refreshes the page when it lands.
+ *
+ *  It polls the RUN, not the page, and reads whether to continue from the
+ *  response it just received — which is the only version that can stop
+ *  itself. Deciding from the `profile` prop instead would freeze the answer
+ *  at whatever state mounted the poll: the prop only changes when the page
+ *  refetches, which is the thing the poll exists to cause.
+ */
+function useRunWatch(personId: string, profile: Profile) {
+  const queryClient = useQueryClient();
+  const runId = profile.latest_run?.id;
+  useQuery({
+    queryKey: ["provider-run", personId, runId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/people/{id}/enrichment-runs/{run_id}",
+        { params: { path: { id: personId, run_id: runId ?? "" } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      // A run that has stopped moving is the page's cue to re-read: the
+      // claims land in the same transaction as the terminal state, so by
+      // now the section has something new to show.
+      if (data && !RUNNING_RUN_STATES.has(data.state)) {
+        void queryClient.invalidateQueries({
+          queryKey: ["person360", personId],
+        });
+      }
+      return data;
+    },
+    enabled: runId != null && isRunning(profile.state),
+    refetchInterval: (query) =>
+      query.state.data && RUNNING_RUN_STATES.has(query.state.data.state)
+        ? 2500
+        : false,
+  });
 }
+
+/** The run states that are still moving. `submitting` counts: the run is
+ *  mid-flight to the provider, and treating it as finished would offer a
+ *  second "look them up" while the first is still out. */
+const RUNNING_RUN_STATES = new Set<
+  components["schemas"]["ProviderRun"]["state"]
+>(["queued", "submitting", "in_progress"]);

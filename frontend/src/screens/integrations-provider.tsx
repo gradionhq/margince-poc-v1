@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, Plug, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -71,7 +74,12 @@ export function ProviderCard() {
       <p className="muted">{t("provider.sub")}</p>
       <QueryGate query={query}>
         {(result) =>
-          result.notConfigured ? (
+          // An empty list means the same thing a 501 does: no adapter is
+          // compiled in. The server returns a row for every REGISTERED
+          // provider — including one nobody has connected yet, which is how
+          // the key field appears at all — so "no rows" cannot mean "not
+          // connected", and both cases read as the honest no-provider state.
+          result.notConfigured || result.connections.length === 0 ? (
             <EmptyState>{t("provider.notConfigured")}</EmptyState>
           ) : (
             <>
@@ -148,7 +156,10 @@ function CreditsBlock({
   );
 }
 
-function usePatchConfiguration(provider: string, version: number) {
+function usePatchConfiguration(
+  provider: ProviderConnection["provider"],
+  version: number,
+) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (automaticIndividualCreate: boolean) => {
@@ -156,7 +167,7 @@ function usePatchConfiguration(provider: string, version: number) {
         "/provider-connections/{provider}",
         {
           params: {
-            path: { provider: provider as ProviderConnection["provider"] },
+            path: { provider },
             // The saved policy carries a version, and a blind write would
             // silently overwrite a colleague's edit. A 409 is version skew,
             // which the refetch below resolves by showing what is actually

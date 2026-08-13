@@ -114,6 +114,23 @@ export function profileLabel(state: ProviderProfileState): MessageKey {
   return PROFILE_LABEL[state];
 }
 
+/** The job title a company roster shows for one contact: what a human typed,
+ *  or a purchased one filling the gap (PO-EXT-9).
+ *
+ *  Both the tab and the rail read it, because a rail that disagreed with the
+ *  tab about somebody's role is worse than neither showing one. It branches
+ *  on the VALUE rather than on title_source, which is optional — a server
+ *  sending a purchased title without the discriminator must not leave an
+ *  empty, padded element behind. */
+export function roleOf(
+  contact: Pick<
+    components["schemas"]["Organization360Contact"],
+    "title" | "provider_title"
+  >,
+): string {
+  return contact.title ?? contact.provider_title ?? "";
+}
+
 /** Whether this state means a run is still moving, so the page should keep
  *  asking. Everything else is terminal: polling a completed or refused run
  *  spends requests to learn nothing. */

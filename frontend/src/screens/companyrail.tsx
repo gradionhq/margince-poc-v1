@@ -28,6 +28,7 @@ import { DetailsGrid } from "./companyraildetails";
 import { SectionSummary, sectionAnswered } from "./companyrailshared";
 import { TagsSection } from "./companyrailtags";
 import { byReach } from "./coverage";
+import { roleOf } from "./provider-status";
 
 // The record page's LEFT rail (mockup State A): the account's context,
 // beside the work rather than under it. Passed to RecordView's `rail` slot,
@@ -286,18 +287,21 @@ function PersonRow({ contact }: Readonly<{ contact: Contact }>) {
         <span className="co-person-name">{contact.full_name}</span>
         {/* The same fallback the tab makes, because a rail that disagreed
             with the tab about somebody's role is worse than neither showing
-            one. The server decides the precedence; both surfaces read it. */}
-        {(contact.title ?? contact.provider_title) && (
+            one. The server decides the precedence; both surfaces read it.
+            Branched on the VALUE, not on title_source — that field is
+            optional, and a server sending a purchased title without it would
+            otherwise render an empty, padded span. */}
+        {roleOf(contact) && (
           <span className="co-person-role">
             {contact.title_source === "provider" ? (
               <EvidenceMark
-                value={contact.provider_title ?? ""}
+                value={roleOf(contact)}
                 source={{
                   provenance: { kind: "connector", connector: "provider" },
                 }}
               />
             ) : (
-              contact.title
+              roleOf(contact)
             )}
           </span>
         )}
