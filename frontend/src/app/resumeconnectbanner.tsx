@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useState } from "react";
-import { Button, Card } from "../design-system/atoms";
+import { Button } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import {
   clearPendingAuthorize,
@@ -30,47 +31,40 @@ export function ResumeConnectBanner() {
   }
 
   return (
-    <Card
-      as="div"
-      inset
-      role="status"
-      style={{
-        marginBottom: "var(--space-4)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-3)",
-      }}
+    <Callout
+      className="resumebanner"
+      live="status"
+      title={t("consent.resumeTitle", { client: pending.clientName })}
+      actions={
+        <>
+          <Button
+            variant="primary"
+            onClick={() => {
+              // /oauth/authorize is a server endpoint, not a hash route:
+              // re-entering it re-validates the request and arms a FRESH
+              // nonce, since the one this stash was made under has a 300s
+              // TTL that minting a passport can easily outlast. A hash
+              // navigation back to the consent screen would hand the human a
+              // request that has quietly died.
+              const url = pending.url;
+              clearPendingAuthorize();
+              globalThis.location.assign(url);
+            }}
+          >
+            {t("consent.resume")}
+          </Button>
+          <Button
+            onClick={() => {
+              clearPendingAuthorize();
+              setPending(null);
+            }}
+          >
+            {t("consent.resumeDismiss")}
+          </Button>
+        </>
+      }
     >
-      <strong>
-        {t("consent.resumeTitle", { client: pending.clientName })}
-      </strong>
       <p>{t("consent.resumeBody", { client: pending.clientName })}</p>
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
-        <Button
-          variant="primary"
-          onClick={() => {
-            // /oauth/authorize is a server endpoint, not a hash route:
-            // re-entering it re-validates the request and arms a FRESH
-            // nonce, since the one this stash was made under has a 300s
-            // TTL that minting a passport can easily outlast. A hash
-            // navigation back to the consent screen would hand the human a
-            // request that has quietly died.
-            const url = pending.url;
-            clearPendingAuthorize();
-            globalThis.location.assign(url);
-          }}
-        >
-          {t("consent.resume")}
-        </Button>
-        <Button
-          onClick={() => {
-            clearPendingAuthorize();
-            setPending(null);
-          }}
-        >
-          {t("consent.resumeDismiss")}
-        </Button>
-      </div>
-    </Card>
+    </Callout>
   );
 }

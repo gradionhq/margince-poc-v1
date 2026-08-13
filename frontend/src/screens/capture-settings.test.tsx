@@ -75,10 +75,13 @@ describe("CaptureSettingsCard", () => {
     vi.stubGlobal("fetch", backendFor(CAPTURE_EDITOR, true).fetchMock);
     render(<CaptureSettingsCard />);
 
+    // A setting that writes when you flip it is a switch, not a checkbox, so
+    // its state is what it announces rather than a DOM property.
     const toggle = await waitFor(() =>
-      screen.getByTestId<HTMLInputElement>("capture-auto-enrich-toggle"),
+      screen.getByTestId<HTMLButtonElement>("capture-auto-enrich-toggle"),
     );
-    expect(toggle.checked).toBe(true);
+    expect(toggle.getAttribute("role")).toBe("switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(toggle.disabled).toBe(false);
   });
 
@@ -87,7 +90,7 @@ describe("CaptureSettingsCard", () => {
     render(<CaptureSettingsCard />);
 
     const toggle = await waitFor(() =>
-      screen.getByTestId<HTMLInputElement>("capture-auto-enrich-toggle"),
+      screen.getByTestId<HTMLButtonElement>("capture-auto-enrich-toggle"),
     );
     expect(toggle.disabled).toBe(true);
     expect(screen.getByText(/Only an admin or ops/)).toBeTruthy();
@@ -99,7 +102,7 @@ describe("CaptureSettingsCard", () => {
     render(<CaptureSettingsCard />);
 
     const toggle = await waitFor(() =>
-      screen.getByTestId<HTMLInputElement>("capture-auto-enrich-toggle"),
+      screen.getByTestId<HTMLButtonElement>("capture-auto-enrich-toggle"),
     );
     await userEvent.click(toggle);
 

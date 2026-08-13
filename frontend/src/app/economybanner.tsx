@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import { Badge, Button, Card } from "../design-system/atoms";
+import { Badge, Button } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import { bandTone } from "../screens/aiusage";
 import { throwProblem } from "../screens/common";
@@ -52,16 +54,24 @@ export function EconomyBanner() {
     return null;
   }
   return (
-    <Card
-      as="div"
-      inset
-      role="status"
-      style={{
-        borderRadius: 0,
-        display: "flex",
-        gap: "var(--space-3)",
-        alignItems: "center",
-      }}
+    // The band decides the tone: a queued workspace is being refused work
+    // right now, where a degraded one is still serving and only warning.
+    <Callout
+      className="appbanner"
+      tone={band === "queued" ? "danger" : "warn"}
+      live="status"
+      actions={
+        <>
+          <a href="#/settings/ai">{t("aibanner.link")}</a>
+          <Button
+            small
+            aria-label={t("aibanner.dismiss")}
+            onClick={() => setDismissedOccurrence(occurrenceKey)}
+          >
+            <X aria-hidden size={14} />
+          </Button>
+        </>
+      }
     >
       <Badge tone={bandTone(band)}>
         {band === "queued"
@@ -70,14 +80,6 @@ export function EconomyBanner() {
             ? t("aibanner.degraded")
             : t("aibanner.unknown")}
       </Badge>
-      <a href="#/settings/ai">{t("aibanner.link")}</a>
-      <Button
-        small
-        aria-label={t("aibanner.dismiss")}
-        onClick={() => setDismissedOccurrence(occurrenceKey)}
-      >
-        ×
-      </Button>
-    </Card>
+    </Callout>
   );
 }

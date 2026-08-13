@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Card } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import { throwProblem } from "../screens/common";
 import { embedReindexStatusQueryKey } from "../screens/embedreindex";
@@ -57,19 +57,12 @@ export function EmbedReindexBanner() {
     return null;
   }
   return (
-    <Card
-      as="div"
-      inset
-      role="status"
-      style={{
-        borderRadius: 0,
-        display: "flex",
-        gap: "var(--space-3)",
-        alignItems: "center",
-      }}
+    <Callout
+      className="appbanner"
+      live="status"
+      actions={<a href="#/settings/data">{t("reindexbanner.link")}</a>}
     >
-      <span>{t("reindexbanner.needed")}</span>
-      <a href="#/settings/data">{t("reindexbanner.link")}</a>
-    </Card>
+      {t("reindexbanner.needed")}
+    </Callout>
   );
 }

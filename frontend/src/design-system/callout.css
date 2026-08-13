@@ -1,0 +1,94 @@
+/* Callout — what the surface says about itself.
+ *
+ * Every tone is a tinted ground plus a border in the tone's own colour. The
+ * ground is what makes it read as a notice rather than as prose; the border is
+ * what keeps it legible for a reader who cannot tell the tints apart, and it
+ * is why tone is never the only signal — the words carry the meaning and the
+ * icon slot is there to double it. */
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+  color: var(--textContent);
+}
+
+.callout-icon {
+  display: flex;
+  flex: none;
+  /* Aligns the glyph with the first line of text rather than with the box: a
+   * centred icon drifts downward as the body grows. */
+  margin-top: 2px;
+  color: var(--textSecondary);
+}
+
+.callout-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.callout-title {
+  margin: 0;
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--textPrimary);
+}
+
+.callout-text {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+
+/* A callout's body is prose the caller supplies, so the paragraph reset lives
+ * here rather than being every caller's job to remember. */
+.callout-text > p {
+  margin: 0;
+}
+
+.callout-text > p + p {
+  margin-top: var(--space-2);
+}
+
+.callout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.callout-warn {
+  background: var(--warnBg);
+  border-color: var(--warnBorder);
+}
+
+.callout-warn .callout-icon,
+.callout-warn .callout-title {
+  color: var(--warn);
+}
+
+.callout-danger {
+  background: var(--dangerBg);
+  border-color: var(--danger);
+}
+
+.callout-danger .callout-icon,
+.callout-danger .callout-title {
+  color: var(--danger);
+}
+
+.callout-success {
+  background: var(--successBg);
+  border-color: var(--success);
+}
+
+.callout-success .callout-icon,
+.callout-success .callout-title {
+  color: var(--success);
+}

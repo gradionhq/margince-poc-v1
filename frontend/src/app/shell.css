@@ -1507,3 +1507,17 @@
   flex: 1;
   min-height: 0;
 }
+
+/* An app banner spans the content column edge to edge: it is chrome the shell
+ * mounts above every screen, not a card inside one, so it drops the radius the
+ * Callout carries elsewhere. */
+.appbanner {
+  border-radius: 0;
+  border-inline: none;
+}
+
+/* The resume-connect banner is the one that sits INSIDE the content column,
+ * above the screen it interrupts, so it keeps its radius and earns a gap. */
+.resumebanner {
+  margin-bottom: var(--space-4);
+}

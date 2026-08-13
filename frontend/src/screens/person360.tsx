@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Card, Disclosure, SectionHeader } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
+import { FactList } from "../design-system/factlist";
 import type { ConfidenceLevel } from "../design-system/trust";
 import { useT } from "../i18n";
 import { provenanceOf, throwProblem } from "./common";
@@ -144,24 +145,25 @@ export function RelationshipPulse({ view }: Readonly<{ view: Person360 }>) {
             : t("person.pulse.nobodyYet")}
         </p>
         <RelationshipChanges view={view} />
-        <dl className="fact-list" style={{ marginTop: "var(--space-3)" }}>
-          <div>
-            <dt>{t("person.pulse.lastInbound")}</dt>
-            <dd>
-              {view.last_inbound_at
+        <FactList
+          className="person-pulse-facts"
+          facts={[
+            {
+              key: "last-inbound",
+              term: t("person.pulse.lastInbound"),
+              value: view.last_inbound_at
                 ? new Date(view.last_inbound_at).toLocaleDateString()
-                : t("person.pulse.neverInbound")}
-            </dd>
-          </div>
-          <div>
-            <dt>{t("person.pulse.lastOutbound")}</dt>
-            <dd>
-              {view.last_outbound_at
+                : t("person.pulse.neverInbound"),
+            },
+            {
+              key: "last-outbound",
+              term: t("person.pulse.lastOutbound"),
+              value: view.last_outbound_at
                 ? new Date(view.last_outbound_at).toLocaleDateString()
-                : t("person.pulse.neverOutbound")}
-            </dd>
-          </div>
-        </dl>
+                : t("person.pulse.neverOutbound"),
+            },
+          ]}
+        />
         {s && (
           <Disclosure summary={t("person.pulse.why")}>
             <p style={{ margin: 0, lineHeight: 1.55 }}>
@@ -259,51 +261,57 @@ export function IdentityRail({
       <Card>
         <div style={{ padding: "var(--space-4)" }}>
           <SectionHeader title={t("person.identity.title")} />
-          <dl className="fact-list">
-            {view.person.emails?.map((e) => (
-              <div key={e.id}>
-                <dt>{t("person.identity.email")}</dt>
-                <dd>{e.email}</dd>
-              </div>
-            ))}
-            {view.person.phones?.map((p) => (
-              <div key={p.id}>
-                <dt>{t("person.identity.phone")}</dt>
-                <dd>
+          <FactList
+            facts={[
+              ...(view.person.emails ?? []).map((e) => ({
+                key: `email-${e.id}`,
+                term: t("person.identity.email"),
+                value: e.email,
+              })),
+              ...(view.person.phones ?? []).map((p) => ({
+                key: `phone-${p.id}`,
+                term: t("person.identity.phone"),
+                value: (
                   <Evidenced value={p.phone} field={byField.get("phone")} />
-                </dd>
-              </div>
-            ))}
-            {current && (
-              <div>
-                <dt>{t("person.identity.currentRole")}</dt>
-                <dd>
-                  <Evidenced
-                    value={current.role ?? view.person.title ?? "—"}
-                    field={byField.get("role") ?? byField.get("title")}
-                  />
-                  {current.organization_name && (
-                    <>
-                      {" · "}
-                      <EntityRef
-                        kind="organization"
-                        id={current.organization_id}
-                      />
-                    </>
-                  )}
-                </dd>
-              </div>
-            )}
-            {view.deal_roles?.data.map((r) => (
-              <div key={r.relationship_id}>
-                <dt>{t("person.identity.buyingRole")}</dt>
-                <dd>
-                  <Badge tone="accent">{r.role}</Badge>
-                  {r.deal_title && <> · {r.deal_title}</>}
-                </dd>
-              </div>
-            ))}
-          </dl>
+                ),
+              })),
+              ...(current
+                ? [
+                    {
+                      key: "current-role",
+                      term: t("person.identity.currentRole"),
+                      value: (
+                        <>
+                          <Evidenced
+                            value={current.role ?? view.person.title ?? "—"}
+                            field={byField.get("role") ?? byField.get("title")}
+                          />
+                          {current.organization_name && (
+                            <>
+                              {" · "}
+                              <EntityRef
+                                kind="organization"
+                                id={current.organization_id}
+                              />
+                            </>
+                          )}
+                        </>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(view.deal_roles?.data ?? []).map((r) => ({
+                key: `deal-role-${r.relationship_id}`,
+                term: t("person.identity.buyingRole"),
+                value: (
+                  <>
+                    <Badge tone="accent">{r.role}</Badge>
+                    {r.deal_title && <> · {r.deal_title}</>}
+                  </>
+                ),
+              })),
+            ]}
+          />
         </div>
       </Card>
 
