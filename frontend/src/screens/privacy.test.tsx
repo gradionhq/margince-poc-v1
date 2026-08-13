@@ -13,6 +13,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { meFixture } from "../app/mefixture";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
@@ -100,6 +101,11 @@ function stubRoutes(
           data: [],
           page: { next_cursor: null, has_more: false },
         });
+      // The subject-request queue is admin-gated (its rows name the people who
+      // filed), so the default principal here holds the role that may read it.
+      // A test asserting the refusal overrides this key.
+      if (key === "GET /me")
+        return jsonResponse(meFixture({ roles: ["admin"] }));
       return jsonResponse({});
     }),
   );
@@ -259,6 +265,23 @@ async function findDsrRow(subjectRef: string) {
 }
 
 describe("PrivacyInboxCard", () => {
+  it("withholds the queue from a non-admin instead of asking for it", async () => {
+    // The rows name the people who exercised an Art. 15/17 right, so the read
+    // is the admin's. An ops seat reaches this tab for the consent registry
+    // beside it, and must find the card in its place saying why it is empty —
+    // an absent card would read as "no requests", a different claim entirely.
+    const sent = stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["ops"] })),
+    });
+    render(<PrivacyInboxCard />);
+    await screen.findByText(/only an admin can see subject requests/i);
+    expect(screen.queryByText(/anna@acme.test/)).not.toBeInTheDocument();
+    // And it never issued the call the server would only refuse.
+    expect(
+      sent.some((entry) => entry.key === "GET /data-subject-requests"),
+    ).toBe(false);
+  });
+
   it("binds the status filter server-side, never a client re-slice", async () => {
     const sent = stubRoutes({
       "GET /data-subject-requests": () => jsonResponse(DSRS),

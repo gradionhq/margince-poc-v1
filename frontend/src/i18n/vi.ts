@@ -1788,6 +1788,8 @@ export const vi = {
   "privacy.purposeAppendOnly":
     "Một mục đích đã tạo thì không đổi tên hay xoá được — danh mục chỉ thêm mới. Hãy chọn khoá thật cẩn thận.",
   "privacy.facetAll": "Tất cả",
+  "privacy.inboxAdminOnly":
+    "Chỉ quản trị viên xem được yêu cầu của chủ thể dữ liệu. Danh sách nêu tên người đã yêu cầu, nên không mở rộng hơn.",
   "privacy.overdue": "Quá hạn",
   "privacy.closed":
     "Đã đóng — một yêu cầu đã đóng không bao giờ mở lại. Mối lo mới là một yêu cầu mới.",

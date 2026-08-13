@@ -219,6 +219,27 @@ func TestNoSeededRoleGrantsAWriteWithoutRead(t *testing.T) {
 	}
 }
 
+// An unbounded row scope is held by three roles, and it is therefore not a
+// stand-in for "admin". Gates that conflated the two handed workspace-wide
+// governance reads to ops and read_only, so the set is pinned here: a role
+// gaining or losing `all` changes who those gates admit, and that has to be a
+// deliberate edit rather than a side effect nobody sees.
+func TestExactlyThreeSeededRolesAreUnbounded(t *testing.T) {
+	want := map[string]bool{"admin": true, "ops": true, "read_only": true}
+	for roleKey, doc := range defaults {
+		unbounded := doc.RowScope == principal.RowScopeAll
+		if unbounded != want[roleKey] {
+			t.Errorf("role %q has row scope %q (unbounded=%v), want unbounded=%v",
+				roleKey, doc.RowScope, unbounded, want[roleKey])
+		}
+	}
+	for roleKey := range want {
+		if _, ok := defaults[roleKey]; !ok {
+			t.Errorf("role %q is named as unbounded but is not seeded at all", roleKey)
+		}
+	}
+}
+
 func TestZeroRolesDenyEverything(t *testing.T) {
 	merged := Merge(nil)
 	for _, object := range coreObjects {

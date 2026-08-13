@@ -34,17 +34,16 @@ func TestAuditLogReadRequiresAdminHuman(t *testing.T) {
 	}
 
 	// An unbounded row scope is NOT the predicate. ops and read_only both seed
-	// with scope `all`, and the governance matrix reserves the compliance read
-	// for the admin alone — the read is oversight of ops' own machine-origin
-	// actions, so it cannot sit with the role it oversees.
-	for _, role := range []string{"ops", "read_only"} {
-		unboundedCtx := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
-			RoleKeys: []string{role},
-			Objects:  map[string]principal.ObjectGrant{"person": {Read: true}},
-			RowScope: principal.RowScopeAll,
-		})
-		if _, err := privacy.ListAuditLog(unboundedCtx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
-			t.Fatalf("%s reads audit log: err=%v, want permission denied", role, err)
+	// with scope `all` — pinned by policy's own suite — and the governance
+	// matrix reserves the compliance read for the admin alone: it is oversight
+	// of ops' own machine-origin actions, so it cannot sit with the role it
+	// oversees. Ops carries the admin object grid here because production does,
+	// which is what makes its refusal evidence about the ROLE rather than about
+	// a missing grant.
+	for _, unbounded := range []principal.Permissions{OpsPerms, ReadOnlyPerms} {
+		ctx := e.As(ids.NewV7(), []ids.UUID{e.Team1}, unbounded)
+		if _, err := privacy.ListAuditLog(ctx, e.DB(), privacy.AuditFilter{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("%v reads audit log: err=%v, want permission denied", unbounded.RoleKeys, err)
 		}
 	}
 

@@ -1789,6 +1789,8 @@ export const en = {
   "privacy.purposeAppendOnly":
     "A purpose cannot be renamed or removed once created — the catalogue is append-only. Choose the key carefully.",
   "privacy.facetAll": "All",
+  "privacy.inboxAdminOnly":
+    "Only an admin can see subject requests. They name the people who asked, so the queue is not shown more widely.",
   "privacy.overdue": "Overdue",
   "privacy.closed":
     "Closed — a closed request never reopens. A new concern is a new request.",

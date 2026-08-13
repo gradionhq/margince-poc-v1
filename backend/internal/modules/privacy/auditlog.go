@@ -5,13 +5,15 @@ package privacy
 
 // The audit-log read surface (GET /audit-log): the Settings governance
 // view over the append-only audit_log table. Reading the workspace's
-// full attributable history deliberately crosses row scope — like SAR
-// assembly, it is admitted only to an unbounded (admin/compliance)
-// principal; a bounded caller gets 403, never a narrowed page that
-// would misread as "nothing happened".
+// full attributable history deliberately crosses row scope, and it is
+// the admin's alone — distinct from the per-record history in
+// recordhistory.go, which every member may read on records they can
+// see. A caller without that authority gets 403, never a narrowed page
+// that would misread as "nothing happened".
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -71,9 +73,9 @@ type AuditPage struct {
 
 // ListAuditLog reads the workspace's audit history, newest first.
 //
-// Human-only: the agent gate only fronts mutating routes, so the check lives
-// here — an agent reading the log that records its own governance would let it
-// observe exactly the oversight trail that bounds it.
+// Human-only: an agent reading the log that records its own governance would
+// observe exactly the oversight trail that bounds it. The agent gate refuses
+// the route as well, and this is the arm that survives a routing change.
 //
 // Admin-only, and deliberately NOT "unbounded row scope". This is the
 // unrestricted compliance read, distinct from the per-record history every
@@ -84,9 +86,13 @@ type AuditPage struct {
 // read is oversight OF ops' machine-origin actions and cannot sit with the
 // role it oversees.
 func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPage, error) {
+	// Human is spelled out rather than delegated to auth.RequireHuman, which
+	// only turns agents away: nothing internal reads this trail, so connector
+	// and system principals are refused here too — which is also why
+	// RequireAdmin's system bypass below is unreachable.
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
-		return AuditPage{}, apperrors.ErrPermissionDenied
+		return AuditPage{}, fmt.Errorf("human-only compliance read: %w", apperrors.ErrPermissionDenied)
 	}
 	if err := auth.RequireAdmin(ctx); err != nil {
 		return AuditPage{}, err

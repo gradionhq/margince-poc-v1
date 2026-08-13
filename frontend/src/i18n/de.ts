@@ -1795,6 +1795,8 @@ export const de = {
   "privacy.purposeAppendOnly":
     "Ein Zweck kann nach dem Anlegen nicht umbenannt oder entfernt werden — der Katalog ist append-only. Wähle den Schlüssel sorgfältig.",
   "privacy.facetAll": "Alle",
+  "privacy.inboxAdminOnly":
+    "Nur Admins sehen Betroffenenanfragen. Sie nennen die Personen, die angefragt haben — deshalb ist die Liste nicht weiter zugänglich.",
   "privacy.overdue": "Überfällig",
   "privacy.closed":
     "Abgeschlossen — eine abgeschlossene Anfrage wird nie wieder geöffnet. Ein neues Anliegen ist eine neue Anfrage.",
