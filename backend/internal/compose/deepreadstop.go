@@ -128,13 +128,18 @@ func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause er
 	code, detail := diagnoseCrawlFailure(cause)
 	failure := people.FinishSiteReadInput{Status: "failed", StatusCode: code, StatusDetail: detail}
 	if people.SiteReadFailureCodes[code] {
-		// A cause that commonly clears on its own earns another attempt. Without
-		// this a single 403 from an edge's bot protection settles a company's
-		// site forever, which is how a real business ends up with a record
-		// holding nothing but its domain.
+		// A cause that commonly clears on its own names its own next attempt,
+		// which BeginSiteRead's failed-and-due arm re-claims. Without it a single
+		// 403 from an edge's bot protection settles a live company's site for
+		// good — the dossier is terminal, and nothing would ever ask again.
 		next := w.now().Add(siteReadRetryAfter)
 		failure.NextAttemptAt = &next
 	}
+	// Whether anything re-offers the read is the domain triage's decision, not
+	// this function's: the disposition ledger carries its own attempt budget and
+	// backoff (domaintriage.go), and it is what brings a domain back around. The
+	// retry time here is what stops that second visit from being refused by a
+	// dossier that already called itself finished.
 	if err := w.people.FinishSiteRead(tctx, readID, failure); err != nil {
 		return errors.Join(cause, fmt.Errorf("recording the failure on the dossier: %w", err))
 	}
