@@ -175,3 +175,55 @@ func parseParts(t *testing.T, raw string) []mimePart {
 		})
 	}
 }
+
+// A part carrying UTF-8 must say so. Without the header MIME defaults to 7bit,
+// which claims every octet is ASCII — and an umlaut in a body so declared is a
+// lie the next relay may act on, by rejecting the message or stripping the high
+// bit. Gmail's base64url wrapper does not fix it: that encodes the message for
+// the API, and this header describes the part inside it.
+func TestEveryPartDeclaresItsTransferEncoding(t *testing.T) {
+	msg := plainMessage()
+	msg.HTMLBody = "<p>Zahlen für Sie</p>"
+
+	raw := buildRFC822("rep@gradion.test", msg)
+	if strings.Count(raw, "Content-Transfer-Encoding: 8bit") != 2 {
+		t.Fatalf("expected both parts to declare 8bit:\n%s", raw)
+	}
+
+	plain := buildRFC822("rep@gradion.test", plainMessage())
+	if !strings.Contains(plain, "Content-Transfer-Encoding: 8bit") {
+		t.Fatalf("a single-part message declares no transfer encoding:\n%s", plain)
+	}
+}
+
+// Every line ending is CRLF, the only one RFC 5322 admits. Bodies arrive with
+// bare LFs — the signature and the unsubscribe footer are both built with "\n"
+// — and a lone LF is how a boundary delimiter stops being recognised.
+func TestBareLineFeedsAreCanonicalised(t *testing.T) {
+	msg := plainMessage()
+	msg.Body = "Line one\nLine two"
+	msg.HTMLBody = "<p>one</p>\n<p>two</p>"
+
+	raw := buildRFC822("rep@gradion.test", msg)
+	if strings.Contains(strings.ReplaceAll(raw, "\r\n", ""), "\n") {
+		t.Fatalf("a bare line feed survived into the wire format:\n%q", raw)
+	}
+}
+
+// A body that contains the boundary would end its own part there. The derived
+// value is 96 bits of a digest, so this is not an accident — the extension is
+// what makes it not a deliberate one either.
+func TestABodyHoldingTheBoundaryForcesADifferentOne(t *testing.T) {
+	msg := plainMessage()
+	derived := mimeBoundary(msg.MessageID)
+	msg.Body = "prefix " + derived + " suffix"
+	msg.HTMLBody = "<p>markup</p>"
+
+	chosen := safeBoundary(msg)
+	if chosen == derived {
+		t.Fatal("the boundary a body contains was used anyway")
+	}
+	if strings.Contains(msg.Body, chosen) || strings.Contains(msg.HTMLBody, chosen) {
+		t.Fatalf("the chosen boundary still occurs in a part: %q", chosen)
+	}
+}

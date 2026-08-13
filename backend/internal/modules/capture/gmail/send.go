@@ -220,11 +220,12 @@ func buildRFC822(from string, msg connector.EmailMessage) string {
 func writeBody(b *strings.Builder, msg connector.EmailMessage) {
 	if msg.HTMLBody == "" {
 		writeHeader(b, "Content-Type", `text/plain; charset="utf-8"`)
+		writeHeader(b, "Content-Transfer-Encoding", transferEncoding)
 		b.WriteString("\r\n")
-		b.WriteString(msg.Body)
+		b.WriteString(canonicalCRLF(msg.Body))
 		return
 	}
-	boundary := mimeBoundary(msg.MessageID)
+	boundary := safeBoundary(msg)
 	writeHeader(b, "Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
 	b.WriteString("\r\n")
 	writePart(b, boundary, `text/plain; charset="utf-8"`, msg.Body)
@@ -236,9 +237,47 @@ func writeBody(b *strings.Builder, msg connector.EmailMessage) {
 func writePart(b *strings.Builder, boundary, contentType, content string) {
 	b.WriteString("--" + boundary + "\r\n")
 	writeHeader(b, "Content-Type", contentType)
+	writeHeader(b, "Content-Transfer-Encoding", transferEncoding)
 	b.WriteString("\r\n")
-	b.WriteString(content)
+	b.WriteString(canonicalCRLF(content))
 	b.WriteString("\r\n")
+}
+
+// transferEncoding declares that a part carries raw UTF-8 octets.
+//
+// Without it MIME defaults a part to 7bit, which says every octet is ASCII —
+// and a German umlaut or a Vietnamese diacritic in a body so declared is a lie
+// the next relay is entitled to act on, by rejecting the message or by
+// stripping the high bit. Gmail's base64url wrapper does not fix this: it
+// encodes the RFC822 message for transport to the API, and what this header
+// describes is the part INSIDE that message.
+const transferEncoding = "8bit"
+
+// canonicalCRLF makes every line ending CRLF, which is the only line ending
+// RFC 5322 admits.
+//
+// Bodies arrive here with bare LFs — the signature and the unsubscribe footer
+// are both built with "\n" — and a lone LF inside a MIME part is not a line
+// break to a strict reader. It is also how a part boundary stops being
+// recognised, since a boundary delimiter must be preceded by CRLF.
+func canonicalCRLF(text string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
+}
+
+// safeBoundary is the derived boundary, extended until no part contains it.
+//
+// A delimiter that occurs at the start of a line inside a part ENDS that part
+// there, and everything after it is read as the next part's headers — the
+// message arrives truncated at whatever the sender happened to write. The
+// derived value is 96 bits of the message id's digest, so a collision is not
+// something that happens by accident; this loop is what makes it not something
+// that happens on purpose either.
+func safeBoundary(msg connector.EmailMessage) string {
+	boundary := mimeBoundary(msg.MessageID)
+	for strings.Contains(msg.Body, boundary) || strings.Contains(msg.HTMLBody, boundary) {
+		boundary += "x"
+	}
+	return boundary
 }
 
 // mimeBoundary derives the part separator from the message identity.
