@@ -22,6 +22,11 @@ export type NavLevelEntry = {
   // is the `audit` entry of the section the `settings` screen publishes.
   id: string;
   labelKey: MessageKey;
+  // label is what an entry the PRODUCT did not name is called: a composed
+  // unit's title is the installation's text, so it has no message key and no
+  // translation. When present it wins over labelKey, which such an entry sets
+  // to the generic fallback a caller would otherwise have to invent.
+  label?: string;
   icon: LucideIcon;
   // The level this entry opens. Grouping is possible at every depth, so the
   // children are a flat list only until one needs headings.

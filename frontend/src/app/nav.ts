@@ -1,5 +1,7 @@
+import type { ExtensionDescriptor } from "@composition/extensions";
 import {
   BarChart3,
+  Blocks,
   Building2,
   CheckSquare,
   Home,
@@ -12,8 +14,14 @@ import {
   Zap,
 } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
+import { composedExtensions, EXTENSION_SCREEN } from "./extensions";
 import type { Route } from "./router";
-import { type NavSection, type NavTrailLevel, navTrail } from "./subnav";
+import {
+  type NavLevelGroup,
+  type NavSection,
+  type NavTrailLevel,
+  navTrail,
+} from "./subnav";
 
 // The level registry lives beside this list and is reached through it: a caller
 // asking where the sidebar can go has one module to import.
@@ -117,25 +125,61 @@ export const RAIL_LESS_SCREENS: ReadonlySet<string> = new Set([
 //
 // It prints no heading: the navigation landmark names it, and its GROUPS are the
 // level-2 headings the sidebar promises.
-const PRIMARY_LEVEL: NavTrailLevel = {
-  groups: NAV_GROUPS.map((group) => ({
+function primaryLevel(units: readonly ExtensionDescriptor[]): NavTrailLevel {
+  const groups: NavLevelGroup[] = NAV_GROUPS.map((group) => ({
     headingKey: group.headingKey,
     items: group.items.map((item) => ({
       id: item.screen,
       labelKey: item.labelKey,
       icon: item.icon,
     })),
-  })),
-  path: [],
-  badgeIds: BADGE_SCREENS,
-  barIds: MOBILE_PRIMARY,
-};
+  }));
+  if (units.length > 0) {
+    groups.push(unitsGroup(units));
+  }
+  return {
+    groups,
+    path: [],
+    badgeIds: BADGE_SCREENS,
+    barIds: MOBILE_PRIMARY,
+  };
+}
+
+// The composed units, as the LAST group and only when there are any.
+//
+// Last because the ten above are normative and their order is pinned: an
+// installation's own surfaces sit after the product's rather than interleaved
+// with them. Absent when the set is empty, which is the vanilla tree — a
+// heading over nothing is a promise the installation did not make, and it is
+// why the pinned Records / Work / Intelligence order needed no revising here.
+//
+// One row per UNIT, not per operation: a unit publishes several governed verbs
+// and they are one destination, its screen. The label is the unit's own name,
+// carried as `label` because it is the INSTALLATION's text and has no
+// translation — nav.units.entry is the fallback a renderer would otherwise have
+// to invent, and it is never what a composed row shows.
+//
+// No badge and no phone-bar slot: BADGE_SCREENS and MOBILE_PRIMARY are the
+// product's judgement about what wants a person's attention, and that is not a
+// call this layer can make for a surface it did not write.
+function unitsGroup(units: readonly ExtensionDescriptor[]): NavLevelGroup {
+  return {
+    headingKey: "nav.group.units",
+    items: units.map((unit) => ({
+      id: `${EXTENSION_SCREEN}/${unit.name}`,
+      labelKey: "nav.units.entry" as MessageKey,
+      label: unit.name,
+      icon: Blocks,
+    })),
+  };
+}
 
 // The levels the sidebar shows for a route: the destinations, then whatever the
 // screen on that route published under them.
 export function railTrail(
   route: Route,
   section?: NavSection,
+  units: readonly ExtensionDescriptor[] = composedExtensions,
 ): readonly NavTrailLevel[] {
-  return navTrail(PRIMARY_LEVEL, route, section);
+  return navTrail(primaryLevel(units), route, section);
 }

@@ -81,6 +81,8 @@ export const en = {
   "nav.group.records": "Records",
   "nav.group.work": "Work",
   "nav.group.intelligence": "Intelligence",
+  "nav.group.units": "Units",
+  "nav.units.entry": "Unit",
   "nav.dedupe": "Duplicates",
   "nav.products": "Products",
   "nav.offerTemplates": "Offer templates",

@@ -1,5 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { api, QueryStates, throwProblem } from "@margince/frontend/api";
 import {
   formatDateTime,
@@ -15,8 +13,11 @@ import {
   EmptyState,
   Field,
   SectionHeader,
+  Select,
   TextInput,
 } from "@margince/frontend/design-system";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 // #/ext/notes — "Demo Notepad", the reference extension's one screen.
 //
@@ -94,6 +95,7 @@ export default function NotesScreen() {
         level={1}
       />
       <SigningCard />
+      <FilingCard />
       <NotesCard />
     </div>
   );
@@ -152,6 +154,17 @@ function SigningCard() {
   const [key, setKey] = useState("");
   const [payload, setPayload] = useState("");
   const [signature, setSignature] = useState("");
+  // A signature belongs to the payload it was computed over, so it is cleared
+  // the moment that payload changes and again when a later attempt fails.
+  // Without that it survives both, and the card then shows a valid signature
+  // beside text it does not sign — which reads as verification of the new
+  // payload.
+  const [signatureFailed, setSignatureFailed] = useState(false);
+  const changePayload = (value: string) => {
+    setPayload(value);
+    setSignature("");
+    setSignatureFailed(false);
+  };
 
   const store = useMutation({
     mutationFn: async (value: string) => {
@@ -178,16 +191,34 @@ function SigningCard() {
 
   const sign = useMutation({
     mutationFn: async (value: string) => {
-      const { data, error, response } = await api.POST(
-        "/ext/notes/signature",
-        { body: { payload: value } },
-      );
+      setSignature("");
+      setSignatureFailed(false);
+      const { data, error, response } = await api.POST("/ext/notes/signature", {
+        body: { payload: value },
+      });
       if (error || !response.ok) {
         throwProblem(error);
       }
       return data;
     },
-    onSuccess: (data) => setSignature(`${data.algorithm} ${data.signature}`),
+    // GUARDED, like useSigningKeyStatus's `typeof data?.stored !== "boolean"`
+    // and useNotes' Array.isArray, and for the same reason both of those
+    // exist: the governed-tool envelope nests the payload under `data`, the
+    // generated types mark both members required so the compiler does not
+    // help, and rendering them unchecked puts the string "undefined undefined"
+    // on screen as a signature. A signature a person cannot tell from a real
+    // one is the worst thing this card can show.
+    onSuccess: (data) => {
+      if (
+        typeof data?.algorithm !== "string" ||
+        typeof data?.signature !== "string"
+      ) {
+        setSignature("");
+        setSignatureFailed(true);
+        return;
+      }
+      setSignature(`${data.algorithm} ${data.signature}`);
+    },
   });
 
   if (!canRead) {
@@ -246,7 +277,7 @@ function SigningCard() {
           <TextInput
             {...control}
             value={payload}
-            onChange={(event) => setPayload(event.target.value)}
+            onChange={(event) => changePayload(event.target.value)}
           />
         )}
       </Field>
@@ -257,7 +288,9 @@ function SigningCard() {
         {t("extNotes.signing.sign")}
       </Button>
       {signature === "" ? null : <p>{signature}</p>}
-      {sign.isError ? <p>{t("extNotes.signing.signFailed")}</p> : null}
+      {sign.isError || signatureFailed ? (
+        <p>{t("extNotes.signing.signFailed")}</p>
+      ) : null}
     </Card>
   );
 }
@@ -297,6 +330,136 @@ function useNotes(enabled: boolean) {
     // reads as "the note I just added arrived late".
     refetchInterval: HEARTBEAT_POLL_MS,
   });
+}
+
+// The RBAC object filing gates on, and the reason it is a THIRD object rather
+// than the notepad's: a seat that may jot a note in the unit's own table has no
+// business writing to the shared timeline every other record hangs its history
+// off. No seeded role holds it, so this card is absent on a fresh installation
+// until an admin grants it deliberately.
+const FILING_OBJECT = "ext_notes_filing";
+
+/** The records a note can be filed to, exactly as the operation declares them. */
+type SubjectType = "person" | "organization" | "deal" | "lead";
+const SUBJECT_TYPES: readonly SubjectType[] = [
+  "person",
+  "organization",
+  "deal",
+  "lead",
+];
+
+/**
+ * File a note to a record: the unit's own row and a core activity, together.
+ *
+ * This is the one card on this screen that writes something the PRODUCT owns,
+ * and the gate is honest about needing two grants. `ext_notes_filing` decides
+ * whether the card appears; the core activity is written under the caller's own
+ * permissions, so a seat without `activity:create` sees the control, presses
+ * it, and is refused by the server. That is not a gap this screen can close —
+ * nothing declares the pairing — so the failure copy says the write did not
+ * happen rather than guessing which half was missing.
+ */
+function FilingCard() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const canFile = useCanWrite(FILING_OBJECT, "create");
+  const [body, setBody] = useState("");
+  // Typed as the contract's own enum, not a string: the Select's options are
+  // the four the operation admits, and a widened state is how a fifth value
+  // reaches a request the schema refuses.
+  const [subjectType, setSubjectType] = useState<SubjectType>("person");
+  const [subjectID, setSubjectID] = useState("");
+  const [filed, setFiled] = useState(false);
+
+  const file = useMutation({
+    mutationFn: async () => {
+      setFiled(false);
+      const { error, response } = await api.POST("/ext/notes/file", {
+        body: { body, subject_type: subjectType, subject_id: subjectID },
+      });
+      if (error || !response.ok) {
+        throwProblem(error);
+      }
+    },
+    // Both halves landed or neither did, so the whole form clears on success
+    // and nothing clears on failure: a person who was refused still has what
+    // they typed, and the note they were filing has not appeared in the list
+    // either.
+    onSuccess: () => {
+      setBody("");
+      setSubjectID("");
+      setFiled(true);
+      queryClient.invalidateQueries({ queryKey: ["ext", "notes", "list"] });
+    },
+  });
+
+  if (!canFile) {
+    return (
+      <Card>
+        <EmptyState>{t("extNotes.filing.noGrant")}</EmptyState>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <SectionHeader title={t("extNotes.filing.title")} />
+      <Field label={t("extNotes.filing.bodyLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={body}
+            onChange={(event) => {
+              setBody(event.target.value);
+              setFiled(false);
+            }}
+          />
+        )}
+      </Field>
+      <Field label={t("extNotes.filing.subjectTypeLabel")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={subjectType}
+            onChange={(value) => {
+              // The Select hands back a string; only one of the four it was
+              // given can come back, and narrowing here is what keeps the
+              // request's type honest without a cast.
+              const picked = SUBJECT_TYPES.find((type) => type === value);
+              if (picked) {
+                setSubjectType(picked);
+              }
+            }}
+            options={SUBJECT_TYPES.map((type) => ({
+              value: type,
+              label: t(`extNotes.filing.${type}`),
+            }))}
+          />
+        )}
+      </Field>
+      <Field label={t("extNotes.filing.subjectIdLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={subjectID}
+            onChange={(event) => {
+              setSubjectID(event.target.value);
+              setFiled(false);
+            }}
+          />
+        )}
+      </Field>
+      <Button
+        disabled={
+          body.trim() === "" || subjectID.trim() === "" || file.isPending
+        }
+        onClick={() => file.mutate()}
+      >
+        {t("extNotes.filing.file")}
+      </Button>
+      {filed ? <p>{t("extNotes.filing.filed")}</p> : null}
+      {file.isError ? <p>{t("extNotes.filing.failed")}</p> : null}
+    </Card>
+  );
 }
 
 /**
@@ -357,7 +520,15 @@ function NotesCard() {
     onSettled: invalidate,
   });
 
+  // WHICH note was refused, not merely that one was. A single flag over a list
+  // puts the message under the whole list, so a person who pressed Remove on
+  // the third row reads a refusal that names none of them — and if they then
+  // press the fourth and it succeeds, the message from the third is still
+  // there. The id is the only thing that makes the line answerable.
+  const [removeFailedID, setRemoveFailedID] = useState<string | null>(null);
   const remove = useMutation({
+    onMutate: () => setRemoveFailedID(null),
+    onError: (_error, id: string) => setRemoveFailedID(id),
     mutationFn: async (id: string) => {
       // The id rides the query string: the operation is a DELETE, which carries
       // no body, so the generated client takes it under `params.query`.
@@ -418,18 +589,14 @@ function NotesCard() {
                     {t("extNotes.notes.remove")}
                   </Button>
                 ) : null}
+                {removeFailedID === item.id ? (
+                  <p>{t("extNotes.notes.removeFailed")}</p>
+                ) : null}
               </li>
             ))}
           </ul>
         )}
       </QueryStates>
-      {/*
-        A rejected write leaves the input and the list exactly as they were, so
-        without these lines the only difference between "refused" and "nothing
-        happened" is that nothing happened. The signing card already said so
-        for `sign`; these are the other three writes.
-      */}
-      {remove.isError ? <p>{t("extNotes.notes.removeFailed")}</p> : null}
     </Card>
   );
 }

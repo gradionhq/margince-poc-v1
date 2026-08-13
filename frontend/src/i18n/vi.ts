@@ -93,6 +93,8 @@ export const vi = {
   "nav.group.records": "Dữ liệu",
   "nav.group.work": "Công việc",
   "nav.group.intelligence": "Phân tích",
+  "nav.group.units": "Đơn vị",
+  "nav.units.entry": "Đơn vị",
   "nav.dedupe": "Trùng lặp",
   "nav.products": "Sản phẩm",
   "nav.offerTemplates": "Mẫu báo giá",
