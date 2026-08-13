@@ -167,7 +167,10 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err := auth.Require(ctx, entityPerson, principal.ActionCreate); err != nil {
 		return err
 	}
-	parsed := ParsePersonName(in.DisplayName, in.Email)
+	parsed, err := s.nameCounterparty(ctx, tx, in)
+	if err != nil {
+		return err
+	}
 	name := parsed.Full
 	// The workspace's own consumer-mail list travels with the candidate: the
 	// employer-agreement term must judge a shared domain the same way capture
