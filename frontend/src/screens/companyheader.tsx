@@ -552,7 +552,7 @@ export function CompanyDescription({ org }: Readonly<{ org: Organization }>) {
 // The scheme is noise in a chip: every one of these is https, and "https://"
 // costs eight characters of a row that has little space to fit it in. A URL
 // we cannot parse is shown whole rather than silently dropped.
-function displayHost(url: string): string {
+export function displayHost(url: string): string {
   try {
     return new URL(url).host.replace(/^www\./, "");
   } catch {

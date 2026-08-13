@@ -557,6 +557,8 @@ export const de = {
     "Der Einwilligungszweck-Katalog konnte nicht geladen werden — welche Zwecke ein Double-Opt-in brauchen, lässt sich gerade nicht anzeigen.",
 
   "org.name": "Firma",
+  "org.description": "Was sie tun",
+  "org.website": "Website",
   "org.industry": "Branche",
   "org.size": "Größe",
   "org.classification": "Typ",

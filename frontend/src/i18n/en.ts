@@ -564,6 +564,8 @@ export const en = {
     "Couldn't load the consent purpose catalogue, so which purposes need a double opt-in can't be shown right now.",
 
   "org.name": "Company",
+  "org.description": "What they do",
+  "org.website": "Website",
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
