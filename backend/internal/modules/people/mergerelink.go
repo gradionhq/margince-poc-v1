@@ -224,8 +224,13 @@ func relinkProviderPurchases(ctx context.Context, tx pgx.Tx, sourceID, targetID 
 		sourceID.UUID, targetID.UUID); err != nil {
 		return fmt.Errorf("relink provider claims: %w", err)
 	}
-	// The source's queued runs: nothing was spent, and the survivor is now
-	// the subject, so they are cancelled rather than carried over.
+	// The source's queued runs are cancelled unconditionally. Not because the
+	// survivor will buy the same data — it may hold no run at all, or one
+	// parked in submission_unknown that never delivers — but because the
+	// merged-away record has stopped being a subject: nothing left the
+	// building for it, nothing was charged, and a run that would enrich a row
+	// no read returns is work nobody wants. A human who still wants that
+	// purchase asks for it on the survivor.
 	if _, err := tx.Exec(ctx, `
 		UPDATE provider_run
 		   SET state = 'cancelled', completed_at = now(),
@@ -252,6 +257,11 @@ func relinkProviderPurchases(ctx context.Context, tx pgx.Tx, sourceID, targetID 
 	// Both sides live and past queued: keep both, and take the source's out
 	// of the live-run index so the relink below cannot violate it. Its
 	// reservation and its terminal state are untouched.
+	//
+	// The survivor set is the past-queued states only. A survivor still
+	// `queued` cannot appear here — the statement above already cancelled
+	// every one of those that collides with a source run in exactly these
+	// states — so naming `queued` would be an arm that can never fire.
 	if _, err := tx.Exec(ctx, `
 		UPDATE provider_run s
 		   SET input_fingerprint = 'merged:' || gen_random_uuid()::text
@@ -261,7 +271,7 @@ func relinkProviderPurchases(ctx context.Context, tx pgx.Tx, sourceID, targetID 
 		     SELECT 1 FROM provider_run o
 		      WHERE o.person_id = $2 AND o.provider = s.provider
 		        AND o.input_fingerprint = s.input_fingerprint
-		        AND o.state IN ('queued','submitting','in_progress','submission_unknown'))`,
+		        AND o.state IN ('submitting','in_progress','submission_unknown'))`,
 		sourceID.UUID, targetID.UUID); err != nil {
 		return fmt.Errorf("re-fingerprint the merged-away record's live runs: %w", err)
 	}

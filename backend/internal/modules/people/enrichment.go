@@ -85,10 +85,16 @@ func hasStandingObjection(ctx context.Context, tx pgx.Tx, personID string) (bool
 }
 
 // anyAddressSuppressed asks the erasure-suppression list about every address
-// on file. An erased subject lives on there as a hash (A13), and re-buying
-// their data is exactly the resurrection the list exists to prevent — the
-// person row may have been anonymized rather than deleted, so the row alone
-// cannot answer this.
+// on file.
+//
+// The case it covers is a LIVE record holding an address that was suppressed
+// under some earlier erasure — a re-captured contact, or a colleague's import
+// that reintroduced someone who had asked to be forgotten. The erased record
+// itself is already refused by the archived check above and holds no
+// addresses to test anyway, since erasure deletes them. Buying fresh data
+// about a suppressed address is precisely the resurrection the list exists to
+// prevent (A13), and only the hash can see it: the new record carries no
+// memory of the old one.
 func anyAddressSuppressed(ctx context.Context, tx pgx.Tx, personID string) (bool, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT email FROM person_email WHERE person_id = $1 AND archived_at IS NULL`, personID)

@@ -18,7 +18,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -36,8 +35,7 @@ func WithProvider(reg *integrations.Registry, vault keyvault.Vault, inserter *jo
 		if err != nil {
 			panic("compose: integrations store construction failed with live dependencies: " + err.Error())
 		}
-		store = bindProviderDomain(store, InstallationDB(pool)).
-			WithSubmitEnqueue(providerSubmitEnqueue(inserter))
+		store = bindProviderDomain(store).WithSubmitEnqueue(providerSubmitEnqueue(inserter))
 		s.integrationsHandlers = integrationsHandlers{store: store, runs: store}
 	}
 }
@@ -62,7 +60,7 @@ func providerSubmitEnqueue(inserter *jobs.Runner) integrations.EnqueueSubmitFunc
 // land. THIS is the cross-module edge — integrations may not import people,
 // so compose injects it, and it is injected in exactly one place so the api
 // role and the worker role can never disagree about what is bound.
-func bindProviderDomain(store *integrations.Store, _ *database.DB) *integrations.Store {
+func bindProviderDomain(store *integrations.Store) *integrations.Store {
 	return store.
 		WithDomain(providerFence, people.DuplicateCluster, people.SubjectIdentifiers).
 		WithClaimWriter(providerClaimWriter).

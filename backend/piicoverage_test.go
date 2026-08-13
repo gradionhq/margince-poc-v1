@@ -234,6 +234,10 @@ var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",
+	// What a licensed data provider was PAID to tell us about the subject,
+	// and the runs that bought it (ADR-0101). Same Art. 17 transaction, its
+	// own file for the same size reason the timeline has one.
+	"internal/modules/privacy/erasure_provider.go",
 	"internal/modules/privacy/deliveries.go",
 }
 

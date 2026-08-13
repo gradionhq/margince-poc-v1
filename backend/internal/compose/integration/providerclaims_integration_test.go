@@ -21,6 +21,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,24 +34,46 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
 
-// seedPurchase writes one completed run and one claim for a subject, through
-// the REAL writer people exposes — a hand-inserted claim would prove nothing
-// about what the writer produces.
+// seedPurchase writes one completed run and one claim for a subject.
+//
+// The CLAIM goes through people.WriteProviderClaims, the real writer, so
+// these tests see the rows production produces. The RUN row is hand-built:
+// reaching a completed run through integrations.QueueRun would need a live
+// connection, a registered adapter and a job inserter, and what these tests
+// are about is what happens to a run once it exists.
 func seedPurchase(t *testing.T, e *Env, personID ids.UUID) (runID string) {
 	t.Helper()
-	admin := e.Admin()
-	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+	return seedRun(t, e, personID, "completed", "fp-"+personID.String(), true)
+}
+
+// seedRun writes one run in a named state at a named fingerprint, optionally
+// with a claim hanging off it. The fingerprint is a parameter because the
+// merge collision rules are defined over it: two runs collide only when they
+// share one.
+func seedRun(t *testing.T, e *Env, personID ids.UUID, state, fingerprint string, withClaim bool) (runID string) {
+	t.Helper()
+	completed := "NULL"
+	if state == "completed" || state == "no_match" {
+		completed = "now()"
+	}
+	seedCtx := e.Admin()
+	err := database.WithWorkspaceTx(seedCtx, e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(), `
 			INSERT INTO provider_run
 			  (subject_kind, person_id, provider, trigger, state, input_fingerprint,
 			   external_correlation_id, connection_version, connection_epoch,
 			   configuration_snapshot, requested_categories, completed_at)
-			VALUES ('person', $1, 'surfe', 'manual', 'completed', $2,
-			        gen_random_uuid(), 1, 1, '{}'::jsonb, ARRAY['professional_email'], now())
-			RETURNING id::text`, personID, "fp-"+personID.String()).Scan(&runID); err != nil {
+			VALUES ('person', $1, 'surfe', 'manual', $2, $3,
+			        gen_random_uuid(), 1, 1, '{}'::jsonb, ARRAY['professional_email'], `+completed+`)
+			RETURNING id::text`, personID, state, fingerprint).Scan(&runID); err != nil {
 			return err
 		}
-		return people.WriteProviderClaims(context.Background(), tx, runID, personID.String(), "surfe",
+		if !withClaim {
+			return nil
+		}
+		// The store's own context, not a bare one: the claim write audits the
+		// arrival, and an audit row needs the actor that caused it.
+		return people.WriteProviderClaims(seedCtx, tx, runID, personID.String(), "surfe",
 			[]provider.Claim{{
 				Key:   provider.ClaimProfessionalEmails,
 				Value: []byte(`[{"value":"bought@example.com","validation_status":"valid"}]`),
@@ -60,6 +83,20 @@ func seedPurchase(t *testing.T, e *Env, personID ids.UUID) (runID string) {
 		t.Fatal(err)
 	}
 	return runID
+}
+
+// runState reads one run's state and whether it still occupies the live-run
+// index at its original fingerprint.
+func runState(t *testing.T, e *Env, runID string) (state, fingerprint string) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT state, input_fingerprint FROM provider_run WHERE id = $1`,
+			runID).Scan(&state, &fingerprint)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return state, fingerprint
 }
 
 // seedMergeSubject writes a person with their own address, so two of them can
@@ -142,6 +179,49 @@ func TestErasureRemovesProviderClaimsAndDetachesTheRunsThatBoughtThem(t *testing
 	}
 	if runs != 1 {
 		t.Error("the erasure deleted the run row: what the installation spent is an accounting fact once it names nobody")
+	}
+}
+
+// The same human as TWO person rows: an archived duplicate holding their
+// address, and the live record being erased. The archived row's purchased
+// claims and its runs' provider_job_id — the handle that would let the
+// provider be re-asked for exactly what this erasure destroyed — must go
+// too. Keying the erasure on person_id alone erases one row of a person who
+// exists as two.
+func TestErasureReachesAnArchivedDuplicatesPurchasedClaims(t *testing.T) {
+	e := Setup(t)
+	live := seedSubject(t, e)
+
+	// The archived duplicate, carrying the SAME address. Legitimate:
+	// uq_person_email_dedupe is partial on archived_at IS NULL.
+	archived := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person (id, workspace_id, full_name, source, captured_by, archived_at)
+			 VALUES ($1, `+wsClause+`, 'Selma Subject', 'manual', 'human:x', now())`, archived); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by, archived_at)
+			 VALUES (`+wsClause+`, $1, $2, 'manual', 'human:x', now())`, archived, subjectEmail)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	archivedRun := seedPurchase(t, e, archived)
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), live, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	claims, stillNamed, kind := claimAndRunState(t, e, archived, archivedRun)
+	if claims != 0 {
+		t.Errorf("%d purchased claims survive on the erased subject's archived duplicate — their bought email and mobile number are still stored", claims)
+	}
+	if stillNamed || kind != "scrubbed" {
+		t.Errorf("the archived duplicate's run still names a subject (named=%v kind=%q): its provider_job_id would let the provider be re-asked for what this erasure destroyed", stillNamed, kind)
 	}
 }
 
@@ -248,5 +328,75 @@ func TestMergeKeepsBothSidesPurchasedClaims(t *testing.T) {
 	}
 	if onSurvivor != 2 {
 		t.Errorf("the survivor holds %d claims, want both sides' 2 — a merge that drops one throws away data the customer paid for (PI-AC-11)", onSurvivor)
+	}
+}
+
+// The collision matrix, which carries the whole "nothing already charged is
+// discarded" rule. Both sides hold a LIVE run at the same fingerprint, which
+// the live-run unique index admits only one of — so the merge must resolve it
+// rather than let the relink fail or silently drop a purchase.
+func TestMergeKeepsBothLiveRunsWhenEitherMayHaveBeenPaid(t *testing.T) {
+	e := Setup(t)
+	survivor := seedMergeSubject(t, e, "Bea Survivor")
+	source := seedMergeSubject(t, e, "Bea Source")
+	// One fingerprint, two live runs, both past `queued`: each may already
+	// have reached the provider, so neither may be thrown away.
+	const shared = "fp-collision"
+	survivorRun := seedRun(t, e, survivor, "submitting", shared, false)
+	sourceRun := seedRun(t, e, source, "in_progress", shared, true)
+
+	store := people.NewStore(e.DB())
+	if _, err := store.MergePerson(e.Admin(), ids.From[ids.PersonKind](source),
+		ids.From[ids.PersonKind](survivor)); err != nil {
+		t.Fatal(err)
+	}
+
+	if state, fp := runState(t, e, survivorRun); state != "submitting" || fp != shared {
+		t.Errorf("the survivor's live run is %s at %q, want submitting at the original fingerprint — it was untouched by the merge", state, fp)
+	}
+	state, fp := runState(t, e, sourceRun)
+	if state != "in_progress" {
+		t.Errorf("the merged-away record's live run is %s, want in_progress — it may already have been charged, so it must reach its own terminal state", state)
+	}
+	if fp == shared {
+		t.Error("the source's run kept its fingerprint: two live runs now collide on the index the merge was supposed to clear")
+	}
+	if !strings.HasPrefix(fp, "merged:") {
+		t.Errorf("the source's run fingerprint is %q, want the merged: scrub that takes it out of the live-run index", fp)
+	}
+	// Both runs still name a subject, and it is the survivor.
+	var onSurvivor int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM provider_run WHERE person_id = $1`, survivor).Scan(&onSurvivor)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if onSurvivor != 2 {
+		t.Errorf("the survivor holds %d runs, want both sides' 2", onSurvivor)
+	}
+}
+
+// A source run still `queued` never reached the provider, so it is cancelled
+// rather than carried over: the merged-away record has stopped being a
+// subject, and nothing was charged.
+func TestMergeCancelsTheMergedAwayRecordsUnspentRun(t *testing.T) {
+	e := Setup(t)
+	survivor := seedMergeSubject(t, e, "Cara Survivor")
+	source := seedMergeSubject(t, e, "Cara Source")
+	sourceRun := seedRun(t, e, source, "queued", "fp-unspent", false)
+
+	store := people.NewStore(e.DB())
+	if _, err := store.MergePerson(e.Admin(), ids.From[ids.PersonKind](source),
+		ids.From[ids.PersonKind](survivor)); err != nil {
+		t.Fatal(err)
+	}
+
+	state, fp := runState(t, e, sourceRun)
+	if state != "cancelled" {
+		t.Errorf("the merged-away record's queued run is %s, want cancelled — it would have enriched a row no read returns", state)
+	}
+	if !strings.HasPrefix(fp, "merged:") {
+		t.Errorf("the cancelled run's fingerprint is %q, want the merged: scrub — a cancelled run must not hold the live-run index", fp)
 	}
 }

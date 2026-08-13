@@ -361,8 +361,13 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		          af.captured_by, af.created_at, af.updated_at
 		   FROM ai_feedback af
 		   WHERE af.subject_type = 'person' AND af.subject_id = $1`},
+		// validation_status is deliberately absent: no writer populates that
+		// column, and the per-value validation the provider reports lives
+		// INSIDE value_json, which this exports whole. A column exported as
+		// null on every row would tell the subject their address was never
+		// validated, which is not what the platform knows.
 		{&pkg.ProviderClaims, `SELECT ppc.provider, ppc.claim_key, ppc.value_json, ppc.confidence,
-		          ppc.validation_status, ppc.source, ppc.captured_by, ppc.retrieved_at
+		          ppc.source, ppc.captured_by, ppc.retrieved_at
 		   FROM person_provider_claim ppc
 		   WHERE ppc.person_id = $1`},
 		// The run history carries no credential and no vault reference: the

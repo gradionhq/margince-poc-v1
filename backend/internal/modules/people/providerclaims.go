@@ -20,8 +20,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
+
+// auditKeyProvider names which data provider an audit or system-log image is
+// about. Deliberately not people.DomainProvider, which is the same word for a
+// different thing — that one classifies a mail DOMAIN as belonging to a
+// mailbox vendor, and folding the two would make a rename of either silently
+// rewrite the other's rows.
+const auditKeyProvider = "provider"
 
 // WriteProviderClaims upserts one run's claims, inside the transaction
 // integrations opened for the hand-off. Idempotent by UNIQUE(run_id,
@@ -48,7 +57,39 @@ func WriteProviderClaims(ctx context.Context, tx pgx.Tx, runID, personID, provid
 			return fmt.Errorf("people: writing the %s claim: %w", c.Key, err)
 		}
 	}
+	if len(claims) == 0 {
+		return nil
+	}
+	// One audit row for the arrival, on the PERSON, because "which of this
+	// subject's records did the provider touch?" is a question answered from
+	// audit_log and from nowhere else. The purchase DECISION is audited by
+	// integrations when the run is queued; without this, the arrival of the
+	// values it bought would leave no trace on the record they landed on.
+	//
+	// The image names which claims arrived and from whom, never their
+	// contents: an audit row that quoted a bought mobile number would be a
+	// second copy of the subject's data in a table the erasure treats as
+	// evidence rather than as subject data.
+	subject, err := ids.Parse(personID)
+	if err != nil {
+		return fmt.Errorf("people: the claim's subject id does not parse, so the arrival cannot be audited: %w", err)
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "person", subject, nil, map[string]any{
+		auditKeyProvider: providerName, "run_id": runID, "claim_keys": claimKeyNames(claims),
+	}); err != nil {
+		return err
+	}
 	return nil
+}
+
+// claimKeyNames is the audit image's list of what arrived — the keys, which
+// are a closed vocabulary, never the values behind them.
+func claimKeyNames(claims []provider.Claim) []string {
+	out := make([]string, 0, len(claims))
+	for _, c := range claims {
+		out = append(out, string(c.Key))
+	}
+	return out
 }
 
 // DeleteProviderClaims removes everything one provider asserted about anyone,
@@ -59,6 +100,16 @@ func DeleteProviderClaims(ctx context.Context, tx pgx.Tx, providerName string) (
 	tag, err := tx.Exec(ctx, `DELETE FROM person_provider_claim WHERE provider = $1`, providerName)
 	if err != nil {
 		return 0, fmt.Errorf("people: deleting the provider's claims: %w", err)
+	}
+	// Audited on the installation rather than per person: this is one
+	// customer decision about one provider, and a row per affected subject
+	// would be thousands of entries recording a single act. How many went is
+	// the fact an investigation reads. The caller's own system log records
+	// which provider; this records the domain half it cannot see.
+	if _, err := storekit.LogSystem(ctx, tx, "provider_claims_deleted", map[string]any{
+		auditKeyProvider: providerName, "claims_deleted": tag.RowsAffected(),
+	}); err != nil {
+		return 0, err
 	}
 	return tag.RowsAffected(), nil
 }
