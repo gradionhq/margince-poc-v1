@@ -23,20 +23,19 @@ import (
 )
 
 type tagRow struct {
-	ID          ids.TagID
-	WorkspaceID ids.WorkspaceID
-	Name        string
-	Color       *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
+	ID         ids.TagID
+	Name       string
+	Color      *string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	ArchivedAt *time.Time
 }
 
-const tagColumns = `id, workspace_id, name, color, created_at, updated_at, archived_at`
+const tagColumns = `id, name, color, created_at, updated_at, archived_at`
 
 func scanTag(r pgx.Row) (tagRow, error) {
 	var t tagRow
-	err := r.Scan(&t.ID, &t.WorkspaceID, &t.Name, &t.Color, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt)
+	err := r.Scan(&t.ID, &t.Name, &t.Color, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt)
 	return t, err
 }
 
@@ -89,8 +88,8 @@ func (s *Store) CreateTag(ctx context.Context, name string, color *string) (tagR
 	var out tagRow
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO tag (workspace_id, name, color)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
+			INSERT INTO tag (name, color)
+			VALUES ($1, $2)
 			RETURNING `+tagColumns, strings.TrimSpace(name), color)
 		var err error
 		if out, err = scanTag(row); err != nil {
@@ -165,8 +164,8 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string
 			return err
 		}
 		row := tx.QueryRow(ctx, `
-			INSERT INTO taggable (workspace_id, tag_id, entity_type, entity_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+			INSERT INTO taggable (tag_id, entity_type, entity_id)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (tag_id, entity_type, entity_id) DO NOTHING
 			RETURNING id, tag_id, entity_type, entity_id, created_at`,
 			tagID, entityType, entityID)

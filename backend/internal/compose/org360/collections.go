@@ -21,7 +21,7 @@ import (
 // tagsSection reads the tags applied to the account.
 func tagsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]crmcontracts.Tag, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT t.id, t.workspace_id, t.name, t.color, t.created_at, t.updated_at, t.archived_at
+		SELECT t.id, t.name, t.color, t.created_at, t.updated_at, t.archived_at
 		FROM tag t
 		JOIN taggable g ON g.tag_id = t.id AND g.entity_type = 'organization' AND g.entity_id = $1
 		WHERE t.archived_at IS NULL
@@ -32,8 +32,8 @@ func tagsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]cr
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (crmcontracts.Tag, error) {
 		var t crmcontracts.Tag
-		var id, wsID ids.UUID
-		if err := row.Scan(&id, &wsID, &t.Name, &t.Color, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt); err != nil {
+		var id ids.UUID
+		if err := row.Scan(&id, &t.Name, &t.Color, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt); err != nil {
 			return t, err
 		}
 		t.Id = openapi_types.UUID(id)
@@ -52,7 +52,7 @@ func listMembershipsSection(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT l.id, l.workspace_id, l.name, l.entity_type, l.list_type, l.definition,
+		SELECT l.id, l.name, l.entity_type, l.list_type, l.definition,
 		       l.owner_id, l.team_id, l.created_at, l.updated_at, l.archived_at
 		FROM list l
 		JOIN list_member m ON m.list_id = l.id AND m.entity_type = 'organization' AND m.entity_id = $%d
@@ -64,10 +64,10 @@ func listMembershipsSection(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (crmcontracts.List, error) {
 		var l crmcontracts.List
-		var id, wsID ids.UUID
+		var id ids.UUID
 		var ownerID, teamID *ids.UUID
 		var entityType, listType string
-		if err := row.Scan(&id, &wsID, &l.Name, &entityType, &listType, &l.Definition,
+		if err := row.Scan(&id, &l.Name, &entityType, &listType, &l.Definition,
 			&ownerID, &teamID, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt); err != nil {
 			return l, err
 		}

@@ -31,7 +31,7 @@ import (
 // workspace record governed by the RBAC object matrix's own/team/all
 // scope.
 
-const savedViewColumns = `id, workspace_id, owner_id, shared_scope, resource, name, query, version, created_at, updated_at, archived_at`
+const savedViewColumns = `id, owner_id, shared_scope, resource, name, query, version, created_at, updated_at, archived_at`
 
 // selectSavedView is the shared projection prefix for every saved_view read —
 // one spelling so the columns can't drift between the list, get, and delete paths.
@@ -39,7 +39,6 @@ const selectSavedView = "SELECT " + savedViewColumns + " FROM saved_view WHERE "
 
 type savedViewRow struct {
 	ID          ids.SavedViewID
-	WorkspaceID ids.WorkspaceID
 	OwnerID     ids.UserID
 	SharedScope string
 	Resource    string
@@ -69,7 +68,7 @@ func wireSavedView(v savedViewRow) crmcontracts.SavedView {
 
 func scanSavedView(r pgx.Row) (savedViewRow, error) {
 	var v savedViewRow
-	err := r.Scan(&v.ID, &v.WorkspaceID, &v.OwnerID, &v.SharedScope, &v.Resource,
+	err := r.Scan(&v.ID, &v.OwnerID, &v.SharedScope, &v.Resource,
 		&v.Name, &v.Query, &v.Version, &v.CreatedAt, &v.UpdatedAt, &v.ArchivedAt)
 	return v, err
 }
@@ -164,8 +163,8 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 	var out savedViewRow
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO saved_view (workspace_id, owner_id, shared_scope, resource, name, query)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'private', $2, $3, $4)
+			INSERT INTO saved_view (owner_id, shared_scope, resource, name, query)
+			VALUES ($1, 'private', $2, $3, $4)
 			RETURNING `+savedViewColumns,
 			owner, in.Resource, in.Name, in.Query)
 		var err error

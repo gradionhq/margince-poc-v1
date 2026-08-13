@@ -158,8 +158,8 @@ func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType str
 			return err
 		}
 		row := tx.QueryRow(ctx, `
-			INSERT INTO list_member (workspace_id, list_id, entity_type, entity_id, added_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO list_member (list_id, entity_type, entity_id, added_by)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (list_id, entity_type, entity_id) DO NOTHING
 			RETURNING id, list_id, entity_type, entity_id, added_by, created_at`,
 			listID, entityType, entityID, actor.ID)

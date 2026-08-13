@@ -119,9 +119,9 @@ func (s *Store) CreateQuota(ctx context.Context, in CreateQuotaInput) (crmcontra
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		id := ids.NewV7()
 		_, err := tx.Exec(ctx,
-			`INSERT INTO quota (id, workspace_id, owner_id, team_id, period_start, period_end, target_minor, currency)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			id, storekit.MustWorkspace(ctx), in.OwnerID, in.TeamID,
+			`INSERT INTO quota (id, owner_id, team_id, period_start, period_end, target_minor, currency)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			id, in.OwnerID, in.TeamID,
 			in.PeriodStart, in.PeriodEnd, in.TargetMinor, in.Currency)
 		if err != nil {
 			return mapQuotaWriteError(err, "insert quota")
@@ -410,7 +410,7 @@ func mapQuotaWriteError(err error, op string) error {
 	return fmt.Errorf("%s: %w", op, err)
 }
 
-const quotaColumns = `id, workspace_id, owner_id, team_id, period_start, period_end,
+const quotaColumns = `id, owner_id, team_id, period_start, period_end,
 	target_minor, currency, version, created_at, updated_at, archived_at`
 
 func readQuota(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Quota, error) {
@@ -430,13 +430,13 @@ func readQuota(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.Ar
 // cursor key — the scanDeal precedent).
 func scanQuota(row pgx.Row, extra ...any) (crmcontracts.Quota, error) {
 	var q crmcontracts.Quota
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var ownerID, teamID *ids.UUID
 	var periodStart, periodEnd time.Time
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &ownerID, &teamID, &periodStart, &periodEnd,
+		&id, &ownerID, &teamID, &periodStart, &periodEnd,
 		&q.TargetMinor, &q.Currency, &version, &q.CreatedAt, &q.UpdatedAt, &q.ArchivedAt,
 	}
 	err := row.Scan(append(dests, extra...)...)

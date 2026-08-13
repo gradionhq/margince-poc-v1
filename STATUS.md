@@ -611,17 +611,65 @@ rediscover:
   forbids. The fail-closed branch it exercised stays, with the comment saying
   why an unreachable guard is still worth its lines.
 
-**Next: phase D** — drop the `workspace_id` columns and narrow the 119 indexes
-that still lead with them — then §9 step 6 retires the orphaned gates
+### Phase D is under way, module by module — the shape it takes
+
+Phase D fans out (§8): each module drops the column from its own tables and
+narrows its own indexes, in one PR with the Go change that stops naming it.
+Signals went first (#1124), then collections and quotas. **Roughly 130 tables
+remain**, so what a slice costs is worth knowing before starting the next one.
+
+Three kinds of object go, and only the first is obvious: the **column** (which
+takes its foreign key into `workspace` with it, unasked); the **indexes that
+lead with it**, which cost a comparison per row scanned and buy nothing; and
+the **`uq_<table>_ws_id` constraints**, which `0019` created as composite
+foreign-key targets and phase B collapsed into second copies of the primary
+key. Some of those are constraints rather than bare indexes — `DROP INDEX`
+refuses, `ALTER TABLE … DROP CONSTRAINT` is what works. Index names do not
+change: a narrowed index answers the same queries, and renaming it would make
+every later reader diff two names to learn that nothing moved.
+
+An index on the tenant ALONE has no narrowed form — `idx_quota_ws_live` was
+`(workspace_id) WHERE archived_at IS NULL`, and without the column the
+predicate is the whole selection. It drops rather than being rebuilt on
+nothing.
+
+**The compiler finds none of this, and the module's own directory finds only
+half of it.** Both misses in the collections/quotas slice were outside the
+module: `compose/org360` selected `t.workspace_id` from `tag`, and
+`people/person_list.go` joined `taggable` to `tag` on it. Grep every file that
+names the table, not every file in the module — and re-read the row STRUCT and
+its scanner, which is where a dropped select column turns into "number of field
+descriptions must equal number of destinations" at runtime.
+
+**Webhooks is deliberately deferred.** Its retry sweep is one job row per live
+tenant, with an integration suite built on a second tenant's parked delivery
+and a fault injected through the workspace GUC. Dropping the column first would
+leave that suite asserting an isolation the schema no longer has, so the tables
+and the fleet loop go together (§5).
+
+After phase D: §9 step 6 retires the remaining orphaned gates
 (`check-rls-store-path.sh`, ADR-0061 §3's bootstrap check) and §5 collapses the
 two `Tx` helpers, which is where `principal.WorkspaceID` and
-`storekit.MustWorkspace` finally fall.
+`storekit.MustWorkspace` finally fall. The migration tenant-scope gate has
+already gone (#1121): phase A removed the row-level security it rested on, and
+phase D's down migrations — which backfill the column they restore — were the
+first writes to prove it.
 
-**Renumber late, and expect to do it twice.** This branch collided with `main`
-on migration 0219, then 0222, then 0223, and the last of those also landed
-`NULLS NOT DISTINCT` on `retention_policy_unique` — a qualifier the collapse
-would have silently dropped along with the tenant column. A migration PR's
-rebase is not mechanical: re-read what the base added to the tables you touch.
+**Renumber late, and expect to do it more than twice.** The B/C branch collided
+with `main` on 0219, 0222, 0223 and 0224; the signals slice collided on 0226.
+One of those collisions also landed `NULLS NOT DISTINCT` on
+`retention_policy_unique` — a qualifier the collapse would have silently
+dropped along with the tenant column — so a migration PR's rebase is not
+mechanical: re-read what the base added to the tables you touch.
+
+Twice this went further than a renumber and broke `main` outright, because
+required status checks are **not strict** — a branch never has to be up to
+date before merging, so two PRs green against different bases merge without
+ever being compiled together. Issue
+[#1130](https://github.com/gradionhq/margince-poc-v1/issues/1130) carries the
+evidence and the two candidate fixes; until one is chosen, rebase and re-run
+the gates immediately before merging anything that adds a migration or changes
+a key.
 
 Phase 2 spans roughly nine hundred `WithWorkspaceTx` occurrences, a bit over
 four hundred of them outside tests, across a couple of hundred non-test files.
