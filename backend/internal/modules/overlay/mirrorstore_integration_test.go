@@ -242,6 +242,49 @@ func TestIngestStillRefusesAnOlderReadAtTheSameFingerprint(t *testing.T) {
 	}
 }
 
+// A stale page carries a stale projection too, so a differing fingerprint is
+// no reason to admit an older read. Letting one through would turn the
+// re-projection allowance into a hole in the staleness guard, and the sweep's
+// own laggard pages would overwrite fresher rows — which is precisely what a
+// declaration change makes likely, since it puts every row's fingerprint out
+// of date at once.
+func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass = "person"
+	const externalID = "4"
+
+	newer := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Katherine"},
+		ModifiedAt:            newer,
+		ProjectionFingerprint: "fingerprint-one",
+	}); err != nil {
+		t.Fatalf("newer ingest: %v", err)
+	}
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Stale"},
+		ModifiedAt:            newer.Add(-24 * time.Hour),
+		ProjectionFingerprint: "fingerprint-two",
+	}); err != nil {
+		t.Fatalf("older ingest at a different fingerprint: %v", err)
+	}
+
+	row, err := store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back after the older ingest: %v", err)
+	}
+	if row.Fields["first_name"] != "Katherine" || !row.UpdatedAtBaseline.Equal(newer) {
+		t.Fatalf("an older read must not clobber a fresher row whatever its fingerprint says: got %+v", row)
+	}
+	if row.ProjectionFingerprint != "fingerprint-one" {
+		t.Errorf("fingerprint = %q, want the fresher row's — a refused write must leave the column alone", row.ProjectionFingerprint)
+	}
+}
+
 // seedTombstone inserts the fixture the tombstone-guard test asserts
 // against, through the same tenant-scoped transaction helper the store
 // itself uses — the fixture must be workspace-visible to the guard's own

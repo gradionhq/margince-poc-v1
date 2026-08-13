@@ -121,18 +121,22 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 //   - tombstone-guard (WHERE NOT EXISTS …): an erased external_id is
 //     never re-created — the sweep that would otherwise resurrect it
 //     never gets the chance to see the row at all.
-//   - staleness (ON CONFLICT … WHERE excluded.updated_at_baseline > …
-//     OR the projection fingerprint differs): an older incumbent read can
-//     never clobber a newer one, so ingest is safe to call with a stale
-//     poller page racing a fresher read of the same record. A re-projection
-//     is admitted anyway: the incumbent has not touched the record, so its
-//     baseline does not advance, but the same record under a changed
-//     declaration is not an older read — refusing it would strand the row
-//     holding a payload the current mapping would never produce. The
-//     comparison is IS DISTINCT FROM, so a row recording no declaration
-//     (NULL — mirrored before the column existed) compares as different
-//     rather than as unknown, which would refuse exactly the rows nothing
-//     has verified.
+//   - staleness (ON CONFLICT … WHERE excluded.updated_at_baseline > …):
+//     an older incumbent read can never clobber a newer one, so ingest is
+//     safe to call with a stale poller page racing a fresher read of the
+//     same record. A re-projection is admitted at the SAME baseline only:
+//     the incumbent has not touched the record, so its baseline does not
+//     advance, but the same record under a changed declaration is not an
+//     older read — refusing it would strand the row holding a payload the
+//     current mapping would never produce. An OLDER read stays refused
+//     whatever its fingerprint says, because a stale page carries a stale
+//     projection too, and admitting it on a fingerprint difference would
+//     let the sweep's own laggard pages overwrite fresher rows — which a
+//     declaration change makes likely, since it puts every row's
+//     fingerprint out of date at once. The comparison is IS DISTINCT FROM,
+//     so a row recording no declaration (NULL — mirrored before the column
+//     existed) compares as different rather than as unknown, which would
+//     refuse exactly the rows nothing has verified.
 //   - no-clobber-dirty (… AND sync_state <> 'pending_sync'): a row with
 //     an un-drained local write (branch 2) is not blindly overwritten by
 //     an inbound incumbent change; it is held for the conflict path
@@ -149,7 +153,8 @@ ON CONFLICT (object_class, external_id) DO UPDATE
        projection_fingerprint=EXCLUDED.projection_fingerprint, last_synced_at=now()
    WHERE overlay_mirror.sync_state <> 'pending_sync'
      AND (EXCLUDED.updated_at_baseline > overlay_mirror.updated_at_baseline
-          OR overlay_mirror.projection_fingerprint IS DISTINCT FROM EXCLUDED.projection_fingerprint)`
+          OR (EXCLUDED.updated_at_baseline = overlay_mirror.updated_at_baseline
+              AND overlay_mirror.projection_fingerprint IS DISTINCT FROM EXCLUDED.projection_fingerprint))`
 
 // Ingest upserts one incumbent record into the mirror — the single entry
 // point every sync trigger calls (design.md §4.4: "push and pull
