@@ -83,3 +83,36 @@ export const Archived: Story = {
     <Details organization={{ ...org, archived_at: "2026-07-15T00:00:00Z" }} />
   ),
 };
+
+// The grid's own reason for existing (its docblock: "an absent field is a
+// fact about the record"), and the one thing Editable above never shows: the
+// account with nobody's hand in it yet. Every scalar text row falls back to
+// InlineText's own `data-empty="true"` invitation button (legal name,
+// industry, LinkedIn, description, every address part, the domain), and
+// SizeBandRow's InlineChoice draws its own version of the same idea: no
+// `data-empty` attribute of its own, just `render(value)` falling through to
+// `field.unset` as the button's own label, chevron included, because the
+// button is drawn whenever `canEdit` is true regardless of what `value` is.
+export const EmptyFields: Story = {
+  render: () => (
+    <Details
+      organization={{
+        ...org,
+        legal_name: null,
+        industry: null,
+        size_band: null,
+        linkedin_url: null,
+        description: null,
+        address: {
+          line1: null,
+          line2: null,
+          city: null,
+          region: null,
+          postal_code: null,
+          country: null,
+        },
+        domains: [],
+      }}
+    />
+  ),
+};
