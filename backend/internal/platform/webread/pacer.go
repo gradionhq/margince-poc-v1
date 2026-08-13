@@ -29,6 +29,10 @@ type Pacer struct {
 
 	mu        sync.Mutex
 	lastStart time.Time
+	// interval is the floor between request STARTS. It begins at the burst
+	// budget and is raised — never lowered — when the site's robots.txt asks
+	// for more room (SlowTo).
+	interval time.Duration
 
 	// now and sleep are seams so pacing is provable without a real clock.
 	now   func() time.Time
@@ -38,10 +42,26 @@ type Pacer struct {
 // NewPacer builds a real-clock pacer.
 func NewPacer() *Pacer {
 	return &Pacer{
-		slots: make(chan struct{}, pacerMaxConcurrent),
-		now:   time.Now,
-		sleep: sleepCtx,
+		slots:    make(chan struct{}, pacerMaxConcurrent),
+		interval: pacerMinInterval,
+		now:      time.Now,
+		sleep:    sleepCtx,
 	}
+}
+
+// SlowTo raises the floor between requests to what the site asked for in its
+// robots.txt Crawl-delay.
+//
+// It only ever SLOWS the crawl: a site asking for less than the burst budget
+// already allows is not granting permission to go faster, and a second call
+// with a smaller value cannot undo the first. Concurrency is left alone
+// deliberately — the delay governs how often requests START, and Wait already
+// serializes starts through the same interval, so eight in-flight requests
+// spaced by the site's own delay is the rate it asked for.
+func (p *Pacer) SlowTo(delay time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.interval = max(p.interval, delay)
 }
 
 // Wait blocks until a request may start: a concurrency slot is free AND the
@@ -56,7 +76,7 @@ func (p *Pacer) Wait(ctx context.Context) error {
 	}
 	for {
 		p.mu.Lock()
-		wait := pacerMinInterval - p.now().Sub(p.lastStart)
+		wait := p.interval - p.now().Sub(p.lastStart)
 		if wait <= 0 {
 			p.lastStart = p.now()
 			p.mu.Unlock()

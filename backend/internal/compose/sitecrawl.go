@@ -74,12 +74,18 @@ type siteCrawl struct {
 type siteFetcher interface {
 	FetchPage(ctx context.Context, rawURL string) (webread.Page, error)
 	FetchSitemap(ctx context.Context, origin string) ([]string, error)
+	// CrawlDelay reports what the host's robots.txt asks between requests,
+	// from the policy a fetch already resolved. False means it asked for none.
+	CrawlDelay(rawURL string) (time.Duration, bool)
 }
 
 // crawlPacer is the per-crawl politeness seam (*webread.Pacer in production).
 type crawlPacer interface {
 	Wait(ctx context.Context) error
 	Done()
+	// SlowTo raises the gap between requests to what the site's robots.txt
+	// asked for. It only ever slows the crawl.
+	SlowTo(delay time.Duration)
 }
 
 // CrawlCaps bounds one deep read. The zero value means "the defaults":

@@ -38,6 +38,16 @@ type fakeSite struct {
 	mu      sync.Mutex
 	fetched []string
 	onFetch func(url string)
+	// crawlDelays is what each host's robots.txt asks between requests, by the
+	// URL the crawl reached it on. Absent means the site asked for nothing.
+	crawlDelays map[string]time.Duration
+}
+
+// CrawlDelay answers from the fixture the way the real fetcher answers from the
+// robots policy its own fetch cached.
+func (s *fakeSite) CrawlDelay(rawURL string) (time.Duration, bool) {
+	delay, asked := s.crawlDelays[rawURL]
+	return delay, asked && delay > 0
 }
 
 type fakeSitePage struct {
@@ -108,12 +118,18 @@ func (s *fakeSite) FetchSitemap(context.Context, string) ([]string, error) {
 	return s.sitemap, nil
 }
 
-// instantPacer removes real-clock politeness from crawler tests; pacing has
-// its own proof in platform/webread.
-type instantPacer struct{}
+// instantPacer removes real-clock politeness from crawler tests; pacing has its
+// own proof in platform/webread. It records the slowest rate it was asked to
+// hold, so a test can still prove the crawl honored a published Crawl-delay.
+type instantPacer struct{ slowedTo *time.Duration }
 
 func (instantPacer) Wait(context.Context) error { return nil }
 func (instantPacer) Done()                      {}
+func (p instantPacer) SlowTo(delay time.Duration) {
+	if p.slowedTo != nil && delay > *p.slowedTo {
+		*p.slowedTo = delay
+	}
+}
 
 func testSiteCrawler(site *fakeSite) *siteCrawler {
 	crawler := newSiteCrawler(site, CrawlCaps{})

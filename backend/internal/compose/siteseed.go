@@ -38,6 +38,7 @@ func (c *siteCrawler) fetchSeed(ctx context.Context, pacer crawlPacer, seedURL s
 		page, err = c.fetchPaced(ctx, pacer, seedURL)
 	}
 	if err == nil || errors.Is(err, webread.ErrRobotsDisallowed) {
+		c.applyCrawlDelay(pacer, seedURL)
 		return seedURL, page, err
 	}
 	for _, candidate := range seedFallbacks(seedURL) {
@@ -52,6 +53,7 @@ func (c *siteCrawler) fetchSeed(ctx context.Context, pacer crawlPacer, seedURL s
 			retryPage, retryErr = c.fetchPaced(ctx, pacer, candidate)
 		}
 		if retryErr == nil {
+			c.applyCrawlDelay(pacer, candidate)
 			return candidate, retryPage, nil
 		}
 		// A refusal is the site's answer, not a spelling that failed to
@@ -113,4 +115,17 @@ func seedFallbacks(seedURL string) []string {
 		}
 	}
 	return out
+}
+
+// applyCrawlDelay slows the rest of the crawl to the rate the site publishes.
+//
+// It runs after the seed answered, which is exactly when the host's robots.txt
+// has been fetched and cached — asking earlier would either force a second
+// network round trip or read an empty cache and conclude the site asked for
+// nothing. Every later page of this crawl goes through the same pacer, so one
+// call here governs the whole read.
+func (c *siteCrawler) applyCrawlDelay(pacer crawlPacer, answeredURL string) {
+	if delay, asked := c.fetch.CrawlDelay(answeredURL); asked {
+		pacer.SlowTo(delay)
+	}
 }

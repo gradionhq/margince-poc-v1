@@ -383,6 +383,13 @@ func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID, reclaimAfter
 				next_attempt_at = NULL, started_at = now(), updated_at = now()
 			WHERE id = $1 AND (status = 'queued' OR
 			  (status = 'deferred' AND next_attempt_at <= now()) OR
+			  -- A failure the classifier judged transient — bot protection, a
+			  -- 5xx, a timeout — names its own next attempt, and this is what
+			  -- honours it. Without this arm the retry time would be written
+			  -- and never read, and one 403 would settle a live site for good.
+			  -- Failures with no next_attempt_at (a 404, a DNS miss, a robots
+			  -- refusal) are terminal and never re-claimed.
+			  (status = 'failed' AND next_attempt_at IS NOT NULL AND next_attempt_at <= now()) OR
 			  (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
 			RETURNING organization_id, target_kind, seed_url, requested_by, started_at`, readID, reclaimAfter.Microseconds()).
 			Scan(&claim.OrganizationID, &claim.TargetKind, &claim.SeedURL, &claim.RequestedBy, &claim.ClaimedAt)
