@@ -328,7 +328,15 @@ func TestCheckInCadenceIdempotencyKeyIsAnchorDerived(t *testing.T) {
 // than N days is not yet "approaching"; only a date inside the window
 // matches.
 func TestRenewalReminderMatchWithinTheApproachingWindow(t *testing.T) {
+	// now carries a realistic non-midnight wall-clock time (the scanner's
+	// real clock, production-wired to time.Now); today is the UTC-midnight
+	// truncation Match itself compares against. renewalDate values are
+	// built from today, not now, because a real anchor is always a DATE
+	// column's value — midnight, never a time-of-day (candidates.go's
+	// DateFieldCandidates). A renewalDate carrying now's own 09:00
+	// component would silently test a shape no real candidate ever has.
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	today := now.Truncate(24 * time.Hour)
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 
 	cases := []struct {
@@ -336,11 +344,11 @@ func TestRenewalReminderMatchWithinTheApproachingWindow(t *testing.T) {
 		renewalDate time.Time
 		wantMatch   bool
 	}{
-		{"already overdue", now.AddDate(0, 0, -1), false},
-		{"exactly now", now, true},
-		{"inside the default 30-day horizon", now.AddDate(0, 0, defaultRenewalDaysBefore-1), true},
-		{"exactly at the horizon", now.AddDate(0, 0, defaultRenewalDaysBefore), true},
-		{"beyond the horizon", now.AddDate(0, 0, defaultRenewalDaysBefore+1), false},
+		{"already overdue", today.AddDate(0, 0, -1), false},
+		{"exactly today", today, true},
+		{"inside the default 30-day horizon", today.AddDate(0, 0, defaultRenewalDaysBefore-1), true},
+		{"exactly at the horizon", today.AddDate(0, 0, defaultRenewalDaysBefore), true},
+		{"beyond the horizon", today.AddDate(0, 0, defaultRenewalDaysBefore+1), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

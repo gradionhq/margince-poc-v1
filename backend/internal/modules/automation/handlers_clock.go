@@ -433,6 +433,17 @@ func (renewalReminder) Spec() workflow.Spec {
 	}
 }
 
+// Match compares at DATE granularity, in UTC — never against ev.OccurredAt's
+// own wall-clock time or location. anchor is a DATE column's value (no
+// time-of-day, scanned as UTC midnight by candidates.go's DateFieldCandidates);
+// ev.OccurredAt is the scanner's real clock, which carries whatever
+// time-of-day and location time.Now() returns. Comparing them directly
+// would make "today" fail its own match: at any hour past midnight,
+// today's UTC-midnight anchor is "before" a same-day OccurredAt carrying
+// a later time-of-day, so a renewal due TODAY would never fire — the
+// same bug candidates.go's DATE-only SQL bounds exist to avoid on the
+// scan side. today truncates OccurredAt to its own UTC calendar date so
+// both sides of the comparison agree on what "today" means.
 func (renewalReminder) Match(_ context.Context, ev workflow.Event) (bool, error) {
 	anchor, err := renewalAnchor(ev)
 	if err != nil {
@@ -442,8 +453,9 @@ func (renewalReminder) Match(_ context.Context, ev workflow.Event) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	horizon := ev.OccurredAt.AddDate(0, 0, days)
-	return !anchor.Before(ev.OccurredAt) && !anchor.After(horizon), nil
+	today := ev.OccurredAt.UTC().Truncate(24 * time.Hour)
+	horizon := today.AddDate(0, 0, days)
+	return !anchor.Before(today) && !anchor.After(horizon), nil
 }
 
 func (renewalReminder) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
