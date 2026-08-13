@@ -16,7 +16,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
@@ -69,35 +68,6 @@ var CustomFieldAdminPerms = principal.Permissions{
 		"person":       {Create: true, Read: true, Update: true, Delete: true},
 	},
 	RowScope: principal.RowScopeAll,
-}
-
-// SeedSecondWorkspace inserts a second tenant with its own user and returns a
-// context bound to it, carrying perms, for the cross-tenant suites.
-//
-// perms is a parameter rather than a fixed posture because the grants decide what
-// a cross-tenant assertion can mean: a suite proving RLS hides tenant A's rows
-// needs tenant B permitted to ask for them, while a suite proving an RBAC refusal
-// needs the opposite. Each caller states which it is proving.
-func SeedSecondWorkspace(t *testing.T, owner *pgx.Conn, perms principal.Permissions) (ids.UUID, context.Context) {
-	t.Helper()
-	ws, user := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "tenant-b-"+ws.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'B Admin')`,
-		user, ws, "b@tenant-b.test"); err != nil {
-		t.Fatal(err)
-	}
-	ctx := principal.WithWorkspaceID(context.Background(), ws)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
-		UserID: user, Permissions: perms,
-	})
-	return ws, ctx
 }
 
 // ExtractStagedApprovalID pulls the staged approval's id out of the 403

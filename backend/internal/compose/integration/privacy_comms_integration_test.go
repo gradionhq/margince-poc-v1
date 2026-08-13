@@ -133,10 +133,10 @@ func seedAddressedDelivery(t *testing.T, e *Env, age, subject, body, status stri
 			}
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO comms_outbound (id, workspace_id, activity_id, user_id, provider, message_id,
+			INSERT INTO comms_outbound (id, activity_id, user_id, provider, message_id,
 			                            recipients, cc, subject, body, consent_purpose,
 			                            list_unsubscribe, status, sent_at, provider_message_id, reason)
-			VALUES ($1, `+wsClause+`, $2, $3, 'gmail', $4,
+			VALUES ($1, $2, $3, 'gmail', $4,
 			        jsonb_build_array($5::text), jsonb_build_array($9::text), $6, $7, 'transactional',
 			        '<https://app.test/v1/public/preferences/tok-erika/unsubscribe?purpose=marketing>', $8,
 			        CASE WHEN $8 = 'sent' THEN now() END,

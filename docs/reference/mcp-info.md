@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 105.9 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 27884 |
+| Approx. wire tokens | 27894 |
 | Largest tool | `run_report` (4.1 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -88,7 +88,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
-| [`run_report`](#run_report) | Run a report | yes |  | 4.0 KB |
+| [`run_report`](#run_report) | Run a report | yes |  | 4.1 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
 | [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.1 KB |
@@ -5598,7 +5598,7 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
       "type": "array"
     },
     "report": {
-      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: pipeline_id, stage_id, status; filters: owner_id, pipeline_id, status; aggregate fields: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category. open-deals-per-company — group_by: organization_id, owner_id; filters: owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
+      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: pipeline_id, stage_id, status, win_probability; filters: owner_id, pipeline_id, status; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category. open-deals-per-company — group_by: organization_id, owner_id; filters: owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
       "enum": [
         "activities-by-kind",
         "deals-by-stage",

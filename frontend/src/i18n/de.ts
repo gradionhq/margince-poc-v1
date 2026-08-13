@@ -1226,6 +1226,7 @@ export const de = {
   "deal.fcBestCase": "Best Case",
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Ausgeschlossen",
+  "deal.fcSlipped": "Verschoben",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Nur ins Stocken geraten",
@@ -1675,7 +1676,7 @@ export const de = {
   "reports.reportForecast": "Forecast",
   "reports.reportOpenByCompany": "Offene Deals pro Firma",
   "reports.forecastBanner":
-    "Kategoriesummen sind ungewichtet; die gewichtete Zahl des Boards ist Σ(Betrag × Phasenwahrscheinlichkeit) — bewusst zwei verschiedene Zahlen.",
+    "Jede Kachel zeigt die Rohsumme und darunter die gewichtete Summe — pro Deal gerundet, sodass sie immer mit „Diese Zahl erklären“ übereinstimmt.",
   "reports.company": "Firma",
   "reports.openDeals": "Offene Deals",
   "explain.sources": "Quellzeilen",

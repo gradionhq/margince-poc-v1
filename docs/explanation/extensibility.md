@@ -207,9 +207,12 @@ Validate-then-apply makes "partially registered extension" a state the system ca
 
 ## What an extension can do today — and how that grows
 
-**Today: two capability kinds.** A **jurisdiction pack** supplies *country-specific policy the core
-consults; it is never an actor* — it exposes no governed operation, so it never appears in the unit
-manifest. An **agent tool** (`extension.Tool`) is the first *governed* kind: it derives a risk-tier
+**The kinds, and which of them an operator resolves.** A **jurisdiction pack** supplies
+*country-specific policy the core consults; it is never an actor* — it exposes no governed operation,
+so it never appears in the unit manifest. A **scheduled job** and a **subscription** are the two that
+run with nobody behind them; a subscription's manifest entry records its REACH (which event types it
+consumes) rather than a tier, because there is nothing about a listener for an operator to resolve. An
+**agent tool** (`extension.Tool`) is the *governed* kind proper: it derives a risk-tier
 request into `manifest.generated.json` for operator resolution (§7), and a tool declaring a `Handle`
 **is served** — `buildExtensionTools` adapts it to the core `mcp.Tool` seam and boot registers it into
 the same `agents.Registry`, admission gate, and tool listing the core tools ride (`extensions/yogi` is
@@ -265,6 +268,23 @@ validated to the full identifier budget, so a name chosen today stays valid for 
   workspace child per live tenant.
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
+- **Its own history and its own events** — `tx.Record(ctx, change, event)` writes the ledger row AND
+  the outbox event for a write to the unit's own tables, in the caller's transaction. One call, both
+  halves, always: it is the product's own write shape (domain row + audit row + outbox event, one
+  transaction) offered to a unit in a form that cannot be half-used — an event with no ledger row is
+  unauditable, and a ledger row with no event is a change nothing downstream is told about, which the
+  core grants itself no exemption from either. It is OFFERED rather than enforced: the three SQL
+  verbs still write whatever a unit tells them to, and a write made through `Exec` alone records
+  nothing, which is a choice a unit makes (`extensions/notes/heartbeat.go` makes it, and says why). The type on the bus is `ext_<namespace>.<verb>` — the
+  core prefixes the namespace from the invocation, so a unit can publish neither under another unit's
+  name nor inside a core family — and every extension event rides one stream,
+  `gw:events:crm:extension`, which no core consumer group carries.
+- **Its own reactions** — a `Subscription` names the event types the unit listens for (a core type or
+  another unit's) and the function one delivery runs. Each gets its own consumer group,
+  `cg:ext-<unit>-<subscription>`, started in the worker role. A delivery has **nobody** behind it: the
+  caller is the zero `Caller` and `tx.Core()` refuses, while the unit's own tables stay writable,
+  auditable and publishable. The declared type list derives into `manifest.generated.json`, so which
+  of the installation's facts a unit consumes is readable without opening its source.
 
 - **Its own frontend** — a `frontend/` directory whose screen is aliased into the SPA and rendered at
   the unit's route. Removing a unit is a one-place operation again: delete the unit directory. An
@@ -322,7 +342,11 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | Every unit table grants the runtime role exactly `SELECT, INSERT, UPDATE, DELETE` — a table granting *nothing* satisfied the old one-sided allowlist and then answered `permission denied` at the first call | `make check-ext-migrations` |
 | A unit's SQL names only that unit's own `ext.ext_<name>_…` tables — the mistake-defence half of the shared-role reach described above, reading through the string constants a table name is spelled with | `backend/extensionsqlscope_test.go` |
 | A unit's write to a CORE record goes through the product's own write path — the caller's live RBAC, the row-scope check on the subject, the audit row, the outbox event — and carries the unit's attribution under a core-stamped evidence member no caller may supply | `extension.Tx.Core()` (`internal/compose/extcore.go`), `storekit.withExtensionAttribution` |
-| A scheduled tick writes no core record at all: it runs as the unit with no caller, and a core write is checked against the caller's own permissions | `internal/compose/extcore.go` (`admit`) |
+| A scheduled tick and a bus delivery write no core record at all: both run with no caller, and a core write is checked against the caller's own permissions | `internal/compose/extcore.go` (`refuseUnattended`), `extsubscribe_test.go`, `extledger_integration_test.go` |
+| A unit's ledger row names a table in that unit's own namespace, and its event a verb in that unit's own namespace — the namespace comes from the invocation, so neither is a string a unit can spell | `internal/compose/extledger.go`, `extledger_test.go` |
+| A unit's own write records BOTH its ledger row and its event, or neither — the same write shape the core holds itself to, in one call that cannot be half-made | `extension.Tx.Record`, `backend/writeshape_test.go`, `extledger_integration_test.go` |
+| A unit's listener consumes only the streams its declared event types route to, and no core group consumes the extension stream | `internal/compose/extsubscribe.go`, `internal/shared/kernel/events/extensiontypes_test.go` |
+| A subscription naming an event type nothing can route is refused at boot, rather than registering a consumer group that never delivers | `internal/compose/extensions.go` (`preflightSubscriptions`) |
 | A core write is refused in an overlay workspace rather than landing in a native table nothing reads, resolved FRESH per write | `internal/compose/extcore.go` (`admit` → `overlayModeOf`) |
 | A unit's shipped `migrations/` is actually embedded and applied — the directory and the field are two facts, and the gates read different ones | `backend/tools/gen-composition` (the `Migrations` field must name a var whose `//go:embed` covers the layer) |
 | The runtime pool is not the migration owner: no superuser, no BYPASSRLS, and no ownership of the `ext` schema *or* anything in it | `compose.AssertRuntimeRole`, at boot and on `/readyz` |

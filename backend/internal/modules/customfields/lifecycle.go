@@ -51,11 +51,10 @@ func (f lockedField) mutable() error {
 	return nil
 }
 
-// lockField takes FOR UPDATE on one catalog row. The custom_field
-// catalog is workspace-shared admin config with no owner_id — the object
-// grant is the whole authority question (the pipeline precedent), so
-// there is no row-scope probe to add; RLS pins the
-// workspace. A missing row answers ErrNotFound.
+// lockField takes FOR UPDATE on one catalog row. The custom_field catalog
+// is installation-wide admin config with no owner_id — the object grant is
+// the whole authority question (the pipeline precedent), so there is no
+// row-scope probe to add. A missing row answers ErrNotFound.
 func lockField(ctx context.Context, tx pgx.Tx, id ids.UUID) (lockedField, error) {
 	var f lockedField
 	err := tx.QueryRow(ctx,

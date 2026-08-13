@@ -167,3 +167,91 @@ func TestTheRoleBindsFromExactlyTheTwoKnownSites(t *testing.T) {
 		}
 	}
 }
+
+// TestSubscriptionsStartAfterTheRuntimeIsBound is the same class of fact as the
+// binding's position, one step further along: a bus DELIVERY reaches the
+// installation through the per-call Runtime too, so a subscriber started before
+// the job lane's unconditional binding consumes into a process that refuses.
+//
+// The cost is not a lost event but a slow one, which is why it needs a gate
+// rather than a bug report: the entry stays pending and re-delivers, so the
+// reaction lands one whole reclaim interval late, exactly once, on a worker
+// with no model configured. Nothing in the logs says the two were out of order.
+//
+// Asserted over the source for the reason the binding is: the failure is a
+// POSITION. Both calls have to sit in one function so their order is a fact
+// this walk can read at all — if a later refactor moves either behind another
+// helper, this fails and says so rather than passing over a pair it can no
+// longer compare.
+func TestSubscriptionsStartAfterTheRuntimeIsBound(t *testing.T) {
+	const runner, subscriptions = "startJobRunner", "startExtensionSubscriptionLanes"
+	sites := callSites(t, runner, subscriptions)
+	for _, fn := range []string{runner, subscriptions} {
+		if len(sites[fn]) != 1 {
+			t.Fatalf("%s is called %d time(s) in cmd/worker; this test compares one call to one call", fn, len(sites[fn]))
+		}
+	}
+	if sites[runner][0].enclosing != sites[subscriptions][0].enclosing {
+		t.Fatalf("%s runs in %s and %s in %s — their order is no longer a fact this walk can read",
+			runner, sites[runner][0].enclosing, subscriptions, sites[subscriptions][0].enclosing)
+	}
+	if sites[subscriptions][0].pos < sites[runner][0].pos {
+		t.Fatalf("%s is called before %s — a delivery arriving in that window reaches an unbound runtime, and the entry then waits out the subscriber's whole reclaim interval",
+			subscriptions, runner)
+	}
+}
+
+// callSite is one call to one of the functions above: where it is, and inside
+// what.
+type callSite struct {
+	enclosing string
+	pos       token.Pos
+}
+
+// callSites finds every call to the named package-level functions in
+// cmd/worker, keyed by callee name.
+func callSites(t *testing.T, names ...string) map[string][]callSite {
+	t.Helper()
+	wanted := make(map[string]bool, len(names))
+	for _, n := range names {
+		wanted[n] = true
+	}
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading cmd/worker: %v", err)
+	}
+	found := map[string][]callSite{}
+	scanned := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, entry.Name(), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", entry.Name(), err)
+		}
+		scanned++
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				if callee, ok := call.Fun.(*ast.Ident); ok && wanted[callee.Name] {
+					found[callee.Name] = append(found[callee.Name],
+						callSite{enclosing: fn.Name.Name, pos: call.Pos()})
+				}
+				return true
+			})
+		}
+	}
+	if scanned < 2 {
+		t.Fatalf("scanned only %d Go file(s) in cmd/worker — the walk matched almost nothing", scanned)
+	}
+	return found
+}

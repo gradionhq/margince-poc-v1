@@ -1658,7 +1658,17 @@ type CitedKind = Cited["entity_type"];
  * open.
  */
 export type CitationChip =
-  | { openable: true; entityType: CitedKind; entityId: string; count: number }
+  | {
+      openable: true;
+      entityType: CitedKind;
+      entityId: string;
+      count: number;
+      // The record's own name, when the citation carried one — a deal's
+      // name, an activity's subject. Absent on a grouped chip: a count
+      // already speaks for several records, and one of their names would
+      // read as though it spoke for the rest.
+      name?: string;
+    }
   | { openable: false; entityType: CitedKind; count: number };
 
 /**
@@ -1700,6 +1710,7 @@ export function citationChips(
         entityType: cited.entity_type,
         entityId: cited.entity_id,
         count: 1,
+        name: cited.name,
       });
       continue;
     }
@@ -1805,12 +1816,17 @@ function Citations({
             {/* A grouped chip (fact/profile_field, several of the same kind
                 in one prose block) opens the FIRST and names the count; the
                 drawer's own stepper reaches the rest, which is the receipt
-                kind's whole reason for having one. */}
-            {chip.count === 1
-              ? t(`co.brief.cite.${chip.entityType}`)
-              : t(`co.brief.cite.${chip.entityType}.many`, {
-                  count: chip.count,
-                })}
+                kind's whole reason for having one. A single deal or person
+                names ITSELF rather than its kind — "deal" told a reader
+                nothing they could not already see; the deal's own name tells
+                them which one. */}
+            {chip.count === 1 && chip.name
+              ? chip.name
+              : chip.count === 1
+                ? t(`co.brief.cite.${chip.entityType}`)
+                : t(`co.brief.cite.${chip.entityType}.many`, {
+                    count: chip.count,
+                  })}
           </button>
         ) : (
           <span key={chip.entityType} className="co-brief-cite-flat">

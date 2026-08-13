@@ -51,6 +51,23 @@ import (
 // watch happen. A bounded history keeps both properties, and it also bounds
 // the table, which a filtered read would not.
 //
+// THE TICK RECORDS NOTHING, and it is the one write in this unit that does not.
+// Every other own-table write goes through recordNote — a ledger row and an
+// event — because each is a fact somebody may later ask about: who added this
+// note, who filed it, who took the filing away. A tick is none of those. It
+// writes a row nobody asked for, at a cadence, and prunes it again minutes
+// later; recording it would put 1,440 immutable audit rows per workspace per
+// day into a table nothing prunes, to say that a demonstration ran. The history
+// of the demo would outlive, and outnumber, the history of what the demo is
+// for.
+//
+// The exemption is about CADENCE and about what the row means, not about
+// convenience. A unit whose unattended pass writes something a person could be
+// asked about later should record it, and the withdrawal handler beside this
+// one does exactly that, under the same no-caller conditions. `tx.Record` is
+// offered rather than enforced (extension.Tx), and this is what declining it
+// looks like when the choice is deliberate.
+//
 // An error fails the attempt, which the dispatcher's next tick retries. There
 // is no result — nobody is waiting for one.
 func heartbeat(ctx context.Context, rt extension.Runtime) error {

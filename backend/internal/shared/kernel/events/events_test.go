@@ -11,29 +11,39 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// coreFamilyStreams is the events.md §4.1 stream set, spelled out rather than
+// derived: these tests exist to catch a change to the stream layout, and an
+// expectation computed from the code under test would move with it.
+var coreFamilyStreams = []string{
+	"gw:events:crm:activity",
+	"gw:events:crm:approval",
+	"gw:events:crm:audit",
+	"gw:events:crm:capture",
+	"gw:events:crm:coldstart",
+	"gw:events:crm:deal",
+	"gw:events:crm:identity",
+	"gw:events:crm:lead",
+	"gw:events:crm:organization",
+	"gw:events:crm:overlay",
+	"gw:events:crm:person",
+	"gw:events:crm:voice",
+}
+
 func TestStreamsMatchSpecList(t *testing.T) {
-	want := []string{
-		"gw:events:crm:activity",
-		"gw:events:crm:approval",
-		"gw:events:crm:audit",
-		"gw:events:crm:capture",
-		"gw:events:crm:coldstart",
-		"gw:events:crm:deal",
-		"gw:events:crm:identity",
-		"gw:events:crm:lead",
-		"gw:events:crm:organization",
-		"gw:events:crm:overlay",
-		"gw:events:crm:person",
-		"gw:events:crm:voice",
-	}
+	// The families, plus the extension tier's one stream — enumerated here
+	// because the data reset unlinks exactly what this returns, and a stream
+	// missing from it is one a reset silently leaves behind.
+	want := append(append([]string{}, coreFamilyStreams...), "gw:events:crm:extension")
+	sort.Strings(want)
 	if got := Streams(); !reflect.DeepEqual(got, want) {
-		t.Errorf("Streams() = %v, want the events.md stream set %v", got, want)
+		t.Errorf("Streams() = %v, want the events.md stream set plus the extension stream %v", got, want)
 	}
 }
 
@@ -122,7 +132,10 @@ func TestStreamForRoutesFamiliesWithoutOwnStream(t *testing.T) {
 }
 
 func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
-	all := Streams()
+	// "Everything" a CORE group subscribes to is the FAMILY streams. The
+	// extension stream is deliberately not among them; see
+	// TestNoCoreGroupCarriesTheExtensionStream.
+	all := coreFamilyStreams
 	want := map[string][]string{
 		"cg:context-graph": {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:lead", "gw:events:crm:organization", "gw:events:crm:person"},
 		// The interaction-edge projection (ADR-0078): activity events move an

@@ -349,6 +349,66 @@ func knownRecords(orgID string, in Input) map[Evidence]bool {
 	return known
 }
 
+// recordKey is knownRecords' pair without the citation's descriptive Name, so
+// a name lookup and a grounding lookup can share one shape without either
+// caring what the other keys on.
+type recordKey struct {
+	EntityType string
+	EntityID   string
+}
+
+// recordNames is every citable record's own display name, read from the SAME
+// input the brief was written from — never from the model's reply, which
+// cannot be trusted to relay a record's name correctly, and never from the
+// evidence a sentence already carries, which for the model lane has none.
+func recordNames(in Input) map[recordKey]string {
+	names := make(map[recordKey]string, len(in.OpenDeals)+len(in.Recent)+len(in.Contacts)+len(in.OpenTasks))
+	for _, deal := range in.OpenDeals {
+		names[recordKey{citeDeal, deal.ID}] = deal.Name
+	}
+	for _, act := range in.Recent {
+		names[recordKey{citeActivity, act.ID}] = act.Subject
+	}
+	for _, contact := range in.Contacts {
+		names[recordKey{citePerson, contact.ID}] = contact.Name
+	}
+	for _, task := range in.OpenTasks {
+		names[recordKey{citeActivity, task.ID}] = task.Name
+	}
+	return names
+}
+
+// withEvidenceNames attaches each citation's own display name to sentences
+// already accepted by the grounding filter — the ONE place that runs for
+// both writers, so a "deal" chip names the deal whichever lane wrote the
+// sentence about it. Run after grounding, never before: a name is cosmetic,
+// and attaching it earlier would risk a caller comparing full Evidence
+// values before they learn to strip it, exactly the trap Grounded and Dedupe
+// guard against in package claims.
+func withEvidenceNames(sentences []Sentence, in Input) []Sentence {
+	names := recordNames(in)
+	for i := range sentences {
+		evidence := sentences[i].Evidence
+		for j := range evidence {
+			key := recordKey{evidence[j].EntityType, evidence[j].EntityID}
+			if name, ok := names[key]; ok && name != "" {
+				evidence[j].Name = name
+			}
+		}
+	}
+	return sentences
+}
+
+// withSectionEvidenceNames is withEvidenceNames over a brief's sections
+// rather than a flat sentence list — the shape Write returns, and the shape
+// Get caches.
+func withSectionEvidenceNames(sections []Section, in Input) []Section {
+	for i := range sections {
+		sections[i].Sentences = withEvidenceNames(sections[i].Sentences, in)
+	}
+	return sections
+}
+
 // The section kinds, DERIVED from the contract's enum rather than re-spelled,
 // so a rename upstream fails to compile here instead of laundering a
 // hand-typed string past the type.

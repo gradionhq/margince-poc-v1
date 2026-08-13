@@ -86,11 +86,11 @@ func (s *Store) StageChannelTx(ctx context.Context, tx pgx.Tx, in StageChannelIn
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
-		  (id, workspace_id, activity_id, user_id, provider, channel_user_id,
+		  (id, activity_id, user_id, provider, channel_user_id,
 		   body, consent_purpose, in_reply_to,
 		   message_id, recipients, cc, subject, references_chain,
 		   status, created_at)
-		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5,
+		VALUES ($1, $2, $3, $4, $5,
 		        $6, $7, NULLIF($8,''),
 		        NULL, NULL, NULL, NULL, NULL,
 		        'pending', $9)`,

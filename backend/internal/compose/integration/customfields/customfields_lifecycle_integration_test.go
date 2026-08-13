@@ -6,11 +6,11 @@
 package customfields
 
 // The customfields catalog-lifecycle suite: rename/retire (app-pool,
-// catalog-only), the picklist CHECK regeneration, the admin list, and
-// the RBAC/RLS boundaries. The schema-pool tx dance itself is proven in
+// catalog-only), the picklist CHECK regeneration, the admin list, and the RBAC
+// boundaries. The schema-pool tx dance itself is proven in
 // customfields_integration_test.go here, and the fixtures they share come from
-// two places: columnOnTable is this package's, while CustomFieldAdminPerms and
-// SeedSecondWorkspace are the parent's (integration/suitefixtures.go).
+// two places: columnOnTable is this package's, while CustomFieldAdminPerms is
+// the parent's (integration/suitefixtures.go).
 
 import (
 	"errors"

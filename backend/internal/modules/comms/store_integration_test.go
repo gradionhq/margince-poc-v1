@@ -10,7 +10,7 @@ package comms
 // RecordSent/Park/RecordFailure doing what their names say — RecordDeferral,
 // the fourth status-guarded transition, is driven where the pacing policy
 // reaches it (dispatcher_transmit_test.go) — the caller's transaction owning
-// commit/rollback, and the (workspace_id, message_id) idempotency key. This
+// commit/rollback, and the message_id idempotency key. This
 // file also carries the shared fixture
 // (storeEnv/setupStore/actorCtx/stage/baseInput) the other
 // store_*_integration_test.go files in this package ride:
@@ -258,11 +258,11 @@ func TestTheSchemaRefusesANonArrayInAListColumn(t *testing.T) {
 	e := setupStore(t)
 	_, err := e.owner.Exec(context.Background(), `
 		INSERT INTO comms_outbound
-		  (id, workspace_id, activity_id, user_id, provider, message_id,
+		  (id, activity_id, user_id, provider, message_id,
 		   recipients, cc, subject, body, consent_purpose, status)
-		VALUES ($1, $2, $3, $4, 'gmail', 'msg-nullrecipients@example.com',
+		VALUES ($1, $2, $3, 'gmail', 'msg-nullrecipients@example.com',
 		        'null'::jsonb, '[]'::jsonb, 's', 'b', 'transactional', 'pending')`,
-		ids.NewV7(), e.ws, e.activity, e.user)
+		ids.NewV7(), e.activity, e.user)
 	if err == nil {
 		t.Fatal("a delivery with JSON null recipients was accepted; the shape constraint is not enforcing")
 	}
@@ -423,7 +423,7 @@ func TestStageTxRollsBackWithItsCallerTransaction(t *testing.T) {
 	}
 }
 
-// The (workspace_id, message_id) unique constraint is the idempotency key a
+// The message_id unique constraint is the idempotency key a
 // re-ingested provider copy of the same message relies on: a second stage of
 // the same message_id must fail, not silently duplicate.
 //

@@ -14782,6 +14782,14 @@ type OrganizationBrief struct {
 type OrganizationBriefEvidence struct {
 	EntityId   openapi_types.UUID                  `json:"entity_id"`
 	EntityType OrganizationBriefEvidenceEntityType `json:"entity_type"`
+
+	// Name The record's own display name, when the writer had it at hand — a
+	// deal's name, an activity's subject. Absent for evidence kinds with
+	// no name of their own (fact, profile_field) and never invented: the
+	// writer either already knew the name from the record it read, or
+	// leaves this out. Descriptive only — grounding checks type and id,
+	// never the name.
+	Name *string `json:"name,omitempty"`
 }
 
 // OrganizationBriefEvidenceEntityType defines model for OrganizationBriefEvidence.EntityType.

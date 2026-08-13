@@ -210,11 +210,43 @@ type Caller struct {
 type Tx interface {
 	// Core is the governed door onto the installation's own records, on THIS
 	// transaction: a unit's own row and the core record it files commit
-	// together or not at all. Everything the three verbs below are not —
+	// together or not at all. Everything the three SQL verbs below are not —
 	// authorized against the caller's live RBAC, audited, attributed, and
 	// published as an event — is a property of going through it rather than
 	// around it. See Core.
+	//
+	// It is the door onto the PRODUCT's records; Record below is the one onto
+	// the unit's own.
 	Core() Core
+
+	// Record writes the ledger row AND the event for a write to the unit's OWN
+	// tables, on this transaction: the unit's row, its history and its
+	// announcement commit together or not at all.
+	//
+	// BOTH, ALWAYS, and that is the point rather than an inconvenience. It is
+	// the product's own non-negotiable write shape — domain row + audit row +
+	// outbox event in one transaction — offered to a unit in the one call that
+	// makes the pairing impossible to get wrong. An event with no ledger row is
+	// unauditable; a ledger row with no event is a change nothing downstream is
+	// told about, and the core grants itself no such exemption either.
+	//
+	// The three verbs below cannot do this for a unit, for the reason their own
+	// doc gives: the core does not parse the SQL, so it has no entity, no id and
+	// no field images to derive from an Exec. What it CAN do — and does here —
+	// is stamp everything that must not be the unit's to choose: the actor the
+	// invocation arrived as, the workspace, the authorization rule, the
+	// attribution naming the unit and the surface the call came in on, the
+	// event's namespace, and the trace joining the event to the ledger row.
+	//
+	// Nothing checks the caller's permissions here, deliberately. The door that
+	// admitted this call already authorized it, and the row is the unit's own —
+	// there is no core object an RBAC vocabulary could name.
+	//
+	// It is offered, not enforced: a unit may still write its tables through
+	// Exec and record nothing, exactly as it could before. What this makes
+	// possible is a unit whose own history is as readable as the product's, out
+	// of the same table, under the same joins.
+	Record(ctx context.Context, ch Change, ev Event) error
 
 	// Exec runs a statement that returns no rows (INSERT, UPDATE, DELETE)
 	// and reports how many rows it affected — which is how a delete says

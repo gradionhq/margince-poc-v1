@@ -60,10 +60,10 @@ func (in ListInput) predicate() (string, []any, error) {
 	return where, args, nil
 }
 
-// List reads the catalog page for one (workspace, object) under the
-// contract's default -created_at,id keyset order. Workspace-shared admin
-// config: the object read grant is the authority, RLS pins the tenant,
-// and there is no row scope to compose (the pipeline precedent).
+// List reads the catalog page for one object under the contract's default
+// -created_at,id keyset order. Installation-wide admin config: the object
+// read grant is the whole authority, and there is no row scope to compose
+// (the pipeline precedent).
 func (s *Service) List(ctx context.Context, in ListInput) ([]crmcontracts.CustomField, storekit.Page, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err

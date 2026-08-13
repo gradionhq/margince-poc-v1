@@ -41,12 +41,33 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, Tx) error
 	return fn(ctx, &fakeTx{rows: r.rows})
 }
 
-type fakeTx struct{ rows [][]string }
+type fakeTx struct {
+	rows      [][]string
+	audited   []Change
+	published []Event
+}
 
 // Core is the port a fake transaction does not serve: these tests exercise the
 // three SQL verbs, and a Core here would be a second implementation of the seam
 // rather than a use of it.
 func (t *fakeTx) Core() Core { return nil }
+
+// Record records rather than writes. What these tests prove is the SHAPE a unit
+// compiles against — one call carrying both halves, so there is no way to
+// express a ledger row with no event or an event with no ledger row — which is
+// exactly the part the core's implementation cannot change without breaking
+// every unit.
+func (t *fakeTx) Record(_ context.Context, ch Change, ev Event) error {
+	if err := ch.Validate(); err != nil {
+		return err
+	}
+	if err := ev.Validate(); err != nil {
+		return err
+	}
+	t.audited = append(t.audited, ch)
+	t.published = append(t.published, ev)
+	return nil
+}
 
 func (t *fakeTx) Exec(_ context.Context, _ string, args ...any) (int64, error) {
 	return int64(len(args)), nil

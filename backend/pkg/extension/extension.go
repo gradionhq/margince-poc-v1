@@ -35,14 +35,21 @@
 //     required to write.
 //
 //     This entry USED to say Tx would be removed and replaced by a governed
-//     mutation returning change descriptors. It is now joined by one instead:
-//     Tx.Core() is the governed door, and it makes the core's own write — the
-//     RBAC check, the audit row, the outbox event, the attribution — rather
-//     than describing a change for the core to make. Tx's three SQL verbs stay
-//     for the unit's OWN tables, which is what they were always the right
-//     shape for. What remains unstable is their reach: a unit's SQL runs on the
-//     shared application role today, and narrowing it to a per-unit database
-//     role (issue #628) is a change every unit's SQL feels.
+//     mutation returning change descriptors. It is now joined by two doors
+//     instead. Tx.Core() makes the core's own write onto the product's records
+//     — the RBAC check, the audit row, the outbox event, the attribution — and
+//     Tx.Record writes the ledger row and the bus event for what the unit's own
+//     SQL did. Between them a unit's write can carry everything a core write
+//     carries, which is what the descriptor design was reaching for; Tx's three
+//     SQL verbs stay for the unit's OWN tables, which is what they were always
+//     the right shape for.
+//
+//     What remains unstable is their REACH: a unit's SQL runs on the shared
+//     application role today, and narrowing it to a per-unit database role
+//     (issue #628) is a change every unit's SQL feels. And Record is OFFERED,
+//     not enforced — a unit may still write its tables and record nothing — so
+//     a later release that makes recording mandatory would be felt by any unit
+//     that had not adopted it.
 //
 //   - The frontend surface a unit screen imports, whose exported client type
 //     currently infers foreign types (openapi-fetch) into the published shape.
@@ -206,6 +213,21 @@ type Extension struct {
 	// outbound scope (autonomous outbound authority on a clock), where the
 	// served-tool seam refuses the same two shapes for weaker reasons.
 	Jobs []Job
+
+	// Subscriptions are the events the unit reacts to: named listeners over the
+	// installation's own event bus, each naming the types it wants and the
+	// function one delivery runs.
+	//
+	// Like a Job this pairs a declaration with behavior, and unlike a Job the
+	// declaration is HERE rather than in a contract fragment — there is no HTTP
+	// surface, no cadence and no queue to spell, only which facts the unit
+	// listens for. That list is derived into manifest.generated.json, so what a
+	// unit consumes is visible to an operator without reading its source.
+	//
+	// A delivery has NOBODY behind it, which is what separates a subscription
+	// from a tool: no caller, and so no permissions a core write could be
+	// checked against. See EventHandler.
+	Subscriptions []Subscription
 
 	// Migrations is the unit's SQL schema layer: a read-only filesystem
 	// holding the MigrationsDir directory of NNNN_name.up.sql/.down.sql

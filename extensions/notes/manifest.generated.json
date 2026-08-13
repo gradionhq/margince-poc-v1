@@ -137,5 +137,13 @@
       "key": "signing",
       "scope": "workspace"
     }
+  ],
+  "subscriptions": [
+    {
+      "name": "withdraw_filing",
+      "events": [
+        "activity.archived"
+      ]
+    }
   ]
 }

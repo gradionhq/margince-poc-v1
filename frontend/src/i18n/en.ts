@@ -1235,6 +1235,7 @@ export const en = {
   "deal.fcBestCase": "Best case",
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Omitted",
+  "deal.fcSlipped": "Slipped",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Stalled only",
@@ -1677,7 +1678,7 @@ export const en = {
   "reports.reportForecast": "Forecast",
   "reports.reportOpenByCompany": "Open deals per company",
   "reports.forecastBanner":
-    "Category totals are unweighted; the board's weighted figure is Σ(amount × stage probability) — two different numbers on purpose.",
+    "Each tile shows the raw total and, beneath it, the probability-weighted total — rounded per deal, so it always reconciles to Explain This Number.",
   "reports.company": "Company",
   "reports.openDeals": "Open deals",
   "explain.sources": "Source rows",
