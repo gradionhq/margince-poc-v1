@@ -239,6 +239,27 @@ func startsQuote(line []rune) bool {
 	return isAttributionLine(text)
 }
 
+// isEntirelyQuoted reports whether every non-blank line of text is quoted or an
+// attribution header — a message that forwarded or quoted something and added
+// no words of its own.
+//
+// It reuses startsQuote rather than testing for '>' so the two answers cannot
+// drift: a marker this file learns about reaches both readings at once.
+func isEntirelyQuoted(text string) bool {
+	wrote := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !startsQuote([]rune(trimmed)) {
+			return false
+		}
+		wrote = true
+	}
+	return wrote
+}
+
 // isAttributionLine reports whether the line is a client's "On <date>, <name>
 // wrote:" header rather than a sentence that happens to begin the same way.
 func isAttributionLine(line string) bool {
