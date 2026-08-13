@@ -463,11 +463,14 @@ function Strip({
   });
   return (
     <StoryProviders>
-      {/* company360.css flips the strip to a 3-column grid at max-width
-          68rem (1088px); 720px sat well below that line and wrapped the
-          six-to-seven slots into two rows, which the real page never does.
-          1200px clears the breakpoint with room to spare while still
-          reading as a bounded card rather than the full viewport. */}
+      {/* Room for the row to use, not a promise about its shape: the strip's
+          column count answers to the VIEWPORT, not to this box. company360.css
+          flips it to three columns at max-width 68rem (1088px), and the render
+          gate shoots at 1024px wide (frontend/scripts/fe-uat.mjs), so the
+          captured screenshot is always the three-column fold rather than the
+          single row a full-width desktop draws. That fold is a real state and
+          worth seeing; the single row is what opening Storybook in a wide
+          window shows. */}
       <div style={{ maxWidth: 1200 }}>
         <StripBody view={view} />
       </div>
