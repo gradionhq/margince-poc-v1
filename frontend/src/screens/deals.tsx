@@ -465,9 +465,7 @@ export function buildStageTotals(
       rawMinor: mixed ? 0 : Number(single.raw_minor ?? 0),
       weightedMinor: mixed ? 0 : Number(single.weighted_minor ?? 0),
       currency:
-        !mixed && typeof single.currency === "string"
-          ? single.currency
-          : "EUR",
+        !mixed && typeof single.currency === "string" ? single.currency : "EUR",
       sumHidden: mixed,
     });
   }

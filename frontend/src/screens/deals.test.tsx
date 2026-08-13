@@ -189,7 +189,13 @@ function stubDealBackend(
 describe("buildStageTotals", () => {
   it("carries one currency's totals straight through", () => {
     const totals = buildStageTotals([
-      { stage_id: "s1", currency: "EUR", deals: 3, raw_minor: 300_000, weighted_minor: 60_000 },
+      {
+        stage_id: "s1",
+        currency: "EUR",
+        deals: 3,
+        raw_minor: 300_000,
+        weighted_minor: 60_000,
+      },
     ]);
     expect(totals.get("s1")).toEqual({
       count: 3,
@@ -202,8 +208,20 @@ describe("buildStageTotals", () => {
 
   it("hides the sum when a stage has more than one currency row", () => {
     const totals = buildStageTotals([
-      { stage_id: "s2", currency: "EUR", deals: 1, raw_minor: 100_000, weighted_minor: 20_000 },
-      { stage_id: "s2", currency: "USD", deals: 1, raw_minor: 100_000, weighted_minor: 20_000 },
+      {
+        stage_id: "s2",
+        currency: "EUR",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+      {
+        stage_id: "s2",
+        currency: "USD",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
     ]);
     const s2 = totals.get("s2");
     expect(s2?.sumHidden).toBe(true);
@@ -222,13 +240,29 @@ describe("buildColumns", () => {
       // The server's per-deal-rounded figure (12343 × 20% rounded per deal,
       // twice, then summed = 4938) — deliberately NOT what round(Σ) gives
       // (4937), so a regression back to client-side summing would fail this.
-      { stage_id: "s1", currency: "EUR", deals: 2, raw_minor: 24_686, weighted_minor: 4_938 },
+      {
+        stage_id: "s1",
+        currency: "EUR",
+        deals: 2,
+        raw_minor: 24_686,
+        weighted_minor: 4_938,
+      },
     ]);
     const columns = buildColumns(
       stages,
       [
-        deal({ id: "a", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
-        deal({ id: "b", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
+        deal({
+          id: "a",
+          stage_id: "s1",
+          amount_minor: 12_343,
+          currency: "EUR",
+        }),
+        deal({
+          id: "b",
+          stage_id: "s1",
+          amount_minor: 12_343,
+          currency: "EUR",
+        }),
       ],
       totals,
     );
@@ -239,12 +273,31 @@ describe("buildColumns", () => {
 
   it("hides the sum for a mixed-currency stage per the totals map, regardless of which cards loaded", () => {
     const totals = buildStageTotals([
-      { stage_id: "s2", currency: "EUR", deals: 1, raw_minor: 100_000, weighted_minor: 20_000 },
-      { stage_id: "s2", currency: "USD", deals: 1, raw_minor: 100_000, weighted_minor: 20_000 },
+      {
+        stage_id: "s2",
+        currency: "EUR",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+      {
+        stage_id: "s2",
+        currency: "USD",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
     ]);
     const columns = buildColumns(
       stages,
-      [deal({ id: "c", stage_id: "s2", amount_minor: 100_000, currency: "EUR" })],
+      [
+        deal({
+          id: "c",
+          stage_id: "s2",
+          amount_minor: 100_000,
+          currency: "EUR",
+        }),
+      ],
       totals,
     );
     expect(columns[1].sumHidden).toBe(true);
