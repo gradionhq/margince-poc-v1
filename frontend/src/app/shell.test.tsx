@@ -472,12 +472,18 @@ function fixtureSection(activeId?: string): NavSection {
         headingKey: "settings.group.org",
         items: [
           {
-            id: "privacy",
+            // The child level is SYNTHETIC: no settings entry publishes children,
+            // so nothing in production proves the renderer takes its depth from the
+            // data. The parent and child deliberately borrow labels rather than
+            // entry IDS — `#/settings/privacy/data-model` would name two real
+            // sibling entries as parent and child, which the settings level does
+            // not publish and a reader would take for the real shape.
+            id: "deep",
             labelKey: "settings.tab.privacy",
             icon: ShieldCheck,
             children: [
               {
-                id: "data-model",
+                id: "deeper",
                 labelKey: "settings.tab.data-model",
                 icon: Database,
               },
@@ -549,7 +555,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
       screen
         .getByRole("link", { name: "Privacy & audit" })
         .getAttribute("href"),
-    ).toBe("#/settings/privacy");
+    ).toBe("#/settings/deep");
     // Exactly one row claims the current page, and it is the entry the SECTION
     // resolved — the screen owns that answer, fallbacks included.
     const current = document.querySelectorAll('[aria-current="page"]');
@@ -583,7 +589,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
     render(
       <WorkspaceRail
         route={{ screen: "home" }}
-        section={fixtureSection("privacy")}
+        section={fixtureSection("deep")}
         onOpenSearch={ignoreSearch}
       />,
     );
@@ -723,8 +729,8 @@ describe("Rail levels (a section's entries as the second level)", () => {
   it("opens an entry's children as soon as the route stands on that entry", () => {
     render(
       <WorkspaceRail
-        route={{ screen: "settings", id: "privacy" }}
-        section={fixtureSection("privacy")}
+        route={{ screen: "settings", id: "deep" }}
+        section={fixtureSection("deep")}
         onOpenSearch={ignoreSearch}
       />,
     );
@@ -738,8 +744,8 @@ describe("Rail levels (a section's entries as the second level)", () => {
   it("renders a third level from the data, addressed under the entry that opens it", () => {
     render(
       <WorkspaceRail
-        route={{ screen: "settings", id: "privacy", id2: "data-model" }}
-        section={fixtureSection("privacy")}
+        route={{ screen: "settings", id: "deep", id2: "deeper" }}
+        section={fixtureSection("deep")}
         onOpenSearch={ignoreSearch}
       />,
     );
@@ -747,7 +753,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
     expect(levelLabels()).toEqual(["Data model"]);
     expect(
       screen.getByRole("link", { name: "Data model" }).getAttribute("href"),
-    ).toBe("#/settings/privacy/data-model");
+    ).toBe("#/settings/deep/deeper");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
     ).toEqual(["Privacy & audit"]);
@@ -760,15 +766,15 @@ describe("Rail levels (a section's entries as the second level)", () => {
   it("lands on the parent entry's own address from a level below the section", async () => {
     render(
       <WorkspaceRail
-        route={{ screen: "settings", id: "privacy", id2: "data-model" }}
-        section={fixtureSection("privacy")}
+        route={{ screen: "settings", id: "deep", id2: "deeper" }}
+        section={fixtureSection("deep")}
         onOpenSearch={ignoreSearch}
       />,
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Back to Settings" }),
     );
-    expect(window.location.hash).toBe("#/settings/privacy");
+    expect(window.location.hash).toBe("#/settings/deep");
   });
 
   // AC-shell-1d holds at every depth, and there is ONE tooltip in the sidebar:
@@ -1011,7 +1017,7 @@ describe("PageHead", () => {
   // reader as the name of the page they are on.
   it("keeps a screen's own id segment out of the page's name", () => {
     const { container } = render(
-      <PageHead route={{ screen: "settings", id: "privacy" }} />,
+      <PageHead route={{ screen: "settings", id: "deep" }} />,
     );
     expect(
       screen.getByRole("heading", { level: 1, name: "Settings" }),
@@ -1074,15 +1080,13 @@ describe("PageHead", () => {
 // The page head's half of the phone model: the sidebar shows the destinations
 // there, so a section's own entries are reached from here.
 describe("Section switcher (the page head at phone width)", () => {
-  const privacyRoute = { screen: "settings", id: "privacy" };
+  const deepRoute = { screen: "settings", id: "deep" };
 
   // Above the breakpoint the sidebar's level carries the section, so the head
   // names the ENTRY and mints no control at all — a switcher there would be a
   // second copy of the navigation already on screen beside it.
   it("renders no switcher above the phone breakpoint", () => {
-    render(
-      <PageHead route={privacyRoute} section={fixtureSection("privacy")} />,
-    );
+    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Privacy & audit" }),
     ).toBeTruthy();
@@ -1093,9 +1097,7 @@ describe("Section switcher (the page head at phone width)", () => {
   // on screen does — and the switcher names the entry and opens the others.
   it("names the section and hands the entry to the switcher at phone width", () => {
     stubPhoneViewport();
-    render(
-      <PageHead route={privacyRoute} section={fixtureSection("privacy")} />,
-    );
+    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Settings" }),
     ).toBeTruthy();
@@ -1116,9 +1118,7 @@ describe("Section switcher (the page head at phone width)", () => {
 
   it("opens the section's entries with the current one marked", async () => {
     stubPhoneViewport();
-    render(
-      <PageHead route={privacyRoute} section={fixtureSection("privacy")} />,
-    );
+    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1136,19 +1136,17 @@ describe("Section switcher (the page head at phone width)", () => {
       within(dialog)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href")),
-    ).toEqual(["#/settings/account", "#/settings/privacy"]);
+    ).toEqual(["#/settings/account", "#/settings/deep"]);
     // The current entry is claimed inside the LIST — the switcher that opened it
     // still claims nothing, so the document offers exactly one current page.
     const current = document.querySelectorAll('[aria-current="page"]');
     expect(current).toHaveLength(1);
-    expect(current[0].getAttribute("href")).toBe("#/settings/privacy");
+    expect(current[0].getAttribute("href")).toBe("#/settings/deep");
   });
 
   it("navigates and closes itself when an entry is picked", async () => {
     stubPhoneViewport();
-    render(
-      <PageHead route={privacyRoute} section={fixtureSection("privacy")} />,
-    );
+    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1164,9 +1162,7 @@ describe("Section switcher (the page head at phone width)", () => {
   // Escape: the way out has to be a control inside it.
   it("closes from a control in the sheet", async () => {
     stubPhoneViewport();
-    render(
-      <PageHead route={privacyRoute} section={fixtureSection("privacy")} />,
-    );
+    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1182,10 +1178,7 @@ describe("Section switcher (the page head at phone width)", () => {
   it("ignores a section that belongs to another screen", () => {
     stubPhoneViewport();
     render(
-      <PageHead
-        route={{ screen: "deals" }}
-        section={fixtureSection("privacy")}
-      />,
+      <PageHead route={{ screen: "deals" }} section={fixtureSection("deep")} />,
     );
     expect(
       screen.getByRole("heading", { level: 1, name: "Pipeline" }),

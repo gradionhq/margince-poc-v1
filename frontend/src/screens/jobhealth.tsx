@@ -56,17 +56,22 @@ const FAILURE_STATE: Record<
 // unit. `format.ts`'s formatDuration cannot answer this: it floors anything
 // under an hour to "0 hr", and a queue that jammed five minutes ago is exactly
 // the reading an operator opens this card for.
+// A count of one takes the singular key, the house `.one`/`.other` pattern — a
+// queue that jammed sixty-one minutes ago read "waited 1 hours".
 function formatWaitedFor(seconds: number, t: Translator): string {
-  if (seconds >= 86_400) {
-    return t("jobs.waitedDays", { count: Math.floor(seconds / 86_400) });
-  }
-  if (seconds >= 3_600) {
-    return t("jobs.waitedHours", { count: Math.floor(seconds / 3_600) });
-  }
-  if (seconds >= 60) {
-    return t("jobs.waitedMinutes", { count: Math.floor(seconds / 60) });
-  }
-  return t("jobs.waitedSeconds", { count: seconds });
+  const [unit, count] =
+    seconds >= 86_400
+      ? (["Days", Math.floor(seconds / 86_400)] as const)
+      : seconds >= 3_600
+        ? (["Hours", Math.floor(seconds / 3_600)] as const)
+        : seconds >= 60
+          ? (["Minutes", Math.floor(seconds / 60)] as const)
+          : (["Seconds", seconds] as const);
+  const plural = count === 1 ? "one" : "other";
+  // Annotated so an unknown unit or form is a compile error rather than a key
+  // the catalog silently echoes back.
+  const key: MessageKey = `jobs.waited${unit}.${plural}`;
+  return t(key, { count });
 }
 
 // All four states of one kind, always all four. A zero is a fact an operator

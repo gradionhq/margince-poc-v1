@@ -130,9 +130,10 @@ describe("JobHealthCard", () => {
     // whose counts they are.
     expect(screen.getByText("retention_sweep_dispatch")).toBeInTheDocument();
     expect(screen.getByText(/carry no workspace/i)).toBeInTheDocument();
-    // The stall signal, in a unit that survives the sub-hour case: 4500s is
-    // "1 hours", never format.ts's "0 hr" flooring.
-    expect(screen.getByText(/waited 1 hours/)).toBeInTheDocument();
+    // The stall signal, in a unit that survives the sub-hour case: 4500s reads as
+    // one hour, never format.ts's "0 hr" flooring — and in the singular, which is
+    // the whole reason the four duration keys carry a .one form.
+    expect(screen.getByText(/waited 1 hour\b/)).toBeInTheDocument();
   });
 
   it("states nothing is runnable rather than claiming a wait of zero", async () => {

@@ -242,7 +242,7 @@ function tabContent(id: SettingsTabId): ReactNode {
 // the whole of Overlay: both answer "which outside system is talking to us",
 // and the tab beside this one answers "what do we do with what arrives".
 //
-// Neither half is gated at the entry (see useOrgTabVisibility): connecting YOUR
+// Neither half is gated at the entry (see useSettingsEntryVisibility): connecting YOUR
 // mailbox is work every seat does for itself, and the system-of-record chip in
 // the topbar points every seat here.
 function ConnectionsTab() {
@@ -324,8 +324,24 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 // them. The number of hooks a render runs must not depend on which grants came
 // back — so the `||` sits on the results, never around the calls, and no hook
 // may move into the filter over the tab list.
-function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
-  const capabilities = useCompanyContextCapabilities();
+/**
+ * Which Organization entries this principal may open.
+ *
+ * Exported because the command palette must answer the SAME question: it offers a
+ * shortcut to two of these entries, and a shortcut that lands on the Account
+ * fallback is a command that lied. One predicate map, two readers.
+ *
+ * `probeCompanyFlag` is false for that caller. The company rollout flag is a
+ * network read, and the palette is mounted on every screen while the settings rail
+ * is mounted on one — firing it app-wide to answer a question the palette never
+ * asks (it offers no shortcut to General) would spend a request per session for
+ * nothing. With the flag unread, `general` reads false, which is why the palette
+ * must not offer it.
+ */
+export function useSettingsEntryVisibility(
+  probeCompanyFlag = true,
+): Readonly<Record<OrgTabId, boolean>> {
+  const capabilities = useCompanyContextCapabilities(probeCompanyFlag);
   const pipeline = useHoldsWriteGrant("pipeline");
   const product = useHoldsWriteGrant("product");
   const offerTemplate = useHoldsWriteGrant("offer_template");
@@ -426,7 +442,7 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
 // nav in the sidebar and the content on the page both read this, so the two
 // cannot disagree about what is current — including on the fallback below.
 function useVisibleSettingsTabs(tab?: string) {
-  const orgTabVisible = useOrgTabVisibility();
+  const orgTabVisible = useSettingsEntryVisibility();
   const tabs = SETTINGS_TABS.filter(
     (entry) => entry.group !== "org" || orgTabVisible[entry.id],
   );
