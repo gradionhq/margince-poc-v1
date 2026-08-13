@@ -202,10 +202,17 @@ func (a *Adapter) Poll(ctx context.Context, cred provider.Credential, providerJo
 	var out enrichResult
 	status, err := a.call(ctx, cred, http.MethodGet, "/v2/people/enrich/"+providerJobID, nil, &out)
 	if err != nil {
-		// A failed POLL costs nothing and tells us nothing: the sweep asks
-		// again on its next tick, and the run's own expiry bounds how long
-		// that can go on.
-		return provider.PollStatus{}, err
+		// A failed poll costs nothing and settles nothing, so it reads as
+		// PENDING rather than as an error: the sweep asks again on its next
+		// tick and the run's own expiry bounds how long that can go on.
+		//
+		// Returning the error instead would put one unreadable response into
+		// the sweep's joined error on every tick — failing the whole
+		// workspace's drain job, for a run that is merely unfinished.
+		//
+		//nolint:nilerr // the failure IS the outcome: an unread poll is an
+		// unfinished one, and the expiry is what ends it.
+		return provider.PollStatus{Outcome: provider.OutcomePending}, nil
 	}
 	if status != http.StatusOK {
 		outcome, safeCode := refusalFor(status)
@@ -218,7 +225,14 @@ func (a *Adapter) Poll(ctx context.Context, cred provider.Credential, providerJo
 		return provider.PollStatus{Outcome: provider.OutcomeNoMatch, SafeStatusCode: "no_match"}, nil
 	}
 	person := out.People[0]
-	claims := claimsFor(person)
+	claims, err := claimsFor(person)
+	if err != nil {
+		// A result we cannot encode is NOT a no-match: the run completed and
+		// was charged. Surfacing the error leaves it in progress for the
+		// sweep to re-poll rather than releasing a hold against work the
+		// provider actually did.
+		return provider.PollStatus{}, err
+	}
 	if len(claims) == 0 {
 		// Completed, and the vendor found nothing worth returning. A
 		// no-match rather than an empty success: on per-successful-result
@@ -265,8 +279,22 @@ func includeFor(categories []provider.Category) includeFlags {
 }
 
 // refusalFor classifies a vendor status into the port's closed vocabulary.
-// The status code is the ONLY thing read: the body may echo a fragment of the
-// key, and a customer-visible reason must be a closed product code.
+//
+// The named cases are the ones that PROVE no work was done, and only those
+// release the credit hold. Everything else — including an unrecognized 2xx, a
+// 3xx from a proxy, a 408 or a 409 — is AMBIGUOUS: the request reached the
+// vendor, the enrichment may be running and billable, and calling that a
+// definite refusal would release a hold on work the customer may have been
+// charged for. That is the double-charge PI-AC-4 exists to prevent, reached
+// without any retry at all.
+//
+// Closed on the safe side, in other words: the platform's definiteRefusals
+// set is what releases money, so this must never hand it a status it merely
+// failed to recognize.
+//
+// The status code is the ONLY thing read. The body may echo a fragment of the
+// key we just sent, and a customer-visible reason must be a closed product
+// code rather than a vendor's prose.
 func refusalFor(status int) (provider.Outcome, string) {
 	switch {
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
@@ -275,12 +303,18 @@ func refusalFor(status int) (provider.Outcome, string) {
 		return provider.OutcomeInsufficientCredits, "provider_out_of_credits"
 	case status == http.StatusTooManyRequests:
 		return provider.OutcomeRateLimited, "provider_rate_limited"
+	case status == http.StatusBadRequest, status == http.StatusNotFound,
+		status == http.StatusUnprocessableEntity:
+		// The vendor rejected the REQUEST rather than doing work on it: a
+		// malformed body, an unknown handle, an unsellable selection. No
+		// enrichment ran, so the hold is released.
+		return provider.OutcomeProviderError, "provider_error"
 	case status >= 500:
-		// The vendor's own fault, and a DEFINITE refusal: a 5xx means it did
-		// not do the work, so the hold is released rather than parked.
+		// The vendor's own fault, and a definite refusal: a 5xx means it did
+		// not complete the work.
 		return provider.OutcomeProviderError, "provider_error"
 	default:
-		return provider.OutcomeProviderError, "provider_error"
+		return provider.OutcomeAmbiguous, "unexpected_status"
 	}
 }
 

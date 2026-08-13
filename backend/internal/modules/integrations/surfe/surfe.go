@@ -87,11 +87,32 @@ type Adapter struct {
 	now    func() time.Time
 }
 
-// New builds the adapter with the ordinary client. Surfe is a known vendor
-// host reached over TLS, so this is a plain timeout-bounded client rather
-// than the netguard-wrapped one an arbitrary customer-supplied URL needs.
+// New builds the adapter. Surfe is a known vendor host reached over TLS, so
+// this is a timeout-bounded client rather than the netguard-wrapped one an
+// arbitrary customer-supplied URL needs — but it REFUSES REDIRECTS, which is
+// not optional here and is what every other outbound caller in this tree does
+// (identity's OAuth metadata fetch, the agent app fetch, webread).
+//
+// Go copies the Authorization header across a redirect to any subdomain of
+// the origin, so without this a 302 from api.surfe.com to anything.surfe.com
+// replays the customer's API key to whoever answered — a compromised vendor
+// edge, a hijacked subdomain, a DNS takeover. The egress-host check below
+// runs once, on the request this code builds; the standard library never
+// consults it again for a redirect hop, so the check alone does not hold.
+//
+// A redirect is also simply a fault: Surfe's documented API does not issue
+// one, and the descriptor promises the customer this adapter talks to exactly
+// one host.
 func New(now func() time.Time) *Adapter {
-	return &Adapter{client: &http.Client{Timeout: requestTimeout}, now: now}
+	return &Adapter{
+		client: &http.Client{
+			Timeout: requestTimeout,
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("surfe: refusing a redirect to %q: the credential must not leave the declared egress host", req.URL.Host)
+			},
+		},
+		now: now,
+	}
 }
 
 // WithHTTPDoer swaps the transport, for tests that answer from a recorded

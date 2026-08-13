@@ -180,6 +180,17 @@ func (s *Store) reconcile(ctx context.Context, tx pgx.Tx, desc provider.Descript
 		if v, ok := spend[provider.Pool(pool)]; ok {
 			actual = v
 		}
+		// But never ABOVE the hold. The reservation is what this run was
+		// authorized to spend, and actual_credits feeds poolUsedThisMonth,
+		// which enforces the customer's monthly ceiling — so an adapter
+		// reporting more than was held would silently consume budget later
+		// runs were counting on. A vendor cannot charge this installation
+		// more than it agreed to hold; if one claims to have, that is a
+		// discrepancy for a human to take up with them, not a number this
+		// ledger accepts.
+		if actual > reserved {
+			actual = reserved
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE provider_run_reservation
 			   SET actual_credits = $3, reconciled_at = now()

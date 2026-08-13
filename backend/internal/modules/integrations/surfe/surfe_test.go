@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +309,99 @@ func TestCredentialVerificationReadsTheBalanceAndNamesARefusal(t *testing.T) {
 	refused := &recorder{status: http.StatusUnauthorized, body: `{"message":"unauthorized"}`}
 	if _, err := testAdapter(refused).VerifyCredential(context.Background(), provider.Credential("bad")); err == nil {
 		t.Error("a refused key verified successfully, so it would be sealed and stored")
+	}
+}
+
+// The credential must not leave the declared host. Go copies the
+// Authorization header across a redirect to any SUBDOMAIN of the origin, so
+// without an explicit refusal a 302 from api.surfe.com to anything.surfe.com
+// replays the customer's key to whoever answered.
+func TestARedirectIsRefusedSoTheKeyCannotFollowIt(t *testing.T) {
+	var calls int
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"totalEmail":1,"totalMobile":1}`))
+	}))
+	defer final.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Redirect(w, r, final.URL, http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	// The REAL client and its real redirect policy — the thing under test.
+	a := New(time.Now)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, redirector.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer SUPERSECRET")
+	resp, err := a.client.Do(req)
+	if err == nil {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("closing the unexpected response: %v", closeErr)
+		}
+		t.Fatal("the redirect was followed: the customer's key just reached a host the descriptor never declared")
+	}
+	if calls != 1 {
+		t.Errorf("%d servers were called, want 1 — only the declared host may be reached", calls)
+	}
+}
+
+// An unrecognized status is AMBIGUOUS, never a definite refusal: the request
+// reached the vendor and the work may be running and billable, so releasing
+// the hold would be the double-charge PI-AC-4 exists to prevent.
+func TestAnUnrecognizedStatusParksRatherThanReleasingTheHold(t *testing.T) {
+	for _, status := range []int{
+		http.StatusCreated,   // an ordinary answer for a job-creation endpoint
+		http.StatusNoContent, // what a proxy or WAF in front of the vendor emits
+		http.StatusRequestTimeout,
+		http.StatusConflict,
+	} {
+		rec := &recorder{status: status, body: `{}`}
+		sub, err := testAdapter(rec).Submit(context.Background(), provider.Credential("k"), aRequest())
+		if err != nil {
+			t.Fatalf("status %d: %v", status, err)
+		}
+		if sub.Outcome != provider.OutcomeAmbiguous {
+			t.Errorf("status %d → %s, want ambiguous: a definite refusal releases the credit hold on work the vendor may have done and charged for",
+				status, sub.Outcome)
+		}
+	}
+}
+
+// A poll whose body cannot be read settles nothing, so it reads as pending
+// rather than failing the whole workspace's sweep on every tick.
+func TestAnUnreadablePollReadsAsPendingRatherThanFailingTheSweep(t *testing.T) {
+	rec := &recorder{status: http.StatusOK, body: `{"status":"COMPLE`}
+	status, err := testAdapter(rec).Poll(context.Background(), provider.Credential("k"), "enr-9")
+	if err != nil {
+		t.Fatalf("an unreadable poll surfaced as an error, which fails the drain for every other run in the workspace: %v", err)
+	}
+	if status.Outcome != provider.OutcomePending {
+		t.Errorf("outcome = %s, want pending — an unread poll is an unfinished one, and the run's expiry is what ends it", status.Outcome)
+	}
+}
+
+// Surfe returns EVERY address it found from the one lookup the run paid for.
+// Charging per value would bill a well-documented person more than a thinly
+// documented one for the same question, and would exceed the reservation.
+func TestSpendIsOnePerPoolHoweverManyValuesComeBack(t *testing.T) {
+	body := `{"status":"COMPLETED","people":[{
+		"emails":[{"email":"a@example.com"},{"email":"anna@example.com"},{"email":"a.muster@example.com"}],
+		"mobilePhones":[{"mobilePhone":"+49 1"},{"mobilePhone":"+49 2"}]}]}`
+	rec := &recorder{status: http.StatusOK, body: body}
+	status, err := testAdapter(rec).Poll(context.Background(), provider.Credential("k"), "enr-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Result == nil {
+		t.Fatal("a completed enrichment returned no result")
+	}
+	if status.Result.PoolSpend["email"] != 1 || status.Result.PoolSpend["mobile"] != 1 {
+		t.Errorf("pool spend = %v, want one credit per pool — three addresses came from ONE paid lookup, and charging per value would exceed the reservation the platform took",
+			status.Result.PoolSpend)
 	}
 }
 

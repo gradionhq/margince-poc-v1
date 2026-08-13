@@ -21,6 +21,7 @@ package surfe
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
@@ -28,14 +29,17 @@ import (
 // claimsFor normalizes one person's result. A category the vendor answered
 // emptily produces NO claim rather than an empty one, so "we asked and they
 // had nothing" is stored as an absence and reads as one.
-func claimsFor(p wireResult) []provider.Claim {
+func claimsFor(p wireResult) ([]provider.Claim, error) {
 	var claims []provider.Claim
+	var failed error
 	add := func(key provider.ClaimKey, value any) {
 		raw, err := json.Marshal(value)
 		if err != nil {
-			// Marshalling these plain shapes cannot fail. If it somehow did,
-			// dropping the claim is right: a half-encoded value stored as a
-			// purchased fact is worse than a category that reads as absent.
+			// Surfaced, never dropped. A dropped claim is indistinguishable
+			// from a category the vendor had nothing for — and if every claim
+			// dropped, Poll would read the empty set as no_match and release
+			// the reservation for a run that completed and was charged.
+			failed = fmt.Errorf("surfe: encoding the %s claim: %w", key, err)
 			return
 		}
 		claims = append(claims, provider.Claim{Key: key, Value: raw})
@@ -73,7 +77,10 @@ func claimsFor(p wireResult) []provider.Claim {
 	if len(p.Seniorities) > 0 {
 		add(provider.ClaimSeniorities, p.Seniorities)
 	}
-	return claims
+	if failed != nil {
+		return nil, failed
+	}
+	return claims, nil
 }
 
 // splitEmails separates what the vendor labeled personal from everything
@@ -147,29 +154,38 @@ func historyFor(jobs []wireJob) []map[string]any {
 	return out
 }
 
-// spendFor reports what Surfe actually charged, per pool.
+// spendFor reports what Surfe charged, per pool: ONE credit per pool that
+// returned anything.
 //
-// The vendor's response carries no cost figure, so this is derived from what
-// it RETURNED: an address costs an email credit, a mobile number costs a
-// mobile credit, and a category that came back empty costs nothing. That is
-// the same per-successful-result rule the billing basis declares, and the
-// reservation reconciles against it — a run that asked for both and got only
-// an email releases the mobile hold.
+// The vendor's response carries no cost figure, so the charge is derived from
+// what it RETURNED — that is what per-successful-result billing means, and it
+// is why a run that asked for an email and a mobile but got only the email
+// releases the mobile hold.
+//
+// One credit per pool, not one per value, and that is the load-bearing part.
+// Surfe's `emails` array is PLURAL: it returns every address it found for the
+// subject, from the single lookup the run paid for. Counting them would bill
+// a well-documented person more than a thinly-documented one for the same
+// question, and would exceed the reservation the platform took — a number
+// reconcile writes into actual_credits and poolUsedThisMonth sums against the
+// customer's monthly ceiling, so the over-charge would silently eat budget
+// later runs were counting on.
+//
+// The platform clamps this against the run's own reservation as well
+// (integrations.reconcile): this function knows what the vendor answered, and
+// only the ledger knows what was held.
 func spendFor(p wireResult) map[provider.Pool]int {
 	spend := map[provider.Pool]int{}
 	for _, e := range p.Emails {
 		if e.Email != "" {
-			// The personal fallback costs two, per the descriptor's cascade.
-			if e.EmailType == emailTypePersonal {
-				spend[poolEmail] += 2
-				continue
-			}
-			spend[poolEmail]++
+			spend[poolEmail] = 1
+			break
 		}
 	}
 	for _, m := range p.MobilePhones {
 		if m.MobilePhone != "" {
-			spend[poolMobile]++
+			spend[poolMobile] = 1
+			break
 		}
 	}
 	return spend
