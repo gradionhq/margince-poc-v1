@@ -4321,9 +4321,9 @@ export const en = {
     "Every match is already connected to this person.",
   "person.rail.isCurrentEmployer": "This is their current employer",
   "person.rail.markEnded": "Mark as ended",
-  "person.rail.removeEmploymentTitle": "Remove this company?",
+  "person.rail.removeEmploymentTitle": "Remove this company connection?",
   "person.rail.removeEmploymentBody":
-    "The connection to {org} and its whole history disappear, and this cannot be undone. If they simply left, mark it ended instead.",
+    "The link to {org} and the history hanging off it disappear, and this cannot be undone. {org} itself stays. If they simply left, mark it ended instead.",
   "person.page.tabPlaceholder":
     "This tab is not built yet. The overview carries the relationship; this will carry {topic}.",
   "person.tab.overview": "Overview",

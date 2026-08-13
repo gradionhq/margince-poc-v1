@@ -18,16 +18,22 @@
 /* `1fr` rather than a min width: slots at a readable minimum wrap to two rows
    on a laptop, and a readings row that wraps stops being one comparison.
    Below the width where the full row is legible it folds to three and then to
-   two — a deliberate fold rather than an accidental one. */
+   two — a deliberate fold rather than an accidental one.
+
+   The fold reads `--stat-strip-slots-3`/`-2` rather than a literal 3/2: those
+   are the actual slot count capped by the component, which already knows how
+   many it drew. `repeat()` takes only an integer, so the cap has to arrive
+   pre-computed: a strip with fewer slots than a breakpoint's column count
+   folds to its own slot count instead of a template with an empty cell. */
 @media (max-width: 68rem) {
   .stat-strip {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(var(--stat-strip-slots-3, 3), 1fr);
   }
 }
 
 @media (max-width: 40rem) {
   .stat-strip {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(var(--stat-strip-slots-2, 2), 1fr);
   }
 }
 

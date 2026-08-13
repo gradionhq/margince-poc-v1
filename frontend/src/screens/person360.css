@@ -698,6 +698,16 @@
    own content rhythm — the frame, the sticky header and the sticky footer come
    from the drawer variant itself.
    --------------------------------------------------------------------------- */
+/* A block's heading INSIDE a drawer, under the dialog's own title. It carries
+   the panel heading's weight without the design system's `SectionHeader`,
+   which draws an h2 — the level the dialog title already occupies. */
+.pe-section-title {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--textPrimary);
+}
+
 .pe-drawer-title {
   display: flex;
   align-items: center;

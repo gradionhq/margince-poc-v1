@@ -1459,7 +1459,7 @@ export const vi = {
   "field.addLegalName": "Thêm tên pháp lý",
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
-  "field.addFullName": "Thêm tên",
+  "field.addFullName": "Thêm họ và tên",
   "field.addTitle": "Thêm chức danh",
   "field.addAddressLine1": "Thêm số nhà và tên đường",
   "field.addAddressLine2": "Thêm địa chỉ dòng 2",
@@ -4298,9 +4298,9 @@ export const vi = {
     "Mọi kết quả đều đã liên kết với người này rồi.",
   "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
   "person.rail.markEnded": "Đánh dấu đã kết thúc",
-  "person.rail.removeEmploymentTitle": "Gỡ công ty này?",
+  "person.rail.removeEmploymentTitle": "Gỡ liên kết với công ty này?",
   "person.rail.removeEmploymentBody":
-    "Kết nối với {org} và toàn bộ lịch sử của nó sẽ biến mất, không thể hoàn tác. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
+    "Liên kết với {org} và toàn bộ lịch sử liên quan sẽ biến mất, không thể hoàn tác. Bản thân {org} vẫn được giữ lại. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
   "person.page.tabPlaceholder":
     "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
   "person.tab.overview": "Tổng quan",

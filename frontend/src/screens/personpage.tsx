@@ -185,6 +185,19 @@ export function PersonPageV2({
   const emailAllowed = (guard.data?.entries ?? []).some(
     (entry) => entry.channel === "email" && entry.verdict === "allowed",
   );
+  // The strip's consent slot asks a narrower, louder question than the hero
+  // button above: not "may I write at all" but "what did the guard decide
+  // about email", and a refusal is the one verdict that must read as loud as
+  // a grant. Blocked only when every email entry says so; undefined when
+  // there is no email entry to judge, which is not the same as a refusal.
+  const emailEntries = (guard.data?.entries ?? []).filter(
+    (entry) => entry.channel === "email",
+  );
+  const consentVerdict = emailAllowed
+    ? "allowed"
+    : emailEntries.length > 0
+      ? "blocked"
+      : undefined;
 
   // The action loop. Every surface the contract can name routes here.
   //
@@ -248,12 +261,7 @@ export function PersonPageV2({
         // width: they describe the RELATIONSHIP, not one view of it, and a
         // strip that vanished on the Deals tab would move the tab bar and
         // re-flow the page under the reader.
-        band={
-          <PersonStrip
-            view={view.data}
-            consentVerdict={emailAllowed ? "allowed" : undefined}
-          />
-        }
+        band={<PersonStrip view={view.data} consentVerdict={consentVerdict} />}
         railLabel={t("person.page.asideLabel")}
         rail={
           <PersonRail

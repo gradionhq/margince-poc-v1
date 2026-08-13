@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Mail, Phone } from "lucide-react";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -382,9 +382,13 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-// The three writes the Companies section makes, sharing one invalidation:
+// The four writes the Companies section makes, sharing one invalidation:
 // person360 is what this section itself reads its rows from, and personBrief
-// comes with it because the brief's first sentence names the employer.
+// comes with it because the brief's first sentence names the employer. The
+// role InlineText below goes through `update` rather than calling
+// patchEmployment on its own, so every write this section makes — role,
+// ended date, create, remove — ends in the same refetch and the rail never
+// shows a saved edit next to its own stale value.
 function useEmploymentActions(personId: string) {
   const queryClient = useQueryClient();
   const invalidate = async () => {
@@ -410,6 +414,16 @@ function useEmploymentActions(personId: string) {
       patchEmployment(employment, personId, { ended_at: todayDate() }),
     onSuccess: invalidate,
   });
+  const update = useMutation({
+    mutationFn: ({
+      employment,
+      body,
+    }: {
+      employment: Employment;
+      body: UpdateRelationshipRequest;
+    }) => patchEmployment(employment, personId, body),
+    onSuccess: invalidate,
+  });
   const remove = useMutation({
     mutationFn: async (relationshipId: string) => {
       const { error } = await api.DELETE("/relationships/{id}", {
@@ -421,7 +435,7 @@ function useEmploymentActions(personId: string) {
     },
     onSuccess: invalidate,
   });
-  return { create, end, remove };
+  return { create, end, update, remove };
 }
 
 type EmploymentActions = ReturnType<typeof useEmploymentActions>;
@@ -451,8 +465,20 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
   // nothing further to filter. AddEmploymentModal excludes these from its
   // own picker so a rep cannot draw a second edge to a company already on
   // this list.
-  const connectedOrgIds = employments.map(
-    (employment) => employment.organization_id,
+  //
+  // Memoized on a primitive key rather than on `employments` itself: the
+  // array here is rebuilt fresh every render (the sort above always returns
+  // a new one), and AddEmploymentModal's own searchTargets treats a new
+  // identity as a new search space and clears the picker's candidates —
+  // so the set only gets a new identity when the set of ids it names
+  // actually changes.
+  const connectedOrgKey = employments
+    .map((employment) => employment.organization_id)
+    .sort()
+    .join(",");
+  const connectedOrgIds = useMemo(
+    () => (connectedOrgKey === "" ? [] : connectedOrgKey.split(",")),
+    [connectedOrgKey],
   );
   return (
     <Disclosure
@@ -478,7 +504,6 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
         <EmploymentRow
           key={employment.relationship_id}
           employment={employment}
-          personId={person.id}
           canEdit={canEdit}
           readOnlyReason={readOnlyReason}
           actions={actions}
@@ -537,14 +562,12 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
 // focus, the same reveal the company page's task rows use for theirs.
 function EmploymentRow({
   employment,
-  personId,
   canEdit,
   readOnlyReason,
   actions,
   onRemove,
 }: Readonly<{
   employment: Employment;
-  personId: string;
   canEdit: boolean;
   readOnlyReason: string | undefined;
   actions: EmploymentActions;
@@ -587,7 +610,10 @@ function EmploymentRow({
             canEdit={canEdit}
             readOnlyReason={readOnlyReason}
             onSave={(next) =>
-              patchEmployment(employment, personId, { role: next || null })
+              actions.update.mutateAsync({
+                employment,
+                body: { role: next || null },
+              })
             }
           />
         </span>
@@ -1032,10 +1058,16 @@ function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
       {/* The rail's own glance leaves the tab's ledger one click away, the
           same "see the rest elsewhere" verb the section's own body carries
           now that there is no panel footer band to hold it. */}
-      <span className="pe-rail-more">
+      <Button
+        small
+        className="pe-rail-more"
+        onClick={() =>
+          navigate({ screen: "contacts", id: view.person.id, id2: "activity" })
+        }
+      >
         {t("person.rail.viewAllActivity")}{" "}
         <ChevronRight size={13} aria-hidden="true" />
-      </span>
+      </Button>
     </Disclosure>
   );
 }

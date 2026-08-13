@@ -4313,9 +4313,10 @@ export const de = {
     "Jeder Treffer ist bereits mit dieser Person verknüpft.",
   "person.rail.isCurrentEmployer": "Das ist der aktuelle Arbeitgeber",
   "person.rail.markEnded": "Als beendet markieren",
-  "person.rail.removeEmploymentTitle": "Dieses Unternehmen entfernen?",
+  "person.rail.removeEmploymentTitle":
+    "Diese Unternehmensverbindung entfernen?",
   "person.rail.removeEmploymentBody":
-    "Die Verbindung zu {org} und ihre ganze Historie verschwinden, und das lässt sich nicht rückgängig machen. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
+    "Die Verbindung zu {org} und die daran hängende Historie verschwinden, und das lässt sich nicht rückgängig machen. {org} selbst bleibt. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
   "person.page.tabPlaceholder":
     "Dieser Reiter ist noch nicht gebaut. Die Übersicht trägt die Beziehung; hier kommt {topic} hin.",
   "person.tab.overview": "Übersicht",

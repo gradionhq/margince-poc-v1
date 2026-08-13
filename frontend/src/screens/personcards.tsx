@@ -2,7 +2,7 @@ import { ExternalLink, FileText, Mail } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { Avatar, Badge } from "../design-system/atoms";
+import { Avatar, Badge, Button, Checkbox } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -243,7 +243,14 @@ export function PersonCommercialCard({ view }: Readonly<{ view: Person360 }>) {
   return (
     <Panel title={t("person.commercial.title")}>
       <PanelBody>
+        {/* "No open deal" is a fact about the deal, not about the role or the
+            committee — a person can carry a buying role and sit on a
+            committee with nothing currently for sale, and both facts belong
+            on the card whether or not there is a deal to hang them off. */}
         {!deal && <p className="pe-prose">{t("person.commercial.noDeal")}</p>}
+        {!deal && commercial.role && (
+          <Badge tone="success">{readableRole(commercial.role)}</Badge>
+        )}
         {deal && (
           <>
             <div className="pe-deal-head">
@@ -267,35 +274,37 @@ export function PersonCommercialCard({ view }: Readonly<{ view: Person360 }>) {
                 .filter(Boolean)
                 .join(" · ")}
             </div>
-
-            {commercial.committee.length > 0 && (
-              <>
-                <div className="pe-committee-label">
-                  {t("person.commercial.committee")}
-                </div>
-                {commercial.committee.map((member) => (
-                  <div className="pe-committee-row" key={member.person_id}>
-                    <span className="pe-committee-person">
-                      <Avatar name={member.full_name} src={member.photo_url} />
-                      <span>{member.full_name}</span>
-                    </span>
-                    <span className="pe-committee-role">
-                      {readableRole(member.role)}
-                    </span>
-                  </div>
-                ))}
-              </>
-            )}
-
-            <button
-              type="button"
-              className="pe-rail-more"
-              onClick={() => navigate({ screen: "deals", id: deal.deal_id })}
-            >
-              {t("person.commercial.openDeal")}{" "}
-              <ExternalLink size={13} aria-hidden="true" />
-            </button>
           </>
+        )}
+
+        {commercial.committee.length > 0 && (
+          <>
+            <div className="pe-committee-label">
+              {t("person.commercial.committee")}
+            </div>
+            {commercial.committee.map((member) => (
+              <div className="pe-committee-row" key={member.person_id}>
+                <span className="pe-committee-person">
+                  <Avatar name={member.full_name} src={member.photo_url} />
+                  <span>{member.full_name}</span>
+                </span>
+                <span className="pe-committee-role">
+                  {readableRole(member.role)}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {deal && (
+          <Button
+            small
+            className="pe-rail-more"
+            onClick={() => navigate({ screen: "deals", id: deal.deal_id })}
+          >
+            {t("person.commercial.openDeal")}{" "}
+            <ExternalLink size={13} aria-hidden="true" />
+          </Button>
         )}
       </PanelBody>
     </Panel>
@@ -377,7 +386,20 @@ export function PersonCommitmentsCard({
       )}
       {rows.map(({ claim, loop }) => (
         <PanelRow className="pe-loop" key={claim.id}>
-          <input type="checkbox" checked={claim.status === "done"} readOnly />
+          {/* A read of the claim's done state, never a write: disabled so a
+              click can't nudge the tick, and the accessible name lives here
+              (sr-only) because the visible body sits in its own cell so the
+              row's three-column rhythm holds. */}
+          <Checkbox
+            label={
+              <span className="sr-only">
+                {loopPrefix(loop, firstName, t)}
+                {claim.body}
+              </span>
+            }
+            checked={claim.status === "done"}
+            disabled
+          />
           <span className="pe-loop-body">
             {loopPrefix(loop, firstName, t)}
             {claim.body}

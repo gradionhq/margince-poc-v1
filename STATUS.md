@@ -74,7 +74,7 @@ needs the whole file to start a session.
 
 The page ships (ADR-0096/0097/0098, concept `person-record-page-v2`): header,
 six-slot strip, seven URL-addressable tabs, the server-selected Today moment,
-the overview panels, conversation memory, the six-card rail, and three wide
+the overview panels, conversation memory, the context rail, and three wide
 drawers — composer, research, meeting brief. Both overview states render from
 real data and differ because the DATA differs. `scripts/seed-person-page.sh`
 seeds them through the production writers.

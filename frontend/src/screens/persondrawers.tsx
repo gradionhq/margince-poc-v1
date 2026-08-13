@@ -14,7 +14,6 @@ import {
   Badge,
   Button,
   Modal,
-  SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -368,7 +367,11 @@ export function PersonComposer({
             before sending. */}
         {draft.data?.reasoning && draft.data.reasoning.length > 0 && (
           <section className="pe-why">
-            <SectionHeader title={t("person.composer.why")} />
+            {/* An h3, not the design system's SectionHeader: this block sits
+                INSIDE a dialog whose own title is the h2, and a heading at the
+                same level would read to a screen reader as a sibling of the
+                dialog rather than a part of it. */}
+            <h3 className="pe-section-title">{t("person.composer.why")}</h3>
             <ul className="pe-why-list">
               {draft.data.reasoning.map((reason) => (
                 <li key={`${reason.kind}-${reason.label}`}>{reason.label}</li>
@@ -625,9 +628,11 @@ export function PersonMeetingBrief({
         )}
         {brief.data?.sections.map((section) => (
           <section className="pe-brief-section" key={section.kind}>
-            <SectionHeader
-              title={t(`person.meeting.${section.kind}` as never)}
-            />
+            {/* h3 for the same reason as the composer's own section above: the
+                dialog's title is the h2 these sit under. */}
+            <h3 className="pe-section-title">
+              {t(`person.meeting.${section.kind}` as never)}
+            </h3>
             {section.sentences.map((sentence) => (
               <p className="pe-prose" key={sentence.text}>
                 {sentence.text}

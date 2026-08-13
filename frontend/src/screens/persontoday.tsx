@@ -164,9 +164,11 @@ function actionIcon(kind: string): ReactNode {
 }
 
 // What pressing it will do, in the three states the server distinguishes. A
-// blocked action says so in words as well as by being unpressable: the reason
-// rides the button's title, and this line is what tells a reader to look for
-// one.
+// blocked action says so in words, not only by being unpressable: a disabled
+// button carries no title a keyboard or touch reader ever sees, so the
+// server's own reason (WHY this one is blocked) renders here when it sent
+// one, and the generic word is the fallback for the rare blocked action that
+// carries none.
 function readiness(
   action: PersonMomentAction,
   t: ReturnType<typeof useT>,
@@ -175,7 +177,7 @@ function readiness(
     return t("person.rail.reviewFirst");
   }
   if (action.state === "blocked") {
-    return t("person.rail.blocked");
+    return action.blocked_reason ?? t("person.rail.blocked");
   }
   return t("person.rail.ready");
 }
