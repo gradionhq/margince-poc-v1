@@ -196,8 +196,8 @@ func TestFlipChecksRefuseAProjectionAnOlderDeclarationProduced(t *testing.T) {
 }
 
 // TestFlipChecksCountARowThatRecordsNoDeclarationAsStale covers the rows the
-// fingerprint column arrived after (issue #1038): they record NULL, which the
-// read paths coalesce to the empty string. Neither is a current declaration,
+// fingerprint column arrived after: they record NULL, which the read paths
+// coalesce to the empty string. Neither is a current declaration,
 // and nothing has checked what produced them — treating that as "unknown, let
 // it through" is exactly how an unverifiable projection becomes permanent.
 func TestFlipChecksCountARowThatRecordsNoDeclarationAsStale(t *testing.T) {

@@ -240,9 +240,12 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if rec.ObjectClass == "" || rec.ExternalID == "" {
 		return false, fmt.Errorf("overlay: ingest requires a non-empty object class and external id")
 	}
-	var ownerArg any
+	// A record naming no owner stores NULL rather than '': the column holds an
+	// incumbent owner reference, and the empty string is not one. A nil *string
+	// is the SQL NULL the column needs, stated in the type.
+	var ownerArg *string
 	if rec.OwnerExternalID != "" {
-		ownerArg = rec.OwnerExternalID
+		ownerArg = &rec.OwnerExternalID
 	}
 	// A record that declares no fingerprint stores NULL rather than '': the
 	// column's meaning is "the declaration known to have produced this row",

@@ -138,13 +138,6 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 
 	var out []ObjectSyncStatus
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		// Drain the aggregate query FULLY before running any further query
-		// on this same tx — pgx ties the connection up while a Rows result
-		// is still open, so calling backfillCompleteFor's own tx.QueryRow
-		// per row WHILE this Query's rows are still being iterated would
-		// contend with it on the same connection (observed: it silently
-		// answered "no row", not a panic — exactly the kind of quiet
-		// wrong-answer a second, nested pass on the drained slice avoids).
 		classes, err := mirroredClasses(ctx, tx)
 		if err != nil {
 			return err
@@ -153,6 +146,13 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 		if err != nil {
 			return err
 		}
+		// Drain the aggregate query FULLY before running any further query
+		// on this same tx — pgx ties the connection up while a Rows result
+		// is still open, so calling backfillCompleteFor's own tx.QueryRow
+		// per row WHILE this Query's rows are still being iterated would
+		// contend with it on the same connection (observed: it silently
+		// answered "no row", not a panic — exactly the kind of quiet
+		// wrong-answer a second, nested pass on the drained slice avoids).
 		rows, err := tx.Query(ctx, selectMirrorSyncAggregateSQL, syncStatePendingSync, syncStateStale, currentFingerprints)
 		if err != nil {
 			return fmt.Errorf("overlay: aggregating mirror sync state: %w", err)

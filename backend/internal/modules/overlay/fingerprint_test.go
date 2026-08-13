@@ -210,10 +210,11 @@ func TestFingerprintTreatsAnAbsentAndAnEmptyFromAlike(t *testing.T) {
 	}
 }
 
-// A fingerprint that varied between processes would mark every row stale
-// forever and block the flip permanently, so map iteration order must not
-// reach the digest.
-func TestFingerprintIsStableAcrossRuns(t *testing.T) {
+// A declaration fingerprinted twice must answer the same digest both times:
+// the mapping is walked over Go maps, whose iteration order differs per call,
+// and a digest that took that order in would mark every row stale forever and
+// block the flip permanently.
+func TestFingerprintDoesNotVaryWithMapIterationOrder(t *testing.T) {
 	first := overlay.Fingerprint(baseMapping())
 	for i := 0; i < 50; i++ {
 		if got := overlay.Fingerprint(baseMapping()); got != first {
