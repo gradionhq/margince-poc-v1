@@ -127,8 +127,8 @@ func consumePresentedToken(w http.ResponseWriter, r *http.Request, staging agent
 // checks the two against each other instead (pinAutoExecutedWrite). The two
 // arms differ because the caller's header has been proved against something on
 // one and against nothing on the other: a 🟢 admission read the record itself
-// and pinAdmittedWrite already refused an If-Match naming a version it did not
-// read, while a 🟡 call was admitted by a human's decision and this door hashes
+// and pinAutoExecutedWrite already refused an If-Match naming a version it did
+// not read, while a 🟡 call was admitted by a human's decision and this door hashes
 // no If-Match into the identity that decision bound (agentgatecanon.go says
 // why). The approval's own pin is then the only version anything proved.
 func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) (handled, ran bool) {

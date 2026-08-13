@@ -167,7 +167,14 @@ func pinAutoExecutedWrite(w http.ResponseWriter, r *http.Request, redemption tok
 		// integer version, and two spellings of one number must not read as
 		// disagreement. A caller header this parser refuses is left for the
 		// handler's own IfMatchVersion to answer, which is where that message
-		// already lives.
+		// already lives — and the handler behind THIS branch has one, because
+		// gateRead is true only for an operation whose tier was decided by
+		// reading a record (auth.Admit pins nothing for a static tier), which is
+		// the dynamic-tier set, and a dynamic tier is resolved from a version the
+		// operation's own handler is conditioned on. A handler that read no
+		// If-Match at all would not be pinned by the well-formed header this
+		// function sets either, so a malformed one is not what would leave it
+		// unpinned.
 		if got, err := strconv.ParseInt(caller, 10, 64); err != nil || got == admitted {
 			return true
 		}

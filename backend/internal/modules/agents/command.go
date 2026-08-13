@@ -346,9 +346,10 @@ func (patchResolver) Subject(_ context.Context, cmd PatchCommand) (StageInfo, er
 // keyed on the same vocabulary the seam is keyed on would make the
 // servedByTheRecordSeam stand-down below unreachable: a type outside it would
 // already have been refused. The seam stands down instead, exactly as
-// archive's does, for the same reason: five of the twelve patchable types
-// (custom_field, offer, product, saved_view, webhook_subscription) are
-// patched by their own module rather than through this seam.
+// archive's does, for the same reason: six of the thirteen patchable types
+// (custom_field, offer, offer_template, product, saved_view,
+// webhook_subscription) are patched by their own module rather than through
+// this seam.
 func (p patchResolver) Guards(ctx context.Context, cmd PatchCommand) error {
 	if err := rejectUnknownFields(updateShapes, cmd.RecordType, cmd.Fields); err != nil {
 		return err

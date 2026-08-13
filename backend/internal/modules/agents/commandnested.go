@@ -6,9 +6,14 @@ package agents
 // The seven remaining bespoke commands (gradionhq/margince-poc-v1#928 task 6):
 // a list member add, a tag apply, an offer line item add/update/remove, an
 // offer created under a parent deal, and a partner upsert. All seven are 🟢
-// auto_execute today, so Subject/Guards are unreachable on today's tiers —
-// but a tier floor (#982) tightening any of them makes this the answer a human
-// decides from, and the REST door has no other one to fall back on. For
+// auto_execute today, and six of them therefore never reach Subject/Guards on
+// today's tiers. upsertPartner is the exception, and it is one TODAY: the §2.1
+// human-edit-precedence split stages it through both of splitHumanOwnedUpdate's
+// branches, each of which resolves its staged target through this same command
+// (agentsplit.go, and restCommands' own entry in compose/agentcommand.go says
+// the same). A tier floor (#982) tightening any of the other six makes this the
+// answer a human decides from, and the REST door has no other one to fall back
+// on. For
 // createOffer that matters on its face: the routed {id} is the DEAL the offer
 // is created ON, not an offer id, so anything reading the target off the route
 // would pair target_entity_type=offer with a deal's id — a target that
