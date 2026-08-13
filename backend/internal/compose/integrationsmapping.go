@@ -59,6 +59,10 @@ func toProviderConnection(c integrations.Connection) crmcontracts.ProviderConnec
 		Status:        crmcontracts.ProviderConnectionStatus(c.Status),
 		Configuration: cfg,
 		Credits:       credits,
+		// Ours, not theirs. The balance above is what the PROVIDER says is
+		// left; this is what this installation consumed, and the card must
+		// never let a reader take one for the other.
+		Spend: toProviderSpend(c.Spend),
 		// The ONLY credential fact that ever leaves: whether one is set.
 		CredentialPresent: c.CredentialPresent,
 		ConnectedAt:       c.ConnectedAt,
@@ -76,6 +80,23 @@ func toProviderConnection(c integrations.Connection) crmcontracts.ProviderConnec
 		out.Version = &v
 	}
 	return out
+}
+
+// toProviderSpend renders the consumption series. Always a value, never
+// absent: a card with no history yet shows an empty series and says so, where
+// an omitted field would read as "we do not track this".
+func toProviderSpend(months []integrations.MonthlySpend) *crmcontracts.ProviderSpend {
+	out := crmcontracts.ProviderSpend{Months: []crmcontracts.ProviderMonthlySpend{}}
+	for _, m := range months {
+		out.Months = append(out.Months, crmcontracts.ProviderMonthlySpend{
+			Month:          openapi_types.Date{Time: m.Month},
+			Pool:           m.Pool,
+			ChargedCredits: m.Charged,
+			HeldCredits:    m.Held,
+			Runs:           m.Runs,
+		})
+	}
+	return &out
 }
 
 // fromProviderConfig maps a connect body's optional configuration. Absent

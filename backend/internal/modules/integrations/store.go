@@ -100,13 +100,16 @@ type Connection struct {
 	RefreshAfterDays  *int
 	DailyRunLimit     *int
 	Budgets           []PoolBudget
-	Version           int64
-	SafeStatusCode    string
-	ConnectedAt       *time.Time
-	LastVerifiedAt    *time.Time
-	LastUsedAt        *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// Spend is what THIS installation consumed, per month per pool — our
+	// ledger, never the provider's balance beside it (PI-FORM-3).
+	Spend          []MonthlySpend
+	Version        int64
+	SafeStatusCode string
+	ConnectedAt    *time.Time
+	LastVerifiedAt *time.Time
+	LastUsedAt     *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // PoolBudget is one credit pool's ceiling, pause threshold and last known
@@ -134,6 +137,15 @@ func (s *Store) List(ctx context.Context) ([]Connection, error) {
 		}
 		for _, name := range s.registry.Names() {
 			if c, ok := rows[name]; ok {
+				// The card shows what the provider says is LEFT and what this
+				// installation SPENT side by side, so both arrive in one read
+				// — two round trips could show a balance and a history from
+				// different moments.
+				spend, err := s.readSpendHistory(ctx, tx, name)
+				if err != nil {
+					return err
+				}
+				c.Spend = spend
 				out = append(out, c)
 				continue
 			}

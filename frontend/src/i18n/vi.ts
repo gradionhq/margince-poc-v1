@@ -4361,6 +4361,15 @@ export const vi = {
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "Nhà cung cấp chưa cho biết số dư.",
   "provider.constraints": "Giới hạn đang áp dụng",
+  "provider.spend": "Chúng ta đã dùng bao nhiêu",
+  "provider.spend.hint":
+    "Ghi nhận của chính chúng ta về chi phí làm giàu dữ liệu. Đây không phải hoá đơn của nhà cung cấp — cùng số tín dụng đó có thể được tiêu qua ứng dụng của họ, nên hai con số lệch nhau là chuyện bình thường.",
+  "provider.spend.thisMonth": "Tháng này",
+  "provider.spend.charged":
+    "{pool}: {credits} tín dụng cho {count} lượt tra cứu",
+  "provider.spend.held":
+    "Trong đó {credits} đang bị giữ cho những lượt tra cứu mà chúng ta không bao giờ biết kết quả.",
+  "provider.spend.none": "Chưa mua gì cả.",
   "provider.mode": "Khi nào làm giàu",
   "provider.mode.automatic_on_create": "Ngay khi liên hệ được tạo",
   "provider.mode.on_demand": "Chỉ khi được yêu cầu",

@@ -4370,6 +4370,14 @@ export const en = {
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "The provider has not told us a balance yet.",
   "provider.constraints": "Limits in force",
+  "provider.spend": "What we have used",
+  "provider.spend.hint":
+    "Our own record of what enrichment consumed. Not the provider's invoice — the same credits can be spent through their app, so the two figures differ legitimately.",
+  "provider.spend.thisMonth": "This month",
+  "provider.spend.charged": "{pool}: {credits} credits over {count} lookups",
+  "provider.spend.held":
+    "{credits} of those are held against lookups whose outcome we never learned.",
+  "provider.spend.none": "Nothing has been bought yet.",
   "provider.mode": "When to enrich",
   "provider.mode.automatic_on_create": "As contacts are added",
   "provider.mode.on_demand": "Only when asked",
