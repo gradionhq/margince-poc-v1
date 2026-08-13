@@ -38,7 +38,7 @@ CREATE TABLE ext.ext_dispact_connector_connection (
     -- and a hardcoded host would also make the integration lane require
     -- egress. Stored per connection because it is the member's own workspace
     -- URL that their token authenticates against.
-    base_url        text        NOT NULL CHECK (base_url <> ''),
+    base_url        text        NOT NULL CHECK (length(base_url) > 0),
 
     -- Two states, and no more than the poll can honestly distinguish.
     -- `connected` is working; `reauth_required` is a provider 401 — the token

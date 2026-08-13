@@ -345,3 +345,73 @@ func TestACursorForAConnectionThatWentAwayIsNotResurrected(t *testing.T) {
 		t.Errorf("recorded %+v against a connection that is gone", rt.tx.audited)
 	}
 }
+
+// The tick end to end, through the one seam that has to be injectable: the
+// provider. Everything else here — the fleet loop, the per-member budget, the
+// credential read, the cursor write — is this unit's own logic, and until this
+// test nothing drove it.
+func TestATickPollsEveryConnectedMemberAndWritesTheirCursors(t *testing.T) {
+	provider := &fakeProvider{items: descending(dm(30), reaction(20), dm(10)), pageSize: maxPageSize}
+	api := provider.start(t)
+
+	rt := newRuntime().unattended()
+	rt.secrets.stored[callerUserID+"/"+tokenKey] = []byte("pat_abc")
+	// One connected member to read, then the row the cursor write returns.
+	rt.tx.queryRows = [][]any{connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, testBaseURL, statusConnected, 0, 0)}
+	rt.tx.singleRows = [][]any{connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, testBaseURL, statusConnected, 30, 0)}
+
+	if err := pollFleet(context.Background(), rt, func(string, string) (*client, error) { return api, nil }); err != nil {
+		t.Fatalf("pollFleet: %v", err)
+	}
+	if len(rt.ingested) != 2 {
+		t.Fatalf("ingested %d record(s), want the two directed messages", len(rt.ingested))
+	}
+	update, args := rt.tx.statementMentioning(t, "UPDATE")
+	if !strings.Contains(update, "high_water_mark") {
+		t.Fatalf("the tick wrote no cursor:\n%s", update)
+	}
+	if args[1] != int64(30) {
+		t.Errorf("floor written = %v, want the newest id decided about (30)", args[1])
+	}
+	// The version this poll READ is the precondition, so a member who
+	// reconnected mid-tick is not overwritten by what this one learned.
+	if args[len(args)-1] != 1 {
+		t.Errorf("the cursor write does not carry the version it read: %v", args)
+	}
+}
+
+// A member whose credential is gone cannot be polled, and the connection says
+// so rather than the tick failing: the credential IS the consent, so its
+// absence is a connection to repair, not an outage.
+func TestAMemberWithNoDepositedCredentialParksTheirConnection(t *testing.T) {
+	rt := newRuntime().unattended()
+	rt.tx.queryRows = [][]any{connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, testBaseURL, statusConnected, 0, 0)}
+	rt.tx.singleRows = [][]any{connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, testBaseURL, statusReauth, 0, 0)}
+
+	err := pollFleet(context.Background(), rt, func(string, string) (*client, error) {
+		t.Fatal("the poll reached a provider for a member with no credential")
+		return nil, nil
+	})
+	if err == nil {
+		t.Fatal("every connection failed and the tick reported success")
+	}
+	_, args := rt.tx.statementMentioning(t, "UPDATE")
+	if args[1] != statusReauth || args[2] != "token_rejected" {
+		t.Errorf("the connection was not parked with the reason: %v", args)
+	}
+}
+
+// A tick with nobody connected does nothing at all — the ordinary state of a
+// unit an installation has enabled and nobody has used yet.
+func TestATickWithNoConnectionsIsANoOp(t *testing.T) {
+	rt := newRuntime().unattended()
+	if err := pollFleet(context.Background(), rt, func(string, string) (*client, error) {
+		t.Fatal("the poll reached a provider with no connections to poll")
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("pollFleet: %v", err)
+	}
+	if len(rt.tx.audited) != 0 {
+		t.Errorf("recorded %+v for a tick with nothing to do", rt.tx.audited)
+	}
+}

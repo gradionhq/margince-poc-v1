@@ -116,3 +116,27 @@ func TestIsCanonicalUUID(t *testing.T) {
 		}
 	}
 }
+
+// The scan walks arrays as well as objects, so a repetition inside an array
+// ELEMENT is caught too — and an array of plain values is not mistaken for a
+// set of member names.
+func TestDecodeArgsWalksArrayElements(t *testing.T) {
+	type element struct {
+		Name string `json:"name"`
+	}
+	type withList struct {
+		Items []element `json:"items"`
+	}
+	if _, err := extension.DecodeArgs[withList](json.RawMessage(`{"items":[{"name":"a"},{"name":"b"}]}`)); err != nil {
+		t.Fatalf("an ordinary array of objects was refused: %v", err)
+	}
+	if _, err := extension.DecodeArgs[withList](json.RawMessage(`{"items":[{"name":"a","name":"b"}]}`)); err == nil {
+		t.Fatal("a member repeated inside an array element was accepted")
+	}
+	type withStrings struct {
+		Tags []string `json:"tags"`
+	}
+	if _, err := extension.DecodeArgs[withStrings](json.RawMessage(`{"tags":["a","a"]}`)); err != nil {
+		t.Fatalf("a repeated VALUE in an array was refused: %v — only member names may not repeat", err)
+	}
+}

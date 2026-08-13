@@ -37,6 +37,21 @@ import (
 // class and the next tick tries again — a token that was revoked this morning
 // must not be the reason nobody else's messages arrive.
 func pollInbox(ctx context.Context, rt extension.Runtime) error {
+	return pollFleet(ctx, rt, newClient)
+}
+
+// clientFactory is how a poll reaches a provider.
+//
+// It is a parameter rather than a call to newClient inside pollConnection
+// because the provider is this unit's ONE true boundary — the HTTP the
+// production constructor wraps in the egress guard, which refuses loopback by
+// design and therefore refuses a test's own listener. Everything above it (the
+// fleet loop, the per-member budget, the cursor write, the failure note) is
+// this unit's own logic and is driven end to end through this seam.
+type clientFactory func(base, token string) (*client, error)
+
+// pollFleet is the tick's whole behaviour, with the provider boundary injected.
+func pollFleet(ctx context.Context, rt extension.Runtime, dial clientFactory) error {
 	connections, err := connectedMembers(ctx, rt)
 	if err != nil {
 		return err
@@ -47,7 +62,7 @@ func pollInbox(ctx context.Context, rt extension.Runtime) error {
 		// deadline below is per CONNECTION, so what a stall costs is that
 		// member's turn rather than everybody after them in the list.
 		memberCtx, done := context.WithTimeout(ctx, perConnectionBudget)
-		pollErr := pollConnection(memberCtx, rt, conn)
+		pollErr := pollConnection(memberCtx, rt, conn, dial)
 		done()
 		if pollErr == nil {
 			continue
@@ -116,8 +131,8 @@ func connectedMembers(ctx context.Context, rt extension.Runtime) ([]connection, 
 }
 
 // pollConnection reads one member's inbox and lands what they were directed at.
-func pollConnection(ctx context.Context, rt extension.Runtime, conn connection) error {
-	api, member, err := providerFor(ctx, rt, conn)
+func pollConnection(ctx context.Context, rt extension.Runtime, conn connection, dial clientFactory) error {
+	api, member, err := providerFor(ctx, rt, conn, dial)
 	if err != nil {
 		return err
 	}
@@ -176,7 +191,7 @@ func fillGap(ctx context.Context, rt extension.Runtime, api *client, conn connec
 // key, and it is the SAME deposit the ingress port reads as this member's
 // consent to be acted for — so a connection whose credential is gone cannot
 // poll, and would be refused at the port even if it tried.
-func providerFor(ctx context.Context, rt extension.Runtime, conn connection) (*client, providerUser, error) {
+func providerFor(ctx context.Context, rt extension.Runtime, conn connection, dial clientFactory) (*client, providerUser, error) {
 	token, err := rt.Secrets().GetUser(ctx, extension.UserID(conn.UserID), tokenKey)
 	if err != nil {
 		if errors.Is(err, extension.ErrSecretNotFound) {
@@ -184,7 +199,7 @@ func providerFor(ctx context.Context, rt extension.Runtime, conn connection) (*c
 		}
 		return nil, providerUser{}, err
 	}
-	api, err := newClient(conn.BaseURL, string(token))
+	api, err := dial(conn.BaseURL, string(token))
 	if err != nil {
 		return nil, providerUser{}, err
 	}

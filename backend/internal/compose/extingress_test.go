@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -407,5 +408,33 @@ func TestIngressMapsRefusalsAndLeaksNoDetail(t *testing.T) {
 	}
 	if strings.Contains(mapped.Error(), "activity") || strings.Contains(mapped.Error(), "constraint") {
 		t.Errorf("the core's own error text reached the unit: %v", mapped)
+	}
+}
+
+// The boot preflight, which is where a declaration an operator will read is
+// held to the published grammar — and where two entries for one provenance
+// namespace are refused, since which of them the port answers from would
+// otherwise be declaration order.
+func TestThePreflightHoldsIngressDeclarationsToTheirGrammar(t *testing.T) {
+	valid := extension.Extension{
+		Name: "probe-unit", Version: "1.0.0",
+		Ingress: []extension.IngressSource{{
+			System: "probe-system", Lands: []extension.RecordKind{extension.KindActivity},
+		}},
+	}
+	if err := preflightIngress(valid); err != nil {
+		t.Fatalf("a well-formed declaration was refused: %v", err)
+	}
+
+	twice := valid
+	twice.Ingress = append(slices.Clone(valid.Ingress), valid.Ingress[0])
+	if err := preflightIngress(twice); err == nil {
+		t.Error("one system declared twice was accepted")
+	}
+
+	ungrammatical := valid
+	ungrammatical.Ingress = []extension.IngressSource{{System: "Probe System"}}
+	if err := preflightIngress(ungrammatical); err == nil {
+		t.Error("a system key the published grammar refuses was accepted")
 	}
 }
