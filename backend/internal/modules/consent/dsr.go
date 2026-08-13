@@ -13,6 +13,7 @@ package consent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -86,20 +87,29 @@ var dsrTransitions = map[string]map[string]bool{
 	"in_progress": {"fulfilled": true, "rejected": true},
 }
 
-// requireDSRAdmin gates the DSR case queue. A request row names a data
-// subject (subject_ref is their email/name), so beyond the person grant
-// the caller must be a human with an unbounded row scope — the same bar
-// ListAuditLog carries. A scoped rep must not enumerate or read the queue
-// of everyone else's data-subject requests.
+// requireDSRAdmin gates the DSR case queue, and the name is the rule: a
+// request row names a data subject (subject_ref is their email or name)
+// alongside the statutory deadline and the resolution, so the queue discloses
+// who exercised an Art. 15/17 right and what was decided about them.
+//
+// Admin, not merely an unbounded row scope. Scope answers "which rows may this
+// caller see", never "may this caller see this surface" — and three seeded
+// roles hold `all`, so an unbounded check handed the whole queue to read_only,
+// the least-privileged role in the matrix. Subject-access fulfilment is
+// admin-mediated, and reading the queue is how it is mediated.
+//
+// A human besides: an agent acting under an admin's passport inherits that
+// admin's live grants, so without this arm a read-scoped passport would
+// enumerate every data subject who ever filed against the workspace.
 func requireDSRAdmin(ctx context.Context, action principal.Action) error {
 	if err := auth.Require(ctx, "person", action); err != nil {
 		return err
 	}
 	actor, ok := principal.Actor(ctx)
-	if !ok || actor.Type != principal.PrincipalHuman || !auth.Unbounded(actor) {
-		return apperrors.ErrPermissionDenied
+	if !ok || actor.Type != principal.PrincipalHuman {
+		return fmt.Errorf("human-only subject-request queue: %w", apperrors.ErrPermissionDenied)
 	}
-	return nil
+	return auth.RequireAdmin(ctx)
 }
 
 // dsrListQuery assembles the keyset-paged queue SQL and its args: an optional

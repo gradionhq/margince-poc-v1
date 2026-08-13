@@ -27,7 +27,13 @@ import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan, useCanWrite, useHoldsWriteGrant } from "../app/capability";
+import {
+  useCan,
+  useCanWrite,
+  useHoldsAdminRole,
+  useHoldsConsentAdminRole,
+  useHoldsWriteGrant,
+} from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
@@ -265,7 +271,6 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 // back — so the `||` sits on the results, never around the calls, and no hook
 // may move into the filter over the tab list.
 function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
-  const me = useMe();
   const capabilities = useCompanyContextCapabilities();
   const pipeline = useHoldsWriteGrant("pipeline");
   const product = useHoldsWriteGrant("product");
@@ -284,9 +289,8 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // The capture tab carries the own-email-domain list, whose writes gate on
   // capture_settings:update — the same grant the card's controls ask for.
   const canEditCapture = useCanWrite("capture_settings", "update");
-  const isOrgAdmin = (me.data?.roles ?? []).some(
-    (role) => role === "admin" || role === "ops",
-  );
+  const isAdmin = useHoldsAdminRole();
+  const isConsentAdmin = useHoldsConsentAdminRole();
   return {
     catalog: pipeline || product || offerTemplate,
     rates: fxRate || aiModelRate,
@@ -296,19 +300,20 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // is gated on organization writes, and the flag says whether the surface
     // exists on this installation at all.
     company: organization && (capabilities.data?.read_enabled ?? false),
-    users: isOrgAdmin,
-    // Extension access sits beside Users for the same reason and on the same
-    // predicate: editing role permissions is an admin surface the server gates
-    // on the role, and a `role` RBAC object was considered and DECLINED. Object
-    // RBAC exists to narrow who AMONG PEERS may touch a record, and there is no
-    // such narrowing here — nobody but an admin should ever hold it, so the
-    // grant map would encode a constant. It would also be circular: an admin
-    // who revoked their own grant on `role` could never restore it. The waivers
-    // for ListUsers/ListTeams put identity administration on the same footing
-    // deliberately. So the role IS the predicate here, permanently.
-    extensions: isOrgAdmin,
-    privacy: isOrgAdmin,
-    audit: isOrgAdmin,
+    users: isAdmin,
+    // Extension access sits beside Users on the same predicate: editing role
+    // permissions is an admin surface the server gates on the role, and no RBAC
+    // object describes it. The three of them are admin-ONLY, not admin-or-ops:
+    // the server refuses ops on every one, so including it rendered three tabs
+    // that either dead-ended on a refusal state or, in the audit log's case,
+    // handed over a compliance read the governance matrix reserves.
+    extensions: isAdmin,
+    // Privacy is the one that genuinely differs. The consent purpose registry
+    // is an Admin/Ops surface; the subject-request queue beside it is the
+    // admin's. Ops therefore reaches the tab and finds the registry, while the
+    // queue inside gates itself.
+    privacy: isConsentAdmin,
+    audit: isAdmin,
     // Overlay is exempt, and stays exempt: the system-of-record chip in the
     // topbar is deliberately shown to EVERY seat and points here, so hiding
     // the tab would strand any non-admin who follows it on the Account
@@ -919,7 +924,7 @@ type ResetSummary =
 function ResetDataCard() {
   const t = useT();
   const me = useMe();
-  const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const isAdmin = useHoldsAdminRole();
   const workspaceName = me.data?.workspace_name ?? "";
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");

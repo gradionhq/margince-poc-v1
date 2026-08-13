@@ -157,3 +157,48 @@ export function useCanUpsert(object: RbacObject): boolean {
   const mutable = useCanMutate();
   return (create || update) && mutable;
 }
+
+/**
+ * Whether the principal holds the `admin` role.
+ *
+ * Reading a role key is the re-derivation everything above exists to avoid, so
+ * this is the deliberate exception and its scope is fixed: identity
+ * administration, role grants, the extension inventory, the audit read, and the
+ * non-production reset. Those routes gate on the role SERVER-SIDE and no RBAC
+ * object describes them — a `role` object would encode a constant, and an admin
+ * who revoked their own grant on it could never restore it — so the role is
+ * their honest predicate rather than a stand-in for one.
+ *
+ * It is one function so the predicate cannot drift. Before this, four call
+ * sites in three files asked the question in two spellings, and the wider one
+ * (`admin || ops`) rendered surfaces the server then refused.
+ *
+ * The seat ceiling is deliberately absent: an admin on a read seat still READS
+ * the member roster and the audit trail, and each mutating control inside these
+ * surfaces asks `useCanMutate` for itself.
+ *
+ * Any OTHER surface reaching for this instead of a grant is a bug.
+ */
+export function useHoldsAdminRole(): boolean {
+  return (useMe().data?.roles ?? []).includes("admin");
+}
+
+/**
+ * Whether the principal may administer consent configuration — `admin` or
+ * `ops`.
+ *
+ * Separate from `useHoldsAdminRole` because the authority genuinely differs:
+ * the consent purpose registry is an Admin/Ops surface, while the subject-request
+ * queue beside it and the audit log are the admin's alone. Collapsing the two
+ * into one predicate is what put an Ops seat in front of surfaces the server
+ * refuses.
+ *
+ * This one is interim in a way the admin predicate is not. `consent_config` IS
+ * a governed object upstream; it is simply absent from the shipped `RbacObject`
+ * vocabulary, so there is no grant to ask for yet. When it lands, this becomes
+ * `useHoldsWriteGrant("consent_config")` and disappears.
+ */
+export function useHoldsConsentAdminRole(): boolean {
+  const roles = useMe().data?.roles ?? [];
+  return roles.includes("admin") || roles.includes("ops");
+}

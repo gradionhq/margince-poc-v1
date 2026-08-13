@@ -951,14 +951,35 @@ describe("SettingsScreen Organization group", () => {
     );
   });
 
-  it("gives ops the three objectless tabs while it holds no object grant at all", async () => {
-    // The mirror of the case above: those three surfaces have no RBAC object
-    // for a grant to name, so the role is what the server checks and what the
-    // nav must check. Installation is deliberately NOT among them: it carries
-    // its own `installation_settings` object (ADR-0090/A135), so it follows
-    // the grant like catalog and rates do, and an ops principal holding no
-    // object grant does not get it.
+  it("gives ops only the objectless tab its role actually holds", async () => {
+    // Those surfaces have no RBAC object for a grant to name, so the role is
+    // what the server checks and what the nav must check — but the roles are
+    // not interchangeable. User administration, the extension inventory and
+    // the compliance audit read are admin-ONLY: the server refuses ops on all
+    // three, so offering them rendered two tabs that dead-ended on a refusal
+    // state and one that handed over a read the governance matrix reserves.
+    // Consent configuration is the genuine Admin/Ops surface, so Privacy is
+    // the one that survives.
+    //
+    // Installation is deliberately absent too: it carries its own
+    // `installation_settings` object (ADR-0090/A135), so it follows the grant
+    // like catalog and rates do, and an ops principal holding no object grant
+    // does not get it.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
+    renderNav();
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "Privacy & consent",
+        "Overlay",
+      ]),
+    );
+  });
+
+  it("keeps user administration, extensions and the audit read for the admin alone", async () => {
+    // The other half of the split above, asserted from the admin's side so a
+    // future widening of the predicate fails here rather than in production.
+    vi.stubGlobal("fetch", orgNavBackend({ roles: ["admin"] }));
     renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([

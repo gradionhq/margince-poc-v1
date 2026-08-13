@@ -7,6 +7,7 @@ import {
 import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useHoldsAdminRole } from "../app/capability";
 import {
   Badge,
   Button,
@@ -831,12 +832,19 @@ export function PrivacyInboxCard() {
     resolution: string;
   } | null>(null);
 
+  // The queue is the admin's: its rows name data subjects who exercised an
+  // Art. 15/17 right, so the read is gated rather than merely rendered. The
+  // fetch is disabled for anyone else, which keeps a non-admin who reaches the
+  // tab for its consent registry from issuing a call that only 403s.
+  const isAdmin = useHoldsAdminRole();
+
   // The facet is server-side (part of the queryKey and the query param), not
   // a client re-slice of one big page — a re-slice would hide rows the
   // server never told the pager about, breaking `has_more`/`next_cursor`
   // (the house rule at history.tsx:258).
   const query = useInfiniteQuery({
     queryKey: ["dsrs", facet],
+    enabled: isAdmin,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/data-subject-requests", {
@@ -869,7 +877,17 @@ export function PrivacyInboxCard() {
   // list here; filtering happens server-side so an empty page after a facet
   // change is a real "nothing matches", not a client-side hide.
   let body: ReactNode;
-  if (query.isPending) {
+  if (!isAdmin) {
+    // Withheld rather than absent: the card keeps its place on a tab an ops
+    // seat reaches for the consent registry, and says why it is empty. An
+    // absent card there would read as "no requests", which is a different
+    // claim entirely.
+    body = (
+      <EmptyState>
+        <p className="t-small">{t("privacy.inboxAdminOnly")}</p>
+      </EmptyState>
+    );
+  } else if (query.isPending) {
     body = (
       <div
         style={{

@@ -13,6 +13,7 @@ package privacy
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -80,18 +81,29 @@ type SARPackage struct {
 	SentMessages []map[string]any `json:"sent_messages"`
 }
 
-// AssembleSAR builds the package. It is a privileged read: the caller
-// needs the person.delete grant (the same trust level erasure needs)
-// AND an unbounded row scope — see the admin check below.
+// AssembleSAR builds the package. It is a privileged read: the caller must be
+// a human holding the person.delete grant (the same trust level erasure needs)
+// over an unbounded row scope — see the checks below.
 func AssembleSAR(ctx context.Context, db *database.DB, personID ids.PersonID) (SARPackage, error) {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return SARPackage{}, err
 	}
-	// Admin-mediated means ADMIN: the assembly deliberately crosses the
-	// caller's row scope (Art. 15 owes the subject everything, not the
-	// slice one rep may see), so only an unbounded scope may run it.
+	// Human-only, for the reason the grant above cannot express: an agent
+	// acting under a passport carries the granting human's live grants, so an
+	// admin's read-scoped passport would otherwise assemble a subject's entire
+	// Art. 15 package — every activity, capture row, correction and outbound
+	// message. Nothing wires this to a route yet, and the arm goes in now
+	// rather than being discovered missing by whoever does.
 	actor, ok := principal.Actor(ctx)
-	if !ok || !auth.Unbounded(actor) {
+	if !ok || actor.Type != principal.PrincipalHuman {
+		return SARPackage{}, fmt.Errorf("human-only subject-access assembly: %w", apperrors.ErrPermissionDenied)
+	}
+	// The assembly deliberately crosses the caller's row scope — Art. 15 owes
+	// the subject everything held, not the slice one rep may see — so a bounded
+	// caller cannot run it. Scope is the second condition, not a stand-in for
+	// authority: the person.delete grant above is what limits this to the roles
+	// trusted with erasure, and it is what keeps read_only out.
+	if !auth.Unbounded(actor) {
 		return SARPackage{}, apperrors.ErrPermissionDenied
 	}
 	var pkg SARPackage
