@@ -88,6 +88,7 @@ export const en = {
   "nav.search": "Search results",
 
   "shell.railAria": "Primary navigation",
+  "shell.skipToContent": "Skip to content",
   "shell.logoAria": "Margince",
   "shell.search": "Search",
   "shell.signOutAria": "Sign out",
@@ -341,6 +342,7 @@ export const en = {
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
+  "common.loading": "Loading…",
 
   // The app-level boundary's fallback. It says what happened and what to do
   // next, and nothing about the error itself: a render throw carries our own
@@ -404,7 +406,7 @@ export const en = {
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
   "overlay.chipAria":
-    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Connections to manage the connection.",
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
   "overlay.filterUnsupported":
@@ -422,7 +424,8 @@ export const en = {
   "overlay.loadFailed": "Couldn't load the incumbent connection.",
   "overlay.empty":
     "No incumbent is connected. Connect HubSpot to read records from its mirror.",
-  "overlay.adminOnly": "You do not have permission to connect HubSpot.",
+  "overlay.adminOnly":
+    "You do not have permission to change the HubSpot connection.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "United States",
@@ -1695,9 +1698,10 @@ export const en = {
     "Mint a passport in Settings and point any MCP-capable agent at your workspace. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
 
-  "settings.identity": "You",
+  "settings.identity": "Profile",
   "settings.preferences": "Preferences",
-  "settings.preferencesSub": "Theme and language, for this browser.",
+  "settings.preferencesSub":
+    "Theme is remembered in this browser. Language lasts for this session.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Rep",
@@ -1711,6 +1715,15 @@ export const en = {
   "settings.passports": "Agent passports",
   "settings.passportsSub":
     "an agent acts as you, never above you — every call re-checks your RBAC",
+  // What each passport scope admits, in words. The wire carries `read`/`draft`/
+  // `write`/`send`/`enrich`; a human granting them is choosing what an agent may
+  // do on their behalf, and the protocol token alone does not say — "write" and
+  // "send" read as near-synonyms until one of them names the mailbox.
+  "passport.scope.read": "Read records",
+  "passport.scope.draft": "Draft messages",
+  "passport.scope.write": "Change records",
+  "passport.scope.send": "Send messages",
+  "passport.scope.enrich": "Buy contact data",
   "passport.select": "Passport",
   "passport.noneOption": "No passport",
   "settings.passportsLendHint":
@@ -1752,15 +1765,62 @@ export const en = {
   "settings.tierAdvance": "Advance a deal stage — always confirm-first.",
   "settings.locked": "locked",
   "settings.purposes": "Consent purposes",
+  "settings.purposesSub":
+    "What this installation asks consent for, and which lawful basis each purpose stands on.",
   "settings.created": "created {date}",
   "settings.expires": "expires {date}",
   "settings.revoked": "revoked",
   "settings.revoke": "Revoke",
   "settings.revokeConfirm":
     "This passport's credential is invalidated immediately — the agent loses access on its next call.",
+  "import.title": "Import a file",
+  "import.sub":
+    "Bring a CSV of prospects or companies into the estate. Nothing is written until you have read what it will do.",
+  "import.objectLabel": "What the rows are",
+  "import.object.lead": "Prospects",
+  "import.object.organization": "Companies",
+  "import.objectHint.lead":
+    "Bulk prospects land as leads for a human to qualify — never as contacts.",
+  "import.objectHint.organization":
+    "Companies are matched by the name you map, so a re-upload corrects rather than duplicates.",
+  "import.fileLabel": "The CSV to import",
+  "import.choose": "Choose a file",
+  "import.chooseAnother": "Choose a different file",
+  "import.profiled": "Read from the first {rows} rows of the file.",
+  "import.col.column": "Column",
+  "import.col.filled": "Filled",
+  "import.col.samples": "Values",
+  "import.col.destination": "Goes to",
+  "import.dontImport": "Don't import",
+  "import.noSamples": "empty",
+  "import.destinationFor": "Where {column} goes",
+  "import.identifiedBy":
+    "Rows are identified by {column}, so re-importing this file updates rather than duplicates.",
+  "import.needsIdentifier":
+    "Map a column to {field}. Without it no row can be recognized on a second upload, or undone.",
+  "import.validate": "Check what this will do",
+  "import.validating": "Checking…",
+  "import.previewTitle": "What this import will do",
+  "import.outcomeTitle": "What this import did",
+  "import.count.created": "Create",
+  "import.count.updated": "Update",
+  "import.count.unchanged": "Unchanged",
+  "import.count.skipped": "Skipped",
+  "import.rowsRead": "{rows} rows read, identified by {column}.",
+  "import.issuesLead":
+    "Some rows cannot be imported. They are listed with the line to open in your file.",
+  "import.issueLine": "Line {line}:",
+  "import.commit.one": "Import 1 row",
+  "import.commit.other": "Import {rows} rows",
+  "import.importing": "Importing…",
+  "import.done": "The import finished.",
+  "import.failed":
+    "The import stopped after {checkpoint} rows. Resuming continues from there rather than starting again.",
+  "import.resume": "Resume the import",
+  "import.another": "Import another file",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
-    "non-production only — irreversible on this installation",
+    "Non-production only — irreversible on this installation.",
   "settings.resetDataDesc":
     "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
   "settings.resetDataButton": "Reset data…",
@@ -1775,7 +1835,7 @@ export const en = {
     "A background job was still running when the reset began. It will fail against the wiped data — harmless, but expect one error in the log.",
 
   "settings.jobs": "Background jobs",
-  "settings.jobsSub": "what the queue is holding, and whose work failed",
+  "settings.jobsSub": "What the queue is holding, and whose work failed.",
   "jobs.adminOnly":
     "Only an admin can see background-job health. It reports work across the whole installation, so it is not shown more widely.",
   "jobs.empty":
@@ -1839,6 +1899,8 @@ export const en = {
   "settings.due": "due {date}",
 
   "privacy.addPurpose": "Add purpose",
+  "privacy.purposesReadOnly":
+    "Read-only view — only an admin or ops can add a purpose.",
   "privacy.purposeKey": "Key",
   "privacy.purposeLabel": "Label",
   "privacy.purposeDoi": "Requires double opt-in",
@@ -1886,6 +1948,8 @@ export const en = {
   "retention.retainOnlyHelp":
     "While this is on, this installation destroys nothing: no anonymising and no erasing, whatever a policy below says. Archiving still runs — an archived record is kept, not destroyed.",
   "retention.adminOnly": "Only an admin or ops can change retention.",
+  "retention.withheld":
+    "Only an admin or ops can see the retention ladder. It sets what this installation keeps for everybody, so it is not shown more widely.",
   "retention.addPolicy": "Add policy",
   "retention.create": "Create policy",
   "retention.scope": "Applies to",
@@ -1928,7 +1992,10 @@ export const en = {
   "retention.scopeAiCallPayloadContent": "AI call payloads",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub": "Configure pipelines and their stages.",
+  "settings.pipelinesReadOnly":
+    "Read-only view — you may not change pipelines or their stages.",
+  "settings.pipelinesSub":
+    "The stages a deal moves through, one ladder per pipeline.",
   "pipeline.new": "New pipeline",
   "pipeline.edit": "Edit pipeline",
   "pipeline.name": "Name",
@@ -2242,7 +2309,7 @@ export const en = {
   "ob.s4.connectLive": "Live and capturing",
   "ob.s4.connectConfirmFailed": "We couldn't confirm the connection.",
   "ob.s4.connectRetry":
-    "Head to Settings → Integrations to try connecting again.",
+    "Head to Settings → Connections to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
   "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
@@ -2315,7 +2382,7 @@ export const en = {
     "A wider window already ran for this mailbox; the import window can only be widened, not narrowed.",
   "backfill.staleUpdated": "Last updated {duration} ago — no recent progress.",
 
-  // Connected inboxes (Settings → Integrations): the "manage in Settings"
+  // Connected inboxes (Settings → Connections): the "manage in Settings"
   // surface the onboarding copy promises.
   "connectors.title": "Connected inboxes",
   "connectors.sub":
@@ -3465,12 +3532,19 @@ export const en = {
   // The settings level, in the order the sidebar prints it. "General" rather
   // than "Organization" for the first org entry: the group heading above it
   // already says that word, and a row repeating its own heading names nothing.
+  // The same reason keeps the possessive off "Agents" — the group is "You".
+  //
+  // "Connections" and "Integrations" are the same distinction the two groups
+  // are: the mailbox and the network a PERSON connected, against the outside
+  // systems the INSTALLATION is wired to. One row carried both before, which
+  // is why it had to be ungated to keep a rep's own mailbox reachable.
   "settings.tab.account": "Account",
-  "settings.tab.voice": "Voice",
-  "settings.tab.agents": "Your agents",
+  "settings.tab.voice": "Writing voice",
+  "settings.tab.agents": "Agents",
+  "settings.tab.connections": "Connections",
   "settings.tab.general": "General",
   "settings.tab.people": "People & access",
-  "settings.tab.connections": "Connections",
+  "settings.tab.integrations": "Integrations",
   "settings.tab.capture": "Capture",
   "settings.tab.data-model": "Data model",
   "settings.tab.ai": "AI",
@@ -3481,6 +3555,12 @@ export const en = {
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":
     "Exchange rates that convert foreign-currency amounts to your base currency. New rates take effect today or later; past rates are never changed.",
+  "settings.rates.fxWithheld":
+    "Only an admin or ops can see the currency rates. They are the conversion every roll-up in the installation is built on, so they are not shown more widely.",
+  "settings.rates.modelWithheld":
+    "Only an admin or ops can see what each model costs. The prices are operator information, so they are not shown more widely.",
+  "settings.rates.readOnly":
+    "Read-only view — you do not have permission to change rates.",
   "settings.rates.fxAdd": "Set rate",
   "settings.rates.fxEmpty": "No currency rates yet.",
   "settings.rates.fxModalTitle": "Set a currency rate",
@@ -3690,6 +3770,8 @@ export const en = {
   "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
+  "settings.companyReadOnly":
+    "Read-only view — changing the company profile needs an organization write.",
   "settings.companySub":
     "Keep the shared business context behind drafting, offers, search, and governed agents accurate. Every statement stays tied to who supplied it and where it came from.",
   "settings.companyTrust":
@@ -3733,6 +3815,7 @@ export const en = {
   "settings.companyCreateWorkspace": "Create company context",
   "product.title": "Products",
   "product.settingsSub": "Rate-card entries that offer lines snapshot from.",
+  "product.readOnly": "Read-only view — you may not change products.",
   "product.new": "New product",
   "product.edit": "Edit product",
   "product.archive": "Archive product",
@@ -3756,6 +3839,7 @@ export const en = {
 
   "template.title": "Offer templates",
   "template.settingsSub": "Branded DE/EN PDF layouts for offers.",
+  "template.readOnly": "Read-only view — you may not change offer templates.",
   "template.new": "New template",
   "template.edit": "Edit template",
   "template.archive": "Archive template",
@@ -3787,6 +3871,8 @@ export const en = {
   "tools.unreachable": "scope not granted",
 
   "aiusage.title": "AI usage & budget",
+  "aiusage.withheld":
+    "Only an operator can see what the AI runtime spent. The figures cover the whole installation, so they are not shown more widely.",
   "aiusage.sub":
     "Your own bill, made visible — per task and tier, token-denominated.",
   "aiusage.budget": "{spent} of {budget} tokens · {pct}%",
@@ -3816,6 +3902,8 @@ export const en = {
   "aibanner.dismiss": "Dismiss",
 
   "aicalls.title": "AI call trace",
+  "aicalls.withheld":
+    "Only an operator can read the per-call trace. It records every model call the installation made, so it is not shown more widely.",
   "aicalls.sub":
     "Every model call — routing identity, tokens, retries, captured payload.",
   "aicalls.col.detail": "Detail",
@@ -3929,7 +4017,7 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
-  "installationSettings.orgTitle": "Organization",
+  "installationSettings.orgTitle": "Installation",
   "installationSettings.orgSub":
     "What this installation is called, and the zone every reporting period is computed in.",
   "installationSettings.currencyTitle": "Currency",
@@ -3946,8 +4034,10 @@ export const en = {
     "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
   "installationSettings.baseCurrencyLocked":
     "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
+  "installationSettings.readOnly":
+    "Only an admin or ops can change these settings.",
   "installationSettings.save": "Save",
-  "captureSettings.title": "Capture",
+  "captureSettings.title": "Enrichment",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",
   "captureSettings.autoEnrich.label": "Auto-enrich captured companies",
@@ -3962,6 +4052,7 @@ export const en = {
   "ownDomains.irreversible":
     "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
   "ownDomains.fromCompany": "From the company profile. Change them there:",
+  "ownDomains.openCompany": "Open the company profile",
   "ownDomains.empty":
     "No further domains registered. Add one if your company also writes from another domain.",
   "ownDomains.confirmed": "confirmed",
@@ -3972,6 +4063,8 @@ export const en = {
   "ownDomains.remove": "Remove {domain}",
 
   "webhooks.title": "Webhooks",
+  "webhooks.readOnly":
+    "Read-only view — only an admin or ops can change subscriptions.",
   "webhooks.sub":
     "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",
   "webhooks.new": "New subscription",
@@ -4026,6 +4119,8 @@ export const en = {
   "embedreindex.title": "Search index",
   "embedreindex.sub":
     "The embedding store's reindex status — admin/ops only, including viewing it.",
+  "embedreindex.withheld":
+    "Only an admin or ops can see the search index. Rebuilding it spends tokens for the whole installation, so its status is not shown more widely.",
   "embedreindex.loading": "Checking index status…",
   "embedreindex.statusUnavailable": "Index status is not available right now.",
   "embedreindex.statusIdle": "Up to date",
@@ -4379,6 +4474,8 @@ export const en = {
   // vocabulary — the Settings card and the person page — so a state reads
   // the same wherever it appears.
   "provider.title": "Contact data",
+  "provider.readOnly":
+    "Read-only view — connecting a provider spends money, so it is an admin or ops action.",
   "provider.sub":
     "Buy verified contact details for the people in your CRM. You pay the provider in credits; what you spend here is shown below.",
   "provider.notConfigured":

@@ -1,7 +1,9 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { useCanWrite } from "../app/capability";
 import { Badge, SectionHeader } from "../design-system/atoms";
+import type { ListColumn } from "../design-system/listtable";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -87,6 +89,14 @@ const TEMPLATE_FIELDS: CreateField[] = [
  */
 export function OfferTemplatesAdmin() {
   const t = useT();
+  // One grant per affordance, named for the request it issues: New POSTs, Edit
+  // PUTs, Archive DELETEs. `useCanWrite` rather than `useCan` because all three
+  // mutate, and the licensing seat is clamped on the HTTP method before RBAC is
+  // reached — a read seat holding offer_template:update would otherwise open an
+  // editor whose every save is refused.
+  const canCreate = useCanWrite("offer_template", "create");
+  const canUpdate = useCanWrite("offer_template", "update");
+  const canArchive = useCanWrite("offer_template", "delete");
   const list = useListQuery<OfferTemplate>({
     key: "offer-templates",
     fetchPage: fetchTemplatesPage,
@@ -133,24 +143,86 @@ export function OfferTemplatesAdmin() {
       return data;
     };
 
+  // The per-row affordances, in a column that exists only while at least one of
+  // them does: an emptied actions column would still take width, carry a header
+  // and appear in the column picker, which reads as a table that lost its
+  // buttons rather than as a permission.
+  const rowActions: ListColumn<OfferTemplate> = {
+    key: "actions",
+    header: t("table.actions"),
+    cell: (tpl: OfferTemplate) => (
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        {canUpdate && (
+          <EditAction
+            label={t("template.edit")}
+            invalidate="offer-templates"
+            recordKey="offer-template"
+            record={{
+              ...tpl,
+              is_default: String(tpl.is_default),
+              // layout is already an index signature on the contract type, so
+              // its members read straight off it — a cast here would only be
+              // re-asserting what the schema states.
+              header: tpl.layout.header ?? "",
+              footer: tpl.layout.footer ?? "",
+            }}
+            update={updateTemplate(tpl)}
+            fields={TEMPLATE_FIELDS}
+          />
+        )}
+        {canArchive && (
+          <ArchiveAction
+            label={t("template.archive")}
+            confirmText={t("template.archiveConfirm")}
+            invalidate="offer-templates"
+            recordKey="offer-template"
+            onArchived={() => list.refetch()}
+            archive={async () => {
+              const { data, error } = await api.DELETE(
+                "/offer-templates/{id}",
+                { params: { path: { id: tpl.id } } },
+              );
+              if (error) {
+                throwProblem(error);
+              }
+              return data ?? tpl;
+            }}
+          />
+        )}
+      </div>
+    ),
+  };
+
   return (
     <>
       <SectionHeader
         title={t("template.title")}
         sub={t("template.settingsSub")}
       />
+      {/* Stated once for the whole section (design-system README, "Absent,
+          disabled, or withheld"): a readable list whose editors are all withheld
+          has to say so, or their absence reads as a claim about the list rather
+          than about authority. A reader holding one write verb needs no notice —
+          the affordance they keep says what they may do. */}
+      {!canCreate && !canUpdate && !canArchive && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("template.readOnly")}
+        </p>
+      )}
       <ListTable
         state={list}
         unit="unit.offerTemplates"
         searchable={false}
         action={
-          <CreateAction
-            label={t("template.new")}
-            invalidate="offer-templates"
-            screen="offer-templates"
-            create={createTemplate}
-            fields={TEMPLATE_FIELDS}
-          />
+          canCreate ? (
+            <CreateAction
+              label={t("template.new")}
+              invalidate="offer-templates"
+              screen="offer-templates"
+              create={createTemplate}
+              fields={TEMPLATE_FIELDS}
+            />
+          ) : undefined
         }
         columns={[
           {
@@ -175,47 +247,7 @@ export function OfferTemplatesAdmin() {
                 <Badge tone="success">{t("template.isDefault")}</Badge>
               ) : null,
           },
-          {
-            key: "actions",
-            header: t("table.actions"),
-            cell: (tpl: OfferTemplate) => (
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <EditAction
-                  label={t("template.edit")}
-                  invalidate="offer-templates"
-                  recordKey="offer-template"
-                  record={{
-                    ...tpl,
-                    is_default: String(tpl.is_default),
-                    // layout is already an index signature on the contract
-                    // type, so its members read straight off it — a cast here
-                    // would only be re-asserting what the schema states.
-                    header: tpl.layout.header ?? "",
-                    footer: tpl.layout.footer ?? "",
-                  }}
-                  update={updateTemplate(tpl)}
-                  fields={TEMPLATE_FIELDS}
-                />
-                <ArchiveAction
-                  label={t("template.archive")}
-                  confirmText={t("template.archiveConfirm")}
-                  invalidate="offer-templates"
-                  recordKey="offer-template"
-                  onArchived={() => list.refetch()}
-                  archive={async () => {
-                    const { data, error } = await api.DELETE(
-                      "/offer-templates/{id}",
-                      { params: { path: { id: tpl.id } } },
-                    );
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data ?? tpl;
-                  }}
-                />
-              </div>
-            ),
-          },
+          ...(canUpdate || canArchive ? [rowActions] : []),
         ]}
         rowKey={(tpl) => tpl.id}
         chips={[

@@ -216,6 +216,41 @@ describe("ConsentPurposesCard", () => {
     expect(await screen.findByText(/duplicate key/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/key/i)).toHaveValue("transactional");
   });
+
+  // Appending to the registry is admin/ops, so a rep's card carries no write
+  // control at all. Withheld, not absent: the card keeps its place and says
+  // which of the two it is, or the missing button reads as a broken one.
+  it("states its read-only posture to a seat that cannot add a purpose", async () => {
+    stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["rep"] })),
+    });
+    render(<ConsentPurposesCard />);
+    expect(
+      await screen.findByText(/only an admin or ops can add a purpose/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /add purpose/i }),
+    ).not.toBeInTheDocument();
+    // Withholding the write never withholds the read — the registry a rep
+    // consults when tagging a consent is still on screen.
+    expect(screen.getByText(/Marketing/)).toBeInTheDocument();
+  });
+
+  // The other direction, without which the assertion above passes on a card
+  // that shows the line to everybody: an ops seat holds the grant, so the
+  // posture is not its posture and the sentence would be a false statement.
+  it("withholds the read-only line from a seat that can add a purpose", async () => {
+    stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["ops"] })),
+    });
+    render(<ConsentPurposesCard />);
+    expect(
+      await screen.findByRole("button", { name: /add purpose/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/only an admin or ops can add a purpose/i),
+    ).not.toBeInTheDocument();
+  });
 });
 
 const DSRS = {
@@ -997,5 +1032,49 @@ describe("fulfilling an erasure", () => {
       status: "fulfilled",
       resolution: "verified",
     });
+  });
+
+  // A fulfilled request is terminal, so the whole actions branch the confirm was
+  // opened from — the resolution field and every transition button — is gone once
+  // it succeeds. Handing focus back to the button that staged it is a silent
+  // no-op that leaves the officer on <body>, one Tab from the top of the page.
+  it("returns focus to the row's summary after the fulfil, never to the document", async () => {
+    let fulfilled = false;
+    const closed = { status: "fulfilled", resolution: "verified" };
+    stubRoutes({
+      // The queue the server would really answer with afterwards: without this
+      // the row comes back open, the staging button is still there to take focus
+      // back, and the case under test never happens.
+      "GET /data-subject-requests": () =>
+        jsonResponse({
+          ...DSRS,
+          data: DSRS.data.map((dsr) =>
+            dsr.id === "d1" && fulfilled ? { ...dsr, ...closed } : dsr,
+          ),
+        }),
+      "PATCH /data-subject-requests/d1": () => {
+        fulfilled = true;
+        return jsonResponse({ ...DSRS.data[0], ...closed });
+      },
+    });
+    render(<PrivacyInboxCard />);
+    const summary = await screen.findByRole("button", {
+      name: /8f3a-person-uuid/i,
+    });
+    await userEvent.click(summary);
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    const row = await findDsrRow("8f3a-person-uuid");
+    const opener = within(row).getByRole("button", { name: /fulfil/i });
+    await userEvent.click(opener);
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    await userEvent.click(
+      screen.getByRole("button", { name: /erase \+ suppress/i }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(opener.isConnected).toBe(false);
+    // The row's own summary, which now reads back the status the erasure left.
+    expect(document.activeElement).toBe(summary);
+    expect(summary.textContent).toMatch(/fulfilled/i);
   });
 });

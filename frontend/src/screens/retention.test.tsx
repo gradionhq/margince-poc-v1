@@ -232,7 +232,9 @@ describe("RetentionCard rows", () => {
     render(<RetentionCard />);
 
     const row = await openEditor("deal/won");
-    await userEvent.click(within(row).getByRole("checkbox"));
+    await userEvent.click(
+      within(row).getByRole("switch", { name: /enabled/i }),
+    );
 
     await waitFor(() => {
       expect(
@@ -244,6 +246,82 @@ describe("RetentionCard rows", () => {
       ).toBeDefined();
     });
     expect(sent.some((call) => call.key.startsWith("DELETE "))).toBe(false);
+  });
+
+  // Pausing and saving are two writes, and only saving is finished with the
+  // panel. Collapsing it on the pause would unmount the fields being edited and
+  // the switch that was just operated, sending focus to the document body.
+  it("keeps the open editor open when the operator flips Enabled", async () => {
+    // The write has to LAND here, and the list has to re-read afterwards: a panel
+    // that outlives a rejected PATCH proves nothing about the onSuccess that
+    // closes it. So the stored row is a mutable one the PATCH really pauses, and
+    // the next GET answers with it.
+    const stored = { ...WON_DEALS };
+    const sent = backend({
+      retainOnly: false,
+      policies: [stored],
+      overrides: {
+        [`PATCH /retention-policies/${WON_DEALS.id}`]: () => {
+          stored.enabled = false;
+          return jsonResponse(stored);
+        },
+      },
+    });
+    render(<RetentionCard />);
+
+    const row = await openEditor("deal/won");
+    // Typed and deliberately not saved: an unsaved edit is what a collapsing
+    // panel takes with it.
+    const days = within(row).getByLabelText(/window in days/i);
+    await userEvent.clear(days);
+    await userEvent.type(days, "900");
+
+    await userEvent.click(
+      within(row).getByRole("switch", { name: /enabled/i }),
+    );
+
+    // Synchronised on the state the RE-READ brings back rather than on the PATCH
+    // being sent — a request is recorded before its response, so asserting there
+    // would inspect the panel while a close was still pending and pass however
+    // the mutation is wired. Reaching the switch through the row is the pin: a
+    // collapsed panel has no switch to find.
+    await waitFor(() =>
+      expect(
+        within(row).getByRole("switch", { name: /enabled/i }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
+    expect(
+      sent.some(
+        (call) =>
+          call.key === `PATCH /retention-policies/${WON_DEALS.id}` &&
+          (call.body as { enabled?: boolean }).enabled === false,
+      ),
+    ).toBe(true);
+    // And the draft and the rest of the panel came through with it.
+    expect(within(row).getByLabelText(/window in days/i)).toHaveValue("900");
+    expect(
+      within(row).getByRole("button", { name: /save policy/i }),
+    ).toBeInTheDocument();
+  });
+
+  // The three edit fields are local state that outlives a close, because the row
+  // is keyed on the policy id and is never remounted. Re-seeding on open is what
+  // keeps an abandoned draft from reappearing over a summary that contradicts
+  // it — and from being what Save then sends.
+  it("re-seeds the editor from the stored policy each time it opens", async () => {
+    backend({ retainOnly: false });
+    render(<RetentionCard />);
+
+    const row = await openEditor("deal/won");
+    const days = within(row).getByLabelText(/window in days/i);
+    await userEvent.clear(days);
+    await userEvent.type(days, "900");
+
+    const edit = within(row).getByRole("button", { name: /^edit$/i });
+    await userEvent.click(edit);
+    await userEvent.click(edit);
+
+    expect(within(row).getByLabelText(/window in days/i)).toHaveValue("2555");
   });
 
   it("patches the window and action the operator edited", async () => {
@@ -300,7 +378,7 @@ describe("the retain-only posture", () => {
     expect(within(before).getByText(/acting nightly/i)).toBeInTheDocument();
 
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: /retain-only posture/i }),
+      await screen.findByRole("switch", { name: /retain-only posture/i }),
     );
 
     await waitFor(() => {
@@ -325,9 +403,11 @@ describe("the retain-only posture", () => {
     render(<RetentionCard />);
 
     expect(
-      await screen.findByRole("checkbox", { name: /retain-only posture/i }),
+      await screen.findByRole("switch", { name: /retain-only posture/i }),
     ).toBeDisabled();
-    expect(screen.getByText(/only an admin or ops/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/only an admin or ops can change retention/i),
+    ).toBeInTheDocument();
     // A reader still sees WHY a row is inert; only the controls are withheld.
     const row = await findRow("activity/transcript");
     expect(
@@ -336,6 +416,23 @@ describe("the retain-only posture", () => {
     expect(
       within(row).queryByRole("button", { name: /edit/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("announces on the switch itself why the posture cannot be changed", async () => {
+    backend({ allow: { retention_policy: ["read"] } });
+    render(<RetentionCard />);
+
+    const posture = await screen.findByRole("switch", {
+      name: /retain-only posture/i,
+    });
+    // Announced WITH the control rather than printed beside it: a detached
+    // paragraph reaches the eye and never the reader who hears only the switch.
+    expect(posture).toHaveAccessibleDescription(
+      /only an admin or ops can change retention/i,
+    );
+    // And what the posture DOES stays part of that description, because a reader
+    // who cannot change it still has to know what is in force.
+    expect(posture).toHaveAccessibleDescription(/destroys nothing/i);
   });
 
   // The posture and the ladder are separate reads, and a posture that failed
@@ -364,12 +461,24 @@ describe("the retain-only posture", () => {
     expect(await findRow("deal/won")).toBeInTheDocument();
   });
 
-  it("renders nothing at all without a read grant", async () => {
-    backend({ allow: {} });
-    const { container } = render(<RetentionCard />);
-    await waitFor(() => {
-      expect(container).toBeEmptyDOMElement();
-    });
+  // Withheld, not absent: this card shares its page with the consent registry an
+  // ops seat comes here for, and with a subject queue that explains its own
+  // emptiness. A card that vanished would leave that reader to conclude the
+  // installation keeps everything forever.
+  it("says the ladder is withheld, and asks the server for nothing", async () => {
+    const sent = backend({ allow: {} });
+    render(<RetentionCard />);
+
+    expect(
+      await screen.findByText(/only an admin or ops can see the retention/i),
+    ).toBeInTheDocument();
+    // Its place, not just its words — the card keeps the heading it has for
+    // every other reader.
+    expect(screen.getByText("Retention")).toBeInTheDocument();
+    // The half of the old behaviour worth keeping: the denial is already known,
+    // so neither read fires. A card that could only report an expected 403 would
+    // hand the reader a failure with a Retry that cannot succeed.
+    expect(sent.filter((call) => call.key !== "GET /me")).toEqual([]);
   });
 });
 

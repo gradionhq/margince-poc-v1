@@ -35,7 +35,7 @@ import {
   useMe,
 } from "./common";
 
-// The mirror user-map card (Settings → the overlay tab): who, in the
+// The mirror user-map card (Settings → Integrations): who, in the
 // incumbent CRM, each workspace user IS. That mapping is the whole of a
 // user's mirror visibility — an unmapped seat sees no mirrored records at
 // all, so an unmapped row is a broken account, not a cosmetic gap, and this

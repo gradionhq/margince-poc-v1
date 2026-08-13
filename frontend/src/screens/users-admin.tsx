@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -35,16 +35,16 @@ const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>
 const roleOptions = (t: ReturnType<typeof useT>): SelectOption[] =>
   ROLES.map((role) => ({ value: role, label: t(`users.role.${role}`) }));
 
-// Admin member management (org settings). Every user-management write is
-// admin-only server-side, so the whole card is admin-only here — an ops seat in
-// the Organization group would otherwise see controls that only 403. The roster
-// includes inactive members (include_inactive, honored server-side only for an
-// admin) so a deactivated member can be reactivated. First page only in V1;
-// larger member lists paginate in a follow-up.
-function useMembers(enabled: boolean) {
+// The member roster (org settings). Every user-management WRITE is admin-only
+// server-side, but the read is not: `GET /users` answers 200 to any authenticated
+// principal, so the list is fetched for everyone and only the controls that
+// change a member are withheld. The read opts into inactive members
+// (include_inactive, honored server-side only for an admin) so a deactivated
+// member can be reactivated. First page only in V1; larger member lists paginate
+// in a follow-up.
+function useMembers() {
   return useQuery({
     queryKey: ["users-admin"],
-    enabled,
     queryFn: async (): Promise<User[]> => {
       const { data, error } = await api.GET("/users", {
         params: { query: { include_inactive: true } },
@@ -61,33 +61,48 @@ export function UsersAdminCard() {
   const t = useT();
   const me = useMe();
   const isAdmin = useHoldsAdminRole();
-  const members = useMembers(isAdmin);
+  const members = useMembers();
   // The server answers whether THIS caller can mint set-password links: admin,
   // on an installation with no email channel and a configured base URL. Where
   // email works, the invite mail carries the link and this action would only
   // ever 409 — so it is not rendered at all.
   const canIssueLink = me.data?.admin_password_link ?? false;
-  // Everything below the role probe is admin surface, so a caller who is not
-  // (yet) known to be an admin gets exactly one card: the page's own heading
-  // over the loading, error or admins-only state. Gating on the probe itself is
-  // what keeps the notice from flashing while /me is still in flight.
-  if (!isAdmin) {
-    return (
-      <Card title={t("users.title")} sub={t("users.sub")}>
-        <QueryGate query={me}>
-          {() => (
-            <EmptyState>
-              <p className="t-small">{t("users.adminOnly")}</p>
-            </EmptyState>
-          )}
-        </QueryGate>
-      </Card>
-    );
-  }
+  // The ROSTER is not admin surface: `GET /users` answers 200 to any
+  // authenticated principal, and "who is on my team and what may they do" is not
+  // an admin's private question. So every member gets the member list, and only
+  // the two things the server refuses them — inviting somebody, and changing a
+  // role or a status — are the admin's.
+  //
+  // Ordered roster-FIRST for everyone, admin included. The common reason to open
+  // this page is to look somebody up, and it used to open on an empty invite
+  // form: three blank fields ahead of the answer, for a task most visits are not
+  // about.
+  //
+  // Gating on the role probe itself is what keeps the invite form from flashing
+  // into view while /me is still in flight.
   return (
     <div className="users-stack">
-      <InviteForm canIssueLink={canIssueLink} />
-      <MembersCard members={members} canIssueLink={canIssueLink} />
+      <MembersCard
+        members={members}
+        canIssueLink={canIssueLink}
+        canAdminister={isAdmin}
+      />
+      {isAdmin ? (
+        <InviteForm canIssueLink={canIssueLink} />
+      ) : (
+        <QueryGate query={me}>
+          {() => (
+            // Withheld, not absent: the page opens for every seat now, so an
+            // invite form that simply were not there would leave a reader to
+            // wonder whether this installation can add people at all.
+            <Card title={t("users.inviteTitle")} sub={t("users.inviteSub")}>
+              <EmptyState>
+                <p className="t-small">{t("users.adminOnly")}</p>
+              </EmptyState>
+            </Card>
+          )}
+        </QueryGate>
+      )}
     </div>
   );
 }
@@ -95,9 +110,11 @@ export function UsersAdminCard() {
 function MembersCard({
   members,
   canIssueLink,
+  canAdminister,
 }: Readonly<{
   members: ReturnType<typeof useMembers>;
   canIssueLink: boolean;
+  canAdminister: boolean;
 }>) {
   const t = useT();
   const roster = members.data;
@@ -131,7 +148,12 @@ function MembersCard({
           ) : (
             <ul className="users-list">
               {list.map((u) => (
-                <MemberRow key={u.id} member={u} canIssueLink={canIssueLink} />
+                <MemberRow
+                  key={u.id}
+                  member={u}
+                  canIssueLink={canIssueLink}
+                  canAdminister={canAdminister}
+                />
               ))}
             </ul>
           )
@@ -308,12 +330,21 @@ function RoleCell({
 function MemberRow({
   member,
   canIssueLink,
-}: Readonly<{ member: User; canIssueLink: boolean }>) {
+  canAdminister,
+}: Readonly<{
+  member: User;
+  canIssueLink: boolean;
+  canAdminister: boolean;
+}>) {
   const t = useT();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  // Where the deactivate confirm hands focus back. The Deactivate button it was
+  // opened from is gone by then — Reactivate has taken its place — but the row
+  // itself stays, because the roster is read with include_inactive.
+  const row = useRef<HTMLLIElement | null>(null);
   const passwordLink = usePasswordLink();
   const openLink = () => {
     setLinkOpen(true);
@@ -353,9 +384,12 @@ function MemberRow({
         throwProblem(err);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // The refreshed roster FIRST, then the dialog: closing it hands focus back
+      // to the row, and a row still showing "Active" beside a Deactivate button
+      // would announce the state this confirm just ended.
+      await refresh();
       setConfirmOff(false);
-      return refresh();
     },
     onError,
   });
@@ -377,7 +411,10 @@ function MemberRow({
     setRole.isPending || deactivate.isPending || reactivate.isPending;
 
   return (
-    <li className="users-row">
+    // tabIndex -1 makes the row reachable by focus() without putting a
+    // container into anybody's Tab order — see the deactivate confirm below,
+    // which is the only thing that focuses it.
+    <li className="users-row" ref={row} tabIndex={-1}>
       <span className="users-who">
         <b>{member.display_name}</b>
         <span className="t-small">{member.email}</span>
@@ -389,34 +426,46 @@ function MemberRow({
           records — a client resolving an owner has to find it — so the row says
           what it is rather than passing for a colleague. */}
       {member.is_agent && <Badge tone="ai">{t("users.agentSeat")}</Badge>}
-      <RoleCell
-        member={member}
-        pending={pending}
-        // While a change is in flight the cell shows the role being applied —
-        // and it stays in flight until the refreshed roster lands (see refresh),
-        // so the row never renders the replaced role. A FAILED change leaves it
-        // on the role still held, which is what keeps a retry live: re-picking
-        // the same target still fires onChange.
-        inFlight={setRole.isPending ? setRole.variables : undefined}
-        onPick={(role) => setRole.mutate(role)}
-      />
+      {/* A role is a FACT about a member to anybody who may not change it, so a
+          reader without the grant gets the role in words and not a picker that
+          could only be refused. The one control becomes the one badge. */}
+      {canAdminister ? (
+        <RoleCell
+          member={member}
+          pending={pending}
+          // While a change is in flight the cell shows the role being applied —
+          // and it stays in flight until the refreshed roster lands (see refresh),
+          // so the row never renders the replaced role. A FAILED change leaves it
+          // on the role still held, which is what keeps a retry live: re-picking
+          // the same target still fires onChange.
+          inFlight={setRole.isPending ? setRole.variables : undefined}
+          onPick={(role) => setRole.mutate(role)}
+        />
+      ) : (
+        <span className="t-small">
+          {(member.roles ?? []).map(roleLabel(t)).join(", ")}
+        </span>
+      )}
       {/* Only an ACTIVE member can redeem a link — redemption updates an active
           account and refuses otherwise — so offering one on a deactivated row
           would hand the admin a link that is dead on arrival. The agent seat is
           excluded for a different reason: it holds no password by construction,
           which is what makes it a thing that signs in nowhere, and the server
           refuses to mint it one. */}
-      {canIssueLink && !member.is_agent && member.status === "active" && (
-        <Button small disabled={pending} onClick={openLink}>
-          {t("users.link.action")}
-        </Button>
-      )}
-      {member.status === "active" && (
+      {canAdminister &&
+        canIssueLink &&
+        !member.is_agent &&
+        member.status === "active" && (
+          <Button small disabled={pending} onClick={openLink}>
+            {t("users.link.action")}
+          </Button>
+        )}
+      {canAdminister && member.status === "active" && (
         <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
           {t("users.deactivate")}
         </Button>
       )}
-      {member.status === "deactivated" && (
+      {canAdminister && member.status === "deactivated" && (
         <Button small disabled={pending} onClick={() => reactivate.mutate()}>
           {t("users.reactivate")}
         </Button>
@@ -435,6 +484,11 @@ function MemberRow({
         pending={deactivate.isPending}
         error={deactivate.error ? problemMessageOf(deactivate.error, t) : null}
         onConfirm={() => deactivate.mutate()}
+        // The member's own row, which reads back their name, address and the
+        // status this confirm just changed — the outcome, at the place the
+        // operator was working. The button they pressed is not an option: a
+        // deactivated row offers Reactivate instead, so the opener is gone.
+        returnFocusTo={() => row.current}
       >
         {/* Deactivating the agent seat is a posture an operator is entitled to
             take, so it stays offered — but what stops when they take it is

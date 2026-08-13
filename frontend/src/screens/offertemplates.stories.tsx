@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { meFixture } from "../app/mefixture";
 import { OfferTemplatesAdmin } from "./offertemplates";
 import {
   emptyPage,
@@ -25,9 +26,22 @@ const template = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
+// Every story here needs a principal, because the screen's write affordances are
+// gated on offer template grants now. The stub's catch-all answers `GET /me` with an
+// empty page, which resolves to a caller holding no grant at all — so without
+// this the whole catalog captured the read-only posture and no story showed the
+// editor. Named once rather than repeated per story.
+const AUTHORING_ME = () =>
+  jsonResponse(
+    meFixture({
+      allow: { offer_template: ["read", "create", "update", "delete"] },
+    }),
+  );
+
 export const List: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": AUTHORING_ME,
       "GET /offer-templates": () =>
         jsonResponse({
           data: [template],
@@ -44,6 +58,7 @@ export const List: Story = {
 export const Empty: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": AUTHORING_ME,
       "GET /offer-templates": () => jsonResponse(emptyPage),
     });
     return (
@@ -56,6 +71,7 @@ export const Empty: Story = {
 export const LoadError: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": AUTHORING_ME,
       "GET /offer-templates": () =>
         jsonResponse(
           { title: "server error", detail: "offer templates unavailable" },

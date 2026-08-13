@@ -4,10 +4,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useHoldsAdminRole } from "../app/capability";
+import { useHoldsAdminRole, useHoldsConsentAdminRole } from "../app/capability";
 import {
   Badge,
   Button,
@@ -37,6 +37,7 @@ import {
   problemMessageOf,
   QueryGate,
   throwProblem,
+  useMe,
 } from "./common";
 import { EntityRef, useRoster } from "./entityref";
 import {
@@ -192,6 +193,11 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
 
 export function ConsentPurposesCard() {
   const t = useT();
+  // The probe itself, not just its answer: every role predicate reads false
+  // while /me is in flight, so branching on `!canAdminister` alone would flash
+  // the read-only line at an admin on every load.
+  const me = useMe();
+  const canAdminister = useHoldsConsentAdminRole();
   const [adding, setAdding] = useState(false);
   const query = useQuery({
     queryKey: ["consent-purposes"],
@@ -206,13 +212,30 @@ export function ConsentPurposesCard() {
   return (
     <Card
       title={t("settings.purposes")}
+      sub={t("settings.purposesSub")}
+      // Authoring a purpose is an admin/ops act, and the registry is now on a page
+      // every seat opens — so the affordance has to ask. Rendered unconditionally
+      // it offered a form whose submit the server refuses, which is the one thing
+      // a governance surface must not do: promise an authority it does not carry.
       actions={
-        <Button small onClick={() => setAdding((value) => !value)}>
-          {t("privacy.addPurpose")}
-        </Button>
+        canAdminister ? (
+          <Button small onClick={() => setAdding((value) => !value)}>
+            {t("privacy.addPurpose")}
+          </Button>
+        ) : undefined
       }
       style={{ marginBottom: "var(--space-4)" }}
     >
+      {/* Dropping the button above without this line leaves a rep looking at a
+          registry that simply has no way to grow, on a page whose other three
+          cards each explain themselves — the reader cannot tell a posture from
+          a control that broke. One sentence for the card's one write
+          affordance, never a disabled button that promises a click. */}
+      {me.isSuccess && !canAdminister && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
+          {t("privacy.purposesReadOnly")}
+        </p>
+      )}
       {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
@@ -474,13 +497,22 @@ function DsrRow({
   nowMs: number;
   tz: string;
   locale: Locale;
-  onFulfilErasure: (dsr: DataSubjectRequest, resolution: string) => void;
+  onFulfilErasure: (
+    dsr: DataSubjectRequest,
+    resolution: string,
+    // The row's summary toggle, named by id rather than handed over as an
+    // element: the erasure confirm lives at the card root and has to find it
+    // again AFTER the fulfil, when the transition button that staged it no
+    // longer exists to have carried a reference.
+    toggleId: string,
+  ) => void;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [resolution, setResolution] = useState(dsr.resolution ?? "");
   const assigneeFieldId = useId();
   const panelId = useId();
+  const toggleId = useId();
 
   // Only fetched while this row's panel is actually open — the roster is the
   // same shared ["users"] cache entry EntityRef and the share picker read.
@@ -535,7 +567,7 @@ function DsrRow({
     // this button is even clickable, and the modal has no field of its own
     // to collect it again.
     if (dsr.kind === "erasure" && next === "fulfilled") {
-      onFulfilErasure(dsr, resolution.trim());
+      onFulfilErasure(dsr, resolution.trim(), toggleId);
       return;
     }
     const body: UpdateDataSubjectRequest = { status: next };
@@ -565,6 +597,7 @@ function DsrRow({
   return (
     <li className="dsr-row">
       <Button
+        id={toggleId}
         className="dsr-row-toggle"
         onClick={onToggle}
         aria-expanded={expanded}
@@ -687,10 +720,15 @@ function FulfilErasureModal({
   dsr,
   resolution,
   onClose,
+  returnFocusTo,
 }: Readonly<{
   dsr: DataSubjectRequest | null;
   resolution: string;
   onClose: () => void;
+  // Passed through to the confirm: a fulfilled request is terminal, so the whole
+  // actions branch this was opened from — the button included — is gone by the
+  // time focus comes back.
+  returnFocusTo: () => HTMLElement | null;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -724,8 +762,11 @@ function FulfilErasureModal({
       }
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+    onSuccess: async () => {
+      // The re-read queue FIRST, then the dialog: closing it hands focus back to
+      // the row's summary, and a summary still reading "open" would announce the
+      // state this erasure just ended.
+      await queryClient.invalidateQueries({ queryKey: ["dsrs"] });
       setTyped("");
       onClose();
     },
@@ -779,6 +820,7 @@ function FulfilErasureModal({
       onConfirm={() => dsr && patch.mutate({ request: dsr, resolution })}
       pending={patch.isPending}
       error={errorMessage}
+      returnFocusTo={returnFocusTo}
     >
       <p>{t("privacy.erasureIrreversible")}</p>
       <div className="field dsr-erase-field">
@@ -831,6 +873,11 @@ export function PrivacyInboxCard() {
     dsr: DataSubjectRequest;
     resolution: string;
   } | null>(null);
+  // The staged row's summary toggle, remembered outside that state because the
+  // confirm resolves its focus target as it CLOSES — the moment `fulfilling` is
+  // already back to null. The toggle survives the fulfil and then reads the
+  // request's new status, which is what makes it the right landing place.
+  const stagedRowToggle = useRef<string | null>(null);
 
   // The queue is the admin's: its rows name data subjects who exercised an
   // Art. 15/17 right, so the read is gated rather than merely rendered. The
@@ -933,9 +980,10 @@ export function PrivacyInboxCard() {
               nowMs={nowMs}
               tz={tz}
               locale={locale}
-              onFulfilErasure={(dsr, resolution) =>
-                setFulfilling({ dsr, resolution })
-              }
+              onFulfilErasure={(dsr, resolution, toggleId) => {
+                stagedRowToggle.current = toggleId;
+                setFulfilling({ dsr, resolution });
+              }}
             />
           ))}
         </ul>
@@ -970,6 +1018,10 @@ export function PrivacyInboxCard() {
         dsr={fulfilling?.dsr ?? null}
         resolution={fulfilling?.resolution ?? ""}
         onClose={() => setFulfilling(null)}
+        returnFocusTo={() => {
+          const id = stagedRowToggle.current;
+          return id ? document.getElementById(id) : null;
+        }}
       />
     </Card>
   );

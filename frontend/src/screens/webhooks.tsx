@@ -32,6 +32,7 @@ import {
   QueryGate,
   QueryStates,
   throwProblem,
+  useMe,
 } from "./common";
 import {
   type CreateField,
@@ -811,6 +812,10 @@ export function WebhooksCard() {
   const canCreate = useCanWrite("webhook_subscription", "create");
   const canEdit = useCanWrite("webhook_subscription", "update");
   const canArchive = useCanWrite("webhook_subscription", "delete");
+  // The probe itself, not just its answer: all three grants read false while
+  // /me is in flight, so branching on their absence alone would flash the
+  // read-only line at an operator on every load.
+  const me = useMe();
   const query = useWebhookSubscriptions();
   const [creating, setCreating] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
@@ -824,7 +829,24 @@ export function WebhooksCard() {
   // case) is still creatable; QueryGate's `empty` branch renders the shared
   // EmptyState in place of `children`, which would otherwise swallow a
   // button nested inside it.
-  const canCreateHere = canCreate && query.data?.deliveryEnabled === true;
+  const deliveryEnabled = query.data?.deliveryEnabled === true;
+  const canCreateHere = canCreate && deliveryEnabled;
+  // Two different absences can empty this card of every write control, and
+  // they are two different rows of the design-system doctrine: no deployment
+  // signing key is a PRECONDITION an operator can fix, which NotConfiguredState
+  // already names along with what would make it live, while holding none of the
+  // three grants is a PERMISSION, which needs saying or the missing buttons
+  // read as a bug.
+  //
+  // When both hold, the deployment fact wins and this line stays quiet.
+  // Delivery being off withholds these controls from EVERY seat, an admin
+  // included, so it is genuinely the reason they are absent for this reader
+  // too — pinning them on the seat instead would tell a rep their role is what
+  // stopped them, and send them to ask for a grant that changes nothing. The
+  // permission is not lost, only deferred: configure a key and it becomes the
+  // live constraint, and this line appears.
+  const showReadOnlyPosture =
+    me.isSuccess && deliveryEnabled && !canCreate && !canEdit && !canArchive;
 
   return (
     <Card
@@ -843,6 +865,16 @@ export function WebhooksCard() {
             <Webhook aria-hidden /> {t("webhooks.new")}
           </Button>
         </div>
+      )}
+      {/* Outside QueryGate for the same reason the create button is: its
+          `empty` branch replaces `children` wholesale, and the posture is most
+          needed precisely when the list is empty — a seat that can neither add
+          the first subscription nor be told why would read the empty card as
+          the whole story. */}
+      {showReadOnlyPosture && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("webhooks.readOnly")}
+        </p>
       )}
       <QueryGate
         query={query}

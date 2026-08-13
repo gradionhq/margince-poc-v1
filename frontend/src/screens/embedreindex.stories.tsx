@@ -117,10 +117,13 @@ export const PreviewDialogWithEstimate: Story = {
   },
 };
 
-// The status read is admin/ops-only server-side now (migration 0114): a rep
-// holds no grant on embedding_reindex at all, so the card renders nothing —
-// same predicate EmbedReindexBanner's own HiddenForNonOpsRole story gates on.
-export const HiddenForNonOpsRole: Story = {
+// The status read is admin/ops-only server-side (migration 0115): a rep holds no
+// grant on embedding_reindex at all, so the card keeps its place and says the
+// status is withheld rather than disappearing off a page the rep reaches for its
+// other sections. The BANNER gates on the same predicate and is genuinely absent
+// there, which is not an inconsistency: a banner is an advisory, and there is no
+// advice to give somebody who may not act on it.
+export const WithheldForNonOpsRole: Story = {
   render: () => {
     installFetchStub({
       "GET /me": () =>

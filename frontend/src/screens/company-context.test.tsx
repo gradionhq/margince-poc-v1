@@ -18,6 +18,9 @@ type Capabilities = components["schemas"]["CompanyContextCapabilities"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 type Comparison = components["schemas"]["CompanySiteReadComparison"];
 type SiteRead = components["schemas"]["CompanySiteRead"];
+type Me = components["schemas"]["MeResponse"];
+type Grant = components["schemas"]["RbacObjectGrant"];
+type SeatType = components["schemas"]["Authorization"]["seat_type"];
 
 // read_enabled is the card's own gate — it renders nothing below the `read`
 // rollout stage, so the fixture has to clear it before any assertion is
@@ -101,17 +104,62 @@ const SITE_READ: SiteRead = {
   updated_at: "2026-01-05T09:04:00Z",
 };
 
-function backend() {
+// The card scopes its write controls to what /me says the seat holds, so every
+// fixture below has to answer that probe: an unanswered one denies, and the
+// suite would then be driving a card with no controls at all.
+function meResponse(seat: SeatType, organization: Grant): Me {
+  return {
+    user: {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "mira@acme.test",
+      display_name: "Mira Voss",
+      timezone: "UTC",
+      status: "active",
+      is_agent: false,
+    },
+    workspace_name: "Acme",
+    non_production: true,
+    admin_password_link: false,
+    roles: [],
+    teams: [],
+    authorization: { seat_type: seat, objects: { organization } },
+  };
+}
+
+// A seat that may author the company: a full licence, and both anchor verbs —
+// the save mints the record on its first run and replaces it afterwards, so the
+// server demands `create` or `update` depending on what it finds.
+const ME_EDITOR = meResponse("full", {
+  create: true,
+  read: true,
+  update: true,
+  delete: true,
+});
+
+// The `read_only` seat, exactly as the roster seeds it: it reads the company
+// profile and holds no write on it, and the licence ceiling refuses a mutation
+// on top of that.
+const ME_READER = meResponse("read", {
+  create: false,
+  read: true,
+  update: false,
+  delete: false,
+});
+
+function backend(principal: Me = ME_EDITOR) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
-    const body = routeBody(url.pathname);
+    const body = routeBody(url.pathname, principal);
     return new Response(JSON.stringify(body), {
       headers: { "Content-Type": "application/json" },
     });
   });
 }
 
-function routeBody(path: string): unknown {
+function routeBody(path: string, principal: Me = ME_EDITOR): unknown {
+  if (path === "/v1/me") {
+    return principal;
+  }
   if (path === "/v1/company/context/capabilities") {
     return CAPABILITIES;
   }
@@ -251,6 +299,61 @@ describe("CompanyContextCard refresh review", () => {
     },
     TEST_MS,
   );
+});
+
+// The settings entry that leads here opens on the READ grant, so a read_only
+// seat reaches this card: it may see the shared business context and may not
+// write it. What that seat must NOT be handed is a control the server answers
+// with a 403 — and the card must still say what it is, because an absent card
+// would claim the installation has no company profile at all.
+describe("CompanyContextCard write posture", () => {
+  const READ_ONLY =
+    "Read-only view — changing the company profile needs an organization write.";
+  const SAVE = "Save company context";
+  const REFRESH = "Refresh from website";
+
+  async function renderAs(principal: Me) {
+    vi.stubGlobal("fetch", backend(principal));
+    render(
+      <Providers>
+        <CompanyContextCard />
+      </Providers>,
+    );
+    // The profile itself, waited on rather than assumed: every assertion below
+    // is about what a LOADED card offers, and a card still fetching offers
+    // nothing either way.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByLabelText<HTMLInputElement>("Public company website")
+            .value,
+        ).toBe(COMPANY.website),
+      { timeout: SETTLE_MS },
+    );
+  }
+
+  it("withholds both writes from a seat that holds none, and says so", async () => {
+    await renderAs(ME_READER);
+
+    // The read is granted, so the data is there to read.
+    expect(screen.getByDisplayValue(COMPANY.offer_summary ?? "")).toBeTruthy();
+    // Stated once, at the surface, rather than annotated onto each absent
+    // control.
+    expect(screen.getByText(READ_ONLY)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
+    expect(screen.queryByRole("button", { name: REFRESH })).toBeNull();
+  });
+
+  it("offers both writes to a seat that may author the profile", async () => {
+    await renderAs(ME_EDITOR);
+
+    // Without this arm the test above would pass on a card that renders no
+    // buttons for anybody.
+    expect(screen.getByRole("button", { name: SAVE })).toBeTruthy();
+    expect(screen.getByRole("button", { name: REFRESH })).toBeTruthy();
+    // A reader who may write is told nothing about a posture they do not have.
+    expect(screen.queryByText(READ_ONLY)).toBeNull();
+  });
 });
 
 // Two failures reach the same paragraph and only one of them was written for

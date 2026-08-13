@@ -270,16 +270,21 @@ it("renders the status but no rebuild actions on the read grant alone", async ()
       "GET /embeddings/reindex/preview": () => json(PREVIEW),
     },
   );
-  // Positively: the card renders, because the read grant admits the status
-  // query. Asserting only the absence of the write controls would pass just as
-  // well when the card returns null — which is what a broken READ binding
-  // produces, and is exactly the case this test exists to distinguish.
-  await waitFor(() => expect(screen.getByText(/Reindex/i)).toBeTruthy());
+  // Positively, and on the STATUS rather than on the card's own heading: the
+  // heading and sub render for a withheld card too, so only a rendered status
+  // proves the read grant admitted the query. Asserting the absence of the write
+  // controls alone would pass just as well on the withheld card — which is what
+  // a broken READ binding produces, and is exactly the case this test exists to
+  // distinguish.
+  expect(await screen.findByText("Reindex needed")).toBeTruthy();
   expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByRole("button", { name: /Rebuild/ })).toBeNull();
 });
 
-it("renders nothing for a role without the embedding_reindex read grant", async () => {
+// Withheld, not absent: the card shares the maintenance page with sections a
+// non-ops seat does read, and beside a job-health card that explains its own
+// emptiness. A card that vanished would read as "the index is fine".
+it("says the search index is withheld, and asks the server for nothing", async () => {
   const { requests } = mount(
     {},
     {
@@ -287,10 +292,14 @@ it("renders nothing for a role without the embedding_reindex read grant", async 
     },
   );
 
-  // A rep holds no grant on embedding_reindex at all (migration 0114) —
-  // the card renders null rather than a 403 rendered as "unavailable",
-  // and the status query never even fires (enabled: canWrite).
-  await waitFor(() => expect(screen.queryByText("Search index")).toBeNull());
+  // A rep holds no grant on embedding_reindex at all (migration 0115).
+  expect(
+    await screen.findByText(/only an admin or ops can see the search index/i),
+  ).toBeTruthy();
+  expect(screen.getByText("Search index")).toBeTruthy();
+  // No status and no actions — and the half of the old behaviour worth keeping:
+  // the denial is already known, so the status query never fires rather than
+  // turning it into an "unavailable" the reader cannot act on.
   expect(screen.queryByText("Reindex needed")).toBeNull();
   expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByText("Rebuild index")).toBeNull();

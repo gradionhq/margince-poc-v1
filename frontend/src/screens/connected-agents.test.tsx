@@ -324,6 +324,38 @@ describe("ConnectedAgentsCard", () => {
     );
     expect(document.querySelector("[data-connection]")).toBeNull();
   });
+
+  // Ending a connection removes the row the confirm was opened from, so there is
+  // no opener left to hand focus back to: without a named target focus falls to
+  // <body> and the next Tab restarts at the top of the page.
+  it("leaves focus in the connections list after a disconnect, not on the document", async () => {
+    vi.stubGlobal("fetch", backend({}));
+    render(<ConnectedAgentsCard />);
+    await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
+
+    const opener = screen.getByRole("button", {
+      name: "Disconnect Claude Code",
+    });
+    await userEvent.click(opener);
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Disconnect",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("No agent is connected yet.")).toBeTruthy(),
+    );
+    expect(opener.isConnected).toBe(false);
+    // The region that held the row, which now reads back what is left — the
+    // question somebody who just disconnected a client has next.
+    const landed = document.activeElement;
+    if (!(landed instanceof HTMLElement)) {
+      throw new Error("focus left the document entirely after the disconnect");
+    }
+    expect(landed).not.toBe(document.body);
+    expect(landed.textContent).toContain("No agent is connected yet.");
+  });
 });
 
 describe("the two passport cards on Your agents", () => {

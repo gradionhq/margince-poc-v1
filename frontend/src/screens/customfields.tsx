@@ -773,9 +773,20 @@ export function CustomFieldsAdmin() {
         onClose={() => setRenaming(null)}
         labelledBy={renameId}
       >
-        <h3 id={renameId} className="section-header">
+        {/* A dialog is its own region, so its title starts the outline at
+            level 2, matching ConfirmModal. `.section-header` went with the h3:
+            it is the flex row that carries a card section's title, subtitle and
+            actions, and a dialog title is none of those — inside the modal it
+            only contributed a page-flow top margin that pushed the title off
+            the modal's own padding. --space-3 is the 12px ConfirmModal sets by
+            hand. */}
+        <h2
+          id={renameId}
+          className="t-h2"
+          style={{ marginBottom: "var(--space-3)" }}
+        >
           {t("cf.edit")}
-        </h3>
+        </h2>
         <Field label={t("cf.renamePrompt")}>
           {(control) => (
             <TextInput

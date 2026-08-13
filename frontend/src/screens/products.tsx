@@ -1,7 +1,9 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { useCanWrite } from "../app/capability";
 import { Badge, SectionHeader } from "../design-system/atoms";
+import type { ListColumn } from "../design-system/listtable";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
@@ -97,6 +99,14 @@ function toMinor(major: string | undefined): number {
 export function ProductsAdmin() {
   const t = useT();
   const { locale } = useLocale();
+  // One grant per affordance, each named for the request it actually issues:
+  // New POSTs, Edit PATCHes, Archive DELETEs. `useCanWrite` rather than `useCan`
+  // because all three mutate, and the licensing seat is clamped on the HTTP
+  // method before RBAC is consulted — a read seat holding product:update would
+  // otherwise be handed an editor every save bounces off.
+  const canCreate = useCanWrite("product", "create");
+  const canUpdate = useCanWrite("product", "update");
+  const canArchive = useCanWrite("product", "delete");
   const list = useListQuery<Product>({
     key: "products",
     fetchPage: fetchProductsPage,
@@ -151,23 +161,81 @@ export function ProductsAdmin() {
       return data;
     };
 
+  // The per-row affordances, in a column that exists only while at least one of
+  // them does. Keeping the column and emptying its cells would leave a headed,
+  // width-taking, column-picker-listed strip of nothing, which reads as a table
+  // that lost its buttons rather than as a permission — so the column goes,
+  // exactly as the custom-fields table drops its own.
+  const rowActions: ListColumn<Product> = {
+    key: "actions",
+    header: t("table.actions"),
+    cell: (p: Product) => (
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        {canUpdate && (
+          <EditAction
+            label={t("product.edit")}
+            invalidate="products"
+            recordKey="product"
+            record={{
+              ...p,
+              unit_price: (p.unit_price_minor / 100).toFixed(2),
+            }}
+            update={updateProduct(p)}
+            fields={PRODUCT_FIELDS}
+          />
+        )}
+        {canArchive && (
+          <ArchiveAction
+            label={t("product.archive")}
+            confirmText={t("product.archiveConfirm")}
+            invalidate="products"
+            recordKey="product"
+            onArchived={() => list.refetch()}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/products/{id}", {
+                params: { path: { id: p.id } },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data ?? p;
+            }}
+          />
+        )}
+      </div>
+    ),
+  };
+
   return (
     <>
       <SectionHeader
         title={t("product.title")}
         sub={t("product.settingsSub")}
       />
+      {/* A reader who holds no write verb here sees a list with no editor, and
+          silence about why is a claim that the list has none. The posture is
+          stated ONCE for the whole section (design-system README, "Absent,
+          disabled, or withheld"); a reader who can edit but not archive needs no
+          page-level notice, because the affordances they do hold say what they
+          may do. */}
+      {!canCreate && !canUpdate && !canArchive && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("product.readOnly")}
+        </p>
+      )}
       <ListTable
         state={list}
         unit="unit.products"
         action={
-          <CreateAction
-            label={t("product.new")}
-            invalidate="products"
-            screen="products"
-            create={createProduct}
-            fields={PRODUCT_FIELDS}
-          />
+          canCreate ? (
+            <CreateAction
+              label={t("product.new")}
+              invalidate="products"
+              screen="products"
+              create={createProduct}
+              fields={PRODUCT_FIELDS}
+            />
+          ) : undefined
         }
         columns={[
           {
@@ -207,41 +275,7 @@ export function ProductsAdmin() {
                 <Badge>{t("product.inactive")}</Badge>
               ),
           },
-          {
-            key: "actions",
-            header: t("table.actions"),
-            cell: (p: Product) => (
-              <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                <EditAction
-                  label={t("product.edit")}
-                  invalidate="products"
-                  recordKey="product"
-                  record={{
-                    ...p,
-                    unit_price: (p.unit_price_minor / 100).toFixed(2),
-                  }}
-                  update={updateProduct(p)}
-                  fields={PRODUCT_FIELDS}
-                />
-                <ArchiveAction
-                  label={t("product.archive")}
-                  confirmText={t("product.archiveConfirm")}
-                  invalidate="products"
-                  recordKey="product"
-                  onArchived={() => list.refetch()}
-                  archive={async () => {
-                    const { data, error } = await api.DELETE("/products/{id}", {
-                      params: { path: { id: p.id } },
-                    });
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data ?? p;
-                  }}
-                />
-              </div>
-            ),
-          },
+          ...(canUpdate || canArchive ? [rowActions] : []),
         ]}
         rowKey={(p) => p.id}
         chips={[

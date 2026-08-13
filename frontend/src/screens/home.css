@@ -220,7 +220,8 @@
 
 /* The connector-health line (Task 11): renders only when the digest's
  * connectors[] holds an unhealthy source — a degraded mailbox is news, a
- * healthy one is not — and deep-links into Settings → Integrations. */
+ * healthy one is not — and deep-links into Settings → Connections, where a
+ * reader's own mailboxes are. */
 
 .digest-connector-health {
   display: inline-flex;

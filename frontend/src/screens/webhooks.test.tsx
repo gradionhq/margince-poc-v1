@@ -52,7 +52,14 @@ const WEBHOOK_OPERATOR: GrantSpec = {
   webhook_subscription: ["create", "update", "delete"],
 };
 
-function backendFor(allow: GrantSpec, subscriptionsStatus = 200) {
+// `deliveryEnabled` is the deployment's signing key, independent of the caller's
+// grants: the two absences it crosses with are different causes, and the card
+// has to pick which one it explains.
+function backendFor(
+  allow: GrantSpec,
+  subscriptionsStatus = 200,
+  deliveryEnabled = true,
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req =
       input instanceof Request ? input : new Request(String(input), init);
@@ -71,7 +78,10 @@ function backendFor(allow: GrantSpec, subscriptionsStatus = 200) {
           503,
         );
       }
-      return jsonResponse(SUBSCRIPTIONS, subscriptionsStatus);
+      return jsonResponse(
+        { ...SUBSCRIPTIONS, delivery_enabled: deliveryEnabled },
+        subscriptionsStatus,
+      );
     }
     throw new Error(`unexpected request: ${req.method} ${req.url}`);
   });
@@ -212,6 +222,62 @@ describe("WebhooksCard", () => {
     );
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  // Three grants, three absent affordances, and a card that still lists every
+  // subscription — so the reader has to be told the absence is their seat and
+  // not a card that lost its buttons.
+  it("states its read-only posture to a seat holding none of the three grants", async () => {
+    vi.stubGlobal("fetch", backendFor({ webhook_subscription: ["read"] }));
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/only an admin or ops can change subscriptions/i),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    // The subscription itself still reads: what it targets, which events it
+    // takes, and its delivery health stay inspectable.
+    expect(
+      screen.getByText("https://example.test/hooks/margince"),
+    ).toBeTruthy();
+  });
+
+  // The other direction. Without it the assertion above passes on a card that
+  // shows the line to an operator too, which would deny an authority they hold.
+  it("withholds the read-only line from a seat that holds the write grants", async () => {
+    vi.stubGlobal("fetch", backendFor(WEBHOOK_OPERATOR));
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("new-webhook-subscription")).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(/only an admin or ops can change subscriptions/i),
+    ).toBeNull();
+  });
+
+  // Both causes at once, which is where the card has to choose. Delivery being
+  // off withholds these controls from every seat including an admin's, so it is
+  // the honest reason they are absent here — the seat sentence would send this
+  // reader to ask for a grant that would change nothing until a key exists.
+  it("blames the missing signing key rather than the seat when neither is in place", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({ webhook_subscription: ["read"] }, 200, false),
+    );
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/not enabled on this deployment/i)).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(/only an admin or ops can change subscriptions/i),
+    ).toBeNull();
+    expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
   });
 
   it("renders an honest not-enabled state on 503 webhooks_not_configured", async () => {

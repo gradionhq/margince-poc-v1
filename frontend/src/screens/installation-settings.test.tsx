@@ -155,17 +155,20 @@ describe("InstallationSettingsCard", () => {
   // carries a lock rule of its own and needs the room to say so. One submit
   // covers both, because the server takes ONE sparse PATCH: a save per card
   // would promise two independent writes that do not exist.
-  it("splits the fields into an Organization and a Currency card, with one save", async () => {
+  it("splits the fields into an Installation and a Currency card, with one save", async () => {
     const { fetchMock, patch } = backendFor(SETTINGS_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<InstallationSettingsCard />);
 
+    // "Installation", not "Organization": this card sits under a nav group
+    // heading that already reads Organization, and a card repeating its own
+    // heading names nothing.
     const organization = (
-      await screen.findByRole("heading", { name: /^organization$/i })
+      await screen.findByRole("heading", { name: /^installation$/i })
     ).closest("section");
     if (!organization) {
-      throw new Error("the Organization heading is not inside a card");
+      throw new Error("the Installation heading is not inside a card");
     }
     expect(
       within(organization).getByLabelText(/organization name/i),

@@ -3,12 +3,13 @@ import { ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
-import { QueryStates, throwProblem } from "./common";
+import { QueryGate, QueryStates, throwProblem, useMe } from "./common";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -117,10 +118,16 @@ export function CallDetailPanel({
 export function AiCallsCard() {
   const t = useT();
   const { locale } = useLocale();
+  const me = useMe();
+  // Same seam as the spend card beside it: the server gates this read on
+  // automation:update, a write verb guarding a GET, so the seat ceiling stays out
+  // of the question (capability.ts) — a read seat may still read it.
+  const canSee = useCan("automation", "update");
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [task, setTask] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const query = useInfiniteQuery({
+    enabled: canSee,
     queryKey: ["ai-calls", task],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
@@ -140,6 +147,28 @@ export function AiCallsCard() {
   // page), NOT the tasks on the loaded rows: deriving them from `calls` would
   // collapse the dropdown to the one selected task once a filter is applied.
   const tasks = query.data?.pages[0]?.tasks ?? [];
+
+  if (!canSee) {
+    // Withheld, not absent — the same choice the spend card above it makes. An
+    // absent trace reads as "the installation made no model calls", which is a
+    // claim about the data rather than about who may read it. No request either:
+    // the query is disabled, because a settled denial is not a failure to retry.
+    return (
+      <Card
+        title={t("aicalls.title")}
+        sub={t("aicalls.sub")}
+        style={{ marginBottom: "var(--space-4)" }}
+      >
+        <QueryGate query={me}>
+          {() => (
+            <EmptyState>
+              <p className="t-small">{t("aicalls.withheld")}</p>
+            </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
+  }
 
   return (
     <Card
