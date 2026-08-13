@@ -100,29 +100,84 @@ export function PersonToday({
           {warn && <p className="pe-today-rule">{moment.why_now}</p>}
         </div>
 
+        {/* Every action the moment carries, with its readiness under it: the
+            verbs live beside the moment they act on rather than in a second
+            list elsewhere on the page, which would let the two disagree about
+            what to do next. Readiness is stated rather than left to a disabled
+            button, because "you may not do this yet" and "this will ask you to
+            confirm" are different answers. */}
         <div className="pe-today-actions">
-          <Button
-            variant="primary"
-            onClick={() => onAction(moment.recommended_action)}
-            disabled={moment.recommended_action.state === "blocked"}
-            title={moment.recommended_action.blocked_reason}
-          >
-            {moment.recommended_action.label}
-          </Button>
+          <ActionVerb
+            action={moment.recommended_action}
+            primary
+            onAction={onAction}
+          />
           {secondary.map((action) => (
-            <Button
+            <ActionVerb
               key={action.label}
-              onClick={() => onAction(action)}
-              disabled={action.state === "blocked"}
-              title={action.blocked_reason}
-            >
-              {action.label}
-            </Button>
+              action={action}
+              onAction={onAction}
+            />
           ))}
         </div>
       </PanelBody>
     </Panel>
   );
+}
+
+// One verb: the button, and under it what will happen when it is pressed.
+function ActionVerb({
+  action,
+  primary,
+  onAction,
+}: Readonly<{
+  action: PersonMomentAction;
+  primary?: boolean;
+  onAction: (action: PersonMomentAction) => void;
+}>) {
+  const t = useT();
+  return (
+    <span className="pe-today-verb">
+      <Button
+        variant={primary ? "primary" : "ghost"}
+        onClick={() => onAction(action)}
+        disabled={action.state === "blocked"}
+        title={action.blocked_reason}
+      >
+        {actionIcon(action.kind)}
+        {action.label}
+      </Button>
+      <span className="pe-today-verb-state">{readiness(action, t)}</span>
+    </span>
+  );
+}
+
+function actionIcon(kind: string): ReactNode {
+  switch (kind) {
+    case "schedule_meeting":
+    case "open_meeting_brief":
+    case "ask_colleague":
+      return <Users size={15} aria-hidden="true" />;
+    default:
+      return <Mail size={15} aria-hidden="true" />;
+  }
+}
+
+// What pressing it will do, in the three states the server distinguishes. A
+// blocked action says so in words as well as by being unpressable: the reason
+// rides the button's title, and this line is what tells a reader to look for
+// one.
+function readiness(
+  action: PersonMomentAction,
+  t: ReturnType<typeof useT>,
+): string {
+  if (action.state === "will_confirm") {
+    return t("person.rail.reviewFirst");
+  }
+  if (action.state === "blocked") {
+    return t("person.rail.blocked");
+  }
+  return t("person.rail.ready");
 }
 
 function evidenceIcon(type: string): ReactNode {

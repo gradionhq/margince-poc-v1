@@ -1458,6 +1458,8 @@ export const vi = {
   "field.addLegalName": "Thêm tên pháp lý",
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
+  "field.addFullName": "Thêm tên",
+  "field.addTitle": "Thêm chức danh",
   "field.addAddressLine1": "Thêm số nhà và tên đường",
   "field.addAddressLine2": "Thêm địa chỉ dòng 2",
   "field.addPostalCode": "Thêm mã bưu chính",
@@ -4284,6 +4286,18 @@ export const vi = {
   "person.page.ownerAssigned": "Đã giao",
   "person.page.ownerUnassigned": "Chưa giao",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Chi tiết",
+  "person.rail.contactMethodImmutable":
+    "Được thiết lập khi tạo liên hệ này. Email và số điện thoại không thể thay đổi tại đây.",
+  "person.rail.employmentTitle": "Công ty",
+  "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
+  "person.rail.addEmployment": "Thêm công ty",
+  "person.rail.employer": "Nơi làm việc",
+  "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
+  "person.rail.markEnded": "Đánh dấu đã kết thúc",
+  "person.rail.removeEmploymentTitle": "Gỡ công ty này?",
+  "person.rail.removeEmploymentBody":
+    "Kết nối với {org} và toàn bộ lịch sử của nó sẽ biến mất, không thể hoàn tác. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
   "person.page.tabPlaceholder":
     "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
   "person.tab.overview": "Tổng quan",

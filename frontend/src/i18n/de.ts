@@ -1467,6 +1467,8 @@ export const de = {
   "field.addLegalName": "Rechtlichen Namen hinzufügen",
   "field.addIndustry": "Branche hinzufügen",
   "field.addLinkedinUrl": "LinkedIn-URL hinzufügen",
+  "field.addFullName": "Namen hinzufügen",
+  "field.addTitle": "Titel hinzufügen",
   "field.addAddressLine1": "Straße und Hausnummer hinzufügen",
   "field.addAddressLine2": "Adresszusatz hinzufügen",
   "field.addPostalCode": "Postleitzahl hinzufügen",
@@ -4299,6 +4301,18 @@ export const de = {
   "person.page.ownerAssigned": "Zugewiesen",
   "person.page.ownerUnassigned": "Nicht zugewiesen",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Beim Anlegen dieses Kontakts festgelegt. E-Mail und Telefon können hier nicht geändert werden.",
+  "person.rail.employmentTitle": "Unternehmen",
+  "person.rail.noEmployment": "Keine Beschäftigung erfasst.",
+  "person.rail.addEmployment": "Unternehmen hinzufügen",
+  "person.rail.employer": "Arbeitgeber",
+  "person.rail.isCurrentEmployer": "Das ist der aktuelle Arbeitgeber",
+  "person.rail.markEnded": "Als beendet markieren",
+  "person.rail.removeEmploymentTitle": "Dieses Unternehmen entfernen?",
+  "person.rail.removeEmploymentBody":
+    "Die Verbindung zu {org} und ihre ganze Historie verschwinden, und das lässt sich nicht rückgängig machen. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
   "person.page.tabPlaceholder":
     "Dieser Reiter ist noch nicht gebaut. Die Übersicht trägt die Beziehung; hier kommt {topic} hin.",
   "person.tab.overview": "Übersicht",

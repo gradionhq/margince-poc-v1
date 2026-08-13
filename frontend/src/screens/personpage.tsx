@@ -260,7 +260,6 @@ export function PersonPageV2({
             view={view.data}
             guard={guard.data}
             firstName={firstName}
-            onAction={runAction}
             onExplain={() => navigate({ screen: "contacts", id })}
           />
         }
@@ -387,10 +386,11 @@ function PersonSubtitle({ view }: Readonly<{ view: Person360 }>): ReactNode {
   );
 }
 
-// The identity line under the name: how to reach them, then who holds the
-// relationship. Two lines, and the split is the point — the first is how to
-// act on this record, the second is who and what it is to us, which is read
-// once rather than scanned. The quieter line is quieter for that reason.
+// The identity line under the name: how to reach them, and who holds the
+// relationship. ONE wrapping line rather than two — a reader takes the whole
+// line in at once, and splitting it made the header three deep for facts that
+// are each a few words long. Standing is quieter than a contact method within
+// that line: it qualifies the record rather than being a way to act on it.
 function PersonIdentityLine({
   view,
 }: Readonly<{ view: Person360 }>): ReactNode {
@@ -430,17 +430,15 @@ function PersonIdentityLine({
             {t("person.page.linkedin")}
           </span>
         )}
-      </div>
-      <div className="pe-meta-line pe-meta-quiet">
         {/* The role is what the relationship edge records — never inferred from
             a job title, which is why a person with a title can still have no
             buying role and the line simply omits it. */}
         {role && (
-          <span className="pe-meta-fact">
+          <span className="pe-meta-fact pe-meta-quiet">
             {t("person.page.buyingRole")}: {role.replace(/_/g, " ")}
           </span>
         )}
-        <span className="pe-meta-fact">
+        <span className="pe-meta-fact pe-meta-quiet">
           {t("person.page.owner")}:{" "}
           {view.person.owner_id
             ? t("person.page.ownerAssigned")

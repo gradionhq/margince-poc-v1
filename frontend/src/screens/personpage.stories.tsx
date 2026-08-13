@@ -428,12 +428,67 @@ export const Rail: Story = {
             ],
           }}
           firstName="Dana"
-          onAction={() => {}}
           onExplain={() => {}}
         />
       </div>
     </StoryProviders>
   ),
+};
+
+// The Companies section with two employment edges — one current, one former
+// — so the current/former distinction and the add/mark-ended/remove verbs
+// are all on screen at once. `GET /me` is stubbed with the `person:update`
+// grant DetailsGrid's own edit affordances gate on, since the Rail story
+// above leaves it unstubbed and renders every verb hidden.
+const twoEmployers: View = {
+  ...populated,
+  employments: {
+    data: [
+      {
+        relationship_id: "rel-1",
+        organization_id: "o-1",
+        organization_name: "Brandt Automotive GmbH",
+        role: "Head of Fleet",
+        is_current_primary: true,
+        started_at: "2022-03-01T00:00:00Z",
+        ended_at: null,
+      },
+      {
+        relationship_id: "rel-2",
+        organization_id: "o-2",
+        organization_name: "Voss Logistics",
+        role: "Fleet Coordinator",
+        is_current_primary: false,
+        started_at: "2018-01-01T00:00:00Z",
+        ended_at: "2022-02-01T00:00:00Z",
+      },
+    ],
+    page,
+  },
+};
+
+export const RailEmployments: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-1", display_name: "Mira Voss" },
+          authorization: { objects: { person: { update: true } } },
+        }),
+    });
+    return (
+      <StoryProviders>
+        <div style={{ maxWidth: 320 }}>
+          <PersonRail
+            view={twoEmployers}
+            guard={undefined}
+            firstName="Dana"
+            onExplain={() => {}}
+          />
+        </div>
+      </StoryProviders>
+    );
+  },
 };
 
 // --- Brief states: the band's populated and empty readings side by side ----

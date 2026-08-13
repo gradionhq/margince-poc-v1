@@ -1470,6 +1470,8 @@ export const en = {
   "field.addLegalName": "Add legal name",
   "field.addIndustry": "Add industry",
   "field.addLinkedinUrl": "Add LinkedIn URL",
+  "field.addFullName": "Add name",
+  "field.addTitle": "Add title",
   "field.addAddressLine1": "Add street and number",
   "field.addAddressLine2": "Add address line 2",
   "field.addPostalCode": "Add postal code",
@@ -4303,6 +4305,22 @@ export const en = {
   "person.page.ownerAssigned": "Assigned",
   "person.page.ownerUnassigned": "Unassigned",
   "person.page.linkedin": "LinkedIn",
+  // The rail's own details grid: the contact's own fields, at a glance above
+  // the six relationship sections below it.
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Set when this contact was added. Email and phone cannot be changed here.",
+  // The employers section: every employment edge this person holds, current
+  // one first — a person can work at more than one company at once.
+  "person.rail.employmentTitle": "Companies",
+  "person.rail.noEmployment": "No employment on record.",
+  "person.rail.addEmployment": "Add company",
+  "person.rail.employer": "Employer",
+  "person.rail.isCurrentEmployer": "This is their current employer",
+  "person.rail.markEnded": "Mark as ended",
+  "person.rail.removeEmploymentTitle": "Remove this company?",
+  "person.rail.removeEmploymentBody":
+    "The connection to {org} and its whole history disappear, and this cannot be undone. If they simply left, mark it ended instead.",
   "person.page.tabPlaceholder":
     "This tab is not built yet. The overview carries the relationship; this will carry {topic}.",
   "person.tab.overview": "Overview",

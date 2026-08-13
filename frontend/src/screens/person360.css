@@ -20,14 +20,11 @@
    nothing about it is styled here.
 
    ---------------------------------------------------------------------------
-   The identity line under the name: how to reach this person, then who holds
-   the relationship. Two lines, quieter on the second, following the company
-   header's own meta block.
+   The identity line under the name: how to reach this person, and who holds the
+   relationship. ONE wrapping line — the facts are a few words each, and split
+   across rows they made the header three deep for no gain.
    --------------------------------------------------------------------------- */
 .pe-identity-meta {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -41,10 +38,10 @@
   color: var(--textContent);
 }
 
-/* The second line is who and what this record is to us, read once rather than
-   scanned — so it sits below the first in weight as well as in order. */
+/* Standing — the buying role, who owns the record — sits in the same line as
+   the contact methods but quieter within it: it qualifies the record rather
+   than being a way to act on it. */
 .pe-meta-quiet {
-  font-size: 12px;
   color: var(--textMeta);
 }
 
@@ -177,9 +174,25 @@
 .pe-today-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   align-items: stretch;
   min-width: 160px;
+}
+
+/* A verb and what pressing it will do, as one block: the readiness belongs to
+   its own button and must not drift next to the one below it. */
+.pe-today-verb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: stretch;
+}
+
+.pe-today-verb-state {
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--textMeta);
 }
 
 /* Sources and freshness ride the panel's own footer band, quiet: they qualify
@@ -446,17 +459,50 @@
 }
 
 /* ---------------------------------------------------------------------------
-   The right rail (§5.11): six cards, one column. It never becomes a grid —
-   a rail that re-columns is a second body rather than a margin.
+   The right rail (§5.11): one continuous panel, its six slices told apart by
+   a hairline rather than by a gap between cards — the company record's rail
+   anatomy (company360.css `.co-rail .co-sect`), mirrored here rather than
+   reinvented. It never becomes a grid — a rail that re-columns is a second
+   body rather than a margin.
    --------------------------------------------------------------------------- */
-.pe-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  align-items: stretch;
+.pe-rail .pe-sect {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: 0;
+  margin-bottom: 0;
+}
+.pe-rail .pe-sect > summary {
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--textMeta);
+  transition: background 0.15s;
+}
+.pe-rail .pe-sect > summary:hover {
+  background: var(--bgHover);
+}
+/* `t-label` (design-system/atoms.tsx) is a plain span wrapping the whole
+   `summary` prop, so it has to grow to fill the row before .pe-sect-summary's
+   own flex has anywhere to push the trailing control into. */
+.pe-rail .pe-sect > summary .t-label {
+  flex: 1;
+  min-width: 0;
+}
+.pe-rail .pe-sect > summary .btn {
+  margin-left: auto;
+}
+.pe-rail .pe-sect .disclosure-body {
+  margin-top: 0;
+  padding: 0 var(--space-5) var(--space-5);
 }
 
-.pe-rail > .panel {
+/* The pulse summary's own row: the section name, then its Explain button
+   pushed to the far end. */
+.pe-sect-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
 }
 
@@ -529,6 +575,44 @@
   display: block;
   font-size: 12px;
   color: var(--textSecondary);
+}
+
+/* Employers: the same name-over-proof anatomy as `.pe-colleague`, ruled
+   between entries the way `.pe-rail-row` rules between readings — a list
+   of edges, not a single fact, so it needs the same separator the rail's
+   other lists already use. */
+.pe-employment {
+  padding: var(--space-2) 0;
+}
+
+.pe-employment + .pe-employment {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.pe-employment-org {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+}
+
+/* The role sits under the org name, on its own line — it is the ONE thing
+   in this row that is a control (InlineText), so it gets its own line
+   rather than fighting the org name and its badge for space. */
+.pe-employment-role {
+  display: block;
+  font-size: 13px;
+  color: var(--textContent);
+  margin-top: var(--space-1);
+}
+
+/* The two per-row verbs, right-aligned under the row's own facts — same
+   shape webhooks.tsx's per-row replay/rotate affordances use, so a rail row
+   and a table row read the same "the verbs live at the end" way. */
+.pe-employment-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /* Signals: a coloured dot the row's tone comes from, then the finding. */
