@@ -617,10 +617,10 @@ rediscover:
 
 Phase D fans out (§8): each module drops the column from its own tables and
 narrows its own indexes, in one PR with the Go change that stops naming it.
-Six slices are in: signals (#1124), collections + quotas (#1137), customfields
-(#1146), finance + comms (#1154), consent (#1164), and the approval spine
-(#1171). **114 tables and 127 tenant-leading indexes remain**, so what a slice
-costs is worth knowing before starting the next one.
+Nine slices are in: signals (#1124), collections + quotas (#1137), customfields
+(#1146), finance + comms (#1154), consent (#1164), the approval spine (#1171),
+automation (#1177) and the voice tables (#1179). **107 tables remain**, so what
+a slice costs is worth knowing before starting the next one.
 
 Three kinds of object go, and only the first is obvious: the **column** (which
 takes its foreign key into `workspace` with it, unasked); the **indexes that
@@ -657,24 +657,37 @@ loudly (the admin loses their session) rather than quietly leaving rows behind.
 Watch for the same shape elsewhere — any code that asks "does this table have a
 workspace_id" is asking a question that is becoming "no" everywhere.
 
-**Four modules are deliberately deferred, for two different reasons.**
+**A rollback must name the LIVE workspace, not the oldest one.** Every phase D
+down migration backfills the column it restores, and the first eight all read
+`SELECT id FROM workspace ORDER BY created_at LIMIT 1`. That is wrong wherever
+an installation resolved to a single organization by ARCHIVING the others:
+0217's pre-flight guarantees at most one workspace with `archived_at IS NULL`,
+not one ROW, and it names the archived residue rather than deleting it. The
+predicate is `WHERE archived_at IS NULL` and it is now in all eight (#1179).
+Copy that shape, not the earlier one.
 
-- **Webhooks and agents** are entangled with per-tenant job fan-out. The
-  webhook retry sweep is one job row per live tenant, with a suite built on a
-  second tenant's parked delivery and a fault injected through the workspace
-  GUC; the agent scheduler's suite injects its fault through a trigger keyed on
-  `NEW.workspace_id`. Dropping the columns first would leave those suites
-  asserting an isolation the schema no longer has, so the tables go with the
-  fleet loops (§5). Privacy's retention sweep and search's re-embed fan-out sit
-  in the same family.
-- **Automation and activity** are held by MIGRATION REPLAY. Migrations 0148 and
-  0149 are a one-off reminder repair whose SQL reads `automation.workspace_id`
-  and `activity.workspace_id`, and two integration suites replay that SQL
-  against the head schema to prove the repair did what it claimed. Dropping
-  either column retires eleven tests as a side effect. That is a real decision —
-  replaying a shipped migration against a schema that has moved past it tests a
-  combination production never has, and phase D can only make it harder — but it
-  deserves its own change rather than being settled inside a column drop.
+**Migration replay is retired** (#1175), which is what unblocked automation.
+Eleven tests replayed migrations 0148/0149 against the head schema; an applied
+version never re-runs, so they asked whether a 2026-07 repair works on a
+2026-08 schema — a question no installation puts. What the reminders do today
+is still covered by the six eligibility suites and `timescan_integration_test.go`.
+
+**Four modules remain deferred, all for the same reason: per-tenant job
+fan-out.** The webhook retry sweep is one job row per live tenant, with a suite
+built on a second tenant's parked delivery and a fault injected through the
+workspace GUC; the agent scheduler's suite injects its fault through a trigger
+keyed on `NEW.workspace_id`. Privacy's retention sweep and search's re-embed
+fan-out are the same shape. Their tables go with the fleet loops (§5).
+
+**Read this before starting that collapse — it is bigger than it looks.**
+`api/jobs.yaml` declares 62 jobs and every one is either `role: dispatcher`
+(27) or `role: workspace` (35). There is no third role, so collapsing the
+fan-out is not four edits: it is a change to the job vocabulary itself, plus
+the generator that turns those declarations into `platform/jobs/specs_gen.go`,
+plus the census and kind gates that hold the two in agreement, plus ~85 call
+sites of `dispatchPerWorkspace` / `FleetWide()` / `WorkspaceID()`. The first
+decision is what a collapsed job's role IS — and since `api/jobs.yaml` is a
+declared surface, that decision may belong upstream (P3) before any code moves.
 
 One table has already been renamed as well as narrowed: `workspace_signing_key`
 is `signing_key` (#1171). ADR-0091 §1 asks for it, and the reason is worth
