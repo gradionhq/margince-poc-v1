@@ -23,7 +23,7 @@ import (
 	"testing"
 )
 
-func (e *forecastEnv) runDealsByStage(t *testing.T, ctx context.Context, body string) reportResultWire {
+func (e *forecastEnv) runDealsByStage(ctx context.Context, t *testing.T, body string) reportResultWire {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/reports/deals-by-stage", strings.NewReader(body)).WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -42,7 +42,7 @@ func TestDealsByStageWeightedReconcilesToPerDealRounding(t *testing.T) {
 	e.seedOpenDeal(t, "Alpha", 60, nil, int64p(100000), stringp("commit"))
 	e.seedOpenDeal(t, "Beta", 60, nil, int64p(12341), stringp("commit"))
 
-	result := e.runDealsByStage(t, e.Admin(), fmt.Sprintf(
+	result := e.runDealsByStage(e.Admin(), t, fmt.Sprintf(
 		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}],"filters":{"stage_id":%q}}`,
 		e.stages[60].String()))
 	if len(result.Rows) != 1 {
@@ -71,7 +71,7 @@ func TestDealsByStageWeightedIsInTheCatalog(t *testing.T) {
 	if !ok {
 		t.Fatal("deals-by-stage is not a served report")
 	}
-	if _, ok := spec.measures["weighted_amount_minor"]; !ok {
+	if _, ok := spec.measures[fieldWeightedAmountMinor]; !ok {
 		t.Fatal("deals-by-stage has no weighted_amount_minor measure")
 	}
 	if _, ok := spec.dimensions["win_probability"]; !ok {
@@ -83,7 +83,7 @@ func TestDealsByStageWeightedIsInTheCatalog(t *testing.T) {
 			continue
 		}
 		for _, name := range entry.Aggregates {
-			if name == "weighted_amount_minor" {
+			if name == fieldWeightedAmountMinor {
 				found = true
 			}
 		}

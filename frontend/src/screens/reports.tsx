@@ -139,7 +139,8 @@ export function ForecastTile({
       </p>
       {weightedMinor != null && (
         <p className="t-mono t-caption">
-          {t("reports.weighted")}: {formatMoney(weightedMinor, currency, locale)}
+          {t("reports.weighted")}:{" "}
+          {formatMoney(weightedMinor, currency, locale)}
         </p>
       )}
     </Card>

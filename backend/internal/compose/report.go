@@ -46,6 +46,9 @@ const (
 	// stage for win_probability, so the forecast report and any other
 	// per-stage weighted figure cannot drift apart (review-loop rule 1).
 	weightedAmountMinorExpr = "round((t.amount_minor * s.win_probability) / 100.0)::bigint"
+	// fieldWeightedAmountMinor is the API-facing measure name every spec that
+	// defines weightedAmountMinorExpr registers it under.
+	fieldWeightedAmountMinor = "weighted_amount_minor"
 )
 
 type reportAggregate struct {
@@ -131,17 +134,17 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere: whereArchivedNull,
 		basePlain: "live (unarchived) deals",
 		dimensions: map[string]string{
-			"stage_id":        colStageID,
-			"status":          "t.status",
-			"pipeline_id":     colPipelineID,
+			paramStageID:      colStageID,
+			paramStatus:       "t.status",
+			paramPipelineID:   colPipelineID,
 			"win_probability": colWinProbability,
 		},
 		measures: map[string]string{
-			"amount_minor":          colAmountMinor,
-			"weighted_amount_minor": weightedAmountMinorExpr,
+			"amount_minor":           colAmountMinor,
+			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
-		filters:   map[string]string{"pipeline_id": colPipelineID, "status": "t.status", "owner_id": colOwnerID, "stage_id": colStageID},
-		defaultBy: []string{"stage_id"},
+		filters:   map[string]string{paramPipelineID: colPipelineID, paramStatus: "t.status", paramOwnerID: colOwnerID, paramStageID: colStageID},
+		defaultBy: []string{paramStageID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "amount_minor_sum"},
@@ -172,25 +175,25 @@ var prebuiltReports = map[string]reportSpec{
 	"forecast": {
 		entity:    datasource.EntityDeal,
 		table:     "deal",
-		joins:     []string{"JOIN stage s ON s.id = t.stage_id"},
+		joins:     []string{joinStageForWinProbability},
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
-			"owner_id":          colOwnerID,
-			"stage_id":          colStageID,
-			"pipeline_id":       colPipelineID,
+			paramOwnerID:        colOwnerID,
+			paramStageID:        colStageID,
+			paramPipelineID:     colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
-			"win_probability":   "s.win_probability",
+			"win_probability":   colWinProbability,
 		},
 		measures: map[string]string{
-			"amount_minor":          colAmountMinor,
-			"weighted_amount_minor": "round((t.amount_minor * s.win_probability) / 100.0)::bigint",
+			"amount_minor":           colAmountMinor,
+			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		filters: map[string]string{
-			"owner_id":          colOwnerID,
-			"stage_id":          colStageID,
-			"pipeline_id":       colPipelineID,
+			paramOwnerID:        colOwnerID,
+			paramStageID:        colStageID,
+			paramPipelineID:     colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 		},
@@ -198,7 +201,7 @@ var prebuiltReports = map[string]reportSpec{
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
-			{Fn: "sum", Field: "weighted_amount_minor", As: "weighted_minor"},
+			{Fn: "sum", Field: fieldWeightedAmountMinor, As: "weighted_minor"},
 		},
 	},
 }
