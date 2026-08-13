@@ -73,20 +73,35 @@ func ProfileCSV(r io.Reader, rowLimit int) (Profile, error) {
 		return Profile{}, err
 	}
 
-	filled := make([]int, len(header))
-	samples := make([][]string, len(header))
-	rows := 0
+	filled, samples, rows, err := profileRows(cr, len(header), rowLimit)
+	if err != nil {
+		return Profile{}, err
+	}
+
+	columns := make([]Column, len(header))
+	for i, name := range header {
+		columns[i] = Column{Header: name, Samples: samples[i], FillRate: fillRate(filled[i], rows)}
+	}
+	return Profile{Columns: columns, RowsProfiled: rows}, nil
+}
+
+// profileRows reads up to rowLimit data rows, counting the filled cells per
+// column and keeping the first few values of each. It reports how many rows it
+// actually read, which is the denominator every fill rate is quoted against.
+func profileRows(cr *csv.Reader, columns, rowLimit int) (filled []int, samples [][]string, rows int, err error) {
+	filled = make([]int, columns)
+	samples = make([][]string, columns)
 	for rows < rowLimit {
 		record, err := cr.Read()
 		if errors.Is(err, io.EOF) {
-			break
+			return filled, samples, rows, nil
 		}
 		if err != nil {
-			return Profile{}, fmt.Errorf("%w: %v", ErrSourceUnreadable, err)
+			return nil, nil, 0, fmt.Errorf("%w: %v", ErrSourceUnreadable, err)
 		}
 		rows++
 		for i, value := range record {
-			if strings.TrimSpace(value) == "" {
+			if i >= columns || strings.TrimSpace(value) == "" {
 				continue
 			}
 			filled[i]++
@@ -95,12 +110,7 @@ func ProfileCSV(r io.Reader, rowLimit int) (Profile, error) {
 			}
 		}
 	}
-
-	columns := make([]Column, len(header))
-	for i, name := range header {
-		columns[i] = Column{Header: name, Samples: samples[i], FillRate: fillRate(filled[i], rows)}
-	}
-	return Profile{Columns: columns, RowsProfiled: rows}, nil
+	return filled, samples, rows, nil
 }
 
 // fillRate is the share of profiled rows carrying a value. A file with no data

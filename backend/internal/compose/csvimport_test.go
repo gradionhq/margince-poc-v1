@@ -5,11 +5,13 @@ package compose
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
@@ -178,10 +180,20 @@ func TestMappingFromDefaultsTheSourceKeyToTheIdentifyingColumn(t *testing.T) {
 }
 
 // A vanished upload is the caller's to fix by re-uploading, so it is named as
-// missing rather than blamed on the server.
+// missing rather than blamed on the server. Asserted through the sentinel the
+// transport maps, not merely as "some error": a misclassified one answers 500.
 func TestImportProblemNamesAVanishedUploadAsNotFound(t *testing.T) {
-	err := importProblem(errors.New("import source \"ws/import/x\": " + apperrors.ErrNotFound.Error()))
-	if err == nil {
+	err := importProblem(fmt.Errorf("import source %q: %w", "ws/import/x", blobstore.ErrNotFound))
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want it to carry ErrNotFound so the transport answers 404", err)
+	}
+
+	// A file the customer can fix is a 422 naming the field, never a 500.
+	unreadable := importProblem(fmt.Errorf("%w: line 4", migration.ErrSourceUnreadable))
+	if errors.Is(unreadable, apperrors.ErrNotFound) {
+		t.Fatalf("an unreadable file was classified as missing: %v", unreadable)
+	}
+	if unreadable == nil {
 		t.Fatal("importProblem dropped the error")
 	}
 }

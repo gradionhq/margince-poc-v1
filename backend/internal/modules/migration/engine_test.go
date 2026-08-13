@@ -71,6 +71,11 @@ func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 		{"ResumeApproved", func() error { _, err := s.ResumeApproved(ctx, runID); return err }},
 		{"FailValidation", func() error { return s.FailValidation(ctx, runID, errors.New("boom")) }},
 		{"GetStaged", func() error { _, err := s.GetStaged(ctx, runID); return err }},
+		{"RecordIdentityTx", func() error {
+			// The borrowed transaction is never reached: the grant is taken
+			// first, which is the whole claim. A nil tx proves it.
+			return s.RecordIdentityTx(ctx, nil, runID, "hubspot", "contact", "1", ids.NewV7())
+		}},
 	} {
 		t.Run(entry.name, func(t *testing.T) {
 			if err := entry.call(); !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -610,9 +615,6 @@ func TestEveryRunStoreEntryPointIsGateChecked(t *testing.T) {
 		"RecordIdentity": true, "RecordIdentities": true, "Resume": true,
 		"CreateStagedRun": true, "AwaitApproval": true, "Approve": true,
 		"ResumeApproved": true, "FailValidation": true, "GetStaged": true,
-		// RecordIdentityTx takes the CALLER's transaction: it runs inside a
-		// landing the caller already took a grant for, and taking a second one
-		// on the same act would refuse a legitimate write half-way through it.
 		"RecordIdentityTx": true,
 	}
 	rt := reflect.TypeOf(&RunStore{})

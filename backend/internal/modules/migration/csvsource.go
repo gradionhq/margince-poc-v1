@@ -201,9 +201,16 @@ func (s *CSVSource) walk(ctx context.Context, visit func(line int, record []stri
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSourceUnreadable, err)
 	}
+	if err := validateHeader(header); err != nil {
+		return err
+	}
+	// Indexed by the header EXACTLY as the file spells it, because that is the
+	// key ProfileCSV published and the mapping was therefore written against.
+	// Trimming here instead would make a header like "Email " unresolvable:
+	// its mapped fields would vanish, and a row keyed on it would be skipped.
 	index := make(map[string]int, len(header))
 	for i, name := range header {
-		index[strings.TrimSpace(name)] = i
+		index[name] = i
 	}
 
 	for {

@@ -268,19 +268,33 @@ func readAllUpload(file multipart.File) ([]byte, error) {
 // WILL happen may not overstate it by the size of the customer's re-upload, so
 // each row is compared here exactly as the commit will compare it.
 func refinePrediction(ctx context.Context, source *migration.CSVSource, writers *csvWriters, object string, report migration.Report) (migration.Report, error) {
-	var created, updated, unchanged int
+	created, updated, unchanged, err := predictPages(ctx, source, writers, object)
+	if err != nil {
+		return migration.Report{}, err
+	}
+	for i := range report.Objects {
+		if report.Objects[i].Object != object {
+			continue
+		}
+		report.Objects[i].WillCreate = created
+		report.Objects[i].WillUpdate = updated
+		report.Objects[i].Unchanged = unchanged
+	}
+	return report, nil
+}
+
+// predictPages walks the source and tallies what the commit would do with each
+// row, page by page, the same way the engine will walk it.
+func predictPages(ctx context.Context, source *migration.CSVSource, writers *csvWriters, object string) (created, updated, unchanged int, err error) {
 	for offset := 0; ; offset += importPredictPage {
 		rows, err := source.Rows(ctx, object, offset, importPredictPage)
 		if err != nil {
-			return migration.Report{}, err
-		}
-		if len(rows) == 0 {
-			break
+			return 0, 0, 0, err
 		}
 		for _, row := range rows {
 			outcome, err := writers.Predict(ctx, row)
 			if err != nil {
-				return migration.Report{}, err
+				return 0, 0, 0, err
 			}
 			switch outcome {
 			case predictCreate:
@@ -292,16 +306,7 @@ func refinePrediction(ctx context.Context, source *migration.CSVSource, writers 
 			}
 		}
 		if len(rows) < importPredictPage {
-			break
+			return created, updated, unchanged, nil
 		}
 	}
-	for i := range report.Objects {
-		if report.Objects[i].Object != object {
-			continue
-		}
-		report.Objects[i].WillCreate = created
-		report.Objects[i].WillUpdate = updated
-		report.Objects[i].Unchanged = unchanged
-	}
-	return report, nil
 }

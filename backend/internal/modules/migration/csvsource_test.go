@@ -175,3 +175,47 @@ func TestCSVSourceReportsAVanishedUpload(t *testing.T) {
 		t.Fatalf("err = %v, want the blobstore's own not-found", err)
 	}
 }
+
+// The key the profile publishes and the key the source indexes must be the SAME
+// string. A header carrying trailing space is the case that separates them: the
+// mapping is written against ProfileCSV's untrimmed header, so an index that
+// trimmed would resolve nothing — the mapped fields would vanish and every row
+// would be skipped for want of a source key, silently.
+func TestCSVSourceIndexesTheHeaderTheProfilePublished(t *testing.T) {
+	const body = "Email ,First Name\na@x.test,Ada\n"
+
+	profile, err := ProfileCSV(strings.NewReader(body), 100)
+	if err != nil {
+		t.Fatalf("ProfileCSV: %v", err)
+	}
+	header := profile.Columns[0].Header
+	if header != "Email " {
+		t.Fatalf("profile published %q, want the file's own spelling", header)
+	}
+
+	// The mapping a screen would submit, keyed exactly as the profile published.
+	src := NewCSVSource(seedCSV(t, body), testCSVKey, ObjectLead,
+		map[string]string{header: "email", "First Name": "first_name"}, header)
+
+	rows, err := src.Rows(context.Background(), ObjectLead, 0, 10)
+	if err != nil {
+		t.Fatalf("Rows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d (skipped %+v), want the one row the file holds", len(rows), src.Skipped())
+	}
+	if rows[0].ExternalID != "a@x.test" || rows[0].Fields["email"] != "a@x.test" {
+		t.Fatalf("row = %+v, want the mapped column resolved", rows[0])
+	}
+}
+
+// The source refuses the same unusable headers the profile does, rather than
+// indexing them and losing rows further in.
+func TestCSVSourceRefusesAnUnusableHeader(t *testing.T) {
+	src := NewCSVSource(seedCSV(t, "Email,Email\na@x.test,b@x.test\n"), testCSVKey, ObjectLead,
+		map[string]string{"Email": "email"}, "Email")
+
+	if _, err := src.Rows(context.Background(), ObjectLead, 0, 10); !errors.Is(err, ErrHeaderInvalid) {
+		t.Fatalf("err = %v, want ErrHeaderInvalid", err)
+	}
+}

@@ -175,6 +175,10 @@ func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) 
 	}
 	report = withSkippedLines(report, object, source.Skipped())
 	if err := runs.AwaitApproval(ctx, run.ID, report); err != nil {
+		// The same orphan the two branches above avoid: a run that cannot be
+		// parked for a human is a run in `validating` that neither approve nor
+		// resume will ever move.
+		failValidation(ctx, runs, run.ID, err)
 		httperr.Write(w, r, err)
 		return
 	}
@@ -282,7 +286,18 @@ func (h importHandlers) staged(r *http.Request, id openapi_types.UUID) (migratio
 	if err := auth.RequireHuman(ctx); err != nil {
 		return migration.Run{}, err
 	}
-	return migration.NewRunStore(h.db).GetStaged(ctx, migration.RunID(id))
+	run, err := migration.NewRunStore(h.db).GetStaged(ctx, migration.RunID(id))
+	if err != nil {
+		return migration.Run{}, err
+	}
+	// The flip writes its own runs to the same table, and they carry no
+	// mapping — no object, no columns, nothing this surface can describe. They
+	// answer not-found here rather than being served as an import with an
+	// empty `object` the contract's own enum forbids.
+	if run.Connector != migration.ConnectorCSV {
+		return migration.Run{}, fmt.Errorf("import run %s: %w", id, apperrors.ErrNotFound)
+	}
+	return run, nil
 }
 
 // errNoObjectStore refuses an import on a process role that stores no objects.
