@@ -250,9 +250,9 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	// between two such records false, so a path that never fingerprints
 	// (a fixture, a hand-built Record) keeps the plain staleness behaviour
 	// instead of re-writing the row on every sweep.
-	var fingerprintArg any
+	var fingerprintArg *string
 	if rec.ProjectionFingerprint != "" {
-		fingerprintArg = rec.ProjectionFingerprint
+		fingerprintArg = &rec.ProjectionFingerprint
 	}
 	if err := s.assertFence(ctx, tx); err != nil {
 		return false, err
