@@ -252,16 +252,14 @@ func TestSweepReprojectionConvergesOnceTheRefetchLands(t *testing.T) {
 		t.Fatalf("the first sweep enqueued %d re-fetches, want 1 — nothing to converge otherwise", len(r.inc.enqueued))
 	}
 
-	// Work the job the phase enqueued, through the real worker: the point of
-	// this test is that the two halves fit — the phase names a row, the
-	// re-fetch re-projects it under the current declaration, and the row
-	// leaves the stale set.
-	worker := &overlayRefetchWorker{
-		pool: r.env.Pool, vault: r.vault, ms: r.ms,
-		meter:        budgettest.Meter(t, budgettest.SmallConfig("hubspot")),
-		log:          slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent { return r.inc },
-	}
+	// Work the job the phase enqueued, through the worker THIS build registers
+	// (registeredRefetchWorker): the point of this test is that the two halves
+	// fit in the wiring a deployed process runs — the phase names a row, the
+	// re-fetch re-projects it under the current declaration, and the row leaves
+	// the stale set. A worker assembled here instead would prove only that the
+	// phase fits a worker this file built.
+	worker := registeredRefetchWorker(t, r.env.Pool, r.vault,
+		budgettest.Meter(t, budgettest.SmallConfig("hubspot")), r.inc)
 	if err := worker.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: r.inc.enqueued[0]}); err != nil {
 		t.Fatalf("refetch Work: %v", err)
 	}
@@ -307,10 +305,10 @@ func TestSweepReprojectionAttributesActivityRowsByTheirMirrorNamespace(t *testin
 	}
 }
 
-// The Critical case attribution has to survive: renaming a declaration's
-// constant is an ordinary registry edit, and it changes the declaration's
-// fingerprint — so every row the old declaration projected is stale at once and
-// the flip blocks on them. Attributing those rows by anything the declaration
+// The hardest case for attribution: renaming a declaration's constant is an
+// ordinary registry edit, and it changes the declaration's fingerprint — so
+// every row the old declaration projected is stale at once and the flip blocks
+// on them. Attributing those rows by anything the declaration
 // writes INTO the payload would select none of them in exactly that pass, and
 // the block would never clear. The mirror id's namespace is not the
 // declaration's to change, so the sweep still names them.

@@ -3,8 +3,9 @@
 
 package compose
 
-// This file owns the webhook-as-signal targeted re-fetch (OVA-WIRE-10): the
-// job args, the worker, and its pre-flight/fetch-and-ingest split.
+// This file owns the targeted single-record re-fetch (OVA-WIRE-10) both of its
+// producers enqueue — a webhook signal and the sweep's re-projection phase:
+// the job args, the worker, and its pre-flight/fetch-and-ingest split.
 // reconcileWorkerCtx and isConnectionLevelIncumbentError stay in
 // jobs_overlay.go, which owns the periodic reconcile sweep: both are shared
 // with it.
@@ -57,11 +58,13 @@ func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // over its vaulted token, reads the one record, and ingests it through the
 // fenced, resolver-bound store — the SAME idempotent, owner-revalidating path
 // the reconcile sweep uses, so a webhook refresh and a poller sweep converge
-// on one mirror state. The poller still heals any gap a signal misses.
+// on one mirror state. A dropped job is not a lost record either way: a signal
+// this lane drops is healed by the poller's next watermark pass, and a
+// re-projection it drops is named again by the next sweep's re-projection
+// phase, since the row keeps the declaration it was projected under.
 type overlayRefetchWorker struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
-	ms    *overlay.MirrorStore
 	// meter is the OVB budget. A targeted re-fetch is a live single-record REST
 	// read-through — the same traffic category force-fresh meters, so it
 	// reserves against SourceForceFresh before the incumbent read and SHEDS to
@@ -155,27 +158,37 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 	if allowed, err := w.meter.ReserveREST(wsCtx, conn.Incumbent, overlaybudget.SourceForceFresh, 1); err != nil {
 		return fmt.Errorf("overlay refetch: reserving the incumbent budget: %w", err)
 	} else if !allowed {
-		w.log.InfoContext(wsCtx, "overlay refetch: incumbent budget shed, deferring to the poller",
+		w.log.InfoContext(wsCtx, "overlay refetch: incumbent budget shed, skipping the live read",
 			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
 		return nil
 	}
 	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
 	if err != nil {
 		// A connection-level failure (rate-limit/auth/unreachable) is retryable
-		// — return it so River backs off and retries. A record that is simply
-		// gone or unmappable is not retryable: the deletion feed / poller
-		// reconciles it, so log and drop rather than retry forever.
+		// — return it so River backs off and retries. A record the incumbent
+		// will not hand back is not: the same read returns the same answer,
+		// however many attempts it is given. What the mirror is left holding
+		// depends on why: an archived record is retired by the deletion feed,
+		// while a record the incumbent still holds but this build cannot map
+		// keeps its current payload and stays in the stale set, so every
+		// re-projection pass names it again — one reserved REST unit and one
+		// live read per tick, with force_fresh_incomplete holding the flip shut
+		// meanwhile (issue #1187).
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay refetch: reading %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
 		}
-		w.log.WarnContext(wsCtx, "overlay refetch: record read failed (not retryable), leaving it to the poller",
+		w.log.WarnContext(wsCtx, "overlay refetch: reading the record failed in a way a retry cannot change; the mirror keeps what it holds",
 			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", err)
 		return nil
 	}
+	// Built for the workspace THIS re-fetch names: the mirror store writes
+	// tenant rows over a workspace-bound handle, so one instance cannot serve
+	// the workspaces a role re-fetches for (ADR-0091 §9 step 3).
+	ms := overlay.NewMirrorStore(database.BindTo(w.pool, conn.Workspace), unresolvedOwnerEmails{})
 	// WithFenceIdentity on conn's OWN connected_at: a signal that outlives a
 	// disconnect+reconnect (coalesced 5s ahead, OVA-PARAM-10) must not ingest
 	// under the connection it was enqueued for once a NEW one is live.
-	if err := w.ms.WithResolver(inc).WithFenceIdentity(conn.ConnectedAt).Ingest(wsCtx, rec); err != nil {
+	if err := ms.WithResolver(inc).WithFenceIdentity(conn.ConnectedAt).Ingest(wsCtx, rec); err != nil {
 		if errors.Is(err, overlay.ErrConnectionGone) {
 			// Disconnected (or disconnected+reconnected) mid-refetch — the
 			// fence aborted the write, nothing resurrected or misattributed.

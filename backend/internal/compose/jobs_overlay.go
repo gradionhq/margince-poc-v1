@@ -31,9 +31,10 @@ import (
 // posture the embed-reindex wiring takes — it is periodicFor's to resolve from
 // the same declaration this gate reads.
 //
-// The mirror store and the budget meter are built once and shared by the two
-// workers that use them, which is why this is a block rather than three lines
-// in the runner.
+// The budget meter is built once and shared by the two workers that spend
+// against it, which is why this is a block rather than three lines in the
+// runner. The mirror store is NOT shared: it is workspace-bound, so each
+// worker builds its own for the workspace it is working (ADR-0091 §9 step 3).
 func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
 	if cfg.OverlayVault == nil {
 		return
@@ -50,11 +51,11 @@ func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, l
 		pool: pool, vault: cfg.OverlayVault, meter: meter, log: log,
 		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
 	})
-	// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
-	// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one record
-	// through the same store the poller uses. Registered whenever the overlay
-	// vault is present (the receiver only enqueues when the api role has the
-	// app secret wired).
+	// The targeted re-fetch worker (OVA-WIRE-10): consumes the coalesced
+	// OverlayRefetchArgs both producers enqueue — a portal-bound webhook and
+	// the sweep's re-projection phase — refreshing one record through the same
+	// ingest the poller uses. Registered whenever the overlay vault is present,
+	// which is what either producer needs to have its job worked.
 	addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{
 		pool: pool, vault: cfg.OverlayVault, meter: meter, log: log,
 		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
@@ -323,9 +324,8 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		return err
 	}
 	// The re-projection phase's re-fetches ride the River client working this
-	// sweep's own job (ambientRefetchEnqueuer) — the poller has no second
-	// client, and a re-fetch enqueued from anywhere else would be a job the
-	// sweep cannot see the result of.
+	// sweep's own job (ambientRefetchEnqueuer), so the poller needs no second
+	// client of its own.
 	return sweepObjectClasses(ctx, sweepDeps{inc: inc, ms: ms, meter: meter, enqueue: ambientRefetchEnqueuer{}, log: log}, d)
 }
 
