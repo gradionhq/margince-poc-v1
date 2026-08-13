@@ -358,6 +358,23 @@ func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonI
 		`DELETE FROM ai_feedback WHERE subject_type = 'person' AND subject_id = $1`, personID); err != nil {
 		return err
 	}
+	// What a licensed data provider asserted about the subject, and the runs
+	// that bought it. The claims are deleted — a claim IS the purchased value
+	// and nulling it leaves a row asserting something about a person nobody
+	// may now assert anything about. The runs are scrubbed rather than
+	// deleted: what the installation SPENT is an accounting fact about the
+	// installation, and once it names nobody it is not the subject's data
+	// (PI-AC-8). Both statements are storekit's, shared with the per-provider
+	// delete-data action so the two cannot drift.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_provider_claim WHERE person_id = $1`, personID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE provider_run SET`+storekit.ScrubProviderRunColumns+` WHERE person_id = $1`,
+		personID); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -34,6 +34,29 @@ type ClaimWrite struct {
 	PersonID string
 	Provider string
 	Claims   []provider.Claim
+	// RetrievedAt is when the provider answered — the run's completed_at, not
+	// the moment of this write. A recovery hand-off runs minutes later and
+	// must not restamp the values as fresher than they are.
+	RetrievedAt time.Time
+}
+
+// retrievedAt reads when the provider actually answered this run. Taken from
+// the row rather than from the clock, so the first hand-off attempt and a
+// recovery five attempts later stamp the same claim identically.
+func (s *Store) retrievedAt(ctx context.Context, tx pgx.Tx, runID string) (time.Time, error) {
+	var at *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT completed_at FROM provider_run WHERE id = $1`, runID).Scan(&at); err != nil {
+		return time.Time{}, fmt.Errorf("integrations: reading the run's completion time: %w", err)
+	}
+	if at == nil {
+		// The terminal write sets completed_at in the same statement as the
+		// state, so a completed run always has one. A row that somehow does
+		// not gets the clock rather than a zero time, which would render as
+		// 1 January year 1 on the person page.
+		return s.now(), nil
+	}
+	return *at, nil
 }
 
 // WriteClaimsFunc is the owning domain's idempotent claim upsert, run inside
@@ -75,7 +98,13 @@ func (s *Store) writeClaimsInline(ctx context.Context, tx pgx.Tx, runID, personI
 		// so; the spend stands because the purchase happened.
 		return s.discardClaims(ctx, tx, runID)
 	}
-	if err := s.writeClaims(ctx, tx, ClaimWrite{RunID: runID, PersonID: personID, Provider: name, Claims: claims}); err != nil {
+	at, err := s.retrievedAt(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	if err := s.writeClaims(ctx, tx, ClaimWrite{
+		RunID: runID, PersonID: personID, Provider: name, Claims: claims, RetrievedAt: at,
+	}); err != nil {
 		return err
 	}
 	// Cleared with the write: a crash after the claims commit but before a
