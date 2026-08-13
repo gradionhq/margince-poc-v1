@@ -4376,6 +4376,14 @@ export const de = {
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "Der Anbieter hat uns noch keinen Stand genannt.",
   "provider.constraints": "Geltende Grenzen",
+  "provider.spend": "Was wir verbraucht haben",
+  "provider.spend.hint":
+    "Unsere eigene Aufzeichnung dessen, was die Anreicherung gekostet hat. Nicht die Rechnung des Anbieters — dieselben Guthaben lassen sich auch über dessen App ausgeben, die beiden Zahlen dürfen also auseinandergehen.",
+  "provider.spend.thisMonth": "Diesen Monat",
+  "provider.spend.charged": "{pool}: {credits} Guthaben für {count} Abfragen",
+  "provider.spend.held":
+    "Davon liegen {credits} auf Abfragen, deren Ausgang wir nie erfahren haben.",
+  "provider.spend.none": "Es wurde noch nichts gekauft.",
   "provider.mode": "Wann angereichert wird",
   "provider.mode.automatic_on_create": "Sobald Kontakte entstehen",
   "provider.mode.on_demand": "Nur auf Zuruf",

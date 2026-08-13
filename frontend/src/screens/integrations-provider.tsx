@@ -113,6 +113,7 @@ function ProviderConnectionRow({
         </Badge>
       </header>
       <CreditsBlock connection={connection} />
+      <SpendBlock connection={connection} />
       <PolicyBlock connection={connection} />
       <CredentialBlock connection={connection} />
     </section>
@@ -122,6 +123,62 @@ function ProviderConnectionRow({
 // What the PROVIDER says is left — their number, never ours. A customer may
 // spend the same credits through the provider's own app, so this is a reading
 // of their ledger and the card never presents it as our accounting.
+// What THIS installation consumed, directly under what the provider says is
+// left — the two are the questions a customer asks together, and seeing them
+// side by side is what stops either being mistaken for the other. The label
+// says whose number it is; the hint says why they can legitimately differ.
+function SpendBlock({
+  connection,
+}: Readonly<{ connection: ProviderConnection }>) {
+  const t = useT();
+  const months = connection.spend?.months ?? [];
+  if (months.length === 0) {
+    return (
+      <div>
+        <h3>{t("provider.spend")}</h3>
+        <p className="muted">{t("provider.spend.none")}</p>
+      </div>
+    );
+  }
+  // The series only carries months that HAD spend, so its newest entry is not
+  // necessarily this one — an installation that bought nothing yet this month
+  // would otherwise see last month's total labelled as the current bill.
+  const now = new Date();
+  const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  return (
+    <div>
+      <h3>{t("provider.spend")}</h3>
+      <p className="muted">{t("provider.spend.hint")}</p>
+      {months.map((month) => (
+        <div key={`${month.month}-${month.pool}`}>
+          <span className="muted">
+            {month.month === current
+              ? t("provider.spend.thisMonth")
+              : month.month}
+          </span>{" "}
+          <span>
+            {t("provider.spend.charged", {
+              pool: month.pool,
+              credits: month.charged_credits,
+              count: month.runs,
+            })}
+          </span>
+          {month.held_credits > 0 && (
+            // Never folded into the charge: the platform does not know
+            // whether those credits were spent, and a total that quietly
+            // counted them either way would assert something it cannot
+            // support. This is the figure a human reconciles against the
+            // provider's invoice.
+            <p className="muted">
+              {t("provider.spend.held", { credits: month.held_credits })}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CreditsBlock({
   connection,
 }: Readonly<{ connection: ProviderConnection }>) {

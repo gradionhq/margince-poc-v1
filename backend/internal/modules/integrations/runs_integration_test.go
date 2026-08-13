@@ -171,7 +171,13 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 	e.ctx = principal.WithActor(principal.WithWorkspaceID(ctx, e.ws), principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + actor.String(), UserID: actor,
 		Permissions: principal.Permissions{
-			Objects: map[string]principal.ObjectGrant{"person": {Read: true}},
+			Objects: map[string]principal.ObjectGrant{
+				"person": {Read: true},
+				// What enrichment COSTS is readable by any seat that may see
+				// the connection — a rep asking "are we out of credits" is
+				// asking about the installation, not about a person.
+				"integrations": {Read: true},
+			},
 			// Own-scope on purpose: this is the scope a rep has, and the
 			// person they do not own is the one the gate must refuse.
 			RowScope: principal.RowScopeOwn,

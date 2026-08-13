@@ -119,15 +119,19 @@ func (s *Store) lockPool(ctx context.Context, tx pgx.Tx, connID, pool string) (p
 // runs each see an empty ledger and collectively blow through the ceiling —
 // the exact failure the ceiling exists to prevent.
 func (s *Store) poolUsedThisMonth(ctx context.Context, tx pgx.Tx, connID, pool string) (int, error) {
+	// The charge expression and the exclusions are shared with the spend
+	// history (spend.go), not copied: the number a customer READS and the
+	// number that REFUSES their next run come from one definition, so a page
+	// can never say there is budget left while the ceiling says otherwise.
 	var used int
 	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(SUM(COALESCE(r.actual_credits, r.reserved_credits)), 0)
+		SELECT COALESCE(SUM(`+chargedCredits+`), 0)
 		  FROM provider_run_reservation r
 		  JOIN provider_run run ON run.id = r.run_id
 		 WHERE r.pool = $2
 		   AND run.provider = (SELECT provider FROM provider_connection WHERE id = $1)
-		   AND run.created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')
-		   AND run.state <> 'skipped' AND run.state <> 'cancelled'`,
+		   AND run.created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+		   AND `+spendExcludedStates,
 		connID, pool).Scan(&used)
 	if err != nil {
 		return 0, fmt.Errorf("integrations: reading %s spend: %w", pool, err)
