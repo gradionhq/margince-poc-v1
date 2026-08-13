@@ -17,7 +17,7 @@ import (
 
 func TestActivityLogInputRefusesTheImporterNamespace(t *testing.T) {
 	reserved := "mirror:hubspot"
-	_, err := activityLogInput(crmcontracts.CreateActivityRequest{
+	_, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
 		Kind: "email", SourceSystem: &reserved, SourceId: strPtr("emails:900"),
 	})
 	var refused *provenance.ReservedError
@@ -28,7 +28,7 @@ func TestActivityLogInputRefusesTheImporterNamespace(t *testing.T) {
 
 func TestActivityLogInputAcceptsAnOrdinarySourceSystem(t *testing.T) {
 	ordinary := "gmail"
-	in, err := activityLogInput(crmcontracts.CreateActivityRequest{
+	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
 		Kind: "email", SourceSystem: &ordinary, SourceId: strPtr("msg-1"),
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ func strPtr(s string) *string { return &s }
 // of the classes the crash repair scans by provenance, so a client that
 // could write the namespace there could have a planted row adopted.
 func TestActivityLogInputRefusesAReservedSource(t *testing.T) {
-	_, err := activityLogInput(crmcontracts.CreateActivityRequest{
+	_, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
 		Kind: "note", Source: "mirror:hubspot:activity:a-1",
 	})
 	var refused *provenance.ReservedError
@@ -61,7 +61,7 @@ func TestActivityLogInputAcceptsAnOrdinarySource(t *testing.T) {
 	// The guard is a prefix rule, not a ban on the field: an ordinary
 	// provenance string has to survive, or every capture connector that
 	// stamps its own source would start failing at the wire.
-	in, err := activityLogInput(crmcontracts.CreateActivityRequest{Kind: "note", Source: "webform"})
+	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{Kind: "note", Source: "webform"})
 	if err != nil {
 		t.Fatalf("an ordinary source must stay writable: %v", err)
 	}

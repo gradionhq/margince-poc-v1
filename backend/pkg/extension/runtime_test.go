@@ -43,6 +43,11 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, Tx) error
 
 type fakeTx struct{ rows [][]string }
 
+// Core is the port a fake transaction does not serve: these tests exercise the
+// three SQL verbs, and a Core here would be a second implementation of the seam
+// rather than a use of it.
+func (t *fakeTx) Core() Core { return nil }
+
 func (t *fakeTx) Exec(_ context.Context, _ string, args ...any) (int64, error) {
 	return int64(len(args)), nil
 }

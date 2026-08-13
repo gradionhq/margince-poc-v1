@@ -1,0 +1,12 @@
+# oapi-codegen config: models only, from the contract subset the sibling
+# go:generate line cuts. Regenerate with `make gen`.
+#
+# skip-prune is TRUE and load-bearing: the subset is components-only, so no
+# schema has an incoming ref and the default pruning pass would generate an
+# empty file.
+package: crm
+output: crm_gen.go
+generate:
+  models: true
+output-options:
+  skip-prune: true

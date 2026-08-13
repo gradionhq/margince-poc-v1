@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // Actor resolves the audit identity of the current call. A missing actor
@@ -78,6 +80,10 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 	if err != nil {
 		return ids.Nil, err
 	}
+	evidence, err = withExtensionAttribution(ctx, evidence)
+	if err != nil {
+		return ids.Nil, err
+	}
 	var evidenceJSON []byte
 	if evidence != nil {
 		evidenceJSON, err = json.Marshal(evidence)
@@ -98,6 +104,40 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 		action, entityType, entityID, beforeJSON, afterJSON, evidenceJSON,
 		auth.AuthzRule(p, entityType, action))
 	return id, err
+}
+
+// withExtensionAttribution adds the bound extension attribution to a write's
+// evidence, and refuses a caller that tried to write the reserved member
+// itself.
+//
+// It is read from the CONTEXT rather than passed down because the alternative
+// is an evidence parameter threaded through every core write path — hundreds of
+// call sites, all of which would have to keep passing it — and a parameter that
+// every site must remember is one a new site forgets. Resolving it here is how
+// Audit already resolves the actor and the workspace, so attribution follows a
+// core write wherever it happens, including inside a tx-accepting seam a unit
+// reached through the port.
+//
+// The refusal is the whole reason this returns an error. `extension` is a
+// core-stamped member: a caller supplying one would either be overwritten
+// (losing what it meant to record) or would overwrite the stamp (claiming an
+// attribution it does not have), and both of those are silent. A fitness test
+// asserts no core module writes the key.
+//
+//craft:ignore naked-any the audit evidence seam is jsonb; its members are each writer's own shape
+func withExtensionAttribution(ctx context.Context, evidence map[string]any) (map[string]any, error) {
+	if _, taken := evidence[provenance.ExtensionEvidenceKey]; taken {
+		return nil, fmt.Errorf("store: audit evidence key %q is stamped by the core from the invocation, so a caller may not supply it",
+			provenance.ExtensionEvidenceKey)
+	}
+	ext, ok := provenance.ExtensionFrom(ctx)
+	if !ok {
+		return evidence, nil
+	}
+	merged := make(map[string]any, len(evidence)+1)
+	maps.Copy(merged, evidence)
+	merged[provenance.ExtensionEvidenceKey] = ext.EvidenceEntry()
+	return merged, nil
 }
 
 // LogSystem writes one append-only system_log row inside the current

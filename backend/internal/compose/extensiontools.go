@@ -200,8 +200,9 @@ func adaptExtensionTool(unit extension.Name, tool extension.Tool, verb extension
 			// false for everything this surface serves today.
 			Egress: scope.Egresses(),
 		},
-		unit:   string(unit),
-		handle: tool.Handle,
+		unit:    string(unit),
+		version: verb.Version,
+		handle:  tool.Handle,
 	}, nil
 }
 
@@ -333,6 +334,9 @@ type extensionTool struct {
 	// unit is the declaring extension's name, the scope of every Runtime
 	// this tool's handler is invoked with.
 	unit string
+	// version is the unit's declared version for THIS verb, carried into the
+	// attribution a core write records.
+	version string
 	// rbacObject and rbacAction are the grant the contract declares this
 	// operation needs, or both empty for a tool that owns no records.
 	rbacObject string
@@ -388,11 +392,11 @@ func (t extensionTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 			return nil, err
 		}
 	}
-	pool, vault := boundExtensionRuntime()
+	deps := boundExtensionRuntime()
 	// ctx here is the INVOCATION's — the one the admission gate ran against —
 	// and the Runtime keeps it, so every capability re-derives the tenant from
 	// it rather than from whatever context the handler later passes back in.
-	rt := runtimeFor(ctx, t.unit, pool, vault)
+	rt := runtimeFor(ctx, t.unit, t.version, "tool/"+t.spec.Name, deps)
 	// Deferred, not called on the return path: a handler that panics has
 	// still finished with its Runtime, and a panic recovered upstream must
 	// not leave a live one behind.

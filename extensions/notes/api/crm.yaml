@@ -160,6 +160,14 @@ actions:
                                   True when an agent or a connector wrote the
                                   note on that user's behalf rather than the
                                   person writing it directly.
+                          filed_activity_id:
+                            type: string
+                            format: uuid
+                            description: >-
+                              The core activity this note was filed to, present
+                              only on a note that was filed. One shape for a
+                              note wherever it is returned, so a client parses
+                              one type.
                           created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
@@ -251,6 +259,121 @@ actions:
                             True when an agent or a connector wrote the note on
                             that user's behalf rather than the person writing
                             it directly.
+                    filed_activity_id:
+                      type: string
+                      format: uuid
+                      description: >-
+                        The core activity this note was filed to, present only
+                        on a note that was filed. One shape for a note wherever
+                        it is returned, so a client parses one type.
+                    created_at: { type: string, format: date-time }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+
+  - target: $.paths['/ext/notes/file']
+    update:
+      post:
+        operationId: notesFile
+        summary: Write one note and file it to a record.
+        tags: [Extensions]
+        # A THIRD object, on the reasoning that split the signing key out of
+        # the notepad: a seat that may jot a note in the unit's own table has
+        # no business writing to the shared timeline every other record hangs
+        # its history off. No seeded role holds this one, so the capability is
+        # inert on a fresh installation until an admin grants it deliberately.
+        #
+        # It is not the only grant this call needs. The core activity is
+        # written under the CALLER's own permissions, so a seat also needs
+        # `activity:create` — and nothing declares that pairing, which is the
+        # known gap the multi-object story has to close.
+        x-rbac-object: ext_notes_filing
+        x-rbac-action: create
+        x-mcp-tool:
+          verb: file_note
+          version: 1.0.0
+          title: File a note to a record
+          # 🟢 write, and the tier is the interesting judgement here. The row
+          # this writes to the shared timeline is the caller's own text against
+          # a record the caller named and can already see, under the caller's
+          # own permissions — the same write the activity screen makes, with
+          # nothing inferred and nothing sent anywhere. What makes it safe to
+          # auto-execute is that it ADDS a timeline entry and changes no
+          # existing record.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Write one note into this workspace's Demo Notepad and file it to a
+            person, company, deal or lead as a note on that record's timeline.
+            Both land together or not at all. The note is attributed to whoever
+            is making the call, the timeline entry is written under their own
+            permissions, and a record they cannot see is refused as not found.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [body, subject_type, subject_id]
+                properties:
+                  body: { type: string, minLength: 1, maxLength: 500 }
+                  subject_type:
+                    type: string
+                    enum: [person, organization, deal, lead]
+                    description: Which kind of record the note is filed to.
+                  subject_id:
+                    type: string
+                    format: uuid
+                    description: >-
+                      The record the note is filed to. A record the caller
+                      cannot see is refused exactly as a missing one is.
+        responses:
+          '200':
+            description: The stored note, carrying the activity it was filed as.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [id, kind, body, filed_activity_id, created_at]
+                  properties:
+                    id: { type: string, format: uuid }
+                    kind:
+                      type: string
+                      enum: [note, heartbeat]
+                      description: >-
+                        Which of the two things that write this notepad wrote
+                        the row. Always `note` here.
+                    body: { type: string }
+                    author:
+                      type: [object, 'null']
+                      additionalProperties: false
+                      required: [user_id, is_agent]
+                      description: >-
+                        Who wrote the note, taken from the caller making this
+                        request and never from the request body.
+                      properties:
+                        user_id:
+                          type: string
+                          format: uuid
+                          description: >-
+                            The user the note is attributed to. For a note an
+                            agent wrote this is the human whose authority it
+                            acted on, not the agent.
+                        is_agent:
+                          type: boolean
+                          description: >-
+                            True when an agent or a connector wrote the note on
+                            that user's behalf rather than the person writing
+                            it directly.
+                    filed_activity_id:
+                      type: string
+                      format: uuid
+                      description: >-
+                        The core activity this note was filed to. Present only
+                        on a note that was filed; a note in the notepad alone
+                        does not carry the member at all.
                     created_at: { type: string, format: date-time }
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }

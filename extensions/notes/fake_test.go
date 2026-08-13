@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
+	"github.com/gradionhq/margince/backend/pkg/extension/crm"
 )
 
 // fakeRuntime is one invocation's Runtime: a secret namespace and a single
@@ -77,14 +78,25 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension
 // ignored, deliberately: a fixture cannot script the half-written author the
 // database refuses, so no test can assert behaviour for a row that cannot exist.
 func noteRow(id string, kind noteKind, body, authorUserID string, isAgent bool, at time.Time) []any {
+	return filedNoteRow(id, kind, body, authorUserID, isAgent, "", at)
+}
+
+// filedNoteRow is noteRow for a note that reached the timeline: filedActivityID
+// empty means the ordinary case, a note nobody filed, which is what the column
+// holds for every row the other tests script.
+func filedNoteRow(id string, kind noteKind, body, authorUserID string, isAgent bool, filedActivityID string, at time.Time) []any {
 	var (
 		userID       *string
 		isAgentValue *bool
+		filed        *string
 	)
 	if authorUserID != "" {
 		userID, isAgentValue = &authorUserID, &isAgent
 	}
-	return []any{id, string(kind), body, userID, isAgentValue, at}
+	if filedActivityID != "" {
+		filed = &filedActivityID
+	}
+	return []any{id, string(kind), body, userID, isAgentValue, filed, at}
 }
 
 // fakeTx records what a handler asked the database to do and answers with what
@@ -93,6 +105,7 @@ type fakeTx struct {
 	statements []string
 	args       [][]any
 
+	core     *fakeCore
 	rows     [][]any // what Query hands back, one slice per row
 	row      []any   // what QueryRow scans into dest
 	affected int64
@@ -111,6 +124,34 @@ type fakeTx struct {
 func (t *fakeTx) record(sql string, args []any) {
 	t.statements = append(t.statements, sql)
 	t.args = append(t.args, args)
+}
+
+// Core hands back the scripted port. It is nil for every test that does not
+// file, which is the accurate answer for those: a handler that reached for the
+// core port when the test did not expect one panics rather than passing.
+func (t *fakeTx) Core() extension.Core { return t.core }
+
+// fakeCore is the governed port as a filing test needs it: it records what the
+// unit asked the core to write, and answers with what the test scripted.
+//
+// A fake at the PUBLISHED seam and nothing below it. What the real port does —
+// the RBAC gate, the row-scope check on the subject, the audit row, the outbox
+// event — is the core's, tested where it lives; what these tests own is the
+// unit's half: which request it builds, and what it does with the answer.
+type fakeCore struct {
+	requested []crm.CreateActivityRequest
+	activity  crm.Activity
+	err       error
+}
+
+func (c *fakeCore) Activities() extension.ActivityRepo { return c }
+
+func (c *fakeCore) Create(_ context.Context, in crm.CreateActivityRequest) (crm.Activity, error) {
+	c.requested = append(c.requested, in)
+	if c.err != nil {
+		return crm.Activity{}, c.err
+	}
+	return c.activity, nil
 }
 
 func (t *fakeTx) Exec(_ context.Context, sql string, args ...any) (int64, error) {

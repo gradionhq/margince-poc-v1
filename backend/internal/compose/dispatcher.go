@@ -191,20 +191,51 @@ func (d *Dispatcher) overlayModeFor(ctx context.Context, wsID ids.UUID) (bool, e
 	return isOverlay, nil
 }
 
-// queryOverlayMode reads workspace.x_sor_mode straight from the
-// workspace row. workspace is the one non-tenant table (identity's own
-// ResolveWorkspace doc comment), so this rides WithInfraTx rather than
-// the RLS-bound WithWorkspaceTx — there is no workspace_id column on
-// workspace itself to scope by.
+// queryOverlayMode reads workspace.x_sor_mode straight from the workspace row,
+// on a connection of its own because a dispatch has no transaction to borrow.
 func (d *Dispatcher) queryOverlayMode(ctx context.Context, wsID ids.UUID) (bool, error) {
-	var mode string
+	var overlaid bool
 	err := database.WithInfraTx(ctx, d.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT x_sor_mode FROM workspace WHERE id = $1`, wsID).Scan(&mode)
+		var readErr error
+		overlaid, readErr = overlayModeOf(ctx, tx, wsID)
+		return readErr
 	})
 	if err != nil {
 		return false, fmt.Errorf("compose: resolving workspace sor_mode for dispatch: %w", err)
 	}
+	return overlaid, nil
+}
+
+// overlayModeOf is the fresh read of a workspace's system-of-record mode, and
+// the ONE spelling of it: the dispatcher's uncached read above and the
+// extension core port's own guard both go through here, so the two can never
+// answer differently about the same workspace.
+//
+// It takes a QUERIER rather than a pool, which is what lets the port ask the
+// question on the transaction it is already inside. Reaching for a second
+// connection there is the deadlock shape this repo removed once already
+// (backend/txseamacquire_test.go): under a saturated pool the borrowed
+// transaction holds its connection while the new acquire waits for one, in the
+// same goroutine, and PostgreSQL sees two unrelated sessions rather than a
+// cycle it can break.
+//
+// workspace is the one non-tenant table (identity's own ResolveWorkspace doc
+// comment), so a caller with no transaction rides WithInfraTx rather than the
+// RLS-bound WithWorkspaceTx — there is no workspace_id column on workspace
+// itself to scope by, and reading it from inside a workspace-bound transaction
+// is equally unfiltered.
+func overlayModeOf(ctx context.Context, q rowQuerier, wsID ids.UUID) (bool, error) {
+	var mode string
+	if err := q.QueryRow(ctx, `SELECT x_sor_mode FROM workspace WHERE id = $1`, wsID).Scan(&mode); err != nil {
+		return false, err
+	}
 	return mode == "overlay", nil
+}
+
+// rowQuerier is the one method overlayModeOf needs, so that a pgx.Tx and a
+// transaction opened for the purpose are the same thing to it.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // Read dispatches to the overlay mirror or the native SoR modules per

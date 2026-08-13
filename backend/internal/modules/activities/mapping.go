@@ -60,7 +60,12 @@ func activityUpdateInput(req crmcontracts.UpdateActivityRequest, ifVersion *int6
 	}
 }
 
-func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput, error) {
+// LogActivityInputFrom maps the contract's create request onto the store's
+// input. It is exported for the composition layer, which hands an extension's
+// core write to LogActivityTx and must map it the way the HTTP handler does —
+// a second mapping written beside this one would be a second set of rules
+// about the reserved import namespace, and the two would drift.
+func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityInput, error) {
 	if req.Kind == "" {
 		return LogActivityInput{}, &RequiredFieldError{Field: "kind"}
 	}

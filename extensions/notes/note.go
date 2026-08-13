@@ -116,6 +116,12 @@ type note struct {
 	// types it [object, 'null'] to say the same thing.
 	Author *author `json:"author,omitempty"`
 
+	// FiledActivityID is the core activity this note was filed to, and its
+	// absence is the ordinary case: a note lives in the notepad until somebody
+	// files it to a record. A pointer for the same reason Author is one — the
+	// empty string would claim a filing whose activity is nothing.
+	FiledActivityID *string `json:"filed_activity_id,omitempty"`
+
 	CreatedAt string `json:"created_at"`
 }
 
@@ -127,7 +133,7 @@ type note struct {
 //
 // The two author columns are cast and read as they are stored: NULL for the
 // tick's rows, which scanNote turns into no author at all.
-const noteColumns = `id::text, kind, body, author_user_id::text, author_is_agent, created_at`
+const noteColumns = `id::text, kind, body, author_user_id::text, author_is_agent, filed_activity_id::text, created_at`
 
 // scanNote reads one row of noteColumns into the response shape.
 //
@@ -141,11 +147,12 @@ func scanNote(scan func(dest ...any) error) (note, error) {
 		kind    string
 		userID  *string
 		isAgent *bool
+		filed   *string
 		created time.Time
 	)
 	// Pointers for the two nullable columns: scanning a NULL into a string or a
 	// bool is an error, and the tick writes NULL on every row it makes.
-	if err := scan(&n.ID, &kind, &n.Body, &userID, &isAgent, &created); err != nil {
+	if err := scan(&n.ID, &kind, &n.Body, &userID, &isAgent, &filed, &created); err != nil {
 		return note{}, err
 	}
 	parsed, err := parseNoteKind(kind)
@@ -161,6 +168,10 @@ func scanNote(scan func(dest ...any) error) (note, error) {
 	if userID != nil && isAgent != nil {
 		n.Author = &author{UserID: *userID, IsAgent: *isAgent}
 	}
+	// Absent rather than empty for a note nobody filed: the member says "this
+	// note reached the timeline, here is the entry", and an empty string would
+	// say it reached one whose id is nothing.
+	n.FiledActivityID = filed
 	n.CreatedAt = created.UTC().Format(time.RFC3339)
 	return n, nil
 }
@@ -207,6 +218,24 @@ func listNotes(ctx context.Context, rt extension.Runtime, in json.RawMessage) (j
 	}{Notes: notes})
 }
 
+// noteBody is what a note's text must be, for every operation that takes one.
+// Shared rather than repeated: the add and the filing accept the same body, and
+// two copies of a length rule are two rules the day one of them changes.
+func noteBody(raw string) (string, error) {
+	body := strings.TrimSpace(raw)
+	switch {
+	case body == "":
+		return "", errors.New("notes: a note needs a body")
+	// Runes, not bytes. The contract advertises maxLength: 500, and JSON Schema
+	// counts CHARACTERS — so counting len() here refuses a 200-character note
+	// in Vietnamese or Japanese while the schema the client was handed says it
+	// fits, and the refusal names a length the author cannot see anywhere.
+	case utf8.RuneCountInString(body) > maxNoteBody:
+		return "", fmt.Errorf("notes: a note is at most %d characters, this one is %d", maxNoteBody, utf8.RuneCountInString(body))
+	}
+	return body, nil
+}
+
 // addNote writes one note and returns it as stored.
 func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
 	args, err := decode[struct {
@@ -215,16 +244,9 @@ func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 	if err != nil {
 		return nil, err
 	}
-	body := strings.TrimSpace(args.Body)
-	switch {
-	case body == "":
-		return nil, errors.New("notes: a note needs a body")
-	// Runes, not bytes. The contract advertises maxLength: 500, and JSON Schema
-	// counts CHARACTERS — so counting len() here refuses a 200-character note
-	// in Vietnamese or Japanese while the schema the client was handed says it
-	// fits, and the refusal names a length the author cannot see anywhere.
-	case utf8.RuneCountInString(body) > maxNoteBody:
-		return nil, fmt.Errorf("notes: a note is at most %d characters, this one is %d", maxNoteBody, utf8.RuneCountInString(body))
+	body, err := noteBody(args.Body)
+	if err != nil {
+		return nil, err
 	}
 	authorID, authorIsAgent := callerAuthor(rt.Caller())
 	var n note
