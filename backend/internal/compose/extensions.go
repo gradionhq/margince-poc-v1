@@ -281,6 +281,17 @@ func ComposedSubscriptions() []ComposedSubscription {
 	return slices.Clone(composedSubscriptions.subs)
 }
 
+// SetComposedSubscriptionsForTest installs a listener set without a boot.
+//
+// Exported for the WORKER's own tests: the lane starter reads this registry,
+// and the thing worth testing there — that one unresolvable listener does not
+// cost the others their lane — needs a set containing one. cmd/worker cannot
+// reach an unexported setter, and reconstructing the registry there would be a
+// second source of the same fact.
+func SetComposedSubscriptionsForTest(subs []ComposedSubscription) {
+	setComposedSubscriptions(subs)
+}
+
 // buildExtensionSubscriptions flattens the validated set into one list of
 // listeners, each stamped with the unit that declared it.
 func buildExtensionSubscriptions(exts []extension.Extension) []ComposedSubscription {

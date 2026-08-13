@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -220,6 +221,27 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 // other lanes over one unit's listener would turn a unit-sized fault into an
 // installation-sized one.
 func startExtensionSubscriptionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, background *sync.WaitGroup, logger *slog.Logger, stdout io.Writer) {
+	for _, lane := range extensionSubscriptionLanes(pool, logger, stdout) {
+		background.Go(func() { runGroupSubscriber(ctx, rdb, lane.group, lane.handler, logger, 0) })
+	}
+}
+
+// subscriptionLane is one composed listener resolved to what running it takes:
+// the group to consume, and the handler to consume it with.
+type subscriptionLane struct {
+	group   kevents.Group
+	handler events.Handler
+}
+
+// extensionSubscriptionLanes resolves every composed listener, announcing the
+// ones it can run and skipping the ones it cannot.
+//
+// It is split from the starter above so this decision — which lanes exist, and
+// what happens to a listener that cannot be resolved — can be exercised without
+// a bus to consume from. The skip is the part worth pinning: one unresolvable
+// listener must not cost the others their lane.
+func extensionSubscriptionLanes(pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) []subscriptionLane {
+	var lanes []subscriptionLane
 	for _, sub := range compose.ComposedSubscriptions() {
 		group, err := sub.Group()
 		if err != nil {
@@ -227,11 +249,11 @@ func startExtensionSubscriptionLanes(ctx context.Context, pool *pgxpool.Pool, rd
 				"unit", string(sub.Unit), "subscription", sub.Sub.Name, "error", err)
 			continue
 		}
-		handler := sub.Handler(pool, logger)
 		_, _ = fmt.Fprintf(stdout, "worker delivering %s to %s/%s (%s)\n",
 			strings.Join(sub.Sub.Events, ", "), sub.Unit, sub.Sub.Name, group.Name)
-		background.Go(func() { runGroupSubscriber(ctx, rdb, group, handler, logger, 0) })
+		lanes = append(lanes, subscriptionLane{group: group, handler: sub.Handler(pool, logger)})
 	}
+	return lanes
 }
 
 // startWorkflowLane starts the cg:workflows dispatcher. It needs nothing the job
