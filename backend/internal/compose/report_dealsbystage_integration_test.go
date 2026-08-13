@@ -16,7 +16,9 @@ package compose
 import (
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -147,7 +149,10 @@ func TestDealsByStageGroupsByCurrencySeparately(t *testing.T) {
 	}
 	sums := map[string]int64{}
 	for _, row := range rows {
-		currency, _ := row["currency"].(string)
+		currency, ok := row["currency"].(string)
+		if !ok {
+			t.Fatalf("row %+v: currency cell is not a string", row)
+		}
 		sums[currency] = wireInt(t, row, "amount_minor_sum")
 	}
 	if sums["EUR"] != 100000 || sums["USD"] != 50000 {
@@ -195,12 +200,11 @@ func TestDealsByStageFiltersByPartnerSourced(t *testing.T) {
 	}
 }
 
-// The stalled predicate is bare-column SQL (formulas.StalledSQL), safe in
-// deal_read.go's own unaliased query but ambiguous the moment a query joins
-// a table sharing a column name — deals-by-stage's stage join is exactly
-// that (stage has its own created_at). A regression back to an unqualified
-// column reference here does not produce a wrong number; it 500s before
-// ever reaching the assertions below.
+// deals-by-stage joins stage, which has its own created_at — so the stalled
+// predicate (deals.StalledSQL) must reach this query alias-qualified, or an
+// unqualified reference to a column both tables carry is ambiguous SQL. A
+// regression to an unqualified spelling does not produce a wrong number; it
+// 500s before ever reaching the assertions below.
 func TestDealsByStageStalledFilterWorksUnderTheStageJoin(t *testing.T) {
 	e := setupForecast(t)
 	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by, created_at)
@@ -217,6 +221,54 @@ func TestDealsByStageStalledFilterWorksUnderTheStageJoin(t *testing.T) {
 		t.Errorf("amount_minor_sum = %d, want 10000", got)
 	}
 }
+
+// The Go predicate (deals.IsStalled) and the SQL clause (deals.StalledSQL)
+// are two spellings of the same rule (formulas-and-rules §8) and must agree.
+// Margins here are wide (tens of days) on purpose: the SQL side evaluates
+// against the live `now()` at query time, seconds after this test captured
+// its own `now`, so a boundary-exact case would be flaky by construction —
+// that exact case is formulas_test.go's job, against a fixed clock.
+func TestDealsByStageStalledFilterAgreesWithIsStalled(t *testing.T) {
+	e := setupForecast(t)
+	now := time.Now().UTC()
+	days := func(n int) time.Time { return now.AddDate(0, 0, n) }
+
+	cases := []struct {
+		name    string
+		created time.Time
+		lastAct *time.Time
+		wait    *time.Time
+	}{
+		{"fresh", days(-5), timep(days(-2)), nil},
+		{"idle past threshold", days(-90), timep(days(-70)), nil},
+		{"active wait suppresses", days(-90), timep(days(-80)), timep(days(10))},
+		{"expired wait un-suppresses", days(-90), timep(days(-80)), timep(days(-5))},
+	}
+	for _, c := range cases {
+		e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, created_at, last_activity_at, wait_until, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 1000, 'EUR', $6, $7, $8, 'manual', 'human:x')`,
+			c.name, e.pipeline, e.stages[60], c.created, c.lastAct, c.wait)
+	}
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"}],"filters":{"stalled":true}}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
+
+	var wantStalled int64
+	for _, c := range cases {
+		if deals.IsStalled("open", c.created, c.lastAct, c.wait, now) {
+			wantStalled++
+		}
+	}
+	if wantStalled == 0 || wantStalled == int64(len(cases)) {
+		t.Fatalf("fixture is broken: IsStalled must split these %d cases, not agree on all of them (got %d stalled)", len(cases), wantStalled)
+	}
+	if got := wireInt(t, row, "deals"); got != wantStalled {
+		t.Errorf("SQL filter matched %d deals, Go's IsStalled agrees on %d — the two spellings of §8 have drifted", got, wantStalled)
+	}
+}
+
+func timep(v time.Time) *time.Time { return &v }
 
 // dealsByStageRow picks the aggregate row for one stage out of a
 // group-by-stage_id result — the report is fetched with no stage_id

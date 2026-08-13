@@ -35,14 +35,8 @@ const (
 	colStageID        = "t.stage_id"
 	colOrganizationID = "t.organization_id"
 	colCurrency       = "t.currency"
+	colStatus         = "t.status"
 	whereArchivedNull = "t.archived_at IS NULL"
-
-	// partnerSourcedExpr mirrors modules/deals.appendDealFilters' own
-	// partner_sourced predicate: attribution presence, not a value match.
-	// Boolean-valued, so it fits the report engine's generic `expr = $n`
-	// filter rendering the same way weightedAmountMinorExpr's sibling
-	// stalled predicate does — no special-casing needed for either.
-	partnerSourcedExpr = "t.partner_org_id IS NOT NULL"
 
 	// joinStageForWinProbability is the one join a spec adds when it needs the
 	// deal's current stage for win_probability. It is safe from BOTH directions
@@ -79,6 +73,8 @@ const (
 	fieldPartnerSourced = "partner_sourced"
 	fieldStalled        = "stalled"
 	fieldCurrency       = "currency"
+	fieldPipelineID     = "pipeline_id"
+	fieldOwnerID        = "owner_id"
 )
 
 type reportAggregate struct {
@@ -149,10 +145,10 @@ var prebuiltReports = map[string]reportSpec{
 		table:      "deal",
 		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain:  "live (unarchived) open deals",
-		dimensions: map[string]string{"organization_id": "t.organization_id", "owner_id": colOwnerID},
+		dimensions: map[string]string{fieldOrganizationID: colOrganizationID, "owner_id": colOwnerID},
 		measures:   map[string]string{"amount_minor": colAmountMinor},
 		filters:    map[string]string{"owner_id": colOwnerID, "pipeline_id": colPipelineID},
-		defaultBy:  []string{"organization_id"},
+		defaultBy:  []string{fieldOrganizationID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "open_deals"},
 		},
@@ -165,8 +161,8 @@ var prebuiltReports = map[string]reportSpec{
 		basePlain: "live (unarchived) deals",
 		dimensions: map[string]string{
 			fieldStageID:        colStageID,
-			fieldStatus:         "t.status",
-			"pipeline_id":       colPipelineID,
+			fieldStatus:         colStatus,
+			fieldPipelineID:     colPipelineID,
 			fieldWinProbability: colWinProbability,
 			fieldCurrency:       colCurrency,
 		},
@@ -182,11 +178,11 @@ var prebuiltReports = map[string]reportSpec{
 		// the engine's generic `expr = $n` rendering already handles with no
 		// special-casing.
 		filters: map[string]string{
-			"pipeline_id":       colPipelineID,
-			fieldStatus:         "t.status",
-			"owner_id":          colOwnerID,
+			fieldPipelineID:     colPipelineID,
+			fieldStatus:         colStatus,
+			fieldOwnerID:        colOwnerID,
 			fieldOrganizationID: colOrganizationID,
-			fieldPartnerSourced: partnerSourcedExpr,
+			fieldPartnerSourced: deals.PartnerSourcedSQL("t"),
 			fieldStalled:        deals.StalledSQL("t"),
 			fieldCurrency:       colCurrency,
 		},
