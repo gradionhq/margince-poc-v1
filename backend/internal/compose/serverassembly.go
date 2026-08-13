@@ -135,10 +135,9 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// floor.
 	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
 	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
-	// The importer takes the SAME field catalog the people store carries: a
-	// mapping may name a cf_* column, and a catalog that disagreed with the
-	// store's would advertise a destination the write then dropped.
-	s.importHandlers = importHandlers{db: InstallationDB(pool), catalog: customfields.NewService(pool, nil)}
+	// The importer maps only core columns (see importTargets for why custom
+	// fields are not among them), so it needs no field catalog of its own.
+	s.importHandlers = importHandlers{db: InstallationDB(pool)}
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
@@ -152,9 +151,11 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// options rather than one.
 	s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, nil, "", time.Now)
 	s.orgGrowthFitSvc = orgdossier.NewGrowthFitService(
-		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
+		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now,
+	)
 	s.orgDossierHandlers = orgdossier.NewHandlers(
-		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
+		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay,
+	)
 	// AFTER the dossier service exists: the drafter takes it as a dependency,
 	// and a nil *Service handed through the interface is not the nil INTERFACE
 	// the drafter guards against — it would pass the guard and panic on the
@@ -167,7 +168,8 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.accountDraftHandlers = accountdraft.NewHandlers(
 		accountdraft.NewService(s.org360Svc, nil).
 			WithEnvelope(draftEnvelope(pool, s.log)).
-			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay)
+			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay,
+	)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

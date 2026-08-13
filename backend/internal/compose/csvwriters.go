@@ -120,6 +120,40 @@ func (w *csvWriters) lookup(ctx context.Context, object, externalID string) (ids
 	return id, found, nil
 }
 
+// predictedOutcome is what a commit would do with one row, decided exactly the
+// way Ensure decides it — same lookup, same comparison — so the dry run cannot
+// promise something the commit then does differently.
+type predictedOutcome int
+
+const (
+	predictCreate predictedOutcome = iota
+	predictUpdate
+	predictUnchanged
+)
+
+// Predict answers what Ensure would do, without writing.
+func (w *csvWriters) Predict(ctx context.Context, row migration.Row) (predictedOutcome, error) {
+	id, found, err := w.lookup(ctx, w.object, row.ExternalID)
+	if err != nil {
+		return predictCreate, err
+	}
+	if !found {
+		return predictCreate, nil
+	}
+	current, err := w.read(ctx, id)
+	if err != nil {
+		return predictCreate, err
+	}
+	changed, err := changedFields(current, textFields(row.Fields))
+	if err != nil {
+		return predictCreate, err
+	}
+	if len(changed) == 0 {
+		return predictUnchanged, nil
+	}
+	return predictUpdate, nil
+}
+
 // Ensure lands one row: created the first time, updated when the file has
 // since changed, unchanged when it has not.
 func (w *csvWriters) Ensure(ctx context.Context, object string, row migration.Row) (migration.EnsureResult, error) {

@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -65,10 +64,10 @@ type CSVSource struct {
 	mapping   map[string]string
 	sourceKey string
 
-	// skipped accumulates rows no page could deliver. Guarded because the
-	// engine may page concurrently with a count, and a disclosed skip that
-	// races into a torn slice would be a skip nobody can see.
-	mu      sync.Mutex
+	// skipped accumulates rows no page could deliver. One source is walked by
+	// one request — the engine pages sequentially and the prediction pass runs
+	// before it — so this needs no lock, and giving it one would suggest a
+	// concurrency the rest of the type does not actually support.
 	skipped []SkippedLine
 }
 
@@ -105,8 +104,6 @@ func (s *CSVSource) Associations(context.Context) ([]Assoc, error) { return nil,
 // reason. Never silent: a file half-ignored under a success message is worse
 // than a refusal.
 func (s *CSVSource) Skipped() []SkippedLine {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return append([]SkippedLine(nil), s.skipped...)
 }
 
@@ -168,8 +165,6 @@ func (s *CSVSource) rowFrom(line int, record []string, index map[string]int) (Ro
 }
 
 func (s *CSVSource) skip(line int, reason string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, already := range s.skipped {
 		if already.Line == line {
 			// A page re-read after a resume walks the same rows again; the
@@ -211,11 +206,15 @@ func (s *CSVSource) walk(ctx context.Context, visit func(line int, record []stri
 		index[strings.TrimSpace(name)] = i
 	}
 
-	for line := 2; ; line++ {
+	for {
 		record, err := cr.Read()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
+		// The reader's own position, not a counter: a quoted field may span
+		// several lines, and a disclosure that named the Nth record would send
+		// a human to the wrong line of their file.
+		line, _ := cr.FieldPos(0)
 		if err != nil {
 			return fmt.Errorf("%w: line %d: %v", ErrSourceUnreadable, line, err)
 		}

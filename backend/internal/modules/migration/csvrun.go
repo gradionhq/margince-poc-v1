@@ -84,6 +84,7 @@ func (s *RunStore) CreateStagedRun(ctx context.Context, in CreateStagedRunInput)
 		return Run{}, err
 	}
 	run.Mapping = &in.Mapping
+	run.CapturedBy = capturedBy
 	return run, nil
 }
 
@@ -117,6 +118,19 @@ func (s *RunStore) Approve(ctx context.Context, id RunID) (Run, error) {
 	return s.GetStaged(ctx, id)
 }
 
+// ResumeApproved continues a run that failed part-way, from its checkpoint.
+//
+// This is what IEM-WIRE-6 means by a resumable failure being "a resumable
+// state, not a dead end": without it an interrupted import can only be
+// abandoned and re-uploaded, because approve refuses anything but
+// awaiting_approval and nothing else drives the engine.
+func (s *RunStore) ResumeApproved(ctx context.Context, id RunID) (Run, error) {
+	if err := s.Resume(ctx, id); err != nil {
+		return Run{}, err
+	}
+	return s.GetStaged(ctx, id)
+}
+
 // stageTransition moves a run between two named states, refusing when it is not
 // in the state the caller believed. One statement decides both the move and the
 // refusal, so a concurrent approval cannot slip between a check and a write.
@@ -132,15 +146,56 @@ func (s *RunStore) stageTransition(ctx context.Context, id RunID, from, to strin
 			return fmt.Errorf("moving import run %s to %s: %w", id, to, err)
 		}
 		if tag.RowsAffected() == 0 {
-			// Existence-hiding is the store's own job elsewhere; here the row
-			// was already proven visible by the read that preceded this call,
-			// so the honest answer is the state conflict.
-			return fmt.Errorf("import run %s is not %s, so it cannot become %s: %w", id, from, to, apperrors.ErrConflict)
+			// Zero rows means either "no such run here" or "not in that
+			// state", and the two owe different answers. Deciding it from a
+			// read the CALLER happened to do first would make this a guard
+			// only its current callers keep, so it is decided here.
+			return s.explainMiss(ctx, tx, id, from, to)
 		}
 		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id,
 			map[string]any{auditFieldStatus: from}, map[string]any{auditFieldStatus: to})
 		return err
 	})
+}
+
+// FailValidation records a dry run that could not finish. Valid only from
+// `validating`, so it can never overwrite the outcome of a run that has since
+// been approved and committed.
+func (s *RunStore) FailValidation(ctx context.Context, id RunID, cause error) error {
+	if err := auth.Require(ctx, importRunObject, principal.ActionUpdate); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE import_run SET status = $2, error = $3, updated_at = now()
+			 WHERE id = $1 AND status = $4`, id, StatusFailed, cause.Error(), StatusValidating)
+		if err != nil {
+			return fmt.Errorf("failing import run %s: %w", id, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return s.explainMiss(ctx, tx, id, StatusValidating, StatusFailed)
+		}
+		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id,
+			map[string]any{auditFieldStatus: StatusValidating}, map[string]any{auditFieldStatus: StatusFailed})
+		return err
+	})
+}
+
+// explainMiss turns a transition that moved nothing into the honest refusal:
+// not-found when this installation has no such run, conflict when it does but
+// the run had already moved on.
+func (s *RunStore) explainMiss(ctx context.Context, tx pgx.Tx, id RunID, from, to string) error {
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT status FROM import_run
+		 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("import run %s: %w", id, apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("reading import run %s: %w", id, err)
+	}
+	return fmt.Errorf("import run %s is %s, not %s, so it cannot become %s: %w", id, status, from, to, apperrors.ErrConflict)
 }
 
 // GetStaged reads one run with its mapping and report — everything the status
@@ -158,10 +213,13 @@ func (s *RunStore) GetStaged(ctx context.Context, id RunID) (Run, error) {
 	)
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, mapping, report, error
-			  FROM import_run WHERE id = $1`, id)
+			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, mapping, report, error, captured_by
+			-- Scoped as well as keyed, exactly as Get is: a run id from another
+			-- workspace owes the existence-hiding not-found, not its status,
+			-- its mapping and its report.
+			  FROM import_run WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id)
 		return row.Scan(&run.ID, &run.Connector, &run.Status, &run.SourceRef, &run.Checkpoint,
-			&run.CreatedAt, &run.UpdatedAt, &mapping, &report, &runErr)
+			&run.CreatedAt, &run.UpdatedAt, &mapping, &report, &runErr, &run.CapturedBy)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

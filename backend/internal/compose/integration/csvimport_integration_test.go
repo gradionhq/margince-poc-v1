@@ -23,7 +23,10 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -84,9 +87,19 @@ type leadListDTO struct {
 
 func setupImportApp(t *testing.T) *apptest.AppEnv {
 	t.Helper()
-	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(blobstore.NewMemory()))
-	e.BootstrapWorkspace(t)
+	e, _ := setupImportAppWithStore(t)
 	return e
+}
+
+// setupImportAppWithStore hands the suite the same object store the server
+// holds, so a scenario can make an uploaded file disappear the way a retention
+// sweep or an operator would.
+func setupImportAppWithStore(t *testing.T) (*apptest.AppEnv, blobstore.Store) {
+	t.Helper()
+	store := blobstore.NewMemory()
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(store))
+	e.BootstrapWorkspace(t)
+	return e, store
 }
 
 // uploadCSV posts one file to the upload operation and returns the profile.
@@ -358,5 +371,122 @@ func TestCSVImportRefusesAnImpossibleMapping(t *testing.T) {
 	}, nil, nil)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("an unknown target → %d, want 422", status)
+	}
+}
+
+// A source reference minted for another installation is not a door into this
+// one. The blobstore treats keys as opaque bytes by design — the key IS the
+// tenant boundary — so this refusal is the only thing between a caller and
+// somebody else's uploaded estate.
+func TestCSVImportRefusesAForeignSourceReference(t *testing.T) {
+	e := setupImportApp(t)
+
+	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
+	foreign := "11111111-1111-7111-8111-111111111111/import/" + path.Base(profile.SourceRef)
+
+	status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
+		"connector": "csv", "object": "lead",
+		"source_ref": foreign, "mapping": profile.SuggestedMapping,
+	}, nil, nil)
+	// Not-found, not forbidden: a caller may not learn whether a reference they
+	// were never given exists.
+	if status != http.StatusNotFound {
+		t.Fatalf("a foreign source_ref → %d, want 404", status)
+	}
+	if got := leadCount(t, e); got != 0 {
+		t.Fatalf("leads = %d, want 0 — nothing may land from a foreign source", got)
+	}
+}
+
+// The dry run says what the commit WILL do, so a second staging of a file
+// already imported must predict nothing new — not "will update everything",
+// which is what classifying by existence alone would report.
+func TestCSVImportPredictsUnchangedRatherThanUpdatingEverything(t *testing.T) {
+	e := setupImportApp(t)
+
+	first, _ := uploadCSV(t, e, "lead", prospectCSV)
+	run, _ := createRun(t, e, "lead", first)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("approve → %d, want 202", status)
+	}
+
+	again, _ := uploadCSV(t, e, "lead", prospectCSV)
+	second, _ := createRun(t, e, "lead", again)
+
+	var report importReportDTO
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+second.Id+"/report", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("report → %d, want 200", status)
+	}
+	if report.Disposition.Unchanged != 3 || report.Disposition.Created != 0 || report.Disposition.Updated != 0 {
+		t.Fatalf("prediction = %+v, want 3 unchanged and nothing else: the file has not changed", report.Disposition)
+	}
+}
+
+// A run whose validation could not finish is recorded as failed. Left in
+// `validating` it would be an orphan: approve refuses it, resume refuses it,
+// and nothing else could ever move it.
+func TestCSVImportRecordsAValidationThatCouldNotFinish(t *testing.T) {
+	e, store := setupImportAppWithStore(t)
+
+	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
+	if err := store.Delete(context.Background(), profile.SourceRef); err != nil {
+		t.Fatalf("removing the stored upload: %v", err)
+	}
+
+	status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
+		"connector": "csv", "object": "lead",
+		"source_ref": profile.SourceRef, "mapping": profile.SuggestedMapping,
+	}, nil, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("a vanished upload → %d, want 404", status)
+	}
+
+	// The run row exists — it was created before the file was read — and it
+	// must not be sitting in validating.
+	var runs []importRunDTO
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+		rows, err := tx.Query(context.Background(), `SELECT id::text, status FROM import_run WHERE connector = 'csv'`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r importRunDTO
+			if err := rows.Scan(&r.Id, &r.Status); err != nil {
+				return err
+			}
+			runs = append(runs, r)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading the runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want the one this attempt opened", runs)
+	}
+	if runs[0].Status != "failed" {
+		t.Fatalf("status = %q, want failed — a validating run nothing can move is an orphan", runs[0].Status)
+	}
+}
+
+// Every run response carries who opened it. The database stamps it; a surface
+// that drops it leaves the governance question "who imported this" unanswerable
+// from the API the operator actually reads.
+func TestCSVImportRunNamesWhoOpenedIt(t *testing.T) {
+	e := setupImportApp(t)
+
+	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
+	var run struct {
+		Id         string `json:"id"`
+		CapturedBy string `json:"captured_by"`
+	}
+	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
+		"connector": "csv", "object": "lead",
+		"source_ref": profile.SourceRef, "mapping": profile.SuggestedMapping,
+	}, nil, &run); status != http.StatusAccepted {
+		t.Fatalf("create run → %d, want 202", status)
+	}
+	if run.CapturedBy == "" {
+		t.Fatal("the run does not say who opened it")
 	}
 }

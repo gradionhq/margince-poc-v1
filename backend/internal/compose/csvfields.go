@@ -4,26 +4,18 @@
 package compose
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-const (
-	// leadStatusNew is where an imported prospect starts: the unworked state a
-	// human moves it out of, which is the whole point of landing
-	// machine-sourced rows as leads rather than as people.
-	leadStatusNew = "new"
-	// customFieldColumnPrefix marks the mapping targets that are custom-field
-	// columns — real columns on the same table, which is why they are mappable
-	// at all (customfields/engine.go mints them).
-	customFieldColumnPrefix = "cf_"
-)
+// leadStatusNew is where an imported prospect starts: the unworked state a
+// human moves it out of, which is the whole point of landing machine-sourced
+// rows as leads rather than as people.
+const leadStatusNew = "new"
 
 // The fields a CSV import may target, per object. A closed set, because a
 // mapping names a destination and every destination here has to be one this
@@ -32,9 +24,16 @@ const (
 //
 // `lead` and not `person` is ADR-0008: machine-sourced rows land as leads and
 // a human promotes them.
+// Every field here round-trips: the writer can both CREATE it and UPDATE it.
+// `linkedin_url` is deliberately absent from both lists even though the stores
+// know the field — a lead's patch input has no LinkedIn member and an
+// organization's CREATE input has none, so advertising it would accept a
+// column, report the row as written, and drop the value on one of the two
+// paths. A target that only half works is worse than one the screen never
+// offers.
 var csvTargets = map[string][]string{
-	migration.ObjectLead:         {"full_name", "email", "title", "company_name", "linkedin_url"},
-	migration.ObjectOrganization: {"display_name", "legal_name", "industry", "size_band", "description", "linkedin_url"},
+	migration.ObjectLead:         {"full_name", "email", "title", "company_name"},
+	migration.ObjectOrganization: {"display_name", "legal_name", "industry", "size_band", "description"},
 }
 
 // csvSourceKeyDefault names the column a run identifies rows by when the
@@ -45,26 +44,20 @@ var csvSourceKeyDefault = map[string]string{
 	migration.ObjectOrganization: "display_name",
 }
 
-// importTargets is the closed set a mapping may name for one object: the core
-// fields above plus the installation's active custom-field columns, which are
-// real columns on the same table and are mappable for exactly that reason.
-func importTargets(ctx context.Context, catalog fieldcatalog.Reader, object string) ([]string, error) {
+// importTargets is the closed set a mapping may name for one object.
+//
+// Custom-field (cf_*) columns are NOT in it, and that is a limit rather than an
+// oversight: an import lands its rows through the stores' caller-opened
+// transaction seams, which refuse custom fields by design — reading the
+// catalog is exactly the second connection those seams exist to avoid. So a
+// cf_ target would be accepted, reported as written, and dropped. Custom
+// fields arrive when the seam can carry them, not before.
+func importTargets(object string) ([]string, error) {
 	core, ok := csvTargets[object]
 	if !ok {
 		return nil, fmt.Errorf("import: %q has no mappable fields", object)
 	}
-	targets := append([]string(nil), core...)
-	if catalog == nil {
-		return targets, nil
-	}
-	columns, err := catalog.ActiveColumns(ctx, object)
-	if err != nil {
-		return nil, fmt.Errorf("import: reading the %s field catalog: %w", object, err)
-	}
-	for _, c := range columns {
-		targets = append(targets, c.Name)
-	}
-	return targets, nil
+	return append([]string(nil), core...), nil
 }
 
 // changedFields reports which mapped values differ from what the stored record
@@ -82,11 +75,27 @@ func changedFields(encoded []byte, mapped map[string]string) (map[string]string,
 
 	changed := make(map[string]string, len(mapped))
 	for field, incoming := range mapped {
-		if textOf(current[field]) != strings.TrimSpace(incoming) {
+		if textOf(current[field]) != canonicalFor(field, incoming) {
 			changed[field] = incoming
 		}
 	}
 	return changed, nil
+}
+
+// canonicalFor renders an imported value the way the STORE will hold it, so
+// the comparison is against what will actually be written rather than against
+// the file's spelling.
+//
+// Email is the case that forces this: the store lowercases it on write, so
+// `John@Example.com` compared raw differs from the stored `john@example.com`
+// forever — every re-import of an unchanged file would rewrite the row, bump
+// its version, and publish an update event for a change nobody made.
+func canonicalFor(field, value string) string {
+	trimmed := strings.TrimSpace(value)
+	if field == "email" {
+		return strings.ToLower(trimmed)
+	}
+	return trimmed
 }
 
 // textOf renders one stored JSON value as the text a file would have carried.
@@ -114,67 +123,44 @@ func leadCreateFrom(fields map[string]string, sourceSystem, externalID, source s
 		SourceSystem: &sourceSystem,
 		SourceID:     &externalID,
 		Source:       source,
-		CustomFields: customFieldsFrom(fields),
 	}
 	in.FullName = importString(fields, "full_name")
 	in.Email = importString(fields, "email")
 	in.Title = importString(fields, "title")
 	in.CompanyName = importString(fields, "company_name")
-	in.LinkedInURL = importString(fields, "linkedin_url")
 	return in
 }
 
 // leadUpdateFrom builds the patch for the fields that actually differ.
 func leadUpdateFrom(changed map[string]string) people.UpdateLeadInput {
 	return people.UpdateLeadInput{
-		FullName:     importString(changed, "full_name"),
-		Email:        importString(changed, "email"),
-		Title:        importString(changed, "title"),
-		CompanyName:  importString(changed, "company_name"),
-		CustomFields: customFieldsFrom(changed),
+		FullName:    importString(changed, "full_name"),
+		Email:       importString(changed, "email"),
+		Title:       importString(changed, "title"),
+		CompanyName: importString(changed, "company_name"),
 	}
 }
 
 func organizationCreateFrom(fields map[string]string, source string) people.CreateOrganizationInput {
 	in := people.CreateOrganizationInput{
-		DisplayName:  strings.TrimSpace(fields["display_name"]),
-		Source:       source,
-		CustomFields: customFieldsFrom(fields),
+		DisplayName: strings.TrimSpace(fields["display_name"]),
+		Source:      source,
 	}
+	in.LegalName = importString(fields, "legal_name")
+	in.Description = importString(fields, "description")
 	in.Industry = importString(fields, "industry")
-	if band := importString(fields, "size_band"); band != nil {
-		in.SizeBand = band
-	}
+	in.SizeBand = importString(fields, "size_band")
 	return in
 }
 
 func organizationUpdateFrom(changed map[string]string) people.UpdateOrganizationInput {
 	return people.UpdateOrganizationInput{
-		DisplayName:  importString(changed, "display_name"),
-		LegalName:    importString(changed, "legal_name"),
-		Description:  importString(changed, "description"),
-		Industry:     importString(changed, "industry"),
-		SizeBand:     importString(changed, "size_band"),
-		LinkedInURL:  importString(changed, "linkedin_url"),
-		CustomFields: customFieldsFrom(changed),
+		DisplayName: importString(changed, "display_name"),
+		LegalName:   importString(changed, "legal_name"),
+		Description: importString(changed, "description"),
+		Industry:    importString(changed, "industry"),
+		SizeBand:    importString(changed, "size_band"),
 	}
-}
-
-// customFieldsFrom carries the cf_* targets through to the stores' own
-// custom-field handling, which drops anything the active catalog does not
-// admit. Naming them here rather than filtering would duplicate that catalog.
-func customFieldsFrom(fields map[string]string) map[string]any {
-	var out map[string]any
-	for name, value := range fields {
-		if !strings.HasPrefix(name, customFieldColumnPrefix) {
-			continue
-		}
-		if out == nil {
-			out = make(map[string]any, len(fields))
-		}
-		out[name] = value
-	}
-	return out
 }
 
 // importString reads one mapped field as a pointer, absent when the file did

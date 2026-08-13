@@ -56,11 +56,15 @@ type Run struct {
 	// rows are, which column lands where, and which column identifies a row.
 	// nil on the flip's own runs, which map a frozen snapshot rather than a
 	// file somebody chose the columns of.
-	Mapping   *RunMapping
-	Report    *Report
-	Error     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Mapping *RunMapping
+	Report  *Report
+	Error   string
+	// CapturedBy is the authenticated principal that opened the run,
+	// server-stamped — the governance attribution every surface must carry.
+	// Empty on the reads that do not select it (the flip's own paths).
+	CapturedBy string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // RunStore owns the import_run table; every status transition rides the
