@@ -197,9 +197,10 @@ func TestUpsertPartnerStagesAHumanOwnedPartnerField(t *testing.T) {
 			"so the approval binds to the org whose field this patch actually sets",
 			staging.last.TargetType, staging.last.TargetID, orgID)
 	}
-	if rec.Code == http.StatusOK {
-		t.Errorf("status = %d, want a refusal naming the staged approval — a human-owned field applied "+
-			"silently is the §2.1 precedence protection this test exists to hold", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (approval_required) — a human-owned field applied silently is the "+
+			"§2.1 precedence protection this test exists to hold, and an unclassified 500 must not read "+
+			"as that refusal", rec.Code, http.StatusForbidden)
 	}
 }
 
@@ -260,6 +261,45 @@ func TestUpsertPartnerResidueStagesTheOrganizationNotPartner(t *testing.T) {
 		t.Fatalf("residue staged target = (%s,%s), want (organization,%s) — the residue path must "+
 			"resolve through the same seam the all-human-owned branch does, not off pol.RecordType "+
 			"directly", staging.last.TargetType, staging.last.TargetID, orgID)
+	}
+}
+
+// A refusal describes a request that changed nothing
+// (gradionhq/margince-poc-v1#1073). The residue path's own refusals — the
+// resolver's Guards among them — are settled BEFORE the auto-execute half is
+// dispatched, so a target this door will not stage against costs the caller a
+// retry rather than leaving half a patch committed under a 4xx that says the
+// change was refused.
+//
+// Driven with the mirrored record the all-human-owned branch uses
+// (TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord) and the MIXED ownership
+// that reaches the residue path: before the ordering fix the handler ran first,
+// so this same call answered 422 with the agent-owned half already written.
+func TestTheResiduePathRefusesAnExternallyHeldRecordBeforeAnythingIsWritten(t *testing.T) {
+	orgID := ids.NewV7()
+	staging := &capturingApprovals{}
+	pol := agentPolicy{Op: "upsertPartner", Access: accessTool, Tool: "update_record", RecordType: recordTypePartner}
+	body := []byte(`{"cert_status":"certified","margin_tier":"tier1_15"}`)
+	req := operandRequest(http.MethodPut, "/v1/organizations", orgID.String(), "", "", body)
+	rec := httptest.NewRecorder()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the handler ran — the agent-owned half was written for a call this door then refused, " +
+			"which is the partial write a refusal must never describe")
+	})
+
+	admitAgentCall(rec, req, next, admissionOutcome{
+		staging: staging, ownership: mixedHumanOwned{conflict: "cert_status"},
+		commands: restCommandDeps{records: mirroredRecord{}}, pol: pol, body: body,
+		registry: agents.NewRegistry(nil, auth.NewGate(fullSeat{})),
+	})
+
+	if staging.last.Tool != "" {
+		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — "+
+			"nobody could ever release it", staging.last.Tool)
+	}
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("an externally-held target answered %d, want %d (unsupported_by_sor)", rec.Code,
+			http.StatusUnprocessableEntity)
 	}
 }
 

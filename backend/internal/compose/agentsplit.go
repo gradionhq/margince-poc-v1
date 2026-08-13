@@ -135,7 +135,7 @@ func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Han
 		//
 		// stageRefusal resolves through the SAME command seam every other
 		// registered patch op does (agentcommand.go's patchCommand, now that
-		// all twelve whole-record patch routes are registered), which means
+		// all thirteen whole-record patch routes are registered), which means
 		// this branch carries patchResolver.Guards too: a records.Read plus
 		// refuseStagingElsewhere the split path never ran on its own before
 		// that registration. That is deliberate, not a side effect nobody
@@ -149,13 +149,55 @@ func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Han
 	applyAutoExecuteAndStageResidue(w, r, next, staging, commands, pol, split)
 }
 
-// applyAutoExecuteAndStageResidue handles the mixed patch: the auto-execute remainder
-// runs through the real handler first, then the residue is staged against
-// the post-write version — the state the approving human will actually
-// judge, so this call's own auto-execute half cannot invalidate its staged half
-// (ADR-0036 §2). The staging note is spliced into the handler's own 2xx
-// record body, making the split legible in a single response.
+// applyAutoExecuteAndStageResidue handles the mixed patch: everything that can
+// refuse the residue is settled first, then the auto-execute remainder runs
+// through the real handler, and only then is the residue staged — against the
+// post-write version, the state the approving human will actually judge, so this
+// call's own auto-execute half cannot invalidate its staged half (ADR-0036 §2).
+// The staging note is spliced into the handler's own 2xx record body, making the
+// split legible in a single response.
 func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, pol agentPolicy, split agents.PatchSplit) {
+	// Everything this function can REFUSE on is settled before the auto-execute
+	// half runs, because none of it depends on that write: the canonical form and
+	// the staged target are functions of pol, the request's own path and headers,
+	// and split.Staged, all of which exist before the handler is dispatched. Asked
+	// afterwards — which is where they used to be — a resolver or Guards refusal
+	// answered a refusal status for a request whose first half had already
+	// committed, and the buffered 2xx was dropped: the agent was told the change
+	// was refused and could retry the whole patch against a record that had
+	// already moved (gradionhq/margince-poc-v1#1073). Asked here, a refusal costs
+	// the caller only a retry, which is the rule pinAutoExecutedWrite already
+	// applies to the unconsumed case.
+	//
+	// This does NOT move the pin: approvals resolves target_version itself, inside
+	// the staging transaction (the comment on the Stage call below), which still
+	// runs after the write — so the residue is still staged against the post-write
+	// state the approving human judges (ADR-0036 §2).
+	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, split.Staged, keySettledByThisCall)
+	if cErr != nil {
+		httperr.Write(w, r, cErr)
+		return
+	}
+	// The staged target is resolved through the SAME seam stageRefusal uses
+	// (stagedTarget, which is resolveStagedTarget plus the untyped-target
+	// check), not read off pol.RecordType directly:
+	// upsertPartner's declared record_type is "partner", but its resolver
+	// (modules/agents/commandnested.go) stages "organization" — the row a
+	// human's decision and the approvals surface's own visibility probe
+	// actually depend on. Staging target_entity_type="partner" here would
+	// have named a pair neither targetProbes nor existenceProbes
+	// (approvals/targetvisibility.go) has a rule for, so the approval fails
+	// closed as invisible and undecidable — the zombie authority object
+	// this whole seam exists to prevent, for the one write this branch is
+	// supposed to protect. body is split.Staged, the sub-patch this
+	// approval actually binds to (canonicalRESTCall's own argument, above),
+	// not the full original request half of which already ran.
+	info, ok := stagedTarget(w, r, commands, pol, split.Staged)
+	if !ok {
+		// stagedTarget already wrote the refusal, and nothing has been
+		// written to the record yet, so it is the whole answer.
+		return
+	}
 	r.Body = io.NopCloser(bytes.NewReader(split.AutoExecute))
 	r.ContentLength = int64(len(split.AutoExecute))
 	buffered := newBufferedResponse()
@@ -180,40 +222,6 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		httperr.Write(w, r, fmt.Errorf(
 			"agent gate: %s applied the permitted fields, but its response cannot carry the staging note for the withheld human-edited fields (%s): %w",
 			pol.Op, strings.Join(split.Conflicts, ", "), uErr))
-		return
-	}
-	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, split.Staged, keySettledByThisCall)
-	if cErr != nil {
-		httperr.Write(w, r, cErr)
-		return
-	}
-	// The staged target is resolved through the SAME seam stageRefusal uses
-	// (stagedTarget, which is resolveStagedTarget plus the untyped-target
-	// check), not read off pol.RecordType directly:
-	// upsertPartner's declared record_type is "partner", but its resolver
-	// (modules/agents/commandnested.go) stages "organization" — the row a
-	// human's decision and the approvals surface's own visibility probe
-	// actually depend on. Staging target_entity_type="partner" here would
-	// have named a pair neither targetProbes nor existenceProbes
-	// (approvals/targetvisibility.go) has a rule for, so the approval fails
-	// closed as invisible and undecidable — the zombie authority object
-	// this whole seam exists to prevent, for the one write this branch is
-	// supposed to protect. body is split.Staged, the sub-patch this
-	// approval actually binds to (canonicalRESTCall's own argument, above),
-	// not the full original request half of which already ran.
-	info, ok := stagedTarget(w, r, commands, pol, split.Staged)
-	if !ok {
-		// stagedTarget already wrote the refusal. It does not know the
-		// auto-execute half already landed — a target this door cannot
-		// resolve or is not allowed to stage is refused the same way
-		// whether or not a sibling write preceded it — but a caller
-		// reading only this response is told the change was refused, not
-		// that part of it already applied. sErr below carries that
-		// nuance for the one failure this branch CAN distinguish (the
-		// staging call itself); this one is rare enough (a Guards
-		// refusal produced by state that changed between the two writes)
-		// that duplicating the framing here was judged not worth a
-		// second return shape for stagedTarget's callers to carry.
 		return
 	}
 	// No version pin travels from here, and the residue is still staged against
