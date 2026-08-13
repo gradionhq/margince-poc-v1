@@ -9,11 +9,11 @@ package compose
 // channel connections — two different things called "a connection".
 
 import (
-	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
 
@@ -231,9 +231,12 @@ func toProviderSnapshot(s provider.Snapshot) crmcontracts.ProviderConfiguration 
 // programming error rather than a caller's mistake, and the zero uuid is the
 // honest rendering of "this row's id did not parse".
 func mustUUID(s string) openapi_types.UUID {
-	parsed, err := uuid.Parse(s)
+	// ids.Parse rather than uuid.Parse: the kernel helper is what the rest of
+	// compose speaks, and reaching for the vendor package directly is an
+	// import this layer is not granted (go-arch-lint).
+	parsed, err := ids.Parse(s)
 	if err != nil {
 		return openapi_types.UUID{}
 	}
-	return parsed
+	return openapi_types.UUID(parsed)
 }
