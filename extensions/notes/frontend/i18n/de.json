@@ -8,7 +8,7 @@
   "extNotes.filing.noGrant": "Ihnen wurde das Heften nicht gewährt.",
   "extNotes.filing.organization": "Unternehmen",
   "extNotes.filing.person": "Person",
-  "extNotes.filing.subjectIdLabel": "Datensatz-ID",
+  "extNotes.filing.subjectSearchLabel": "Datensatz über den Namen suchen",
   "extNotes.filing.subjectTypeLabel": "Datensatztyp",
   "extNotes.filing.title": "Notiz an einen Datensatz heften",
   "extNotes.notes.add": "Hinzufügen",

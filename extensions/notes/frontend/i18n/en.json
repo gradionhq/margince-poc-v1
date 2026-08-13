@@ -8,7 +8,7 @@
   "extNotes.filing.noGrant": "You have not been granted filing.",
   "extNotes.filing.organization": "Company",
   "extNotes.filing.person": "Person",
-  "extNotes.filing.subjectIdLabel": "Record id",
+  "extNotes.filing.subjectSearchLabel": "Find the record by name",
   "extNotes.filing.subjectTypeLabel": "Record type",
   "extNotes.filing.title": "File a note to a record",
   "extNotes.notes.add": "Add",

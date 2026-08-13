@@ -8,7 +8,7 @@
   "extNotes.filing.noGrant": "Bạn chưa được cấp quyền đính ghi chú.",
   "extNotes.filing.organization": "Công ty",
   "extNotes.filing.person": "Người",
-  "extNotes.filing.subjectIdLabel": "Mã bản ghi",
+  "extNotes.filing.subjectSearchLabel": "Tìm bản ghi theo tên",
   "extNotes.filing.subjectTypeLabel": "Loại bản ghi",
   "extNotes.filing.title": "Đính ghi chú vào một bản ghi",
   "extNotes.notes.add": "Thêm",
