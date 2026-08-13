@@ -122,9 +122,9 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 
 	var profile ids.UUID
 	if err := e.owner.QueryRow(ctx, `
-		INSERT INTO voice_profile (workspace_id, owner_id, scope, status, source, captured_by)
-		VALUES ($1, $2, 'user', 'ready', 'ui', $3) RETURNING id`,
-		workspace, profileOwner, "human:"+profileOwner.String()).Scan(&profile); err != nil {
+		INSERT INTO voice_profile (owner_id, scope, status, source, captured_by)
+		VALUES ($1, 'user', 'ready', 'ui', $2) RETURNING id`,
+		profileOwner, "human:"+profileOwner.String()).Scan(&profile); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,10 +148,10 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 	var signal ids.UUID
 	if err := e.owner.QueryRow(ctx, `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+		  (voice_profile_id, draft_ref_hash, outcome, generated_original,
 		   retention_until, content_erased_at, archived_at, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9) RETURNING id`,
-		workspace, profile, hash[:], outcome, generated, draftRetentionUntil,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8) RETURNING id`,
+		profile, hash[:], outcome, generated, draftRetentionUntil,
 		erasedAt, archivedAt, "human:"+profileOwner.String()).Scan(&signal); err != nil {
 		t.Fatal(err)
 	}

@@ -119,10 +119,9 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 		}
 		build, err = scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_build
-			  (workspace_id, voice_profile_id, requested_by, reason, status, source_hash,
+			  (voice_profile_id, requested_by, reason, status, source_hash,
 			   source_count, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, 'queued', $4, $5, $6)
+			VALUES ($1, $2, $3, 'queued', $4, $5, $6)
 			ON CONFLICT DO NOTHING
 			RETURNING %s`, voiceBuildColumns), profileID, actor.UserID, in.Reason,
 			sourceHash, sourceCount, s.now().UTC()))

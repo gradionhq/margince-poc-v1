@@ -41,29 +41,29 @@ var voiceRepPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-func seedVoiceCandidate(t *testing.T, pool *pgxpool.Pool, workspaceID, profileID ids.UUID, profileVersion, predecessor int, classification string) {
+func seedVoiceCandidate(t *testing.T, pool *pgxpool.Pool, profileID ids.UUID, profileVersion, predecessor int, classification string) {
 	t.Helper()
 	ctx := context.Background()
 	evaluation := `{"held_out_prompts":5,"repeats_per_prompt":3,"active_median_voice_score":1,"candidate_median_voice_score":1,"anti_ai_hard_failures":0,"structured_output_valid":true,"corpus_citations_valid":true,"identity_word_jaccard":1,"signature_set_jaccard":1,"removed_avoid_rules":0,"removed_register_rules":0,"classification":"` + classification + `","passed":true}`
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO voice_profile_version
-		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+		  (voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
 		   model_provider, model_name, builder_version, activation_policy_version,
 		   evaluation_json, review_reasons, source, captured_by, updated_at)
-		VALUES ($1, $2, $3, 'candidate', $4::text, jsonb_build_object('document', $4::text), '{}'::jsonb,
-		        'candidate-hash', 1, 'automatic', $5, 'test', 'test', 'test', 'test',
-		        $6::jsonb, ARRAY['owner review'], 'system', 'system', now())`,
-		workspaceID, profileID, profileVersion, "candidate version "+strconv.Itoa(profileVersion), predecessor, evaluation); err != nil {
+		VALUES ($1, $2, 'candidate', $3::text, jsonb_build_object('document', $3::text), '{}'::jsonb,
+		        'candidate-hash', 1, 'automatic', $4, 'test', 'test', 'test', 'test',
+		        $5::jsonb, ARRAY['owner review'], 'system', 'system', now())`,
+		profileID, profileVersion, "candidate version "+strconv.Itoa(profileVersion), predecessor, evaluation); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO voice_profile_delta
-		  (workspace_id, voice_profile_id, from_version, to_version, classification,
+		  (voice_profile_id, from_version, to_version, classification,
 		   activation_outcome, delta_json)
-		VALUES ($1, $2, $3, $4, $5, 'review_required',
+		VALUES ($1, $2, $3, $4, 'review_required',
 		        '{"words_added":1,"sources_added":1,"sources_excluded":0,"identity_word_jaccard":1,"signature_set_jaccard":1,"avoid_rules_added":0,"avoid_rules_removed":0,"register_rules_removed":0}')`,
-		workspaceID, profileID, predecessor, profileVersion, classification); err != nil {
+		profileID, predecessor, profileVersion, classification); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -365,7 +365,7 @@ func TestVoiceCandidateTransitionsUseCandidateConcurrencyAndForwardRollback(t *t
 		t.Fatal(err)
 	}
 
-	seedVoiceCandidate(t, ownerDB, e.WS, profile.ID, 2, 1, "material")
+	seedVoiceCandidate(t, ownerDB, profile.ID, 2, 1, "material")
 	candidateVersion := int64(1)
 	applied, err := voice.ApplyVersion(owner, profile.ID, 2, &candidateVersion)
 	if err != nil {
@@ -382,7 +382,7 @@ func TestVoiceCandidateTransitionsUseCandidateConcurrencyAndForwardRollback(t *t
 		t.Fatalf("profile after apply = %+v", active)
 	}
 
-	seedVoiceCandidate(t, ownerDB, e.WS, profile.ID, 3, 2, "material")
+	seedVoiceCandidate(t, ownerDB, profile.ID, 3, 2, "material")
 	rejected, err := voice.RejectVersion(owner, profile.ID, 3, &candidateVersion)
 	if err != nil {
 		t.Fatal(err)
@@ -480,10 +480,10 @@ func TestVoiceDraftRejectionIsIdempotentAndTerminalSafe(t *testing.T) {
 	var signalID ids.UUID
 	if err := ownerDB.QueryRow(context.Background(), `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+		  (voice_profile_id, draft_ref_hash, outcome, generated_original,
 		   retention_until, source, captured_by)
-		VALUES ($1, $2, $3, 'drafted', 'private generated text', $4, 'system', 'system')
-		RETURNING id`, e.WS, profile.ID, draftHash[:], time.Now().Add(24*time.Hour)).Scan(&signalID); err != nil {
+		VALUES ($1, $2, 'drafted', 'private generated text', $3, 'system', 'system')
+		RETURNING id`, profile.ID, draftHash[:], time.Now().Add(24*time.Hour)).Scan(&signalID); err != nil {
 		t.Fatal(err)
 	}
 	summary, err := voice.RejectDraft(owner, profile.ID, draftRef)
@@ -520,9 +520,9 @@ func TestVoiceDraftRejectionIsIdempotentAndTerminalSafe(t *testing.T) {
 	acceptedHash := sha256.Sum256([]byte(acceptedRef))
 	if _, err := ownerDB.Exec(context.Background(), `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, retention_until, source, captured_by)
-		VALUES ($1, $2, $3, 'accepted', $4, 'system', 'system')`,
-		e.WS, profile.ID, acceptedHash[:], time.Now().Add(24*time.Hour)); err != nil {
+		  (voice_profile_id, draft_ref_hash, outcome, retention_until, source, captured_by)
+		VALUES ($1, $2, 'accepted', $3, 'system', 'system')`,
+		profile.ID, acceptedHash[:], time.Now().Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := voice.RejectDraft(owner, profile.ID, acceptedRef); !errors.Is(err, apperrors.ErrConflict) {
@@ -548,11 +548,11 @@ func TestVoiceClearCorpusScrubsQualifyingLearningSignal(t *testing.T) {
 	qualHash := sha256.Sum256([]byte("reply:edited-sent-1"))
 	if _, err := ownerDB.Exec(context.Background(), `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, final_text,
+		  (voice_profile_id, draft_ref_hash, outcome, final_text,
 		   final_captured_by, qualifies_as_source, retention_until, source, captured_by)
-		VALUES ($1, $2, $3, 'edited_sent', 'the human-authored final text',
-		        'human:ada', true, $4, 'system', 'system')`,
-		e.WS, profile.ID, qualHash[:], time.Now().Add(24*time.Hour)); err != nil {
+		VALUES ($1, $2, 'edited_sent', 'the human-authored final text',
+		        'human:ada', true, $3, 'system', 'system')`,
+		profile.ID, qualHash[:], time.Now().Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -564,8 +564,8 @@ func TestVoiceClearCorpusScrubsQualifyingLearningSignal(t *testing.T) {
 	var finalText *string
 	if err := ownerDB.QueryRow(context.Background(), `
 		SELECT qualifies_as_source, final_text FROM voice_learning_signal
-		WHERE workspace_id = $1 AND voice_profile_id = $2`,
-		e.WS, profile.ID).Scan(&qualifies, &finalText); err != nil {
+		WHERE voice_profile_id = $1`,
+		profile.ID).Scan(&qualifies, &finalText); err != nil {
 		t.Fatal(err)
 	}
 	if qualifies || finalText != nil {

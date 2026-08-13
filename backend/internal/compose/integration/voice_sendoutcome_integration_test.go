@@ -54,9 +54,13 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	profile := createVoiceProfile(t, e)
 
 	var workspaceID, ownerID ids.UUID
-	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT workspace_id, owner_id FROM voice_profile WHERE id = $1`, profile.ID).
-		Scan(&workspaceID, &ownerID); err != nil {
+	// The workspace comes from the profile's OWNER now: app_user still carries
+	// the column and voice_profile does not, and the colleague this suite seeds
+	// has to land in the same one.
+	if err := e.Owner.QueryRow(context.Background(), `
+		SELECT u.workspace_id, p.owner_id
+		FROM voice_profile p JOIN app_user u ON u.id = p.owner_id
+		WHERE p.id = $1`, profile.ID).Scan(&workspaceID, &ownerID); err != nil {
 		t.Fatalf("resolving the profile's workspace and owner: %v", err)
 	}
 
@@ -128,9 +132,9 @@ func (e *voiceSendEnv) openVoiceDraft(t *testing.T, opts voiceDraftOptions) (ref
 		}
 		var foreign ids.UUID
 		if err := e.Owner.QueryRow(ctx, `
-			INSERT INTO voice_profile (workspace_id, owner_id, scope, status, source, captured_by)
-			VALUES ($1, $2, 'user', 'ready', 'ui', $3) RETURNING id`,
-			e.workspaceID, colleague, "human:"+colleague.String()).Scan(&foreign); err != nil {
+			INSERT INTO voice_profile (owner_id, scope, status, source, captured_by)
+			VALUES ($1, 'user', 'ready', 'ui', $2) RETURNING id`,
+			colleague, "human:"+colleague.String()).Scan(&foreign); err != nil {
 			t.Fatalf("seeding the colleague's voice profile: %v", err)
 		}
 		profileID, ownerID = foreign, colleague
@@ -144,10 +148,10 @@ func (e *voiceSendEnv) openVoiceDraft(t *testing.T, opts voiceDraftOptions) (ref
 	}
 	if err := e.Owner.QueryRow(ctx, `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+		  (voice_profile_id, draft_ref_hash, outcome, generated_original,
 		   content_erased_at, retention_until, source, captured_by)
-		VALUES ($1, $2, $3, 'drafted', $4, $5, $6, 'draft', $7) RETURNING id`,
-		e.workspaceID, profileID, hash[:], generated, erasedAt,
+		VALUES ($1, $2, 'drafted', $3, $4, $5, 'draft', $6) RETURNING id`,
+		profileID, hash[:], generated, erasedAt,
 		time.Now().UTC().Add(180*24*time.Hour), "human:"+ownerID.String()).Scan(&signal); err != nil {
 		t.Fatalf("seeding the drafted learning signal: %v", err)
 	}

@@ -230,9 +230,8 @@ func (s *VoiceStore) CreateProfile(ctx context.Context, in CreateVoiceProfileInp
 		var err error
 		p, err = scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(`
 			INSERT INTO voice_profile
-			  (workspace_id, owner_id, scope, status, personality_md, source, captured_by, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, 'user', 'collecting', $2, 'ui', $3, $4)
+			  (owner_id, scope, status, personality_md, source, captured_by, updated_at)
+			VALUES ($1, 'user', 'collecting', $2, 'ui', $3, $4)
 			RETURNING %s`, voiceProfileColumns),
 			actor.UserID, in.PersonalityMD, actor.ID, s.now().UTC()))
 		if storekit.IsUniqueViolation(err) {

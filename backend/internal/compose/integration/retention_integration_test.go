@@ -165,24 +165,24 @@ func TestRetentionErasesOverAgeVoiceSignalPlaintext(t *testing.T) {
 	inWindow := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO voice_profile (id, workspace_id, owner_id, scope, source, captured_by)
-			VALUES ($1, $2, $3, 'user', 'ui', 'human:x')`, profileID, e.WS, e.Rep1); err != nil {
+			INSERT INTO voice_profile (id, owner_id, scope, source, captured_by)
+			VALUES ($1, $2, 'user', 'ui', 'human:x')`, profileID, e.Rep1); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(context.Background(), `
 			INSERT INTO voice_learning_signal
-			  (id, workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+			  (id, voice_profile_id, draft_ref_hash, outcome, generated_original,
 			   retention_until, source, captured_by)
-			VALUES ($1, $2, $3, sha256('over-age'::bytea), 'drafted', 'over-age plaintext',
-			        now() - interval '1 day', 'draft', 'human:x')`, overAge, e.WS, profileID); err != nil {
+			VALUES ($1, $2, sha256('over-age'::bytea), 'drafted', 'over-age plaintext',
+			        now() - interval '1 day', 'draft', 'human:x')`, overAge, profileID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO voice_learning_signal
-			  (id, workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+			  (id, voice_profile_id, draft_ref_hash, outcome, generated_original,
 			   retention_until, source, captured_by)
-			VALUES ($1, $2, $3, sha256('in-window'::bytea), 'drafted', 'fresh plaintext',
-			        now() + interval '90 days', 'draft', 'human:x')`, inWindow, e.WS, profileID)
+			VALUES ($1, $2, sha256('in-window'::bytea), 'drafted', 'fresh plaintext',
+			        now() + interval '90 days', 'draft', 'human:x')`, inWindow, profileID)
 		return err
 	})
 	if err != nil {
