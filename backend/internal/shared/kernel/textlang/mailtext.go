@@ -51,12 +51,7 @@ func IsMailHeader(line string) bool {
 // German mail with 53 runes of addresses and an English draft.
 func WordsWritten(text string) int {
 	words := 0
-	for _, line := range strings.FieldsFunc(text, func(r rune) bool {
-		return r == '\n' || r == '\r'
-	}) {
-		if IsMailHeader(line) || startsQuote([]rune(strings.TrimLeftFunc(line, unicode.IsSpace))) {
-			continue
-		}
+	for _, line := range WrittenLines(text) {
 		inWord := false
 		for _, r := range line {
 			if isWordRune(r) {
@@ -70,4 +65,26 @@ func WordsWritten(text string) int {
 		}
 	}
 	return words
+}
+
+// WrittenLines is text with the envelope headers and quoted lines dropped: the
+// lines somebody actually typed.
+//
+// It exists so that every question about "is there a message here" is asked of
+// the SAME text. Counting words after stripping headers while scoring stopwords
+// before stripping them let a bare "Subject: Update on the plan and the budget"
+// answer zero words and still clear the stopword bar on its own "the"s — which
+// is how a metadata line came to authorize cutting a whole quoted thread away.
+func WrittenLines(text string) []string {
+	lines := strings.FieldsFunc(text, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	})
+	written := lines[:0]
+	for _, line := range lines {
+		if IsMailHeader(line) || startsQuote([]rune(strings.TrimLeftFunc(line, unicode.IsSpace))) {
+			continue
+		}
+		written = append(written, line)
+	}
+	return written
 }
