@@ -133,10 +133,13 @@ const childPositionKey = "position"
 // matched no declared mapping (UnmappedPolicy governs what the caller
 // does with them — "flag" surfaces them, never silently drops per
 // UC-E18-01 F3), and an error if the mapping itself is malformed (an
-// unknown Transform name, an unrecognized TargetKind, or child rows of one
-// parent that collide).
+// unknown Transform name, an unrecognized TargetKind, child rows of one
+// parent that collide, or two fields writing one target).
 func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error) {
 	if err := checkChildRowDeclarations(m); err != nil {
+		return nil, nil, err
+	}
+	if err := checkTargetCollisions(m); err != nil {
 		return nil, nil, err
 	}
 
@@ -225,6 +228,42 @@ func checkChildRowDeclarations(m ObjectMapping) error {
 			return fmt.Errorf("overlay: two child rows of %q both claim position %d; the collection's order would be arbitrary — give each row of one parent its own position", parent, f.Child.Position)
 		}
 		seen[f.Child.Position] = true
+	}
+	return nil
+}
+
+// checkTargetCollisions rejects a mapping whose fields would write one target
+// twice. applyField writes each field into the target map in declaration order,
+// so a second writer is no error while projecting — it simply wins, taking
+// either the first field's column value or, where a column lands on a child
+// collection's parent key, every row of that collection with it. The check runs
+// on the declaration for the same reason the child-row one does: a record
+// carrying neither property projects cleanly, so a collision found while
+// projecting is a defect that reaches production and waits for the data that
+// populates both.
+//
+// Rows of ONE child collection are the shape the child kind exists for: they
+// share a parent key by design, and checkChildRowDeclarations already keeps
+// each row's position within it unique.
+func checkTargetCollisions(m ObjectMapping) error {
+	writers := make(map[string]FieldMapping, len(m.Fields))
+	for _, f := range m.Fields {
+		target := f.To
+		if f.Kind == TargetChild {
+			target, _, _ = strings.Cut(f.To, ".")
+		}
+		first, claimed := writers[target]
+		if !claimed {
+			writers[target] = f
+			continue
+		}
+		if first.Kind == TargetChild && f.Kind == TargetChild {
+			continue
+		}
+		return fmt.Errorf("overlay: %s target %q (from %v) and %s target %q (from %v) both write %q, and the "+
+			"second silently replaces the first; give one of them a target of its own, or, where the two are rows "+
+			"of one collection, declare both as child targets with their own positions",
+			first.Kind, first.To, first.From, f.Kind, f.To, f.From, target)
 	}
 	return nil
 }

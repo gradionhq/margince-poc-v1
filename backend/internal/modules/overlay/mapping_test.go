@@ -553,3 +553,75 @@ func TestApplyFlagsARawKeyNoMappingConsumes(t *testing.T) {
 		t.Errorf("unmapped = %v, want it to contain %q (no declared mapping consumes it)", unmapped, "hs_unknown_property")
 	}
 }
+
+// Two fields writing one target clobber in declaration order — whichever runs
+// second wins, and the loser's value is gone with nothing to show for it. The
+// pair below is the flat case: one column, two writers.
+func TestTwoColumnFieldsWritingOneTargetAreADeclarationError(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"firstname"}, To: "display_name", Kind: overlay.TargetColumn},
+			{From: []string{"lastname"}, To: "display_name", Kind: overlay.TargetColumn},
+		},
+	}
+	// The record carries NEITHER colliding property, so only a check made on
+	// the declaration itself can catch it.
+	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"})
+	if err == nil {
+		t.Fatal("Apply accepted two fields writing display_name; the second silently overwrites the first")
+	}
+	if !strings.Contains(err.Error(), "display_name") {
+		t.Errorf("error %q does not name the contested target, so it does not say where to look", err)
+	}
+	if !strings.Contains(err.Error(), "lastname") || !strings.Contains(err.Error(), "firstname") {
+		t.Errorf("error %q does not name both writers, leaving the reader to find the other one", err)
+	}
+}
+
+// The same collision across kinds is the worse one: a column landing on a
+// child collection's parent key replaces every mirrored row of it (or is
+// replaced by them), so a contact loses all its addresses rather than one
+// value.
+func TestAColumnWritingAChildCollectionsParentIsADeclarationError(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"email"}, To: "person_email.email", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"email_type": "work"}, Position: 0},
+			},
+			{From: []string{"work_email"}, To: "person_email", Kind: overlay.TargetColumn},
+		},
+	}
+	// The record carries NEITHER colliding property, so only a check made on
+	// the declaration itself can catch it.
+	_, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1"})
+	if err == nil {
+		t.Fatal("Apply accepted a column writing person_email, the parent key a child collection lands under")
+	}
+	if !strings.Contains(err.Error(), "person_email") {
+		t.Errorf("error %q does not name the contested target, so it does not say where to look", err)
+	}
+}
+
+// Rows of ONE collection are the shape the child kind exists for: they share a
+// parent key by design, and each declares its own position within it.
+func TestTwoChildRowsOfOneCollectionAreNotACollision(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person", ExternalKey: "hs_object_id",
+		Fields: []overlay.FieldMapping{
+			{
+				From: []string{"phone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "work"}, Position: 0},
+			},
+			{
+				From: []string{"mobilephone"}, To: "person_phone.phone", Kind: overlay.TargetChild,
+				Child: &overlay.ChildRow{Attrs: map[string]any{"phone_type": "mobile"}, Position: 1},
+			},
+		},
+	}
+	if _, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "phone": "+4930111"}); err != nil {
+		t.Fatalf("Apply rejected two rows of one collection: %v", err)
+	}
+}
