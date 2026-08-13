@@ -146,15 +146,15 @@ func mirrorCustomers(
 		hash := hashOf(customer.ExternalID, customer.DisplayName)
 		_, err := tx.Exec(ctx, `
 			INSERT INTO finance_external_customer
-			       (workspace_id, connection_id, external_customer_id, display_name,
+			       (connection_id, external_customer_id, display_name,
 			        source_updated_at, sync_hash, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (connection_id, external_customer_id)
 			DO UPDATE SET display_name = EXCLUDED.display_name,
 			              source_updated_at = EXCLUDED.source_updated_at,
 			              sync_hash = EXCLUDED.sync_hash
 			      WHERE finance_external_customer.sync_hash <> EXCLUDED.sync_hash`,
-			storekit.MustWorkspace(ctx), connectionID, customer.ExternalID,
+			connectionID, customer.ExternalID,
 			customer.DisplayName, customer.UpdatedAt, hash, OfflineProviderName, by)
 		if err != nil {
 			return fmt.Errorf("mirror the source's customer: %w", err)

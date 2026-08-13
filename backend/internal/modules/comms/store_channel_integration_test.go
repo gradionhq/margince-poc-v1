@@ -167,10 +167,10 @@ func TestABlankPendingChannelRecipientIsRejectedByTheDatabase(t *testing.T) {
 	insert := func(status string) error {
 		_, err := e.owner.Exec(context.Background(), `
 			INSERT INTO comms_outbound
-			  (id, workspace_id, activity_id, user_id, provider, channel_user_id,
+			  (id, activity_id, user_id, provider, channel_user_id,
 			   body, consent_purpose, cc, references_chain, status)
-			VALUES ($1, $2, $3, $4, 'telegram', '', 'b', 'transactional', NULL, NULL, $5)`,
-			ids.NewV7(), e.ws, e.activity, e.user, status)
+			VALUES ($1, $2, $3, 'telegram', '', 'b', 'transactional', NULL, NULL, $4)`,
+			ids.NewV7(), e.activity, e.user, status)
 		return err
 	}
 	if err := insert("pending"); err == nil {
@@ -215,9 +215,9 @@ func TestTheSchemaRefusesADeliveryThatIsNeitherShape(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := e.owner.Exec(context.Background(), `
 				INSERT INTO comms_outbound
-				  (id, workspace_id, activity_id, user_id, provider, body, consent_purpose, status, `+tc.columns+`)
-				VALUES ($1, $2, $3, $4, 'telegram', 'b', 'transactional', 'pending', `+tc.values+`)`,
-				ids.NewV7(), e.ws, e.activity, e.user)
+				  (id, activity_id, user_id, provider, body, consent_purpose, status, `+tc.columns+`)
+				VALUES ($1, $2, $3, 'telegram', 'b', 'transactional', 'pending', `+tc.values+`)`,
+				ids.NewV7(), e.activity, e.user)
 			if err == nil {
 				t.Fatal("the row was accepted; comms_outbound_shape is not enforcing")
 			}

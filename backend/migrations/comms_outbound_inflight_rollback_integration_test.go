@@ -101,9 +101,9 @@ func seedChannelDeliveryForRollback(t *testing.T, conn *pgx.Conn, ws string, inF
 		}
 		return tx.QueryRow(ctx, `
 			INSERT INTO comms_outbound
-			  (id, workspace_id, activity_id, user_id, provider, channel_user_id,
+			  (id, activity_id, user_id, provider, channel_user_id,
 			   body, consent_purpose, cc, references_chain, status, inflight_at)
-			VALUES (uuidv7(), `+wsClause+`, $1, $2, 'telegram', '770011',
+			VALUES (uuidv7(), $1, $2, 'telegram', '770011',
 			        'Shipping Monday.', 'transactional', NULL, NULL, 'pending',
 			        CASE WHEN $3 THEN now() END)
 			RETURNING id`, activityID, userID, inFlight).Scan(&deliveryID)
