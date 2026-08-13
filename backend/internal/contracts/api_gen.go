@@ -1281,6 +1281,45 @@ func (e BackfillStatusWindow) Valid() bool {
 	}
 }
 
+// Defines values for BlockedDomainAdmission.
+const (
+	BlockedDomainAdmissionAdmitted   BlockedDomainAdmission = "admitted"
+	BlockedDomainAdmissionSuppressed BlockedDomainAdmission = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the BlockedDomainAdmission enum.
+func (e BlockedDomainAdmission) Valid() bool {
+	switch e {
+	case BlockedDomainAdmissionAdmitted:
+		return true
+	case BlockedDomainAdmissionSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BlockedDomainSource.
+const (
+	BlockedDomainSourceHeuristic BlockedDomainSource = "heuristic"
+	BlockedDomainSourceHuman     BlockedDomainSource = "human"
+	BlockedDomainSourceVerdict   BlockedDomainSource = "verdict"
+)
+
+// Valid indicates whether the value is a known member of the BlockedDomainSource enum.
+func (e BlockedDomainSource) Valid() bool {
+	switch e {
+	case BlockedDomainSourceHeuristic:
+		return true
+	case BlockedDomainSourceHuman:
+		return true
+	case BlockedDomainSourceVerdict:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureConnectionProvider.
 const (
 	CaptureConnectionProviderGcal  CaptureConnectionProvider = "gcal"
@@ -7050,6 +7089,24 @@ func (e SearchResultType) Valid() bool {
 	}
 }
 
+// Defines values for SetBlockedDomainRequestAdmission.
+const (
+	Admitted   SetBlockedDomainRequestAdmission = "admitted"
+	Suppressed SetBlockedDomainRequestAdmission = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the SetBlockedDomainRequestAdmission enum.
+func (e SetBlockedDomainRequestAdmission) Valid() bool {
+	switch e {
+	case Admitted:
+		return true
+	case Suppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetProjectStakeholderRequestRole.
 const (
 	SetProjectStakeholderRequestRoleBlocker             SetProjectStakeholderRequestRole = "blocker"
@@ -8156,25 +8213,25 @@ func (e VoiceBuildStage) Valid() bool {
 
 // Defines values for VoiceBuildStatus.
 const (
-	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
-	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
-	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
-	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
-	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
+	Deferred  VoiceBuildStatus = "deferred"
+	Failed    VoiceBuildStatus = "failed"
+	Queued    VoiceBuildStatus = "queued"
+	Running   VoiceBuildStatus = "running"
+	Succeeded VoiceBuildStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
 func (e VoiceBuildStatus) Valid() bool {
 	switch e {
-	case VoiceBuildStatusDeferred:
+	case Deferred:
 		return true
-	case VoiceBuildStatusFailed:
+	case Failed:
 		return true
-	case VoiceBuildStatusQueued:
+	case Queued:
 		return true
-	case VoiceBuildStatusRunning:
+	case Running:
 		return true
-	case VoiceBuildStatusSucceeded:
+	case Succeeded:
 		return true
 	default:
 		return false
@@ -8627,16 +8684,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	Active WebhookSubscriptionState = "active"
-	Paused WebhookSubscriptionState = "paused"
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case Active:
+	case WebhookSubscriptionStateActive:
 		return true
-	case Paused:
+	case WebhookSubscriptionStatePaused:
 		return true
 	default:
 		return false
@@ -10865,6 +10922,38 @@ type BackfillStatusState string
 
 // BackfillStatusWindow defines model for BackfillStatus.Window.
 type BackfillStatusWindow string
+
+// BlockedDomain One domain carrying a standing admission decision. `suppressed` refuses it a company —
+// a vendor or bulk sender the business does not sell to — while `admitted` is a human
+// deliberately letting one in, which no later verdict may undo.
+type BlockedDomain struct {
+	// Admission `suppressed` — never a company. `admitted` — allowed, and sticky against later machine refusals.
+	Admission BlockedDomainAdmission `json:"admission"`
+	DecidedAt time.Time              `json:"decided_at"`
+
+	// Domain The registrable domain the decision is about.
+	Domain string `json:"domain"`
+
+	// OrganizationId The company on this domain, when one exists — an admitted domain usually has one.
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
+
+	// Reason One sentence an operator can act on: why this domain was refused or let in.
+	Reason string `json:"reason"`
+
+	// Source What decided it. `human` decisions outrank every machine one.
+	Source BlockedDomainSource `json:"source"`
+}
+
+// BlockedDomainAdmission `suppressed` — never a company. `admitted` — allowed, and sticky against later machine refusals.
+type BlockedDomainAdmission string
+
+// BlockedDomainSource What decided it. `human` decisions outrank every machine one.
+type BlockedDomainSource string
+
+// BlockedDomainListResponse defines model for BlockedDomainListResponse.
+type BlockedDomainListResponse struct {
+	Data []BlockedDomain `json:"data"`
+}
 
 // BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
 type BriefSnoozeRequest struct {
@@ -17255,6 +17344,20 @@ type SetAiModelRateRequest struct {
 	Provider      string `json:"provider"`
 }
 
+// SetBlockedDomainRequest defines model for SetBlockedDomainRequest.
+type SetBlockedDomainRequest struct {
+	Admission SetBlockedDomainRequestAdmission `json:"admission"`
+
+	// Domain A mail domain; normalized to its registrable form before it is stored.
+	Domain string `json:"domain"`
+
+	// Reason Why. Required, because a refusal nobody can explain is one nobody can review.
+	Reason string `json:"reason"`
+}
+
+// SetBlockedDomainRequestAdmission defines model for SetBlockedDomainRequest.Admission.
+type SetBlockedDomainRequestAdmission string
+
 // SetFxRateRequest defines model for SetFxRateRequest.
 type SetFxRateRequest struct {
 	// EffectiveDate Defaults to today; must not be in the past (append-forward).
@@ -21794,6 +21897,9 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 
 // SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
 type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
+
+// SetBlockedDomainJSONRequestBody defines body for SetBlockedDomain for application/json ContentType.
+type SetBlockedDomainJSONRequestBody = SetBlockedDomainRequest
 
 // AddConsumerMailDomainJSONRequestBody defines body for AddConsumerMailDomain for application/json ContentType.
 type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
@@ -28009,6 +28115,12 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// The domains refused a company, and why.
+	// (GET /capture/blocked-domains)
+	ListBlockedDomains(w http.ResponseWriter, r *http.Request)
+	// Block a domain, or unblock one (admin/ops).
+	// (PUT /capture/blocked-domains)
+	SetBlockedDomain(w http.ResponseWriter, r *http.Request)
 	// Search the shipped consumer-mail baseline (CAP-PARAM-5).
 	// (GET /capture/consumer-mail-baseline)
 	ListConsumerMailBaseline(w http.ResponseWriter, r *http.Request, params ListConsumerMailBaselineParams)
@@ -29236,6 +29348,18 @@ func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Req
 // Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 // (POST /brief/items/{itemId}/snooze)
 func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The domains refused a company, and why.
+// (GET /capture/blocked-domains)
+func (_ Unimplemented) ListBlockedDomains(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Block a domain, or unblock one (admin/ops).
+// (PUT /capture/blocked-domains)
+func (_ Unimplemented) SetBlockedDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -33407,6 +33531,46 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SnoozeBriefItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBlockedDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListBlockedDomains(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBlockedDomains(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBlockedDomain operation middleware
+func (siw *ServerInterfaceWrapper) SetBlockedDomain(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBlockedDomain(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -47390,6 +47554,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/blocked-domains", wrapper.ListBlockedDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/capture/blocked-domains", wrapper.SetBlockedDomain)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/consumer-mail-baseline", wrapper.ListConsumerMailBaseline)

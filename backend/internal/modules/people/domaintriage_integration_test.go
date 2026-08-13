@@ -413,7 +413,7 @@ func TestAnUnreadableSiteThatIsSomebodysNameIsStillTheirs(t *testing.T) {
 func TestASuppressedDomainNeverBecomesACompany(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	if err := e.store.SetDomainAdmission(ctx, "expensify.example", DomainSuppressed,
+	if _, err := e.store.SetDomainAdmission(ctx, "expensify.example", DomainSuppressed,
 		"a tool this business uses, not a company it sells to"); err != nil {
 		t.Fatalf("suppress: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestASuppressedDomainNeverBecomesACompany(t *testing.T) {
 func TestAHumanAdmissionOutranksEveryLaterMachineRefusal(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainAdmitted,
+	if _, err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainAdmitted,
 		"they became a client"); err != nil {
 		t.Fatalf("admit: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestAHumanAdmissionOutranksEveryLaterMachineRefusal(t *testing.T) {
 	}
 
 	// And a human may still change their own mind.
-	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
+	if _, err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
 		"they churned"); err != nil {
 		t.Fatalf("human re-suppress: %v", err)
 	}
@@ -537,7 +537,7 @@ func TestNewMailReopensAWithheldDomain(t *testing.T) {
 func TestClaimingASuppressedDomainForACompanyLiftsTheRefusal(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
+	if _, err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
 		"judged a newsletter publisher"); err != nil {
 		t.Fatalf("suppress: %v", err)
 	}
@@ -576,4 +576,86 @@ func (e *dedupeEnv) dueContains(ctx context.Context, t *testing.T, domain string
 		}
 	}
 	return false
+}
+
+// Unblocking has to RE-ASK, not merely clear a flag. The domain was already
+// asked and answered — that is why it was on the blocked list — so nothing
+// would ever ask again on its own, and an admin who unblocked McKinsey because
+// they became a client would watch nothing happen.
+func TestUnblockingADomainReopensTheCompanyQuestion(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	// A newsletter arrives first: the person lands, the domain is refused.
+	e.openTriage(ctx, t, "insights@mckinsey.example", "", "mckinsey.example")
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "mckinsey.example", "judged a newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+	if e.dueContains(ctx, t, "mckinsey.example") {
+		t.Fatal("a refused domain is still being offered for a crawl")
+	}
+
+	// The admin unblocks it because they became a client.
+	stored, err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainAdmitted, "they became a client")
+	if err != nil {
+		t.Fatalf("unblock: %v", err)
+	}
+	if stored.Admission != DomainAdmitted || stored.Source != AdmissionSourceHuman {
+		t.Fatalf("stored = %+v, want an admitted decision recorded as the human's", stored)
+	}
+
+	// The question is live again, and the sweep will answer it.
+	if !e.dueContains(ctx, t, "mckinsey.example") {
+		t.Fatal("unblocking did not reopen the question; the company would never be created")
+	}
+
+	// And the company lands when the crawl comes back, with the person who was
+	// already captured on that domain employed there.
+	if _, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "mckinsey.example", Status: DomainCompany, Source: DomainSourceSiteRead,
+		SeedURL: TriageSeedURL("mckinsey.example"), Evidence: "the site names a company",
+		DossierName: "McKinsey & Company",
+	}); err != nil {
+		t.Fatalf("resolve after unblock: %v", err)
+	}
+	if n := e.countOrgsOn(ctx, t, "mckinsey.example"); n != 1 {
+		t.Fatalf("%d organizations after unblocking and reading the site, want exactly 1", n)
+	}
+}
+
+// Every role may SEE why a company is missing; only admin/ops may change it.
+// An operator who cannot find out that a domain was refused has no way to tell
+// the refusal from an empty CRM.
+func TestTheBlockedDomainListShowsWhatDecidedEachRefusal(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if _, err := e.store.SetDomainAdmission(ctx, "expensify.example", DomainSuppressed,
+		"a tool we use, not a customer"); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "saasweekly.example", "judged a newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+
+	entries, err := e.store.ListDomainAdmissions(ctx, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	bySource := map[string]string{}
+	for _, entry := range entries {
+		bySource[entry.Domain] = entry.Source
+		if entry.Reason == "" {
+			t.Errorf("%s carries no reason — a refusal nobody can explain is one nobody can review", entry.Domain)
+		}
+	}
+	if bySource["expensify.example"] != AdmissionSourceHuman {
+		t.Errorf("expensify source = %q, want human", bySource["expensify.example"])
+	}
+	if bySource["saasweekly.example"] != AdmissionSourceVerdict {
+		t.Errorf("saasweekly source = %q, want verdict — an automatic refusal must be distinguishable", bySource["saasweekly.example"])
+	}
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -81,22 +82,53 @@ func domainSuppressedTx(ctx context.Context, tx pgx.Tx, domain string) (bool, er
 // caller-supplied source would let any code claim human authority and make its
 // decision sticky, which is the one thing the stickiness rule exists to stop.
 // Machine callers use SuppressBulkSenderDomainTx, which stamps its own source.
-func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reason string) error {
+func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reason string) (BlockedDomain, error) {
 	if admission != DomainSuppressed && admission != DomainAdmitted {
-		return fmt.Errorf("people: %q is not a domain admission", admission)
+		return BlockedDomain{}, fmt.Errorf("people: %q is not a domain admission", admission)
 	}
 	if reason == "" {
-		return errors.New("people: a domain admission needs a reason a human can read")
+		return BlockedDomain{}, errors.New("people: a domain admission needs a reason a human can read")
 	}
 	// Blocking a domain decides that no company will ever exist for it, and
 	// unblocking one lets the next message create it. Both are the organization
 	// object's own write authority, so both take the same gate a create does.
 	if err := auth.Require(ctx, entityOrganization, principal.ActionUpdate); err != nil {
-		return err
+		return BlockedDomain{}, err
 	}
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		return setDomainAdmissionTx(ctx, tx, domain, admission, reason, AdmissionSourceHuman)
+	base, ok := freemail.Hostname(domain)
+	if !ok {
+		return BlockedDomain{}, fmt.Errorf("people: %q is not a domain", domain)
+	}
+	var stored BlockedDomain
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		if err := setDomainAdmissionTx(ctx, tx, base, admission, reason, AdmissionSourceHuman); err != nil {
+			return err
+		}
+		if admission == DomainAdmitted {
+			// Unblocking has to RE-ASK, not merely clear a flag. The domain was
+			// already asked and answered — that is why it is on this list — so
+			// nothing would ever ask again on its own, and an admin who unblocked
+			// McKinsey because they became a client would watch nothing happen.
+			//
+			// The owner is stamped from the acting human: triage may not mint rows
+			// for a domain nobody is accountable for, and a machine-suppressed row
+			// has no owner at all.
+			// The owner is stamped from the acting human: triage may not mint
+			// rows for a domain nobody is accountable for, and a
+			// machine-suppressed row has no owner at all.
+			actor, _ := principal.Actor(ctx)
+			if err := reopenAdmittedDomainTx(ctx, tx, base, actor.UserID); err != nil {
+				return err
+			}
+		}
+		var err error
+		stored, err = readDomainAdmissionTx(ctx, tx, base)
+		return err
 	})
+	if err != nil {
+		return BlockedDomain{}, err
+	}
+	return stored, nil
 }
 
 // setDomainAdmissionTx is SetDomainAdmission on the caller's transaction, for
@@ -118,6 +150,12 @@ func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, rea
 		       -- leaves the company question genuinely open again.
 		       pending_reason = CASE WHEN EXCLUDED.admission = 'suppressed'
 		                             THEN NULL ELSE organization_domain_disposition.pending_reason END,
+		       -- A refused domain is not waiting for a crawl. The sweeps filter
+		       -- on admission as well, so this is belt and braces — but a row
+		       -- that still names a next attempt reads as scheduled work to
+		       -- anybody looking at the ledger, and it is not.
+		       next_attempt_at = CASE WHEN EXCLUDED.admission = 'suppressed'
+		                              THEN NULL ELSE organization_domain_disposition.next_attempt_at END,
 		       updated_at = now()
 		 -- The sticky rule: an automatic caller may not overwrite a decision a
 		 -- HUMAN made, while a human may overwrite anything. Guarded on the
@@ -208,4 +246,101 @@ func admitClaimedDomainTx(ctx context.Context, tx pgx.Tx, domain string) error {
 		return fmt.Errorf("people: admitting the claimed domain %s: %w", base, err)
 	}
 	return nil
+}
+
+// BlockedDomain is one domain's standing admission decision, as the admin list
+// shows it.
+type BlockedDomain struct {
+	Domain         string
+	Admission      string
+	Reason         string
+	Source         string
+	DecidedAt      time.Time
+	OrganizationID *ids.OrganizationID
+}
+
+// ListDomainAdmissions returns every domain carrying a decision, newest first —
+// the refusals the system made and the ones a human overrode.
+//
+// Read-gated rather than write-gated: every role may SEE why a company is
+// missing, while only admin/ops may change it. An operator who cannot find out
+// that a domain was refused has no way to know the CRM is not simply empty.
+func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedDomain, error) {
+	if err := auth.Require(ctx, entityOrganization, principal.ActionRead); err != nil {
+		return nil, err
+	}
+	var out []BlockedDomain
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT domain, admission, COALESCE(admission_reason, ''),
+			       COALESCE(admission_source, ''), admission_at, organization_id
+			  FROM organization_domain_disposition
+			 WHERE admission IS NOT NULL
+			 ORDER BY admission_at DESC
+			 LIMIT $1`, limit)
+		if err != nil {
+			return fmt.Errorf("people: listing domain admissions: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d BlockedDomain
+			var orgID *ids.UUID
+			if err := rows.Scan(&d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID); err != nil {
+				return fmt.Errorf("people: reading a domain admission: %w", err)
+			}
+			if orgID != nil {
+				typed := ids.From[ids.OrganizationKind](*orgID)
+				d.OrganizationID = &typed
+			}
+			out = append(out, d)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// reopenAdmittedDomainTx puts a just-admitted domain back in the triage sweep's
+// path, so the company question a refusal closed gets asked again.
+//
+// Guarded on the admission this call just wrote, so it cannot disturb a domain
+// somebody else is deciding about, and it leaves a SETTLED question alone: a
+// domain that already has its company needs no second answer, and the people on
+// it are already employed there.
+func reopenAdmittedDomainTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_domain_disposition
+		   SET pending_reason = NULL,
+		       attempts = 0,
+		       next_attempt_at = now(),
+		       owner_id = COALESCE(owner_id, NULLIF($2, '00000000-0000-0000-0000-000000000000'::uuid)),
+		       updated_at = now()
+		 WHERE domain = $1 AND admission = $3 AND status = $4`,
+		domain, ownerID, DomainAdmitted, DomainPending); err != nil {
+		return fmt.Errorf("people: re-opening the company question for %s: %w", domain, err)
+	}
+	return nil
+}
+
+// readDomainAdmissionTx reads back what was actually stored, which is not what
+// the caller sent: the domain is normalized to its registrable form and the
+// decision time is the database's.
+func readDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain string) (BlockedDomain, error) {
+	var d BlockedDomain
+	var orgID *ids.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT domain, COALESCE(admission, ''), COALESCE(admission_reason, ''),
+		       COALESCE(admission_source, ''), admission_at, organization_id
+		  FROM organization_domain_disposition WHERE domain = $1`, domain).
+		Scan(&d.Domain, &d.Admission, &d.Reason, &d.Source, &d.DecidedAt, &orgID)
+	if err != nil {
+		return BlockedDomain{}, fmt.Errorf("people: reading back the admission of %s: %w", domain, err)
+	}
+	if orgID != nil {
+		typed := ids.From[ids.OrganizationKind](*orgID)
+		d.OrganizationID = &typed
+	}
+	return d, nil
 }
