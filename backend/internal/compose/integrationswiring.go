@@ -37,6 +37,12 @@ func WithProvider(reg *integrations.Registry, vault keyvault.Vault, inserter *jo
 		}
 		store = bindProviderDomain(store).WithSubmitEnqueue(providerSubmitEnqueue(inserter))
 		s.integrationsHandlers = integrationsHandlers{store: store, runs: store}
+		// The person page reads the provider's category vocabulary to say
+		// what a run did NOT ask for. Bound here rather than at construction
+		// because the registry arrives with this option.
+		if s.person360Svc != nil {
+			s.person360Svc.WithProviders(reg)
+		}
 	}
 }
 
@@ -66,6 +72,14 @@ func providerSubmitEnqueue(inserter *jobs.Runner) integrations.EnqueueSubmitFunc
 		}
 		return inserter.EnqueueTx(ctx, tx, ProviderRunSubmitArgs{Workspace: ws, RunID: runID}, nil)
 	}
+}
+
+// BindProviderDomain is bindProviderDomain for a caller outside this package
+// — the integration suite, which must exercise the REAL cross-module binding
+// rather than a hand-assembled copy of it. A test that wired its own
+// callbacks would prove the assembly it wrote, not the one production ships.
+func BindProviderDomain(store *integrations.Store) *integrations.Store {
+	return bindProviderDomain(store)
 }
 
 // bindProviderDomain attaches the owning domain's callbacks: people decides

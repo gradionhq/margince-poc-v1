@@ -38,7 +38,7 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 	for i, s := range strengths {
 		personIDs[i] = s.PersonID
 	}
-	identity, err := contactIdentity(ctx, tx, personIDs)
+	identity, err := contactIdentity(ctx, tx, orgID, personIDs)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}
@@ -98,7 +98,6 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 	return out, page, nil
 }
 
-// contactCard is the display identity of one contact.
 // titleSource says which title the roster is showing, so the page can mark a
 // purchased one as purchased. Null where there is no title at all: a contact
 // nobody has a role for is a gap, not a source.
@@ -115,6 +114,7 @@ func titleSource(who contactCard) *crmcontracts.Organization360ContactTitleSourc
 	}
 }
 
+// contactCard is the display identity of one contact.
 type contactCard struct {
 	fullName     string
 	title        *string
@@ -129,12 +129,22 @@ type contactCard struct {
 // contact set. The address arrives through a correlated subquery so a
 // contact with none on file still appears: the strength read already
 // decided who is on this list, and a join could only shorten it.
-func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (map[ids.PersonID]contactCard, error) {
+func contactIdentity(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, personIDs []ids.PersonID) (map[ids.PersonID]contactCard, error) {
 	// The purchased title rides the same correlated-subquery shape as the
-	// address, and is read ONLY where the canonical title is empty: a company
-	// page showing a bought title beside one a human typed would be offering
-	// a second opinion, which PO-EXT-9 forbids. What the installation knows
-	// wins; the purchase fills a gap.
+	// address, under two conditions.
+	//
+	// It is read ONLY where the canonical title is empty: a bought title
+	// beside one a human typed would be a second opinion, which PO-EXT-9
+	// forbids — what the installation knows wins, and the purchase fills a
+	// gap.
+	//
+	// And only where the claim is about THIS company. A purchased employment
+	// claim names its own employer, and a contact whose newest claim says
+	// "VP Sales, Globex" must not have "VP Sales" rendered on Acme's roster:
+	// that is a false employment assertion on an account page, which is the
+	// harm the precedence rule exists to prevent. Matched on the claim's own
+	// company_domain against this organization's domains, or on its
+	// company_name against the display name.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, p.full_name, p.title,
 		       (SELECT e.email FROM person_email e
@@ -145,10 +155,18 @@ func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (
 		         (SELECT NULLIF(c.value_json->>'job_title', '')
 		            FROM person_provider_claim c
 		           WHERE c.person_id = p.id AND c.claim_key = 'current_employment'
+		             AND (
+		               EXISTS (SELECT 1 FROM organization_domain d
+		                        WHERE d.organization_id = $2 AND d.archived_at IS NULL
+		                          AND lower(d.domain) = lower(c.value_json->>'company_domain'))
+		               OR EXISTS (SELECT 1 FROM organization o
+		                           WHERE o.id = $2
+		                             AND lower(o.display_name) = lower(c.value_json->>'company_name'))
+		             )
 		           ORDER BY c.retrieved_at DESC
 		           LIMIT 1)
 		       END
-		FROM person p WHERE p.id = ANY($1)`, personIDs)
+		FROM person p WHERE p.id = ANY($1)`, personIDs, orgID)
 	if err != nil {
 		return nil, err
 	}

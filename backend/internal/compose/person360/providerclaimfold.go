@@ -90,10 +90,12 @@ func foldOne(c storedClaim, out *crmcontracts.PersonProviderProfile) error {
 	case provider.ClaimSeniorities:
 		return foldStrings(c, &out.Seniorities)
 	default:
-		// A key the CHECK constraint admits but this build does not render.
-		// Skipped rather than errored: the claim is stored and exported, and
-		// a page that refused to load because it met an unfamiliar category
-		// would be worse than one that shows the rest.
+		// Unreachable today: the nine ClaimKey constants and the nine keys
+		// the CHECK constraint admits are the same nine, and each has a case
+		// above. It guards the next key added to that vocabulary — skipped
+		// rather than errored, because a page that refused to load on an
+		// unfamiliar category would be worse than one showing the rest, and
+		// the claim is stored and exported either way.
 		return nil
 	}
 }
@@ -205,16 +207,35 @@ func foldJobHistory(c storedClaim, out *crmcontracts.PersonProviderProfile) erro
 			CompanyName: j.CompanyName,
 			JobTitle:    emptyToNil(j.JobTitle),
 			LinkedinUrl: emptyToNil(j.LinkedInURL),
+			StartedAt:   monthStart(j.StartedAt),
+			EndedAt:     monthStart(j.EndedAt),
 		})
 	}
 	return nil
 }
 
-// foldLocation splits the provider's one location string onto the typed
-// fields. It arrives as free text ("Munich, Germany"), so `location` carries
-// it verbatim and the parts are filled only where the shape is unambiguous —
-// inventing a city from a string we cannot parse would assert something the
-// provider never said.
+// monthStart reads the provider's "YYYY-MM" job dates onto the contract's
+// date-time fields. Anything it cannot parse is ABSENT rather than guessed: a
+// zero time renders as January of year 1, which is worse than an undated role
+// because it looks like data.
+func monthStart(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse("2006-01", value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+// foldLocation carries the provider's location verbatim.
+//
+// It is NOT split onto the typed city/region/country fields. That needs a
+// parse this cannot do honestly — "Munich, Germany" and "Springfield, IL, US"
+// are not the same shape — and inventing a city from a string we cannot read
+// would assert something the provider never said. The typed parts stay absent
+// until a provider returns them as parts.
 func foldLocation(c storedClaim, out *crmcontracts.PersonProviderProfile) error {
 	var location string
 	if err := json.Unmarshal(c.value, &location); err != nil {

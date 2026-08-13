@@ -17,9 +17,11 @@ package person360
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -67,6 +69,13 @@ func (s *Service) providerProfileSection(ctx context.Context, tx pgx.Tx, personI
 		if latest.safeCode != "" {
 			profile.SafeStatusCode = providerPtr(latest.safeCode)
 		}
+		profile.LatestRun = providerPtr(toWireRun(latest))
+		profile.ContributingRuns = providerPtr(contributingRuns(runs))
+		if s.providers != nil {
+			if desc, err := s.providers.Descriptor(latest.providerName); err == nil {
+				profile.CategoriesNotRequested = categoriesNotRequested(desc, latest.requested)
+			}
+		}
 	}
 	if err := s.foldClaims(ctx, tx, personID, &profile); err != nil {
 		return err
@@ -75,15 +84,22 @@ func (s *Service) providerProfileSection(ctx context.Context, tx pgx.Tx, personI
 	return nil
 }
 
-// providerRunRow is one run as this section reads it — the lifecycle facts,
-// never the frozen snapshot or the correlation id.
+// providerRunRow is one run as this section reads it: the lifecycle facts and
+// what the run was allowed to ask for. Not the frozen snapshot, the
+// correlation id or the reservations — none of them is a fact about the
+// PERSON, and the run endpoint serves them to anyone who needs them.
 type providerRunRow struct {
-	id              string
-	providerName    string
-	state           string
-	claimsUnwritten bool
-	safeCode        string
-	completedAt     *time.Time
+	id                ids.UUID
+	providerName      string
+	trigger           string
+	connectionVersion int64
+	state             string
+	claimsUnwritten   bool
+	safeCode          string
+	requested         []string
+	skipReason        string
+	createdAt         time.Time
+	completedAt       *time.Time
 }
 
 // providerRuns reads this person's run history, newest first. Scrubbed runs
@@ -91,8 +107,9 @@ type providerRunRow struct {
 // no longer names anybody cannot be read back onto their page.
 func (s *Service) providerRuns(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]providerRunRow, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT id::text, provider, state, claims_unwritten,
-		       coalesce(last_safe_status_code, ''), completed_at
+		SELECT id, provider, trigger, connection_version, state, claims_unwritten,
+		       coalesce(last_safe_status_code, ''), coalesce(skip_reason, ''),
+		       requested_categories, created_at, completed_at
 		  FROM provider_run
 		 WHERE person_id = $1 AND subject_kind = 'person'
 		 ORDER BY created_at DESC`, personID)
@@ -103,7 +120,8 @@ func (s *Service) providerRuns(ctx context.Context, tx pgx.Tx, personID ids.Pers
 	var out []providerRunRow
 	for rows.Next() {
 		var r providerRunRow
-		if err := rows.Scan(&r.id, &r.providerName, &r.state, &r.claimsUnwritten, &r.safeCode, &r.completedAt); err != nil {
+		if err := rows.Scan(&r.id, &r.providerName, &r.trigger, &r.connectionVersion, &r.state, &r.claimsUnwritten,
+			&r.safeCode, &r.skipReason, &r.requested, &r.createdAt, &r.completedAt); err != nil {
 			return nil, fmt.Errorf("person360: scanning a provider run: %w", err)
 		}
 		out = append(out, r)
@@ -114,6 +132,64 @@ func (s *Service) providerRuns(ctx context.Context, tx pgx.Tx, personID ids.Pers
 	return out, nil
 }
 
+// toWireRun renders one run for the page: which provider, what was asked for,
+// how it ended.
+//
+// The reservations and the frozen configuration snapshot are deliberately
+// left empty. What a run COST is the settings card's subject, and a credit
+// figure beside somebody's mobile number invites reading one as the price of
+// the other; the run endpoint serves both to a caller who actually needs
+// them.
+func toWireRun(r providerRunRow) crmcontracts.ProviderRun {
+	return crmcontracts.ProviderRun{
+		Id:                  openapi_types.UUID(r.id),
+		SubjectKind:         crmcontracts.ProviderRunSubjectKindPerson,
+		Provider:            crmcontracts.Provider(r.providerName),
+		Trigger:             crmcontracts.ProviderRunTrigger(r.trigger),
+		State:               crmcontracts.ProviderRunState(r.state),
+		ClaimsUnwritten:     r.claimsUnwritten,
+		RequestedCategories: r.requested,
+		ConnectionVersion:   r.connectionVersion,
+		CreatedAt:           r.createdAt,
+		UpdatedAt:           r.createdAt,
+		CompletedAt:         r.completedAt,
+	}
+}
+
+// contributingRuns names every run whose claims this snapshot drew on: the
+// completed ones that delivered values. Normally the single latest run; after
+// a merge it spans BOTH sides, because both were paid for and the section
+// shows both (PI-AC-11).
+func contributingRuns(runs []providerRunRow) []crmcontracts.ProviderRun {
+	out := []crmcontracts.ProviderRun{}
+	for _, r := range runs {
+		if r.state == string(provider.RunCompleted) && !r.claimsUnwritten {
+			out = append(out, toWireRun(r))
+		}
+	}
+	return out
+}
+
+// categoriesNotRequested is what nobody asked for — the difference between
+// the provider's full vocabulary and what the latest run was authorized to
+// request. It is the page's answer to a blank field: "we never asked" is a
+// different fact from "we asked and they had nothing", and only this list
+// tells them apart.
+func categoriesNotRequested(desc provider.Descriptor, requested []string) []string {
+	asked := make(map[string]bool, len(requested))
+	for _, c := range requested {
+		asked[c] = true
+	}
+	out := []string{}
+	for _, c := range desc.Categories {
+		if !asked[string(c)] {
+			out = append(out, string(c))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // resolveProviderState answers the ONE sentence the page shows about this
 // person's enrichment. The three "nothing here" states are three different
 // facts and must never collapse into one: nobody connected a provider, this
@@ -122,6 +198,15 @@ func (s *Service) providerRuns(ctx context.Context, tx pgx.Tx, personID ids.Pers
 // one.
 func resolveProviderState(runs []providerRunRow, configured bool) crmcontracts.PersonProviderProfileState {
 	if !configured {
+		// Disconnected, and the data this installation already PAID for is
+		// still on the page below — disconnecting stops new egress, it does
+		// not delete what was bought. So the honest word is stale, not
+		// not_connected: telling the reader the platform knows nothing while
+		// showing them a purchased mobile number is the one thing this state
+		// exists to prevent. not_connected is for a page with nothing on it.
+		if len(runs) > 0 {
+			return crmcontracts.PersonProviderProfileStateStale
+		}
 		return crmcontracts.PersonProviderProfileStateNotConnected
 	}
 	if len(runs) == 0 {
@@ -136,14 +221,36 @@ func resolveProviderState(runs []providerRunRow, configured bool) crmcontracts.P
 		return crmcontracts.PersonProviderProfileStateCompletedClaimsUnwritten
 	}
 	if latest.state == string(provider.RunSkipped) {
-		// A skip is a decision, and its reason is what the reader needs: an
-		// ineligible subject is not the same fact as an exhausted budget.
-		return crmcontracts.PersonProviderProfileStateNotEligible
+		// A skip is a decision, and its REASON is what the reader needs. An
+		// exhausted budget is a fact about the installation's wallet; telling
+		// somebody "this person is not eligible" instead would send them
+		// looking at the contact for a problem that is not there.
+		return skipStates[latest.skipReason]
 	}
 	if mapped, ok := providerRunStates[latest.state]; ok {
 		return mapped
 	}
 	return crmcontracts.PersonProviderProfileStateProviderError
+}
+
+// skipStates says WHY nothing was bought, in the page's vocabulary. The zero
+// value is not_eligible, which is the honest default for the two reasons that
+// really are about the subject; everything else names the installation's own
+// condition instead.
+var skipStates = map[string]crmcontracts.PersonProviderProfileState{
+	"":                            crmcontracts.PersonProviderProfileStateNotEligible,
+	"not_eligible":                crmcontracts.PersonProviderProfileStateNotEligible,
+	"duplicate_subject_candidate": crmcontracts.PersonProviderProfileStateNotEligible,
+	// A consent decision, not an eligibility one. It reads as not_eligible
+	// today because the contract has no suppressed state; the difference is
+	// worth a spec change rather than a wrong word invented here.
+	"suppressed":       crmcontracts.PersonProviderProfileStateNotEligible,
+	"budget_exhausted": crmcontracts.PersonProviderProfileStateInsufficientCredits,
+	"low_balance":      crmcontracts.PersonProviderProfileStateInsufficientCredits,
+	"rate_limited":     crmcontracts.PersonProviderProfileStateRateLimited,
+	// Nothing was bought because we already hold an answer inside the refresh
+	// window — which is a completed enrichment, not a refusal.
+	"already_fresh": crmcontracts.PersonProviderProfileStateCompleted,
 }
 
 // providerRunStates maps the run machine onto the page's vocabulary. The two

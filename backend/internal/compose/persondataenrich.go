@@ -50,10 +50,15 @@ type PersonDataEnrich struct {
 	log  *slog.Logger
 }
 
-// NewPersonDataEnrich builds the consumer. A nil run service is a deployment
-// with no provider configured: HandleEvent then answers nil for every event
-// rather than erroring, because "no provider connected" is a supported
-// configuration and not a fault (PI-AC-9).
+// NewPersonDataEnrich builds the consumer.
+//
+// The worker does not start this lane at all without a registry and a vault
+// (cmd/worker/persondataenrich.go), so a nil run service is not a deployment
+// posture — it is a wiring mistake. The nil check in HandleEvent is a
+// defensive floor rather than a supported configuration: it answers nil
+// instead of panicking on a bus message, because a consumer that crashes the
+// group is worse than one that quietly does nothing, and the missing lane is
+// visible at boot where it belongs.
 func NewPersonDataEnrich(pool *pgxpool.Pool, runs provider.RunService, log *slog.Logger) *PersonDataEnrich {
 	return &PersonDataEnrich{pool: pool, runs: runs, log: log}
 }
@@ -73,6 +78,10 @@ func (g *PersonDataEnrich) HandleEvent(ctx context.Context, env events.Envelope)
 	if env.Entity.ID == ids.Nil || env.Entity.Type != string(recordTypePerson) {
 		return nil
 	}
+	trigger, admitted := triggerFor(env.Actor)
+	if !admitted {
+		return nil
+	}
 	// The envelope carries no tenant (ADR-0091 §6); the store's handle names it.
 	ws, err := InstallationDB(g.pool).Workspace(ctx)
 	if err != nil {
@@ -80,9 +89,39 @@ func (g *PersonDataEnrich) HandleEvent(ctx context.Context, env events.Envelope)
 	}
 	_, err = g.runs.QueueRun(g.systemContext(ctx, env, ws.UUID), provider.QueueInput{
 		PersonID: env.Entity.ID.String(),
-		Trigger:  provider.TriggerAutomaticCreate,
+		Trigger:  trigger,
 	})
 	return g.swallowConfiguration(err)
+}
+
+// triggerFor decides which toggle this arrival is governed by, from WHO
+// created the person. The trigger is not a property of the consumer: the same
+// person.created event is emitted by four writers, and the customer set
+// different policies for them.
+//
+//   - A HUMAN typing a contact is the individual create the
+//     automatic_individual_create toggle is about.
+//   - A CONNECTOR is capture: a mailbox sync creates a person per external
+//     counterparty, and connecting a mailbox with a year of history would
+//     otherwise buy thousands of records under a toggle that says
+//     "individual". That is what automatic_import governs, and it defaults
+//     OFF with a preview and an estimate behind it (PI-PARAM-2).
+//   - An AGENT gets nothing. Buying provider data is human-only on the REST
+//     surface (x-agent-access: human-only, ADR-0055), and an agent that can
+//     create a person must not reach through this event what the policy
+//     denies it at the door — the seat cap is what the agent's human could do
+//     through the same gate, and there is no gate here.
+//   - A SYSTEM actor is this platform's own writer (merge survivorship,
+//     backfills). It has no human intent behind it, so it buys nothing.
+func triggerFor(actor events.Actor) (provider.Trigger, bool) {
+	switch actor.Type {
+	case "human":
+		return provider.TriggerAutomaticCreate, true
+	case "connector":
+		return provider.TriggerAutomaticImport, true
+	default:
+		return "", false
+	}
 }
 
 // swallowConfiguration turns the two "this is the configuration working"

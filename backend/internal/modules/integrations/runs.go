@@ -176,14 +176,26 @@ func (s *Store) resolveProvider(ctx context.Context, named string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if len(names) != 1 {
-		// None connected is the ordinary case and reads as not-connected;
-		// several is a configuration this trigger has no rule for, and
-		// picking one would spend money on a guess.
+	switch len(names) {
+	case 1:
+		return names[0], nil
+	case 0:
+		// The ordinary case, and the one callers swallow: nobody connected a
+		// provider, so nothing is bought and nothing is wrong.
 		return "", provider.ErrNotConnected
+	default:
+		// Several connected, and this trigger has no rule for choosing. Its
+		// OWN sentinel, because the consumer swallows ErrNotConnected: sharing
+		// one would mean an installation that silently enriched nobody, for
+		// ever, with no log line and no skipped run to explain it.
+		return "", ErrProviderAmbiguous
 	}
-	return names[0], nil
 }
+
+// ErrProviderAmbiguous reports that an automatic trigger found more than one
+// connected provider and refused to guess which one to spend on. It is a
+// configuration fault an operator must resolve, never a state to swallow.
+var ErrProviderAmbiguous = errors.New("integrations: more than one provider is connected, so an automatic trigger cannot choose which to spend on")
 
 // admittedConnection is the connection state a run freezes itself against.
 type admittedConnection struct {
