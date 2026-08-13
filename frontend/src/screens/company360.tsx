@@ -3014,6 +3014,11 @@ export function useSuggestionsBody({
   // "no advice" or "we cannot advise you" are not things a rep acts on.
   ready: boolean;
   rows: ReactNode;
+  // How many rows `rows` draws. A caller that wants to count them beside its
+  // own title cannot count a ReactNode, and a caller that recomputed the
+  // number from the same view would be a second answer free to disagree with
+  // the one on screen.
+  count: number;
   // The truncation count and a failed dismissal, additive on top of whatever
   // else the caller's own footer carries.
   footer?: ReactNode;
@@ -3047,7 +3052,7 @@ export function useSuggestionsBody({
     suggestions.length,
   );
   if (state !== "ready") {
-    return { ready: false, rows: null };
+    return { ready: false, rows: null, count: 0 };
   }
   const footer =
     (dropped !== undefined && dropped > 0) || dismiss.isError ? (
@@ -3083,7 +3088,15 @@ export function useSuggestionsBody({
             suggestion, and the rest of the row is chrome around it. */}
         <span className="co-move-why">{suggestion.reason}</span>
         <span className="co-move-do">
+          {/* WHAT the advice rests on, then WHEN — in that order, because
+              the record it read is what a reader checks first and the date
+              only means anything once they know which record it belongs
+              to. */}
           <span className="co-move-cites">
+            <Citations
+              evidence={suggestion.evidence}
+              onOpenRecord={onOpenRecord}
+            />
             {/* The date the EVIDENCE carries — when the thread went
                 quiet, when the deal last moved. Never a deadline the
                 system chose, which is why a rule firing on an absence
@@ -3093,10 +3106,6 @@ export function useSuggestionsBody({
                 {formatDate(suggestion.due_at, locale, RECORD_ZONE)}
               </span>
             )}
-            <Citations
-              evidence={suggestion.evidence}
-              onOpenRecord={onOpenRecord}
-            />
           </span>
           <span className="co-move-actions">
             {/* What performing the advice means, named by the server. A
@@ -3108,8 +3117,12 @@ export function useSuggestionsBody({
                 onPerform={onPerform}
               />
             )}
+            {/* Putting this off is not the row's verb and must not look like
+                one: bordered beside the action it would offer a reader two
+                equal choices, when only one of them advances the account. */}
             <Button
               small
+              className="co-move-defer"
               onClick={() => dismiss.mutate(suggestion.fingerprint)}
               // Only the row in flight is disabled: one dismissal must not
               // freeze the rep's other choices.
@@ -3125,7 +3138,7 @@ export function useSuggestionsBody({
       </span>
     </PanelRow>
   ));
-  return { ready: true, rows, footer };
+  return { ready: true, rows, count: suggestions.length, footer };
 }
 
 /**

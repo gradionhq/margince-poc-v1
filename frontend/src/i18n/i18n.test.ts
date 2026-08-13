@@ -20,6 +20,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
   "today.meeting.headline",
+  "today.exchange.subjectWhen",
   // Two names and a separator: every word is a placeholder and the only
   // literal is punctuation.
   "today.route.headline",

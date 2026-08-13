@@ -58,7 +58,7 @@ function show(
 }
 
 describe("what needs a person on this account today", () => {
-  it("names the meeting, when it is, and who is in it", () => {
+  it("names the booked meeting and when it is", () => {
     show({
       ...BASE,
       next_meeting: {
@@ -70,9 +70,11 @@ describe("what needs a person on this account today", () => {
     });
 
     expect(screen.getByText(/Renewal review/)).toBeTruthy();
-    expect(screen.getByText(/Dana Buyer/)).toBeTruthy();
-    // A meeting is checkable, so it is labelled a fact rather than advice.
-    expect(screen.getByText("Fact")).toBeTruthy();
+    // Who is in it belongs to the move row that prepares for the meeting,
+    // beside the button — this caller passed no prepare handler, so there is
+    // no such row and the guest list has nowhere to be acted on.
+    expect(screen.queryByText(/Dana Buyer/)).toBeNull();
+    expect(screen.getByText("Next meeting")).toBeTruthy();
   });
 
   it("says nothing about a meeting when none is booked", () => {
@@ -186,7 +188,7 @@ describe("what needs a person on this account today", () => {
 // The rules are choices rather than derivations, so each is pinned here: a
 // selection nobody wrote down is one the next reader has to reverse-engineer
 // from the sort call.
-describe("the tiles, and which record each one picks", () => {
+describe("the context line, and which record each reading picks", () => {
   // The contract requires the full factor breakdown on every strength; the
   // tiles read only the score, but a fixture that omits them is not the shape
   // the wire sends.
@@ -236,9 +238,9 @@ describe("the tiles, and which record each one picks", () => {
 
     expect(screen.getByText("Last exchange")).toBeTruthy();
     expect(
-      screen.getByText("Questions about implementation capacity"),
+      screen.getByText(/Questions about implementation capacity/),
     ).toBeTruthy();
-    expect(screen.queryByText("An older thread")).toBeNull();
+    expect(screen.queryByText(/An older thread/)).toBeNull();
   });
 
   // The timeline is unfiltered: tasks live in the same table and sort by the
@@ -276,8 +278,8 @@ describe("the tiles, and which record each one picks", () => {
       },
     });
 
-    expect(screen.getByText("Questions about capacity")).toBeTruthy();
-    expect(screen.queryByText("Chase the signature")).toBeNull();
+    expect(screen.getByText(/Questions about capacity/)).toBeTruthy();
+    expect(screen.queryByText(/Chase the signature/)).toBeNull();
   });
 
   // `occurred_at DESC` sorts a meeting booked for next week to the head of the
@@ -314,14 +316,14 @@ describe("the tiles, and which record each one picks", () => {
       },
     });
 
-    expect(screen.getByText("Where we landed on scope")).toBeTruthy();
-    expect(screen.queryByText("Executive alignment")).toBeNull();
+    expect(screen.getByText(/Where we landed on scope/)).toBeTruthy();
+    expect(screen.queryByText(/Executive alignment/)).toBeNull();
   });
 
   // A withheld activities section and a quiet account are different answers.
   // "Nothing was said" invented from a section the caller may not read is the
   // conclusion this page must never draw.
-  it("draws no interaction tile when there is nothing logged", () => {
+  it("draws no exchange reading when there is nothing logged", () => {
     show({
       ...BASE,
       activities: { data: [], page: { has_more: false, next_cursor: null } },
@@ -403,7 +405,10 @@ describe("the tiles, and which record each one picks", () => {
       },
     });
     expect(screen.getByText("Lars → Sarah Cole")).toBeTruthy();
-    expect(screen.getByText(/2 other colleagues/)).toBeTruthy();
+    // The reading is the way IN, and nothing else. How many other colleagues
+    // have written to the same contact is a fact about the CONTACT, and the
+    // People tab is where a reader acts on it.
+    expect(screen.queryByText(/other colleagues/)).toBeNull();
   });
 
   // The largest-open-deal reading moved to the Commercial panel
@@ -422,11 +427,14 @@ describe("the tiles, and which record each one picks", () => {
         },
       },
     });
+    // The server's own summary, which says on what evidence the rule fired.
+    // The kind alone ("Contract ending") leaves the reader to guess since when.
     expect(
       screen.getByText("They wrote that the contract ends on 31 July."),
     ).toBeTruthy();
-    // A threshold someone chose is an assessment, not an observation.
-    expect(screen.getByText("Assessment")).toBeTruthy();
+    // A threshold someone chose is not something anybody observed, so the
+    // reading is named as a risk rather than left to read as a fact.
+    expect(screen.getByText("Risk")).toBeTruthy();
   });
 
   // Whose move it is used to be the strip's own tile ("Whose move"); it moved
@@ -446,7 +454,29 @@ describe("the tiles, and which record each one picks", () => {
       },
     });
     expect(screen.getByText("Waiting on them")).toBeTruthy();
-    expect(screen.getByText(/never/)).toBeTruthy();
+    // How long it has stood that way, counted from the last thing WE sent and
+    // measured against the same `as_of` the rest of the page is read at: a
+    // state with no duration is a status, and a rep cannot act on a status.
+    expect(screen.getByText("no answer in 18 days")).toBeTruthy();
+  });
+
+  it("counts no silence when the answer has already come", () => {
+    show({
+      ...BASE,
+      state_strip: {
+        account: { lifecycle: "customer", relationship_types: [] },
+        engagement: {
+          state: "waiting_on_us",
+          last_inbound_at: "2026-08-05T09:00:00Z",
+          last_outbound_at: "2026-07-20T09:00:00Z",
+        },
+      },
+    });
+    expect(screen.getByText("Waiting on us")).toBeTruthy();
+    // Days since our own last message say nothing once they have replied, and
+    // "no answer in 18 days" over a thread that ended with their answer is
+    // what costs a reader trust in every other reading beside it.
+    expect(screen.queryByText(/no answer in/)).toBeNull();
   });
 
   // The button names the recipient it will write to, and hands that person to
