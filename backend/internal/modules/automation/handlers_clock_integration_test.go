@@ -193,7 +193,7 @@ func TestRenewalReminderScanIsANoOpWhenUnconfigured(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
-	scanner := NewTimeScannerWithClock(engine, &fakeActivityScan{}, func() time.Time { return now }, log)
+	scanner := NewTimeScannerWithClock(engine, &fakeActivityScan{}, nil, func() time.Time { return now }, log)
 
 	ctx := principal.WithWorkspaceID(context.Background(), fx.ws)
 	if err := scanner.ScanWorkspace(ctx, fx.ws); err != nil {

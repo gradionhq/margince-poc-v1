@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
+	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -45,19 +46,55 @@ func (a activityScanAdapter) LastTouchBefore(ctx context.Context, cutoff time.Ti
 	return out, nil
 }
 
+// dateFieldScanAdapter maps automation.DateFieldScan onto
+// customfields.Service.DateFieldCandidates — the one place this module's
+// (EntityID, StoredValue, OccurrenceDate) row shape becomes the generic
+// (EntityRef, Anchor) shape automation.DateFieldScan declares
+// (ids/datasource/stdlib only, seams.go). Anchor rides OccurrenceDate,
+// never StoredValue: for a recurring field OccurrenceDate is already
+// projected onto the current scan window's year, which is the value
+// renewal_reminder's occurrence-key (handlers_clock.go's
+// anchorIdempotencyKey) must re-arm on.
+type dateFieldScanAdapter struct {
+	svc *customfields.Service
+}
+
+var _ automation.DateFieldScan = dateFieldScanAdapter{}
+
+func (a dateFieldScanAdapter) Candidates(ctx context.Context, object, column string, from, to time.Time, recurring bool, limit int) ([]automation.DateFieldAnchor, error) {
+	candidates, err := a.svc.DateFieldCandidates(ctx, object, column, from, to, recurring, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]automation.DateFieldAnchor, len(candidates))
+	for i, c := range candidates {
+		out[i] = automation.DateFieldAnchor{
+			Ref:    datasource.EntityRef{Type: datasource.EntityType(object), ID: c.EntityID},
+			Anchor: c.OccurrenceDate,
+		}
+	}
+	return out, nil
+}
+
 // NewTimeScanner assembles the clock-trigger scanner for the worker
 // process role: the SAME workflow engine and starter registration
 // NewWorkflowEngine builds (so no_activity_reminder's Apply drives
 // through the identical Executors every other starter uses), over the
-// activities-sourced ActivityScan seam.
+// activities-sourced ActivityScan seam and the customfields-sourced
+// DateFieldScan seam.
 func NewTimeScanner(db *database.DB, log *slog.Logger) *automation.TimeScanner {
 	return NewTimeScannerWithClock(db, time.Now, log)
 }
 
 // NewTimeScannerWithClock is NewTimeScanner with an explicit clock — the
 // integration proof pins it so a scan pass evaluates "no activity for N
-// days" against seeded timestamps, never the wall clock.
+// days" (and a renewal date's own window) against seeded timestamps,
+// never the wall clock.
 func NewTimeScannerWithClock(db *database.DB, now func() time.Time, log *slog.Logger) *automation.TimeScanner {
 	engine := NewWorkflowEngine(db)
-	return automation.NewTimeScannerWithClock(engine, activityScanAdapter{store: activities.NewStore(db)}, now, log)
+	pool := db.Pool()
+	return automation.NewTimeScannerWithClock(engine,
+		activityScanAdapter{store: activities.NewStore(db)},
+		dateFieldScanAdapter{svc: customfields.NewService(pool, nil)},
+		now, log)
 }

@@ -118,3 +118,37 @@ type EntityAnchor struct {
 type ActivityScan interface {
 	LastTouchBefore(ctx context.Context, cutoff time.Time, limit int) ([]EntityAnchor, error)
 }
+
+// DateFieldAnchor is one DateFieldScan candidate: an entity whose
+// watched cf_* date column falls inside the scan window, carrying the
+// OCCURRENCE date this pass measures against as Anchor — for a
+// recurring field, already projected onto the current scan window's
+// year (customfields.Service.DateFieldCandidates does that projection,
+// never this module: renewal_reminder's Match/Plan/IdempotencyKey stay
+// unchanged whatever year Anchor lands in); for a one-time field, the
+// field's own stored value verbatim.
+type DateFieldAnchor struct {
+	Ref    datasource.EntityRef
+	Anchor time.Time
+}
+
+// DateFieldScan is the read seam TimeScanner drives every
+// date_field_approaching clock candidate through (renewal_reminder,
+// handlers_clock.go). Declared with only ids/datasource/stdlib types,
+// like ActivityScan above, so this module never imports customfields
+// directly (ADR-0054 §9) — the (object, column) pair is workspace-
+// controlled input riding an automation instance's own params, and
+// customfields.Service.DateFieldCandidates is where that pair is
+// validated against the workspace's own field catalog before it ever
+// reaches SQL; this seam only carries the already-validated call
+// through. Compose's adapter sources Candidates from the customfields
+// module's own Service (compose/timescan.go).
+type DateFieldScan interface {
+	// Candidates returns entities of object whose column (a real cf_*
+	// date column) falls in [from, to]. When recurring is true,
+	// column's MONTH/DAY is matched against [from, to]'s month/day
+	// (which may wrap a year boundary near Dec 31 → Jan 1), and each
+	// Anchor carries the CURRENT scan window's occurrence of that
+	// month/day rather than the stored value's own year.
+	Candidates(ctx context.Context, object, column string, from, to time.Time, recurring bool, limit int) ([]DateFieldAnchor, error)
+}
