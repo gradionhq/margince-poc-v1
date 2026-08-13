@@ -23,6 +23,7 @@ import {
 } from "../design-system/atoms";
 import { AvatarStack } from "../design-system/avatarstack";
 import { type TimelineEntry, TimelineRow } from "../design-system/composed";
+import { EvidenceMark } from "../design-system/evidencemark";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import {
@@ -31,7 +32,6 @@ import {
   formatMoney,
   formatMoneyCompact,
 } from "../format/format";
-
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -973,8 +973,12 @@ function ContactRow({
   // badges — "Sales Manager · Champion on Pilot" is one fact about who this
   // person is, and a badge per clause said the same thing louder than it
   // needed to.
+  // A purchased title fills the gap where nobody typed one (PO-EXT-9). The
+  // server decides that — it sends provider_title only where the canonical
+  // one is empty — so this reads the field rather than re-deciding the
+  // precedence, which is how the two would come to disagree.
   const subline = [
-    contact.title,
+    contact.title ?? contact.provider_title,
     ...roles.map((entry) => {
       const deal = nameOfDeal(entry.deal_id);
       return deal
@@ -999,7 +1003,23 @@ function ContactRow({
         >
           {contact.full_name}
         </button>
-        {subline && <span className="co-person-sub">{subline}</span>}
+        {subline && (
+          <span className="co-person-sub">
+            {/* ONE mark, on the whole line, and only where the title was
+                bought. A mark per clause would turn a quiet subline into a
+                run of badges, which is what this line was written to avoid. */}
+            {contact.title_source === "provider" ? (
+              <EvidenceMark
+                value={subline}
+                source={{
+                  provenance: { kind: "connector", connector: "provider" },
+                }}
+              />
+            ) : (
+              subline
+            )}
+          </span>
+        )}
       </span>
       <span className="co-person-end">
         {/* Where this person stands with us. "No reply" and "never asked"

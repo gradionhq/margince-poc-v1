@@ -88,6 +88,7 @@ import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
 import { InstallationSettingsCard } from "./installation-settings";
+import { ProviderCard } from "./integrations-provider";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
@@ -216,6 +217,7 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConnectorsCard />
+          <ProviderCard />
           <CaptureSettingsCard />
           <ConsumerMailDomainsCard />
           <LinkedInImportCard />

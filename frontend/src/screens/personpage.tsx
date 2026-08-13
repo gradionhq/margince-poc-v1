@@ -279,6 +279,7 @@ export function PersonPageV2({
         <PersonResearchDrawer
           personId={id}
           personName={person.full_name}
+          providerProfile={view.data.provider_profile}
           open={drawer === "research"}
           onClose={() => setDrawer(null)}
         />
