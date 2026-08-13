@@ -132,6 +132,13 @@ var auditActionGrant = map[string]principal.Action{
 	"export":           principal.ActionDelete,
 	"record_share":     principal.ActionUpdate,
 	"record_unshare":   principal.ActionUpdate,
+	// Binding a data provider's credential is a create and cutting it is a
+	// delete, matching what integrations.Store.Connect and .Disconnect
+	// actually require — the rule recorded on the row has to be the grant the
+	// write path checked, or the ledger attributes the act to a permission
+	// nobody exercised.
+	"connect":    principal.ActionCreate,
+	"disconnect": principal.ActionDelete,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a

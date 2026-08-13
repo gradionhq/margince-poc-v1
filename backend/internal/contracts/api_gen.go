@@ -957,10 +957,12 @@ const (
 	AuditLogEntryActionApprove            AuditLogEntryAction = "approve"
 	AuditLogEntryActionArchive            AuditLogEntryAction = "archive"
 	AuditLogEntryActionAssign             AuditLogEntryAction = "assign"
+	AuditLogEntryActionConnect            AuditLogEntryAction = "connect"
 	AuditLogEntryActionConsentGrant       AuditLogEntryAction = "consent_grant"
 	AuditLogEntryActionConsentWithdraw    AuditLogEntryAction = "consent_withdraw"
 	AuditLogEntryActionCreate             AuditLogEntryAction = "create"
 	AuditLogEntryActionDemote             AuditLogEntryAction = "demote"
+	AuditLogEntryActionDisconnect         AuditLogEntryAction = "disconnect"
 	AuditLogEntryActionDisqualify         AuditLogEntryAction = "disqualify"
 	AuditLogEntryActionErase              AuditLogEntryAction = "erase"
 	AuditLogEntryActionExport             AuditLogEntryAction = "export"
@@ -995,6 +997,8 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionAssign:
 		return true
+	case AuditLogEntryActionConnect:
+		return true
 	case AuditLogEntryActionConsentGrant:
 		return true
 	case AuditLogEntryActionConsentWithdraw:
@@ -1002,6 +1006,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionCreate:
 		return true
 	case AuditLogEntryActionDemote:
+		return true
+	case AuditLogEntryActionDisconnect:
 		return true
 	case AuditLogEntryActionDisqualify:
 		return true
