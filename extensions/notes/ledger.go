@@ -53,7 +53,7 @@ func recordNote(ctx context.Context, tx extension.Tx, action extension.AuditActi
 		subject = before
 	}
 	if subject == nil {
-		return fmt.Errorf("notes: recording a %s with neither image names no row", verb)
+		return fmt.Errorf("notes: recording a %s needs one image — the row's id comes from whichever side of the write it has", verb)
 	}
 	beforeImage, err := noteImage(before)
 	if err != nil {
