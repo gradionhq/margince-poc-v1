@@ -205,35 +205,49 @@ func TestImportProblemNamesAVanishedUploadAsNotFound(t *testing.T) {
 // mapper that carried each figure through would report more rows than the file
 // holds. This is the shape that failed live: 5 rows read, 6 unchanged.
 func TestTheDispositionAlwaysSumsToTheRowsRead(t *testing.T) {
+	// The prediction and the outcome carry DIFFERENT numbers on purpose: with
+	// equal ones a mapper that read the wrong side would still look right, and
+	// this test would prove only that it read something.
 	merged := migration.Report{Objects: []migration.ObjectReport{{
 		Object: migration.ObjectLead, MirrorCount: 5,
-		// What the dry run predicted...
-		WillCreate: 0, WillUpdate: 1,
-		// ...and what the commit then did, in the same stored report.
-		Created: 0, Updated: 1, Unchanged: 6,
+		// What the dry run predicted: four rows would be created.
+		WillCreate: 4, WillUpdate: 0,
+		// What the commit then did: three created, one updated — both stored,
+		// because a run's report is merged into the dry run's so a resumed
+		// attempt keeps what the first achieved.
+		Created: 3, Updated: 1, Unchanged: 6,
 		Skipped: []migration.SkippedRow{
 			{ExternalID: "line 5", Reason: "no key"},
 			{ExternalID: "line 5", Reason: "no key"},
 		},
 	}}}
 
-	for _, status := range []string{
-		migration.StatusAwaitingApproval,
-		migration.StatusComplete,
-		migration.StatusFailed,
+	for _, tc := range []struct {
+		status           string
+		created, updated int
+	}{
+		{migration.StatusAwaitingApproval, 4, 0},
+		{migration.StatusComplete, 3, 1},
+		{migration.StatusFailed, 3, 1},
 	} {
-		t.Run(status, func(t *testing.T) {
+		t.Run(tc.status, func(t *testing.T) {
 			got := toContractImportReport(migration.Run{
-				Status: status, Report: &merged,
+				Status: tc.status, Report: &merged,
 				Mapping: &migration.RunMapping{Object: migration.ObjectLead},
 			})
 			d := got.Disposition
-			if total := d.Created + d.Updated + d.Unchanged + d.Skipped; total != got.RowsRead {
-				t.Fatalf("disposition sums to %d but %d rows were read: %+v", total, got.RowsRead, d)
+			if d.Created != tc.created || d.Updated != tc.updated {
+				t.Fatalf("created/updated = %d/%d, want %d/%d — a %s run reports the numbers of its own side",
+					d.Created, d.Updated, tc.created, tc.updated, tc.status)
 			}
 			// One row the human must go fix, not two reports of the same one.
 			if d.Skipped != 1 || len(got.Issues) != 1 {
 				t.Fatalf("skipped = %d with %d issues, want the one row named once", d.Skipped, len(got.Issues))
+			}
+			// Unchanged is what is left of the rows read, never the stored
+			// figure — which carries both attempts and would report 6 of 5.
+			if total := d.Created + d.Updated + d.Unchanged + d.Skipped; total != got.RowsRead {
+				t.Fatalf("disposition sums to %d but %d rows were read: %+v", total, got.RowsRead, d)
 			}
 		})
 	}

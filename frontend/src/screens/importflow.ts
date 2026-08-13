@@ -20,6 +20,61 @@ type Generational<T> = Readonly<{ at: number; value: T }>;
 // screen renders from.
 type RunAndReport = Readonly<{ run: ImportRun; report: ImportReport }>;
 
+// asProfile checks the ONE payload nothing else types. The upload is a
+// hand-rolled multipart fetch — the generated client cannot send a file part —
+// so its answer arrives as parsed JSON with no shape behind it. A cast here
+// would be a promise the code has no way to keep, so every member the screen
+// reads is checked and the value is rebuilt from the checked parts.
+function asProfile(payload: unknown): ImportProfile {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error(unreadableUpload);
+  }
+  // Read by name rather than destructured through a cast: the payload is
+  // genuinely unknown here, and asserting a shape onto it is the promise this
+  // function exists to avoid making.
+  const read = (name: string): unknown =>
+    name in payload ? Reflect.get(payload, name) : undefined;
+  const source_ref = read("source_ref");
+  const object = read("object");
+  const rows_profiled = read("rows_profiled");
+  const columns = read("columns");
+  const targets = read("targets");
+  const suggested_mapping = read("suggested_mapping");
+  if (
+    typeof source_ref !== "string" ||
+    typeof rows_profiled !== "number" ||
+    !Array.isArray(columns) ||
+    !Array.isArray(targets) ||
+    !isImportObject(object) ||
+    !isMapping(suggested_mapping)
+  ) {
+    throw new Error(unreadableUpload);
+  }
+  return {
+    source_ref,
+    object,
+    rows_profiled,
+    columns,
+    targets,
+    suggested_mapping,
+  };
+}
+
+const unreadableUpload =
+  "the upload answered something this screen cannot read";
+
+function isImportObject(value: unknown): value is ImportObject {
+  return value === "lead" || value === "organization";
+}
+
+function isMapping(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
 // emptyReport stands in when a run's report could not be read back. It states
 // the run's own status and nothing it does not know, rather than inventing
 // counts: the screen shows the run happened and what state it is in.
@@ -47,7 +102,7 @@ async function readRun(id: string): Promise<RunAndReport | null> {
   if (!run || !report) {
     return null;
   }
-  return { run: run as ImportRun, report: report as ImportReport };
+  return { run, report };
 }
 
 // What one validation needs, handed to the mutation rather than closed over.
@@ -126,7 +181,7 @@ export function useImportFlow() {
       if (!response.ok) {
         throwProblem(payload);
       }
-      return { at, value: payload as ImportProfile };
+      return { at, value: asProfile(payload) };
     },
     onSuccess: ({ at, value }) => {
       if (at !== current()) {
@@ -157,7 +212,7 @@ export function useImportFlow() {
       if (error) {
         throwProblem(error);
       }
-      const created = data as ImportRun;
+      const created = data;
       const { data: fetched, error: reportError } = await api.GET(
         "/imports/{id}/report",
         { params: { path: { id: created.id } } },
@@ -165,7 +220,7 @@ export function useImportFlow() {
       if (reportError) {
         throwProblem(reportError);
       }
-      return { at, value: { run: created, report: fetched as ImportReport } };
+      return { at, value: { run: created, report: fetched } };
     },
     onSuccess: ({ at, value }) => {
       if (at !== current()) {
@@ -199,7 +254,7 @@ export function useImportFlow() {
       // outcome because a follow-up read failed would leave the screen offering
       // an import that has in fact already happened, and the second press would
       // answer 409 with no explanation.
-      const committed = data as ImportRun;
+      const committed = data;
       const { data: fetched } = await api.GET("/imports/{id}/report", {
         params: { path: { id: committed.id } },
       });
@@ -207,7 +262,7 @@ export function useImportFlow() {
         at,
         value: {
           run: committed,
-          report: (fetched as ImportReport) ?? emptyReport(committed),
+          report: fetched ?? emptyReport(committed),
         },
       };
     },

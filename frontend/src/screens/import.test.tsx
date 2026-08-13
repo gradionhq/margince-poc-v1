@@ -187,9 +187,13 @@ describe("the import card", () => {
       source_ref: "ws/import/abc",
       mapping: { Email: "email", "Full Name": "full_name" },
     });
-    expect((created.body as { mapping: object }).mapping).not.toHaveProperty(
-      "Notes",
-    );
+    // The whole body, so an extra column could not slip in unseen either.
+    expect(created.body).toEqual({
+      connector: "csv",
+      object: "lead",
+      source_ref: "ws/import/abc",
+      mapping: { Email: "email", "Full Name": "full_name" },
+    });
 
     // The prediction, and the row it cannot take, named by its line.
     expect(
@@ -333,9 +337,10 @@ describe("the import card", () => {
       }
       return found;
     });
-    const mapping = (created.body as { mapping: Record<string, string> })
-      .mapping;
-    expect(mapping).toEqual({ Email: "email" });
+    expect(created.body).toMatchObject({ mapping: { Email: "email" } });
+    expect(created.body).not.toMatchObject({
+      mapping: { "Full Name": "full_name" },
+    });
   });
 
   // A header the file spells with a regexp-replacement token must reach the

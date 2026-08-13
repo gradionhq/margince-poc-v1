@@ -43,45 +43,49 @@ export function ImportMappingTable({
       <p className="import__hint">
         {t("import.profiled", { rows: profile.rows_profiled })}
       </p>
-      <table className="import__table">
-        <thead>
-          <tr>
-            <th scope="col">{t("import.col.column")}</th>
-            <th scope="col">{t("import.col.filled")}</th>
-            <th scope="col">{t("import.col.samples")}</th>
-            <th scope="col">{t("import.col.destination")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {profile.columns.map((column) => (
-            <tr key={column.header}>
-              <th scope="row" className="import__colName">
-                {column.header}
-              </th>
-              <td className="import__fill">{fillLabel(column)}</td>
-              <td className="import__samples">
-                {column.samples.length > 0 ? (
-                  column.samples.join(", ")
-                ) : (
-                  <span className="import__empty">{t("import.noSamples")}</span>
-                )}
-              </td>
-              <td>
-                <Select
-                  options={options}
-                  value={mapping[column.header] ?? DONT_IMPORT}
-                  onChange={(target) => onChange(column.header, target)}
-                  disabled={locked}
-                  placeholder={t("import.dontImport")}
-                  aria-label={t("import.destinationFor", {
-                    column: column.header,
-                  })}
-                />
-              </td>
+      <div className="import__scroll">
+        <table className="import__table">
+          <thead>
+            <tr>
+              <th scope="col">{t("import.col.column")}</th>
+              <th scope="col">{t("import.col.filled")}</th>
+              <th scope="col">{t("import.col.samples")}</th>
+              <th scope="col">{t("import.col.destination")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {profile.columns.map((column) => (
+              <tr key={column.header}>
+                <th scope="row" className="import__colName">
+                  {column.header}
+                </th>
+                <td className="import__fill">{fillLabel(column)}</td>
+                <td className="import__samples">
+                  {column.samples.length > 0 ? (
+                    column.samples.join(", ")
+                  ) : (
+                    <span className="import__empty">
+                      {t("import.noSamples")}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <Select
+                    options={options}
+                    value={mapping[column.header] ?? DONT_IMPORT}
+                    onChange={(target) => onChange(column.header, target)}
+                    disabled={locked}
+                    placeholder={t("import.dontImport")}
+                    aria-label={t("import.destinationFor", {
+                      column: column.header,
+                    })}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
