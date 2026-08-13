@@ -1667,7 +1667,7 @@ export const vi = {
   "reports.reportForecast": "Dự báo",
   "reports.reportOpenByCompany": "Deal đang mở theo công ty",
   "reports.forecastBanner":
-    "Tổng theo nhóm là chưa trọng số; con số có trọng số trên bảng là Σ(giá trị × xác suất giai đoạn) — hai con số khác nhau, và đó là chủ ý.",
+    'Mỗi ô hiển thị tổng chưa trọng số, và bên dưới là tổng có trọng số — được làm tròn theo từng deal, nên luôn khớp với "Giải thích con số này".',
   "reports.company": "Công ty",
   "reports.openDeals": "Deal đang mở",
   "explain.sources": "Các dòng nguồn",

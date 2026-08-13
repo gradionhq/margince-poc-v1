@@ -22,13 +22,12 @@ import {
 import { QuotasView } from "./quotas";
 
 // Reports (B-EP09.12c, D-11): a picker over three reports — deals-by-stage
-// (unweighted next to weighted, unchanged since B-EP09.12c), forecast
-// (unweighted category tiles — deterministic, no confidence dots — with a
-// banner naming the weighted-vs-unweighted distinction), and open deals per
-// company. "Explain this number" opens the executed plan + the exact rows
-// the headline reconciles to. Weighted display on deals-by-stage uses each
-// stage's win_probability against the report's own sums — same page-local
-// rule as the board.
+// (unweighted next to weighted), forecast (category tiles, each showing
+// unweighted and weighted, plus the server-derived "slipped" bucket), and
+// open deals per company. "Explain this number" opens the executed plan +
+// the exact rows the headline reconciles to. Both weighted figures come
+// straight off the report's own weighted_amount_minor measure (AC-F1: round
+// PER DEAL, then sum) — neither screen re-derives it from the raw total.
 
 type StageAgg = {
   stageId: string;
