@@ -37,6 +37,7 @@ describe("the published frontend surface", () => {
       "Card",
       "EmptyState",
       "Field",
+      "RecordPicker",
       "SectionHeader",
       "Select",
       "TextInput",
