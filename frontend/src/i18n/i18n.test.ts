@@ -39,6 +39,12 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.s4.provMicrosoft",
   "ob.conv.connect.linkedinName",
   "co.chip.linkedin",
+  // A bare placeholder: the credit pool's name comes from the PROVIDER's own
+  // vocabulary ("email", "mobile"), so there is no literal here to translate
+  // and a translation could only rename somebody else's pool.
+  "provider.credits.pool",
+  // The same proper noun as co.chip.linkedin, one surface over.
+  "provider.profile.linkedin",
   "person.page.linkedin",
   "auth.coreProviderAnthropic",
   "auth.coreProviderGemini",

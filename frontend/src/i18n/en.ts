@@ -4329,6 +4329,95 @@ export const en = {
   "co.strip.healthSummary.failingOf": "{failing} of {rated} at risk",
   "co.strip.healthSummary.of": "{rated} of 3 rated",
   "today.source.suggestions": "the advice",
+
+  // The licensed data provider (ADR-0101). Two surfaces share this
+  // vocabulary — the Settings card and the person page — so a state reads
+  // the same wherever it appears.
+  "provider.title": "Contact data",
+  "provider.sub":
+    "Buy verified contact details for the people in your CRM. You pay the provider in credits; what you spend here is shown below.",
+  "provider.notConfigured":
+    "No data provider is available in this installation. Nothing is being bought and nothing can be.",
+  "provider.status.connected": "Connected",
+  "provider.status.disconnected": "Not connected",
+  "provider.status.validating": "Checking the key…",
+  "provider.status.invalidCredentials": "The key was refused",
+  "provider.status.insufficientCredits": "Out of credits",
+  "provider.status.rateLimited": "Rate limited",
+  "provider.status.providerError": "The provider is having trouble",
+  "provider.connect": "Connect",
+  "provider.reconnect": "Replace the key",
+  "provider.apiKey": "API key",
+  "provider.apiKeyHint":
+    "Sealed as soon as it is verified. It is never shown again, and never leaves this installation except to the provider.",
+  "provider.connectConfirm.title": "Connect this data provider?",
+  "provider.connectConfirm.body":
+    "The key is checked against the provider before anything is saved. Once connected, enriching a contact spends your credits.",
+  "provider.disconnect": "Disconnect",
+  "provider.disconnectConfirm.title": "Disconnect the provider?",
+  "provider.disconnectConfirm.body":
+    "New lookups stop immediately and the key is destroyed. Data already bought stays on your records — disconnecting is not deleting.",
+  "provider.deleteData": "Delete bought data",
+  "provider.deleteDataConfirm.title":
+    "Delete everything bought from this provider?",
+  "provider.deleteDataConfirm.body":
+    "Every value this provider supplied is removed from every contact. What you spent stays in your records; the data does not. This cannot be undone.",
+  "provider.deleteDataConfirm.typed": "Type the provider's name to confirm",
+  "provider.autoEnrich": "Enrich new contacts automatically",
+  "provider.autoEnrichHint":
+    "When somebody adds a contact by hand, buy their details straight away.",
+  "provider.credits": "Credits left with the provider",
+  "provider.credits.pool": "{pool}",
+  "provider.credits.none": "The provider has not told us a balance yet.",
+  "provider.constraints": "Limits in force",
+  "provider.mode": "When to enrich",
+  "provider.mode.automatic_on_create": "As contacts are added",
+  "provider.mode.on_demand": "Only when asked",
+  "provider.preset": "What to buy",
+
+  // The person page's section. The three "nothing here" states are three
+  // different sentences on purpose: only one of them is something the
+  // reader can act on.
+  "provider.profile.title": "Bought contact data",
+  "provider.profile.notConnected":
+    "No data provider is connected, so nothing has been bought.",
+  "provider.profile.notEligible":
+    "This contact is not eligible — they have objected, or the record is archived.",
+  "provider.profile.neverRun": "Nobody has looked this contact up yet.",
+  "provider.profile.queued": "Queued",
+  "provider.profile.inProgress": "Looking them up…",
+  "provider.profile.completed": "Found",
+  "provider.profile.noMatch": "The provider had nothing for this contact.",
+  "provider.profile.stale":
+    "Bought earlier. The provider is no longer connected, so this cannot be refreshed.",
+  "provider.profile.invalidCredentials":
+    "The provider refused our key, so this lookup could not run.",
+  "provider.profile.insufficientCredits":
+    "Not bought: the credit budget for this month is spent.",
+  "provider.profile.rateLimited":
+    "Not bought: the provider asked us to slow down.",
+  "provider.profile.providerError": "The provider could not answer.",
+  "provider.profile.submissionUnknown":
+    "We never learned how this lookup ended. It may have been charged for.",
+  "provider.profile.claimsUnwritten":
+    "Paid for, but the details never reached this record. Nobody has to hunt for them — this is the gap.",
+  "provider.profile.enrichNow": "Look this contact up",
+  "provider.profile.emails": "Email addresses",
+  "provider.profile.emailType.provider": "{type}, as the provider labelled it",
+  "provider.profile.emailType.requested":
+    "{type}, because that is what we asked for",
+  "provider.profile.mobiles": "Mobile numbers",
+  "provider.profile.confidence": "{percent}% confidence",
+  "provider.profile.linkedin": "LinkedIn",
+  "provider.profile.employment": "Current role",
+  "provider.profile.jobHistory": "Earlier roles",
+  "provider.profile.location": "Location",
+  "provider.profile.departments": "Departments",
+  "provider.profile.seniorities": "Seniority",
+  "provider.profile.notRequested":
+    "Not asked for: {categories}. A blank here means nobody bought it, not that the provider had nothing.",
+  "provider.profile.retrievedAt": "Bought {date}",
+  "provider.profile.source": "Provided by {provider}",
 } as const;
 
 export type MessageKey = keyof typeof en;

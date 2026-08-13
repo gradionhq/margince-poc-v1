@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Avatar, Badge, Disclosure } from "../design-system/atoms";
 import { AvatarStack } from "../design-system/avatarstack";
+import { EvidenceMark } from "../design-system/evidencemark";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
 import { formatDate } from "../format/format";
@@ -27,6 +28,7 @@ import { DetailsGrid } from "./companyraildetails";
 import { SectionSummary, sectionAnswered } from "./companyrailshared";
 import { TagsSection } from "./companyrailtags";
 import { byReach } from "./coverage";
+import { roleOf } from "./provider-status";
 
 // The record page's LEFT rail (mockup State A): the account's context,
 // beside the work rather than under it. Passed to RecordView's `rail` slot,
@@ -283,8 +285,25 @@ function PersonRow({ contact }: Readonly<{ contact: Contact }>) {
       <Avatar name={contact.full_name} tinted />
       <span className="co-person-id">
         <span className="co-person-name">{contact.full_name}</span>
-        {contact.title && (
-          <span className="co-person-role">{contact.title}</span>
+        {/* The same fallback the tab makes, because a rail that disagreed
+            with the tab about somebody's role is worse than neither showing
+            one. The server decides the precedence; both surfaces read it.
+            Branched on the VALUE, not on title_source — that field is
+            optional, and a server sending a purchased title without it would
+            otherwise render an empty, padded span. */}
+        {roleOf(contact) && (
+          <span className="co-person-role">
+            {contact.title_source === "provider" ? (
+              <EvidenceMark
+                value={roleOf(contact)}
+                source={{
+                  provenance: { kind: "connector", connector: "provider" },
+                }}
+              />
+            ) : (
+              roleOf(contact)
+            )}
+          </span>
         )}
       </span>
       {colleagues.length > 0 && (

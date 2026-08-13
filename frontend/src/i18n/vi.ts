@@ -4321,4 +4321,91 @@ export const vi = {
   "co.strip.healthSummary.failingOf": "{failing}/{rated} đang gặp rủi ro",
   "co.strip.healthSummary.of": "{rated}/3 đã được đánh giá",
   "today.source.suggestions": "các đề xuất",
+
+  // Nhà cung cấp dữ liệu liên hệ (ADR-0101). Hai màn hình dùng chung bộ từ
+  // vựng này — thẻ Cài đặt và trang cá nhân — để một trạng thái luôn đọc
+  // giống nhau ở mọi nơi.
+  "provider.title": "Dữ liệu liên hệ",
+  "provider.sub":
+    "Mua thông tin liên hệ đã được xác minh cho những người trong CRM. Bạn trả cho nhà cung cấp bằng tín dụng; phần đã dùng ở đây được hiển thị bên dưới.",
+  "provider.notConfigured":
+    "Bản cài đặt này không có nhà cung cấp dữ liệu nào. Không có gì đang được mua và cũng không thể mua.",
+  "provider.status.connected": "Đã kết nối",
+  "provider.status.disconnected": "Chưa kết nối",
+  "provider.status.validating": "Đang kiểm tra khoá…",
+  "provider.status.invalidCredentials": "Khoá bị từ chối",
+  "provider.status.insufficientCredits": "Hết tín dụng",
+  "provider.status.rateLimited": "Bị giới hạn tần suất",
+  "provider.status.providerError": "Nhà cung cấp đang gặp sự cố",
+  "provider.connect": "Kết nối",
+  "provider.reconnect": "Thay khoá",
+  "provider.apiKey": "Khoá API",
+  "provider.apiKeyHint":
+    "Được niêm phong ngay sau khi xác minh. Khoá không bao giờ hiển thị lại và chỉ rời bản cài đặt này để đến nhà cung cấp.",
+  "provider.connectConfirm.title": "Kết nối nhà cung cấp dữ liệu này?",
+  "provider.connectConfirm.body":
+    "Khoá được kiểm tra với nhà cung cấp trước khi lưu bất cứ thứ gì. Sau khi kết nối, mỗi lần làm giàu dữ liệu sẽ tiêu tín dụng.",
+  "provider.disconnect": "Ngắt kết nối",
+  "provider.disconnectConfirm.title": "Ngắt kết nối nhà cung cấp?",
+  "provider.disconnectConfirm.body":
+    "Các lượt tra cứu mới dừng ngay lập tức và khoá bị huỷ. Dữ liệu đã mua vẫn ở lại trên hồ sơ — ngắt kết nối không phải là xoá.",
+  "provider.deleteData": "Xoá dữ liệu đã mua",
+  "provider.deleteDataConfirm.title": "Xoá mọi thứ đã mua từ nhà cung cấp này?",
+  "provider.deleteDataConfirm.body":
+    "Mọi giá trị nhà cung cấp này đã cấp sẽ bị gỡ khỏi mọi liên hệ. Khoản bạn đã chi vẫn được ghi lại; dữ liệu thì không. Không thể hoàn tác.",
+  "provider.deleteDataConfirm.typed": "Nhập tên nhà cung cấp để xác nhận",
+  "provider.autoEnrich": "Tự động làm giàu liên hệ mới",
+  "provider.autoEnrichHint":
+    "Khi ai đó thêm một liên hệ thủ công, mua luôn thông tin của họ.",
+  "provider.credits": "Tín dụng còn lại ở nhà cung cấp",
+  "provider.credits.pool": "{pool}",
+  "provider.credits.none": "Nhà cung cấp chưa cho biết số dư.",
+  "provider.constraints": "Giới hạn đang áp dụng",
+  "provider.mode": "Khi nào làm giàu",
+  "provider.mode.automatic_on_create": "Ngay khi liên hệ được tạo",
+  "provider.mode.on_demand": "Chỉ khi được yêu cầu",
+  "provider.preset": "Mua những gì",
+
+  // Phần trên trang cá nhân. Ba trạng thái "không có gì" là ba câu khác
+  // nhau có chủ đích: chỉ một trong số đó là điều người đọc có thể xử lý.
+  "provider.profile.title": "Dữ liệu liên hệ đã mua",
+  "provider.profile.notConnected":
+    "Chưa kết nối nhà cung cấp dữ liệu nào, nên chưa mua gì cả.",
+  "provider.profile.notEligible":
+    "Liên hệ này không đủ điều kiện — họ đã phản đối, hoặc hồ sơ đã được lưu trữ.",
+  "provider.profile.neverRun": "Chưa ai tra cứu liên hệ này.",
+  "provider.profile.queued": "Trong hàng đợi",
+  "provider.profile.inProgress": "Đang tra cứu…",
+  "provider.profile.completed": "Đã tìm thấy",
+  "provider.profile.noMatch": "Nhà cung cấp không có gì về liên hệ này.",
+  "provider.profile.stale":
+    "Đã mua trước đây. Nhà cung cấp không còn kết nối nên không thể làm mới.",
+  "provider.profile.invalidCredentials":
+    "Nhà cung cấp từ chối khoá của chúng ta nên lượt tra cứu không chạy.",
+  "provider.profile.insufficientCredits":
+    "Không mua: ngân sách tín dụng tháng này đã hết.",
+  "provider.profile.rateLimited":
+    "Không mua: nhà cung cấp yêu cầu chúng ta chậm lại.",
+  "provider.profile.providerError": "Nhà cung cấp không thể trả lời.",
+  "provider.profile.submissionUnknown":
+    "Chúng ta không bao giờ biết lượt tra cứu này kết thúc ra sao. Nó có thể đã bị tính phí.",
+  "provider.profile.claimsUnwritten":
+    "Đã trả tiền, nhưng thông tin chưa bao giờ đến hồ sơ này. Không ai phải đi tìm — đây chính là chỗ thiếu.",
+  "provider.profile.enrichNow": "Tra cứu liên hệ này",
+  "provider.profile.emails": "Địa chỉ email",
+  "provider.profile.emailType.provider": "{type}, theo nhãn của nhà cung cấp",
+  "provider.profile.emailType.requested":
+    "{type}, vì đó là thứ chúng ta đã hỏi",
+  "provider.profile.mobiles": "Số di động",
+  "provider.profile.confidence": "Độ tin cậy {percent}%",
+  "provider.profile.linkedin": "LinkedIn",
+  "provider.profile.employment": "Vai trò hiện tại",
+  "provider.profile.jobHistory": "Vai trò trước đây",
+  "provider.profile.location": "Địa điểm",
+  "provider.profile.departments": "Bộ phận",
+  "provider.profile.seniorities": "Cấp bậc",
+  "provider.profile.notRequested":
+    "Không hỏi tới: {categories}. Chỗ trống ở đây nghĩa là không ai mua, chứ không phải nhà cung cấp không có.",
+  "provider.profile.retrievedAt": "Mua ngày {date}",
+  "provider.profile.source": "Do {provider} cung cấp",
 } as const satisfies Record<MessageKey, string>;

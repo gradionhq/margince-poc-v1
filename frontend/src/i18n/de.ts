@@ -4334,4 +4334,95 @@ export const de = {
   "co.strip.healthSummary.failingOf": "{failing} von {rated} gefährdet",
   "co.strip.healthSummary.of": "{rated} von 3 bewertet",
   "today.source.suggestions": "die Empfehlungen",
+
+  // Der Datenanbieter (ADR-0101). Zwei Oberflächen teilen sich diese
+  // Begriffe — die Einstellungskarte und die Personenseite —, damit ein
+  // Zustand überall gleich heißt.
+  "provider.title": "Kontaktdaten",
+  "provider.sub":
+    "Geprüfte Kontaktdaten zu den Personen in Ihrem CRM zukaufen. Bezahlt wird beim Anbieter mit Guthaben; was davon hier verbraucht wurde, steht unten.",
+  "provider.notConfigured":
+    "In dieser Installation ist kein Datenanbieter verfügbar. Es wird nichts zugekauft, und es kann auch nichts zugekauft werden.",
+  "provider.status.connected": "Verbunden",
+  "provider.status.disconnected": "Nicht verbunden",
+  "provider.status.validating": "Schlüssel wird geprüft …",
+  "provider.status.invalidCredentials": "Schlüssel abgelehnt",
+  "provider.status.insufficientCredits": "Kein Guthaben mehr",
+  "provider.status.rateLimited": "Zu viele Anfragen",
+  "provider.status.providerError": "Beim Anbieter klemmt es gerade",
+  "provider.connect": "Verbinden",
+  "provider.reconnect": "Schlüssel ersetzen",
+  "provider.apiKey": "API-Schlüssel",
+  "provider.apiKeyHint":
+    "Wird nach der Prüfung sofort versiegelt. Er wird nie wieder angezeigt und verlässt diese Installation nur Richtung Anbieter.",
+  "provider.connectConfirm.title": "Datenanbieter verbinden?",
+  "provider.connectConfirm.body":
+    "Der Schlüssel wird beim Anbieter geprüft, bevor irgendetwas gespeichert wird. Ab dann kostet jede Anreicherung Guthaben.",
+  "provider.disconnect": "Trennen",
+  "provider.disconnectConfirm.title": "Verbindung trennen?",
+  "provider.disconnectConfirm.body":
+    "Neue Abfragen hören sofort auf, der Schlüssel wird vernichtet. Bereits gekaufte Daten bleiben an den Datensätzen — Trennen löscht nichts.",
+  "provider.deleteData": "Gekaufte Daten löschen",
+  "provider.deleteDataConfirm.title":
+    "Alles löschen, was von diesem Anbieter stammt?",
+  "provider.deleteDataConfirm.body":
+    "Jeder Wert dieses Anbieters verschwindet von jedem Kontakt. Was Sie ausgegeben haben, bleibt in den Aufzeichnungen; die Daten nicht. Das lässt sich nicht rückgängig machen.",
+  "provider.deleteDataConfirm.typed":
+    "Zum Bestätigen den Namen des Anbieters eingeben",
+  "provider.autoEnrich": "Neue Kontakte automatisch anreichern",
+  "provider.autoEnrichHint":
+    "Wenn jemand einen Kontakt von Hand anlegt, dessen Daten gleich mitkaufen.",
+  "provider.credits": "Restguthaben beim Anbieter",
+  "provider.credits.pool": "{pool}",
+  "provider.credits.none": "Der Anbieter hat uns noch keinen Stand genannt.",
+  "provider.constraints": "Geltende Grenzen",
+  "provider.mode": "Wann angereichert wird",
+  "provider.mode.automatic_on_create": "Sobald Kontakte entstehen",
+  "provider.mode.on_demand": "Nur auf Zuruf",
+  "provider.preset": "Was gekauft wird",
+
+  // Der Abschnitt auf der Personenseite. Die drei „nichts da"-Zustände sind
+  // mit Absicht drei verschiedene Sätze: nur bei einem davon kann der Leser
+  // etwas tun.
+  "provider.profile.title": "Zugekaufte Kontaktdaten",
+  "provider.profile.notConnected":
+    "Es ist kein Datenanbieter verbunden, also wurde nichts gekauft.",
+  "provider.profile.notEligible":
+    "Für diesen Kontakt nicht zulässig — er hat widersprochen, oder der Datensatz ist archiviert.",
+  "provider.profile.neverRun":
+    "Diesen Kontakt hat noch niemand nachgeschlagen.",
+  "provider.profile.queued": "In der Warteschlange",
+  "provider.profile.inProgress": "Wird nachgeschlagen …",
+  "provider.profile.completed": "Gefunden",
+  "provider.profile.noMatch": "Der Anbieter hatte nichts zu diesem Kontakt.",
+  "provider.profile.stale":
+    "Früher gekauft. Der Anbieter ist nicht mehr verbunden, eine Auffrischung ist deshalb nicht möglich.",
+  "provider.profile.invalidCredentials":
+    "Der Anbieter hat unseren Schlüssel abgelehnt, die Abfrage lief nicht.",
+  "provider.profile.insufficientCredits":
+    "Nicht gekauft: das Guthabenbudget für diesen Monat ist aufgebraucht.",
+  "provider.profile.rateLimited":
+    "Nicht gekauft: der Anbieter hat uns gebremst.",
+  "provider.profile.providerError": "Der Anbieter konnte nicht antworten.",
+  "provider.profile.submissionUnknown":
+    "Wie diese Abfrage ausgegangen ist, haben wir nie erfahren. Sie kann berechnet worden sein.",
+  "provider.profile.claimsUnwritten":
+    "Bezahlt, aber die Daten sind nie an diesem Datensatz angekommen. Niemand muss danach suchen — das hier ist die Lücke.",
+  "provider.profile.enrichNow": "Kontakt nachschlagen",
+  "provider.profile.emails": "E-Mail-Adressen",
+  "provider.profile.emailType.provider": "{type}, so vom Anbieter bezeichnet",
+  "provider.profile.emailType.requested":
+    "{type}, weil wir genau danach gefragt haben",
+  "provider.profile.mobiles": "Mobilnummern",
+  "provider.profile.confidence": "{percent} % Sicherheit",
+  "provider.profile.linkedin": "LinkedIn",
+  "provider.profile.employment": "Aktuelle Rolle",
+  "provider.profile.jobHistory": "Frühere Rollen",
+  "provider.profile.location": "Standort",
+  "provider.profile.departments": "Bereiche",
+  "provider.profile.seniorities": "Ebene",
+  "provider.profile.notRequested":
+    "Nicht angefragt: {categories}. Eine Lücke heißt hier, dass niemand danach gekauft hat — nicht, dass der Anbieter nichts hatte.",
+  "provider.profile.retrievedAt": "Gekauft am {date}",
+  "provider.profile.source": "Geliefert von {provider}",
 } as const satisfies Record<MessageKey, string>;

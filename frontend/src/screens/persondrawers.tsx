@@ -19,6 +19,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
+import { PersonProviderSection } from "./personprovider";
 
 // Only http(s) may become a link. A provider-supplied URL is untrusted input,
 // and a javascript: or data: href executes the moment a reader clicks it.
@@ -191,11 +192,16 @@ export function PersonComposer({
 export function PersonResearchDrawer({
   personId,
   personName,
+  providerProfile,
   open,
   onClose,
 }: Readonly<{
   personId: string;
   personName: string;
+  // What a licensed provider was PAID to tell us about this person
+  // (ADR-0101). Passed in rather than fetched here: the page already holds
+  // the assembled 360, and a second read could disagree with what it shows.
+  providerProfile?: components["schemas"]["PersonProviderProfile"];
   open: boolean;
   onClose: () => void;
 }>) {
@@ -253,6 +259,11 @@ export function PersonResearchDrawer({
       </div>
 
       <div className="drawer-body">
+        {/* What was BOUGHT sits above what a public read found: it cost
+            money, it is the firmer of the two, and a rep looking somebody up
+            should see it before a page crawl's guesses. */}
+        <PersonProviderSection personId={personId} profile={providerProfile} />
+
         {run.isLoading && (
           <p className="pe-prose">{t("person.research.running")}</p>
         )}
