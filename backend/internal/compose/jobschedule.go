@@ -136,6 +136,8 @@ func configDependencies(cfg JobRunnerConfig) map[string]bool {
 		"SendRegistry":           cfg.SendRegistry != nil,
 		"VoiceBrain":             cfg.VoiceBrain != nil,
 		"WebhookRetry.Deliverer": cfg.WebhookRetry.Deliverer != nil,
+		"ProviderRuns.Registry":  cfg.ProviderRuns.Registry != nil,
+		"ProviderRuns.Vault":     cfg.ProviderRuns.Vault != nil,
 	}
 }
 

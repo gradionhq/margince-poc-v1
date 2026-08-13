@@ -46,6 +46,10 @@ type Store struct {
 	identifiers SubjectIdentifiersFunc
 	// enqueueSubmit commits the submit job with the run row.
 	enqueueSubmit EnqueueSubmitFunc
+	// writeClaims is the owning domain's claim upsert (handoff.go). Nil until
+	// compose binds it; every hand-off then waits on the sweep and exhausts
+	// into claims_unwritten, the honest record for a build with no domain.
+	writeClaims WriteClaimsFunc
 }
 
 // DeleteClaimsFunc is the owning domain's delete of everything one provider

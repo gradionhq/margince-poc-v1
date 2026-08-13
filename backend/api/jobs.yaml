@@ -941,6 +941,57 @@ kinds:
     args:
       Workspace: id
 
+  provider_run_submit:
+    role: workspace
+    go_type: ProviderRunSubmitArgs
+    queue: default
+    timeout: 2m
+    opts_owner: args
+    registration: {when: [ProviderRuns.Registry, ProviderRuns.Vault], absent: registers_nothing}
+    args:
+      Workspace: id
+      RunID: id
+    reason: >-
+      One submission is one bounded HTTP call to the provider plus three short
+      transactions around it. The args-owned uniqueness (ByArgs over the active
+      states) is a spend guard, not a scheduling nicety: two live submit jobs
+      for one run could each pass the queued check and buy the same answer
+      twice, so every inserter carries the rule.
+
+  provider_run_poll_sweep:
+    role: dispatcher
+    go_type: ProviderRunPollSweepArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 30s
+    registration: {when: [ProviderRuns.Registry, ProviderRuns.Vault], absent: registers_nothing}
+    fans_out_to: provider_run_poll
+    fan_out_unit: workspace
+    reason: >-
+      Surfe resolves a bulk enrichment in seconds, so a 30-second scan keeps
+      the person page's in-progress state honest without hammering the fleet —
+      the same cadence telegram_poll_sweep uses for the same promptness
+      argument. A caught-up workspace costs one indexed probe of the due
+      partial index.
+
+  provider_run_poll:
+    role: workspace
+    go_type: ProviderRunPollArgs
+    queue: default
+    timeout: 2m
+    max_attempts: 3
+    opts_owner: fan_out
+    registration: {when: [ProviderRuns.Registry, ProviderRuns.Vault], absent: registers_nothing}
+    args:
+      Workspace: id
+    reason: >-
+      One workspace's drain: poll the in-progress runs, re-attempt pending
+      claim hand-offs, re-dispatch stranded submissions and expire dead
+      in-flight markers. Each run is a bounded provider call; the sweep's next
+      tick resumes whatever a cut-off pass left, so two minutes bounds one
+      pass rather than the backlog.
+
   signal_scan:
     role: dispatcher
     go_type: SignalScanArgs

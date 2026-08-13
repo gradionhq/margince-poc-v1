@@ -91,6 +91,9 @@ type JobRunnerConfig struct {
 	// WebhookRetry carries the retry dispatcher's cadence and the delivery
 	// engine one workspace's pass re-attempts through (jobs_webhookretry.go).
 	WebhookRetry WebhookRetryConfig
+	// ProviderRuns carries the adapter registry and the vault the provider-run
+	// execution lanes unseal credentials with (jobs_providerruns.go).
+	ProviderRuns ProviderRunsConfig
 	// AgentScheduler carries the Surface-B dispatcher's cadence and the runner
 	// one workspace's pass ticks (jobs_agentscheduler.go).
 	AgentScheduler AgentSchedulerConfig
@@ -293,6 +296,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addEmbedDriftSweepJob(reg, pool, cfg, log),
 		addPrivacyRetentionJobs(reg, pool, cfg, log),
 		addWebhookRetryJobs(reg, pool, cfg),
+		addProviderRunJobs(reg, pool, cfg),
 		addAgentSchedulerJobs(reg, pool, cfg),
 		addSignalJobs(reg, pool, cfg, log),
 		addFinanceJobs(reg, pool, cfg, log),

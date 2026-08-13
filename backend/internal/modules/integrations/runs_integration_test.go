@@ -41,6 +41,10 @@ type runsEnv struct {
 	owner  *pgx.Conn
 	// enqueued counts durable hand-offs, so a test can prove one happened.
 	enqueued int
+	// vault and fake are the store's own instances, exposed so the execution
+	// tests can seal a credential and read the egress counter.
+	vault keyvault.Vault
+	fake  *OfflineProvider
 }
 
 func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
@@ -137,12 +141,14 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	reg, err := NewRegistry(NewOfflineProvider(0, time.Now))
+	e.fake = NewOfflineProvider(0, time.Now)
+	reg, err := NewRegistry(e.fake)
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.vault = keyvault.NewMemory()
 	store, err := NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)),
-		keyvault.NewMemory(), reg, time.Now)
+		e.vault, reg, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
