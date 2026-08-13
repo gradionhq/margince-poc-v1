@@ -312,6 +312,11 @@ func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	switch prior {
 	case PendingStatusReal:
 		return true, false, nil
+	case priorKnownNonPerson:
+		// Decided, and decided to be nobody. Settled so the question is not
+		// re-asked and re-billed on every later message, and NOT `known`, so no
+		// person is minted from a mailbox the verdict already judged has none.
+		return false, true, nil
 	case PendingStatusNoise:
 		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_noise_sender", rec,
 			"a prior verdict already judged this sender noise")
@@ -325,6 +330,13 @@ func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		return false, false, nil
 	}
 }
+
+// priorKnownNonPerson is what priorDispositionTx reports for an address the
+// workspace judged real correspondence with no human behind it — a shared
+// mailbox, or an organization writing under its own name. It is not a stored
+// status; the ledger holds `real` plus a kind, and this is how that pair
+// reaches the tier ladder as one answer.
+const priorKnownNonPerson = "known_nonperson"
 
 // priorDispositionTx reports what this workspace already concluded about an
 // address, or "" if it has never decided. A person that exists by any route —
@@ -343,7 +355,19 @@ func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) 
 		           SELECT 1 FROM person_email pe JOIN person p ON p.id = pe.person_id
 		            WHERE pe.email = $1 AND p.archived_at IS NULL) THEN 'real'
 		         ELSE coalesce((
-		           SELECT status FROM capture_pending_counterparty
+		           -- A real-status row whose KIND names no human is not an
+		           -- instruction to create one. role_mailbox and
+		           -- organization_sender resolve to real because the mail is
+		           -- genuine correspondence that must stay visible — but there
+		           -- is nobody to record, and reading the status alone would
+		           -- create the very contact the verdict declined to create,
+		           -- on the sender's second message.
+		           SELECT CASE
+		                    WHEN status = 'real' AND kind IS NOT NULL AND kind <> 'person'
+		                      THEN 'known_nonperson'
+		                    ELSE status
+		                  END
+		             FROM capture_pending_counterparty
 		            WHERE email = $1
 		              AND status IN ('real', 'noise', 'rejected', 'suppressed')
 		              -- A noise answer settles only the mail it can still reach.

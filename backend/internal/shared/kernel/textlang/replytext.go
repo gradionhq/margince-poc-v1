@@ -264,3 +264,29 @@ func isAttributionLine(line string) bool {
 	}
 	return false
 }
+
+// NewTextOnly returns only what the author of THIS message wrote: everything
+// above the quote marker and above the signature, with no floor.
+//
+// It differs from the language detector's cut in exactly that missing floor.
+// Detection keeps a message that is only quoted text, because then the quote is
+// the only evidence of language there is and answering Unknown would be worse.
+// A caller asking "what did this person say" must not: the whole point is that
+// text below the marker was written by somebody ELSE, and a reader who cannot
+// tell the difference can be fed words through a quoted chain. Capture's
+// correspondence gate reads a reply for its intent, so it takes this one.
+//
+// It also cuts STRICTLY, where cutAt keeps the quote when too little was
+// written above it. That fallback is right for language detection and wrong
+// here for the same reason: a one-line "Not interested." is under every floor
+// cutAt applies, so keeping the quote would hand the reader the sender's own
+// words as if the replier had written them.
+//
+// An empty result is the honest answer for a message that added nothing.
+func NewTextOnly(text string) string {
+	runes := []rune(text)
+	if offset := earliest(quoteStart(runes), signatureStart(runes)); offset > 0 {
+		runes = runes[:offset]
+	}
+	return strings.TrimSpace(string(runes))
+}
