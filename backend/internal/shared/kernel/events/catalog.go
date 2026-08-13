@@ -164,6 +164,10 @@ var catalog = map[string]struct {
 	// rides the person stream because the thing it governs is whose network
 	// gets read, and consent to read a professional network is the same class
 	// of fact as consent.changed beside it.
+	// The sender's own sign-off. It rides the person stream because what it
+	// governs is how a member is represented on every message they send, which
+	// is a fact about that person rather than about any one mail.
+	"email_signature.changed":  {personStreamEntity, 1},
 	"linkedin_account.changed": {personStreamEntity, 1},
 	// One import act, not one row: an export is thousands of rows and a
 	// per-row event would bury every other event in the stream, while the

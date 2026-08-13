@@ -1698,6 +1698,14 @@ export const de = {
 
   "settings.identity": "Profil",
   "settings.preferences": "Voreinstellungen",
+  "settings.signature": "E-Mail-Signatur",
+  "settings.signatureSub":
+    "Steht unter jeder Nachricht, die Sie senden — über dem Abmelde-Hinweis.",
+  "settings.signatureLabel": "Ihre Grußformel",
+  "settings.signaturePlaceholder": "Marek Janetzke\nGradion · +49 40 123456",
+  "settings.signatureHint":
+    "Nur Text. Leer lassen heißt: ohne Signatur senden. Die KI schreibt nie eine Grußformel — diese hier geht raus.",
+  "settings.signatureSaving": "Wird gespeichert…",
   "settings.preferencesSub":
     "Das Design merkt sich dieser Browser. Die Sprache gilt für diese Sitzung.",
   "role.admin": "Admin",

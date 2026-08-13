@@ -1688,6 +1688,14 @@ export const vi = {
 
   "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
+  "settings.signature": "Chữ ký email",
+  "settings.signatureSub":
+    "Được thêm dưới mỗi thư bạn gửi, phía trên phần hủy đăng ký.",
+  "settings.signatureLabel": "Lời kết của bạn",
+  "settings.signaturePlaceholder": "Nguyễn Minh Anh\nGradion · +84 28 123456",
+  "settings.signatureHint":
+    "Chỉ văn bản thuần. Để trống nghĩa là gửi không chữ ký. AI không bao giờ tự viết lời kết — chữ ký này mới là thứ được gửi đi.",
+  "settings.signatureSaving": "Đang lưu…",
   "settings.preferencesSub":
     "Giao diện được trình duyệt này ghi nhớ. Ngôn ngữ chỉ giữ trong phiên làm việc.",
   "role.admin": "Quản trị",

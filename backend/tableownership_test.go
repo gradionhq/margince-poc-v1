@@ -134,6 +134,7 @@ var tableOwners = map[string]string{
 	"graph_interaction_edge": "internal/modules/search",
 	// CG-DDL-2: LinkedIn ghosts. Owned by people because the work they exist
 	// for is identity matching — the same dedupe rules, the same chokepoint.
+	"email_signature":     "internal/modules/people",
 	"linkedin_account":    "internal/modules/people",
 	"linkedin_connection": "internal/modules/people",
 	"attachment":          "internal/modules/activities",

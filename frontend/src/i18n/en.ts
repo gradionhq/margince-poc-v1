@@ -1700,6 +1700,14 @@ export const en = {
 
   "settings.identity": "Profile",
   "settings.preferences": "Preferences",
+  "settings.signature": "Email signature",
+  "settings.signatureSub":
+    "Appended below every message you send, above the unsubscribe footer.",
+  "settings.signatureLabel": "Your sign-off",
+  "settings.signaturePlaceholder": "Marek Janetzke\nGradion · +49 40 123456",
+  "settings.signatureHint":
+    "Plain text. Leave it empty to send unsigned. The AI never writes a sign-off — this is the one that goes out.",
+  "settings.signatureSaving": "Saving…",
   "settings.preferencesSub":
     "Theme is remembered in this browser. Language lasts for this session.",
   "role.admin": "Admin",

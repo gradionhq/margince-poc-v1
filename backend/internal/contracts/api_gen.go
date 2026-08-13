@@ -12833,6 +12833,15 @@ type EmailDraft struct {
 	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
 }
 
+// EmailSignature defines model for EmailSignature.
+type EmailSignature struct {
+	// Body The sign-off appended below every message this member sends, plain text.
+	// Empty means unsigned, which is the state of every member who has not
+	// written one.
+	Body      string     `json:"body"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
 // EmbedReindexPreview The scope before the spend (ADR-0020 preview-before-spend obligation): what running the reindex now would touch and roughly cost. MUST precede the confirm route — the estimate is what the operator consents to. An estimate, labeled as such — actual spend is metered per embed call.
 type EmbedReindexPreview struct {
 	ComputedAt time.Time `json:"computed_at"`
@@ -17443,6 +17452,14 @@ type RunReportRequest struct {
 
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
+
+// SaveEmailSignatureRequest defines model for SaveEmailSignatureRequest.
+type SaveEmailSignatureRequest struct {
+	// Body Plain text. Empty clears the signature. The cap is what a signature is
+	// FOR — a name, a role, a way to reach the sender — and past it a block
+	// is a document riding on every message.
+	Body string `json:"body"`
+}
 
 // SaveLinkedInAccountRequest defines model for SaveLinkedInAccountRequest.
 type SaveLinkedInAccountRequest struct {
@@ -22298,6 +22315,9 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// SaveMyEmailSignatureJSONRequestBody defines body for SaveMyEmailSignature for application/json ContentType.
+type SaveMyEmailSignatureJSONRequestBody = SaveEmailSignatureRequest
 
 // SaveMyLinkedInAccountJSONRequestBody defines body for SaveMyLinkedInAccount for application/json ContentType.
 type SaveMyLinkedInAccountJSONRequestBody = SaveLinkedInAccountRequest
@@ -28672,6 +28692,12 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// The sign-off appended to mail you send.
+	// (GET /me/email-signature)
+	GetMyEmailSignature(w http.ResponseWriter, r *http.Request)
+	// Write or clear your own sign-off.
+	// (PUT /me/email-signature)
+	SaveMyEmailSignature(w http.ResponseWriter, r *http.Request)
 	// Your own LinkedIn account as this CRM records it.
 	// (GET /me/linkedin-account)
 	GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
@@ -30187,6 +30213,18 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The sign-off appended to mail you send.
+// (GET /me/email-signature)
+func (_ Unimplemented) GetMyEmailSignature(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Write or clear your own sign-off.
+// (PUT /me/email-signature)
+func (_ Unimplemented) SaveMyEmailSignature(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -37570,6 +37608,46 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyEmailSignature operation middleware
+func (siw *ServerInterfaceWrapper) GetMyEmailSignature(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyEmailSignature(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveMyEmailSignature operation middleware
+func (siw *ServerInterfaceWrapper) SaveMyEmailSignature(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveMyEmailSignature(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -48335,6 +48413,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/email-signature", wrapper.GetMyEmailSignature)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/email-signature", wrapper.SaveMyEmailSignature)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me/linkedin-account", wrapper.GetMyLinkedInAccount)
