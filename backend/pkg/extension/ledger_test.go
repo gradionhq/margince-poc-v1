@@ -62,6 +62,14 @@ func TestChangeValidateRefusesWhatTheLedgerCannotHold(t *testing.T) {
 		"a before image that is not JSON": func(c *Change) { c.Before = json.RawMessage(`{`) },
 		"an after image that is not JSON": func(c *Change) { c.After = json.RawMessage(`nope`) },
 		"a detail that is not JSON":       func(c *Change) { c.Detail = json.RawMessage(`{"a":}`) },
+		// An image the action says cannot exist. audit_log is append-only, so a
+		// row that contradicts itself is a contradiction nobody can correct.
+		"a create with a before image": func(c *Change) {
+			c.Action, c.Before = AuditCreate, json.RawMessage(`{"body":"was never there"}`)
+		},
+		"an erase with an after image": func(c *Change) {
+			c.Action, c.After = AuditErase, json.RawMessage(`{"body":"is gone"}`)
+		},
 	} {
 		ch := valid
 		mutate(&ch)

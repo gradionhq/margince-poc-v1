@@ -619,7 +619,10 @@ function NotesCard() {
                     here, and reaches this unit through its subscription — so
                     the column is the only rendering that stays true. */}
                 {item.filed_activity_id ? (
-                  <Badge tone="success">{t("extNotes.notes.filed")}</Badge>
+                  <>
+                    {" "}
+                    <Badge tone="success">{t("extNotes.notes.filed")}</Badge>
+                  </>
                 ) : null}
                 {canRemove ? (
                   <Button

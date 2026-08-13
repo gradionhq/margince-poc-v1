@@ -268,12 +268,14 @@ validated to the full identifier budget, so a name chosen today stays valid for 
   workspace child per live tenant.
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
-- **Its own history and its own events** — `tx.Record(change, event)` writes the ledger row AND the
-  outbox event for a write to the unit's own tables, in the caller's transaction. One call, both
+- **Its own history and its own events** — `tx.Record(ctx, change, event)` writes the ledger row AND
+  the outbox event for a write to the unit's own tables, in the caller's transaction. One call, both
   halves, always: it is the product's own write shape (domain row + audit row + outbox event, one
   transaction) offered to a unit in a form that cannot be half-used — an event with no ledger row is
   unauditable, and a ledger row with no event is a change nothing downstream is told about, which the
-  core grants itself no exemption from either. The type on the bus is `ext_<namespace>.<verb>` — the
+  core grants itself no exemption from either. It is OFFERED rather than enforced: the three SQL
+  verbs still write whatever a unit tells them to, and a write made through `Exec` alone records
+  nothing, which is a choice a unit makes (`extensions/notes/heartbeat.go` makes it, and says why). The type on the bus is `ext_<namespace>.<verb>` — the
   core prefixes the namespace from the invocation, so a unit can publish neither under another unit's
   name nor inside a core family — and every extension event rides one stream,
   `gw:events:crm:extension`, which no core consumer group carries.

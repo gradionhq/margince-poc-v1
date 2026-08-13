@@ -10,6 +10,7 @@ package extension
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 )
@@ -128,6 +129,17 @@ func (c Change) Validate() error {
 		if len(image.raw) > 0 && !json.Valid(image.raw) {
 			return fmt.Errorf("extension: the %s image is not valid JSON, and the ledger column holding it is jsonb", image.what)
 		}
+	}
+	// An image the ACTION says cannot exist. A create with a before-image and an
+	// erase with an after-image are each a ledger row that contradicts itself,
+	// and the contradiction is permanent: audit_log is append-only, so nobody
+	// can correct it afterwards. Refusing the write is the only moment this can
+	// be said.
+	if c.Action == AuditCreate && len(c.Before) > 0 {
+		return errors.New("extension: a create carries a before image — the row did not exist, so there was no state to record")
+	}
+	if c.Action == AuditErase && len(c.After) > 0 {
+		return errors.New("extension: an erase carries an after image — the row is gone, so there is no state left to record")
 	}
 	return nil
 }
