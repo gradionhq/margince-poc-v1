@@ -1,0 +1,73 @@
+/* FactList — the label→value rows a reader scans.
+ *
+ * A two-column grid rather than the browser's default `dd` indent: the values
+ * have to line up for the list to be readable as a table of facts, and a
+ * 40px UA margin is not an alignment. The term column is allowed to be
+ * narrower than the value column because a term is a short noun and a value
+ * carries links, pills and amounts. */
+
+.factlist {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.factlist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+/* The first row needs no rule above it: the list's own container already
+ * bounds it, and a leading hairline reads as a severed row. */
+.factlist-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.factlist-term {
+  color: var(--textSecondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  margin: 0;
+}
+
+.factlist-value {
+  color: var(--textContent);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  /* The UA gives `dd` a 40px inline start margin. In a grid it is not an
+   * indent, it is a second gutter nobody asked for. */
+  margin: 0;
+  min-width: 0;
+  /* An identifier or a URL has no spaces to break on, and a fact row must not
+   * be what makes the page scroll sideways. */
+  overflow-wrap: anywhere;
+}
+
+.factlist-numeric .factlist-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The qualifier sits under its value rather than beside it — it explains the
+ * number, so it must not compete with it for the same line. */
+.factlist-note {
+  display: block;
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-normal);
+  margin-top: var(--space-1);
+}
+
+/* Below the narrow breakpoint the two columns stop earning their split: a
+ * 1fr term next to a 1.6fr value leaves both too narrow to read, so the pair
+ * stacks and the term becomes a label above its value. */
+@media (max-width: 480px) {
+  .factlist-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}

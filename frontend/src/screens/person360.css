@@ -747,3 +747,9 @@
 .pe-brief-section {
   margin-bottom: var(--space-5);
 }
+
+/* The pulse card's facts sit under the relationship line, which is prose —
+ * the gap is what separates a reading from the sentence explaining it. */
+.person-pulse-facts {
+  margin-top: var(--space-3);
+}
