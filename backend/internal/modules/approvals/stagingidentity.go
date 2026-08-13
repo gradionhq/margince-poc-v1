@@ -75,18 +75,14 @@ const lockOrder = `ORDER BY created_at, id`
 // not held by this. Serializing the stagers of one group is what would close
 // that, at the cost of running them one at a time, and it is not closed here.
 func (s *Service) LockPendingGroupInTx(ctx context.Context, tx pgx.Tx, targetID ids.UUID, kinds ...string) error {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return errors.New("crmapprovals: no workspace bound to context")
-	}
 	if len(kinds) == 0 {
 		return errors.New("crmapprovals: a group pre-lock that names no kind locks nothing")
 	}
 	if _, err := tx.Exec(ctx, `SELECT id FROM approval
-		 WHERE workspace_id = $1 AND kind = ANY($2) AND target_entity_id IS NOT DISTINCT FROM $3
+		 WHERE kind = ANY($1) AND target_entity_id IS NOT DISTINCT FROM $2
 		   AND status = 'pending' AND expires_at > now()
 		 `+lockOrder+`
-		 FOR UPDATE`, wsID, kinds, nullUUID(targetID)); err != nil {
+		 FOR UPDATE`, kinds, nullUUID(targetID)); err != nil {
 		return fmt.Errorf("lock the pending proposals this act will re-propose: %w", err)
 	}
 	return nil
@@ -214,14 +210,14 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 // decision the human actually made: this record, this proposed value.
 func declinedProbeSQL(byIdentity bool) string {
 	const prefix = `SELECT status FROM approval
-		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND `
+		 WHERE kind = $1 AND target_entity_id IS NOT DISTINCT FROM $2 AND `
 	const suffix = `
 		 ` + lockOrder + `
 		 FOR UPDATE`
 	if byIdentity {
-		return prefix + `proposed_change @> $4` + suffix
+		return prefix + `proposed_change @> $3` + suffix
 	}
-	return prefix + `diff_hash = $4` + suffix
+	return prefix + `diff_hash = $3` + suffix
 }
 
 // RejectedChangesFor returns the proposed_change of every REJECTED proposal of
@@ -345,7 +341,7 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 		if byIdentity {
 			discriminator = in.Identity
 		}
-		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, nullUUID(in.TargetID), discriminator)
+		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), in.Kind, nullUUID(in.TargetID), discriminator)
 		if err != nil {
 			return fmt.Errorf("lock the prior offers for this proposal: %w", err)
 		}

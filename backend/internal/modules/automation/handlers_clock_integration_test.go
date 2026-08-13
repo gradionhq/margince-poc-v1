@@ -200,7 +200,7 @@ func TestRenewalReminderScanIsANoOpWhenUnconfigured(t *testing.T) {
 		t.Fatalf("ScanWorkspace: %v", err)
 	}
 
-	n := fx.count(t, `SELECT count(*) FROM workflow_run WHERE workspace_id = $1 AND handler = $2`, fx.ws, renewalReminderName)
+	n := fx.count(t, `SELECT count(*) FROM workflow_run WHERE handler = $1`, renewalReminderName)
 	if n != 0 {
 		t.Errorf("workflow_run rows for renewal_reminder = %d, want 0 — its candidate source is deferred, a scan pass must never fire it", n)
 	}

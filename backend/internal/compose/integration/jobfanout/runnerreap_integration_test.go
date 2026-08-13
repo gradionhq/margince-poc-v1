@@ -114,11 +114,11 @@ func (re *runnerEnv) seedApproval(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := re.Owner.Exec(context.Background(), `
-		INSERT INTO approval (id, workspace_id, kind, proposed_by, target_entity_type, target_entity_id,
+		INSERT INTO approval (id, kind, proposed_by, target_entity_type, target_entity_id,
 		                      summary, proposed_change, diff_hash, expires_at)
-		VALUES ($1, $2, 'advance_deal', 'agent:test', 'deal', $3,
+		VALUES ($1, 'advance_deal', 'agent:test', 'deal', $2,
 		        'staged for the sweep test', '{}'::jsonb, 'sha256:test', now() + interval '30 days')`,
-		id, re.wsID, ids.NewV7()); err != nil {
+		id, ids.NewV7()); err != nil {
 		t.Fatalf("seeding the pending approval: %v", err)
 	}
 	return id

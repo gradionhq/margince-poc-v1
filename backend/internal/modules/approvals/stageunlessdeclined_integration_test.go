@@ -159,11 +159,11 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 
 	// Now the competing pass finishes: the offer exists and has been refused.
 	if _, err := blocker.Exec(ctx, `
-		INSERT INTO approval (workspace_id, kind, status, proposed_change, diff_hash,
+		INSERT INTO approval (kind, status, proposed_change, diff_hash,
 		                      target_entity_type, target_entity_id, summary, proposed_by,
 		                      decided_by, decided_at, expires_at)
-		VALUES ($1, $2, 'rejected', $3, $4, $5, $6, $7, $8, $9, now(), now() + interval '1 day')`,
-		e.ws, in.Kind, in.ProposedChange, in.DiffHash, in.TargetType, in.TargetID,
+		VALUES ($1, 'rejected', $2, $3, $4, $5, $6, $7, $8, now(), now() + interval '1 day')`,
+		in.Kind, in.ProposedChange, in.DiffHash, in.TargetType, in.TargetID,
 		in.Summary, "human:"+e.rep.String(), e.rep); err != nil {
 		t.Fatalf("writing the refused offer: %v", err)
 	}
@@ -179,8 +179,8 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 	}
 	var offers int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM approval WHERE workspace_id = $1 AND target_entity_id = $2`,
-		e.ws, target).Scan(&offers); err != nil {
+		`SELECT count(*) FROM approval WHERE target_entity_id = $1`,
+		target).Scan(&offers); err != nil {
 		t.Fatal(err)
 	}
 	if offers != 1 {
@@ -263,8 +263,8 @@ func TestStageUnlessDeclinedStagesWhenNothingWasRefused(t *testing.T) {
 		}
 		var offers int
 		if err := e.owner.QueryRow(context.Background(),
-			`SELECT count(*) FROM approval WHERE workspace_id = $1 AND target_entity_id = $2`,
-			e.ws, target).Scan(&offers); err != nil {
+			`SELECT count(*) FROM approval WHERE target_entity_id = $1`,
+			target).Scan(&offers); err != nil {
 			t.Fatal(err)
 		}
 		if offers != 1 {
@@ -277,8 +277,8 @@ func TestStageUnlessDeclinedStagesWhenNothingWasRefused(t *testing.T) {
 		// nothing about whether the same proposal may be made again — and for a
 		// nightly stager it usually means the work simply came round again.
 		if _, err := e.owner.Exec(context.Background(),
-			`UPDATE approval SET status = 'approved', decided_by = $2, decided_at = now()
-			  WHERE workspace_id = $1 AND target_entity_id = $3`, e.ws, e.rep, target); err != nil {
+			`UPDATE approval SET status = 'approved', decided_by = $1, decided_at = now()
+			  WHERE target_entity_id = $2`, e.rep, target); err != nil {
 			t.Fatal(err)
 		}
 		_, staged, err := e.svc.StageUnlessDeclined(e.as(), in)
@@ -314,8 +314,8 @@ func TestStageUnlessDeclinedRefusesWithoutJoinPending(t *testing.T) {
 		t.Fatalf("first staging: staged=%v err=%v", staged, err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now()
-		  WHERE workspace_id = $1 AND target_entity_id = $3`, e.ws, e.rep, target); err != nil {
+		`UPDATE approval SET status = 'rejected', decided_by = $1, decided_at = now()
+		  WHERE target_entity_id = $2`, e.rep, target); err != nil {
 		t.Fatal(err)
 	}
 	_, staged, err := e.svc.StageUnlessDeclined(e.as(), in)

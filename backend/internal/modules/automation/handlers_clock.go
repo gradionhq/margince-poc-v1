@@ -186,7 +186,7 @@ func anchorReminderTaskEffect(ev workflow.Event, subject string) (workflow.Effec
 // redundant pass), and only a NEW anchor re-arms it.
 //
 // The entity is part of the key because the claim is UNIQUE on
-// (workspace_id, handler, idempotency_key) alone. Two records can share
+// (handler, idempotency_key) alone. Two records can share
 // one anchor instant — one captured mail linked to a person and to their
 // employer gives both the identical last touch — and an anchor-only key
 // would let the first of them claim the row while the second silently

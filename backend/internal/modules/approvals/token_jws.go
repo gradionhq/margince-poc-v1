@@ -117,7 +117,7 @@ func (s *Service) VerifyApprovalToken(ctx context.Context, token string) (Approv
 	var publicKey []byte
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT public_key FROM workspace_signing_key WHERE kid = $1 AND retired_at IS NULL`,
+			`SELECT public_key FROM signing_key WHERE kid = $1 AND retired_at IS NULL`,
 			header.Kid).Scan(&publicKey)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -147,7 +147,7 @@ func signingKey(ctx context.Context, tx pgx.Tx) (string, ed25519.PrivateKey, err
 	var kid string
 	var private []byte
 	err := tx.QueryRow(ctx, `
-		SELECT kid, private_key FROM workspace_signing_key
+		SELECT kid, private_key FROM signing_key
 		WHERE retired_at IS NULL ORDER BY created_at DESC LIMIT 1`).Scan(&kid, &private)
 	if err == nil {
 		return kid, ed25519.PrivateKey(private), nil
@@ -161,8 +161,8 @@ func signingKey(ctx context.Context, tx pgx.Tx) (string, ed25519.PrivateKey, err
 	}
 	kid = ids.NewV7().String()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO workspace_signing_key (workspace_id, kid, private_key, public_key)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+		INSERT INTO signing_key (kid, private_key, public_key)
+		VALUES ($1, $2, $3)`,
 		kid, []byte(fresh), []byte(public)); err != nil {
 		return "", nil, err
 	}

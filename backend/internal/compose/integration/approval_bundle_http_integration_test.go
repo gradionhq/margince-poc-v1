@@ -79,11 +79,11 @@ func stageBundleRows(t *testing.T, e *apptest.AppEnv, orgID string, kinds ...str
 	for i, kind := range kinds {
 		payload := siteReadPayload(kind, orgID, readID.String(), fmt.Sprintf("person%d", i))
 		if _, err := e.Owner.Exec(ctx, `
-			INSERT INTO approval (workspace_id, kind, proposed_by, on_behalf_of, target_entity_type,
+			INSERT INTO approval (kind, proposed_by, on_behalf_of, target_entity_type,
 			                      target_entity_id, summary, proposed_change, diff_hash, expires_at, bundle_id)
-			VALUES ($1, $2, 'agent:site-read', $3, 'organization', $4, $5, $6::jsonb, $7,
-			        now() + interval '1 day', $8)`,
-			wsID, kind, adminID, orgID, "Staged by the site read", payload,
+			VALUES ($1, 'agent:site-read', $2, 'organization', $3, $4, $5::jsonb, $6,
+			        now() + interval '1 day', $7)`,
+			kind, adminID, orgID, "Staged by the site read", payload,
 			ids.NewV7().String(), bundle); err != nil {
 			t.Fatalf("staging member %d (%s): %v", i, kind, err)
 		}
