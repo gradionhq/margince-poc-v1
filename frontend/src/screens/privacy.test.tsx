@@ -998,4 +998,48 @@ describe("fulfilling an erasure", () => {
       resolution: "verified",
     });
   });
+
+  // A fulfilled request is terminal, so the whole actions branch the confirm was
+  // opened from — the resolution field and every transition button — is gone once
+  // it succeeds. Handing focus back to the button that staged it is a silent
+  // no-op that leaves the officer on <body>, one Tab from the top of the page.
+  it("returns focus to the row's summary after the fulfil, never to the document", async () => {
+    let fulfilled = false;
+    const closed = { status: "fulfilled", resolution: "verified" };
+    stubRoutes({
+      // The queue the server would really answer with afterwards: without this
+      // the row comes back open, the staging button is still there to take focus
+      // back, and the case under test never happens.
+      "GET /data-subject-requests": () =>
+        jsonResponse({
+          ...DSRS,
+          data: DSRS.data.map((dsr) =>
+            dsr.id === "d1" && fulfilled ? { ...dsr, ...closed } : dsr,
+          ),
+        }),
+      "PATCH /data-subject-requests/d1": () => {
+        fulfilled = true;
+        return jsonResponse({ ...DSRS.data[0], ...closed });
+      },
+    });
+    render(<PrivacyInboxCard />);
+    const summary = await screen.findByRole("button", {
+      name: /8f3a-person-uuid/i,
+    });
+    await userEvent.click(summary);
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    const row = await findDsrRow("8f3a-person-uuid");
+    const opener = within(row).getByRole("button", { name: /fulfil/i });
+    await userEvent.click(opener);
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    await userEvent.click(
+      screen.getByRole("button", { name: /erase \+ suppress/i }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(opener.isConnected).toBe(false);
+    // The row's own summary, which now reads back the status the erasure left.
+    expect(document.activeElement).toBe(summary);
+    expect(summary.textContent).toMatch(/fulfilled/i);
+  });
 });

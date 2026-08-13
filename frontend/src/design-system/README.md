@@ -80,6 +80,50 @@ imports itself. `interaction.stories.tsx` catalogues the colours the *browser*
 owns — caret, checkbox tick, scrollbar thumb, selection — which are set once at
 the document root and belong to no component.
 
+## Absent, disabled, or withheld — decided by CAUSE
+
+A surface a reader cannot use is in one of three states, and **which one is not a
+style choice — the cause picks it.** Getting this wrong is not a cosmetic bug: an
+absent card and an empty card make the same shape on screen and mean opposite
+things.
+
+| Cause | State | What the reader gets |
+|---|---|---|
+| It does not apply here — a posture, a rollout flag, a capability this installation does not have | **absent** | Nothing. There is no fact to report. |
+| A precondition the reader could fix is unmet — nothing selected yet, a write in flight, delivery not configured | **disabled** | The control, inert, **and what would make it live**. |
+| A **permission** denies it | **withheld** | The surface keeps its place and **says that it is withheld**. |
+
+The third row is the one that gets broken, because returning `null` on a denial
+is the shortest code and looks tidy in review. It is a false statement. A
+retention card that vanishes for an ops seat does not read as "not yours" — it
+reads as "this installation keeps nothing", and an absent audit trail reads as
+"nothing has happened here". Both are claims about the DATA, made by accident,
+in place of a claim about authority.
+
+Three consequences worth stating, because each was a real defect:
+
+- **A withheld card asks the server for nothing.** The answer is already known,
+  so keep `enabled: canRead` on the query. Withholding is about what the page
+  SAYS, not about issuing a request in order to be refused.
+- **Gate on the probe, not on its absence.** `/me` in flight is not a denial;
+  branching before it answers flashes the notice at every reader.
+- **A write affordance inside an otherwise readable surface may be absent**,
+  provided the surface states its read-only posture once (`auto.readOnly`,
+  `cf.noPermission` are the pattern). Withholding twelve buttons individually is
+  noise; withholding the page's one explanation is the defect.
+
+Two things carry this properly today and are worth copying: `Switch`'s `reason`
+prop, which renders the explanation **and** points the control at it with
+`aria-describedby` — the only accessibility-wired denial in the tree — and
+`FieldGuard`, for a withheld VALUE rather than a withheld surface. Everything
+else hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as
+the card body, which is the shape to match until a primitive earns its place.
+
+`Switch` versus `Checkbox` follows from the same honesty: a `Checkbox` states an
+intent that something later submits, a `Switch` **is** the action. A control that
+writes when you flip it and announces itself as a checkbox has told the reader
+the wrong thing about what their next click does.
+
 ## Seeing them
 
 ```sh

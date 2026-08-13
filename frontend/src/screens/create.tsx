@@ -571,7 +571,15 @@ export function RecordFormBody({
         );
       })}
       {error && (
-        <p className="t-caption" style={{ color: "var(--danger)" }}>
+        // role="alert" so a refused submit reaches a reader whose focus never
+        // left the form: nothing moves when this appears, and the server's
+        // reason is the only thing that says why the dialog is still open. The
+        // edit dialog renders this same body, so both carry it.
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--danger)" }}
+        >
           {error}
         </p>
       )}

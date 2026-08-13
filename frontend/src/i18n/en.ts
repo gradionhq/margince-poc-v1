@@ -88,6 +88,7 @@ export const en = {
   "nav.search": "Search results",
 
   "shell.railAria": "Primary navigation",
+  "shell.skipToContent": "Skip to content",
   "shell.logoAria": "Margince",
   "shell.search": "Search",
   "shell.signOutAria": "Sign out",
@@ -341,6 +342,7 @@ export const en = {
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
+  "common.loading": "Loading…",
 
   // The app-level boundary's fallback. It says what happened and what to do
   // next, and nothing about the error itself: a render throw carries our own
@@ -404,7 +406,7 @@ export const en = {
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
   "overlay.chipAria":
-    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Connections to manage the connection.",
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
   "overlay.filterUnsupported":
@@ -1695,9 +1697,10 @@ export const en = {
     "Mint a passport in Settings and point any MCP-capable agent at your workspace. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
 
-  "settings.identity": "You",
+  "settings.identity": "Profile",
   "settings.preferences": "Preferences",
-  "settings.preferencesSub": "Theme and language, for this browser.",
+  "settings.preferencesSub":
+    "Theme is remembered in this browser. Language lasts for this session.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Rep",
@@ -1711,6 +1714,15 @@ export const en = {
   "settings.passports": "Agent passports",
   "settings.passportsSub":
     "an agent acts as you, never above you — every call re-checks your RBAC",
+  // What each passport scope admits, in words. The wire carries `read`/`draft`/
+  // `write`/`send`/`enrich`; a human granting them is choosing what an agent may
+  // do on their behalf, and the protocol token alone does not say — "write" and
+  // "send" read as near-synonyms until one of them names the mailbox.
+  "passport.scope.read": "Read records",
+  "passport.scope.draft": "Draft messages",
+  "passport.scope.write": "Change records",
+  "passport.scope.send": "Send messages",
+  "passport.scope.enrich": "Buy contact data",
   "passport.select": "Passport",
   "passport.noneOption": "No passport",
   "settings.passportsLendHint":
@@ -1752,6 +1764,8 @@ export const en = {
   "settings.tierAdvance": "Advance a deal stage — always confirm-first.",
   "settings.locked": "locked",
   "settings.purposes": "Consent purposes",
+  "settings.purposesSub":
+    "What this installation asks consent for, and which lawful basis each purpose stands on.",
   "settings.created": "created {date}",
   "settings.expires": "expires {date}",
   "settings.revoked": "revoked",
@@ -1760,7 +1774,7 @@ export const en = {
     "This passport's credential is invalidated immediately — the agent loses access on its next call.",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
-    "non-production only — irreversible on this installation",
+    "Non-production only — irreversible on this installation.",
   "settings.resetDataDesc":
     "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
   "settings.resetDataButton": "Reset data…",
@@ -1775,7 +1789,7 @@ export const en = {
     "A background job was still running when the reset began. It will fail against the wiped data — harmless, but expect one error in the log.",
 
   "settings.jobs": "Background jobs",
-  "settings.jobsSub": "what the queue is holding, and whose work failed",
+  "settings.jobsSub": "What the queue is holding, and whose work failed.",
   "jobs.adminOnly":
     "Only an admin can see background-job health. It reports work across the whole installation, so it is not shown more widely.",
   "jobs.empty":
@@ -1886,6 +1900,8 @@ export const en = {
   "retention.retainOnlyHelp":
     "While this is on, this installation destroys nothing: no anonymising and no erasing, whatever a policy below says. Archiving still runs — an archived record is kept, not destroyed.",
   "retention.adminOnly": "Only an admin or ops can change retention.",
+  "retention.withheld":
+    "Only an admin or ops can see the retention ladder. It sets what this installation keeps for everybody, so it is not shown more widely.",
   "retention.addPolicy": "Add policy",
   "retention.create": "Create policy",
   "retention.scope": "Applies to",
@@ -1928,7 +1944,8 @@ export const en = {
   "retention.scopeAiCallPayloadContent": "AI call payloads",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub": "Configure pipelines and their stages.",
+  "settings.pipelinesSub":
+    "The stages a deal moves through, one ladder per pipeline.",
   "pipeline.new": "New pipeline",
   "pipeline.edit": "Edit pipeline",
   "pipeline.name": "Name",
@@ -3461,12 +3478,19 @@ export const en = {
   // The settings level, in the order the sidebar prints it. "General" rather
   // than "Organization" for the first org entry: the group heading above it
   // already says that word, and a row repeating its own heading names nothing.
+  // The same reason keeps the possessive off "Agents" — the group is "You".
+  //
+  // "Connections" and "Integrations" are the same distinction the two groups
+  // are: the mailbox and the network a PERSON connected, against the outside
+  // systems the INSTALLATION is wired to. One row carried both before, which
+  // is why it had to be ungated to keep a rep's own mailbox reachable.
   "settings.tab.account": "Account",
-  "settings.tab.voice": "Voice",
-  "settings.tab.agents": "Your agents",
+  "settings.tab.voice": "Writing voice",
+  "settings.tab.agents": "Agents",
+  "settings.tab.connections": "Connections",
   "settings.tab.general": "General",
   "settings.tab.people": "People & access",
-  "settings.tab.connections": "Connections",
+  "settings.tab.integrations": "Integrations",
   "settings.tab.capture": "Capture",
   "settings.tab.data-model": "Data model",
   "settings.tab.ai": "AI",
@@ -3925,7 +3949,7 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
-  "installationSettings.orgTitle": "Organization",
+  "installationSettings.orgTitle": "Installation",
   "installationSettings.orgSub":
     "What this installation is called, and the zone every reporting period is computed in.",
   "installationSettings.currencyTitle": "Currency",
@@ -3942,8 +3966,10 @@ export const en = {
     "ISO-4217 code every amount converts to for roll-ups. Changeable until the first deal converts against it.",
   "installationSettings.baseCurrencyLocked":
     "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
+  "installationSettings.readOnly":
+    "Only an admin or ops can change these settings.",
   "installationSettings.save": "Save",
-  "captureSettings.title": "Capture",
+  "captureSettings.title": "Enrichment",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",
   "captureSettings.autoEnrich.label": "Auto-enrich captured companies",
@@ -3958,6 +3984,7 @@ export const en = {
   "ownDomains.irreversible":
     "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
   "ownDomains.fromCompany": "From the company profile. Change them there:",
+  "ownDomains.openCompany": "Open the company profile",
   "ownDomains.empty":
     "No further domains registered. Add one if your company also writes from another domain.",
   "ownDomains.confirmed": "confirmed",
@@ -4022,6 +4049,8 @@ export const en = {
   "embedreindex.title": "Search index",
   "embedreindex.sub":
     "The embedding store's reindex status — admin/ops only, including viewing it.",
+  "embedreindex.withheld":
+    "Only an admin or ops can see the search index. Rebuilding it spends tokens for the whole installation, so its status is not shown more widely.",
   "embedreindex.loading": "Checking index status…",
   "embedreindex.statusUnavailable": "Index status is not available right now.",
   "embedreindex.statusIdle": "Up to date",

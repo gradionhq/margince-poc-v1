@@ -36,20 +36,28 @@
   flex: none;
 }
 
+/* The card's own name, and an h3 — so the rule states the whole box model
+ * rather than inheriting a heading's. The header is a flex row whose rhythm is
+ * its own gap; a heading margin would break the name's baseline away from the
+ * mark and the badge it sits between. */
 .provider-card-name {
+  margin: 0;
   font-size: 15px;
   font-weight: 600;
   /* The provider's own capitalization, not the lowercase registry key. */
   text-transform: capitalize;
 }
 
-/* Every block below the header carries its own heading, so the eye can land
- * on one question at a time. */
+/* Every block below the header carries its own heading — h4, one step under
+ * the provider's name — so the eye can land on one question at a time. The
+ * only space it owns is the one down to its own block; the space BETWEEN
+ * blocks belongs to .provider-card's gap, so a heading's top margin would
+ * double it. */
 .provider-block-title {
+  margin: 0 0 var(--space-2);
   font-size: 13px;
   font-weight: 600;
   color: var(--textSecondary);
-  margin-bottom: var(--space-2);
 }
 
 .provider-block-hint {

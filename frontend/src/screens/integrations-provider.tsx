@@ -109,7 +109,12 @@ function ProviderConnectionRow({
         <span className="provider-card-mark">
           <ProviderMark providerKey={connection.provider} />
         </span>
-        <span className="provider-card-name">{connection.provider}</span>
+        {/* The provider is what this card is ABOUT, so it names the card as a
+            heading: the screen's h2 is "Contact data", and heading navigation
+            that lands there has to be able to step into one provider at a
+            time. That fixes the level for everything nested here — the blocks
+            below are h4, one step under this name. */}
+        <h3 className="provider-card-name">{connection.provider}</h3>
         <Badge tone={connectionTone(connection.status)}>
           {t(connectionLabel(connection.status))}
         </Badge>
@@ -137,7 +142,7 @@ function SpendBlock({
   if (months.length === 0) {
     return (
       <div>
-        <div className="provider-block-title">{t("provider.spend")}</div>
+        <h4 className="provider-block-title">{t("provider.spend")}</h4>
         <p className="provider-empty">{t("provider.spend.none")}</p>
       </div>
     );
@@ -149,7 +154,7 @@ function SpendBlock({
   const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   return (
     <div>
-      <div className="provider-block-title">{t("provider.spend")}</div>
+      <h4 className="provider-block-title">{t("provider.spend")}</h4>
       <table className="provider-spend-table">
         <thead>
           <tr>
@@ -215,12 +220,19 @@ function CreditsBlock({
   const highest = Math.max(1, ...pools.map(([, balance]) => balance ?? 0));
   return (
     <div>
-      <div className="provider-block-title">{t("provider.credits")}</div>
+      <h4 className="provider-block-title">{t("provider.credits")}</h4>
       <div className="provider-pools">
         {pools.map(([pool, balance]) => (
           <div className="provider-pool" key={pool}>
+            {/* A row label, not a heading: a pool is one reading inside the
+                credits block, and promoting each to its own heading would fill
+                the outline with rows instead of the questions the card asks.
+                The bar carries the name itself — aria-label is the ONLY way it
+                gets one, since a role="meter" takes no accessible name from the
+                text sitting beside it, and an empty label left every pool's bar
+                announced as an anonymous number. */}
             <span className="provider-pool-name">{pool}</span>
-            <Meter value={balance ?? 0} max={highest} label="" />
+            <Meter value={balance ?? 0} max={highest} label={pool} />
             <span className="provider-pool-value">{balance ?? 0}</span>
           </div>
         ))}

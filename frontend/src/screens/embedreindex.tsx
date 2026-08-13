@@ -6,24 +6,24 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
-import { Badge, Button, Card } from "../design-system/atoms";
+import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
-import { problemMessageOf, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
 // status read is admin/ops-only server-side now (migration 0114:
 // manager/rep/read_only hold no grant at all on embedding_reindex), so
 // this card's status query is itself gated on embedding_reindex:read —
 // a non-ops role would otherwise get a 403 rendered as "status
-// unavailable" for a card it can never act on anyway. The card returns
-// null outright for a viewer without that grant, the same one
-// EmbedReindexBanner (app/embedreindexbanner.tsx) already gates its own
-// query on. The two WRITE actions — confirming a reindex and the
-// always-available force rebuild — are admin/ops-only server-side too
-// (embedding_reindex object's update grant).
+// unavailable" for a card it can never act on anyway. That is the same
+// grant EmbedReindexBanner (app/embedreindexbanner.tsx) gates its own
+// query on; the card without it keeps its place and states the denial
+// (the withheld branch below). The two WRITE actions — confirming a
+// reindex and the always-available force rebuild — are admin/ops-only
+// server-side too (embedding_reindex object's update grant).
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
@@ -228,6 +228,7 @@ export function EmbedReindexCard() {
   const t = useT();
   const { locale } = useLocale();
   const qc = useQueryClient();
+  const me = useMe();
   // Reading the status and acting on it are separate grants. They move
   // together in the seeded matrix, but the card gates its query on the read and
   // its actions on the update, so a role granted one without the other gets a
@@ -324,14 +325,34 @@ export function EmbedReindexCard() {
     },
   });
 
-  // Non-ops viewers hold no read grant on embedding_reindex server-side
-  // (migration 0115) and have nothing actionable to do with this card
-  // regardless — render nothing rather than a "status unavailable" card
-  // for a 403 that was always expected. This runs after every hook call
-  // above so the hooks-call-order stays unconditional; the query itself
-  // is `enabled: canRead`, so no request even fires for this viewer.
+  // Withheld, not absent: a permission is what denies this (non-ops viewers
+  // hold no grant on embedding_reindex at all server-side, migration 0115), so
+  // the card keeps its place on a maintenance page a non-ops seat reaches for
+  // its other sections — beside a job-health card that explains its own
+  // emptiness — and says why it is empty rather than vanishing.
+  //
+  // The query stays `enabled: canRead` and that half of the reasoning stands:
+  // the answer is already known, so asking for a 403 in order to render it
+  // would turn a settled denial into a "status unavailable" the reader cannot
+  // act on. This runs after every hook call above so the hooks-call-order stays
+  // unconditional, and it is gated on the /me probe itself so the notice waits
+  // for the grants rather than flashing while they are in flight.
   if (!canRead) {
-    return null;
+    return (
+      <Card
+        title={t("embedreindex.title")}
+        sub={t("embedreindex.sub")}
+        style={{ marginBottom: "var(--space-4)" }}
+      >
+        <QueryGate query={me}>
+          {() => (
+            <EmptyState>
+              <p className="t-small">{t("embedreindex.withheld")}</p>
+            </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
   }
 
   if (status.isPending) {

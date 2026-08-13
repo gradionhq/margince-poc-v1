@@ -189,7 +189,17 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
   return (
     <Modal open onClose={onClose} labelledBy={labelId}>
-      <h3 id={labelId}>{t("settings.rates.fxModalTitle")}</h3>
+      {/* A dialog is portalled to the body, so it is its own region and its
+          title starts the outline at level 2 — the spelling ConfirmModal uses
+          for every other dialog in the tree. --space-3 is the 12px that
+          spelling sets by hand. */}
+      <h2
+        id={labelId}
+        className="t-h2"
+        style={{ marginBottom: "var(--space-3)" }}
+      >
+        {t("settings.rates.fxModalTitle")}
+      </h2>
       <label className="t-label" htmlFor={`${labelId}-from`}>
         {t("settings.rates.colFrom")}
       </label>
@@ -405,7 +415,13 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
   return (
     <Modal open onClose={onClose} labelledBy={labelId}>
-      <h3 id={labelId}>{t("settings.rates.modelModalTitle")}</h3>
+      <h2
+        id={labelId}
+        className="t-h2"
+        style={{ marginBottom: "var(--space-3)" }}
+      >
+        {t("settings.rates.modelModalTitle")}
+      </h2>
       {field(
         "provider",
         t("settings.rates.colProvider"),

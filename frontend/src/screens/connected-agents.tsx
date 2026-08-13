@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
@@ -339,6 +339,10 @@ function useClockAt(until: number | null) {
 export function ConnectedAgentsCard() {
   const t = useT();
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  // Where the disconnect confirm hands focus back. Not the row it was opened
+  // from: ending a connection removes that row from the refetched list, so the
+  // nearest thing that survives is the region the row was in.
+  const listRegion = useRef<HTMLDivElement | null>(null);
 
   const list = useQuery({
     queryKey: ["passports"],
@@ -360,9 +364,12 @@ export function ConnectedAgentsCard() {
         throwProblem(error);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // The refetched list FIRST, then the dialog: closing it hands focus to the
+      // list region, and a region still holding the row for a connection the
+      // server has already dropped would announce a client that is gone.
+      await list.refetch();
       setConfirmId(null);
-      list.refetch();
     },
   });
 
@@ -383,31 +390,38 @@ export function ConnectedAgentsCard() {
           generic one: "nothing here" beside a guide explaining how to connect
           reads as a loading failure, and the sentence a human needs is that no
           agent has connected YET. */}
-      <QueryGate query={list}>
-        {() => {
-          if (connections.length === 0) {
-            return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
-          }
-          return (
-            <ul
-              style={{
-                listStyle: "none",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-3)",
-              }}
-            >
-              {connections.map((passport) => (
-                <ConnectionRow
-                  key={passport.id}
-                  passport={passport}
-                  onEnd={() => setConfirmId(passport.id)}
-                />
-              ))}
-            </ul>
-          );
-        }}
-      </QueryGate>
+      {/* The wrapper is the disconnect confirm's focus anchor: it holds whatever
+          the list currently is — the connections that remain, or the "no agent
+          is connected" line when the ended one was the last — and it is the only
+          thing here that survives every one of those transitions. tabIndex -1
+          makes it reachable by focus() without joining anybody's Tab order. */}
+      <div ref={listRegion} tabIndex={-1}>
+        <QueryGate query={list}>
+          {() => {
+            if (connections.length === 0) {
+              return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
+            }
+            return (
+              <ul
+                style={{
+                  listStyle: "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-3)",
+                }}
+              >
+                {connections.map((passport) => (
+                  <ConnectionRow
+                    key={passport.id}
+                    passport={passport}
+                    onEnd={() => setConfirmId(passport.id)}
+                  />
+                ))}
+              </ul>
+            );
+          }}
+        </QueryGate>
+      </div>
       <ConnectGuide />
       <ConfirmModal
         open={confirmId != null}
@@ -424,6 +438,11 @@ export function ConnectedAgentsCard() {
         onConfirm={() => confirmId && disconnect.mutate(confirmId)}
         pending={disconnect.isPending}
         error={disconnect.error ? problemMessageOf(disconnect.error, t) : null}
+        // The list the ended connection was in, since the row that opened this
+        // confirm is not in the refetched list at all. Landing there reads back
+        // what is still connected, which is the question somebody who just
+        // disconnected a client actually has next.
+        returnFocusTo={() => listRegion.current}
       >
         <p>{t("agents.disconnectConfirm")}</p>
       </ConfirmModal>

@@ -100,6 +100,7 @@ export const vi = {
   "nav.search": "Kết quả tìm kiếm",
 
   "shell.railAria": "Điều hướng chính",
+  "shell.skipToContent": "Bỏ qua tới nội dung",
   "shell.logoAria": "Margince",
   "shell.search": "Tìm kiếm",
   "shell.signOutAria": "Đăng xuất",
@@ -337,6 +338,7 @@ export const vi = {
   "common.retry": "Thử lại",
   "common.empty": "Chưa có gì ở đây.",
   "common.saving": "Đang lưu…",
+  "common.loading": "Đang tải…",
 
   "app.errorTitle": "Màn hình này đã ngừng hoạt động.",
   "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
@@ -391,7 +393,7 @@ export const vi = {
     "Không dùng được khi đang đọc từ HubSpot — hãy mở bên HubSpot",
   "overlay.chipLabel": "Đang đọc từ HubSpot",
   "overlay.chipAria":
-    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Kết nối để quản lý kết nối.",
+    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Tích hợp để quản lý kết nối.",
   "overlay.refused":
     "Không dùng được khi đang đọc từ HubSpot — bản sao không phục vụ được lượt ghi này.",
   "overlay.filterUnsupported":
@@ -1684,9 +1686,10 @@ export const vi = {
     "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào tổ chức của bạn. Agent chỉ đọc được những gì bạn thấy được.",
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
-  "settings.identity": "Bạn",
+  "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
-  "settings.preferencesSub": "Giao diện và ngôn ngữ, cho trình duyệt này.",
+  "settings.preferencesSub":
+    "Giao diện được trình duyệt này ghi nhớ. Ngôn ngữ chỉ giữ trong phiên làm việc.",
   "role.admin": "Quản trị",
   "role.manager": "Quản lý",
   "role.rep": "Nhân viên kinh doanh",
@@ -1700,6 +1703,11 @@ export const vi = {
   "settings.passports": "Passport cho Agent",
   "settings.passportsSub":
     "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn — mỗi lần gọi đều kiểm tra lại phân quyền của bạn",
+  "passport.scope.read": "Đọc bản ghi",
+  "passport.scope.draft": "Soạn nháp tin nhắn",
+  "passport.scope.write": "Thay đổi bản ghi",
+  "passport.scope.send": "Gửi tin nhắn",
+  "passport.scope.enrich": "Mua dữ liệu liên hệ",
   "passport.select": "Passport",
   "passport.noneOption": "Không dùng passport",
   "settings.passportsLendHint":
@@ -1742,6 +1750,8 @@ export const vi = {
   "settings.tierAdvance": "Chuyển giai đoạn của deal — luôn xác nhận trước.",
   "settings.locked": "đã khoá",
   "settings.purposes": "Mục đích chấp thuận",
+  "settings.purposesSub":
+    "Bản cài đặt này xin chấp thuận cho những mục đích gì, và mỗi mục đích dựa trên cơ sở pháp lý nào.",
   "settings.created": "tạo {date}",
   "settings.expires": "hết hạn {date}",
   "settings.revoked": "đã thu hồi",
@@ -1750,7 +1760,7 @@ export const vi = {
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
-    "chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này",
+    "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",
   "settings.resetDataDesc":
     "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
   "settings.resetDataButton": "Xoá sạch dữ liệu…",
@@ -1765,7 +1775,7 @@ export const vi = {
     "Khi bắt đầu xoá sạch, vẫn còn một tác vụ nền đang chạy. Tác vụ đó sẽ thất bại vì dữ liệu đã bị xoá — vô hại, nhưng sẽ có một lỗi trong nhật ký.",
 
   "settings.jobs": "Tác vụ nền",
-  "settings.jobsSub": "hàng đợi đang giữ gì, và công việc của ai đã thất bại",
+  "settings.jobsSub": "Hàng đợi đang giữ gì, và công việc của ai đã thất bại.",
   "jobs.adminOnly":
     "Chỉ quản trị viên xem được tình trạng tác vụ nền. Báo cáo này bao trùm công việc của toàn bộ bản triển khai, nên không hiển thị rộng hơn.",
   "jobs.empty":
@@ -1880,6 +1890,8 @@ export const vi = {
     "Khi bật, bản triển khai này không phá huỷ bất cứ gì: không ẩn danh hoá và không xoá, bất kể chính sách bên dưới nói gì. Việc lưu trữ vẫn chạy — bản ghi được lưu trữ là bản ghi vẫn còn.",
   "retention.adminOnly":
     "Chỉ quản trị viên hoặc ops mới có thể thay đổi việc lưu giữ.",
+  "retention.withheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được thang lưu giữ. Nó quyết định bản cài đặt này giữ lại những gì cho mọi người, nên không được hiển thị rộng hơn.",
   "retention.addPolicy": "Thêm chính sách",
   "retention.create": "Tạo chính sách",
   "retention.scope": "Áp dụng cho",
@@ -1923,7 +1935,8 @@ export const vi = {
   "retention.scopeAiCallPayloadContent": "Nội dung lời gọi AI",
 
   "settings.pipelines": "Pipeline",
-  "settings.pipelinesSub": "Cấu hình pipeline và các giai đoạn của chúng.",
+  "settings.pipelinesSub":
+    "Các giai đoạn một deal đi qua — mỗi pipeline một thang.",
   "pipeline.new": "Pipeline mới",
   "pipeline.edit": "Sửa pipeline",
   "pipeline.name": "Tên",
@@ -3450,10 +3463,11 @@ export const vi = {
   // từ đó, và một dòng lặp lại tiêu đề của chính nó thì không gọi tên được gì.
   "settings.tab.account": "Tài khoản",
   "settings.tab.voice": "Giọng viết",
-  "settings.tab.agents": "Tác nhân của bạn",
+  "settings.tab.agents": "Tác nhân",
+  "settings.tab.connections": "Kết nối",
   "settings.tab.general": "Chung",
   "settings.tab.people": "Người dùng & quyền truy cập",
-  "settings.tab.connections": "Kết nối",
+  "settings.tab.integrations": "Tích hợp",
   "settings.tab.capture": "Thu thập",
   "settings.tab.data-model": "Mô hình dữ liệu",
   "settings.tab.ai": "AI",
@@ -3920,7 +3934,7 @@ export const vi = {
   "quotas.archive.confirm":
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
-  "installationSettings.orgTitle": "Tổ chức",
+  "installationSettings.orgTitle": "Bản cài đặt",
   "installationSettings.orgSub":
     "Tên của bản cài đặt này và múi giờ dùng để tính mọi kỳ báo cáo.",
   "installationSettings.currencyTitle": "Tiền tệ",
@@ -3937,8 +3951,10 @@ export const vi = {
     "Mã ISO-4217 mà mọi số tiền được quy đổi về khi tổng hợp. Có thể thay đổi cho đến khi giao dịch đầu tiên được quy đổi theo nó.",
   "installationSettings.baseCurrencyLocked":
     "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
+  "installationSettings.readOnly":
+    "Chỉ quản trị viên hoặc ops mới có thể thay đổi các thiết lập này.",
   "installationSettings.save": "Lưu",
-  "captureSettings.title": "Thu thập",
+  "captureSettings.title": "Bổ sung thông tin",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",
   "captureSettings.autoEnrich.label":
@@ -3955,6 +3971,7 @@ export const vi = {
   "ownDomains.irreversible":
     "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó. Những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
   "ownDomains.fromCompany": "Từ hồ sơ công ty. Sửa tại đó:",
+  "ownDomains.openCompany": "Mở hồ sơ công ty",
   "ownDomains.empty":
     "Chưa đăng ký thêm tên miền nào. Hãy thêm nếu công ty bạn còn gửi thư từ một tên miền khác.",
   "ownDomains.confirmed": "đã xác nhận",
@@ -4019,6 +4036,8 @@ export const vi = {
   "embedreindex.title": "Chỉ mục tìm kiếm",
   "embedreindex.sub":
     "Trạng thái dựng lại chỉ mục của kho embedding — chỉ quản trị và vận hành, kể cả việc xem.",
+  "embedreindex.withheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được chỉ mục tìm kiếm. Dựng lại nó tiêu tốn token của cả bản cài đặt, nên trạng thái của nó không được hiển thị rộng hơn.",
   "embedreindex.loading": "Đang kiểm tra trạng thái chỉ mục…",
   "embedreindex.statusUnavailable": "Hiện chưa xem được trạng thái chỉ mục.",
   "embedreindex.statusIdle": "Đã cập nhật",

@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RbacObject } from "../app/capability";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { pickOption } from "../design-system/select-testing";
@@ -18,15 +19,16 @@ import { LocaleProvider } from "../i18n";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 
-// The Organization tab group is composed from its MEMBERS: each entry opens on
-// the write grant its own cards ask for, and the objectless ones (people,
-// privacy, maintenance) on the role. So a fixture that wants the nav has to name
-// both — a role alone no longer buys the group, and a grant alone no longer
-// buys the entries the server gates on the role.
-const PIPELINE_ADMIN: GrantSpec = { pipeline: ["create", "update"] };
+// The Organization tab group is composed from its MEMBERS, and OPENING AN ENTRY
+// IS A READ: every predicate asks for a read grant on something the entry shows,
+// while the write affordances inside it gate themselves. So a fixture that wants
+// an entry in the nav has to name the READ, and one that also wants the authoring
+// controls names the write on top — two separate claims, and a grant list holding
+// writes alone reaches no entry at all.
+const PIPELINE_ADMIN: GrantSpec = { pipeline: ["read", "create", "update"] };
 const ORG_ADMIN: GrantSpec = {
   ...PIPELINE_ADMIN,
-  custom_field: ["create", "update"],
+  custom_field: ["read", "create", "update"],
 };
 
 // The settings identity + passport surfaces through the RBAC primitives:
@@ -181,7 +183,7 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.getByText("Voreinstellungen")).toBeTruthy();
   });
 
-  it("the passport row's token reads as withheld — masked, never re-disclosed — on the Your agents tab", async () => {
+  it("the passport row's token reads as withheld — masked, never re-disclosed — on the Agents tab", async () => {
     render(<SettingsScreen tab="agents" />);
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
@@ -189,9 +191,9 @@ describe("SettingsScreen RBAC surfaces", () => {
   });
 
   // The spend cards follow `automation:update` rather than any AI-named object,
-  // so the principal here holds the model-price grant that opens the AI entry
-  // and nothing else: the tab is reachable, and the two cards whose endpoints
-  // would 403 stay off it.
+  // so the principal here holds the model-price grants that open the AI entry and
+  // nothing else: the read reaches the page, the write authors the price table on
+  // it, and the two cards whose endpoints would 403 stay off it.
   it("hides the AI usage & call-trace cards from a principal without the automation grant", async () => {
     vi.stubGlobal(
       "fetch",
@@ -201,7 +203,7 @@ describe("SettingsScreen RBAC surfaces", () => {
           return jsonResponse(
             meFixture({
               roles: ["rep"],
-              allow: { ai_model_rate: ["update"] },
+              allow: { ai_model_rate: ["read", "update"] },
             }),
           );
         }
@@ -669,10 +671,10 @@ describe("SettingsScreen tab layout", () => {
     ).toEqual(["You", "Organization"]);
     for (const label of [
       "Account",
-      "Voice",
-      "Your agents",
-      "People & access",
+      "Writing voice",
+      "Agents",
       "Connections",
+      "People & access",
       "Data model",
       "Privacy & audit",
       "Maintenance",
@@ -689,13 +691,13 @@ describe("SettingsScreen tab layout", () => {
   it("renders only the active entry's cards — the passport is off the Account tab", async () => {
     render(<SettingsScreen />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
-    // Scout lives on Your agents; the default Account tab must not render it.
+    // Scout lives on Agents; the default Account tab must not render it.
     expect(screen.queryByText("Scout")).toBeNull();
   });
 
   it("renders the custom-field editor itself on the Data model tab, never a door to it", async () => {
     render(<SettingsScreen tab="data-model" />);
-    // Org entry: visible once /me resolves the custom_field write grant.
+    // Org entry: visible once /me resolves the custom_field read grant.
     expect(
       await screen.findByRole("heading", { name: "Custom fields" }),
     ).toBeTruthy();
@@ -728,13 +730,21 @@ describe("SettingsScreen tab layout", () => {
 function orgNavBackend(opts: {
   roles: string[];
   allow?: GrantSpec;
+  // The licensing seat, which the entry predicates deliberately leave out: a
+  // read seat still READS every page behind them, so a case can name the seat
+  // and expect the nav not to narrow.
+  seat?: "full" | "read";
   companyReadEnabled?: boolean;
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith("/v1/me")) {
       return jsonResponse(
-        meFixture({ roles: opts.roles, allow: opts.allow ?? {} }),
+        meFixture({
+          roles: opts.roles,
+          seat: opts.seat ?? "full",
+          allow: opts.allow ?? {},
+        }),
       );
     }
     if (url.includes("/company/context/capabilities")) {
@@ -802,56 +812,118 @@ function navGroupTabs(heading: HTMLElement): string[] {
     .map((link) => link.textContent ?? "");
 }
 
-// The personal group, which no grant gates — every case below shows exactly
-// these three, and the assertions differ only in what follows them. `agents` is
-// among them on purpose: the passports it carries are the PERSON's to lend, so
-// gating it would regress passport minting for every seat that is not an admin.
-const PERSONAL_TABS = ["Account", "Voice", "Your agents"];
+// The personal group, which no grant gates — every case below opens with exactly
+// these four, and the assertions differ only in what follows them. `agents` is
+// among them because the passports it carries are the PERSON's to lend, so gating
+// it would regress passport minting for every seat that is not an admin; and
+// `connections` because a mailbox and a LinkedIn network nobody else can see are
+// that person's, not the installation's configuration.
+const PERSONAL_TABS = ["Account", "Writing voice", "Agents", "Connections"];
 
-// What an admin holding no object grant at all is offered. Three of the four
-// organization entries here have no RBAC object for a grant to name, and
-// Connections is ungated for everybody.
-const ADMIN_ORG_TABS = [
-  ...PERSONAL_TABS,
+// The eight Organization entries, in the order they are declared.
+const ORG_TABS = [
+  "General",
   "People & access",
-  "Connections",
+  "Integrations",
+  "Capture",
+  "Data model",
+  "AI",
   "Privacy & audit",
   "Maintenance",
 ];
 
-// Every entry open at once: the three role-gated ones from `admin`, and one
-// grant apiece for the four that follow an object.
+const EVERY_TAB = [...PERSONAL_TABS, ...ORG_TABS];
+
+// Maintenance is declared last, so "every entry but Maintenance" is this list
+// without its tail — the eleven a principal holding the seeded reads and no
+// admin role reaches.
+const EVERY_TAB_BUT_MAINTENANCE = EVERY_TAB.slice(0, -1);
+
+// What mere membership buys: the two Organization entries with no grant to ask
+// for. No RBAC object describes identity administration, and `consent_config` is
+// absent from the shipped vocabulary — the server admits any authenticated
+// member to both, so the nav does too, and every principal below sees them.
+const MEMBER_TABS = [...PERSONAL_TABS, "People & access", "Privacy & audit"];
+
+// Membership's two entries plus Maintenance, which is what EITHER half of that
+// entry's predicate buys on its own — the admin role, or the reindex read an
+// edited role can hold without it. Both halves are asserted against this list.
+const MEMBER_TABS_WITH_MAINTENANCE = [...MEMBER_TABS, "Maintenance"];
+
+// Every entry open at once: the admin role for Maintenance, and one read apiece
+// for the five that follow an object.
 const EVERY_TAB_GRANTED: GrantSpec = {
-  installation_settings: ["update"],
-  capture_settings: ["create"],
-  custom_field: ["update"],
-  automation: ["update"],
+  installation_settings: ["read"],
+  webhook_subscription: ["read"],
+  capture_settings: ["read"],
+  custom_field: ["read"],
+  automation: ["read"],
+};
+
+// The read grant on ONE object, as a GrantSpec.
+//
+// Built by assignment rather than as a literal, because a computed key whose own
+// type is a union widens the object to `{ [x: string]: string[] }` — which does
+// not satisfy GrantSpec, and only fails in `tsc -b`, where test files are
+// typechecked, rather than under the app project alone.
+function readOn(object: RbacObject): GrantSpec {
+  const spec: GrantSpec = {};
+  spec[object] = ["read"];
+  return spec;
+}
+
+// The four reads Data model unions. Each has to open the page alone: an entry
+// wired to one object with three decorative terms passes any fixture that grants
+// all four.
+const DATA_MODEL_READS = [
+  "custom_field",
+  "pipeline",
+  "product",
+  "offer_template",
+] as const;
+
+// The seeded grant matrix, READ verbs only — the only verb an entry's predicate
+// asks for. manager, read_only and rep hold the identical ten reads and differ
+// only in the writes on top, which is exactly why write-shaped predicates hid
+// pages the server serves: the differentiation the matrix carries lives in the
+// writes, and a write is not what opens a page.
+const SEEDED_READS: GrantSpec = {
+  automation: ["read"],
+  capture_settings: ["read"],
+  custom_field: ["read"],
+  installation_settings: ["read"],
+  offer_template: ["read"],
+  organization: ["read"],
+  overlay_connection: ["read"],
+  pipeline: ["read"],
+  product: ["read"],
+  webhook_subscription: ["read"],
+};
+
+// What the matrix adds for ops, the four objects it shares with admin alone —
+// and `embedding_reindex` among them is what opens the twelfth entry.
+const SEEDED_OPS_READS: GrantSpec = {
+  ...SEEDED_READS,
+  ai_model_rate: ["read"],
+  embedding_reindex: ["read"],
+  fx_rate: ["read"],
+  retention_policy: ["read"],
 };
 
 describe("SettingsScreen Organization group", () => {
   // The group is composed from its members: an entry appears when the principal
-  // holds a write grant on what its cards author, or — for the surfaces with no
-  // RBAC object — when they hold the role the server gates them on.
+  // may READ some part of it — opening a page is reading it — or, for the two
+  // surfaces with no RBAC object, on membership alone. The write affordances
+  // inside each entry gate themselves, so no case below needs a write to reach a
+  // page and none of them proves anything by granting one.
 
-  it("renders the eleven entries in their declared order, split across the two groups", async () => {
+  it("renders the twelve entries in their declared order, split across the two groups", async () => {
     vi.stubGlobal(
       "fetch",
       orgNavBackend({ roles: ["admin"], allow: EVERY_TAB_GRANTED }),
     );
     renderNav();
-    const ORG_TABS = [
-      "General",
-      "People & access",
-      "Connections",
-      "Capture",
-      "Data model",
-      "AI",
-      "Privacy & audit",
-      "Maintenance",
-    ];
-    await waitFor(() =>
-      expect(navTabs()).toEqual([...PERSONAL_TABS, ...ORG_TABS]),
-    );
+    await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
     // And each half is under the heading that claims it: the flat order above
     // would read the same if an entry were declared in the wrong group.
     const nav = screen.getByRole("navigation", { name: /primary navigation/i });
@@ -867,227 +939,199 @@ describe("SettingsScreen Organization group", () => {
     expect(navGroupTabs(org)).toEqual(ORG_TABS);
   });
 
-  it("collapses to Connections alone for a principal holding neither an org grant nor an admin role", async () => {
-    // Connections is the group's one unconditional member — connecting your own
-    // mailbox is per-seat work, and the topbar's system-of-record chip points
-    // every seat at it — so the heading survives while every gated member is
-    // gone. This is the group hiding, as far as the group can hide.
+  it("gives a principal holding no read at all the two entries that ask for none", async () => {
+    // People & access and Privacy & audit have no grant to ask for: the member
+    // roster answers 200 to any authenticated principal, and `consent_config` is
+    // not in the shipped RBAC vocabulary. So they are the floor of this level
+    // rather than a case — every gated member is gone here, and those two stay.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"] }));
     renderNav();
     // /me has to have SETTLED before an emptiness claim means anything: a nav
     // read mid-flight is empty for every principal.
     await screen.findByText("test@example.test");
-    expect(navTabs()).toEqual([...PERSONAL_TABS, "Connections"]);
+    expect(navTabs()).toEqual(MEMBER_TABS);
   });
 
-  it("renders the group for a single visible member — a lone custom_field write opens Data model", async () => {
+  it.each(DATA_MODEL_READS)(
+    "opens Data model for a lone %s read",
+    async (object) => {
+      const allow = readOn(object);
+      vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"], allow }));
+      renderNav();
+      await waitFor(() =>
+        expect(navTabs()).toEqual([
+          ...PERSONAL_TABS,
+          "People & access",
+          "Data model",
+          "Privacy & audit",
+        ]),
+      );
+    },
+  );
+
+  it.each(["webhook_subscription", "overlay_connection"] as const)(
+    "opens Integrations for a lone %s read",
+    async (object) => {
+      // The installation's outside wiring was half of the entry Connections used
+      // to be, and the system-of-record chip in the topbar points every seat at
+      // it — so either read has to open it on its own, or whoever follows that
+      // chip lands on the Account fallback.
+      const allow = readOn(object);
+      vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"], allow }));
+      renderNav();
+      await waitFor(() =>
+        expect(navTabs()).toEqual([
+          ...PERSONAL_TABS,
+          "People & access",
+          "Integrations",
+          "Privacy & audit",
+        ]),
+      );
+    },
+  );
+
+  it("opens Capture for a lone capture_settings read", async () => {
+    // Two surfaces both called "Capture" became one page, and this is the read
+    // the merged page asks for. Granted alone so a Capture wired to a
+    // neighbouring object, or a neighbour wired to this one, shows up as an
+    // entry the whole-list assertion does not expect.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { custom_field: ["update"] } }),
+      orgNavBackend({ roles: ["rep"], allow: { capture_settings: ["read"] } }),
     );
     renderNav();
     await waitFor(() =>
       expect(navTabs()).toEqual([
         ...PERSONAL_TABS,
-        "Connections",
-        "Data model",
-      ]),
-    );
-  });
-
-  it("opens Maintenance for a lone embedding_reindex write, with Data model absent", async () => {
-    // The reindex moved to Maintenance and kept its grant: taking the entry away
-    // from a principal who could reach the verb before would be a regression
-    // dressed as a tidy-up. Granting it alone is also what separates the
-    // predicate from its neighbour — a Maintenance wired to the data-model
-    // objects, or a Data model wired to this one, shows up as an entry the
-    // whole-list assertion does not expect.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({
-        roles: ["rep"],
-        allow: { embedding_reindex: ["update"] },
-      }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "Connections",
-        "Maintenance",
-      ]),
-    );
-  });
-
-  it("opens General for a lone fx_rate write, with Data model absent", async () => {
-    // The currency table joined the base currency it converts to, so fx_rate is
-    // one of the three terms General's predicate unions — this grant alone has
-    // to open it, and the neighbouring entries have to stay shut.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["create"] } }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([...PERSONAL_TABS, "General", "Connections"]),
-    );
-  });
-
-  it("opens AI for a lone ai_model_rate write", async () => {
-    // Model prices joined the AI runtime they price, and either term of that
-    // entry's predicate opens it on its own — so the union has to be read as a
-    // union and not as one object with a decorative second term.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["update"] } }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([...PERSONAL_TABS, "Connections", "AI"]),
-    );
-  });
-
-  it("opens Data model for a lone offer_template write", async () => {
-    // Data model's fourth member, held here without custom_field, pipeline or
-    // product, so the entry can only have come from the offer_template term.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({
-        roles: ["rep"],
-        allow: { offer_template: ["create", "update"] },
-      }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "Connections",
-        "Data model",
-      ]),
-    );
-  });
-
-  it("opens Data model for a manager on product writes alone, with no pipeline grant", async () => {
-    // The seeded manager holds pipeline read-only and product create/update/
-    // delete, so this is the case the role check used to hide: the cards on
-    // the entry would serve them, the nav would not.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({
-        roles: ["manager"],
-        allow: { pipeline: ["read"], product: ["create", "update", "delete"] },
-      }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "Connections",
-        "Data model",
-      ]),
-    );
-  });
-
-  it("opens General and Data model for a rep holding the writes the seeded matrix gives them", async () => {
-    // A rep creates and updates products, offer templates and organizations,
-    // and deletes none of them — so the predicate has to accept any write verb
-    // rather than insist on one.
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({
-        roles: ["rep"],
-        allow: {
-          pipeline: ["read"],
-          product: ["create", "read", "update"],
-          offer_template: ["create", "read", "update"],
-          organization: ["create", "read", "update"],
-          custom_field: ["read"],
-        },
-        companyReadEnabled: true,
-      }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "General",
-        "Connections",
-        "Data model",
-      ]),
-    );
-  });
-
-  it("keeps People & access and Privacy & audit on the role — every object write in the matrix does not buy them", async () => {
-    vi.stubGlobal(
-      "fetch",
-      orgNavBackend({
-        roles: ["manager"],
-        allow: {
-          pipeline: ["create", "update", "delete"],
-          product: ["create", "update", "delete"],
-          offer_template: ["create", "update", "delete"],
-          fx_rate: ["create", "update"],
-          ai_model_rate: ["create", "update"],
-          custom_field: ["create", "update", "delete"],
-          embedding_reindex: ["update"],
-          organization: ["create", "update", "delete"],
-        },
-        companyReadEnabled: true,
-      }),
-    );
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "General",
-        "Connections",
-        "Data model",
-        "AI",
-        "Maintenance",
-      ]),
-    );
-  });
-
-  it("gives ops only the objectless entry its role actually holds", async () => {
-    // Those surfaces have no RBAC object for a grant to name, so the role is
-    // what the server checks and what the nav must check — but the roles are
-    // not interchangeable. User administration, the extension inventory and
-    // the compliance audit read are admin-ONLY: the server refuses ops on all
-    // three, so offering them rendered entries that dead-ended on a refusal
-    // state and one that handed over a read the governance matrix reserves.
-    // Consent configuration is the genuine Admin/Ops surface, so Privacy is
-    // the one that survives — carrying the audit trail, which gates itself
-    // inside against exactly this principal.
-    //
-    // General is deliberately absent too: the installation carries its own
-    // `installation_settings` object (ADR-0090/A135), so it follows the grant
-    // like the data model does, and an ops principal holding no object grant
-    // does not get it.
-    vi.stubGlobal("fetch", orgNavBackend({ roles: ["ops"] }));
-    renderNav();
-    await waitFor(() =>
-      expect(navTabs()).toEqual([
-        ...PERSONAL_TABS,
-        "Connections",
+        "People & access",
+        "Capture",
         "Privacy & audit",
       ]),
     );
   });
 
-  it("keeps user administration and the maintenance verbs for the admin alone", async () => {
-    // The other half of the split above, asserted from the admin's side so a
-    // future widening of the predicate fails here rather than in production.
-    vi.stubGlobal("fetch", orgNavBackend({ roles: ["admin"] }));
+  it("opens Maintenance for a lone embedding_reindex read, for a principal who is no admin", async () => {
+    // The reindex moved to Maintenance and kept its object: taking the entry away
+    // from a principal who could reach the verb before would be a regression
+    // dressed as a tidy-up. It is also the term that lets Maintenance open for
+    // someone who is not an admin, which is the half of that predicate a role
+    // check could never express.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["rep"],
+        allow: { embedding_reindex: ["read"] },
+      }),
+    );
     renderNav();
-    await waitFor(() => expect(navTabs()).toEqual(ADMIN_ORG_TABS));
+    await waitFor(() =>
+      expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE),
+    );
   });
 
-  it("shows General to an admin holding organization writes once the company rollout flag is on", async () => {
+  it("opens General for a lone fx_rate read, and no other entry with it", async () => {
+    // The currency table joined the base currency it converts to, so fx_rate is
+    // one of the three terms General's predicate unions — this read alone has to
+    // open it, and the neighbouring entries have to stay shut.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["read"] } }),
+    );
+    renderNav();
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "General",
+        "People & access",
+        "Privacy & audit",
+      ]),
+    );
+  });
+
+  it("opens AI for a lone ai_model_rate read", async () => {
+    // Model prices joined the AI runtime they price, and either term of that
+    // entry's predicate opens it on its own — so the union has to be read as a
+    // union and not as one object with a decorative second term.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["read"] } }),
+    );
+    renderNav();
+    await waitFor(() =>
+      expect(navTabs()).toEqual([
+        ...PERSONAL_TABS,
+        "People & access",
+        "AI",
+        "Privacy & audit",
+      ]),
+    );
+  });
+
+  // THE REGRESSION THIS RULE EXISTS TO PREVENT. Measured against the live API,
+  // the write-shaped predicates hid a read-only seat from eight of the eleven
+  // entries the server answers 200 on — three of which (products, offer
+  // templates, custom fields) were ungated routes of their own before the merge.
+  // A client that hides a page the server serves is not protecting anything; it
+  // is disagreeing with the authority.
+  //
+  // The licensing seat is named here too, and must not narrow the level either: a
+  // read seat READS every page behind these entries, and the server clamps it on
+  // the write.
+  it("reaches every entry but Maintenance for a read_only role on a read seat", async () => {
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({
+        roles: ["read_only"],
+        seat: "read",
+        allow: SEEDED_READS,
+      }),
+    );
+    renderNav();
+    await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB_BUT_MAINTENANCE));
+  });
+
+  it.each(["manager", "rep"] as const)(
+    "reaches the same entries for a seeded %s, whose extra writes buy no page",
+    async (role) => {
+      vi.stubGlobal(
+        "fetch",
+        orgNavBackend({ roles: [role], allow: SEEDED_READS }),
+      );
+      renderNav();
+      await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB_BUT_MAINTENANCE));
+    },
+  );
+
+  it("reaches all twelve entries for a seeded ops, whose reindex read opens Maintenance", async () => {
+    // Maintenance is the one entry that genuinely narrows, and it narrows to
+    // admin/ops rather than to admin: ops holds the reindex read, so the entry
+    // opens on the grant and not on a role name — which is what lets an edited
+    // role holding the same read reach it too.
+    vi.stubGlobal(
+      "fetch",
+      orgNavBackend({ roles: ["ops"], allow: SEEDED_OPS_READS }),
+    );
+    renderNav();
+    await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
+  });
+
+  it("adds Maintenance for an admin holding no read at all", async () => {
+    // The role half of Maintenance's predicate, on its own: an admin whose
+    // grants were all revoked still administers the installation, and the danger
+    // zone inside asks for that same role.
+    vi.stubGlobal("fetch", orgNavBackend({ roles: ["admin"] }));
+    renderNav();
+    await waitFor(() =>
+      expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE),
+    );
+  });
+
+  it("shows General to an admin holding the organization read once the company rollout flag is on", async () => {
     vi.stubGlobal(
       "fetch",
       orgNavBackend({
         roles: ["admin"],
-        allow: { organization: ["create", "update"] },
+        allow: { organization: ["read"] },
         companyReadEnabled: true,
       }),
     );
@@ -1095,16 +1139,21 @@ describe("SettingsScreen Organization group", () => {
     expect(await screen.findByRole("link", { name: "General" })).toBeTruthy();
   });
 
-  it("withholds General from the same admin while the rollout flag is off — before the flag answers and after", async () => {
+  it("withholds General from that same admin while the rollout flag is off — before the flag answers and after", async () => {
     // The flag is a deployment posture, not a permission, so it ANDs with the
-    // grant: the company profile may simply not exist on this installation, and
-    // the organization write is the only term of General's predicate this admin
-    // holds. An unknown flag therefore reads as "off" — an entry that appears
-    // while the answer is in flight and then vanishes has already offered a
-    // surface this installation may not have.
+    // grant beside it: the company profile may simply not exist on this
+    // installation. An unknown flag therefore reads as "off" — an entry that
+    // appears while the answer is in flight and then vanishes has already offered
+    // a surface this installation may not have.
+    //
+    // The organization read is the ONLY term of General's predicate this fixture
+    // grants, which is what leaves the flag decisive. On a seeded installation
+    // every role also holds `installation_settings:read` and General opens on
+    // that regardless — so this case is about the flag's contribution to the
+    // union, not a claim that General is ever unreachable in practice.
     const { fetchMock, answerCapabilities } = orgNavBackendHoldingCapabilities({
       roles: ["admin"],
-      allow: { organization: ["create", "update"] },
+      allow: { organization: ["read"] },
     });
     vi.stubGlobal("fetch", fetchMock);
     const { client } = renderNav();
@@ -1113,7 +1162,7 @@ describe("SettingsScreen Organization group", () => {
     // are on screen — while the flag is still unanswered, because this test
     // holds the answer.
     await screen.findByRole("link", { name: "Maintenance" });
-    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
+    expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE);
 
     // Moment two: the answer is in the cache, which is the fact the emptiness
     // claim needs — the request having been SENT proves nothing about what the
@@ -1124,18 +1173,24 @@ describe("SettingsScreen Organization group", () => {
         client.getQueryState(companyContextCapabilitiesQueryKey)?.status,
       ).toBe("success"),
     );
-    expect(navTabs()).toEqual(ADMIN_ORG_TABS);
+    expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE);
   });
 });
 
 // The whole of Overlay — connect, sync/budget health, user mapping — sits on
-// Connections beside the connectors, because both halves answer "which outside
-// system is talking to us". `system_of_record` is stubbed explicitly per test:
-// the entry must stay reachable in native mode (a workspace is native until an
-// overlay is connected, so gating it on overlay mode would hide the only place
-// to connect one), and the retired Integrations id must carry none of it.
+// Integrations beside the provider credential and the webhooks, because all of
+// them are the INSTALLATION's outside wiring: one shared key, one set of
+// subscriptions, one system-of-record flip that re-points every read. The
+// personal mailbox and LinkedIn network that used to share the entry are on
+// Connections, and neither page carries the other's cards.
+//
+// `system_of_record` is stubbed explicitly per test: the entry must stay reachable
+// in native mode (a workspace is native until an overlay is connected, so gating
+// it on overlay mode would hide the only place to connect one), and a retired
+// route id must carry none of it.
 function overlaySettingsBackend(opts: {
   roles: string[];
+  allow?: GrantSpec;
   sorMode: "native" | "overlay";
 }) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1147,7 +1202,7 @@ function overlaySettingsBackend(opts: {
       input instanceof Request ? input.method : (init?.method ?? "GET")
     ).toUpperCase();
     if (url.endsWith("/v1/me")) {
-      const me = meFixture({ roles: opts.roles });
+      const me = meFixture({ roles: opts.roles, allow: opts.allow ?? {} });
       return jsonResponse({
         ...me,
         user: { ...me.user, email: "ada@acme.test" },
@@ -1178,17 +1233,29 @@ function overlaySettingsBackend(opts: {
   });
 }
 
-describe("SettingsScreen connections tab", () => {
-  it("carries the overlay on Connections, reachable before any overlay is connected", async () => {
+// The reads the seeded matrix gives every role on the installation's wiring, and
+// the two terms of the Integrations predicate — granted wherever a case needs the
+// entry to be OPEN, so an absent card on it can only mean the card is elsewhere.
+const WIRING_READS: GrantSpec = {
+  overlay_connection: ["read"],
+  webhook_subscription: ["read"],
+};
+
+describe("SettingsScreen connections and integrations tabs", () => {
+  it("carries the overlay on Integrations, reachable before any overlay is connected", async () => {
     vi.stubGlobal(
       "fetch",
-      overlaySettingsBackend({ roles: ["admin"], sorMode: "native" }),
+      overlaySettingsBackend({
+        roles: ["admin"],
+        allow: WIRING_READS,
+        sorMode: "native",
+      }),
     );
-    renderSettings("connections");
+    renderSettings("integrations");
     await waitFor(() =>
       expect(
         screen
-          .getByRole("link", { name: "Connections" })
+          .getByRole("link", { name: "Integrations" })
           .getAttribute("aria-current"),
       ).toBe("page"),
     );
@@ -1199,16 +1266,22 @@ describe("SettingsScreen connections tab", () => {
     ).toBeTruthy();
   });
 
-  // A retired id is what a bookmark still carries: Integrations was split into
-  // Connections and Capture, so the route names nothing. It has to land on the
-  // first entry this principal can see rather than on a blank screen, and it
-  // must bring none of the split surface's content with it.
+  // A retired id is what a bookmark still carries: the audit trail was an entry
+  // of its own before it moved onto Privacy & audit, so `#/settings/audit` names
+  // nothing. It has to land on the first entry this principal can see rather than
+  // on a blank screen. The wiring reads are granted so Integrations is genuinely
+  // open — a fallback that happens because an entry is hidden proves nothing
+  // about a route id that no longer exists.
   it("falls back to Account when the route names a retired entry", async () => {
     vi.stubGlobal(
       "fetch",
-      overlaySettingsBackend({ roles: ["admin"], sorMode: "overlay" }),
+      overlaySettingsBackend({
+        roles: ["admin"],
+        allow: WIRING_READS,
+        sorMode: "overlay",
+      }),
     );
-    renderSettings("integrations");
+    renderSettings("audit");
     await waitFor(() =>
       expect(
         screen
@@ -1226,24 +1299,26 @@ describe("SettingsScreen connections tab", () => {
     ).toBeNull();
   });
 
-  // The system-of-record chip is shown to every seat and links here, so a
-  // rep who follows it must land on the entry, not on the Account fallback —
-  // which is why Connections carries no predicate at all. Hiding it would buy
-  // no confidentiality either: the mapping card's reads are admin/ops-only on
-  // the server, and the card keeps them unsent for anyone else — so a rep sees
-  // the connection card's read-only state and the mapping card's admin-only
-  // notice, never the directory.
-  it("shows Connections to a non-admin rep with both overlay cards in their read-only state", async () => {
+  // The overlay is the installation's, so its page is gated — on the read every
+  // seeded role holds, which is what keeps the system-of-record chip in the
+  // topbar honest: that chip is shown to every seat and links here, so a rep who
+  // follows it must land on the entry rather than the Account fallback. Reaching
+  // it costs no confidentiality: both cards' write and management reads are
+  // admin/ops-only on the server, and each keeps them unsent for anyone else — so
+  // a rep sees the connection card's read-only state and the mapping card's
+  // admin-only notice, never the directory.
+  it("shows Integrations to a non-admin rep with both overlay cards in their read-only state", async () => {
     const fetchMock = overlaySettingsBackend({
       roles: ["rep"],
+      allow: WIRING_READS,
       sorMode: "native",
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderSettings("connections");
+    renderSettings("integrations");
     await waitFor(() =>
       expect(
         screen
-          .getByRole("link", { name: "Connections" })
+          .getByRole("link", { name: "Integrations" })
           .getAttribute("aria-current"),
       ).toBe("page"),
     );
@@ -1269,6 +1344,75 @@ describe("SettingsScreen connections tab", () => {
     expect(
       requested.some((url) => url.includes("/overlay/owners")),
     ).toBeFalsy();
+  });
+
+  // The split, from both sides. One entry used to hold a rep's own mailbox and
+  // the installation's webhooks together, which is why it could carry no honest
+  // predicate: any gate on it took a personal task away from whoever it hid it
+  // from. The two cases below are what makes the split real rather than a
+  // relabelling — each page has to carry its own half and NOT the other's, and
+  // the wiring reads are granted in both so an absent card can only mean the card
+  // lives on the other entry.
+  it("renders the personal connections on Connections and none of the installation's wiring", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({
+        roles: ["admin"],
+        allow: WIRING_READS,
+        sorMode: "native",
+      }),
+    );
+    renderSettings("connections");
+    // Every surface here reads a per-user seam: the connector list is scoped to
+    // the calling human server-side, and both LinkedIn cards read /me.
+    expect(
+      await screen.findByRole("heading", { name: "Connected inboxes" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "LinkedIn connections" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Where your network reaches" }),
+    ).toBeTruthy();
+    // And nothing workspace-wide: a key everybody spends from, subscriptions
+    // everybody's writes fire, the mirror that re-points every read.
+    for (const heading of [
+      "Contact data",
+      "Webhooks",
+      "HubSpot mirror",
+      "Mirror user mapping",
+    ]) {
+      expect(screen.queryByRole("heading", { name: heading })).toBeNull();
+    }
+  });
+
+  it("renders the installation's wiring on Integrations and none of the personal connections", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({
+        roles: ["admin"],
+        allow: WIRING_READS,
+        sorMode: "native",
+      }),
+    );
+    renderSettings("integrations");
+    expect(
+      await screen.findByRole("heading", { name: "Contact data" }),
+    ).toBeTruthy();
+    for (const heading of [
+      "Webhooks",
+      "HubSpot mirror",
+      "Mirror user mapping",
+    ]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+    }
+    for (const heading of [
+      "Connected inboxes",
+      "LinkedIn connections",
+      "Where your network reaches",
+    ]) {
+      expect(screen.queryByRole("heading", { name: heading })).toBeNull();
+    }
   });
 });
 
@@ -1679,8 +1823,17 @@ describe("ResetDataCard (danger zone)", () => {
     // Wait for the card itself: until /v1/me resolves ResetDataCard renders
     // null, and an assertion made before that passes against an empty screen
     // rather than against a card that is deliberately quiet.
-    await screen.findByRole("button", { name: /reset data/i });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const card = (
+      await screen.findByRole("button", { name: /reset data/i })
+    ).closest("section");
+    if (!(card instanceof HTMLElement)) {
+      throw new Error("the Reset data control renders outside a card");
+    }
+    // Read that card rather than the page: the summary is a status region inside
+    // it, and the two cards above it on Maintenance each render a loading
+    // skeleton that is also a status region while its query is in flight — a
+    // page-wide query would be answered by whichever of those was still pending.
+    expect(within(card).queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("clears a prior success summary once a retry fails, rather than showing both", async () => {
@@ -1765,7 +1918,7 @@ const REINDEX_STATUS = {
 };
 
 // Every read the three restructured entries make, answered honestly in one
-// place: the passports Your agents lists, the consent registry and audit trail
+// place: the passports Agents lists, the consent registry and audit trail
 // Privacy & audit now share, and the two operational reports on Maintenance.
 function mergedEntryBackend(opts: {
   roles: string[];
@@ -1825,7 +1978,7 @@ function mergedEntryBackend(opts: {
 // page has to carry the surfaces its parts brought, and the personal one has to
 // open for a seat no grant would have admitted.
 describe("SettingsScreen restructured entries", () => {
-  it("opens Your agents for a read-only seat, passports and all", async () => {
+  it("opens Agents for a read-only seat, passports and all", async () => {
     vi.stubGlobal(
       "fetch",
       mergedEntryBackend({ roles: ["rep"], seat: "read" }),
@@ -1834,7 +1987,7 @@ describe("SettingsScreen restructured entries", () => {
     await waitFor(() =>
       expect(
         screen
-          .getByRole("link", { name: "Your agents" })
+          .getByRole("link", { name: "Agents" })
           .getAttribute("aria-current"),
       ).toBe("page"),
     );

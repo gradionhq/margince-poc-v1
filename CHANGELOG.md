@@ -192,7 +192,117 @@ numbers appear here when releases start.
 
 ### Changed
 
-- **Settings had 24 doors; it has 11 entries.** Fifteen tabs plus nine
+- **Opening a settings page is a READ, and the eleven entries now ask like
+  it.** Each entry's predicate was a WRITE grant, because each was written to
+  answer "can you *use* this" — and measured against the live API a read-only
+  seat was hidden from eight of eleven entries the server answers 200 on,
+  including three surfaces that were ungated routes of their own before the
+  merge. One rule now covers all of them: the entry opens if the principal may
+  read any part of it, and the write affordances inside say for themselves who
+  may use them. A read grant is still a real question rather than a formality —
+  a role edited to drop `custom_field:read` loses the Data model row, which
+  `true` could never express. The consequence, stated: on a freshly seeded
+  installation every role reaches eleven of the twelve entries and only
+  Maintenance narrows, so what distinguishes seats has moved inside the pages,
+  where cards state their own denials.
+- **Connections split in two, and the entry with no predicate disappeared with
+  it.** One Organization row used to hold both a reader's own mailbox and
+  LinkedIn network *and* the installation's contact-data credential, webhooks and
+  HubSpot mirror — which is exactly why it could not be gated: any honest
+  predicate took a personal task away from whoever it hid it from. *You →
+  Connections* now holds the three per-user surfaces (every one reads a `/me` or
+  caller-scoped seam) and *Organization → Integrations* the four
+  installation-wide ones, each with a predicate of its own. The seam was never a
+  missing group; it was one entry belonging to both. The connector OAuth callback
+  keeps its `#/settings/connections` return route, because the connectors are the
+  half that stayed; the system-of-record chip follows the mirror to
+  `#/settings/integrations`.
+- **The member roster is no longer admin-only, and People opens on it.**
+  `GET /users` answers 200 to any authenticated principal, and who is on the team
+  with what role is not an admin's private question — so every seat reads the
+  list, while inviting somebody and changing a role or status stay the admin's
+  and withhold themselves. A role nobody may change reads as text rather than as
+  a picker that could only be refused. The page also used to open on an empty
+  invite form: three blank fields ahead of the answer, for a task most visits are
+  not about.
+- **Three settings pages were ordered against the reader.** AI opened on spend
+  and buried the automations that *cause* it four screens down, past a price
+  table — and for manager, rep and read_only the two spend cards are withheld
+  anyway, so the page opened on a price sheet; it now reads automations → spend →
+  prices → the per-call trace last, that trace being a debugging instrument
+  rather than a setting. General claimed in a comment that the base currency and
+  its rate sheet were adjacent while the company profile sat between them; they
+  are adjacent now. Four card titles stopped repeating the heading above them
+  ("You" inside *You*, "Organization" inside *Organization*, "Capture" on
+  Capture), "Your agents" dropped a possessive the group heading already carried,
+  and "Voice" became "Writing voice" — in a product with mail capture, a bare
+  "Voice" reads as call recording.
+- **Settings had 24 doors; it has 11 entries.**
+
+### Fixed
+
+- **Absent, disabled and withheld are now decided by CAUSE, and it is written
+  down** (`frontend/src/design-system/README.md`). A surface a permission denies
+  says so; a precondition the reader could fix disables the control and states
+  what would make it live; only "does not apply" is absent. Two cards returned
+  `null` on a denial while their neighbours on the same page explained
+  themselves — so for an ops seat the Privacy page showed the consent registry
+  working, retention silently gone and the subject queue saying why. An absent
+  retention card does not read as "not yours"; it reads as "this installation
+  keeps nothing". Both now state the denial and still ask the server for nothing,
+  because the answer was already known. The installation settings card disabled
+  three fields with no reason at all, under a comment claiming parity with the
+  card that does it right.
+- **The scroll position survived a route change.** The document never scrolls
+  here — the content column does, and it is the same element on every route, so
+  it carried the last page's offset into the next one. Reading a scrolled AI
+  settings page and opening Connections landed the reader partway down Webhooks.
+- **No skip link existed anywhere** (WCAG 2.4.1). Every page put the brand,
+  search, up to twelve navigation rows, More, the settings door and the account
+  menu ahead of the content, and a keyboard reader walked all of it again on
+  every page. It is a button rather than an `<a href="#content">` because the app
+  is hash-routed and a fragment link would navigate.
+- **Entering the settings level dropped focus to `<body>`.** The walk out of a
+  section was pinned and the walk in was not — the guard that was supposed to arm
+  it fires only for a row with children, and nothing in the tree gives a row
+  children. Two comments claimed both directions were covered.
+- **A modal returned focus to whatever opened it, even after the mutation
+  removed that element** — passport revoke, member deactivate, connection end and
+  DSR transition all landed on `<body>`. `Modal` now takes a `returnFocusTo`
+  resolver evaluated at restore time, and checks the opener is still connected
+  before reaching for it.
+- **Every card's load failure was announced to nobody**: `QueryStates`' error
+  branch carried no live region and its skeleton no busy state or spoken name.
+  One fix covers most surfaces in the product, plus the shared create/edit and
+  archive-confirm errors.
+- **Two WCAG Level A defects on the AI attempt trail and the tool console.** A
+  row's expand affordance was a `<tr onClick>`, unreachable by keyboard; the tool
+  console dimmed unreachable rows to `opacity: 0.4`, taking the "scope not
+  granted" caption that is meant to be the text equivalent below the AA contrast
+  floor — while the passport list 150 lines above it had chosen a strikethrough
+  over dimming for exactly that reason. Every credit-pool meter was also
+  announced as an anonymous number triple (`label=""`).
+- **Heading navigation landed on sections with nothing inside them.** Pipeline
+  names, provider names and block titles were styled spans and divs; two dialogs
+  opened with a raw `<h3>` under the page's `h1`.
+- **Passport scope checkboxes rendered the raw protocol words** (`read`,
+  `draft`, `write`, `send`, `enrich`), untranslated, on the page where a human
+  decides what to lend an agent — where "write" and "send" read as near-synonyms
+  until one of them names the mailbox.
+- **Twenty-one German strings addressed the reader as *Sie*** against `de.ts`'s
+  own mandated informal *du*, every one of them on a Connections surface — the
+  register flipped exactly where a rep does their own personal setup.
+- **Retention wrote on flip through a `Checkbox`.** The design system reserves
+  `Switch` for a control that *is* the action; the flip also shared Save's
+  mutation, so pausing a policy collapsed the edit panel — discarding the panel,
+  the focus, and the operator's place — under a comment claiming it existed so
+  they would not have to save mid-edit.
+- **The 390px and axe sweeps covered two settings pages of twelve**, both of
+  them short ones, so the widest page in the product went unmeasured. Data model,
+  Integrations and People are swept now.
+- **`#/settings/capture` told the reader to change company domains elsewhere
+  and gave them no way there**, on a card whose whole point is that it cannot be
+  edited in place. Fifteen tabs plus nine
   routes outside them collapsed into eleven, in two groups: Account,
   Voice and Your agents under *You*; General, People & access,
   Connections, Capture, Data model, AI, Privacy & audit and Maintenance

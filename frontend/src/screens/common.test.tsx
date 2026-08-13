@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -431,5 +432,47 @@ describe("QueryStates", () => {
     );
     expect(screen.getByText(t("common.errorNoCause"))).toBeTruthy();
     expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+  });
+
+  // Every query-backed card in the product renders its failure through here, so
+  // a failure that reaches nobody who cannot see the screen reaches nobody on
+  // most of the product at once.
+  it("announces a failed load, headline and cause in one region", () => {
+    render(
+      <QueryStates query={failing(new ProblemError({ detail: "no seat" }))}>
+        {null}
+      </QueryStates>,
+    );
+    const announced = screen.getByRole("alert");
+    // Both, in the one region: a reader who hears only "Couldn't load this
+    // view" has been told less than the screen says.
+    expect(announced.textContent).toContain(t("common.error"));
+    expect(announced.textContent).toContain("no seat");
+    // Retry is a control to reach, not a sentence to hear.
+    expect(
+      within(announced).queryByRole("button", { name: t("common.retry") }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: t("common.retry") }),
+    ).toBeTruthy();
+  });
+
+  it("reports a load in progress as busy, since the shimmer bars say nothing", () => {
+    render(
+      <QueryStates
+        query={{
+          isPending: true,
+          isError: false,
+          error: null,
+          refetch: () => undefined,
+        }}
+      >
+        {null}
+      </QueryStates>,
+    );
+    const loading = screen.getByRole("status");
+    expect(loading.getAttribute("aria-busy")).toBe("true");
+    // And nothing claims to have failed while it is still loading.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

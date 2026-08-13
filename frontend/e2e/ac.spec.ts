@@ -47,6 +47,15 @@ const CORE_SCREENS = [
   // would measure the fallback screen and report it as coverage, so the sweeps
   // follow the surface to where it actually lives.
   "settings/ai",
+  // Settings is TWELVE pages behind one route, and a bare `settings` resolves to
+  // Account — the shortest of them. Sweeping that alone and calling settings
+  // covered is how the widest page in the product went unmeasured: `data-model`
+  // carries two full list surfaces with their own toolbars, `integrations` four
+  // installation-wide cards, `people` a roster of rows that each end in two
+  // buttons. These are where a narrow viewport actually breaks.
+  "settings/data-model",
+  "settings/integrations",
+  "settings/people",
 ];
 
 /**
@@ -544,11 +553,11 @@ test.describe("B-EP09.23: overlay mode", () => {
     await mockApi(page, { sor: "overlay" });
     await page.reload();
     const chip = page.getByRole("link", {
-      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Verbindungen, um die Verbindung zu verwalten.",
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/connections");
+    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({

@@ -11,6 +11,7 @@ import {
 import {
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -45,6 +46,7 @@ import {
   NavWalkProvider,
   useNavLevel,
   useNavWalk,
+  useNavWalkClaim,
 } from "./navlevel";
 import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
@@ -186,6 +188,38 @@ function RailSearch({
 // ten, so — like search — it needs a key of its own that no NAV entry can take.
 const SETTINGS_TIP_KEY = "rail-settings";
 
+// The id the content region answers to. Named once because two elements have to
+// agree on it: the region that receives focus and the control that sends it.
+const CONTENT_REGION_ID = "content";
+
+// WCAG 2.4.1, Bypass Blocks. Every page in the product puts the same block ahead
+// of its content — the brand, the search, up to eleven navigation rows, the More
+// button, the settings door and the account menu — and without this a keyboard
+// reader walked all of it again on every page they opened.
+//
+// A button, not the conventional `<a href="#content">`, because this app is
+// hash-routed: setting the hash to "#content" is a NAVIGATION here, and the
+// router would parse it as a screen name and land on the unknown-page fallback.
+// Fragment links and hash routing cannot both own the hash, so the affordance
+// keeps the behaviour (move focus to the content) and gives up the spelling.
+//
+// It sits first in the DOM so it is the first thing Tab reaches, and stays out of
+// sight until it has focus (shell.css).
+function SkipToContent({
+  target,
+}: Readonly<{ target: RefObject<HTMLElement | null> }>) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="skiplink"
+      onClick={() => target.current?.focus()}
+    >
+      {t("shell.skipToContent")}
+    </button>
+  );
+}
+
 // Settings, at the foot directly above the account block. It is a DOOR rather
 // than an eleventh destination: the ten rows above are where the work happens,
 // and Settings is a section you go into and come back out of. Without it the
@@ -206,11 +240,23 @@ function RailSettingsDoor({
 }>) {
   const t = useT();
   const label = t("nav.settings");
+  const claimFocus = useNavWalkClaim();
+  const href = routeHash({ screen: SETTINGS_SCREEN });
   return (
     <a
       className="navitem railsettings"
-      href={routeHash({ screen: SETTINGS_SCREEN })}
+      href={href}
       aria-label={label}
+      // This link is the walk INTO the section, so it hands its focus on to the
+      // level it opens (navlevel.tsx). Without the claim the rail is replaced
+      // under a reader standing on this row and focus falls to <body>: the walk
+      // out was pinned and the walk in was not, so a keyboard reader could enter
+      // Settings and land at the top of the document.
+      //
+      // Not preventDefault'd, and no navigate() call: the href is what moves,
+      // which keeps middle-click and "open in new tab" working. A claim armed by
+      // a navigation that never happens is spent by nobody and harmless.
+      onClick={() => claimFocus(href)}
       onMouseEnter={() => onTip(SETTINGS_TIP_KEY)}
       onMouseLeave={() => onTip(null)}
       onFocus={() => onTip(SETTINGS_TIP_KEY)}
@@ -848,6 +894,30 @@ export function Shell({
   // a section route is a different component, mounted on the way in and gone
   // again on the way out.
   const walk = useNavWalk(route, !railless && !leveled);
+  const contentRegion = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  // A route change opens a different page, and a page opens at its top. Nothing
+  // in the browser does this for us here: the document itself never scrolls
+  // (`.app` is exactly one viewport tall), the content COLUMN does, and that
+  // column is the same element on every route — so it carries the offset the
+  // last page was left at straight into the next one. Reading a scrolled AI
+  // settings page and then opening Connections landed the reader partway down
+  // Webhooks, and fewer, longer settings pages made it worse.
+  //
+  // Keyed by the ADDRESS, not by `route`: useRoute parses a fresh object every
+  // render, so a dependency on the object would re-run this on every keystroke a
+  // screen handles and fight a reader who has scrolled deliberately.
+  // Assigning scrollTop rather than calling scrollTo: it is the same instant jump,
+  // it is what the list surface's own reset already uses, and it is a property
+  // every environment the tests run in actually has.
+  const address = routeHash(route);
+  // biome-ignore lint/correctness/useExhaustiveDependencies(address): the effect never reads it, which is the point. It is the trigger — the address changing IS the event this reacts to, exactly as the list surface's own scroll reset is triggered by the query it never reads.
+  useEffect(() => {
+    const column = scroller.current;
+    if (column) {
+      column.scrollTop = 0;
+    }
+  }, [address]);
 
   const toggle = useCallback(() => {
     setCollapsed((current) => {
@@ -864,8 +934,13 @@ export function Shell({
   if (railless) {
     return (
       <div className="app railless">
+        {/* No skip link here, and that is not an omission: these routes carry no
+            navigation, so there is no repeated block ahead of the content for a
+            reader to skip past (WCAG 2.4.1). */}
         <main className="main">
-          <div className="scroll">{children}</div>
+          <div className="scroll" ref={scroller}>
+            {children}
+          </div>
         </main>
       </div>
     );
@@ -881,6 +956,7 @@ export function Shell({
 
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
+      <SkipToContent target={contentRegion} />
       {/* One rail, two suppliers of what it shows: a screen owning a level wires
           its own data in, everything else renders the destinations alone. The
           provider spans both, because the way out of a level is asked for on the
@@ -892,7 +968,15 @@ export function Shell({
           <WorkspaceRail {...railProps} />
         )}
       </NavWalkProvider>
-      <main className="main">
+      {/* Focusable only as the skip link's destination — never a tab stop of its
+          own, which is what tabIndex -1 buys. A reader who takes the skip lands
+          here, and the next Tab continues into the page's own controls. */}
+      <main
+        className="main"
+        id={CONTENT_REGION_ID}
+        ref={contentRegion}
+        tabIndex={-1}
+      >
         {leveled ? (
           <SettingsPageHead
             route={route}
@@ -906,7 +990,9 @@ export function Shell({
             railless; these advisories belong only here. */}
         <EconomyBanner />
         <EmbedReindexBanner />
-        <div className="scroll">{children}</div>
+        <div className="scroll" ref={scroller}>
+          {children}
+        </div>
       </main>
     </div>
   );
