@@ -49,7 +49,7 @@ type importProfileDTO struct {
 }
 
 type importRunDTO struct {
-	Id         string `json:"id"`
+	ID         string `json:"id"`
 	Status     string `json:"status"`
 	Connector  string `json:"connector"`
 	Object     string `json:"object"`
@@ -69,7 +69,7 @@ type importIssueDTO struct {
 }
 
 type importReportDTO struct {
-	RunId         string               `json:"run_id"`
+	RunID         string               `json:"run_id"`
 	Status        string               `json:"status"`
 	RowsRead      int                  `json:"rows_read"`
 	Disposition   importDispositionDTO `json:"disposition"`
@@ -126,6 +126,7 @@ func uploadCSV(t *testing.T, e *apptest.AppEnv, object, body string) (importProf
 		t.Fatalf("building the upload: %v", err)
 	}
 	req.Header.Set("Content-Type", form.FormDataContentType())
+	//nolint:bodyclose // apptest.CloseBody closes it in the deferred call below, which the checker cannot follow across the helper.
 	resp, err := e.Client.Do(req)
 	if err != nil {
 		t.Fatalf("uploading: %v", err)
@@ -145,12 +146,12 @@ func uploadCSV(t *testing.T, e *apptest.AppEnv, object, body string) (importProf
 	return profile, resp.StatusCode
 }
 
-func createRun(t *testing.T, e *apptest.AppEnv, object string, p importProfileDTO) (importRunDTO, int) {
+func createRunWithMapping(t *testing.T, e *apptest.AppEnv, object, sourceRef string, mapping map[string]string) (importRunDTO, int) {
 	t.Helper()
 	var run importRunDTO
 	status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
 		"connector": "csv", "object": object,
-		"source_ref": p.SourceRef, "mapping": p.SuggestedMapping,
+		"source_ref": sourceRef, "mapping": mapping,
 	}, nil, &run)
 	return run, status
 }
@@ -201,7 +202,7 @@ func TestCSVImportDryRunWritesNothingAndCommitsLeads(t *testing.T) {
 		t.Fatal("the upload returned no source_ref, so nothing can reference the stored file")
 	}
 
-	run, status := createRun(t, e, "lead", profile)
+	run, status := createRunWithMapping(t, e, "lead", profile.SourceRef, profile.SuggestedMapping)
 	if status != http.StatusAccepted {
 		t.Fatalf("create run → %d, want 202", status)
 	}
@@ -216,7 +217,7 @@ func TestCSVImportDryRunWritesNothingAndCommitsLeads(t *testing.T) {
 	}
 
 	var report importReportDTO
-	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.Id+"/report", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.ID+"/report", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("report → %d, want 200", status)
 	}
 	if report.Disposition.Created != 3 {
@@ -227,7 +228,7 @@ func TestCSVImportDryRunWritesNothingAndCommitsLeads(t *testing.T) {
 	}
 
 	var approved importRunDTO
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, &approved); status != http.StatusAccepted {
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, &approved); status != http.StatusAccepted {
 		t.Fatalf("approve → %d, want 202", status)
 	}
 	if got := leadCount(t, e); got != 3 {
@@ -246,8 +247,8 @@ func TestCSVImportReRunConvergesAndAnEditedFileUpdates(t *testing.T) {
 	e := setupImportApp(t)
 
 	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
-	run, _ := createRun(t, e, "lead", profile)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	run, _ := createRunWithMapping(t, e, "lead", profile.SourceRef, profile.SuggestedMapping)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("first approve → %d, want 202", status)
 	}
 	if got := leadCount(t, e); got != 3 {
@@ -256,8 +257,8 @@ func TestCSVImportReRunConvergesAndAnEditedFileUpdates(t *testing.T) {
 
 	// The identical file again: recognized, and nothing created.
 	same, _ := uploadCSV(t, e, "lead", prospectCSV)
-	sameRun, _ := createRun(t, e, "lead", same)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+sameRun.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	sameRun, _ := createRunWithMapping(t, e, "lead", same.SourceRef, same.SuggestedMapping)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+sameRun.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("second approve → %d, want 202", status)
 	}
 	if got := leadCount(t, e); got != 3 {
@@ -270,8 +271,8 @@ func TestCSVImportReRunConvergesAndAnEditedFileUpdates(t *testing.T) {
 		"grace@hopper.example,Grace Hopper,Rear Admiral (upper half)\n" +
 		"katherine@johnson.example,Katherine Johnson,Mathematician\n"
 	edited, _ := uploadCSV(t, e, "lead", corrected)
-	editedRun, _ := createRun(t, e, "lead", edited)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+editedRun.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	editedRun, _ := createRunWithMapping(t, e, "lead", edited.SourceRef, edited.SuggestedMapping)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+editedRun.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("third approve → %d, want 202", status)
 	}
 
@@ -309,13 +310,13 @@ func TestCSVImportDisclosesUnidentifiableRows(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("upload → %d, want 200", status)
 	}
-	run, status := createRun(t, e, "lead", profile)
+	run, status := createRunWithMapping(t, e, "lead", profile.SourceRef, profile.SuggestedMapping)
 	if status != http.StatusAccepted {
 		t.Fatalf("create run → %d, want 202", status)
 	}
 
 	var report importReportDTO
-	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.Id+"/report", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.ID+"/report", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("report → %d, want 200", status)
 	}
 	if report.Disposition.Skipped != 1 || len(report.Issues) != 1 {
@@ -335,11 +336,11 @@ func TestCSVImportApprovalIsValidOnlyOnce(t *testing.T) {
 	e := setupImportApp(t)
 
 	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
-	run, _ := createRun(t, e, "lead", profile)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	run, _ := createRunWithMapping(t, e, "lead", profile.SourceRef, profile.SuggestedMapping)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("first approve → %d, want 202", status)
 	}
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusConflict {
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusConflict {
 		t.Fatalf("second approve → %d, want 409", status)
 	}
 }
@@ -405,16 +406,16 @@ func TestCSVImportPredictsUnchangedRatherThanUpdatingEverything(t *testing.T) {
 	e := setupImportApp(t)
 
 	first, _ := uploadCSV(t, e, "lead", prospectCSV)
-	run, _ := createRun(t, e, "lead", first)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	run, _ := createRunWithMapping(t, e, "lead", first.SourceRef, first.SuggestedMapping)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("approve → %d, want 202", status)
 	}
 
 	again, _ := uploadCSV(t, e, "lead", prospectCSV)
-	second, _ := createRun(t, e, "lead", again)
+	second, _ := createRunWithMapping(t, e, "lead", again.SourceRef, again.SuggestedMapping)
 
 	var report importReportDTO
-	if status := e.Call(t, http.MethodGet, "/v1/imports/"+second.Id+"/report", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+second.ID+"/report", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("report → %d, want 200", status)
 	}
 	if report.Disposition.Unchanged != 3 || report.Disposition.Created != 0 || report.Disposition.Updated != 0 {
@@ -452,7 +453,7 @@ func TestCSVImportRecordsAValidationThatCouldNotFinish(t *testing.T) {
 		defer rows.Close()
 		for rows.Next() {
 			var r importRunDTO
-			if err := rows.Scan(&r.Id, &r.Status); err != nil {
+			if err := rows.Scan(&r.ID, &r.Status); err != nil {
 				return err
 			}
 			runs = append(runs, r)
@@ -477,7 +478,7 @@ func TestCSVImportRunNamesWhoOpenedIt(t *testing.T) {
 
 	profile, _ := uploadCSV(t, e, "lead", prospectCSV)
 	var run struct {
-		Id         string `json:"id"`
+		ID         string `json:"id"`
 		CapturedBy string `json:"captured_by"`
 	}
 	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
@@ -527,15 +528,12 @@ func TestCSVImportLandsOrganizationsWithEveryMappedField(t *testing.T) {
 		"Company": "display_name", "Legal Name": "legal_name",
 		"Industry": "industry", "Description": "description",
 	}
-	var run importRunDTO
-	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
-		"connector": "csv", "object": "organization",
-		"source_ref": profile.SourceRef, "mapping": mapping,
-	}, nil, &run); status != http.StatusAccepted {
+	run, status := createRunWithMapping(t, e, "organization", profile.SourceRef, mapping)
+	if status != http.StatusAccepted {
 		t.Fatalf("create run → %d, want 202", status)
 	}
 	before := len(organizations(t, e).Data)
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("approve → %d, want 202", status)
 	}
 
@@ -563,21 +561,18 @@ func TestCSVImportLandsOrganizationsWithEveryMappedField(t *testing.T) {
 		"Initech,Initech SE,software,They make software\n" +
 		"Umbrella,Umbrella AG,biotech,They make other things\n"
 	edited, _ := uploadCSV(t, e, "organization", corrected)
-	var editedRun importRunDTO
-	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
-		"connector": "csv", "object": "organization",
-		"source_ref": edited.SourceRef, "mapping": mapping,
-	}, nil, &editedRun); status != http.StatusAccepted {
+	editedRun, status := createRunWithMapping(t, e, "organization", edited.SourceRef, mapping)
+	if status != http.StatusAccepted {
 		t.Fatalf("create corrected run → %d, want 202", status)
 	}
 	var report importReportDTO
-	if status := e.Call(t, http.MethodGet, "/v1/imports/"+editedRun.Id+"/report", nil, nil, &report); status != http.StatusOK {
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+editedRun.ID+"/report", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("report → %d", status)
 	}
 	if report.Disposition.Updated != 1 || report.Disposition.Unchanged != 1 {
 		t.Fatalf("prediction = %+v, want exactly the one row that changed", report.Disposition)
 	}
-	if status := e.Call(t, http.MethodPost, "/v1/imports/"+editedRun.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+editedRun.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
 		t.Fatalf("approve corrected → %d, want 202", status)
 	}
 	for _, o := range organizations(t, e).Data {

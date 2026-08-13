@@ -12,6 +12,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
+// fieldFullName is a lead's own name column, spelled once for the three places
+// that map onto it.
+const fieldFullName = "full_name"
+
+// fieldEmail is the lead's identifying field: the natural key an import
+// recognizes a row by, and the one value the store canonicalizes on write.
+const fieldEmail = "email"
+
 // leadStatusNew is where an imported prospect starts: the unworked state a
 // human moves it out of, which is the whole point of landing machine-sourced
 // rows as leads rather than as people.
@@ -32,16 +40,16 @@ const leadStatusNew = "new"
 // paths. A target that only half works is worse than one the screen never
 // offers.
 var csvTargets = map[string][]string{
-	migration.ObjectLead:         {"full_name", "email", "title", "company_name"},
-	migration.ObjectOrganization: {"display_name", "legal_name", "industry", "size_band", "description"},
+	migration.ObjectLead:         {fieldFullName, fieldEmail, "title", "company_name"},
+	migration.ObjectOrganization: {fieldDisplayName, "legal_name", fieldIndustry, "size_band", "description"},
 }
 
 // csvSourceKeyDefault names the column a run identifies rows by when the
 // request supplies none: the field that is the object's own natural identity.
 // Stated per object rather than guessed, and the report says which was used.
 var csvSourceKeyDefault = map[string]string{
-	migration.ObjectLead:         "email",
-	migration.ObjectOrganization: "display_name",
+	migration.ObjectLead:         fieldEmail,
+	migration.ObjectOrganization: fieldDisplayName,
 }
 
 // importTargets is the closed set a mapping may name for one object.
@@ -92,7 +100,7 @@ func changedFields(encoded []byte, mapped map[string]string) (map[string]string,
 // its version, and publish an update event for a change nobody made.
 func canonicalFor(field, value string) string {
 	trimmed := strings.TrimSpace(value)
-	if field == "email" {
+	if field == fieldEmail {
 		return strings.ToLower(trimmed)
 	}
 	return trimmed
@@ -124,8 +132,8 @@ func leadCreateFrom(fields map[string]string, sourceSystem, externalID, source s
 		SourceID:     &externalID,
 		Source:       source,
 	}
-	in.FullName = importString(fields, "full_name")
-	in.Email = importString(fields, "email")
+	in.FullName = importString(fields, fieldFullName)
+	in.Email = importString(fields, fieldEmail)
 	in.Title = importString(fields, "title")
 	in.CompanyName = importString(fields, "company_name")
 	return in
@@ -134,8 +142,8 @@ func leadCreateFrom(fields map[string]string, sourceSystem, externalID, source s
 // leadUpdateFrom builds the patch for the fields that actually differ.
 func leadUpdateFrom(changed map[string]string) people.UpdateLeadInput {
 	return people.UpdateLeadInput{
-		FullName:    importString(changed, "full_name"),
-		Email:       importString(changed, "email"),
+		FullName:    importString(changed, fieldFullName),
+		Email:       importString(changed, fieldEmail),
 		Title:       importString(changed, "title"),
 		CompanyName: importString(changed, "company_name"),
 	}
@@ -143,22 +151,22 @@ func leadUpdateFrom(changed map[string]string) people.UpdateLeadInput {
 
 func organizationCreateFrom(fields map[string]string, source string) people.CreateOrganizationInput {
 	in := people.CreateOrganizationInput{
-		DisplayName: strings.TrimSpace(fields["display_name"]),
+		DisplayName: strings.TrimSpace(fields[fieldDisplayName]),
 		Source:      source,
 	}
 	in.LegalName = importString(fields, "legal_name")
 	in.Description = importString(fields, "description")
-	in.Industry = importString(fields, "industry")
+	in.Industry = importString(fields, fieldIndustry)
 	in.SizeBand = importString(fields, "size_band")
 	return in
 }
 
 func organizationUpdateFrom(changed map[string]string) people.UpdateOrganizationInput {
 	return people.UpdateOrganizationInput{
-		DisplayName: importString(changed, "display_name"),
+		DisplayName: importString(changed, fieldDisplayName),
 		LegalName:   importString(changed, "legal_name"),
 		Description: importString(changed, "description"),
-		Industry:    importString(changed, "industry"),
+		Industry:    importString(changed, fieldIndustry),
 		SizeBand:    importString(changed, "size_band"),
 	}
 }

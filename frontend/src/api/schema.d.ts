@@ -6812,6 +6812,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file to import, and read back what its columns actually contain.
+         * @description The first half of the migrate-in flow, and the reason it is a separate
+         *     operation: a mapping is a claim about columns, and nobody — a human at a
+         *     screen least of all — can make that claim before seeing the header, how
+         *     often each column is filled, and what its values look like.
+         *
+         *     The response profiles the file and proposes a mapping. The proposal is
+         *     deliberately timid: it matches on normalized names only, so `E-mail
+         *     Address` finds `email_address` and `Company` finds nothing. A confident
+         *     wrong guess costs more than a blank the human must fill, because the
+         *     blank is visible and the guess is not.
+         *
+         *     The uploaded bytes are durable and addressed by the returned
+         *     `source_ref`; nothing is imported, validated or written by this call.
+         *     A source that is never used by `createImportRun` expires unreferenced.
+         */
+        post: operations["uploadImportSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an import run from an uploaded source and a column mapping, and dry-run it.
+         * @description IEM-WIRE-3. Takes the connector, the `source_ref` from
+         *     `uploadImportSource`, and the mapping the human settled on, and runs the
+         *     validation pass — which writes **no** domain rows (AC-M5). The run
+         *     arrives at `awaiting_approval` carrying the report
+         *     `getImportRunReport` reads.
+         *
+         *     Permission-gated as a workspace-wide bulk mutation of the estate: a rep
+         *     neither starts nor reads a migration run.
+         *
+         *     Mapping a source column to a field the object does not have is refused
+         *     here rather than at row 40,000: the mapping is validated against the
+         *     object's live field catalog, custom fields included.
+         */
+        post: operations["createImportRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one import run's lifecycle state.
+         * @description IEM-WIRE-6. A run that stopped part-way reports `failed` **with its
+         *     checkpoint**, which is what makes it a resumable state rather than a
+         *     dead end — the distinction the chapter pins by name.
+         *
+         *     A run belonging to another installation answers not-found, never
+         *     forbidden: existence is not disclosed to someone who may not read it.
+         */
+        get: operations["getImportRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the run's report — what will happen, or what did.
+         * @description IEM-WIRE-4. Available from `awaiting_approval` onward, and it is the
+         *     same shape before and after approval: the dry run reports what the
+         *     commit will do, the finished run reports what it did. One shape means a
+         *     human comparing the two is comparing like with like.
+         *
+         *     Skips and row-level errors are enumerated, never summarized away — a
+         *     file half-ignored under a success message is worse than a refusal.
+         */
+        get: operations["getImportRunReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a validated import run and commit it.
+         * @description IEM-WIRE-5, and one of the three audited gates. Valid **only** from
+         *     `awaiting_approval`: approving a run that is already running, complete
+         *     or failed is a conflict, not a no-op, because each of those means the
+         *     approver is looking at a state that is not the one they judged.
+         *
+         *     The commit is checkpointed and idempotent on the source's own key, so a
+         *     re-run of the same file converges rather than duplicating (IEM-AC-9),
+         *     and a run interrupted mid-way resumes from its checkpoint.
+         */
+        post: operations["approveImportRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/user-map": {
         parameters: {
             query?: never;
@@ -8012,6 +8160,130 @@ export interface components {
                 staleness_seconds?: number;
                 unverifiable_parity_notice: string;
             } | null;
+        };
+        /**
+         * @description What the file's rows are. `lead` — not `person` — is what a bulk
+         *     prospect file creates: ADR-0008's anti-pollution rule is that machine-
+         *     sourced rows land as leads and are promoted by a human, and IEM-AC-7
+         *     asserts it by number (`0 person, N lead`). A file of people already
+         *     known to the business is imported as leads and promoted, not smuggled
+         *     past the qualification step by the choice of an enum value.
+         * @enum {string}
+         */
+        ImportObject: "organization" | "lead";
+        /** @description One column of the uploaded file, described well enough to map it without opening the file elsewhere. */
+        ImportColumn: {
+            /** @description The column name as the file spells it. */
+            header: string;
+            /** @description Non-empty values ÷ rows profiled. A column at 0.02 is usually a mapping mistake waiting to happen, and the number is the only way to see that before committing. */
+            fill_rate: number;
+            /** @description Up to three non-empty values, in file order. Values, not statistics — a human recognizes their own data. */
+            samples: string[];
+        };
+        /**
+         * @description What one uploaded file looks like, plus the mapping proposed for it.
+         *     Nothing here is stored against a run yet: the human may change every
+         *     line of `suggested_mapping` before `createImportRun` accepts one.
+         */
+        ImportSourceProfile: {
+            /** @description Opaque handle to the stored upload. Supplied verbatim to `createImportRun`; never a path a client can construct. */
+            source_ref: string;
+            object: components["schemas"]["ImportObject"];
+            columns: components["schemas"]["ImportColumn"][];
+            /** @description Rows read to build this profile. May be fewer than the file holds — the profile is a sample, and saying so is what keeps `fill_rate` honest. */
+            rows_profiled: number;
+            /** @description Proposed `{source column → target field}`. Normalized-name matches only; an unmatched column is absent rather than guessed. */
+            suggested_mapping: {
+                [key: string]: string;
+            };
+            /** @description Every field this object can receive, custom fields included — the closed set a mapping may name. */
+            targets: string[];
+        };
+        CreateImportRunRequest: {
+            /**
+             * @description The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
+             * @enum {string}
+             */
+            connector: "csv";
+            object: components["schemas"]["ImportObject"];
+            /** @description From `uploadImportSource`. */
+            source_ref: string;
+            /** @description `{source column → target field}`, as the human settled it. Validated against the object's live field catalog before the run is created. */
+            mapping: {
+                [key: string]: string;
+            };
+            /**
+             * @description The source column holding the row's stable id, written to the row's
+             *     provenance so a re-uploaded file updates rather than duplicates
+             *     (IEM-AC-9) and an undo can find what one run created (S-E15.4c).
+             *     Absent means the mapped natural key is used instead; the report
+             *     says which was chosen rather than leaving it to be inferred.
+             */
+            source_key?: string;
+        };
+        /** @description What the run will do, or did, counted per outcome. The four sum to the rows read — a disposition that does not add up is hiding something. */
+        ImportRunDisposition: {
+            created: number;
+            /** @description Rows matched to an existing record whose mapped values differ. An editable source re-imported after a correction lands here — this is not the frozen-snapshot case, where a match can never differ. */
+            updated: number;
+            /** @description Matched, and every mapped value already equal. Counted separately from `updated` because reporting work that never happened inflates both the report and the audit trail. */
+            unchanged: number;
+            skipped: number;
+        };
+        /** @description One row the import could not take, named by its line so a human can go fix it. */
+        ImportRowIssue: {
+            /** @description The line in the uploaded file, counting the header as line 1. */
+            line: number;
+            /** @description The offending column, when one is to blame. */
+            column?: string | null;
+            /** @description What is wrong, in terms of the file the human uploaded — never a database or driver message. */
+            reason: string;
+        };
+        /**
+         * @description The same shape before and after approval: a dry run reports what the
+         *     commit will do, a finished run reports what it did.
+         */
+        ImportRunReport: {
+            /** Format: uuid */
+            run_id: string;
+            status: components["schemas"]["ImportRunStatus"];
+            rows_read: number;
+            disposition: components["schemas"]["ImportRunDisposition"];
+            /** @description Row-level refusals, enumerated. A file half-ignored under a success message is worse than a refusal. */
+            issues: components["schemas"]["ImportRowIssue"][];
+            /** @description Which column identified a row for idempotency — the request's `source_key`, or the natural key chosen in its absence. Stated because the whole re-run guarantee rests on it. */
+            source_key_used: string;
+            /** @description A dry run's estimate for the commit. Null when the run has already finished and the real duration is on the run record. */
+            estimated_duration_seconds?: number | null;
+        };
+        /**
+         * @description IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+         *     carries the checkpoint it stopped at, and resuming continues from
+         *     there rather than re-reading the file from the top.
+         * @enum {string}
+         */
+        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed";
+        ImportRun: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The two beyond the migrate-in set are the flip's own sources (OVA-WIRE-8).
+             * @enum {string}
+             */
+            connector: "csv" | "hubspot" | "salesforce" | "bundle" | "mirror";
+            object: components["schemas"]["ImportObject"];
+            status: components["schemas"]["ImportRunStatus"];
+            /** @description Absolute offset into the source's rows; 0 = not started. What a resume continues from. */
+            checkpoint: number;
+            /** @description Why a failed run stopped, in the uploader's terms. Never a driver or SQL message. */
+            error?: string | null;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         OverlayUserMapEntry: {
             /** Format: uuid */
@@ -27935,6 +28207,154 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    uploadImportSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description The delimited file to import. UTF-8; the first row is the header.
+                     */
+                    file: string;
+                    object: components["schemas"]["ImportObject"];
+                };
+            };
+        };
+        responses: {
+            /** @description The file's column profile and the mapping proposed for it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSourceProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            /** @description The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateImportRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, validated and awaiting a human (dry run complete, zero rows written). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getImportRunReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRunReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    approveImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved; the commit is under way (or complete — the run record says which). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listOverlayUserMap: {

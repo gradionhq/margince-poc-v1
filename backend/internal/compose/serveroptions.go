@@ -131,8 +131,10 @@ func WithBlobstore(store blobstore.Store) Option {
 		// reset silently unable to reach the object store.
 		s.dataResetHandlers.blob = store
 		// An uploaded import source is object bytes like any other, and the
-		// upload refuses rather than pretends when a role stores none.
-		s.importHandlers.blobs = store
+		// import refuses rather than pretends when a role stores none. The
+		// field is the embedded importHandlers'; Server's own `blob` above is
+		// the readiness probe's copy.
+		s.blobs = store
 		// Same two-way wiring for the onboarding confirmation, which collects
 		// the mark its anchor declined to adopt (WithDeepRead reads s.blob).
 		if s.siteReadHandlers.engine != nil {
