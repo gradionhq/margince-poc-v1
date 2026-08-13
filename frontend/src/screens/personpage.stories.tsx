@@ -46,7 +46,7 @@ const page = { has_more: false, next_cursor: null };
 // The lead moment on the meeting-prep rung: a booked meeting close enough to
 // need a brief. Typed on its own so the story rendering PersonToday directly
 // never has to narrow an optional field back out of the 360.
-const meetingPrepMoment = {
+const meetingPrepMoment: components["schemas"]["PersonMoment"] = {
   claim_key: "meeting_prep:p-1:a-2",
   evidence_fingerprint: "fp-meeting-1",
   rule: "meeting_prep",
@@ -76,13 +76,13 @@ const meetingPrepMoment = {
       state: "available",
     },
   ],
-} as unknown as components["schemas"]["PersonMoment"];
+};
 
 // One contact at an organization: one unanswered inbound thread, a meeting
 // accepted, no open deal, one colleague who knows them, email consent
 // allowed. The demo-seed spirit — a record with enough on it to fill every
 // card, and nothing invented past what the fixture states.
-const populated = {
+const populated: View = {
   as_of: "2026-08-13T09:00:00Z",
   person: {
     id: "p-1",
@@ -228,16 +228,14 @@ const populated = {
   since_last_visit: {
     baseline_at: "2026-07-25T09:00:00Z",
     new_activities: 1,
-    deal_stage_moves: 0,
-    pending_proposals: 0,
   },
   moment: meetingPrepMoment,
-} as unknown as View;
+};
 
 // The same record with a moment on the amber ladder rung: a relationship that
 // stopped rather than one that is merely upcoming, so both tints of the lead
 // card are on screen across the gallery.
-const goneQuietMoment = {
+const goneQuietMoment: components["schemas"]["PersonMoment"] = {
   claim_key: "gone_quiet:p-1",
   evidence_fingerprint: "fp-quiet-1",
   rule: "gone_quiet",
@@ -269,13 +267,13 @@ const goneQuietMoment = {
       state: "available",
     },
   ],
-} as unknown as components["schemas"]["PersonMoment"];
+};
 
 // The same record read by someone whose grant covers none of the relationship
 // sections: every reading says so instead of reading as a thin or dormant
 // contact. No seeded demo grant reaches this state, so this fixture is the
 // only place it renders.
-const withheld = {
+const withheld: View = {
   ...populated,
   last_inbound_at: undefined,
   last_outbound_at: undefined,
@@ -289,7 +287,7 @@ const withheld = {
     "next_meeting",
     "consent",
   ],
-} as unknown as View;
+};
 
 // --- Page: the whole PersonPageV2 behind its three reads --------------------
 
@@ -443,11 +441,16 @@ export const Rail: Story = {
 // A record with no open deal, no committed loop and no captured priority —
 // the reading the band exists for, where the three panels below it would
 // otherwise each repeat the same "nothing here" three times over.
-const emptyBand = {
+//
+// `commercial` is PRESENT and empty rather than absent, which is the whole
+// distinction: the section arrives with a null deal when there is none to
+// show, and arrives not at all when the reader may not see deals. Dropping it
+// here would make an empty record claim a permission boundary.
+const emptyBand: View = {
   ...populated,
-  commercial: undefined,
+  commercial: { role: null, committee: [] },
   claims: [],
-} as unknown as View;
+};
 
 export const BriefStates: Story = {
   render: () => (
@@ -573,10 +576,21 @@ export const Composer: Story = {
 };
 
 // The research drawer under ADR-0096 D4's supported configuration: no
-// provider is registered, so the honest read is "not connected" rather than
-// an invented result. `providerProfile` is likewise absent — nothing was
-// bought either, and this is the one place where both halves of the drawer
-// agree on that.
+// provider is registered. `providerProfile` is PRESENT with state
+// "not_connected" rather than absent — absent means the caller lacks the
+// grant, and this reader has one; there is simply no provider behind it to
+// report on, which is a fact about the deployment and not a permission
+// boundary.
+const providerNotConnected: components["schemas"]["PersonProviderProfile"] = {
+  state: "not_connected",
+  categories_not_requested: [],
+  emails: [],
+  mobile_phones: [],
+  job_history: [],
+  departments: [],
+  seniorities: [],
+};
+
 export const ResearchDrawer: Story = {
   render: () => {
     installFetchStub({
@@ -593,7 +607,7 @@ export const ResearchDrawer: Story = {
         <PersonResearchDrawer
           personId="p-1"
           personName="Dana Buyer"
-          providerProfile={undefined}
+          providerProfile={providerNotConnected}
           open
           onClose={() => {}}
         />
