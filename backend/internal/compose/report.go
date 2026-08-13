@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -32,7 +33,15 @@ const (
 	colAmountMinor    = "t.amount_minor"
 	colPipelineID     = "t.pipeline_id"
 	colStageID        = "t.stage_id"
+	colOrganizationID = "t.organization_id"
 	whereArchivedNull = "t.archived_at IS NULL"
+
+	// partnerSourcedExpr mirrors modules/deals.appendDealFilters' own
+	// partner_sourced predicate: attribution presence, not a value match.
+	// Boolean-valued, so it fits the report engine's generic `expr = $n`
+	// filter rendering the same way weightedAmountMinorExpr's sibling
+	// stalled predicate does — no special-casing needed for either.
+	partnerSourcedExpr = "t.partner_org_id IS NOT NULL"
 
 	// joinStageForWinProbability is the one join a spec adds when it needs the
 	// deal's current stage for win_probability. It is safe from BOTH directions
@@ -65,6 +74,10 @@ const (
 	fieldStageID        = "stage_id"
 	fieldStatus         = "status"
 	fieldWinProbability = "win_probability"
+	fieldOrganizationID = "organization_id"
+	fieldPartnerSourced = "partner_sourced"
+	fieldStalled        = "stalled"
+	fieldCurrency       = "currency"
 )
 
 type reportAggregate struct {
@@ -154,6 +167,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStatus:         "t.status",
 			"pipeline_id":       colPipelineID,
 			fieldWinProbability: colWinProbability,
+			fieldCurrency:       "t.currency",
 		},
 		measures: map[string]string{
 			"amount_minor":           colAmountMinor,
@@ -162,8 +176,19 @@ var prebuiltReports = map[string]reportSpec{
 		// No stage_id filter: nothing serves it (the screen groups BY stage_id
 		// instead), and a filter key this report has no caller for is public
 		// agent surface (the run_report catalog, mcp-info.{json,md}) with no
-		// concrete use behind it.
-		filters:   map[string]string{"pipeline_id": colPipelineID, fieldStatus: "t.status", "owner_id": colOwnerID},
+		// concrete use behind it. The rest match the board's own filter dials:
+		// partner_sourced and stalled are boolean-valued expressions, which
+		// the engine's generic `expr = $n` rendering already handles with no
+		// special-casing.
+		filters: map[string]string{
+			"pipeline_id":       colPipelineID,
+			fieldStatus:         "t.status",
+			"owner_id":          colOwnerID,
+			fieldOrganizationID: colOrganizationID,
+			fieldPartnerSourced: partnerSourcedExpr,
+			fieldStalled:        deals.StalledSQL("t"),
+			fieldCurrency:       "t.currency",
+		},
 		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},

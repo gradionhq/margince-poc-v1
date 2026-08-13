@@ -167,9 +167,9 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	}
 	if in.Stalled != nil {
 		if *in.Stalled {
-			where = append(where, stalledSQL)
+			where = append(where, StalledSQL(""))
 		} else {
-			where = append(where, "NOT "+stalledSQL)
+			where = append(where, "NOT "+StalledSQL(""))
 		}
 	}
 	return where

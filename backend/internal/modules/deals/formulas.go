@@ -10,7 +10,10 @@ package deals
 // server-side — and the agreement test in the integration lane keeps
 // them from drifting.
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // StalledThresholdDays is the §8 tunable: open deals idle longer than
 // this are stalled unless a wait suppresses it.
@@ -36,8 +39,20 @@ func IsStalled(status string, createdAt time.Time, lastActivityAt, waitUntil *ti
 	return true
 }
 
-// stalledSQL is the list-filter spelling of IsStalled (true branch);
-// callers negate it for stalled=false.
-const stalledSQL = `(status = 'open'
-	AND coalesce(last_activity_at, created_at) < now() - interval '60 days'
-	AND (wait_until IS NULL OR wait_until <= now()))`
+// StalledSQL is the list-filter spelling of IsStalled (true branch);
+// callers negate it for stalled=false. Takes the query's table alias —
+// deal_read.go's own list query reads the unaliased `deal` table (alias
+// ""), but a caller that JOINs a table sharing a column name this
+// expression touches (compose/report.go's deals-by-stage joins `stage`,
+// which also has created_at) MUST qualify every column or the reference
+// is ambiguous SQL, not merely wrong. One spelling, parameterized, rather
+// than a second copy that only agrees by accident.
+func StalledSQL(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return fmt.Sprintf(`(%[1]sstatus = 'open'
+		AND coalesce(%[1]slast_activity_at, %[1]screated_at) < now() - interval '%[2]d days'
+		AND (%[1]swait_until IS NULL OR %[1]swait_until <= now()))`, prefix, StalledThresholdDays)
+}
