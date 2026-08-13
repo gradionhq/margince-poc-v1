@@ -1816,6 +1816,8 @@ export const en = {
   "audit.onBehalfOfYou": "on behalf of you",
   "audit.onBehalfOfTeammate": "on behalf of a teammate",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
+  "settings.auditAdminOnly":
+    "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",
   "settings.auditFilters": "Filters",
   "settings.auditEntries": "Audit log",
   "settings.auditActor": "Actor",
@@ -3713,6 +3715,7 @@ export const en = {
   "settings.companyClass.unchanged": "Unchanged",
   "settings.companyResolution.keep_current": "Keep current",
   "settings.companyResolution.accept_proposal": "Accept website",
+  "settings.companyResolution.useValueFor": "Value to keep for {field}",
   "settings.companyResolution.use_value": "Use my edited value",
   "settings.companyManualKicker": "Private, manual setup",
   "settings.companyManualTitle": "Tell Margince the essentials",
@@ -3806,6 +3809,8 @@ export const en = {
   "aicalls.title": "AI call trace",
   "aicalls.sub":
     "Every model call — routing identity, tokens, retries, captured payload.",
+  "aicalls.col.detail": "Detail",
+  "aicalls.expandCall": "Show the attempt trail for {task} at {when}",
   "aicalls.col.when": "When",
   "aicalls.col.task": "Task",
   "aicalls.col.model": "Model",

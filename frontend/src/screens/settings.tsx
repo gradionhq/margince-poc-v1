@@ -288,18 +288,13 @@ function GeneralTab() {
 // three separate screens behind door-cards and one editor inline — a door is
 // not a section, and the doors are gone.
 function DataModelTab() {
-  // It sets its own rhythm because it is the one entry whose surfaces are not
-  // all cards: `.wrap > .card + .card` (shell.css) matches a card following a
-  // card, and the field editor is a block of its own while the two list
-  // surfaces are a heading plus a table. Left to that rule the pipeline card
-  // would sit flush against the editor above it.
   return (
-    <div className="settings-stack">
+    <>
       <CustomFieldsAdmin />
       <PipelinesCard />
       <ProductsAdmin />
       <OfferTemplatesAdmin />
-    </div>
+    </>
   );
 }
 
@@ -346,11 +341,18 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
   // The installation grant is the same call InstallationSettingsCard makes, so
   // the entry and the fields inside it can never disagree about who may edit.
   const canEditInstallation = useCanWrite("installation_settings", "update");
-  // Adding a domain is `create`, curating the list is `update`, and the entry
-  // opens on either: a rep who may add their own sending domain reaches the
-  // page, and the controls they may not use gate themselves.
-  const canAddCapture = useCanWrite("capture_settings", "create");
-  const canEditCapture = useCanWrite("capture_settings", "update");
+  // Either capture write opens the page, and the two buy different things: an
+  // OWN sending domain takes `update` (capture.owndomainstore), while adding a
+  // consumer-mail domain is admitted on `create` OR `update`. So what earns a
+  // rep or a manager this page is the consumer-mail card, not the own-domain
+  // list — they hold `create` alone and the server refuses them there. The
+  // controls they may not use gate themselves.
+  // Seat-free on purpose: this answers "may you OPEN the page", which is a read,
+  // and capability.ts's doctrine is that a read seat still reads the pages behind
+  // these entries. Folding the licensing seat in here hid a page a read seat is
+  // served 200 on, protecting nothing — the writes inside fold it themselves.
+  const captureWrite = useHoldsWriteGrant("capture_settings");
+  const automationRead = useCan("automation", "read");
   const automation = useHoldsWriteGrant("automation");
   const isAdmin = useHoldsAdminRole();
   const isConsentAdmin = useHoldsConsentAdminRole();
@@ -387,17 +389,25 @@ function useOrgTabVisibility(): Readonly<Record<OrgTabId, boolean>> {
     // a viewer without the grants gets the honest read-only view, not a dead
     // link.
     connections: true,
-    capture: canAddCapture || canEditCapture,
+    capture: captureWrite,
     // Everything that defines the shape a record takes. The object questions are
     // WRITE grants rather than reads because these are authoring surfaces — the
     // field editor, the pipeline designer, the product list. `read` on them is
     // held by every seeded role, so gating on it would put the page in front of
     // everyone, which answers a different question than "can you use this".
     "data-model": customField || pipeline || product || offerTemplate,
-    // Spend, model prices, and the automations the installation runs. Model
-    // prices follow their own grant; the spend cards and the automation editor
-    // both follow the automation grants, and each still gates itself inside.
-    ai: automation || aiModelRate,
+    // Spend, model prices, and the automations the installation runs.
+    //
+    // The automations term is a READ, and that is the whole point: before this
+    // page absorbed it, the automations editor was a route of its own that
+    // nothing gated, reached from a tab in the ungated personal group. Every
+    // seeded role holds `automation:read` and the server answers 200, so gating
+    // the merged entry on the WRITE grant took a working surface away from
+    // manager, rep and read_only — the merge inheriting the spend cards'
+    // authority and dropping the door's. The union rule exists to prevent
+    // exactly that, and it has to include reads to do it. The spend cards and
+    // every write affordance still gate themselves inside.
+    ai: automationRead || automation || aiModelRate,
     // Privacy is the one that genuinely differs. The consent purpose registry is
     // an Admin/Ops surface; the subject-request queue and the audit trail beside
     // it are the admin's. Ops therefore reaches the page and finds the registry,
@@ -467,13 +477,21 @@ export function useSettingsSection(tab?: string): NavSection {
 
 export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const { active } = useVisibleSettingsTabs(tab);
-  // No nav column and no heading of its own: the tabs are the sidebar's second
-  // level now, and the shell's page head names the tab, so the page is the tab's
-  // own content across the whole reading column.
+  // No nav column and no heading of its own: the entries are the sidebar's second
+  // level now, and the shell's page head names the entry, so the page is that
+  // entry's own content across the whole reading column.
+  //
+  // Every page sets its rhythm HERE rather than relying on the shell's
+  // `.wrap > .card + .card` default, because that rule matches a card following a
+  // card and settings pages are no longer stacks of cards: the merge left several
+  // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
+  // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
+  // it once is the difference between eleven pages that space correctly and
+  // eleven that each have to remember to.
   return (
     <div className="wrap">
       <ResumeConnectBanner />
-      {tabContent(active.id)}
+      <div className="settings-stack">{tabContent(active.id)}</div>
     </div>
   );
 }
@@ -1757,8 +1775,16 @@ function AuditLogEntries({
   meUserId,
 }: Readonly<{ filters: AuditLogFilters; meUserId?: string }>) {
   const t = useT();
+  // The full trail is the admin's alone (AAD-ROLE-4/A91, enforced by
+  // privacy.ListAuditLog), while the page it sits on opens for ops too — the
+  // consent registry above is theirs. So the read is gated here rather than
+  // merely rendered, and the fetch is disabled for anyone else: an ops seat
+  // reaching this page must not issue a call that can only 403, and must not be
+  // handed a red failure with a Retry that cannot succeed.
+  const isAdmin = useHoldsAdminRole();
   const query = useInfiniteQuery({
     queryKey: ["audit-log", filters],
+    enabled: isAdmin,
     initialPageParam: FIRST_AUDIT_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/audit-log", {
@@ -1774,10 +1800,20 @@ function AuditLogEntries({
 
   const entries = query.data?.pages.flatMap((page) => page.data) ?? [];
 
-  // Honest state matrix (§3a): loading, error, empty, then the list — kept as
-  // sequential branches rather than a nested ternary in the JSX below.
+  // Honest state matrix (§3a): withheld, loading, error, empty, then the list —
+  // kept as sequential branches rather than a nested ternary in the JSX below.
   let body: ReactNode;
-  if (query.isPending) {
+  if (!isAdmin) {
+    // Withheld rather than absent, and the card keeps its place: an absent trail
+    // on a page that opens for ops would read as "nothing has happened here",
+    // which is a different claim from "this is not yours to read". The same
+    // choice the subject-request queue above it makes, for the same reason.
+    body = (
+      <EmptyState>
+        <p className="t-small">{t("settings.auditAdminOnly")}</p>
+      </EmptyState>
+    );
+  } else if (query.isPending) {
     body = (
       <div
         style={{
@@ -1847,18 +1883,25 @@ export function AuditLogCard() {
   const t = useT();
   // The current user's id resolves audit "You" vs "A teammate" in ActorTag.
   const meUserId = useMe().data?.user?.id;
+  const isAdmin = useHoldsAdminRole();
   const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);
   return (
     <>
-      {/* "Filters" here and the log's own name on the card BELOW, which is the
-          one that holds it. The page head used to name the log — it was an entry
-          of its own — and now says "Privacy & audit" over four cards, so a
-          filter row and a card of "Entries" left nothing on the page saying
-          which log this is. Naming the filters instead would put the name above
-          the question rather than above the answer. */}
-      <Card title={t("settings.auditFilters")}>
-        <AuditLogFilterFields filters={filters} onChange={setFilters} />
-      </Card>
+      {/* The filter row is absent, not withheld, for a reader who may not read
+          the trail: six inputs that narrow a list they cannot see are a control
+          with nothing behind it. The ENTRIES card below stays and says why —
+          absence there would claim nothing had happened. */}
+      {isAdmin && (
+        /* "Filters" here and the log's own name on the card BELOW, which is the
+           one that holds it. The page head used to name the log — it was an
+           entry of its own — and now says "Privacy & audit" over four cards, so
+           a filter row and a card of "Entries" left nothing on the page saying
+           which log this is. Naming the filters instead would put the name above
+           the question rather than above the answer. */
+        <Card title={t("settings.auditFilters")}>
+          <AuditLogFilterFields filters={filters} onChange={setFilters} />
+        </Card>
+      )}
       <AuditLogEntries filters={filters} meUserId={meUserId} />
     </>
   );

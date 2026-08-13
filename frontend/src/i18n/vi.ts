@@ -1808,6 +1808,8 @@ export const vi = {
   "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
+  "settings.auditAdminOnly":
+    "Chỉ quản trị viên đọc được toàn bộ dấu vết. Nó ghi lại mọi người thực hiện và mọi bản ghi họ chạm tới, nên không mở rộng hơn.",
   "settings.auditFilters": "Bộ lọc",
   "settings.auditEntries": "Nhật ký kiểm toán",
   "settings.auditActor": "Tác nhân",
@@ -3706,6 +3708,7 @@ export const vi = {
   "settings.companyClass.unchanged": "Không đổi",
   "settings.companyResolution.keep_current": "Giữ hiện tại",
   "settings.companyResolution.accept_proposal": "Nhận theo website",
+  "settings.companyResolution.useValueFor": "Giá trị giữ lại cho {field}",
   "settings.companyResolution.use_value": "Dùng giá trị tôi đã sửa",
   "settings.companyManualKicker": "Thiết lập thủ công, riêng tư",
   "settings.companyManualTitle": "Cho Margince biết những điều cốt lõi",
@@ -3800,6 +3803,8 @@ export const vi = {
   "aicalls.title": "Dấu vết lượt gọi AI",
   "aicalls.sub":
     "Mọi lượt gọi mô hình — danh tính định tuyến, token, số lần thử lại, nội dung đã ghi.",
+  "aicalls.col.detail": "Chi tiết",
+  "aicalls.expandCall": "Xem chuỗi lần thử của {task} lúc {when}",
   "aicalls.col.when": "Lúc",
   "aicalls.col.task": "Tác vụ",
   "aicalls.col.model": "Mô hình",

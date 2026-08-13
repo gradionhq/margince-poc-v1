@@ -3,17 +3,32 @@
    tabs' own content: this sheet owns the cards, never the navigation between
    them. */
 
-/* A settings page that sets its own vertical rhythm. `.wrap > .card + .card`
-   (app/shell.css) is the default and it matches a card FOLLOWING a card, which
-   covers every entry whose page is a stack of cards. Data model is not: it holds
-   the field editor, which is a block of its own, and two list surfaces that are a
-   section heading plus a table. The gap here is the same --space-4 that rule
-   gives, so the two kinds of page read alike; a section heading's own top margin
-   still adds to it, which is what separates a new subject from the next card. */
+/* EVERY settings page's vertical rhythm, owned in one place.
+   `.wrap > .card + .card` (app/shell.css) is the shell's default and it matches a
+   card FOLLOWING a card. After the eleven-entry merge most settings pages are no
+   longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
+   People holds two flex wrappers; Data model holds a block, a card and two
+   heading-plus-table pairs — so that rule silently missed and the gap between two
+   unrelated surfaces was ZERO. Two hairlines touching read as one card.
+
+   The gap is the same --space-4 the shell's rule gives, so a settings page and any
+   other page space alike. */
 .settings-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* A section heading inside the stack separates SUBJECTS, so it needs more air
+   above it than the gap between two cards of one subject — and none below, or the
+   heading floats midway between the block it leaves and the table it names.
+   Margins do not collapse in a flex container, so these add to the gap rather
+   than competing with it: --space-4 above the heading on top of the --space-4 gap
+   reads as a new subject, while the heading sits --space-4 from its own content.
+   Without the reset the default (24 above, 12 below) gave 40 and 28 — a heading
+   barely closer to what it names than to what it follows. */
+.settings-stack > .section-header {
+  margin: var(--space-4) 0 0;
 }
 
 .company-context-shell {

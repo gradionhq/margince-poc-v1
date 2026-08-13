@@ -1817,6 +1817,8 @@ export const de = {
   "audit.onBehalfOfYou": "in deinem Auftrag",
   "audit.onBehalfOfTeammate": "im Auftrag eines Teammitglieds",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
+  "settings.auditAdminOnly":
+    "Nur Admins lesen den vollständigen Verlauf. Er hält jede handelnde Person und jeden berührten Datensatz fest — deshalb ist er nicht weiter zugänglich.",
   "settings.auditFilters": "Filter",
   "settings.auditEntries": "Audit-Log",
   "settings.auditActor": "Akteur",
@@ -3716,6 +3718,8 @@ export const de = {
   "settings.companyClass.unchanged": "Unverändert",
   "settings.companyResolution.keep_current": "Aktuellen Wert behalten",
   "settings.companyResolution.accept_proposal": "Website übernehmen",
+  "settings.companyResolution.useValueFor":
+    "Wert, der für {field} bleiben soll",
   "settings.companyResolution.use_value": "Meinen bearbeiteten Wert nutzen",
   "settings.companyManualKicker": "Private, manuelle Einrichtung",
   "settings.companyManualTitle": "Gib Margince die Grundlagen",
@@ -3810,6 +3814,8 @@ export const de = {
   "aicalls.title": "KI-Aufrufprotokoll",
   "aicalls.sub":
     "Jeder Modellaufruf — Routing, Tokens, Wiederholungen und erfasste Nutzdaten.",
+  "aicalls.col.detail": "Detail",
+  "aicalls.expandCall": "Versuchsverlauf für {task} um {when} anzeigen",
   "aicalls.col.when": "Zeitpunkt",
   "aicalls.col.task": "Aufgabe",
   "aicalls.col.model": "Modell",

@@ -1399,6 +1399,12 @@ const auditEntry = {
 function auditLogBackend() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
+    // The trail is the admin's alone, so every case below needs a principal who
+    // may read it — an anonymous fixture would only ever exercise the withheld
+    // rung, which has a case of its own on the Privacy & audit page.
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse(meFixture({ roles: ["admin"] }));
+    }
     if (url.includes("/audit-log")) {
       return jsonResponse({
         data: [auditEntry],
@@ -1870,6 +1876,64 @@ describe("SettingsScreen restructured entries", () => {
     expect(screen.getByText("update")).toBeTruthy();
   });
 
+  // Before this page absorbed it, the automations editor was a route of its own
+  // that nothing gated. Every seeded role holds `automation:read` and the server
+  // serves them, so gating the merged entry on the WRITE grant would take a
+  // working surface away from manager, rep and read_only — the merge inheriting
+  // the spend cards' authority and dropping the door's.
+  it("opens AI for a rep on the automations read alone, editor and all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mergedEntryBackend({ roles: ["rep"], allow: { automation: ["read"] } }),
+    );
+    renderSettings("ai");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: "AI" }).getAttribute("aria-current"),
+      ).toBe("page"),
+    );
+    // The surface they came for.
+    expect(
+      await screen.findByRole("heading", { name: "Automations" }),
+    ).toBeTruthy();
+    // And not the spend cards, which follow the automation WRITE grant: this
+    // seat reaches the page without being handed the operator's bill.
+    expect(
+      screen.queryByRole("heading", { name: "AI usage & budget" }),
+    ).toBeNull();
+  });
+
+  // The trail is the admin's alone, and this page opens for OPS — the consent
+  // registry above it is theirs. Before the merge the audit log was an entry of
+  // its own, gated on the admin role by the nav; merging it onto a page ops
+  // reaches moved that gate's job into the card, and nothing was doing it.
+  it("withholds the audit trail from an ops seat, and asks the server for nothing", async () => {
+    const backend = mergedEntryBackend({ roles: ["ops"] });
+    vi.stubGlobal("fetch", backend);
+    renderSettings("privacy");
+    // Ops reaches the page for the registry, which renders.
+    expect(
+      await screen.findByRole("heading", { name: "Consent purposes" }),
+    ).toBeTruthy();
+    // The trail keeps its place and says why it is empty — absent, it would read
+    // as "nothing has happened here", a different claim entirely.
+    expect(
+      await screen.findByRole("heading", { name: "Audit log" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/only an admin can read the full trail/i),
+    ).toBeTruthy();
+    // Six inputs that narrow a list you cannot see are a control with nothing
+    // behind it, so the filter row is absent rather than withheld.
+    expect(screen.queryByRole("heading", { name: "Filters" })).toBeNull();
+    // And the request is never issued: it could only ever come back 403, and a
+    // red failure with a futile Retry is what the withheld body replaces.
+    const asked = backend.mock.calls.map((call) =>
+      String(call[0] instanceof Request ? call[0].url : call[0]),
+    );
+    expect(asked.some((url) => url.includes("/audit-log"))).toBe(false);
+  });
+
   it("renders the reindex on Maintenance for a principal holding only that grant, and no danger zone", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1963,11 +2027,13 @@ describe("AuditLogCard", () => {
   it("says the log is empty rather than showing an empty entries card", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        jsonResponse({
-          data: [],
-          page: { next_cursor: null, has_more: false },
-        }),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input instanceof Request ? input.url : input).endsWith("/v1/me")
+          ? jsonResponse(meFixture({ roles: ["admin"] }))
+          : jsonResponse({
+              data: [],
+              page: { next_cursor: null, has_more: false },
+            }),
       ),
     );
     render(<AuditLogCard />);
@@ -1979,6 +2045,9 @@ describe("AuditLogCard", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ roles: ["admin"] }));
+        }
         if (url.includes("/audit-log")) {
           return jsonResponse({ title: "Upstream is down" }, 500);
         }
@@ -2037,6 +2106,9 @@ describe("AuditLogCard", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ roles: ["admin"] }));
+        }
         if (url.includes("/audit-log")) {
           return jsonResponse({
             data: [objectValuedEntry],
