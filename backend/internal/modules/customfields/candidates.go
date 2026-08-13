@@ -4,9 +4,9 @@
 package customfields
 
 // The read the automation module's date_field_approaching clock scan
-// needs (Task 14a follow-on, automation/seams.go's DateFieldScan): which
-// records carry a cf_* DATE column whose value falls in a caller-given
-// window, real or yearly-recurring. Sourced from this module's OWN
+// needs (automation/seams.go's DateFieldScan): which records carry a
+// cf_* DATE column whose value falls in a caller-given window, real or
+// yearly-recurring. Sourced from this module's OWN
 // catalog (ActiveColumns, catalogreader.go) plus the record table the
 // catalog names — same posture as activities/lasttouch.go reading tables
 // it does not own the writes to: a module reaches records only through
@@ -56,11 +56,13 @@ type DateFieldCandidate struct {
 	OccurrenceDate time.Time
 }
 
-// dateFieldCandidatesLimit floors an unreasonable caller-given limit the
-// same way clockScanBatchLimit bounds automation's own batch — a
+// minDateFieldCandidatesLimit is a FLOOR, not a cap: it raises an
+// unreasonable caller-given limit up to at least 1, the same way
+// clockScanBatchLimit bounds automation's own batch on the other end — a
 // negative or zero limit here would either error out inside Postgres or
-// (worse, LIMIT 0 is valid SQL) silently return nothing.
-const dateFieldCandidatesLimit = 1
+// (worse, LIMIT 0 is valid SQL) silently return nothing. This never
+// lowers a caller's limit; DateFieldCandidates has no ceiling of its own.
+const minDateFieldCandidatesLimit = 1
 
 // DateFieldCandidates answers which records of object carry column
 // (a real, active date-typed custom field, checked against the
@@ -84,8 +86,8 @@ func (s *Service) DateFieldCandidates(ctx context.Context, object, column string
 	if err := validateDateColumn(cols, column); err != nil {
 		return nil, err
 	}
-	if limit < dateFieldCandidatesLimit {
-		limit = dateFieldCandidatesLimit
+	if limit < minDateFieldCandidatesLimit {
+		limit = minDateFieldCandidatesLimit
 	}
 
 	quotedTable := quoteIdentifier(object)
@@ -143,7 +145,7 @@ func queryLiteralCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quotedC
 	query := fmt.Sprintf(
 		`SELECT id, %[1]s FROM %[2]s WHERE %[1]s BETWEEN $1 AND $2 ORDER BY %[1]s, id LIMIT $3`,
 		quotedCol, quotedTable)
-	return scanDateFieldRows(ctx, tx, query, from, to, limit)
+	return scanDateFieldRows(ctx, tx, query, limit, from, to)
 }
 
 // queryRecurringCandidates is the yearly-recurrence shape: compares the
@@ -164,14 +166,18 @@ func queryRecurringCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quote
 	}
 	query := fmt.Sprintf(`SELECT id, %[1]s FROM %[2]s WHERE %[3]s ORDER BY %[1]s, id LIMIT $3`,
 		quotedCol, quotedTable, predicate)
-	return scanDateFieldRows(ctx, tx, query, fromMMDD, toMMDD, limit)
+	return scanDateFieldRows(ctx, tx, query, limit, fromMMDD, toMMDD)
 }
 
 // scanDateFieldRows runs query (already built with validated identifiers
 // by its caller) and scans the (id, date) result shape both candidate
-// queries share.
-func scanDateFieldRows(ctx context.Context, tx pgx.Tx, query string, arg1, arg2 any, limit int) ([]dateFieldRow, error) {
-	rows, err := tx.Query(ctx, query, arg1, arg2, limit)
+// queries share. args are the query's own $1/$2 binds in order — a
+// time.Time pair for the literal shape, a MMDD string pair for the
+// recurring shape — with limit always bound last as $3, since every
+// candidate query shares that same LIMIT position regardless of what its
+// own predicate binds.
+func scanDateFieldRows(ctx context.Context, tx pgx.Tx, query string, limit int, args ...any) ([]dateFieldRow, error) {
+	rows, err := tx.Query(ctx, query, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}

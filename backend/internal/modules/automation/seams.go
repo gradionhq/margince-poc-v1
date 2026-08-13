@@ -19,6 +19,24 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
+// ErrDateFieldUnavailable is DateFieldScan's honest "this ONE instance has
+// nothing to scan right now" answer — the same posture
+// errRenewalScanParamsMissing (timescan.go) already takes for an instance
+// that was never configured, extended to cover an instance that WAS
+// configured against a real column at save time but no longer resolves to
+// one: a workspace admin can retire a custom field after an automation
+// instance already names it (customfields.Retire), and save-time validation
+// (validateRenewalDateFieldParam, automations_catalog_renewal.go) only
+// checks non-emptiness, not live existence. Compose's adapter
+// (dateFieldScanAdapter.Candidates, compose/timescan.go) maps
+// customfields.ErrUnknownDateColumn onto this sentinel — the translation
+// point where both the customfields error type and this seam are in scope —
+// so scanDateFieldInstanceCandidates can skip the one broken instance
+// without this module importing customfields to recognize its error
+// (ADR-0054 §9). A misconfigured renewal_reminder must never take down
+// no_activity_reminder/check_in_cadence in the same ScanWorkspace pass.
+var ErrDateFieldUnavailable = errors.New("automation: the configured date field is not available to scan")
+
 // Approvals is the staging dependency ApplyActions holds: a 🟡 action
 // stages here and ApplyActions returns workflow.StagedApprovalError
 // carrying the resulting id back to the caller, which runOne then writes

@@ -5,8 +5,8 @@
 
 package customfields
 
-// The real-Postgres proofs for DateFieldCandidates (Task 14a follow-on,
-// automation/seams.go's DateFieldScan): validation refuses an unknown or
+// The real-Postgres proofs for DateFieldCandidates
+// (automation/seams.go's DateFieldScan): validation refuses an unknown or
 // wrong-typed column BEFORE it reaches SQL, the literal BETWEEN shape
 // answers a fixed window correctly, and the recurring MMDD shape matches
 // a window that wraps Dec 31 → Jan 1 on both sides of the wrap while

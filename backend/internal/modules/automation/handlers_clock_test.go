@@ -450,7 +450,7 @@ func TestRenewalReminderIdempotencyKeyIsAnchorDerived(t *testing.T) {
 }
 
 // TestRenewalReminderRecurringAnchorReArmsEachYear proves the whole point
-// of #706's recurrence design without touching a single line of
+// of the recurrence design without touching a single line of
 // Match/Plan/IdempotencyKey: for a birthday-shaped field whose STORED
 // value never changes year to year, DateFieldCandidates (customfields,
 // not this package) projects a fresh occurrence date onto each scan

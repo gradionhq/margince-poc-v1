@@ -5,8 +5,8 @@
 
 package integration
 
-// The end-to-end proof for #706's renewal_reminder candidate source (Task
-// 1's customfields.DateFieldCandidates) over a real, migrated Postgres —
+// The end-to-end proof for renewal_reminder's candidate source
+// (customfields.DateFieldCandidates) over a real, migrated Postgres —
 // timescan_integration_test.go's structural precedent, but for the
 // DateFieldScan seam rather than ActivityScan. A real date-typed custom
 // field is defined and written through the customfields engine and the
@@ -162,6 +162,53 @@ func TestRenewalReminderRecurringAnchorReArmsEachYear(t *testing.T) {
 	}
 	if got := personTaskCount(t, e, ids.UUID(celebrant.Id)); got != 2 {
 		t.Fatalf("reminder tasks after year two = %d, want exactly 2 — the recurring anchor must re-arm, not suppress as a duplicate", got)
+	}
+}
+
+// TestRenewalReminderMisconfiguredInstanceDoesNotAbortTheWorkspacePass
+// proves the fleet-isolation property a misconfigured renewal_reminder
+// instance must never break: a workspace admin can retire a custom field
+// after an automation instance already named it (or an instance can simply
+// name a column that was never created), so this instance's date_field
+// resolves to nothing customfields.Service.ActiveColumns recognizes as an
+// active date-typed column. Before the fix, DateFieldCandidates' resulting
+// customfields.ErrUnknownDateColumn propagated all the way out of
+// ScanWorkspace, failing the WHOLE workspace pass — a healthy
+// no_activity_reminder instance seeded in the SAME workspace never got its
+// turn. The scan must instead skip the broken renewal_reminder instance
+// alone and still converge the healthy instance's candidate in the same
+// pass.
+func TestRenewalReminderMisconfiguredInstanceDoesNotAbortTheWorkspacePass(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Gone Quiet Deal", pipeline, open, nil)
+
+	owner := OwnerConn(t)
+
+	scanNow := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	now := func() time.Time { return scanNow }
+
+	// A genuine human touch old enough to make the deal a no_activity_reminder
+	// candidate under the default 7-day threshold.
+	firstTouch := scanNow.AddDate(0, 0, -10)
+	seedGenuineTouch(t, owner, e.WS, dealID, "call", firstTouch)
+	backdateCreatedAt(t, owner, "deal", dealID, firstTouch)
+
+	seedNoActivityReminder(t, owner, e.WS)
+	// A renewal_reminder instance naming a column that is not (and never
+	// was) an active date-typed custom field on person — the same shape of
+	// failure a retired field leaves behind, since both reach
+	// DateFieldCandidates as customfields.ErrUnknownDateColumn.
+	seedRenewalReminder(t, owner, "person", "cf_does_not_exist", 30, false)
+
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	scanner := compose.NewTimeScannerWithClock(e.DB(), now, quiet)
+
+	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
+		t.Fatalf("ScanWorkspace: %v, want nil — one misconfigured renewal_reminder instance must not fail the whole pass", err)
+	}
+	if got := reminderTaskCount(t, e, dealID); got != 1 {
+		t.Fatalf("no_activity_reminder tasks = %d, want exactly 1 — the healthy instance must still fire despite the broken renewal_reminder instance", got)
 	}
 }
 

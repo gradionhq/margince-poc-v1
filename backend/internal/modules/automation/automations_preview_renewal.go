@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // renewalPreviewParams decodes and validates the params in effect for a
@@ -42,7 +43,17 @@ import (
 // itself only checks non-emptiness (a save-time Validate call may not
 // have covered this exact value, e.g. a value from before the vocabulary
 // was extended).
-func renewalPreviewParams(stored Automation, in AutomationPreviewInput) (dateFieldScanParams, error) {
+//
+// It also checks date_field against the workspace's own LIVE catalog via
+// catalog (AutomationStore.WithFieldCatalog, fieldcatalog.Reader — the
+// same seam deals.Store/people.Store already consume, so this is not new
+// cross-module plumbing): an unknown, retired, or wrong-typed column
+// answers a 422 ParamError here, before renewalPreviewDef ever builds SQL
+// around it, rather than reaching Postgres and surfacing as a raw 500. A
+// nil catalog (the seam not wired — a test, or a role that never mounted
+// it) skips this one check, the same graceful-degradation posture every
+// other WithFieldCatalog consumer takes for a nil Reader.
+func renewalPreviewParams(ctx context.Context, catalog fieldcatalog.Reader, stored Automation, in AutomationPreviewInput) (dateFieldScanParams, error) {
 	raw := stored.Params
 	if in.Params != nil {
 		encoded, err := json.Marshal(in.Params)
@@ -67,7 +78,36 @@ func renewalPreviewParams(stored Automation, in AutomationPreviewInput) (dateFie
 			Reason: "must be one of " + strings.Join(renewalReminderObjects, ", "),
 		}
 	}
+	if err := validateRenewalPreviewDateField(ctx, catalog, p.Object, p.Column); err != nil {
+		return dateFieldScanParams{}, err
+	}
 	return p, nil
+}
+
+// validateRenewalPreviewDateField refuses a date_field that is not, right
+// now, an active date-typed custom field on object — the preview-time twin
+// of customfields.Service.DateFieldCandidates' own ErrUnknownDateColumn
+// check, run here instead so the refusal is a 422 ParamError rather than
+// the raw database error measure() would otherwise surface (42703, an
+// undefined column, if date_field names nothing real). A nil catalog skips
+// this check entirely; see renewalPreviewParams' own doc for why.
+func validateRenewalPreviewDateField(ctx context.Context, catalog fieldcatalog.Reader, object, column string) error {
+	if catalog == nil {
+		return nil
+	}
+	cols, err := catalog.ActiveColumns(ctx, object)
+	if err != nil {
+		return fmt.Errorf("automation: loading %s's active columns for preview: %w", object, err)
+	}
+	for _, c := range cols {
+		if c.Name == column && c.Type == fieldcatalog.TypeDate {
+			return nil
+		}
+	}
+	return &ParamError{
+		Field:  "params." + paramKeyDateField,
+		Reason: fmt.Sprintf("%q is not an active date-typed custom field on %s", column, object),
+	}
 }
 
 // renewalPreviewDef builds one renewal_reminder instance's previewDef at
@@ -86,13 +126,11 @@ func renewalPreviewParams(stored Automation, in AutomationPreviewInput) (dateFie
 // (DESIGN.md's own "what stays out of scope") — a recurring instance's
 // preview answers today's literal window exactly like a one-time one.
 //
-// date_field's existence and DATE type are NOT re-checked here: that
-// needs customfields.Service.ActiveColumns, a call this function has no
-// path to without importing customfields (forbidden) or compose growing
-// new cross-module plumbing this ticket does not ask for. An instance
-// naming a retired or wrong-typed column simply fails the SQL below with
-// a clear database error when measure() runs it — propagated as an
-// ordinary error, never a fabricated zero-match result.
+// date_field's existence and DATE type are checked BEFORE this function
+// ever runs (renewalPreviewParams' catalog validation, above) — by the
+// time p reaches here it has already been confirmed against the
+// workspace's own live custom-field catalog, so the SQL below is built
+// around a column known to be real.
 func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 	quotedCol := pgx.Identifier{p.Column}.Sanitize()
 	from := now.Format("2006-01-02")
@@ -110,7 +148,15 @@ func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 		// firedCount: entities whose watched date already fell inside the
 		// trailing window — the past-occurrences reading of "would have
 		// fired", the same convention every other firedCount closure
-		// counts against (a completed event within [since, now]).
+		// counts against (a completed event within [since, now]). This
+		// deliberately does NOT apply previewBaseWhereNotArchived, matching
+		// leadPreviewDefs' assignLeadOwnerName ("every lead created in the
+		// window was one firing — including leads since archived or
+		// routed"): a firing that already happened is a historical fact
+		// about that pass, independent of the row's CURRENT archived
+		// status, so an entity archived after its renewal date fired still
+		// counts here even though it is excluded from MatchesNow's
+		// right-now snapshot above.
 		firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 			var n int
 			err := tx.QueryRow(ctx, storekit.SQLf(

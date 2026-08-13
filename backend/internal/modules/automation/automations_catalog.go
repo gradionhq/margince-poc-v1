@@ -45,6 +45,7 @@ const (
 	schemaTypeObject         = "object"
 	schemaTypeString         = "string"
 	schemaTypeInteger        = "integer"
+	schemaTypeBoolean        = "boolean"
 	schemaKeyType            = "type"
 	schemaKeyProperties      = "properties"
 	schemaKeyAdditionalProps = "additionalProperties"
@@ -52,6 +53,7 @@ const (
 	schemaKeyMinimum         = "minimum"
 	schemaKeyMaximum         = "maximum"
 	schemaKeyDefault         = "default"
+	schemaKeyEnum            = "enum"
 )
 
 // minParamDays is the lower bound every "how many days" knob shares: a

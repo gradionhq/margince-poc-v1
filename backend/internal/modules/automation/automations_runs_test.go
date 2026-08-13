@@ -10,9 +10,13 @@ package automation
 // would make the filter silently empty.
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 func TestRunOutcomeAndStatusMapsAreTotalInverses(t *testing.T) {
@@ -44,13 +48,38 @@ func TestRunOutcomeAndStatusMapsAreTotalInverses(t *testing.T) {
 // Every instantiable catalog type must be previewable: the designer's
 // dry-run is part of the A72 surface, so a new catalog entry without a
 // preview definition is a defect this fitness check catches at unit time.
+//
+// renewal_reminder is not one of previewDefs()'s static entries — its
+// table/column are per-instance, so resolvePreviewRecipe builds its
+// previewDef dynamically instead (renewalPreviewDef's own doc) — but it
+// must still answer the SAME positive guarantee every static entry does:
+// a configured instance resolves a complete, SUPPORTED previewDef, not an
+// exemption. Asserting that positively here (rather than skipping the key
+// entirely) is what stops a SECOND future dynamic-preview catalog entry
+// from silently riding the same free pass this key used to.
 func TestEveryCatalogKeyHasAPreviewDefinition(t *testing.T) {
 	defs := previewDefs()
+	renewalCatalog := fakeFieldCatalog{columns: map[string][]fieldcatalog.Column{
+		"person": {{Name: "cf_renewal_date", Type: fieldcatalog.TypeDate}},
+	}}
 	for _, entry := range Catalog() {
 		if entry.Key == renewalReminderName {
-			// Not one of previewDefs()'s static entries: its table/column
-			// are per-instance, so resolvePreviewRecipe builds its
-			// previewDef dynamically instead (renewalPreviewDef's own doc).
+			stored := Automation{
+				Key:    renewalReminderName,
+				Params: json.RawMessage(`{"object":"person","date_field":"cf_renewal_date","days_before":30}`),
+			}
+			def, _, err := resolvePreviewRecipe(context.Background(), renewalCatalog, stored, AutomationPreviewInput{}, time.Now())
+			if err != nil {
+				t.Errorf("resolvePreviewRecipe for a configured renewal_reminder instance: %v", err)
+				continue
+			}
+			if def.unsupported != "" {
+				t.Errorf("renewal_reminder's dynamic previewDef is unsupported (%q) for a fully configured instance", def.unsupported)
+			}
+			if def.table == "" || def.firedCount == nil || len(def.fields) == 0 {
+				t.Errorf("renewal_reminder's dynamic previewDef is incomplete: table=%q fields=%d firedCount set=%v",
+					def.table, len(def.fields), def.firedCount != nil)
+			}
 			continue
 		}
 		def, ok := defs[entry.Key]

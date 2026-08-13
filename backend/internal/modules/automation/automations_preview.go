@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // The contract's window default and the sanity bound on it: the
@@ -94,9 +95,9 @@ type previewDef struct {
 // this registry's static map cannot parameterize on. Fabricating either
 // risks a wrong or over-wide RBAC scope on a preview endpoint — a
 // security-sensitive surface — which is worse than an honest "not yet".
-// renewal_reminder USED to sit here too (no candidate source was wired),
-// but resolvePreviewRecipe now builds its previewDef dynamically instead
-// of listing it as a static gap — see that function's own doc.
+// renewal_reminder is NOT here: its table and watched column are
+// per-instance, so resolvePreviewRecipe builds its previewDef dynamically
+// instead of listing it as a static gap — see that function's own doc.
 func previewNotYetSupported(reason string) previewDef {
 	return previewDef{unsupported: reason}
 }
@@ -257,7 +258,7 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 		return AutomationPreviewResult{}, err
 	}
 	now := s.now().UTC()
-	def, window, err := resolvePreviewRecipe(stored, in, now)
+	def, window, err := resolvePreviewRecipe(ctx, s.catalog, stored, in, now)
 	if err != nil {
 		return AutomationPreviewResult{}, err
 	}
@@ -288,8 +289,12 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 // renewalPreviewDef builds this instance's previewDef at request time
 // instead, from whichever params are in effect (the draft override, or
 // the stored instance's own) — see its own doc for what that recipe can
-// and cannot answer.
-func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput, now time.Time) (previewDef, int, error) {
+// and cannot answer. catalog (nil-safe, AutomationStore.WithFieldCatalog)
+// is what lets that branch validate object+date_field against the
+// workspace's own live custom-field catalog before ever building SQL
+// around them — see renewalPreviewParams' own doc for why a save-time
+// non-emptiness check is not enough here.
+func resolvePreviewRecipe(ctx context.Context, catalog fieldcatalog.Reader, stored Automation, in AutomationPreviewInput, now time.Time) (previewDef, int, error) {
 	key := stored.Key
 	if in.Key != nil {
 		key = *in.Key
@@ -314,7 +319,7 @@ func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput, now time
 		}
 	}
 	if key == renewalReminderName {
-		p, err := renewalPreviewParams(stored, in)
+		p, err := renewalPreviewParams(ctx, catalog, stored, in)
 		if err != nil {
 			return previewDef{}, 0, err
 		}

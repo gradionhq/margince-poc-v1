@@ -10,6 +10,8 @@ package compose
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -64,6 +66,18 @@ var _ automation.DateFieldScan = dateFieldScanAdapter{}
 func (a dateFieldScanAdapter) Candidates(ctx context.Context, object, column string, from, to time.Time, recurring bool, limit int) ([]automation.DateFieldAnchor, error) {
 	candidates, err := a.svc.DateFieldCandidates(ctx, object, column, from, to, recurring, limit)
 	if err != nil {
+		// A workspace admin can retire a custom field out from under an
+		// automation instance that already named it (customfields.Retire):
+		// save-time validation only checked non-emptiness, not live
+		// existence. This is the one place both customfields'
+		// ErrUnknownDateColumn and automation's own ErrDateFieldUnavailable
+		// are in scope, so it is where the translation belongs — TimeScanner
+		// (timescan.go's scanDateFieldInstanceCandidates) treats the
+		// automation-side sentinel as this ONE instance's honest no-op
+		// rather than failing the whole workspace's clock-scan pass.
+		if errors.Is(err, customfields.ErrUnknownDateColumn) {
+			return nil, fmt.Errorf("%w: %w", automation.ErrDateFieldUnavailable, err)
+		}
 		return nil, err
 	}
 	out := make([]automation.DateFieldAnchor, len(candidates))

@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -312,5 +313,32 @@ func TestScanDateFieldInstanceCandidatesSkipsAnUnconfiguredInstance(t *testing.T
 	}
 	if len(scan.calls) != 0 {
 		t.Error("Candidates was called for an instance with no object/date_field — it should have been skipped before reaching the seam")
+	}
+}
+
+// TestScanDateFieldInstanceCandidatesSkipsAnUnavailableDateField proves the
+// OTHER sanctioned no-op: an instance whose object/date_field ARE set but
+// no longer resolve to a real, active date-typed column (a workspace admin
+// retired the field after the instance was saved — compose's adapter
+// translates customfields.ErrUnknownDateColumn onto ErrDateFieldUnavailable,
+// compose/timescan.go) is skipped exactly like an unconfigured one, and
+// crucially the error does NOT propagate to the caller — this is the bug
+// that used to fail the whole workspace's ScanWorkspace pass over one
+// broken renewal_reminder instance.
+func TestScanDateFieldInstanceCandidatesSkipsAnUnavailableDateField(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	inst := automationInstance{
+		id:     ids.New[ids.AutomationKind](),
+		params: json.RawMessage(`{"object":"person","date_field":"cf_retired_field"}`),
+	}
+	scan := &fakeDateFieldScan{err: fmt.Errorf("customfields: loading candidates: %w", ErrDateFieldUnavailable)}
+	run := func(context.Context, workflow.Handler, workflow.Event) error {
+		t.Fatal("run must not be called when the date field is unavailable")
+		return nil
+	}
+
+	err := scanDateFieldInstanceCandidates(context.Background(), scan, renewalReminder{}, inst, ids.NewV7(), now, run, renewalDateFieldScanParams)
+	if err != nil {
+		t.Fatalf("scanDateFieldInstanceCandidates: %v, want nil — a retired/unknown date field is this ONE instance's honest no-op, not a pass failure", err)
 	}
 }

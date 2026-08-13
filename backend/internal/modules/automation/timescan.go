@@ -70,10 +70,10 @@ type dateFieldScanParams struct {
 
 // dateFieldScanExtractor reads one clock automation instance's own
 // DateFieldScan call off its params — the DateFieldScan-driven
-// counterpart of clockDaysExtractor above. Handlers_clock.go's own
-// param readers (Task 2) grow the same three keys for renewalReminder's
-// Match/Plan; this reader exists independently of those so Task 1's
-// candidate seam does not have to wait on that later slice.
+// counterpart of clockDaysExtractor above. handlers_clock.go's own param
+// readers grow the same three keys for renewalReminder's Match/Plan; this
+// reader is independent of those since the candidate-scan seam and the
+// runtime Match re-check are separate concerns read off the same params.
 type dateFieldScanExtractor func(params json.RawMessage) (dateFieldScanParams, error)
 
 // errRenewalScanParamsMissing names the two required keys together: a
@@ -159,8 +159,12 @@ func NewTimeScanner(engine *WorkflowEngine, scan ActivityScan, dateScan DateFiel
 
 // ScanWorkspace is one pass over the workspace already bound in ctx: it loads
 // that workspace's enabled clock automations and, for each instance whose
-// handler has an ActivityScan enumerator wired (activityScanHandlers above),
-// converges its stale candidates onto runOne. Re-entrant, not exactly-once —
+// handler has an enumerator wired — an ActivityScan one (activityScanHandlers,
+// no_activity_reminder/check_in_cadence) or a DateFieldScan one
+// (dateFieldScanHandlers, renewal_reminder) — converges its candidates onto
+// runOne. A single misconfigured DateFieldScan instance is skipped on its own
+// (scanDateFieldInstanceCandidates's doc) rather than failing the whole pass.
+// Re-entrant, not exactly-once —
 // the occurrence key (IdempotencyKey, handlers_clock.go) is what makes a
 // redelivered or overlapping pass over the SAME anchor a no-op.
 //
@@ -273,8 +277,14 @@ func buildActivityAnchorEvent(wsID ids.UUID, now time.Time, inst automationInsta
 // template is seeded regardless of whether a workspace has configured
 // it yet (renewalReminder's own doc), the identical honest-out-of-scope
 // posture ApplyActions' notify case already carries for a workspace with
-// no channel wired. A malformed params blob is a real error and still
-// propagates — only "not configured yet" is the sanctioned no-op.
+// no channel wired. An instance whose object/date_field once resolved but
+// no longer does — the workspace retired the custom field after saving
+// the instance (ErrDateFieldUnavailable, seams.go) — is skipped the exact
+// same way: one misconfigured renewal_reminder instance must never abort
+// the whole workspace's pass and take a healthy no_activity_reminder or
+// check_in_cadence instance down with it. A malformed params blob is a
+// real error and still propagates — only "not configured yet" and "no
+// longer configured" are the sanctioned no-ops.
 func scanDateFieldInstanceCandidates(
 	ctx context.Context,
 	scan DateFieldScan,
@@ -295,6 +305,9 @@ func scanDateFieldInstanceCandidates(
 	horizon := now.AddDate(0, 0, p.DaysBefore)
 	candidates, err := scan.Candidates(ctx, p.Object, p.Column, now, horizon, p.RecursYearly, clockScanBatchLimit)
 	if err != nil {
+		if errors.Is(err, ErrDateFieldUnavailable) {
+			return nil
+		}
 		return fmt.Errorf("scanning date-field candidates: %w", err)
 	}
 	for _, cand := range candidates {

@@ -82,9 +82,10 @@ func TestValidateRenewalReminderParamsRecursYearly(t *testing.T) {
 }
 
 // TestValidateRenewalReminderParamsKeepsDaysBeforeValidation proves
-// days_before's existing bounded-integer check is untouched by the three
-// new keys: an out-of-range value is still rejected the same way
-// validateSingleIntParam already rejected it before #706.
+// days_before's existing bounded-integer check is untouched by the
+// object/date_field/recurs_yearly keys added beside it: an out-of-range
+// value is still rejected the same way validateSingleIntParam's identical
+// check does for every other integer-knob catalog entry.
 func TestValidateRenewalReminderParamsKeepsDaysBeforeValidation(t *testing.T) {
 	err := validateRenewalReminderParams(map[string]any{"days_before": float64(400)})
 	var paramErr *ParamError
