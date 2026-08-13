@@ -40,6 +40,20 @@ func WithProvider(reg *integrations.Registry, vault keyvault.Vault, inserter *jo
 	}
 }
 
+// NewProviderRunService builds the run service a role uses OUTSIDE the HTTP
+// surface — the worker's event consumer, which queues on the customer's
+// standing instruction rather than on a request. Same construction as
+// WithProvider so the two roles cannot disagree about what is bound; it
+// returns an error rather than panicking because a lane may legitimately
+// decline to start where the option must not.
+func NewProviderRunService(pool *pgxpool.Pool, reg *integrations.Registry, vault keyvault.Vault, inserter *jobs.Runner, now func() time.Time) (*integrations.Store, error) {
+	store, err := integrations.NewStore(InstallationDB(pool), vault, reg, now)
+	if err != nil {
+		return nil, fmt.Errorf("compose: building the provider run service: %w", err)
+	}
+	return bindProviderDomain(store).WithSubmitEnqueue(providerSubmitEnqueue(inserter)), nil
+}
+
 // providerSubmitEnqueue closes over the role's inserter: the submit job and
 // the run row commit together or not at all. The uniqueness policy rides the
 // args type (ProviderRunSubmitArgs.InsertOpts), so nil opts here drops

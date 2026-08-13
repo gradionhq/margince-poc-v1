@@ -156,6 +156,11 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 		{name: crmcontracts.Person360SectionsOmittedCommercial, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.commercialSection(ctx, tx, personID, out)
 		}},
+		// What a licensed provider was PAID to tell us about this person
+		// (ADR-0101). Beside the canonical record, never folded into it.
+		{name: crmcontracts.Person360SectionsOmittedProviderProfile, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.providerProfileSection(ctx, tx, personID, out)
+		}},
 		{name: crmcontracts.Person360SectionsOmittedNextMeeting, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.nextMeetingSection(ctx, tx, personID, now, out)
 		}},

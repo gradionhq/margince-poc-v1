@@ -90,6 +90,8 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 			card.FullName = who.fullName
 			card.Title = who.title
 			card.PrimaryEmail = who.primaryEmail
+			card.ProviderTitle = who.providerTitle
+			card.TitleSource = titleSource(who)
 		}
 		out = append(out, card)
 	}
@@ -97,10 +99,30 @@ func contactsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, n
 }
 
 // contactCard is the display identity of one contact.
+// titleSource says which title the roster is showing, so the page can mark a
+// purchased one as purchased. Null where there is no title at all: a contact
+// nobody has a role for is a gap, not a source.
+func titleSource(who contactCard) *crmcontracts.Organization360ContactTitleSource {
+	switch {
+	case who.title != nil && *who.title != "":
+		source := crmcontracts.Organization360ContactTitleSourceCanonical
+		return &source
+	case who.providerTitle != nil:
+		source := crmcontracts.Organization360ContactTitleSourceProvider
+		return &source
+	default:
+		return nil
+	}
+}
+
 type contactCard struct {
 	fullName     string
 	title        *string
 	primaryEmail *string
+	// providerTitle is a PURCHASED job title, shown only where the canonical
+	// one is empty (PO-EXT-9). It fills a blank; it never overwrites or
+	// seconds a title a human typed.
+	providerTitle *string
 }
 
 // contactIdentity reads name, title and the primary email address for a
@@ -108,12 +130,24 @@ type contactCard struct {
 // contact with none on file still appears: the strength read already
 // decided who is on this list, and a join could only shorten it.
 func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (map[ids.PersonID]contactCard, error) {
+	// The purchased title rides the same correlated-subquery shape as the
+	// address, and is read ONLY where the canonical title is empty: a company
+	// page showing a bought title beside one a human typed would be offering
+	// a second opinion, which PO-EXT-9 forbids. What the installation knows
+	// wins; the purchase fills a gap.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, p.full_name, p.title,
 		       (SELECT e.email FROM person_email e
 		         WHERE e.person_id = p.id AND e.archived_at IS NULL
 		         ORDER BY e.is_primary DESC, e.position, e.id
-		         LIMIT 1)
+		         LIMIT 1),
+		       CASE WHEN coalesce(p.title, '') <> '' THEN NULL ELSE
+		         (SELECT NULLIF(c.value_json->>'job_title', '')
+		            FROM person_provider_claim c
+		           WHERE c.person_id = p.id AND c.claim_key = 'current_employment'
+		           ORDER BY c.retrieved_at DESC
+		           LIMIT 1)
+		       END
 		FROM person p WHERE p.id = ANY($1)`, personIDs)
 	if err != nil {
 		return nil, err
@@ -123,7 +157,7 @@ func contactIdentity(ctx context.Context, tx pgx.Tx, personIDs []ids.PersonID) (
 	for rows.Next() {
 		var id ids.PersonID
 		var card contactCard
-		if err := rows.Scan(&id, &card.fullName, &card.title, &card.primaryEmail); err != nil {
+		if err := rows.Scan(&id, &card.fullName, &card.title, &card.primaryEmail, &card.providerTitle); err != nil {
 			return nil, err
 		}
 		out[id] = card

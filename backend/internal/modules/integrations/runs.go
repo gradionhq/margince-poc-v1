@@ -95,10 +95,17 @@ func (s *Store) QueueRun(ctx context.Context, in provider.QueueInput) (provider.
 	if s.enqueueSubmit == nil {
 		return provider.Run{}, errors.New("integrations: no submit enqueue is bound, so a queued run would never execute")
 	}
-	name := in.Provider
-	if name == "" {
-		return provider.Run{}, provider.ErrNotConnected
+	name, err := s.resolveProvider(ctx, in.Provider)
+	if err != nil {
+		return provider.Run{}, err
 	}
+	// From here on the RESOLVED name is the provider, so every downstream
+	// read (the daily ceiling, the freshness window, the duplicate cluster,
+	// the run row itself) sees the one this run is actually for. An automatic
+	// trigger arrives with the field empty, and leaving it that way would
+	// write a run naming no provider — which the row's CHECK refuses, loudly,
+	// after the fences have already passed.
+	in.Provider = name
 	desc, err := s.registry.Descriptor(name)
 	if err != nil {
 		return provider.Run{}, provider.ErrNotConnected
@@ -130,6 +137,52 @@ func (s *Store) QueueRun(ctx context.Context, in provider.QueueInput) (provider.
 		return provider.Run{}, err
 	}
 	return out, nil
+}
+
+// resolveProvider answers which provider a run is for.
+//
+// A named one is used as given — a human clicking "enrich" on a card names
+// the provider that card is about. An EMPTY name is the automatic path's
+// case, and the port declares what it means: every connected provider that
+// admits this trigger. In practice that is the ONE connected provider, since
+// the connection table holds a row per provider and only one vendor is
+// registered today; naming it here rather than making the consumer look it up
+// keeps the consumer from needing to know what is registered at all.
+//
+// More than one connected provider is not an error to guess at: it would mean
+// buying the same person's data twice, so it refuses until the platform
+// declares which one an automatic trigger uses.
+func (s *Store) resolveProvider(ctx context.Context, named string) (string, error) {
+	if named != "" {
+		return named, nil
+	}
+	var names []string
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT provider FROM provider_connection WHERE status = 'connected' ORDER BY provider`)
+		if err != nil {
+			return fmt.Errorf("integrations: reading the connected providers: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return fmt.Errorf("integrations: scanning a connected provider: %w", err)
+			}
+			names = append(names, name)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(names) != 1 {
+		// None connected is the ordinary case and reads as not-connected;
+		// several is a configuration this trigger has no rule for, and
+		// picking one would spend money on a guess.
+		return "", provider.ErrNotConnected
+	}
+	return names[0], nil
 }
 
 // admittedConnection is the connection state a run freezes itself against.
@@ -183,6 +236,16 @@ func (s *Store) admit(ctx context.Context, tx pgx.Tx, name string, trigger provi
 // consumer swallows it, because "auto-enrich is off" is the configuration
 // working, not a failure.
 var errTriggerNotAdmitted = errors.New("integrations: this trigger is not admitted by the saved policy")
+
+// IsTriggerNotAdmitted reports whether a QueueRun refusal was the saved
+// policy declining this trigger — auto-enrich switched off, or a mode that
+// does not run on create.
+//
+// It exists because the event consumer lives in compose and must tell that
+// refusal apart from a failure, and the alternative is comparing error text:
+// a predicate here means the sentinel can be reworded without silently
+// turning a swallowed configuration state into a logged error.
+func IsTriggerNotAdmitted(err error) bool { return errors.Is(err, errTriggerNotAdmitted) }
 
 // queueOne is the admission pipeline for one subject. Each refusal writes a
 // skipped run rather than nothing at all: a customer asking "why was this
