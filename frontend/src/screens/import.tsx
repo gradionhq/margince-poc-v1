@@ -3,10 +3,11 @@
 
 import { Upload } from "lucide-react";
 import { useRef } from "react";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import { Button, Card, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
-import { type MessageKey, useT } from "../i18n";
+import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf } from "./common";
 import { useImportFlow } from "./importflow";
 import { ImportMappingTable } from "./importmapping";
@@ -32,7 +33,14 @@ import "./import.css";
 
 export function ImportCard() {
   const t = useT();
-  const mayImport = useCan("import_run", "create");
+  // The flow does not only create: the dry run parks the run (update), the
+  // approval moves it (update), and every step reads it back (read). A role
+  // edited to create-without-update would otherwise see the card and be
+  // refused at the first button. useCanWrite folds the seat ceiling, which a
+  // read-seat admin would otherwise hit as a clamped POST.
+  const mayCreate = useCanWrite("import_run", "create");
+  const mayAdvance = useCan("import_run", "update");
+  const mayImport = mayCreate && mayAdvance;
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useImportFlow();
   const { profile, mapping, run, report, upload, validate, commit } = flow;
@@ -60,7 +68,7 @@ export function ImportCard() {
         <SegmentedControl
           options={["lead", "organization"] as const}
           value={flow.object}
-          onChange={flow.chooseObject}
+          onChange={busy ? () => undefined : flow.chooseObject}
           label={t("import.objectLabel")}
           labels={{
             lead: t("import.object.lead"),
@@ -78,12 +86,23 @@ export function ImportCard() {
              Button beside it is what a reader actually sees and presses. */
           className="sr-only"
           aria-label={t("import.fileLabel")}
+          // Cleared after every pick: a browser fires no change event when the
+          // SAME path is chosen again, and the natural next move after reading
+          // "Line 3 is empty" is to fix that line in that file and choose it
+          // once more. Without this the click does nothing, the old report
+          // stays on screen, and the commit button writes the FIRST upload's
+          // bytes.
           onChange={(event) => {
             const file = event.target.files?.[0];
+            event.target.value = "";
             if (file) {
               upload.mutate(file);
             }
           }}
+          // Out of the tab order: it is invisible, so a keyboard user landing
+          // on it has a focus stop they cannot see. The Button beside it is the
+          // keyboard path, and the label keeps the input reachable by name.
+          tabIndex={-1}
         />
         <Button
           variant="ghost"
@@ -97,7 +116,9 @@ export function ImportCard() {
         </Button>
 
         {upload.error ? (
-          <Callout tone="danger">{problemMessageOf(upload.error, t)}</Callout>
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(upload.error, t)}
+          </Callout>
         ) : null}
 
         {showMapping ? (
@@ -106,6 +127,7 @@ export function ImportCard() {
             mapping={mapping}
             object={flow.object}
             busy={busy}
+            locked={validate.isPending}
             pending={validate.isPending}
             error={validate.error}
             onChange={flow.setTarget}
@@ -157,9 +179,9 @@ function ImportOutcome({
 
   return (
     <div className="import__outcome">
-      <h4 className="import__outcomeTitle">
+      <h3 className="import__outcomeTitle">
         {committed ? t("import.outcomeTitle") : t("import.previewTitle")}
-      </h4>
+      </h3>
       <dl className="import__counts">
         <Count label={t("import.count.created")} value={d.created} />
         <Count label={t("import.count.updated")} value={d.updated} />
@@ -167,19 +189,21 @@ function ImportOutcome({
         <Count label={t("import.count.skipped")} value={d.skipped} />
       </dl>
       <p className="import__hint">
-        {t("import.rowsRead")
-          .replace("{rows}", String(report.rows_read))
-          .replace("{column}", report.source_key_used)}
+        {t("import.rowsRead", {
+          rows: report.rows_read,
+          column: report.source_key_used,
+        })}
       </p>
 
       {report.issues.length > 0 ? (
         <>
-          <Callout tone="warn">{t("import.issuesLead")}</Callout>
+          <Callout tone="warn" live="status">
+            {t("import.issuesLead")}
+          </Callout>
           <ul className="import__issues">
             {report.issues.map((issue) => (
               <li key={`${issue.line}-${issue.reason}`}>
-                {t("import.issueLine").replace("{line}", String(issue.line))}{" "}
-                {issue.reason}
+                {t("import.issueLine", { line: issue.line })} {issue.reason}
               </li>
             ))}
           </ul>
@@ -187,13 +211,15 @@ function ImportOutcome({
       ) : null}
 
       {resumable ? (
-        <Callout tone="danger">
-          {t("import.failed").replace("{checkpoint}", String(run.checkpoint))}
+        <Callout tone="danger" live="alert">
+          {t("import.failed", { checkpoint: run.checkpoint })}
         </Callout>
       ) : null}
 
       {committed && !resumable ? (
-        <Callout tone="success">{t("import.done")}</Callout>
+        <Callout tone="success" live="status">
+          {t("import.done")}
+        </Callout>
       ) : (
         <Button variant="primary" disabled={busy} onClick={onCommit}>
           {busy
@@ -204,7 +230,9 @@ function ImportOutcome({
         </Button>
       )}
       {error ? (
-        <Callout tone="danger">{problemMessageOf(error, t)}</Callout>
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(error, t)}
+        </Callout>
       ) : null}
       {committed && !resumable ? (
         <Button variant="ghost" onClick={onRestart}>
@@ -218,10 +246,13 @@ function ImportOutcome({
 // commitLabel counts the rows the commit will write. One row is "1 row": the
 // button is the last thing a human reads before the least reversible write in
 // the product, and "1 rows" reads like a machine wrote it.
-function commitLabel(t: (key: MessageKey) => string, rows: number): string {
+function commitLabel(
+  t: (key: MessageKey, params?: Record<string, string | number>) => string,
+  rows: number,
+): string {
   const key: MessageKey =
     rows === 1 ? "import.commit.one" : "import.commit.other";
-  return t(key).replace("{rows}", String(rows));
+  return t(key, { rows });
 }
 
 function Count({ label, value }: Readonly<{ label: string; value: number }>) {
@@ -256,6 +287,7 @@ function ImportMappingStep({
   mapping,
   object,
   busy,
+  locked,
   pending,
   error,
   onChange,
@@ -265,6 +297,10 @@ function ImportMappingStep({
   mapping: Record<string, string>;
   object: ImportObject;
   busy: boolean;
+  // Set while the validation this mapping was sent with is in flight. A change
+  // accepted now could not reach that request, so the table would show a
+  // destination the run does not have.
+  locked: boolean;
   pending: boolean;
   error: unknown;
   onChange: (column: string, target: string) => void;
@@ -279,17 +315,19 @@ function ImportMappingStep({
       <ImportMappingTable
         profile={profile}
         mapping={mapping}
+        locked={locked}
         onChange={onChange}
       />
       {identifiedBy ? (
         <p className="import__hint">
-          {t("import.identifiedBy")
-            .replace("{column}", identifiedBy)
-            .replace("{field}", identifying)}
+          {t("import.identifiedBy", {
+            column: identifiedBy,
+            field: identifying,
+          })}
         </p>
       ) : (
         <Callout tone="warn">
-          {t("import.needsIdentifier").replace("{field}", identifying)}
+          {t("import.needsIdentifier", { field: identifying })}
         </Callout>
       )}
       <Button
@@ -300,7 +338,9 @@ function ImportMappingStep({
         {pending ? t("import.validating") : t("import.validate")}
       </Button>
       {error ? (
-        <Callout tone="danger">{problemMessageOf(error, t)}</Callout>
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(error, t)}
+        </Callout>
       ) : null}
     </>
   );

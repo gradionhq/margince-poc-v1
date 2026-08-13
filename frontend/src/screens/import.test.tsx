@@ -111,7 +111,10 @@ function stubRoutes(overrides: Record<string, () => Response> = {}) {
       }
       if (key === "GET /me") {
         return jsonResponse(
-          meFixture({ roles: ["admin"], allow: { import_run: ["create"] } }),
+          meFixture({
+            roles: ["admin"],
+            allow: { import_run: ["create", "update", "read"] },
+          }),
         );
       }
       if (key === "POST /imports/sources") {
@@ -267,11 +270,26 @@ describe("the import card", () => {
     ).toBeDisabled();
   });
 
-  it("offers to resume a run that stopped part-way, rather than starting again", async () => {
+  // A run that stops part-way answers with a PROBLEM, not with a run — the
+  // truth is on the run itself, which the server recorded before answering.
+  // Reading it back is what turns "something went wrong" into the resumable
+  // state the contract promises. The earlier version of this test stubbed a 202
+  // carrying status:"failed", a shape the server cannot produce.
+  it("reads the run back when the commit stops part-way, and offers to resume", async () => {
     stubRoutes({
       "POST /imports/019ff-run/approve": () =>
-        jsonResponse({ ...run, status: "failed", checkpoint: 200 }, 202),
-      "GET /imports": () => jsonResponse({ ...dryRun, status: "failed" }),
+        jsonResponse(
+          { status: 500, code: "internal", detail: "the import stopped" },
+          500,
+        ),
+      "GET /imports/019ff-run/report": () =>
+        jsonResponse({
+          ...dryRun,
+          status: "failed",
+          disposition: { created: 2, updated: 0, unchanged: 0, skipped: 1 },
+        }),
+      "GET /imports/019ff-run": () =>
+        jsonResponse({ ...run, status: "failed", checkpoint: 2 }),
     });
     render(<ImportCard />);
     await upload();
@@ -281,15 +299,101 @@ describe("the import card", () => {
     );
     await screen.findByText("What this import will do");
     await userEvent.click(
-      screen.getByRole("button", { name: "Import 3 rows" }),
+      screen.getByRole("button", { name: "Import 2 rows" }),
     );
 
-    expect(
-      await screen.findByText(/stopped after 200 rows/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/stopped after 2 rows/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Resume the import" }),
     ).toBeInTheDocument();
+  });
+
+  // A column the human explicitly sets back to "don't import" must leave the
+  // wire, not merely be absent from the suggestion that seeded it.
+  it("drops a column the human clears, and keeps the ones they kept", async () => {
+    const sent = stubRoutes();
+    render(<ImportCard />);
+    await upload();
+    await screen.findByRole("row", { name: /Notes/ });
+
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Where Full Name goes" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Don't import" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check what this will do" }),
+    );
+
+    const created = await waitFor(() => {
+      const found = sent.find((s) => s.path === "POST /imports");
+      if (!found) {
+        throw new Error("the run was never created");
+      }
+      return found;
+    });
+    const mapping = (created.body as { mapping: Record<string, string> })
+      .mapping;
+    expect(mapping).toEqual({ Email: "email" });
+  });
+
+  // A header the file spells with a regexp-replacement token must reach the
+  // screen as itself. String.replace would read "$&" as "the whole match".
+  it("shows a column name the file spells oddly, verbatim", async () => {
+    stubRoutes({
+      "POST /imports/sources": () =>
+        jsonResponse({
+          ...profile,
+          columns: [
+            { header: "Amount ($&)", fill_rate: 1, samples: ["10"] },
+            ...profile.columns,
+          ],
+        }),
+    });
+    render(<ImportCard />);
+    await upload();
+
+    expect(
+      await screen.findByRole("combobox", { name: "Where Amount ($&) goes" }),
+    ).toBeInTheDocument();
+  });
+
+  // A second file that cannot be read must not leave the FIRST file's report —
+  // and its armed commit button — on screen. Nothing on this card names which
+  // file a report belongs to, so the button would approve the wrong estate.
+  it("clears the previous file's answers as a new upload starts", async () => {
+    let uploads = 0;
+    stubRoutes({
+      "POST /imports/sources": () => {
+        uploads += 1;
+        return uploads === 1
+          ? jsonResponse(profile)
+          : jsonResponse(
+              {
+                status: 422,
+                code: "validation_error",
+                detail: "The uploaded file has no content.",
+              },
+              422,
+            );
+      },
+    });
+    render(<ImportCard />);
+    await upload();
+    await screen.findByRole("row", { name: /Notes/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check what this will do" }),
+    );
+    await screen.findByText("What this import will do");
+
+    await upload(new File([""], "broken.csv"));
+
+    expect(
+      await screen.findByText("The uploaded file has no content."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("What this import will do")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Import / })).toBeNull();
   });
 
   it("says what went wrong with a file it cannot read", async () => {
@@ -318,7 +422,10 @@ describe("the import card", () => {
     stubRoutes({
       "GET /me": () =>
         jsonResponse(
-          meFixture({ roles: ["ops"], allow: { import_run: ["create"] } }),
+          meFixture({
+            roles: ["ops"],
+            allow: { import_run: ["create", "update", "read"] },
+          }),
         ),
     });
     render(<ImportCard />);
@@ -326,6 +433,21 @@ describe("the import card", () => {
     // The grant is what decides, not the admin role — an ops seat holds
     // import_run and would be accepted by the store.
     expect(await screen.findByText("Import a file")).toBeInTheDocument();
+  });
+
+  // The flow creates a run, parks it, and approves it — three actions, not one.
+  // A role edited to create-without-update would see the card and be refused at
+  // the first button it presses.
+  it("is not offered to a role that could not finish the flow", async () => {
+    stubRoutes({
+      "GET /me": () =>
+        jsonResponse(
+          meFixture({ roles: ["ops"], allow: { import_run: ["create"] } }),
+        ),
+    });
+    const { container } = render(<ImportCard />);
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
   it("is not offered to a seat that may not run one", async () => {

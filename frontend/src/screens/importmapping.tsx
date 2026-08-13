@@ -21,10 +21,15 @@ import { DONT_IMPORT } from "./importtypes";
 export function ImportMappingTable({
   profile,
   mapping,
+  locked,
   onChange,
 }: Readonly<{
   profile: ImportProfile;
   mapping: Record<string, string>;
+  // While the mapping is being validated it stops accepting changes: a choice
+  // made now cannot reach the request already in flight, and a table showing a
+  // destination the run does not carry is the screen lying about the import.
+  locked: boolean;
   onChange: (column: string, target: string) => void;
 }>) {
   const t = useT();
@@ -36,7 +41,7 @@ export function ImportMappingTable({
   return (
     <div className="import__mapping">
       <p className="import__hint">
-        {t("import.profiled").replace("{rows}", String(profile.rows_profiled))}
+        {t("import.profiled", { rows: profile.rows_profiled })}
       </p>
       <table className="import__table">
         <thead>
@@ -66,11 +71,11 @@ export function ImportMappingTable({
                   options={options}
                   value={mapping[column.header] ?? DONT_IMPORT}
                   onChange={(target) => onChange(column.header, target)}
+                  disabled={locked}
                   placeholder={t("import.dontImport")}
-                  aria-label={t("import.destinationFor").replace(
-                    "{column}",
-                    column.header,
-                  )}
+                  aria-label={t("import.destinationFor", {
+                    column: column.header,
+                  })}
                 />
               </td>
             </tr>
