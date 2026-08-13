@@ -4049,6 +4049,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capture/blocked-domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The domains refused a company, and why.
+         * @description Every domain carrying a standing admission decision: the vendors and bulk senders the
+         *     system refused a company, and the ones a human deliberately let back in. Each entry says
+         *     WHAT decided it — a model verdict, a heuristic, or a person — so an operator can tell an
+         *     automatic refusal from somebody's deliberate one.
+         *
+         *     Every human role may read the list; changing an entry demands `organization:update`
+         *     (admin/ops). Human-only: this is capture posture, not record data.
+         */
+        get: operations["listBlockedDomains"];
+        /**
+         * Block a domain, or unblock one (admin/ops).
+         * @description `admission: suppressed` refuses the domain a company; `admission: admitted` lets it in
+         *     and KEEPS it in — a human decision is sticky, so no later verdict or heuristic may
+         *     re-refuse a domain a person deliberately admitted.
+         *
+         *     Unblocking re-opens the company question rather than merely clearing a flag: the domain
+         *     was already asked and answered, so nothing would ask again on its own. The disposition
+         *     returns to pending with its attempts reset, the triage sweep picks it up, and the people
+         *     already captured on that domain get their employment edges when the company lands. That
+         *     is the McKinsey case — a newsletter publisher that became a client.
+         *
+         *     Idempotent on the domain, which is normalized to its registrable form. Audit-only write
+         *     (no event stream, EVT-NOEVT-3).
+         */
+        put: operations["setBlockedDomain"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/consumer-mail-baseline": {
         parameters: {
             query?: never;
@@ -7272,6 +7313,51 @@ export interface components {
         UpdateCaptureSettingsRequest: {
             /** @description Toggle captured-organization auto-enrichment. */
             auto_enrich?: boolean;
+        };
+        /**
+         * @description One domain carrying a standing admission decision. `suppressed` refuses it a company —
+         *     a vendor or bulk sender the business does not sell to — while `admitted` is a human
+         *     deliberately letting one in, which no later verdict may undo.
+         */
+        BlockedDomain: {
+            /** @description The registrable domain the decision is about. */
+            domain: string;
+            /**
+             * @description `suppressed` — never a company. `admitted` — allowed, and sticky against later machine refusals.
+             * @enum {string}
+             */
+            admission: "suppressed" | "admitted";
+            /** @description One sentence an operator can act on: why this domain was refused or let in. */
+            reason: string;
+            /**
+             * @description What decided it. `human` decisions outrank every machine one.
+             * @enum {string}
+             */
+            source: "verdict" | "heuristic" | "human";
+            /** Format: date-time */
+            decided_at: string;
+            /**
+             * Format: uuid
+             * @description The company on this domain, when one exists — an admitted domain usually has one.
+             */
+            organization_id?: string | null;
+        };
+        SetBlockedDomainRequest: {
+            /** @description A mail domain; normalized to its registrable form before it is stored. */
+            domain: string;
+            /** @enum {string} */
+            admission: "suppressed" | "admitted";
+            /** @description Why. Required, because a refusal nobody can explain is one nobody can review. */
+            reason: string;
+        };
+        BlockedDomainListResponse: {
+            data: components["schemas"]["BlockedDomain"][];
+            /**
+             * @description How many decisions exist, which is not how many are returned. Refusals accumulate
+             *     automatically from every bulk-sender verdict, so a list that quietly stopped at its
+             *     page size would tell an operator their domain was never refused when it was.
+             */
+            total: number;
         };
         /**
          * @description One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
@@ -22643,6 +22729,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listBlockedDomains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's blocked and admitted domains. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedDomainListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setBlockedDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetBlockedDomainRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedDomain"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listConsumerMailBaseline: {

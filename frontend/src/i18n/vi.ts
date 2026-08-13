@@ -553,6 +553,8 @@ export const vi = {
     "Không tải được danh mục mục đích chấp thuận, nên hiện chưa thể cho biết mục đích nào cần xác nhận kép.",
 
   "org.name": "Công ty",
+  "org.description": "Họ làm gì",
+  "org.website": "Trang web",
   "org.industry": "Ngành",
   "org.size": "Quy mô",
   "org.classification": "Loại",

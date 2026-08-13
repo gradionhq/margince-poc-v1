@@ -78,6 +78,7 @@ import {
   CompanyIdentityLine,
   CompanyLifecycleControl,
   CompanyPrimaryActions,
+  displayHost,
 } from "./companyheader";
 import {
   LIFECYCLE_LABELS,
@@ -575,14 +576,28 @@ export function CompaniesScreen() {
             fixed: true,
           },
           {
-            key: "industry",
-            header: t("org.industry"),
-            cell: (org: Organization) => org.industry ?? "",
+            // What the company DOES, in their own words from their own site.
+            // This replaced industry and size: in a real import size_band was
+            // null for every company and industry for most, so the list's two
+            // widest columns were reliably empty.
+            key: "description",
+            header: t("org.description"),
+            cell: (org: Organization) => org.description ?? "",
           },
           {
-            key: "size",
-            header: t("org.size"),
-            cell: (org: Organization) => org.size_band ?? "",
+            key: "website",
+            header: t("org.website"),
+            cell: (org: Organization) =>
+              org.website_url ? (
+                <a
+                  href={org.website_url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {displayHost(org.website_url)}
+                </a>
+              ) : null,
           },
           {
             key: "class",
