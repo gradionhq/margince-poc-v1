@@ -89,10 +89,17 @@ func CorrectOnce[D any](
 ) (D, error) {
 	check := func(draft D) []draftcheck.Finding {
 		body, reasoning := textOf(draft)
-		findings := append(draftcheck.Body(body, lang, band),
+		// Whether this draft answers a real inbound message decides more than the
+		// subject's reply prefix: a reply is written from the counterparty's own
+		// words, so it may echo a call THEY named, where a message opening a new
+		// conversation has no such ground to stand on.
+		subject, threaded := "", false
+		if subjectOf != nil {
+			subject, threaded = subjectOf(draft)
+		}
+		findings := append(draftcheck.Body(body, lang, band, threaded),
 			draftcheck.Reasoning(reasoning, lang, band)...)
 		if subjectOf != nil {
-			subject, threaded := subjectOf(draft)
 			findings = append(findings, draftcheck.Subject(subject, lang, band, threaded)...)
 		}
 		return findings

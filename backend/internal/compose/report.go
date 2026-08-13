@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -32,6 +33,9 @@ const (
 	colAmountMinor    = "t.amount_minor"
 	colPipelineID     = "t.pipeline_id"
 	colStageID        = "t.stage_id"
+	colOrganizationID = "t.organization_id"
+	colCurrency       = "t.currency"
+	colStatus         = "t.status"
 	whereArchivedNull = "t.archived_at IS NULL"
 
 	// joinStageForWinProbability is the one join a spec adds when it needs the
@@ -65,6 +69,12 @@ const (
 	fieldStageID        = "stage_id"
 	fieldStatus         = "status"
 	fieldWinProbability = "win_probability"
+	fieldOrganizationID = "organization_id"
+	fieldPartnerSourced = "partner_sourced"
+	fieldStalled        = "stalled"
+	fieldCurrency       = "currency"
+	fieldPipelineID     = "pipeline_id"
+	fieldOwnerID        = "owner_id"
 )
 
 type reportAggregate struct {
@@ -135,10 +145,10 @@ var prebuiltReports = map[string]reportSpec{
 		table:      "deal",
 		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain:  "live (unarchived) open deals",
-		dimensions: map[string]string{"organization_id": "t.organization_id", "owner_id": colOwnerID},
+		dimensions: map[string]string{fieldOrganizationID: colOrganizationID, fieldOwnerID: colOwnerID},
 		measures:   map[string]string{"amount_minor": colAmountMinor},
-		filters:    map[string]string{"owner_id": colOwnerID, "pipeline_id": colPipelineID},
-		defaultBy:  []string{"organization_id"},
+		filters:    map[string]string{fieldOwnerID: colOwnerID, fieldPipelineID: colPipelineID},
+		defaultBy:  []string{fieldOrganizationID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "open_deals"},
 		},
@@ -151,9 +161,10 @@ var prebuiltReports = map[string]reportSpec{
 		basePlain: "live (unarchived) deals",
 		dimensions: map[string]string{
 			fieldStageID:        colStageID,
-			fieldStatus:         "t.status",
-			"pipeline_id":       colPipelineID,
+			fieldStatus:         colStatus,
+			fieldPipelineID:     colPipelineID,
 			fieldWinProbability: colWinProbability,
+			fieldCurrency:       colCurrency,
 		},
 		measures: map[string]string{
 			"amount_minor":           colAmountMinor,
@@ -162,8 +173,19 @@ var prebuiltReports = map[string]reportSpec{
 		// No stage_id filter: nothing serves it (the screen groups BY stage_id
 		// instead), and a filter key this report has no caller for is public
 		// agent surface (the run_report catalog, mcp-info.{json,md}) with no
-		// concrete use behind it.
-		filters:   map[string]string{"pipeline_id": colPipelineID, fieldStatus: "t.status", "owner_id": colOwnerID},
+		// concrete use behind it. The rest match the board's own filter dials:
+		// partner_sourced and stalled are boolean-valued expressions, which
+		// the engine's generic `expr = $n` rendering already handles with no
+		// special-casing.
+		filters: map[string]string{
+			fieldPipelineID:     colPipelineID,
+			fieldStatus:         colStatus,
+			fieldOwnerID:        colOwnerID,
+			fieldOrganizationID: colOrganizationID,
+			fieldPartnerSourced: deals.PartnerSourcedSQL("t"),
+			fieldStalled:        deals.StalledSQL("t"),
+			fieldCurrency:       colCurrency,
+		},
 		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
@@ -199,11 +221,11 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
-			"owner_id":          colOwnerID,
+			fieldOwnerID:        colOwnerID,
 			fieldStageID:        colStageID,
-			"pipeline_id":       colPipelineID,
+			fieldPipelineID:     colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          "t.currency",
+			fieldCurrency:       colCurrency,
 			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
@@ -211,11 +233,11 @@ var prebuiltReports = map[string]reportSpec{
 			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		filters: map[string]string{
-			"owner_id":          colOwnerID,
+			fieldOwnerID:        colOwnerID,
 			fieldStageID:        colStageID,
-			"pipeline_id":       colPipelineID,
+			fieldPipelineID:     colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          "t.currency",
+			fieldCurrency:       colCurrency,
 		},
 		defaultBy: []string{"forecast_category"},
 		defaultAggs: []reportAggregate{

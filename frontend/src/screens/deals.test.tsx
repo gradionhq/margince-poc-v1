@@ -14,7 +14,13 @@ import type { components } from "../api/schema";
 import { pickOption } from "../design-system/select-testing";
 import { formatMoney } from "../format/format";
 import { LocaleProvider } from "../i18n";
-import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
+import {
+  buildColumns,
+  buildStageTotals,
+  DealScreen,
+  DealsScreen,
+  mapDealUpdate,
+} from "./deals";
 
 // B-EP09.11 acceptance: board renders per-column sub-lines from the fetched
 // set, mixed-currency columns refuse a sum, the board↔table control keeps
@@ -174,31 +180,134 @@ function stubDealBackend(
   });
 }
 
-describe("buildColumns", () => {
-  it("computes same-currency page-local sub-lines and hides mixed-currency sums", () => {
-    const columns = buildColumns(stages, [
-      deal({ id: "a", stage_id: "s1", amount_minor: 100_000, currency: "EUR" }),
-      deal({ id: "b", stage_id: "s1", amount_minor: 200_000, currency: "EUR" }),
-      deal({ id: "c", stage_id: "s2", amount_minor: 100_000, currency: "EUR" }),
-      deal({ id: "d", stage_id: "s2", amount_minor: 100_000, currency: "USD" }),
+// AC-F1: column totals come from the server's per-stage
+// aggregate (Σround(amount×p/100), never round(Σamount×p/100)) — not from
+// summing whatever page of cards happened to load. buildStageTotals shapes
+// the report's rows (grouped by stage_id + currency); buildColumns reads
+// from that, and keeps building the CARD list from the loaded deals as
+// before — the cap on cards is unrelated to the correctness of the totals.
+describe("buildStageTotals", () => {
+  it("carries one currency's totals straight through", () => {
+    const totals = buildStageTotals([
+      {
+        stage_id: "s1",
+        currency: "EUR",
+        deals: 3,
+        raw_minor: 300_000,
+        weighted_minor: 60_000,
+      },
     ]);
-    expect(columns[0].rawMinor).toBe(300_000);
-    expect(columns[0].weightedMinor).toBe(60_000);
+    expect(totals.get("s1")).toEqual({
+      count: 3,
+      rawMinor: 300_000,
+      weightedMinor: 60_000,
+      currency: "EUR",
+      sumHidden: false,
+    });
+  });
+
+  it("hides the sum when a stage has more than one currency row", () => {
+    const totals = buildStageTotals([
+      {
+        stage_id: "s2",
+        currency: "EUR",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+      {
+        stage_id: "s2",
+        currency: "USD",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+    ]);
+    const s2 = totals.get("s2");
+    expect(s2?.sumHidden).toBe(true);
+    expect(s2?.count).toBe(2);
+  });
+
+  it("a stage absent from the rows gets zeroed, not undefined", () => {
+    const totals = buildStageTotals([]);
+    expect(totals.get("s1")).toBeUndefined();
+  });
+});
+
+describe("buildColumns", () => {
+  it("reads sums from the totals map, not from the loaded cards", () => {
+    const totals = buildStageTotals([
+      // The server's per-deal-rounded figure (12343 × 20% rounded per deal,
+      // twice, then summed = 4938) — deliberately NOT what round(Σ) gives
+      // (4937), so a regression back to client-side summing would fail this.
+      {
+        stage_id: "s1",
+        currency: "EUR",
+        deals: 2,
+        raw_minor: 24_686,
+        weighted_minor: 4_938,
+      },
+    ]);
+    const columns = buildColumns(
+      stages,
+      [
+        deal({
+          id: "a",
+          stage_id: "s1",
+          amount_minor: 12_343,
+          currency: "EUR",
+        }),
+        deal({
+          id: "b",
+          stage_id: "s1",
+          amount_minor: 12_343,
+          currency: "EUR",
+        }),
+      ],
+      totals,
+    );
+    expect(columns[0].rawMinor).toBe(24_686);
+    expect(columns[0].weightedMinor).toBe(4_938);
+    expect(columns[0].deals).toHaveLength(2);
+  });
+
+  it("hides the sum for a mixed-currency stage per the totals map, regardless of which cards loaded", () => {
+    const totals = buildStageTotals([
+      {
+        stage_id: "s2",
+        currency: "EUR",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+      {
+        stage_id: "s2",
+        currency: "USD",
+        deals: 1,
+        raw_minor: 100_000,
+        weighted_minor: 20_000,
+      },
+    ]);
+    const columns = buildColumns(
+      stages,
+      [
+        deal({
+          id: "c",
+          stage_id: "s2",
+          amount_minor: 100_000,
+          currency: "EUR",
+        }),
+      ],
+      totals,
+    );
     expect(columns[1].sumHidden).toBe(true);
   });
 
-  // AC-F1: the weighted column must round PER DEAL, then sum —
-  // not sum the raw amounts and round once. 12343 × 20% = 2468.6, which
-  // rounds up to 2469 per deal (two deals: 4938); summing first gives
-  // 24686 × 20% = 4937.2, which rounds DOWN to 4937. The two derivations
-  // disagree by exactly the case this asserts.
-  it("rounds each deal's weighted value before summing, not the column sum", () => {
-    const columns = buildColumns(stages, [
-      deal({ id: "a", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
-      deal({ id: "b", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
-    ]);
-    expect(columns[0].rawMinor).toBe(24_686);
-    expect(columns[0].weightedMinor).toBe(4_938);
+  it("a stage with no totals row (still loading, or genuinely empty) shows zero, not a stale figure", () => {
+    const columns = buildColumns(stages, [], new Map());
+    expect(columns[0].rawMinor).toBe(0);
+    expect(columns[0].weightedMinor).toBe(0);
+    expect(columns[0].sumHidden).toBeFalsy();
   });
 });
 
@@ -212,6 +321,8 @@ function stubBackend(
     onDealsUrl?: (url: string) => void;
     pipelines?: components["schemas"]["Pipeline"][];
     agentTools?: components["schemas"]["AgentTool"][];
+    stageTotalsRows?: Record<string, unknown>[];
+    onStageTotalsBody?: (body: unknown) => void;
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -239,6 +350,18 @@ function stubBackend(
           },
         ],
         page: { next_cursor: null },
+      });
+    }
+    if (method === "POST" && url.includes("/reports/deals-by-stage")) {
+      const body = request
+        ? await request.json()
+        : JSON.parse(String(init?.body));
+      opts.onStageTotalsBody?.(body);
+      return jsonResponse({
+        report: "deals-by-stage",
+        plan: {},
+        columns: [],
+        rows: opts.stageTotalsRows ?? [],
       });
     }
     if (method === "POST" && url.includes("/advance")) {
@@ -336,6 +459,58 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Table" }));
     expect(screen.getByText("Fleet retrofit")).toBeTruthy(); // same set, table view
     expect(dealFetches()).toBe(before); // no reload
+  });
+
+  // The board's column total must come from the deals-by-stage
+  // report over EVERY matching deal, not from summing the (capped) page of
+  // cards. The seeded card's own amount×probability would give a different,
+  // WRONG figure if the board still computed it client-side — this proves
+  // it renders the server's number instead.
+  it("renders the board's column total from the deals-by-stage report, not from the loaded cards", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({ id: "a", stage_id: "s1", amount_minor: 1 })], {
+        stageTotalsRows: [
+          {
+            stage_id: "s1",
+            currency: "EUR",
+            deals: 250,
+            raw_minor: 9_999_999,
+            weighted_minor: 1_234_567,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(formatMoney(9_999_999, "EUR", "en")),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(`weighted ${formatMoney(1_234_567, "EUR", "en")}`),
+    ).toBeTruthy();
+    // The true stage count (250), not "1" — the single loaded card's count.
+    expect(screen.getByText("250 deals")).toBeTruthy();
+  });
+
+  it("sends the board's active filters to the deals-by-stage totals request", async () => {
+    let sentBody: unknown;
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onStageTotalsBody: (body) => {
+          sentBody = body;
+        },
+      }),
+    );
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+    expect(sentBody).toMatchObject({
+      group_by: ["stage_id", "currency"],
+    });
   });
 
   it("a terminal-stage advance opens the 🟡 confirm and posts only after confirming", async () => {

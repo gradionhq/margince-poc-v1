@@ -105,6 +105,25 @@ describe("DealCard + PipelineBoard", () => {
     expect(screen.getByText("€60,500.00")).toBeTruthy();
     expect(screen.getByText("weighted €24,200.00")).toBeTruthy();
   });
+
+  // A caller with a capped card fetch (the Kanban board) supplies
+  // the stage's TRUE count from a server aggregate — it must render that,
+  // not deals.length, whenever the two disagree.
+  it("renders the column's own count over deals.length when the two disagree", () => {
+    const column: BoardColumn = {
+      stage: "proposal",
+      label: "Proposal",
+      probabilityPct: 40,
+      rawMinor: 6_050_000,
+      weightedMinor: 2_420_000,
+      currency: "EUR",
+      deals: [deal],
+      count: 137,
+    };
+    render(<PipelineBoard columns={[column]} />);
+    expect(screen.getByText("137 deals")).toBeTruthy();
+    expect(screen.queryByText("1 deals")).toBeNull();
+  });
 });
 
 describe("RecordView + timeline", () => {

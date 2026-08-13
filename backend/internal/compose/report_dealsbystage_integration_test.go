@@ -14,8 +14,11 @@ package compose
 // round client-side, so the engine has to compute it the AC-F1 way.
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -120,6 +123,152 @@ func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
 		t.Errorf("own-scope drill-through total = %d, want 1 (never the foreign deal)", derivation.TotalRows)
 	}
 }
+
+// The board's per-column totals need deals-by-stage to accept
+// every filter dial the board itself exposes, and to split a stage's total
+// by currency so a mixed-currency column can still decline to sum (the same
+// rule the board already gets right client-side, now proven server-side).
+
+func TestDealsByStageGroupsByCurrencySeparately(t *testing.T) {
+	e := setupForecast(t)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'EUR deal', $3, $4, 100000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60])
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'USD deal', $3, $4, 50000, 'USD', 'manual', 'human:x')`, e.pipeline, e.stages[60])
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["stage_id","currency"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}]}`)
+	var rows []map[string]any
+	for _, row := range result.Rows {
+		if row["stage_id"] == e.stages[60].String() {
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows for the stage = %d, want 2 (one per currency): %+v", len(rows), rows)
+	}
+	sums := map[string]int64{}
+	for _, row := range rows {
+		currency, ok := row["currency"].(string)
+		if !ok {
+			t.Fatalf("row %+v: currency cell is not a string", row)
+		}
+		sums[currency] = wireInt(t, row, "amount_minor_sum")
+	}
+	if sums["EUR"] != 100000 || sums["USD"] != 50000 {
+		t.Errorf("currency-grouped sums = %+v, want EUR=100000 USD=50000", sums)
+	}
+}
+
+func TestDealsByStageFiltersByOrganizationID(t *testing.T) {
+	e := setupForecast(t)
+	orgA := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'A', 'manual', 'human:x')`)
+	orgB := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'B', 'manual', 'human:x')`)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Deal A', $3, $4, $5, 10000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], orgA)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Deal B', $3, $4, $5, 20000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], orgB)
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage", fmt.Sprintf(
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}],"filters":{"organization_id":%q}}`,
+		orgA.String()))
+	row := dealsByStageRow(t, result, e.stages[60].String())
+	if got := wireInt(t, row, "deals"); got != 1 {
+		t.Fatalf("deals = %d, want 1 (only org A's deal)", got)
+	}
+	if got := wireInt(t, row, "amount_minor_sum"); got != 10000 {
+		t.Errorf("amount_minor_sum = %d, want 10000", got)
+	}
+}
+
+func TestDealsByStageFiltersByPartnerSourced(t *testing.T) {
+	e := setupForecast(t)
+	partner := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Partner', 'manual', 'human:x')`)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, partner_org_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Sourced', $3, $4, $5, 10000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], partner)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Direct', $3, $4, 20000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60])
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}],"filters":{"partner_sourced":true}}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
+	if got := wireInt(t, row, "deals"); got != 1 {
+		t.Fatalf("deals = %d, want 1 (only the partner-sourced deal)", got)
+	}
+	if got := wireInt(t, row, "amount_minor_sum"); got != 10000 {
+		t.Errorf("amount_minor_sum = %d, want 10000", got)
+	}
+}
+
+// deals-by-stage joins stage, which has its own created_at — so the stalled
+// predicate (deals.StalledSQL) must reach this query alias-qualified, or an
+// unqualified reference to a column both tables carry is ambiguous SQL. A
+// regression to an unqualified spelling does not produce a wrong number; it
+// 500s before ever reaching the assertions below.
+func TestDealsByStageStalledFilterWorksUnderTheStageJoin(t *testing.T) {
+	e := setupForecast(t)
+	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by, created_at)
+		VALUES ($1, $2, 'Idle', $3, $4, 10000, 'EUR', 'manual', 'human:x', now() - interval '90 days')`, e.pipeline, e.stages[60])
+	e.seedOpenDeal(t, "Fresh", 60, nil, int64p(20000), stringp("commit"))
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}],"filters":{"stalled":true}}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
+	if got := wireInt(t, row, "deals"); got != 1 {
+		t.Fatalf("deals = %d, want 1 (only the idle deal)", got)
+	}
+	if got := wireInt(t, row, "amount_minor_sum"); got != 10000 {
+		t.Errorf("amount_minor_sum = %d, want 10000", got)
+	}
+}
+
+// The Go predicate (deals.IsStalled) and the SQL clause (deals.StalledSQL)
+// are two spellings of the same rule (formulas-and-rules §8) and must agree.
+// Margins here are wide (tens of days) on purpose: the SQL side evaluates
+// against the live `now()` at query time, seconds after this test captured
+// its own `now`, so a boundary-exact case would be flaky by construction —
+// that exact case is formulas_test.go's job, against a fixed clock.
+func TestDealsByStageStalledFilterAgreesWithIsStalled(t *testing.T) {
+	e := setupForecast(t)
+	now := time.Now().UTC()
+	days := func(n int) time.Time { return now.AddDate(0, 0, n) }
+
+	cases := []struct {
+		name    string
+		created time.Time
+		lastAct *time.Time
+		wait    *time.Time
+	}{
+		{"fresh", days(-5), timep(days(-2)), nil},
+		{"idle past threshold", days(-90), timep(days(-70)), nil},
+		{"active wait suppresses", days(-90), timep(days(-80)), timep(days(10))},
+		{"expired wait un-suppresses", days(-90), timep(days(-80)), timep(days(-5))},
+	}
+	for _, c := range cases {
+		e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, created_at, last_activity_at, wait_until, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 1000, 'EUR', $6, $7, $8, 'manual', 'human:x')`,
+			c.name, e.pipeline, e.stages[60], c.created, c.lastAct, c.wait)
+	}
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"}],"filters":{"stalled":true}}`)
+	row := dealsByStageRow(t, result, e.stages[60].String())
+
+	var wantStalled int64
+	for _, c := range cases {
+		if deals.IsStalled("open", c.created, c.lastAct, c.wait, now) {
+			wantStalled++
+		}
+	}
+	if wantStalled == 0 || wantStalled == int64(len(cases)) {
+		t.Fatalf("fixture is broken: IsStalled must split these %d cases, not agree on all of them (got %d stalled)", len(cases), wantStalled)
+	}
+	if got := wireInt(t, row, "deals"); got != wantStalled {
+		t.Errorf("SQL filter matched %d deals, Go's IsStalled agrees on %d — the two spellings of §8 have drifted", got, wantStalled)
+	}
+}
+
+func timep(v time.Time) *time.Time { return &v }
 
 // dealsByStageRow picks the aggregate row for one stage out of a
 // group-by-stage_id result — the report is fetched with no stage_id
