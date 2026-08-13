@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"hash"
 	"sort"
+	"strconv"
 )
 
 // Fingerprint digests one object mapping's declaration. Two mappings that
@@ -33,17 +34,31 @@ func Fingerprint(m ObjectMapping) string {
 	writeField(h, "unmapped_policy", m.UnmappedPolicy)
 	writeSortedMap(h, "const", m.Const)
 	for i, f := range m.Fields {
-		// The index is part of the digest because Apply projects fields in
-		// declaration order, so a reordering can change which writer lands
-		// last on a shared target.
-		writeField(h, fmt.Sprintf("field.%d.from", i), fmt.Sprint(f.From))
+		// The index is hashed conservatively, not because a reorder is known to
+		// matter: order-independence rests on guards declared elsewhere —
+		// checkTargetCollisions rejects a shared target outright, and
+		// sortChildRowsByPosition re-sorts one parent's child rows by positions
+		// checkChildRowDeclarations keeps unique. Pinning the index costs a
+		// re-projection whenever Fields is reordered; leaving it out would bet
+		// the estate on those guards never being relaxed, and a missed
+		// re-projection is the failure this digest exists to prevent.
+		//
+		// From is written element by element, prefixed with its count, because a
+		// flattened rendering cannot separate ["a","b"] from ["a b"] — one
+		// TargetAssembler gathering two raw properties from one gathering a
+		// single property whose name contains a space. The count also keeps a nil
+		// From and an empty one equal, which they are: neither gathers anything.
+		writeField(h, fmt.Sprintf("field.%d.from.count", i), strconv.Itoa(len(f.From)))
+		for j, from := range f.From {
+			writeField(h, fmt.Sprintf("field.%d.from.%d", i, j), from)
+		}
 		writeField(h, fmt.Sprintf("field.%d.to", i), f.To)
 		writeField(h, fmt.Sprintf("field.%d.kind", i), f.Kind.String())
 		writeField(h, fmt.Sprintf("field.%d.transform", i), f.Transform)
 		writeField(h, fmt.Sprintf("field.%d.resolve", i), f.Resolve)
-		writeField(h, fmt.Sprintf("field.%d.always_emit", i), fmt.Sprint(f.AlwaysEmit))
+		writeField(h, fmt.Sprintf("field.%d.always_emit", i), strconv.FormatBool(f.AlwaysEmit))
 		if f.Child != nil {
-			writeField(h, fmt.Sprintf("field.%d.child.position", i), fmt.Sprint(f.Child.Position))
+			writeField(h, fmt.Sprintf("field.%d.child.position", i), strconv.Itoa(f.Child.Position))
 			writeSortedMap(h, fmt.Sprintf("field.%d.child.attrs", i), f.Child.Attrs)
 		}
 	}
@@ -63,6 +78,15 @@ func writeField(h hash.Hash, name, value string) {
 // iteration order varies per run and a fingerprint that varied would mark
 // every mirrored row stale forever.
 //
+// Values carry their dynamic type and their Go-syntax form, because Const and
+// Attrs are copied verbatim into the projected payload and a plain rendering is
+// type-blind: the bool true and the string "true" both render as "true", and
+// so do 1, 1.0 and "1" — a declaration edit that flips one for the other
+// changes the mirrored JSON. The Go-syntax form quotes strings and delimits
+// container members, so the same separation holds a level down into the nested
+// values a decoded-JSON declaration can carry. fmt sorts map keys, so a nested
+// map is as stable across runs as the ordering above.
+//
 //craft:ignore naked-any the declaration maps hold decoded JSON values; the any is the declared type, not a missed one
 func writeSortedMap(h hash.Hash, name string, values map[string]any) {
 	keys := make([]string, 0, len(values))
@@ -71,6 +95,6 @@ func writeSortedMap(h hash.Hash, name string, values map[string]any) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		writeField(h, name+"."+k, fmt.Sprint(values[k]))
+		writeField(h, name+"."+k, fmt.Sprintf("%T=%#v", values[k], values[k]))
 	}
 }
