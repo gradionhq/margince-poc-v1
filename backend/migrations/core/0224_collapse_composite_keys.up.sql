@@ -212,8 +212,13 @@ ALTER TABLE raw_capture ADD CONSTRAINT raw_capture_source_unique UNIQUE (source_
 ALTER TABLE record_grant DROP CONSTRAINT record_grant_unique;
 ALTER TABLE record_grant ADD CONSTRAINT record_grant_unique UNIQUE (record_type, record_id, subject_type, subject_id);
 
+-- NULLS NOT DISTINCT carries across the collapse: `category` is nullable and
+-- DM-SEED-2 plants an ('activity', NULL) row, so without it 0223's "one row
+-- per scope" reverts to "any number of NULL-category rows" — the property
+-- privacy.MaxPassDuration derives its bound from.
 ALTER TABLE retention_policy DROP CONSTRAINT retention_policy_unique;
-ALTER TABLE retention_policy ADD CONSTRAINT retention_policy_unique UNIQUE (object_type, category);
+ALTER TABLE retention_policy ADD CONSTRAINT retention_policy_unique
+  UNIQUE NULLS NOT DISTINCT (object_type, category);
 
 ALTER TABLE role DROP CONSTRAINT role_key_unique;
 ALTER TABLE role ADD CONSTRAINT role_key_unique UNIQUE (key);

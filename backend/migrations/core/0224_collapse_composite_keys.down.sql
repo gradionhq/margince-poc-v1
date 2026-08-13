@@ -323,7 +323,8 @@ ALTER TABLE role DROP CONSTRAINT role_key_unique;
 ALTER TABLE role ADD CONSTRAINT role_key_unique UNIQUE (workspace_id, key);
 
 ALTER TABLE retention_policy DROP CONSTRAINT retention_policy_unique;
-ALTER TABLE retention_policy ADD CONSTRAINT retention_policy_unique UNIQUE (workspace_id, object_type, category);
+ALTER TABLE retention_policy ADD CONSTRAINT retention_policy_unique
+  UNIQUE NULLS NOT DISTINCT (workspace_id, object_type, category);
 
 ALTER TABLE record_grant DROP CONSTRAINT record_grant_unique;
 ALTER TABLE record_grant ADD CONSTRAINT record_grant_unique UNIQUE (workspace_id, record_type, record_id, subject_type, subject_id);

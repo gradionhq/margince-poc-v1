@@ -11,7 +11,7 @@
 -- the other way round: B must precede C *for the referenced table*, and here
 -- B's additive half was already done — every entity table's `id` is already its
 -- PRIMARY KEY. What is left of B is the DROP half, and it cannot run while
--- foreign keys still point at the composite uniques. It lands in 0223.
+-- foreign keys still point at the composite uniques. It lands in 0224.
 --
 -- Every rewrite preserves its constraint's own definition apart from the
 -- dropped column — ON DELETE CASCADE, ON DELETE SET NULL and its column list,
