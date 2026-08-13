@@ -254,7 +254,7 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO overlay_tombstone (workspace_id, object_class, external_id)
 		SELECT workspace_id, object_class, external_id FROM overlay_mirror
-		ON CONFLICT (workspace_id, object_class, external_id) DO NOTHING`); err != nil {
+		ON CONFLICT (object_class, external_id) DO NOTHING`); err != nil {
 		return fmt.Errorf("overlay: tombstoning the mirror before purge: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM overlay_mirror`); err != nil {

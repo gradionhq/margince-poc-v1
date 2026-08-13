@@ -323,7 +323,7 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''),
 	        NULLIF($9, ''), 'csv_export', now())
-		ON CONFLICT (workspace_id, owner_user_id, normalized_name,
+		ON CONFLICT (owner_user_id, normalized_name,
 		             coalesce(normalized_company, ''), coalesce(connected_on, 'epoch'::date))
 		  WHERE provider_member_ref IS NULL
 		DO UPDATE SET

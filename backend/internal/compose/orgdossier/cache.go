@@ -51,7 +51,7 @@ var dossierCache = readerCache{
 		INSERT INTO org_dossier (workspace_id, user_id, organization_id, fingerprint,
 		                         generated_at, generated_by, payload)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (workspace_id, user_id, organization_id) DO UPDATE
+		ON CONFLICT (user_id, organization_id) DO UPDATE
 		SET fingerprint = EXCLUDED.fingerprint,
 		    generated_at = EXCLUDED.generated_at,
 		    generated_by = EXCLUDED.generated_by,
@@ -66,7 +66,7 @@ var growthFitCache = readerCache{
 		INSERT INTO org_growth_fit (workspace_id, user_id, organization_id, fingerprint,
 		                            generated_at, generated_by, payload)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (workspace_id, user_id, organization_id) DO UPDATE
+		ON CONFLICT (user_id, organization_id) DO UPDATE
 		SET fingerprint = EXCLUDED.fingerprint,
 		    generated_at = EXCLUDED.generated_at,
 		    generated_by = EXCLUDED.generated_by,

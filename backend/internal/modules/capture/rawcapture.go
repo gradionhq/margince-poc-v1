@@ -48,7 +48,7 @@ func InsertRawCaptureTx(ctx context.Context, tx pgx.Tx, rec RawRecord) (ids.UUID
 	err := tx.QueryRow(ctx, `
 		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-		ON CONFLICT (workspace_id, source_system, source_id) DO UPDATE
+		ON CONFLICT (source_system, source_id) DO UPDATE
 		SET payload = EXCLUDED.payload, received_at = now()
 		RETURNING id`,
 		rec.SourceSystem, rec.SourceID, rec.Payload).Scan(&id)

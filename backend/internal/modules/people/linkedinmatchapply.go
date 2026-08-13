@@ -243,7 +243,7 @@ func writeLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID 
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO person_social (workspace_id, person_id, platform, handle)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $3, $2)
-		ON CONFLICT (workspace_id, person_id, platform) DO NOTHING`, personID, *handle, socialLinkedIn)
+		ON CONFLICT (person_id, platform) DO NOTHING`, personID, *handle, socialLinkedIn)
 	if err != nil {
 		return false, fmt.Errorf("people: writing a confirmed contact's LinkedIn handle: %w", err)
 	}

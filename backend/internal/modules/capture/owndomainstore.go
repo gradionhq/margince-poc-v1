@@ -137,7 +137,7 @@ func (s *OwnDomainStore) Add(ctx context.Context, raw string) (OwnDomain, error)
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'admin', true)
-			ON CONFLICT (workspace_id, domain)
+			ON CONFLICT (domain)
 			  DO UPDATE SET source = 'admin', verified = true
 			RETURNING domain, source, verified, created_at`, domain).
 			Scan(&out.Domain, &out.Source, &out.Verified, &out.CreatedAt); err != nil {

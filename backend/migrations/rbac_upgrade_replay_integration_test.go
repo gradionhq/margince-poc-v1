@@ -103,8 +103,6 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 	// container's superuser, so it bypasses the row-level security every tenant
 	// backfill has to satisfy, and a backfill that reaches nothing in production
 	// would pass here. See migrationrole_integration_test.go.
-	migrator := asMigrator(t, conn)
-
 	core, custom := namespaces(t)
 	installs := readReplayInstalls(t)
 	want := readSeededDefaults(t)
@@ -114,23 +112,36 @@ func TestUpgradingALegacyInstallationYieldsTheSeededMatrix(t *testing.T) {
 		Name:       core.Name,
 		Migrations: core.Migrations[:prefixThrough(t, core, installs.LegacyCoreVersion)],
 	}
-	if _, err := dbmigrate.Up(ctx, migrator, legacy); err != nil {
-		t.Fatalf("applying core through %s: %v", installs.LegacyCoreVersion, err)
-	}
-
-	workspaces := seedInstallations(t, conn, installs)
-	archiveAllButOne(t, conn)
-
-	// Upgrade it to head — core AND custom, because two backfills live in the
-	// fork-owned namespace and an assertion that modelled the split would be
-	// modelling the wrong thing.
-	if _, err := dbmigrate.Up(ctx, migrator, core, custom); err != nil {
-		t.Fatalf("upgrading to head: %v", err)
-	}
-
-	for _, install := range slices.Sorted(maps.Keys(workspaces)) {
+	// One cohort at a time, each on its own legacy schema.
+	//
+	// They used to be seeded side by side and upgraded in one pass. Roles,
+	// consent purposes and the rest are keyed installation-wide since ADR-0091
+	// §8 phase B, so two legacy cohorts cannot coexist — and they never
+	// described one database anyway: each is a DIFFERENT installation's
+	// history, and replaying them separately is the more honest model as well
+	// as the only possible one. The cost is one extra legacy-to-head run.
+	for _, install := range slices.Sorted(maps.Keys(installs.Installs)) {
 		t.Run(install, func(t *testing.T) {
-			assertMatrix(ctx, t, conn, workspaces[install], want)
+			resetSchema(t, conn)
+			// A fresh migrator connection per cohort: resetSchema drops and
+			// recreates `public`, and a connection opened before that still
+			// resolves its search_path to the schema that is gone.
+			migrator := asMigrator(t, conn)
+			if _, err := dbmigrate.Up(ctx, migrator, legacy); err != nil {
+				t.Fatalf("applying core through %s: %v", installs.LegacyCoreVersion, err)
+			}
+			ws := seedWorkspace(t, conn, "rbac-replay-"+install)
+			for _, role := range slices.Sorted(maps.Keys(installs.Installs[install])) {
+				seedRole(t, conn, ws, role, true, installs.Installs[install][role])
+			}
+
+			// Upgrade to head — core AND custom, because two backfills live in
+			// the fork-owned namespace and an assertion that modelled the split
+			// would be modelling the wrong thing.
+			if _, err := dbmigrate.Up(ctx, migrator, core, custom); err != nil {
+				t.Fatalf("upgrading to head: %v", err)
+			}
+			assertMatrix(ctx, t, conn, ws, want)
 		})
 	}
 }
@@ -214,21 +225,6 @@ func render(grant verbs) string {
 		return "<unrenderable>"
 	}
 	return string(raw)
-}
-
-// seedInstallations plants each fixture installation in its own workspace and
-// returns the workspace ids by installation name.
-func seedInstallations(t *testing.T, conn *pgx.Conn, installs replayInstalls) map[string]string {
-	t.Helper()
-	workspaces := map[string]string{}
-	for _, install := range slices.Sorted(maps.Keys(installs.Installs)) {
-		workspaceID := seedWorkspace(t, conn, "rbac-replay-"+install)
-		workspaces[install] = workspaceID
-		for _, role := range slices.Sorted(maps.Keys(installs.Installs[install])) {
-			seedRole(t, conn, workspaceID, role, true, installs.Installs[install][role])
-		}
-	}
-	return workspaces
 }
 
 // prefixThrough returns the number of migrations up to AND INCLUDING version —

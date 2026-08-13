@@ -251,17 +251,40 @@ func (s *RunStore) RecordIdentityTx(ctx context.Context, tx pgx.Tx, runID RunID,
 
 // recordIdentityInTx is the statement both entry points run.
 func recordIdentityInTx(ctx context.Context, tx pgx.Tx, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
-	_, err := tx.Exec(ctx, `
+	// The run is resolved in the statement, not trusted from the argument.
+	//
+	// The composite foreign key used to be the boundary: `(workspace_id,
+	// import_run_id)` could not name a run in another workspace, so a scope
+	// miss surfaced as an FK violation this function turned into not-found.
+	// Phase C collapsed that key to `(import_run_id)` (ADR-0091 §8), so a run
+	// id from anywhere now satisfies it. The INSERT selects its run instead,
+	// under the same workspace binding the row is written with — no row, no
+	// insert, and the caller gets the same existence-hiding not-found it
+	// always did rather than a constraint name telling it the run exists.
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
-		ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
+		SELECT r.workspace_id, $1, $2, $3, $4, r.id
+		  FROM import_run r
+		 WHERE r.id = $5
+		   AND r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		ON CONFLICT (source_system, object, external_id) DO NOTHING`,
 		sourceSystem, object, externalID, nativeID, runID)
-	if storekit.IsForeignKeyViolation(err) {
-		// The composite FK is the row-scope boundary here: the run id
-		// belongs to another workspace. That is a scope miss, so it
-		// answers like every other one — not found, rather than a
-		// constraint name telling the caller the run exists elsewhere.
-		return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
+	if err == nil && tag.RowsAffected() == 0 {
+		// Either the run is not this workspace's, or the identity is already
+		// mapped. Distinguished here rather than guessed: a replay must stay a
+		// no-op, and only a missing run is a scope miss.
+		var exists bool
+		if probeErr := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+			  SELECT 1 FROM import_run
+			   WHERE id = $1
+			     AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)`,
+			runID).Scan(&exists); probeErr != nil {
+			return fmt.Errorf("migration: resolving the import run %s: %w", runID, probeErr)
+		}
+		if !exists {
+			return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("migration: recording the %s %s identity: %w", object, externalID, err)
@@ -297,7 +320,7 @@ func (s *RunStore) RecordIdentities(ctx context.Context, runID RunID, sourceSyst
 			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
 			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, e, n, $5
 			FROM unnest($3::text[], $4::uuid[]) AS t(e, n)
-			ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
+			ON CONFLICT (source_system, object, external_id) DO NOTHING`,
 			sourceSystem, object, externals, natives, runID)
 		if storekit.IsForeignKeyViolation(err) {
 			return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)

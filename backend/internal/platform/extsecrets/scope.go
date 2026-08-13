@@ -133,12 +133,12 @@ func (s *store) upsert(ctx context.Context, tx pgx.Tx, user *ids.UserID, key str
 	const workspaceScoped = `
 		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
 		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, NULL, $2, $3)
-		ON CONFLICT (extension_name, workspace_id, key) WHERE user_id IS NULL
+		ON CONFLICT (extension_name, key) WHERE user_id IS NULL
 		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
 	const userScoped = `
 		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
 		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4)
-		ON CONFLICT (extension_name, workspace_id, user_id, key) WHERE user_id IS NOT NULL
+		ON CONFLICT (extension_name, user_id, key) WHERE user_id IS NOT NULL
 		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
 
 	var err error

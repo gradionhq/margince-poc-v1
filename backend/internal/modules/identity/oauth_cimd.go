@@ -171,7 +171,7 @@ func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl ti
 		_, err := tx.Exec(ctx, `
 			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via, metadata_expires_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'cimd', $4)
-			ON CONFLICT (workspace_id, client_id) DO UPDATE SET
+			ON CONFLICT (client_id) DO UPDATE SET
 			  client_name         = EXCLUDED.client_name,
 			  redirect_uris       = EXCLUDED.redirect_uris,
 			  metadata_expires_at = EXCLUDED.metadata_expires_at

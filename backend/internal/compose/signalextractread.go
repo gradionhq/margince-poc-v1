@@ -296,7 +296,7 @@ func recordThreadRefusal(
 		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
 		   refusals, refused_activity_at, refused_message_count)
 		VALUES ($1, $2, '-infinity', 0, $5, 1, $3, $4)
-		ON CONFLICT (workspace_id, thread_key) DO UPDATE
+		ON CONFLICT (thread_key) DO UPDATE
 		   SET refusals = CASE
 		         WHEN signal_thread_scan.refused_activity_at IS NOT DISTINCT FROM excluded.refused_activity_at
 		          AND signal_thread_scan.refused_message_count IS NOT DISTINCT FROM excluded.refused_message_count
@@ -332,7 +332,7 @@ func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thr
 		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
 		   resolved_org_id)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (workspace_id, thread_key) DO UPDATE
+		ON CONFLICT (thread_key) DO UPDATE
 		   SET last_activity_at = greatest(signal_thread_scan.last_activity_at, excluded.last_activity_at),
 		       message_count = excluded.message_count,
 		       scanned_at = excluded.scanned_at,

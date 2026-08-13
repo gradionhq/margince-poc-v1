@@ -104,7 +104,7 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 		INSERT INTO lead (workspace_id, full_name, email, company_name, title, source_system, source_id, source, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        NULLIF($1, ''), NULLIF(lower($2), ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8)
-		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
+		ON CONFLICT (source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.FullName, fields.Email, fields.CompanyName, fields.Title,

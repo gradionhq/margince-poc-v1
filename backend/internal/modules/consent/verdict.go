@@ -337,7 +337,7 @@ func RecordDerivedQualifyingEvent(ctx context.Context, tx pgx.Tx, personID strin
 			 occurred_at, source, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, $2, $3, $4, $5, 'derived', $6)
-		ON CONFLICT (workspace_id, person_id, source_entity_type, source_entity_id)
+		ON CONFLICT (person_id, source_entity_type, source_entity_id)
 		  WHERE source_entity_id IS NOT NULL
 		  DO NOTHING`,
 		personID, event.Kind, event.SourceEntityType, event.SourceEntityID,

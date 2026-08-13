@@ -253,7 +253,7 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5, $6)
-		ON CONFLICT (workspace_id, user_id, provider)
+		ON CONFLICT (user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
 		              generation = capture_connection.generation + CASE WHEN $7 THEN 1 ELSE 0 END,

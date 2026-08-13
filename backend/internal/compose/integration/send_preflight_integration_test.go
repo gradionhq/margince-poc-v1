@@ -205,7 +205,7 @@ func (p *preflightEnv) connect(t *testing.T, providerScopes ...string) {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, status, auth, provider_scopes)
 			VALUES ($1, 'gmail', $2, '{}', 'connected', $3, $4)
-			ON CONFLICT (workspace_id, user_id, provider)
+			ON CONFLICT (user_id, provider)
 			DO UPDATE SET status = 'connected', provider_scopes = EXCLUDED.provider_scopes`,
 			p.ws, p.user, []byte(`{"refresh_token":"r","granted":[]}`), providerScopes)
 		return err

@@ -123,95 +123,121 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	ctx := context.Background()
 	ownerDSN, _ := dsns(t)
 	conn := connect(t, ownerDSN)
-	resetSchema(t, conn)
 
 	core, err := Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}
-	// Migrated by the NON-SUPERUSER owner, because this suite's whole subject is
-	// what the backfills WRITE, and under the ordinary owner FORCE row-level
-	// security binds them. Run as the container superuser the backfills land by
-	// bypassing the policy, and the roll-back-and-re-apply below would prove the
-	// grants correct on the one executor production never uses. `conn` stays the
-	// superuser for seeding and reading, which need the cross-workspace view.
-	migrator := asMigrator(t, conn)
-	if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
-		t.Fatalf("up: %v", err)
-	}
-	rollBackTo(ctx, t, migrator, core, backfilledObjects[0].version)
 
-	// Four workspaces, one per upgrade shape the backfills must survive.
-	missing := seedWorkspace(t, conn, "rbac-backfill-missing")
-	present := seedWorkspace(t, conn, "rbac-backfill-present")
-	custom := seedWorkspace(t, conn, "rbac-backfill-custom")
-	empty := seedWorkspace(t, conn, "rbac-backfill-empty")
-
-	for _, key := range systemRoleKeys {
-		// The real upgrade path: system roles holding a populated document that
-		// predates every backfilled object.
-		seedRole(t, conn, missing, key, true, policyDocument(nil))
-		seedRole(t, conn, present, key, true, policyDocument(backfilledObjects))
-		// Non-system roles carrying the SAME five keys. A custom role named
-		// something else would prove nothing: dropping `is_system` while keeping
-		// `key IN ('admin', …)` would still miss it. Only a key collision makes
-		// the predicate the single thing standing between the migration and
-		// these rows.
-		seedRole(t, conn, custom, key, false, policyDocument(nil))
-	}
-	// An installation whose document is a literal '{}': jsonb_set cannot create
-	// the missing `objects` parent, and the `?` guard NULL-skips the row. The
-	// two must stay aligned — if a future migration drops the guard, jsonb_set
-	// would silently no-op and the object would be missing with nothing failing.
-	seedRole(t, conn, empty, "admin", true, []byte(`{}`))
-	archiveAllButOne(t, conn)
-
-	if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
-		t.Fatalf("re-applying the backfills: %v", err)
-	}
-
-	for _, bf := range backfilledObjects {
-		t.Run(bf.object, func(t *testing.T) {
-			// Errorf, not Fatalf: one missing role must not hide the other four,
-			// nor the guard/is_system/'{}' assertions below.
-			for _, role := range systemRoleKeys {
-				got, found := readGrant(ctx, t, conn, missing, role, bf.object)
-				if !found {
-					t.Errorf("%s: role %q holds no %s grant after the backfill; an existing "+
-						"installation would 403 on every %s route", bf.version, role, bf.object, bf.object)
-					continue
+	// One upgrade shape at a time, each replayed on its own schema.
+	//
+	// The three shapes used to be seeded side by side as three workspaces.
+	// `role_key_unique` no longer carries a workspace (ADR-0091 §8 phase B), so
+	// one key means one role in the whole installation and the shapes cannot
+	// coexist — which is truthful rather than inconvenient: each shape IS a
+	// different installation's history, and replaying them separately models
+	// that better than three tenants in one database ever did.
+	//
+	// A fourth shape retired with the same change: non-system roles carrying
+	// the same five keys, the only state that could fail if the backfills'
+	// `is_system` predicate were dropped. A custom role can no longer share
+	// 'admin' with the system one. The predicate stays in the migrations — a
+	// guard the schema also forbids costs nothing — but no database state
+	// exercises it any more.
+	for _, shape := range []struct {
+		name string
+		// seed plants this shape's roles and returns the workspace they are in.
+		seed func(t *testing.T, ws string)
+		// assert checks what the backfill did to them.
+		assert func(t *testing.T, ws string, bf rbacBackfill)
+	}{
+		{
+			name: "a document that predates every backfilled object",
+			seed: func(t *testing.T, ws string) {
+				for _, key := range systemRoleKeys {
+					seedRole(t, conn, ws, key, true, policyDocument(nil))
 				}
-				if want := bf.want[role]; got != want {
-					t.Errorf("%s: role %q got %s grant %+v, want %+v", bf.version, role, bf.object, got, want)
+			},
+			assert: func(t *testing.T, ws string, bf rbacBackfill) {
+				// Errorf, not Fatalf: one missing role must not hide the others.
+				for _, role := range systemRoleKeys {
+					got, found := readGrant(ctx, t, conn, ws, role, bf.object)
+					if !found {
+						t.Errorf("%s: role %q holds no %s grant after the backfill; an existing "+
+							"installation would 403 on every %s route", bf.version, role, bf.object, bf.object)
+						continue
+					}
+					if want := bf.want[role]; got != want {
+						t.Errorf("%s: role %q got %s grant %+v, want %+v", bf.version, role, bf.object, got, want)
+					}
 				}
+			},
+		},
+		{
+			name: "a document an operator already altered",
+			seed: func(t *testing.T, ws string) {
+				for _, key := range systemRoleKeys {
+					seedRole(t, conn, ws, key, true, policyDocument(backfilledObjects))
+				}
+			},
+			assert: func(t *testing.T, ws string, bf rbacBackfill) {
+				// The only-if-absent guard must preserve a grant an operator or
+				// an earlier release already set. Checked for EVERY role: these
+				// migrations are multi-statement and each statement carries its
+				// own guard, so an admin-only assertion would miss a guard
+				// dropped from the rep or read_only statement.
+				for _, role := range systemRoleKeys {
+					kept, found := readGrant(ctx, t, conn, ws, role, bf.object)
+					if !found || kept != alteredGrant {
+						t.Errorf("%s: pre-existing %s %s grant was overwritten: got %+v (found=%v), want %+v",
+							bf.version, role, bf.object, kept, found, alteredGrant)
+					}
+				}
+			},
+		},
+		{
+			name: "a literal '{}' document",
+			seed: func(t *testing.T, ws string) {
+				// jsonb_set cannot create the missing `objects` parent, and the
+				// `?` guard NULL-skips the row. The two must stay aligned — if a
+				// future migration drops the guard, jsonb_set would silently
+				// no-op and the object would be missing with nothing failing.
+				seedRole(t, conn, ws, "admin", true, []byte(`{}`))
+			},
+			assert: func(t *testing.T, ws string, bf rbacBackfill) {
+				if _, found := readGrant(ctx, t, conn, ws, "admin", bf.object); found {
+					t.Errorf("%s: %s appeared in a '{}' permissions document; jsonb_set cannot create "+
+						"the missing objects parent, so the guard and the write have diverged", bf.version, bf.object)
+				}
+			},
+		},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			resetSchema(t, conn)
+			// A fresh migrator per shape: resetSchema drops and recreates
+			// `public`, and a connection opened before that still resolves its
+			// search_path to the schema that is gone.
+			//
+			// Migrated by the NON-SUPERUSER owner, because this suite's whole
+			// subject is what the backfills WRITE. Run as the container
+			// superuser they land by bypassing every policy the ordinary owner
+			// meets, proving the grants correct on the one executor production
+			// never uses. `conn` stays the superuser for seeding and reading.
+			migrator := asMigrator(t, conn)
+			if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
+				t.Fatalf("up: %v", err)
 			}
+			rollBackTo(ctx, t, migrator, core, backfilledObjects[0].version)
 
-			// The only-if-absent guard must preserve a grant an operator or an
-			// earlier release already set. Checked for EVERY role: these
-			// migrations are multi-statement and each statement carries its own
-			// guard, so an admin-only assertion would miss a guard dropped from
-			// the rep or read_only statement.
-			for _, role := range systemRoleKeys {
-				kept, found := readGrant(ctx, t, conn, present, role, bf.object)
-				if !found || kept != alteredGrant {
-					t.Errorf("%s: pre-existing %s %s grant was overwritten: got %+v (found=%v), want %+v",
-						bf.version, role, bf.object, kept, found, alteredGrant)
-				}
+			ws := seedWorkspace(t, conn, "rbac-backfill")
+			shape.seed(t, ws)
+			archiveAllButOne(t, conn)
+
+			if _, err := dbmigrate.Up(ctx, migrator, core); err != nil {
+				t.Fatalf("re-applying the backfills: %v", err)
 			}
-
-			// Non-system roles sharing the same keys must be untouched — this is
-			// the only fixture shape that can fail when `is_system` is dropped.
-			for _, role := range systemRoleKeys {
-				if _, found := readGrant(ctx, t, conn, custom, role, bf.object); found {
-					t.Errorf("%s: backfill wrote %s into non-system role %q; the is_system predicate "+
-						"is missing or wrong", bf.version, bf.object, role)
-				}
-			}
-
-			// The '{}' document stays empty — guard and jsonb_set agree.
-			if _, found := readGrant(ctx, t, conn, empty, "admin", bf.object); found {
-				t.Errorf("%s: %s appeared in a '{}' permissions document; jsonb_set cannot create the "+
-					"missing objects parent, so the guard and the write have diverged", bf.version, bf.object)
+			for _, bf := range backfilledObjects {
+				t.Run(bf.object, func(t *testing.T) { shape.assert(t, ws, bf) })
 			}
 		})
 	}

@@ -99,7 +99,7 @@ func (s *VoiceStore) RecordDraftedSignal(ctx context.Context, profileID ids.UUID
 			   generated_original, retention_until, source, captured_by, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, $2, $3, 'drafted', $4, $5, 'draft', $6, $7)
-			ON CONFLICT (workspace_id, draft_ref_hash) DO NOTHING
+			ON CONFLICT (draft_ref_hash) DO NOTHING
 			RETURNING id`, profileID, profileVersion, hash[:], generatedOriginal,
 			now.Add(voiceLearningSignalRetention), actor.ID, now).Scan(&signalID)
 		if errors.Is(err, pgx.ErrNoRows) {

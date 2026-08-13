@@ -212,7 +212,7 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 				SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 				       m.id, $2, $1, $3::text, 'pending'
 				FROM matched m
-				ON CONFLICT (workspace_id, subscription_id, event_id) DO NOTHING
+				ON CONFLICT (subscription_id, event_id) DO NOTHING
 				RETURNING id, subscription_id
 			)
 			SELECT c.id, c.subscription_id, m.target_url, m.signing_secret_ref

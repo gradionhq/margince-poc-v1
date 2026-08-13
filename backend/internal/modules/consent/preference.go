@@ -209,7 +209,7 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 		INSERT INTO preference_token (workspace_id, person_id, token, expires_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2,
 		        now() + make_interval(days => $3))
-		ON CONFLICT (workspace_id, person_id) WHERE revoked_at IS NULL DO NOTHING
+		ON CONFLICT (person_id) WHERE revoked_at IS NULL DO NOTHING
 		RETURNING token`, personID, fresh, preferenceTokenTTLDays).Scan(&token)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A concurrent send won the INSERT — read the winner. Scanned into

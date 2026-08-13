@@ -232,6 +232,23 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 		user, ws, "rebuild-"+user.String()+"@clean.test"); err != nil {
 		t.Fatalf("seeding the clean workspace admin: %v", err)
 	}
+	// The source estate goes first, and that is the point rather than a
+	// workaround. Pipeline names, the default pipeline and the anchor
+	// organization are installation-wide keys since ADR-0091 §8 phase B, so a
+	// clean instance cannot be stood up BESIDE the estate it rebuilds — and it
+	// never could in reality either: a reconstruction restores THE
+	// installation from its export, after the estate it came from is gone.
+	// The bundle is already in memory, so deleting the source loses nothing
+	// this test still needs.
+	// Named tables rather than the workspace row: app_user and the rest do not
+	// cascade from it, and this fixture only has to clear what now collides
+	// installation-wide.
+	for _, table := range []string{"deal", "stage", "pipeline", "organization", "person", "lead", "activity"} {
+		if _, err := f.e.Owner.Exec(ctx,
+			"DELETE FROM "+table+" WHERE workspace_id = $1", f.wsID); err != nil {
+			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
+		}
+	}
 	cleanCtx := flipAdminCtx(ws, user.UUID)
 	if err := deals.NewHandlers(database.BindTo(f.pool, ids.From[ids.WorkspaceKind](ws)), compose.DealsInstallation()).SeedWorkspaceDefaults(cleanCtx); err != nil {
 		t.Fatalf("seeding the clean workspace's default pipeline: %v", err)

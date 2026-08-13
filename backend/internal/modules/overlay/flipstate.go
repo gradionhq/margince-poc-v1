@@ -189,7 +189,7 @@ func (s *Service) SealFlipSnapshot(ctx context.Context) (FlipSnapshot, error) {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, flip_snapshot_id, mirror_frozen_at, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), $1, now(), now())
-			ON CONFLICT (workspace_id) DO UPDATE SET
+			ON CONFLICT ((true)) DO UPDATE SET
 			  flip_snapshot_id = COALESCE(overlay_sync_state.flip_snapshot_id, EXCLUDED.flip_snapshot_id),
 			  mirror_frozen_at = COALESCE(overlay_sync_state.mirror_frozen_at, EXCLUDED.mirror_frozen_at),
 			  updated_at = now()

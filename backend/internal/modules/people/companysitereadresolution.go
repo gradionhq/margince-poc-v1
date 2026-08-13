@@ -228,7 +228,7 @@ func applyResolvedHumanFacts(
 			(workspace_id, organization_id, category, field, value, value_key,
 			 evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
 			VALUES ($1, $2, $3, $4, $5, $6, '', '', 1, 'human', $7, NULL)
-			ON CONFLICT (workspace_id, organization_id, category, field, value_key)
+			ON CONFLICT (organization_id, category, field, value_key)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
 			 confidence = 1, source = 'human', captured_by = EXCLUDED.captured_by,
 			 site_read_id = NULL, captured_at = now()`, workspaceID(ctx), orgID,

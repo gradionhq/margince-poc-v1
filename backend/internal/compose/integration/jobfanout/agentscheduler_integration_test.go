@@ -155,13 +155,18 @@ func TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed(t *testing.T) {
 	owner := integration.OwnerConn(t)
 	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
 
+	// A trigger per tenant. The occurrence key is unique across the
+	// installation now that it no longer carries a workspace (ADR-0091 §8
+	// phase B), and what this test is about is per-tenant OUTCOMES — two
+	// tenants sharing one trigger string was always incidental.
 	const trigger = "morning_brief:fleet-isolation"
+	const healthyTrigger = "morning_brief:fleet-isolation-healthy"
 	// Both tenants get real due work, seeded before the fault is armed: the
 	// victim's so its claim has a row to update and trip the trigger, the
 	// healthy tenant's so the claim assertion below rests on a claim that
 	// actually happened.
 	seedDueRunnerJob(t, owner, re.wsID, trigger)
-	seedDueRunnerJob(t, owner, healthy, trigger)
+	seedDueRunnerJob(t, owner, healthy, healthyTrigger)
 	failRunnerJobWritesFor(t, owner, re.wsID)
 
 	now := afterEveryDueHour()
@@ -179,7 +184,7 @@ func TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed(t *testing.T) {
 		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
 	}
 	assertOccurrencesSeeded(t, owner, healthy, now)
-	status, lastError := runnerJobOutcome(t, owner, healthy, trigger)
+	status, lastError := runnerJobOutcome(t, owner, healthy, healthyTrigger)
 	if status == "queued" {
 		t.Fatalf("workspace %s was never scheduled: its due job is still queued, so the pass reported success without claiming anything", healthy)
 	}
@@ -200,9 +205,14 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
 	archived := integration.SeedExtraWorkspace(t, owner, "scheduler-archived", true)
 
+	// A trigger per tenant. The occurrence key is unique across the
+	// installation now that it no longer carries a workspace (ADR-0091 §8
+	// phase B), and what this test is about is per-tenant OUTCOMES — two
+	// tenants sharing one trigger string was always incidental.
 	const trigger = "morning_brief:fanout"
+	const healthyTrigger = "morning_brief:fanout-healthy"
 	seedDueRunnerJob(t, owner, re.wsID, trigger)
-	seedDueRunnerJob(t, owner, healthy, trigger)
+	seedDueRunnerJob(t, owner, healthy, healthyTrigger)
 	// Permanent, not transient: this kind takes a single attempt, and a fault
 	// that healed would let the tenant complete and read as green — the exact
 	// outcome this test denies.
@@ -235,7 +245,7 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 	// occurrences are seeded and its due job executed, through the job path
 	// rather than a direct call.
 	assertOccurrencesSeeded(t, owner, healthy, now)
-	if status, _ := runnerJobOutcome(t, owner, healthy, trigger); status != "failed" {
+	if status, _ := runnerJobOutcome(t, owner, healthy, healthyTrigger); status != "failed" {
 		t.Errorf("the healthy tenant's passport-less job is %s, want the loud failure its execution lands — the pass completed without claiming anything", status)
 	}
 

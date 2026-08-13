@@ -154,7 +154,7 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (Budg
 		err := tx.QueryRow(ctx, `
 			INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, (now() AT TIME ZONE 'UTC')::date, 1)
-			ON CONFLICT (workspace_id, budget_date)
+			ON CONFLICT (budget_date)
 			DO UPDATE SET enqueued = capture_auto_enrich_budget.enqueued + 1
 			WHERE capture_auto_enrich_budget.enqueued < $1
 			RETURNING enqueued, budget_date`, dailyCap).Scan(&enqueued, &day)

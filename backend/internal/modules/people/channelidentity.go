@@ -61,7 +61,7 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 		INSERT INTO person_channel_identity
 			(workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $3, $6)
-		ON CONFLICT (workspace_id, provider, channel_user_id) WHERE archived_at IS NULL
+		ON CONFLICT (provider, channel_user_id) WHERE archived_at IS NULL
 		DO NOTHING`,
 		workspaceID(ctx), personID, ci.Provider, ci.ChannelUserID, ci.Username, by)
 	if err != nil {

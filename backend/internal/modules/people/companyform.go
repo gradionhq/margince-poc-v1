@@ -61,7 +61,7 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 			INSERT INTO organization_profile_field
 			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
 			VALUES ($1, $2, $3, $4, '', '', 1, 'human', $5)
-			ON CONFLICT (workspace_id, organization_id, field)
+			ON CONFLICT (organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
 			              confidence = 1, source = 'human',
 			              captured_by = EXCLUDED.captured_by, captured_at = now()`,

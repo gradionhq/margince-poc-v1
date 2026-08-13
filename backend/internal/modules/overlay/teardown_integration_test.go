@@ -340,7 +340,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// this whole fence exists for, applied to the test fixture itself.
 	// A DEDICATED app_user, not actor.UserID: the "UpsertUserMap" case below
 	// targets (app_user_id=actor.UserID, incumbent='hubspot') too, and
-	// upsertUserMapSQL's ON CONFLICT (workspace_id, app_user_id, incumbent)
+	// upsertUserMapSQL's ON CONFLICT (app_user_id, incumbent)
 	// would silently UPDATE this row in place rather than insert a second
 	// one — an unfenced UpsertUserMap would then leave the total row count
 	// unchanged, making the count-based assertion below pass even though a

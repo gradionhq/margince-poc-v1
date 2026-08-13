@@ -60,7 +60,7 @@ BEGIN
     (ws, 'USD', 'EUR', 0.92, CURRENT_DATE),
     (ws, 'GBP', 'EUR', 1.17, CURRENT_DATE),
     (ws, 'CHF', 'EUR', 1.04, CURRENT_DATE)
-  ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
+  ON CONFLICT (from_currency, to_currency, rate_date)
     DO UPDATE SET rate = EXCLUDED.rate;
 
   RAISE NOTICE 'seed-dev.sql: FX rates USD/GBP/CHF → EUR seeded for demo-workspace (rate_date=%)', CURRENT_DATE;
@@ -111,7 +111,7 @@ BEGIN
   -- subject beyond the lone admin.
   INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
   VALUES (ws, 'rep@demo.test', admin_hash, 'Rep One', 'full', 'active')
-  ON CONFLICT (workspace_id, lower(email)) DO NOTHING;
+  ON CONFLICT (lower(email)) DO NOTHING;
 
   SELECT id INTO rep_id
     FROM app_user
@@ -121,7 +121,7 @@ BEGIN
   -- "who has access" list have a demonstrable, non-trivial membership.
   INSERT INTO team (workspace_id, name)
   VALUES (ws, 'DACH Sales')
-  ON CONFLICT (workspace_id, name) DO NOTHING;
+  ON CONFLICT (name) DO NOTHING;
 
   SELECT id INTO dach_team_id
     FROM team
@@ -159,14 +159,14 @@ BEGIN
          jsonb_set(r.permissions, '{row_scope}', '"own"'::jsonb)
     FROM role r
     WHERE r.workspace_id = ws AND r.key = 'rep'
-  ON CONFLICT (workspace_id, key) DO NOTHING;
+  ON CONFLICT (key) DO NOTHING;
 
   -- Rep Two: an individual contributor — own-scoped, in NO team. Contrast with
   -- Rep One (team-scoped, in DACH Sales): Rep One sees the team's records by
   -- scope, Rep Two sees nothing until a record is explicitly shared with them.
   INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
   VALUES (ws, 'rep2@demo.test', admin_hash, 'Rep Two', 'full', 'active')
-  ON CONFLICT (workspace_id, lower(email)) DO NOTHING;
+  ON CONFLICT (lower(email)) DO NOTHING;
 
   SELECT id INTO rep2_id
     FROM app_user

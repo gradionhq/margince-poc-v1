@@ -39,7 +39,7 @@ func SeedWorkspaceDefaultsTx(ctx context.Context, tx pgx.Tx, now time.Time) erro
 				cache_read_per_mtok_microusd, cache_write_per_mtok_microusd,
 				effective_date
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (workspace_id, provider, model_id, effective_date) DO NOTHING`,
+			ON CONFLICT (provider, model_id, effective_date) DO NOTHING`,
 			wsID, r.Provider, r.ModelID,
 			r.InputPerMTokMicroUSD, r.OutputPerMTokMicroUSD,
 			r.CacheReadPerMTokMicroUSD, r.CacheWritePerMTokMicroUSD,

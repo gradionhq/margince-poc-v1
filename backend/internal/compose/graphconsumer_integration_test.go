@@ -474,7 +474,7 @@ func grantReadPeopleRole(t *testing.T, e *integration.Env, user ids.UUID, rowSco
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        'ghost_owner_' || $1, 'Ghost owner test',
 			        format('{"row_scope":"%s","objects":{"person":{"read":true}}}', $1)::jsonb)
-			ON CONFLICT (workspace_id, key) DO UPDATE SET name = EXCLUDED.name
+			ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name
 			RETURNING id`, rowScope).Scan(&roleID); err != nil {
 			return err
 		}

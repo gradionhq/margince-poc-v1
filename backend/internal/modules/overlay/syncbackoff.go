@@ -90,7 +90,7 @@ func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) err
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, last_error_class, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 0, $1, NULL, now())
-			ON CONFLICT (workspace_id) DO UPDATE SET
+			ON CONFLICT ((true)) DO UPDATE SET
 			  next_sweep_at = EXCLUDED.next_sweep_at,
 			  consecutive_failures = 0,
 			  last_success_at = EXCLUDED.last_success_at,
@@ -115,7 +115,7 @@ func (s *MirrorStore) RequestSweep(ctx context.Context) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 0, NULL, now())
-			ON CONFLICT (workspace_id) DO UPDATE SET
+			ON CONFLICT ((true)) DO UPDATE SET
 			  next_sweep_at = now(),
 			  consecutive_failures = 0,
 			  last_error_class = NULL,
@@ -141,7 +141,7 @@ func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error, no
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, last_failure_at, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 1, $2, $1, now())
-			ON CONFLICT (workspace_id) DO UPDATE SET
+			ON CONFLICT ((true)) DO UPDATE SET
 			  consecutive_failures = overlay_sync_state.consecutive_failures + 1,
 			  last_error_class = EXCLUDED.last_error_class,
 			  last_failure_at = EXCLUDED.last_failure_at,

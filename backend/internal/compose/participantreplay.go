@@ -237,7 +237,7 @@ func markReplayed(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, out
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_participant_replay (workspace_id, activity_id, outcome)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
-		ON CONFLICT (workspace_id, activity_id) DO NOTHING`,
+		ON CONFLICT (activity_id) DO NOTHING`,
 		activityID, outcome); err != nil {
 		return fmt.Errorf("compose: recording that an activity's participants were replayed: %w", err)
 	}

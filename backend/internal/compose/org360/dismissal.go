@@ -91,7 +91,7 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		_, err = tx.Exec(ctx, `
 			INSERT INTO suggestion_dismissal (workspace_id, user_id, organization_id, fingerprint)
 			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (workspace_id, user_id, organization_id, fingerprint) DO NOTHING`,
+			ON CONFLICT (user_id, organization_id, fingerprint) DO NOTHING`,
 			storekit.MustWorkspace(ctx), userID, orgID, fingerprint)
 		if err != nil {
 			return fmt.Errorf("record the suggestion dismissal: %w", err)
