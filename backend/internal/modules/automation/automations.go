@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // AutomationStore owns the automation table (tableownership: this
@@ -33,11 +34,39 @@ type AutomationStore struct {
 	// db binds the workspace this pass runs for (ADR-0091 §9 step 3).
 	db  *database.DB
 	now func() time.Time
+	// catalog is the fieldcatalog.Reader seam renewal_reminder's preview
+	// (automations_preview_renewal.go) validates a draft/stored
+	// object+date_field pair against before ever building a previewDef
+	// around it — nil is the zero-cost pass-through every other
+	// WithFieldCatalog consumer (deals.Store, people.Store) falls back to
+	// when the seam is unwired (tests, or a role that never mounted it).
+	catalog fieldcatalog.Reader
 }
 
 // NewAutomationStore binds the automation tables to the pool it is given.
 func NewAutomationStore(db *database.DB) *AutomationStore {
 	return &AutomationStore{db: db, now: time.Now}
+}
+
+// WithClock overrides the store's clock — the fixture a Preview proof
+// pins so "MatchesNow"/"WouldHaveFired" are measured against seeded
+// timestamps, never the wall clock (T11: no real-clock flakiness in a
+// test), mirroring TimeScanner's own NewTimeScannerWithClock. Returns
+// the store for chaining, like WithFieldCatalog above.
+func (s *AutomationStore) WithClock(now func() time.Time) *AutomationStore {
+	s.now = now
+	return s
+}
+
+// WithFieldCatalog wires the workspace custom-field catalog in (compose
+// injects modules/customfields' Service here — ADR-0054: a module never
+// imports a sibling), so renewal_reminder's preview can validate a
+// workspace-controlled (object, date_field) pair before building SQL
+// around it, exactly like deals.Store/people.Store already do for their
+// own custom-column reads. Returns the store for chaining.
+func (s *AutomationStore) WithFieldCatalog(catalog fieldcatalog.Reader) *AutomationStore {
+	s.catalog = catalog
+	return s
 }
 
 // Automation is one configured instance.

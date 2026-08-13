@@ -44,10 +44,16 @@ type CatalogEntry struct {
 const (
 	schemaTypeObject         = "object"
 	schemaTypeString         = "string"
+	schemaTypeInteger        = "integer"
+	schemaTypeBoolean        = "boolean"
 	schemaKeyType            = "type"
 	schemaKeyProperties      = "properties"
 	schemaKeyAdditionalProps = "additionalProperties"
 	schemaKeyDescription     = "description"
+	schemaKeyMinimum         = "minimum"
+	schemaKeyMaximum         = "maximum"
+	schemaKeyDefault         = "default"
+	schemaKeyEnum            = "enum"
 )
 
 // minParamDays is the lower bound every "how many days" knob shares: a
@@ -60,6 +66,25 @@ const minParamDays = 1
 // catalog_leadrouting_schema.go.
 const errNotAParameter = "not a parameter of this automation type"
 
+// reasonMustBeInteger is validateSingleIntParam's (and every hand-rolled
+// counterpart's, e.g. automations_catalog_renewal.go's days_before check)
+// shared refusal reason for a non-integer value.
+const reasonMustBeInteger = "must be an integer"
+
+// intParamProperty is the bounded-integer property shape every "how many
+// days" knob shares — one spelling reused both by singleIntParamSchema's
+// one-property object and by a larger schema (renewalReminderSchema)
+// that embeds this SAME knob beside other properties.
+func intParamProperty(defaultValue, maxValue int, description string) map[string]any {
+	return map[string]any{
+		schemaKeyType:        schemaTypeInteger,
+		schemaKeyMinimum:     minParamDays,
+		schemaKeyMaximum:     maxValue,
+		schemaKeyDefault:     defaultValue,
+		schemaKeyDescription: description,
+	}
+}
+
 // singleIntParamSchema is the one-knob schema every "how many days"
 // starter shares — due_in_days, no_activity_days, check_in_days, and
 // days_before all take the identical bounded-integer shape and differ
@@ -69,13 +94,7 @@ func singleIntParamSchema(key string, defaultValue, maxValue int, description st
 		schemaKeyType:            schemaTypeObject,
 		schemaKeyAdditionalProps: false,
 		schemaKeyProperties: map[string]any{
-			key: map[string]any{
-				schemaKeyType:        "integer",
-				"minimum":            minParamDays,
-				"maximum":            maxValue,
-				"default":            defaultValue,
-				schemaKeyDescription: description,
-			},
+			key: intParamProperty(defaultValue, maxValue, description),
 		},
 	}
 }
@@ -93,7 +112,7 @@ func validateSingleIntParam(key string, maxValue int) func(params map[string]any
 			}
 			n, ok := value.(float64) // decoded JSON numbers arrive as float64
 			if !ok || n != math.Trunc(n) {
-				return &ParamError{Field: "params." + key, Reason: "must be an integer"}
+				return &ParamError{Field: "params." + key, Reason: reasonMustBeInteger}
 			}
 			if n < float64(minParamDays) || n > float64(maxValue) {
 				return &ParamError{
@@ -140,17 +159,6 @@ func checkInCadenceSchema() map[string]any {
 
 // validateCheckInCadenceParams is checkInCadenceSchema's validator.
 var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 365)
-
-// renewalReminderSchema is renewal_reminder's one-knob shape, keyed
-// "days_before" — renewalDaysBefore's (handlers_clock.go) own
-// reader.
-func renewalReminderSchema() map[string]any {
-	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 365,
-		"How many days ahead of the renewal date to remind.")
-}
-
-// validateRenewalReminderParams is renewalReminderSchema's validator.
-var validateRenewalReminderParams = validateSingleIntParam("days_before", 365)
 
 // noParamsSchema is the empty-knob schema for a starter with nothing to
 // parameterize (stage_change_notify, post_meeting_recap): both fire

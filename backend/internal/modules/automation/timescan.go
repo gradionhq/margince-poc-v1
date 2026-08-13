@@ -22,6 +22,7 @@ package automation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -57,13 +58,85 @@ var activityScanHandlers = map[string]clockDaysExtractor{
 	checkInCadenceName:     checkInCadenceDays,
 }
 
+// dateFieldScanParams is one instance's DateFieldScan call, read off its
+// own params: which (object, column) to watch, how many days ahead
+// counts as "approaching", and whether the field recurs yearly.
+type dateFieldScanParams struct {
+	Object       string
+	Column       string
+	DaysBefore   int
+	RecursYearly bool
+}
+
+// dateFieldScanExtractor reads one clock automation instance's own
+// DateFieldScan call off its params — the DateFieldScan-driven
+// counterpart of clockDaysExtractor above. handlers_clock.go's own param
+// readers grow the same three keys for renewalReminder's Match/Plan; this
+// reader is independent of those since the candidate-scan seam and the
+// runtime Match re-check are separate concerns read off the same params.
+type dateFieldScanExtractor func(params json.RawMessage) (dateFieldScanParams, error)
+
+// errRenewalScanParamsMissing names the two required keys together: a
+// renewal_reminder instance with neither configured has no candidate
+// source to draw from at all, which is a save-time misconfiguration this
+// scan honestly refuses rather than silently drawing an empty batch
+// forever.
+var errRenewalScanParamsMissing = errors.New(
+	"automation: renewal_reminder requires \"object\" and \"date_field\" params")
+
+// renewalDateFieldScanParams is dateFieldScanHandlers' entry for
+// renewalReminderName: object/date_field name the watched cf_* column,
+// days_before defaults to defaultRenewalDaysBefore (the same fallback
+// renewalDaysBefore uses for the precise Match re-check, handlers_clock.go),
+// and recurs_yearly defaults to false — a one-time renewal date unless the
+// instance explicitly opts into yearly recurrence.
+func renewalDateFieldScanParams(params json.RawMessage) (dateFieldScanParams, error) {
+	if len(params) == 0 {
+		return dateFieldScanParams{}, errRenewalScanParamsMissing
+	}
+	var decoded struct {
+		Object       string `json:"object"`
+		DateField    string `json:"date_field"`
+		DaysBefore   *int   `json:"days_before"`
+		RecursYearly *bool  `json:"recurs_yearly"`
+	}
+	if err := json.Unmarshal(params, &decoded); err != nil {
+		return dateFieldScanParams{}, fmt.Errorf("automation: renewal_reminder params: %w", err)
+	}
+	if decoded.Object == "" || decoded.DateField == "" {
+		return dateFieldScanParams{}, errRenewalScanParamsMissing
+	}
+	days := defaultRenewalDaysBefore
+	if decoded.DaysBefore != nil {
+		days = *decoded.DaysBefore
+	}
+	var recurring bool
+	if decoded.RecursYearly != nil {
+		recurring = *decoded.RecursYearly
+	}
+	return dateFieldScanParams{Object: decoded.Object, Column: decoded.DateField, DaysBefore: days, RecursYearly: recurring}, nil
+}
+
+// dateFieldScanHandlers mirrors activityScanHandlers for the
+// DateFieldScan-driven clock handlers — today just renewal_reminder,
+// whose candidate source used to be entirely deferred (handlers_clock.go's
+// renewalReminder doc). A handler absent from BOTH this map and
+// activityScanHandlers has no candidate source wired at all and
+// ScanWorkspace skips it honestly.
+var dateFieldScanHandlers = map[string]dateFieldScanExtractor{
+	renewalReminderName: renewalDateFieldScanParams,
+}
+
 // TimeScanner drives every CLOCK-triggered automation instance: it holds
-// the WorkflowEngine so it can call e.runOne (same package) and the
-// ActivityScan seam so.no_activity_reminder's candidates are read from
-// activities' own tables, never a direct query against a sibling's.
+// the WorkflowEngine so it can call e.runOne (same package), the
+// ActivityScan seam so no_activity_reminder/check_in_cadence's
+// candidates are read from activities' own tables, and the DateFieldScan
+// seam so renewal_reminder's are read from customfields' own tables —
+// never a direct query against either sibling's.
 type TimeScanner struct {
-	engine *WorkflowEngine
-	scan   ActivityScan
+	engine   *WorkflowEngine
+	scan     ActivityScan
+	dateScan DateFieldScan
 	// now is the scanner's clock (the quotas.NewStoreWithClock spelling —
 	// there is no Clock interface in this repo): captured ONCE per Scan
 	// call so every workspace and every instance in one pass agrees on
@@ -74,20 +147,24 @@ type TimeScanner struct {
 
 // NewTimeScannerWithClock is NewTimeScanner with an explicit clock — the
 // fixed-clock fixture a firing-set test pins.
-func NewTimeScannerWithClock(engine *WorkflowEngine, scan ActivityScan, now func() time.Time, log *slog.Logger) *TimeScanner {
-	return &TimeScanner{engine: engine, scan: scan, now: now, log: log}
+func NewTimeScannerWithClock(engine *WorkflowEngine, scan ActivityScan, dateScan DateFieldScan, now func() time.Time, log *slog.Logger) *TimeScanner {
+	return &TimeScanner{engine: engine, scan: scan, dateScan: dateScan, now: now, log: log}
 }
 
 // NewTimeScanner wires the scanner over the real clock for production use
 // (compose/timescan.go).
-func NewTimeScanner(engine *WorkflowEngine, scan ActivityScan, log *slog.Logger) *TimeScanner {
-	return NewTimeScannerWithClock(engine, scan, time.Now, log)
+func NewTimeScanner(engine *WorkflowEngine, scan ActivityScan, dateScan DateFieldScan, log *slog.Logger) *TimeScanner {
+	return NewTimeScannerWithClock(engine, scan, dateScan, time.Now, log)
 }
 
 // ScanWorkspace is one pass over the workspace already bound in ctx: it loads
 // that workspace's enabled clock automations and, for each instance whose
-// handler has an ActivityScan enumerator wired (activityScanHandlers above),
-// converges its stale candidates onto runOne. Re-entrant, not exactly-once —
+// handler has an enumerator wired — an ActivityScan one (activityScanHandlers,
+// no_activity_reminder/check_in_cadence) or a DateFieldScan one
+// (dateFieldScanHandlers, renewal_reminder) — converges its candidates onto
+// runOne. A single misconfigured DateFieldScan instance is skipped on its own
+// (scanDateFieldInstanceCandidates's doc) rather than failing the whole pass.
+// Re-entrant, not exactly-once —
 // the occurrence key (IdempotencyKey, handlers_clock.go) is what makes a
 // redelivered or overlapping pass over the SAME anchor a no-op.
 //
@@ -104,13 +181,20 @@ func (s *TimeScanner) ScanWorkspace(ctx context.Context, wsID ids.UUID) error {
 		return fmt.Errorf("loading clock automation instances: %w", err)
 	}
 	for _, h := range s.engine.clockHandlers() {
-		daysFor, ok := activityScanHandlers[h.Spec().Name]
-		if !ok {
+		name := h.Spec().Name
+		if daysFor, ok := activityScanHandlers[name]; ok {
+			for _, inst := range instances[name] {
+				if err := scanInstanceCandidates(wsCtx, s.scan, h, inst, wsID, now, s.engine.runOne, daysFor); err != nil {
+					return fmt.Errorf("%s instance %s: %w", name, inst.id, err)
+				}
+			}
 			continue
 		}
-		for _, inst := range instances[h.Spec().Name] {
-			if err := scanInstanceCandidates(wsCtx, s.scan, h, inst, wsID, now, s.engine.runOne, daysFor); err != nil {
-				return fmt.Errorf("%s instance %s: %w", h.Spec().Name, inst.id, err)
+		if paramsFor, ok := dateFieldScanHandlers[name]; ok {
+			for _, inst := range instances[name] {
+				if err := scanDateFieldInstanceCandidates(wsCtx, s.dateScan, h, inst, wsID, now, s.engine.runOne, paramsFor); err != nil {
+					return fmt.Errorf("%s instance %s: %w", name, inst.id, err)
+				}
 			}
 		}
 	}
@@ -167,6 +251,87 @@ func buildActivityAnchorEvent(wsID ids.UUID, now time.Time, inst automationInsta
 	payload, err := json.Marshal(touchAnchorPayload{LastActivityAt: cand.Anchor})
 	if err != nil {
 		return workflow.Event{}, fmt.Errorf("automation: encoding the last-touch anchor: %w", err)
+	}
+	return workflow.Event{
+		ID:           ids.NewV7(),
+		WorkspaceID:  wsID,
+		OccurredAt:   now,
+		Entity:       cand.Ref,
+		AutomationID: inst.id.UUID,
+		OwnerID:      inst.owner,
+		Params:       inst.params,
+		Payload:      payload,
+	}, nil
+}
+
+// scanDateFieldInstanceCandidates is scanInstanceCandidates' DateFieldScan
+// counterpart: derive the instance's own (object, column, days_before,
+// recurs_yearly) via paramsFor, draw candidates whose watched field falls
+// in [now, now+days_before] through the DateFieldScan seam, and hand each
+// one to run — same production/test substitution reasoning as
+// scanInstanceCandidates (a free function so a unit test can pass a
+// recording stub in place of engine.runOne).
+//
+// An instance that has never been given its own object/date_field
+// (errRenewalScanParamsMissing) is skipped rather than failed: the
+// template is seeded regardless of whether a workspace has configured
+// it yet (renewalReminder's own doc), the identical honest-out-of-scope
+// posture ApplyActions' notify case already carries for a workspace with
+// no channel wired. An instance whose object/date_field once resolved but
+// no longer does — the workspace retired the custom field after saving
+// the instance (ErrDateFieldUnavailable, seams.go) — is skipped the exact
+// same way: one misconfigured renewal_reminder instance must never abort
+// the whole workspace's pass and take a healthy no_activity_reminder or
+// check_in_cadence instance down with it. A malformed params blob is a
+// real error and still propagates — only "not configured yet" and "no
+// longer configured" are the sanctioned no-ops.
+func scanDateFieldInstanceCandidates(
+	ctx context.Context,
+	scan DateFieldScan,
+	h workflow.Handler,
+	inst automationInstance,
+	wsID ids.UUID,
+	now time.Time,
+	run func(ctx context.Context, h workflow.Handler, ev workflow.Event) error,
+	paramsFor dateFieldScanExtractor,
+) error {
+	p, err := paramsFor(inst.params)
+	if err != nil {
+		if errors.Is(err, errRenewalScanParamsMissing) {
+			return nil
+		}
+		return err
+	}
+	horizon := now.AddDate(0, 0, p.DaysBefore)
+	candidates, err := scan.Candidates(ctx, p.Object, p.Column, now, horizon, p.RecursYearly, clockScanBatchLimit)
+	if err != nil {
+		if errors.Is(err, ErrDateFieldUnavailable) {
+			return nil
+		}
+		return fmt.Errorf("scanning date-field candidates: %w", err)
+	}
+	for _, cand := range candidates {
+		ev, err := buildDateFieldAnchorEvent(wsID, now, inst, cand)
+		if err != nil {
+			return err
+		}
+		if err := run(ctx, h, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildDateFieldAnchorEvent is buildActivityAnchorEvent's DateFieldScan
+// counterpart: the same fresh-ID/anchor-in-Payload occurrence-key
+// contract, but reusing renewalAnchorPayload (handlers_clock.go) as the
+// wire shape so renewalReminder's existing Match/Plan/IdempotencyKey
+// (unchanged by this seam) read it back via the identical renewalAnchor
+// decoder they already have.
+func buildDateFieldAnchorEvent(wsID ids.UUID, now time.Time, inst automationInstance, cand DateFieldAnchor) (workflow.Event, error) {
+	payload, err := json.Marshal(renewalAnchorPayload{RenewalDate: cand.Anchor})
+	if err != nil {
+		return workflow.Event{}, fmt.Errorf("automation: encoding the renewal-date anchor: %w", err)
 	}
 	return workflow.Event{
 		ID:           ids.NewV7(),

@@ -3362,6 +3362,12 @@ export const de = {
   "auto.delete": "Löschen",
   "auto.statusEnabled": "aktiv",
   "auto.statusPaused": "pausiert",
+  "auto.dateField.placeholder": "Datumsfeld auswählen",
+  "auto.dateField.needsObject":
+    "Wähle zuerst ein Objekt aus, um dessen Datumsfelder anzuzeigen.",
+  "auto.dateField.empty": "Dieses Objekt hat noch keine aktiven Datumsfelder.",
+  "auto.dateField.loadError":
+    "Die Datumsfelder dieses Objekts konnten nicht geladen werden. Erneut versuchen.",
 
   "auto.runs.open": "Läufe",
   "auto.runs.title": "Laufverlauf",

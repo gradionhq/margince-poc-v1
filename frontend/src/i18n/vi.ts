@@ -3353,6 +3353,13 @@ export const vi = {
   "auto.delete": "Xoá",
   "auto.statusEnabled": "đang bật",
   "auto.statusPaused": "đang tạm dừng",
+  "auto.dateField.placeholder": "Chọn trường ngày",
+  "auto.dateField.needsObject":
+    "Chọn đối tượng trước để xem các trường ngày của nó.",
+  "auto.dateField.empty":
+    "Đối tượng này chưa có trường ngày nào đang hoạt động.",
+  "auto.dateField.loadError":
+    "Không tải được các trường ngày của đối tượng này. Vui lòng thử lại.",
 
   "auto.runs.open": "Lượt chạy",
   "auto.runs.title": "Lịch sử chạy",

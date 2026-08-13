@@ -3373,6 +3373,12 @@ export const en = {
   "auto.delete": "Delete",
   "auto.statusEnabled": "enabled",
   "auto.statusPaused": "paused",
+  "auto.dateField.placeholder": "Select date field",
+  "auto.dateField.needsObject":
+    "Choose an object first to list its date fields.",
+  "auto.dateField.empty": "This object has no active date fields yet.",
+  "auto.dateField.loadError":
+    "Couldn't load this object's date fields. Try again.",
 
   "auto.runs.open": "Runs",
   "auto.runs.title": "Run history",

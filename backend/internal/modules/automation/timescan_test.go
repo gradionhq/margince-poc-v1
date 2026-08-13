@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -155,10 +156,10 @@ func TestScanInstanceCandidatesStopsOnARunFailure(t *testing.T) {
 // handler's enumerator up in this map rather than a growing if/else
 // chain, so this proves each of the two ActivityScan-driven catalog
 // names resolves to ITS OWN days reader (never the other's, never a
-// shared default) and that a handler with no ActivityScan enumeration —
-// renewal_reminder, whose candidate source is deferred, see
-// handlers_clock.go's renewalReminder doc — has no entry at
-// all, so scanWorkspace's map lookup honestly skips it instead of
+// shared default) and that renewal_reminder — whose candidate source
+// rides the SEPARATE DateFieldScan seam, not ActivityScan
+// (dateFieldScanHandlers, this same file) — has no entry here, so
+// scanWorkspace's ActivityScan lookup honestly skips it instead of
 // mishandling it as an ActivityScan consumer.
 func TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader(t *testing.T) {
 	noActivity, ok := activityScanHandlers[noActivityReminderName]
@@ -180,6 +181,164 @@ func TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader(t *testing.T) {
 	}
 
 	if _, ok := activityScanHandlers[renewalReminderName]; ok {
-		t.Error("activityScanHandlers has an entry for renewal_reminder — its candidate source is deferred (handlers_clock.go), scanWorkspace must skip it honestly rather than treat it as an ActivityScan consumer")
+		t.Error("activityScanHandlers has an entry for renewal_reminder — its candidate source is DateFieldScan, not ActivityScan; scanWorkspace's ActivityScan lookup must skip it")
+	}
+}
+
+// fakeDateFieldScan is a DB-free stand-in for the DateFieldScan seam: it
+// records the (object, column, from, to, recurring, limit) it was called
+// with and returns a fixed candidate set — the renewal_reminder
+// counterpart of fakeActivityScan above.
+type fakeDateFieldScan struct {
+	candidates []DateFieldAnchor
+	err        error
+	calls      []struct {
+		object, column string
+		from, to       time.Time
+		recurring      bool
+		limit          int
+	}
+}
+
+func (f *fakeDateFieldScan) Candidates(_ context.Context, object, column string, from, to time.Time, recurring bool, limit int) ([]DateFieldAnchor, error) {
+	f.calls = append(f.calls, struct {
+		object, column string
+		from, to       time.Time
+		recurring      bool
+		limit          int
+	}{object, column, from, to, recurring, limit})
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.candidates, nil
+}
+
+// TestScanDateFieldInstanceCandidatesSynthesizesOneEventPerCandidate is
+// scanInstanceCandidates' proof above, mirrored for the DateFieldScan
+// path: each candidate converges onto run with a fresh ev.ID and its
+// OccurrenceDate-turned-Anchor recoverable via renewalAnchor, and the
+// instance's own params (object/date_field/days_before/recurs_yearly)
+// reach the seam as the [now, now+days_before] window this handler's
+// own reader (renewalDateFieldScanParams) derived.
+func TestScanDateFieldInstanceCandidatesSynthesizesOneEventPerCandidate(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	wsID := ids.NewV7()
+	owner := ids.NewV7()
+	automationID := ids.New[ids.AutomationKind]()
+	inst := automationInstance{
+		id: automationID, owner: owner,
+		params: json.RawMessage(`{"object":"deal","date_field":"cf_renewal_date","days_before":45,"recurs_yearly":true}`),
+	}
+
+	anchor1 := now.AddDate(0, 0, 10)
+	anchor2 := now.AddDate(0, 0, 40)
+	entity1 := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+	entity2 := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+	scan := &fakeDateFieldScan{candidates: []DateFieldAnchor{
+		{Ref: entity1, Anchor: anchor1},
+		{Ref: entity2, Anchor: anchor2},
+	}}
+
+	var calls []recordedRunCall
+	run := func(_ context.Context, h workflow.Handler, ev workflow.Event) error {
+		calls = append(calls, recordedRunCall{handler: h, ev: ev})
+		return nil
+	}
+
+	h := renewalReminder{}
+	err := scanDateFieldInstanceCandidates(context.Background(), scan, h, inst, wsID, now, run, renewalDateFieldScanParams)
+	if err != nil {
+		t.Fatalf("scanDateFieldInstanceCandidates: %v", err)
+	}
+
+	if len(scan.calls) != 1 {
+		t.Fatalf("Candidates called %d times, want exactly 1", len(scan.calls))
+	}
+	call := scan.calls[0]
+	if call.object != "deal" || call.column != "cf_renewal_date" {
+		t.Errorf("Candidates(object=%q, column=%q), want (deal, cf_renewal_date) — the instance's own params", call.object, call.column)
+	}
+	if !call.recurring {
+		t.Error("Candidates(recurring=false), want true — the instance's own recurs_yearly")
+	}
+	if !call.from.Equal(now) {
+		t.Errorf("Candidates(from=%s), want %s (now)", call.from, now)
+	}
+	wantTo := now.AddDate(0, 0, 45)
+	if !call.to.Equal(wantTo) {
+		t.Errorf("Candidates(to=%s), want %s (now + the instance's own days_before=45)", call.to, wantTo)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("run called %d times, want exactly 2 (one per candidate)", len(calls))
+	}
+	if calls[0].ev.ID == calls[1].ev.ID {
+		t.Error("both synthesized events share an ev.ID — trigger_event provenance must be fresh per candidate")
+	}
+	if calls[0].ev.AutomationID != automationID.UUID || calls[0].ev.OwnerID != owner {
+		t.Errorf("call 0: AutomationID/OwnerID = %s/%s, want %s/%s", calls[0].ev.AutomationID, calls[0].ev.OwnerID, automationID.UUID, owner)
+	}
+	if calls[0].ev.Entity != entity1 || calls[1].ev.Entity != entity2 {
+		t.Errorf("entities = %+v, %+v, want %+v, %+v in order", calls[0].ev.Entity, calls[1].ev.Entity, entity1, entity2)
+	}
+
+	gotAnchor1, err := renewalAnchor(calls[0].ev)
+	if err != nil || !gotAnchor1.Equal(anchor1) {
+		t.Errorf("first event's anchor = %v (err %v), want %v", gotAnchor1, err, anchor1)
+	}
+	gotAnchor2, err := renewalAnchor(calls[1].ev)
+	if err != nil || !gotAnchor2.Equal(anchor2) {
+		t.Errorf("second event's anchor = %v (err %v), want %v", gotAnchor2, err, anchor2)
+	}
+}
+
+// TestScanDateFieldInstanceCandidatesSkipsAnUnconfiguredInstance proves
+// the sanctioned no-op: an instance with no object/date_field configured
+// yet is skipped without error and without ever reaching the
+// DateFieldScan seam — the same "environment absent" posture
+// ErrNoNotificationTransport documents, not a crash and not a fabricated
+// scan.
+func TestScanDateFieldInstanceCandidatesSkipsAnUnconfiguredInstance(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	inst := automationInstance{id: ids.New[ids.AutomationKind](), params: json.RawMessage(`{}`)}
+	scan := &fakeDateFieldScan{}
+	run := func(context.Context, workflow.Handler, workflow.Event) error {
+		t.Fatal("run must not be called for an unconfigured instance")
+		return nil
+	}
+
+	err := scanDateFieldInstanceCandidates(context.Background(), scan, renewalReminder{}, inst, ids.NewV7(), now, run, renewalDateFieldScanParams)
+	if err != nil {
+		t.Fatalf("scanDateFieldInstanceCandidates: %v, want nil (unconfigured is a no-op)", err)
+	}
+	if len(scan.calls) != 0 {
+		t.Error("Candidates was called for an instance with no object/date_field — it should have been skipped before reaching the seam")
+	}
+}
+
+// TestScanDateFieldInstanceCandidatesSkipsAnUnavailableDateField proves the
+// OTHER sanctioned no-op: an instance whose object/date_field ARE set but
+// no longer resolve to a real, active date-typed column (a workspace admin
+// retired the field after the instance was saved — compose's adapter
+// translates customfields.ErrUnknownDateColumn onto ErrDateFieldUnavailable,
+// compose/timescan.go) is skipped exactly like an unconfigured one, and
+// crucially the error does NOT propagate to the caller — this is the bug
+// that used to fail the whole workspace's ScanWorkspace pass over one
+// broken renewal_reminder instance.
+func TestScanDateFieldInstanceCandidatesSkipsAnUnavailableDateField(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	inst := automationInstance{
+		id:     ids.New[ids.AutomationKind](),
+		params: json.RawMessage(`{"object":"person","date_field":"cf_retired_field"}`),
+	}
+	scan := &fakeDateFieldScan{err: fmt.Errorf("customfields: loading candidates: %w", ErrDateFieldUnavailable)}
+	run := func(context.Context, workflow.Handler, workflow.Event) error {
+		t.Fatal("run must not be called when the date field is unavailable")
+		return nil
+	}
+
+	err := scanDateFieldInstanceCandidates(context.Background(), scan, renewalReminder{}, inst, ids.NewV7(), now, run, renewalDateFieldScanParams)
+	if err != nil {
+		t.Fatalf("scanDateFieldInstanceCandidates: %v, want nil — a retired/unknown date field is this ONE instance's honest no-op, not a pass failure", err)
 	}
 }

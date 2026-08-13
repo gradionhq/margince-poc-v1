@@ -328,7 +328,15 @@ func TestCheckInCadenceIdempotencyKeyIsAnchorDerived(t *testing.T) {
 // than N days is not yet "approaching"; only a date inside the window
 // matches.
 func TestRenewalReminderMatchWithinTheApproachingWindow(t *testing.T) {
+	// now carries a realistic non-midnight wall-clock time (the scanner's
+	// real clock, production-wired to time.Now); today is the UTC-midnight
+	// truncation Match itself compares against. renewalDate values are
+	// built from today, not now, because a real anchor is always a DATE
+	// column's value — midnight, never a time-of-day (candidates.go's
+	// DateFieldCandidates). A renewalDate carrying now's own 09:00
+	// component would silently test a shape no real candidate ever has.
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	today := now.Truncate(24 * time.Hour)
 	entity := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 
 	cases := []struct {
@@ -336,11 +344,11 @@ func TestRenewalReminderMatchWithinTheApproachingWindow(t *testing.T) {
 		renewalDate time.Time
 		wantMatch   bool
 	}{
-		{"already overdue", now.AddDate(0, 0, -1), false},
-		{"exactly now", now, true},
-		{"inside the default 30-day horizon", now.AddDate(0, 0, defaultRenewalDaysBefore-1), true},
-		{"exactly at the horizon", now.AddDate(0, 0, defaultRenewalDaysBefore), true},
-		{"beyond the horizon", now.AddDate(0, 0, defaultRenewalDaysBefore+1), false},
+		{"already overdue", today.AddDate(0, 0, -1), false},
+		{"exactly today", today, true},
+		{"inside the default 30-day horizon", today.AddDate(0, 0, defaultRenewalDaysBefore-1), true},
+		{"exactly at the horizon", today.AddDate(0, 0, defaultRenewalDaysBefore), true},
+		{"beyond the horizon", today.AddDate(0, 0, defaultRenewalDaysBefore+1), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -446,6 +454,94 @@ func TestRenewalReminderIdempotencyKeyIsAnchorDerived(t *testing.T) {
 	thirdKey := h.IdempotencyKey(third)
 	if thirdKey == firstKey {
 		t.Error("IdempotencyKey did not change when the renewal date moved — a re-renewed record would never re-arm the trigger")
+	}
+}
+
+// TestRenewalReminderRecurringAnchorReArmsEachYear proves the whole point
+// of the recurrence design without touching a single line of
+// Match/Plan/IdempotencyKey: for a birthday-shaped field whose STORED
+// value never changes year to year, DateFieldCandidates (customfields,
+// not this package) projects a fresh occurrence date onto each scan
+// window's own year (DateFieldAnchor's doc, seams.go) — so two simulated
+// years over the IDENTICAL underlying field carry two DIFFERENT projected
+// anchors, and this handler must Match both independently and mint two
+// DIFFERENT idempotency keys, exactly as if two unrelated renewal dates
+// had fired. Nothing here calls DateFieldCandidates — the anchors below
+// are hand-built the way that function's projection would produce them,
+// the same "prove the contract directly against a hand-built payload"
+// posture every other clock-handler test in this file already takes.
+func TestRenewalReminderRecurringAnchorReArmsEachYear(t *testing.T) {
+	entity := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
+	h := renewalReminder{}
+
+	// A birthday on August 1st: year one's scan projects it onto 2026,
+	// year two's onto 2027 — the SAME month/day, a YEAR apart, exactly
+	// what recurring DateFieldCandidates would hand back.
+	yearOneNow := time.Date(2026, 7, 20, 9, 0, 0, 0, time.UTC)
+	yearOneAnchor := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	yearOneEvent := renewalEvent(t, yearOneNow, yearOneAnchor, entity)
+
+	yearTwoNow := time.Date(2027, 7, 20, 9, 0, 0, 0, time.UTC)
+	yearTwoAnchor := time.Date(2027, 8, 1, 0, 0, 0, 0, time.UTC)
+	yearTwoEvent := renewalEvent(t, yearTwoNow, yearTwoAnchor, entity)
+
+	// Both years independently Match under the default 30-day horizon —
+	// recurrence does not need Match to know anything about years at all.
+	for name, ev := range map[string]workflow.Event{"year one": yearOneEvent, "year two": yearTwoEvent} {
+		t.Run(name, func(t *testing.T) {
+			matched, err := h.Match(context.Background(), ev)
+			if err != nil {
+				t.Fatalf("Match: %v", err)
+			}
+			if !matched {
+				t.Errorf("Match(%s) = false, want true — the projected anchor is inside the default horizon", name)
+			}
+		})
+	}
+
+	// Plan names each year's OWN anchor date, not a stale one carried over
+	// from the first firing.
+	yearOneEff, err := h.Plan(context.Background(), yearOneEvent)
+	if err != nil {
+		t.Fatalf("Plan (year one): %v", err)
+	}
+	yearTwoEff, err := h.Plan(context.Background(), yearTwoEvent)
+	if err != nil {
+		t.Fatalf("Plan (year two): %v", err)
+	}
+	var yearOneArgs, yearTwoArgs struct {
+		Subject string `json:"subject"`
+	}
+	if err := json.Unmarshal(yearOneEff.Actions[0].Args, &yearOneArgs); err != nil {
+		t.Fatalf("decoding year-one args: %v", err)
+	}
+	if err := json.Unmarshal(yearTwoEff.Actions[0].Args, &yearTwoArgs); err != nil {
+		t.Fatalf("decoding year-two args: %v", err)
+	}
+	if !strings.Contains(yearOneArgs.Subject, yearOneAnchor.Format(time.DateOnly)) {
+		t.Errorf("year one subject %q does not name its own anchor %q", yearOneArgs.Subject, yearOneAnchor.Format(time.DateOnly))
+	}
+	if !strings.Contains(yearTwoArgs.Subject, yearTwoAnchor.Format(time.DateOnly)) {
+		t.Errorf("year two subject %q does not name its own anchor %q", yearTwoArgs.Subject, yearTwoAnchor.Format(time.DateOnly))
+	}
+
+	// The load-bearing proof: the SAME underlying recurring field produces
+	// a DIFFERENT idempotency key each year, because each year's
+	// projection is a genuinely new anchor value — this is what re-arms
+	// the reminder on the second birthday instead of the claim row from
+	// the first swallowing it forever.
+	yearOneKey := h.IdempotencyKey(yearOneEvent)
+	yearTwoKey := h.IdempotencyKey(yearTwoEvent)
+	if yearOneKey == yearTwoKey {
+		t.Errorf("IdempotencyKey did not change across the two simulated years (%q) — a yearly-recurring field would only ever fire once, on its first occurrence", yearOneKey)
+	}
+
+	// And within one year, a redundant pass over the identical projected
+	// anchor still claims the SAME row — recurrence must not defeat the
+	// existing redelivery-absorbing behaviour.
+	yearOneRepeat := renewalEvent(t, yearOneNow.Add(time.Hour), yearOneAnchor, entity)
+	if h.IdempotencyKey(yearOneRepeat) != yearOneKey {
+		t.Error("a second pass within the SAME year over the SAME projected anchor produced a different key — a redelivered scan would refire the reminder")
 	}
 }
 
