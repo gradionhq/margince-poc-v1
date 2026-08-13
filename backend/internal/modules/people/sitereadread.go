@@ -120,10 +120,3 @@ func (s *Store) GetOnboardingSiteRead(ctx context.Context, readID ids.UUID) (Sit
 	})
 	return out, err
 }
-
-// UpdateSiteReadProgress records the worker's live position — the phase
-// and how many pages have committed — on a still-running dossier, so the
-// SPA's poll shows movement during the crawl and the model call instead
-// of a silent 'running'. Best-effort by contract: a read that is no
-// longer running is simply not updated (the terminal write won), never
-// an error. No auth.Require, same rationale as BeginSiteRead.

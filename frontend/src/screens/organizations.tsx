@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
@@ -965,6 +965,7 @@ function SiteReadPanel({
 // unwired) surface their honest cause instead of a generic failure.
 function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [readId, setReadId] = useState<string | null>(null);
   // A read id lives only in the tab that started the crawl, so a read that
   // ended after the rep navigated away used to be unfindable — and an account
@@ -1006,7 +1007,17 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
       }
       return data;
     },
-    onSuccess: (started) => setReadId(started.read_id),
+    onSuccess: (started) => {
+      setReadId(started.read_id);
+      // The started read IS the latest one, so say so rather than leaving the
+      // cached answer to expire. Without this the card holds a 30s stale
+      // "never read" (FE-PARAM-1) that a rep who navigates away and back
+      // inside the window still sees — the same invisible-crawl state this
+      // query was added to end.
+      queryClient.invalidateQueries({
+        queryKey: ["site-read-latest", orgId],
+      });
+    },
   });
 
   return (

@@ -249,6 +249,12 @@ func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.Organizatio
 	return out, joined, nil
 }
 
+// UpdateSiteReadProgress records the worker's live position — the phase
+// and how many pages have committed — on a still-running dossier, so the
+// SPA's poll shows movement during the crawl and the model call instead
+// of a silent 'running'. Best-effort by contract: a read that is no
+// longer running is simply not updated (the terminal write won), never
+// an error. No auth.Require, same rationale as BeginSiteRead.
 func (s *Store) UpdateSiteReadProgress(ctx context.Context, readID ids.UUID, phase string, pages []SiteReadPage) error {
 	if phase != "crawling" && phase != "extracting" {
 		return fmt.Errorf("people: %q is not a site-read phase (crawling|extracting)", phase)
