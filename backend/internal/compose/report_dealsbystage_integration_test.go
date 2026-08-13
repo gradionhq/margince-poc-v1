@@ -32,7 +32,7 @@ func TestDealsByStageWeightedReconcilesToPerDealRounding(t *testing.T) {
 	// A different stage's deal must not fold into the group under test.
 	e.seedOpenDeal(t, "Elsewhere", 20, nil, int64p(999999), stringp("commit"))
 
-	result := e.runReport(t, e.Admin(), "deals-by-stage",
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
 		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
 	row := dealsByStageRow(t, result, e.stages[60].String())
 
@@ -62,7 +62,7 @@ func TestDealsByStageWeightedDerivationReconcilesExactly(t *testing.T) {
 	e.seedOpenDeal(t, "Beta", 60, nil, int64p(12341), stringp("commit"))
 	e.seedOpenDeal(t, "Elsewhere", 20, nil, int64p(999999), stringp("commit"))
 
-	result := e.runReport(t, e.Admin(), "deals-by-stage",
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
 		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
 	row := dealsByStageRow(t, result, e.stages[60].String())
 	handle, ok := row["derivation_url"].(string)
@@ -70,7 +70,7 @@ func TestDealsByStageWeightedDerivationReconcilesExactly(t *testing.T) {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
 
-	derivation := e.explainReport(t, e.Admin(), "deals-by-stage", handle)
+	derivation := e.explainReport(e.Admin(), t, "deals-by-stage", handle)
 	if len(derivation.Rows) != 2 || derivation.TotalRows != 2 {
 		t.Fatalf("drill-through = %d rows (total %d), want the stage's 2 deals: %+v",
 			len(derivation.Rows), derivation.TotalRows, derivation.Rows)
@@ -101,7 +101,7 @@ func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
 	e.seedOpenDeal(t, "Theirs", 60, &e.Rep3, int64p(999999), stringp("commit"))
 
 	rep := e.dealReadCtx(e.Rep1, nil, principal.RowScopeOwn)
-	result := e.runReport(t, rep, "deals-by-stage",
+	result := e.runReport(rep, t, "deals-by-stage",
 		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
 	row := dealsByStageRow(t, result, e.stages[60].String())
 	if got := wireInt(t, row, "deals"); got != 1 {
@@ -115,7 +115,7 @@ func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
 	if !ok || handle == "" {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
-	derivation := e.explainReport(t, rep, "deals-by-stage", handle)
+	derivation := e.explainReport(rep, t, "deals-by-stage", handle)
 	if derivation.TotalRows != 1 {
 		t.Errorf("own-scope drill-through total = %d, want 1 (never the foreign deal)", derivation.TotalRows)
 	}
