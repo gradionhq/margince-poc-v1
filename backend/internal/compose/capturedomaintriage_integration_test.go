@@ -377,11 +377,21 @@ func TestTriageSweepSettlesADomainThatRanOutOfAttempts(t *testing.T) {
 		t.Fatalf("sweep: %v", err)
 	}
 
-	if got := dispositionOf(t, e, "unreachable.example"); got == "pending" || got == "" {
-		t.Fatalf("disposition = %q after the sweep, want it settled", got)
+	// The question stays OPEN — a domain whose site never loaded has not been
+	// answered, and inventing a company named after its domain label is the
+	// defect this pass used to produce. What it gets instead is a reason on the
+	// row and no further crawls.
+	if got := dispositionOf(t, e, "unreachable.example"); got != "pending" {
+		t.Fatalf("disposition = %q after the sweep, want it left open", got)
+	}
+	if got := pendingReasonOf(t, e, "unreachable.example"); got != "unevidenced" {
+		t.Fatalf("pending_reason = %q, want unevidenced — the row must say why it has no company", got)
 	}
 	if stillDue(t, e, "unreachable.example") {
-		t.Fatal("a settled domain is still being offered for a crawl")
+		t.Fatal("a withheld domain is still being offered for a crawl")
+	}
+	if n := countRows(t, e, `SELECT count(*) FROM organization WHERE NOT is_anchor`); n != 0 {
+		t.Fatalf("%d organizations from a domain nothing could read, want 0", n)
 	}
 }
 
@@ -406,4 +416,18 @@ func TestTriageSweepLeavesADomainThatStillHasAttempts(t *testing.T) {
 	if n := budgetSpent(t, e); n != 0 {
 		t.Fatalf("budget spent = %d, want 0 — a slot that bought no crawl must come back", n)
 	}
+}
+
+// pendingReasonOf reads why a still-open domain has no company yet.
+func pendingReasonOf(t *testing.T, e *integration.Env, domain string) string {
+	t.Helper()
+	var reason string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT COALESCE(pending_reason, '') FROM organization_domain_disposition
+			WHERE domain = $1`, domain).Scan(&reason)
+	}); err != nil {
+		t.Fatalf("reading the pending reason of %s: %v", domain, err)
+	}
+	return reason
 }

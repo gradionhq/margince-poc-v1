@@ -177,10 +177,12 @@ const triageSweepPageSize = 50
 // makes the trigger allowed to be best-effort.
 func (w *captureAutoEnrichSweepWorker) sweepDomainTriage(ctx context.Context, dailyCap int) error {
 	// First, close the questions no crawl will ever answer. A domain that used
-	// every attempt drops out of the due scan below, so leaving it pending
-	// would strand its people without a company and without a reason on the
-	// row. It is settled from what the workspace already knows, exactly as a
-	// worker forbidden to look would settle it.
+	// every attempt drops out of the due scan below, so leaving it pending with
+	// no reason would strand its people without a company and without a word on
+	// the row saying why. It is answered from what the workspace already knows:
+	// a domain that is somebody's NAME becomes personal and settles, and
+	// anything else is marked unevidenced — open, visible to a human, and never
+	// auto-created on the strength of having failed twice.
 	exhausted, err := w.people.ExhaustedDomains(ctx, triageSweepPageSize)
 	if err != nil {
 		return err

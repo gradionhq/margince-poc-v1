@@ -80,7 +80,16 @@ type DomainDisposition struct {
 	OwnerID        *ids.UUID
 	OrganizationID *ids.OrganizationID
 	Attempts       int
+	// Admission is the standing decision about the domain, "" when none was
+	// made. It travels on the LOCKED read so a caller decides from the same row
+	// version it is about to write: a suppression committing between an
+	// unlocked check and the lock would otherwise let a company verdict already
+	// in flight create exactly the record the refusal forbids.
+	Admission string
 }
+
+// Suppressed reports a standing refusal to give this domain a company.
+func (d DomainDisposition) Suppressed() bool { return d.Admission == DomainSuppressed }
 
 // Settled reports whether the question is answered — anything but pending.
 func (d DomainDisposition) Settled() bool { return d.Status != "" && d.Status != DomainPending }
@@ -109,10 +118,11 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 	var source *string
 	var orgID *ids.UUID
 	err := tx.QueryRow(ctx, `
-		SELECT domain, status, source, owner_id, organization_id, attempts
+		SELECT domain, status, source, owner_id, organization_id, attempts,
+		       COALESCE(admission, '')
 		FROM organization_domain_disposition
 		WHERE domain = $1
-		FOR UPDATE`, domain).Scan(&d.Domain, &d.Status, &source, &d.OwnerID, &orgID, &d.Attempts)
+		FOR UPDATE`, domain).Scan(&d.Domain, &d.Status, &source, &d.OwnerID, &orgID, &d.Attempts, &d.Admission)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DomainDisposition{}, false, nil
 	}
@@ -164,6 +174,10 @@ func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, err
 			SELECT d.domain
 			FROM organization_domain_disposition d
 			WHERE d.status = 'pending'
+			  -- A refused domain is not a question. Crawling one would find the
+			  -- vendor's real corporate site, answer "company", and create
+			  -- exactly the record the refusal exists to prevent.
+			  AND d.admission IS DISTINCT FROM 'suppressed'
 			  -- A domain nobody is accountable for may not mint rows, so it is
 			  -- not worth a crawl either (ResolveDomainTriage stamps the org's
 			  -- owner from this column).
@@ -240,6 +254,7 @@ func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, e
 		rows, err := tx.Query(ctx, `
 			SELECT domain FROM organization_domain_disposition
 			WHERE status = 'pending'
+			  AND admission IS DISTINCT FROM 'suppressed'
 			  AND owner_id IS NOT NULL
 			  AND next_attempt_at IS NOT NULL
 			  AND next_attempt_at <= now()

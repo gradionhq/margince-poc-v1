@@ -326,3 +326,254 @@ func TestMarkTriageQueuedSpendsAnAttemptAndBacksOff(t *testing.T) {
 		t.Error("the domain is due again immediately — the backoff did not arm")
 	}
 }
+
+// countOrgsOn reports how many organizations claim a domain — the check that a
+// withheld or suppressed domain minted nothing.
+func (e *dedupeEnv) countOrgsOn(ctx context.Context, t *testing.T, domain string) int {
+	t.Helper()
+	var n int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM organization_domain WHERE domain = $1`, domain).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting organizations on %s: %v", domain, err)
+	}
+	return n
+}
+
+// dispositionRow reads the columns these tests are about.
+func (e *dedupeEnv) dispositionRow(ctx context.Context, t *testing.T, domain string) (status, pendingReason, admission, source string, orgID *ids.OrganizationID) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT status, COALESCE(pending_reason, ''), COALESCE(admission, ''),
+			       COALESCE(admission_source, ''), organization_id
+			  FROM organization_domain_disposition WHERE domain = $1`, domain).
+			Scan(&status, &pendingReason, &admission, &source, &orgID)
+	}); err != nil {
+		t.Fatalf("reading the disposition of %s: %v", domain, err)
+	}
+	return status, pendingReason, admission, source, orgID
+}
+
+// An unreadable site no longer invents the company. This is the shape that
+// produced 40 of 108 organizations in a real import — "Pwc", "Mckinsey",
+// "Ausgezeichnet" — each named after its domain label with every field empty.
+func TestAnUnreadableSiteWithholdsTheCompanyInsteadOfInventingIt(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	e.openTriage(ctx, t, "hello@pwc.example", "", "pwc.example")
+
+	if _, err := e.store.ResolveUnreadableDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "pwc.example", SeedURL: TriageSeedURL("pwc.example"),
+		Evidence: "the site could not be read",
+	}); err != nil {
+		t.Fatalf("resolve unreadable: %v", err)
+	}
+
+	if n := e.countOrgsOn(ctx, t, "pwc.example"); n != 0 {
+		t.Fatalf("%d organizations from a site nothing could read, want 0", n)
+	}
+	status, reason, _, _, orgID := e.dispositionRow(ctx, t, "pwc.example")
+	if status != DomainPending {
+		t.Errorf("status = %q, want it left open — a withheld domain must stay askable", status)
+	}
+	if reason != "unevidenced" {
+		t.Errorf("pending_reason = %q, want unevidenced — the row must say WHY it has no company", reason)
+	}
+	if orgID != nil {
+		t.Errorf("organization_id = %v, want none", orgID)
+	}
+}
+
+// The sender's own name still settles the domain as theirs. Withholding is for
+// the case where nothing explains the domain, not a refusal to answer at all.
+func TestAnUnreadableSiteThatIsSomebodysNameIsStillTheirs(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	e.openTriage(ctx, t, "v@lentin.example", "Valentin Lentin", "lentin.example")
+
+	if _, err := e.store.ResolveUnreadableDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "lentin.example", SeedURL: TriageSeedURL("lentin.example"),
+	}); err != nil {
+		t.Fatalf("resolve unreadable: %v", err)
+	}
+	status, _, _, _, _ := e.dispositionRow(ctx, t, "lentin.example")
+	if status != DomainPersonal {
+		t.Fatalf("status = %q, want personal — a domain that is somebody's name is theirs", status)
+	}
+	if n := e.countOrgsOn(ctx, t, "lentin.example"); n != 0 {
+		t.Fatalf("%d organizations for a personal domain, want 0", n)
+	}
+}
+
+// A suppressed domain never becomes a company, even when a REAL EMPLOYEE
+// writes. This is the vendor rule: Expensify has a genuine corporate website,
+// so every evidence test says yes and only a standing refusal says no.
+func TestASuppressedDomainNeverBecomesACompany(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if err := e.store.SetDomainAdmission(ctx, "expensify.example", DomainSuppressed,
+		"a tool this business uses, not a company it sells to"); err != nil {
+		t.Fatalf("suppress: %v", err)
+	}
+
+	// A named human at the vendor — not a role mailbox, not automated mail.
+	res, err := e.store.EnsureCounterparty(ctx,
+		e.ensureInput(ctx, t, "anna.weber@expensify.example", "Anna Weber", "expensify.example"))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	// The PERSON is still created — refusing the company is not refusing the human.
+	if res.PersonID.IsZero() {
+		t.Fatal("the person was refused; only the company is suppressed")
+	}
+	if res.OrganizationID != nil {
+		t.Fatalf("organization = %v, want none for a suppressed domain", res.OrganizationID)
+	}
+	if res.TriagePending {
+		t.Error("a suppressed domain opened a triage question; the refusal means stop asking")
+	}
+	if n := e.countOrgsOn(ctx, t, "expensify.example"); n != 0 {
+		t.Fatalf("%d organizations on a suppressed domain, want 0", n)
+	}
+
+	// The path that actually mints companies: a crawl that was already in
+	// flight when the domain was refused comes back saying "company". It has
+	// read a genuine corporate website — Expensify has one — so nothing about
+	// the EVIDENCE will stop it. Only the refusal does.
+	if _, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "expensify.example", Status: DomainCompany, Source: DomainSourceSiteRead,
+		SeedURL: TriageSeedURL("expensify.example"), Evidence: "the site names a company",
+		DossierName: "Expensify",
+	}); err != nil {
+		t.Fatalf("resolve company on a suppressed domain: %v", err)
+	}
+	if n := e.countOrgsOn(ctx, t, "expensify.example"); n != 0 {
+		t.Fatalf("%d organizations after a company verdict on a suppressed domain, want 0", n)
+	}
+
+	// And the sweep does not offer it for crawling in the first place.
+	due, err := e.store.ListDueDomains(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range due {
+		if d.Domain == "expensify.example" {
+			t.Fatal("a suppressed domain was offered for triage; crawling it would find the vendor's real site")
+		}
+	}
+}
+
+// The sticky rule, and the McKinsey case: once an admin admits a domain, no
+// later machine verdict may take it back.
+func TestAHumanAdmissionOutranksEveryLaterMachineRefusal(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainAdmitted,
+		"they became a client"); err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+
+	// The next newsletter from that domain tries to refuse it again.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "mckinsey.example", "judged newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+
+	_, _, admission, source, _ := e.dispositionRow(ctx, t, "mckinsey.example")
+	if admission != DomainAdmitted || source != AdmissionSourceHuman {
+		t.Fatalf("admission = %q/%q, want admitted/human — a machine must not overturn a person", admission, source)
+	}
+
+	// And a human may still change their own mind.
+	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
+		"they churned"); err != nil {
+		t.Fatalf("human re-suppress: %v", err)
+	}
+	if _, _, admission, _, _ = e.dispositionRow(ctx, t, "mckinsey.example"); admission != DomainSuppressed {
+		t.Fatalf("admission = %q, want a human able to overwrite their own decision", admission)
+	}
+}
+
+// A withheld domain is not a dead end. Its cursor is cleared so it is not
+// re-crawled on evidence that will not improve by itself — but new mail IS new
+// evidence that somebody there is still writing, so the question reopens.
+// Without this the row is stranded: both sweeps require a cursor, and the
+// review surface it was waiting for does not exist yet.
+func TestNewMailReopensAWithheldDomain(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	e.openTriage(ctx, t, "hello@downsite.example", "", "downsite.example")
+	if _, err := e.store.ResolveUnreadableDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "downsite.example", SeedURL: TriageSeedURL("downsite.example"),
+		Evidence: "the site could not be read",
+	}); err != nil {
+		t.Fatalf("resolve unreadable: %v", err)
+	}
+	if e.dueContains(ctx, t, "downsite.example") {
+		t.Fatal("a withheld domain is still being offered; it would be re-crawled on the same dead evidence")
+	}
+
+	// Somebody else at the same company writes.
+	if _, err := e.store.EnsureCounterparty(ctx,
+		e.ensureInput(ctx, t, "anna@downsite.example", "Anna Weber", "downsite.example")); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+
+	_, reason, _, _, _ := e.dispositionRow(ctx, t, "downsite.example")
+	if reason != "" {
+		t.Errorf("pending_reason = %q, want it cleared — the question is live again", reason)
+	}
+	if !e.dueContains(ctx, t, "downsite.example") {
+		t.Fatal("new mail did not reopen the withheld question; the domain would wait for ever")
+	}
+}
+
+// Creating a company ON a refused domain IS the override. A human doing that
+// has said something stronger than any verdict, so the refusal lifts — and
+// lifts as a HUMAN admission, so no later newsletter puts it back.
+func TestClaimingASuppressedDomainForACompanyLiftsTheRefusal(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
+		"judged a newsletter publisher"); err != nil {
+		t.Fatalf("suppress: %v", err)
+	}
+
+	if _, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "McKinsey", Domains: []OrgDomainInput{{Domain: "mckinsey.example"}},
+	}); err != nil {
+		t.Fatalf("create the company on a refused domain: %v", err)
+	}
+
+	_, _, admission, source, _ := e.dispositionRow(ctx, t, "mckinsey.example")
+	if admission != DomainAdmitted || source != AdmissionSourceHuman {
+		t.Fatalf("admission = %q/%q, want admitted/human — the claim IS the override", admission, source)
+	}
+	// And the refusal cannot come back on the next newsletter from them.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "mckinsey.example", "judged newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+	if _, _, admission, _, _ = e.dispositionRow(ctx, t, "mckinsey.example"); admission != DomainAdmitted {
+		t.Fatalf("admission = %q, want the human claim to stand", admission)
+	}
+}
+
+// dueContains reports whether the triage sweep is currently offering a domain.
+func (e *dedupeEnv) dueContains(ctx context.Context, t *testing.T, domain string) bool {
+	t.Helper()
+	due, err := e.store.ListDueDomains(ctx, 100)
+	if err != nil {
+		t.Fatalf("listing due domains: %v", err)
+	}
+	for _, d := range due {
+		if d.Domain == domain {
+			return true
+		}
+	}
+	return false
+}

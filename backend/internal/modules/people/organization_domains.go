@@ -58,6 +58,20 @@ func parseOrgDomains(domains []OrgDomainInput) error {
 // data-model §4.2).
 func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDomainInput) error {
 	for _, d := range domains {
+		// Deliberately creating a company ON a refused domain IS the override.
+		// A human who types the domain into a company they are making has said
+		// something stronger than any verdict, so the refusal is lifted here
+		// rather than the create being rejected — and lifted as `admitted` with
+		// a human source, so no later newsletter can quietly put it back.
+		//
+		// This is the seam EVERY domain claim passes through, which is why the
+		// reconciliation lives here: manual create, an edit that adds a domain,
+		// and the cold-start accept all reach it, and each of them could
+		// otherwise leave a company standing on a domain capture still refuses
+		// to attach anybody to.
+		if err := admitClaimedDomainTx(ctx, tx, d.Domain); err != nil {
+			return err
+		}
 		var existing ids.OrganizationID
 		err := tx.QueryRow(ctx,
 			`SELECT organization_id FROM organization_domain

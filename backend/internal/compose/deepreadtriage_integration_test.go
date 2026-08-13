@@ -214,9 +214,9 @@ func TestTriageReadsOnAndCreatesTheCompanyTheSiteNames(t *testing.T) {
 func TestTriageWithNoModelPathStillClosesTheQuestion(t *testing.T) {
 	e := integration.Setup(t)
 
-	// A worker role with no classification lane must not leave the domain
-	// pending forever — every later message would re-ask a question nobody can
-	// answer, and the sender would never get a company.
+	// A worker role with no classification lane must not re-ask forever — every
+	// later message would buy the same unanswerable question — but it also must
+	// not answer from nothing.
 	args := openTriageQuestion(t, e, triageTestDomain, "info@"+triageTestDomain, "Acme Sales")
 	worker := newTriageTestWorker(e, acmeDeepSite(), acmeDeepBrain(), nil)
 	if err := worker.run(e.As(e.Rep1, nil, integration.AdminPerms), args); err != nil {
@@ -224,13 +224,14 @@ func TestTriageWithNoModelPathStillClosesTheQuestion(t *testing.T) {
 	}
 
 	status, _, orgs := triageState(t, e, triageTestDomain)
-	// Nobody's name explains "acme-triage", so the pre-triage behaviour stands:
-	// the company is created and the ledger says nothing evidenced it.
-	if status != people.DomainNoSite {
-		t.Errorf("disposition = %q, want %q", status, people.DomainNoSite)
+	// Nobody's name explains "acme-triage" and no site was read, so nothing has
+	// EARNED a company. The question stays open and marked, where it used to
+	// mint an organization named after the domain label.
+	if status != people.DomainPending {
+		t.Errorf("disposition = %q, want it left open", status)
 	}
-	if orgs != 1 {
-		t.Errorf("%d organizations, want the company created on the pre-triage terms", orgs)
+	if orgs != 0 {
+		t.Errorf("%d organizations from a domain nothing evidenced, want 0", orgs)
 	}
 }
 
