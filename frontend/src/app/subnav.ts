@@ -61,6 +61,9 @@ export type NavTrailLevel = {
   // Present, it prints the level's own heading and pushes the group labels a
   // heading level down.
   titleKey?: MessageKey;
+  // title is titleKey's counterpart for a level opened by an entry the PRODUCT
+  // did not name — see NavLevelEntry.label. It wins over titleKey when set.
+  title?: string;
   groups: readonly NavLevelGroup[];
   activeId?: string;
   path: readonly string[];
@@ -139,8 +142,12 @@ export function navTrail(
     }
     level = {
       // A child level is named by the entry that opened it — the reader drilled
-      // in through that word, so it is the word that says where they are.
+      // in through that word, so it is the word that says where they are. Which
+      // means an entry named by the INSTALLATION names its child level too:
+      // carrying only the key here would title a composed unit's sub-level with
+      // the generic fallback the row itself no longer shows.
       titleKey: active.labelKey,
+      title: active.label,
       groups: [{ items: children }],
       activeId: segments[depth],
       path: [...level.path, active.id],

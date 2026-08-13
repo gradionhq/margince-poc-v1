@@ -11,6 +11,7 @@ import {
   useRef,
 } from "react";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import {
   type NavCounts,
   type NavLevelEntry,
@@ -324,6 +325,19 @@ function NavLevelBack({
   );
 }
 
+// What a level is CALLED: its own literal when the entry that opened it was
+// named by the installation, its message key otherwise, and nothing when it is
+// the primary level (the navigation landmark names that one).
+function levelTitle(
+  level: NavTrailLevel,
+  t: (key: MessageKey) => string,
+): string {
+  if (level.title) {
+    return level.title;
+  }
+  return level.titleKey ? t(level.titleKey) : "";
+}
+
 export function NavLevelView({
   level,
   parent,
@@ -347,7 +361,9 @@ export function NavLevelView({
       {parent && (
         <NavLevelBack parent={parent} state={state} onWalkUp={onWalkUp} />
       )}
-      {level.titleKey && <h2 className="navtitle">{t(level.titleKey)}</h2>}
+      {levelTitle(level, t) && (
+        <h2 className="navtitle">{levelTitle(level, t)}</h2>
+      )}
       {level.groups.map((group, index) => (
         <NavLevelGroupView
           key={group.headingKey ?? `group-${index}`}
@@ -355,7 +371,7 @@ export function NavLevelView({
           group={group}
           // A level that names itself has taken the level-2 heading, so its
           // groups sit under it rather than beside it in the outline.
-          headingTag={level.titleKey ? "h3" : "h2"}
+          headingTag={levelTitle(level, t) ? "h3" : "h2"}
           counts={counts}
           state={state}
           onSelect={onSelect}
