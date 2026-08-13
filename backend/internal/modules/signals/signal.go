@@ -86,10 +86,10 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		}
 		id := ids.New[ids.SignalKind]()
 		_, err := tx.Exec(ctx,
-			`INSERT INTO signal (id, workspace_id, kind, source_channel, raw_ref, entity_type, entity_id,
+			`INSERT INTO signal (id, kind, source_channel, raw_ref, entity_type, entity_id,
 			                     resolution_state, severity, summary, evidence, detected_at, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-			id, storekit.MustWorkspace(ctx), in.Kind, sourceChannel, in.RawRef, in.EntityType, in.EntityID,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			id, in.Kind, sourceChannel, in.RawRef, in.EntityType, in.EntityID,
 			resolutionState, severity, in.Summary, evidenceJSON, detectedAt, in.Source, by)
 		if err != nil {
 			return fmt.Errorf("insert signal: %w", err)
@@ -347,9 +347,9 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.SignalID, in UpdateSign
 		}
 		if in.Status != nil && humanOutcomes[*in.Status] && *in.Status != string(current.Status) {
 			if _, err := tx.Exec(ctx,
-				`INSERT INTO signal_resolution (id, workspace_id, signal_id, outcome, note, resolved_by, source, captured_by)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				ids.NewV7(), storekit.MustWorkspace(ctx), id, *in.Status, in.Note,
+				`INSERT INTO signal_resolution (id, signal_id, outcome, note, resolved_by, source, captured_by)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				ids.NewV7(), id, *in.Status, in.Note,
 				storekit.UUIDOrNil(actor.UserID), "ui", actor.ID); err != nil {
 				return fmt.Errorf("append signal outcome: %w", err)
 			}
@@ -397,7 +397,7 @@ func (s *Store) ArchiveSignal(ctx context.Context, id ids.SignalID) (crmcontract
 // that join or scope.
 func signalColumns(alias string) string {
 	cols := []string{
-		"id", "workspace_id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
+		"id", "kind", "source_channel", "raw_ref", "entity_type", "entity_id",
 		"resolution_state", "resolution_confidence::float8", "resolved_org_id", "resolved_person_id",
 		"severity", "summary", "evidence", "status", "detected_at", "source", "captured_by",
 		"version", "created_at", "updated_at", "archived_at",
@@ -422,7 +422,7 @@ func readSignal(ctx context.Context, tx pgx.Tx, id ids.SignalID, archived storek
 
 func scanSignal(row pgx.Row) (crmcontracts.Signal, error) {
 	var sig crmcontracts.Signal
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var kind, sourceChannel, resolutionState, severity, status string
 	var entityType *string
 	var entityID, resolvedOrgID, resolvedPersonID *ids.UUID
@@ -431,7 +431,7 @@ func scanSignal(row pgx.Row) (crmcontracts.Signal, error) {
 	var capturedBy string
 	var version int64
 
-	err := row.Scan(&id, &wsID, &kind, &sourceChannel, &sig.RawRef, &entityType, &entityID,
+	err := row.Scan(&id, &kind, &sourceChannel, &sig.RawRef, &entityType, &entityID,
 		&resolutionState, &confidence, &resolvedOrgID, &resolvedPersonID,
 		&severity, &sig.Summary, &evidenceJSON, &status, &sig.DetectedAt, &sig.Source, &capturedBy,
 		&version, &sig.CreatedAt, &sig.UpdatedAt, &sig.ArchivedAt)

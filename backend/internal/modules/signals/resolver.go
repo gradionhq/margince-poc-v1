@@ -440,9 +440,9 @@ func appendMatchBasis(ctx context.Context, tx pgx.Tx, actor principal.Principal,
 	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string,
 ) error {
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO signal_resolution (id, workspace_id, signal_id, matched_on, matched_org_id, match_confidence, match_detail, source, captured_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		ids.NewV7(), storekit.MustWorkspace(ctx), signalID, matchedOn, orgID, confidence, detail,
+		`INSERT INTO signal_resolution (id, signal_id, matched_on, matched_org_id, match_confidence, match_detail, source, captured_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		ids.NewV7(), signalID, matchedOn, orgID, confidence, detail,
 		"resolver", actor.ID); err != nil {
 		return fmt.Errorf("append match basis: %w", err)
 	}

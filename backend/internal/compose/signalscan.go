@@ -144,7 +144,7 @@ type GhostedPass struct {
 // WHICH accounts the rule fired on — a question that spans activity,
 // organization and deal, which is why it lives here — and the signals module
 // writes the rows, because a module owns its own table.
-func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, now time.Time) (GhostedPass, error) {
+func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, now time.Time) (GhostedPass, error) {
 	candidates, err := scanGhostedThreads(ctx, tx, now)
 	if err != nil {
 		return GhostedPass{}, err
@@ -152,7 +152,7 @@ func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, n
 	pass := GhostedPass{Considered: len(candidates)}
 	for _, found := range candidates {
 		days := int(now.Sub(found.At).Hours() / 24)
-		raised, err := signals.RecordDerived(ctx, tx, wsID, signals.DerivedSignal{
+		raised, err := signals.RecordDerived(ctx, tx, signals.DerivedSignal{
 			Kind:           kindGhostedThread,
 			OrganizationID: found.OrganizationID,
 			Summary:        fmt.Sprintf("We wrote %d days ago and nobody has answered.", days),

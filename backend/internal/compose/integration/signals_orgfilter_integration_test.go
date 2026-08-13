@@ -12,7 +12,10 @@ package integration
 // A deal-subject signal belongs to its deal and stays out of both arms.
 
 import (
+	"context"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -29,6 +32,18 @@ var signalReaderPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
+// seedSignalRow inserts one signal through the owner connection and returns its
+// id. SeedRow cannot serve here: it supplies a workspace for $2, and `signal`
+// has no tenant column to put it in.
+func seedSignalRow(t *testing.T, owner *pgx.Conn, sql string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), sql, id); err != nil {
+		t.Fatalf("seeding a signal: %v", err)
+	}
+	return id
+}
+
 func TestListSignalsByOrganizationCoversResolvedAndDirectSubjects(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
@@ -38,26 +53,26 @@ func TestListSignalsByOrganizationCoversResolvedAndDirectSubjects(t *testing.T) 
 	acme := e.SeedOrg(t, "Acme", &e.Rep1)
 	other := e.SeedOrg(t, "Contoso", &e.Rep1)
 
-	direct := SeedRow(t, owner, `INSERT INTO signal
-		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolution_state, severity, summary, detected_at, source, captured_by)
-		VALUES ($1, $2, 'risk', 'derived', 'organization', '`+acme.String()+`', 'resolved', 'warn',
-		        'Budget freeze mentioned on the call', now(), 'manual', 'human:x')`, e.WS)
+	direct := seedSignalRow(t, owner, `INSERT INTO signal
+		(id, kind, source_channel, entity_type, entity_id, resolution_state, severity, summary, detected_at, source, captured_by)
+		VALUES ($1, 'risk', 'derived', 'organization', '`+acme.String()+`', 'resolved', 'warn',
+		        'Budget freeze mentioned on the call', now(), 'manual', 'human:x')`)
 	// The resolver's shape: the SUBJECT is a person, and the account it
 	// belongs to is stamped on resolved_org_id. Matching on the subject pair
 	// alone would miss it; matching on resolved_org_id alone would miss the
 	// direct one above. The filter has to carry both arms.
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	resolved := SeedRow(t, owner, `INSERT INTO signal
-		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
+	resolved := seedSignalRow(t, owner, `INSERT INTO signal
+		(id, kind, source_channel, entity_type, entity_id, resolved_org_id,
 		 resolution_state, severity, summary, detected_at, source, captured_by)
-		VALUES ($1, $2, 'buying_intent', 'web', 'person', '`+contact.String()+`', '`+acme.String()+`', 'resolved', 'warn',
-		        'Pricing page visited five times', now(), 'manual', 'human:x')`, e.WS)
+		VALUES ($1, 'buying_intent', 'web', 'person', '`+contact.String()+`', '`+acme.String()+`', 'resolved', 'warn',
+		        'Pricing page visited five times', now(), 'manual', 'human:x')`)
 	// A signal about a different account must not leak into the filter.
-	SeedRow(t, owner, `INSERT INTO signal
-		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
+	seedSignalRow(t, owner, `INSERT INTO signal
+		(id, kind, source_channel, entity_type, entity_id, resolved_org_id,
 		 resolution_state, severity, summary, detected_at, source, captured_by)
-		VALUES ($1, $2, 'risk', 'web', 'organization', '`+other.String()+`', '`+other.String()+`', 'resolved', 'warn',
-		        'Contoso churn risk', now(), 'manual', 'human:x')`, e.WS)
+		VALUES ($1, 'risk', 'web', 'organization', '`+other.String()+`', '`+other.String()+`', 'resolved', 'warn',
+		        'Contoso churn risk', now(), 'manual', 'human:x')`)
 
 	got, _, err := store.ListSignals(ctx, signals.ListSignalsInput{OrganizationID: &acme})
 	if err != nil {

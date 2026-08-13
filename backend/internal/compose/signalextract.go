@@ -199,7 +199,7 @@ func (x *SignalExtractor) commitReading(
 			if event.Confidence < extractConfidenceFloor {
 				continue
 			}
-			written, err := recordExtractedEvent(ctx, tx, wsID, thread, event, now)
+			written, err := recordExtractedEvent(ctx, tx, thread, event, now)
 			if err != nil {
 				return err
 			}
@@ -217,7 +217,7 @@ func (x *SignalExtractor) commitReading(
 // recordExtractedEvent raises one event as a signal against the account,
 // citing the message it was stated in, and reports whether the card is new.
 func recordExtractedEvent(
-	ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread,
+	ctx context.Context, tx pgx.Tx, thread settledThread,
 	event extractedEvent, now time.Time,
 ) (bool, error) {
 	cited, err := ids.Parse(event.MessageID)
@@ -227,7 +227,7 @@ func recordExtractedEvent(
 		// the ids we sent are unparseable, which is our own bug.
 		return false, fmt.Errorf("cited message id: %w", err)
 	}
-	return signals.RecordDerived(ctx, tx, wsID, signals.DerivedSignal{
+	return signals.RecordDerived(ctx, tx, signals.DerivedSignal{
 		Kind:           event.Kind,
 		OrganizationID: thread.OrganizationID,
 		Summary:        event.Summary,

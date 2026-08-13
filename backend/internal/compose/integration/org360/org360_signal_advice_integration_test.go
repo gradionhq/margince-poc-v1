@@ -14,6 +14,7 @@ package org360
 // land on the wrong side of a stale-thread window by accident.
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
-	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+	seedSignal(t, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 	// Advice that would otherwise lead, so leading is a choice this makes and
 	// not the only thing left standing.
@@ -69,7 +70,7 @@ func TestAnEndedContractDoesNotContradictAnEndedRelationship(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'former_customer' WHERE id = $1`, org.UUID)
-	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+	seedSignal(t, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 
 	view, err := svc.Assemble(rep, org)
@@ -102,7 +103,7 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
-	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+	seedSignal(t, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 
 	// integration.AccountRepPerms carries no signal grant, which is the point.
@@ -118,14 +119,16 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 }
 
 // seedSignal writes one open derived signal at a severity and an instant.
-func seedSignal(t *testing.T, e *integration.Env, org ids.UUID, kind, severity, summary, at string) {
+func seedSignal(t *testing.T, org ids.UUID, kind, severity, summary, at string) {
 	t.Helper()
-	integration.SeedRow(t, integration.OwnerConn(t), `INSERT INTO signal
-		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
+	if _, err := integration.OwnerConn(t).Exec(context.Background(), `INSERT INTO signal
+		(id, kind, source_channel, entity_type, entity_id, resolved_org_id,
 		 resolution_state, severity, summary, status, detected_at, source, captured_by)
-		VALUES ($1, $2, '`+kind+`', 'derived', 'organization', '`+org.String()+`',
+		VALUES ($1, '`+kind+`', 'derived', 'organization', '`+org.String()+`',
 		        '`+org.String()+`', 'resolved', '`+severity+`', '`+summary+`', 'open',
-		        '`+at+`', 'signal-scan', 'agent:`+kind+`')`, e.WS)
+		        '`+at+`', 'signal-scan', 'agent:`+kind+`')`, ids.NewV7()); err != nil {
+		t.Fatalf("seeding a signal: %v", err)
+	}
 }
 
 // The strip has room for one signal and the account may have several. It
@@ -137,11 +140,11 @@ func TestTheStripStatesTheWorstOpenSignal(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
-	seedSignal(t, e, org.UUID, "commitment_made", "info",
+	seedSignal(t, org.UUID, "commitment_made", "info",
 		"They promised volumes by Friday.", "2026-05-20T09:00:00Z")
-	seedSignal(t, e, org.UUID, "ghosted_thread", "warn",
+	seedSignal(t, org.UUID, "ghosted_thread", "warn",
 		"We wrote 20 days ago and nobody has answered.", "2026-05-01T09:00:00Z")
-	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+	seedSignal(t, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
 
 	view, err := svc.Assemble(rep, org)
@@ -169,7 +172,7 @@ func TestTheStripStatesNoSignalWithoutTheGrant(t *testing.T) {
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
-	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+	seedSignal(t, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
 
 	// integration.AccountRepPerms carries no signal grant, which is the point.

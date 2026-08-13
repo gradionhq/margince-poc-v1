@@ -84,14 +84,14 @@ func graphHasNode(graph crmcontracts.OrganizationGraph, id ids.UUID) bool {
 
 // seedOpenSignal records one open, resolved, company-level signal on the
 // account — the state the warm room reads as an active path to propose.
-func seedOpenSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.UUID {
+func seedOpenSignal(t *testing.T, owner *pgx.Conn, org ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO signal (id, workspace_id, kind, summary, entity_type, entity_id,
+		INSERT INTO signal (id, kind, summary, entity_type, entity_id,
 		                    resolution_state, resolved_org_id, status, source, captured_by)
-		VALUES ($1, $2, 'buying_intent', 'they read the pricing page', 'organization', $3,
-		        'resolved', $3, 'open', 'manual', 'human:x')`, id, ws, org); err != nil {
+		VALUES ($1, 'buying_intent', 'they read the pricing page', 'organization', $2,
+		        'resolved', $2, 'open', 'manual', 'human:x')`, id, org); err != nil {
 		t.Fatalf("seeding a signal: %v", err)
 	}
 	return id
@@ -100,14 +100,14 @@ func seedOpenSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.UUID {
 // seedOrgSubjectSignal records an open signal created directly ABOUT the
 // account: the subject pair is set and resolved_org_id is NULL, the shape the
 // resolver never produces and a hand-created signal always does.
-func seedOrgSubjectSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.UUID {
+func seedOrgSubjectSignal(t *testing.T, owner *pgx.Conn, org ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO signal (id, workspace_id, kind, summary, entity_type, entity_id,
+		INSERT INTO signal (id, kind, summary, entity_type, entity_id,
 		                    resolution_state, status, source, captured_by)
-		VALUES ($1, $2, 'risk', 'their CFO left', 'organization', $3,
-		        'resolved', 'open', 'manual', 'human:x')`, id, ws, org); err != nil {
+		VALUES ($1, 'risk', 'their CFO left', 'organization', $2,
+		        'resolved', 'open', 'manual', 'human:x')`, id, org); err != nil {
 		t.Fatalf("seeding an org-subject signal: %v", err)
 	}
 	return id

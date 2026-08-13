@@ -261,7 +261,7 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 			VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
 		integration.LinkActivity(t, owner, e.WS, activity, "person", warm)
 	}
-	signal := seedOpenSignal(t, owner, e.WS, org)
+	signal := seedOpenSignal(t, owner, org)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -324,7 +324,7 @@ func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
 	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
 	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
-	signal := seedOrgSubjectSignal(t, owner, e.WS, org)
+	signal := seedOrgSubjectSignal(t, owner, org)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
 		ids.From[ids.OrganizationKind](org))
