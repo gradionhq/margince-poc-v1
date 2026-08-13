@@ -12,7 +12,9 @@ import { problemMessage, QueryGate } from "./common";
 // currency every roll-up converts to. Every role reads them — a rep reading
 // amounts benefits from knowing which currency they are in — and only admin/ops
 // may change them, so the fields are disabled rather than hidden for everyone
-// else, the same gating the capture-settings card uses.
+// else, and the reason is stated where the save action would otherwise be.
+// Disabling without a reason is the failure mode this avoids: it is
+// indistinguishable from a bug, and a reader cannot act on it either way.
 //
 // Two cards: what the organization is called and when its periods start is one
 // subject, and the currency every amount is re-expressed in is another — with a
@@ -209,6 +211,12 @@ function InstallationSettingsForm({
           </p>
         ) : null}
 
+        {/* The save action, or the reason there is none. A row of fields that are
+            all disabled with nothing saying why is the reader's problem to solve:
+            they cannot tell a permission from a bug, from a value that has not
+            loaded. This is the place to say it, because it is where a reader looks
+            for the control that commits the fields above — so the explanation
+            arrives exactly where the missing affordance was expected. */}
         {canManage ? (
           <div>
             <button
@@ -221,7 +229,9 @@ function InstallationSettingsForm({
                 : t("installationSettings.save")}
             </button>
           </div>
-        ) : null}
+        ) : (
+          <p className="t-small">{t("installationSettings.readOnly")}</p>
+        )}
       </div>
     </form>
   );

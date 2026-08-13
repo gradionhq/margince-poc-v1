@@ -47,6 +47,15 @@ const CORE_SCREENS = [
   // would measure the fallback screen and report it as coverage, so the sweeps
   // follow the surface to where it actually lives.
   "settings/ai",
+  // Settings is TWELVE pages behind one route, and a bare `settings` resolves to
+  // Account — the shortest of them. Sweeping that alone and calling settings
+  // covered is how the widest page in the product went unmeasured: `data-model`
+  // carries two full list surfaces with their own toolbars, `integrations` four
+  // installation-wide cards, `people` a roster of rows that each end in two
+  // buttons. These are where a narrow viewport actually breaks.
+  "settings/data-model",
+  "settings/integrations",
+  "settings/people",
 ];
 
 /**
@@ -544,18 +553,18 @@ test.describe("B-EP09.23: overlay mode", () => {
     await mockApi(page, { sor: "overlay" });
     await page.reload();
     const chip = page.getByRole("link", {
-      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Verbindungen, um die Verbindung zu verwalten.",
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/connections");
+    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
     await expect(page.getByText(/eu1/)).toBeVisible();
     // Per-object sync rows: person + organization landed fresh; deal is still
@@ -677,7 +686,7 @@ test.describe("B-EP09.23: overlay mode", () => {
 
   test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
     await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
     // Distinct from the per-object "Backfill abgeschlossen" copy already on
@@ -690,7 +699,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     // The chip is the only accent badge that is a link; the mapping card on
     // this tab wears the same badge on the row for the signed-in user, so an
     // unqualified `.badge-accent` would be counting two different things.
@@ -730,7 +739,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     // nothing, which is the one way a mapping workflow must not be able to
     // look correct.
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
 
     // Seeded state: the admin's own seat, matched to a HubSpot owner by email.
     await expect(page.getByText("Über E-Mail zugeordnet")).toBeVisible();

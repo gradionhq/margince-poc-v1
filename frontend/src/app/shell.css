@@ -4,6 +4,33 @@
  * read as ordinary theme tokens rather than white-alpha on a dark ground. The
  * ink-green field keeps the marketing surfaces. */
 
+/* The skip link (WCAG 2.4.1). Off-screen until it has focus, and moved with a
+ * transform rather than hidden: `display: none`, `visibility: hidden` and a zero
+ * size all take an element out of the tab order too, and a skip link nobody can
+ * reach by keyboard is the one thing this must not be. Fixed to the viewport
+ * because it has to arrive in the same place from any scroll offset, and above
+ * the rail's own layers so it is not painted behind the sidebar it skips. */
+.skiplink {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  transform: translateY(-250%);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+}
+/* :focus, not :focus-visible — the point is that it appears whenever it holds
+   focus, and a heuristic about whether the focus "should" be visible is exactly
+   the wrong judge for a control that only exists while focused. */
+.skiplink:focus {
+  transform: none;
+}
+
 /* The sidebar is FLUSH to the viewport: full height, square, separated from the
  * content by a hairline rather than by a gap. A sidebar is the edge of the
  * application, and an edge that floats as a card reads as a panel someone could

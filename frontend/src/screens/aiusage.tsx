@@ -2,11 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { Meter } from "../design-system/readings";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { QueryGate, throwProblem } from "./common";
+import { QueryGate, throwProblem, useMe } from "./common";
 
 type AiUsage = components["schemas"]["AiUsage"];
 type UsageTask = AiUsage["days"][number]["tasks"][number];
@@ -74,9 +75,15 @@ function aggregate(days: AiUsage["days"]): UsageTask[] {
 export function AiUsageCard() {
   const t = useT();
   const { locale } = useLocale();
+  const me = useMe();
+  // The server treats the AI runtime's spend as operator information and gates
+  // this read on automation:update — a write verb guarding a GET, which is why
+  // the seat ceiling stays out of it (capability.ts): a read seat may still read.
+  const canSee = useCan("automation", "update");
   const [month, setMonth] = useState<Month | null>(null);
   const [showDays, setShowDays] = useState(false);
   const query = useQuery({
+    enabled: canSee,
     queryKey: ["ai-usage", month],
     queryFn: async () => {
       const { data, error } = await api.GET("/ai/usage", {
@@ -89,6 +96,30 @@ export function AiUsageCard() {
       return data;
     },
   });
+
+  if (!canSee) {
+    // Withheld, not absent. An absent spend card on the AI page is a claim about
+    // the DATA — that nothing has been spent, or that this installation does not
+    // meter it — where the truth is only that these figures are not this reader's
+    // to see. Gated on the /me probe so the notice waits for the grants rather
+    // than flashing while they are in flight, and the query above asks the server
+    // for nothing because the answer is already known.
+    return (
+      <Card
+        title={t("aiusage.title")}
+        sub={t("aiusage.sub")}
+        style={{ marginBottom: "var(--space-4)" }}
+      >
+        <QueryGate query={me}>
+          {() => (
+            <EmptyState>
+              <p className="t-small">{t("aiusage.withheld")}</p>
+            </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
+  }
 
   return (
     <Card

@@ -162,6 +162,12 @@ describe("contact create flow", () => {
       expect(screen.getByText("full_name must not be blank")).toBeTruthy(),
     );
     expect(screen.getByLabelText("Full name *")).toBeTruthy();
+    // Announced, not merely rendered: nothing moves when a refusal appears, so
+    // the reason is silent to a screen reader without a live region. The edit
+    // dialog renders this same form body, so it is covered by the same node.
+    expect(screen.getByRole("alert").textContent).toBe(
+      "full_name must not be blank",
+    );
   });
 });
 

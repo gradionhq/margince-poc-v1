@@ -99,6 +99,14 @@ export function OwnDomainsCard() {
               <li key={domain}>{domain}</li>
             ))}
           </ul>
+          {/* Copy that sends the reader somewhere has to take them there. The sub
+              above says these are changed on the company profile, which is a
+              different settings entry — so without this the instruction was a
+              destination the reader had to go and find, on a page whose whole
+              point is that it cannot be edited here. */}
+          <p className="t-small" style={{ margin: "var(--space-3) 0 0" }}>
+            <a href="#/settings/general">{t("ownDomains.openCompany")}</a>
+          </p>
         </Card>
       )}
       <Card

@@ -6,7 +6,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   EmptyState,
   Field,
   Skeleton,
@@ -14,8 +13,9 @@ import {
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Select } from "../design-system/select";
+import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
-import { problemMessageOf, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import {
   actionLabelKey,
   effectLabelKey,
@@ -56,6 +56,22 @@ function ScopeCell({ policy }: Readonly<{ policy: RetentionPolicy }>) {
   );
 }
 
+// A row's two writes are one PATCH on one policy, so they stay one mutation —
+// one pending state, one refusal. Where they part company is what a success
+// means for the open editor, and `intent` is how the write says which of the two
+// it is: inferring it from whichever fields the body happens to carry would make
+// a future body field silently change what the panel does.
+type PolicyWrite = Readonly<{
+  /** `switch` is the Enabled flip; `save` commits the edited window and basis. */
+  intent: "save" | "switch";
+  body: Readonly<{
+    retain_days?: number;
+    action?: RetentionAction;
+    lawful_basis?: string | null;
+    enabled?: boolean;
+  }>;
+}>;
+
 // One stored policy: what it does tonight, then (on Edit) its editable window,
 // action, basis and on/off switch. `scope` is deliberately not editable — a
 // different scope is a different policy, which is also why the contract's patch
@@ -79,14 +95,7 @@ function PolicyRow({
   const [lawfulBasis, setLawfulBasis] = useState(policy.lawful_basis ?? "");
 
   const patch = useMutation({
-    mutationFn: async (
-      body: Readonly<{
-        retain_days?: number;
-        action?: RetentionAction;
-        lawful_basis?: string | null;
-        enabled?: boolean;
-      }>,
-    ) => {
+    mutationFn: async ({ body }: PolicyWrite) => {
       const { data, error } = await api.PATCH("/retention-policies/{id}", {
         params: { path: { id: policy.id } },
         body,
@@ -96,15 +105,36 @@ function PolicyRow({
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, write) => {
       queryClient.invalidateQueries({ queryKey: RETENTION_POLICIES_KEY });
-      setEditing(false);
+      // Committing the edits is what the panel was opened for, so a save closes
+      // it. The switch is a write in its own right and leaves the panel exactly
+      // as it was: closing it there would unmount the window, action and basis
+      // fields the operator may be mid-edit on — and the switch they just
+      // flipped along with them, dropping focus to the document body.
+      if (write.intent === "save") {
+        setEditing(false);
+      }
     },
   });
 
   const effect = policyEffect(policy);
   const reasonKey = effectReasonKey(effect);
   const days = parseRetainDays(retainDays);
+
+  // Opening the panel re-seeds the three fields from the policy as it now
+  // stands. They are local state that outlives a close — the row is keyed on
+  // policy.id, so it is never remounted — so without this a draft typed before
+  // somebody else moved the window would reappear over a summary that
+  // contradicts it, and Save would send the older number.
+  function toggleEditor() {
+    if (!editing) {
+      setRetainDays(String(policy.retain_days));
+      setAction(policy.action);
+      setLawfulBasis(policy.lawful_basis ?? "");
+    }
+    setEditing(!editing);
+  }
 
   return (
     <li className="retention-row" data-testid={`retention-row-${policy.scope}`}>
@@ -116,7 +146,7 @@ function PolicyRow({
         <Badge>{t(actionLabelKey(policy.action))}</Badge>
         <Badge tone={effectTone(effect)}>{t(effectLabelKey(effect))}</Badge>
         {canEdit && (
-          <Button small onClick={() => setEditing((open) => !open)}>
+          <Button small onClick={toggleEditor}>
             {t("retention.edit")}
           </Button>
         )}
@@ -177,16 +207,17 @@ function PolicyRow({
                 />
               )}
             </Field>
-            {/* The switch, not a delete: it patches `enabled` on its own so the
-                pause takes effect without the operator also having to Save the
-                window they may be mid-edit on. */}
-            <Checkbox
-              className="t-caption"
+            {/* A Switch and not a Checkbox, because flipping it IS the pause:
+                there is no Save to press afterwards, and the panel only renders
+                for an operator who holds the update grant, so the one thing
+                that can make it unavailable is a write already in flight —
+                which explains itself by finishing and needs no `reason`. */}
+            <Switch
               label={t("retention.enabled")}
               checked={policy.enabled}
               disabled={patch.isPending}
-              onChange={(event) =>
-                patch.mutate({ enabled: event.target.checked })
+              onChange={(next) =>
+                patch.mutate({ intent: "switch", body: { enabled: next } })
               }
             />
             {patch.isError && (
@@ -202,9 +233,12 @@ function PolicyRow({
                 onClick={() =>
                   days !== null &&
                   patch.mutate({
-                    retain_days: days,
-                    action,
-                    lawful_basis: lawfulBasis.trim() || null,
+                    intent: "save",
+                    body: {
+                      retain_days: days,
+                      action,
+                      lawful_basis: lawfulBasis.trim() || null,
+                    },
                   })
                 }
               >
@@ -280,7 +314,9 @@ function DeletePolicyModal({
 // The posture, and its consequence in the words that matter: with it on the
 // installation destroys nothing, and archiving still runs because an archived
 // record is kept. Disabled (never hidden) without the update grant — every
-// reader of this screen needs to know which posture is in force.
+// reader of this screen needs to know which posture is in force, and the
+// control's `reason` is what tells them why it is theirs to read and not to
+// change.
 function PostureToggle({
   retainOnly,
   canManage,
@@ -308,14 +344,19 @@ function PostureToggle({
 
   return (
     <div className="retention-posture">
-      <Checkbox
+      <Switch
         label={t("retention.retainOnly")}
+        hint={t("retention.retainOnlyHelp")}
+        // Two reasons this control can be unavailable, and only one of them is
+        // worth words: a reader who may never change the posture needs to know
+        // why, where a write already in flight explains itself by finishing.
+        // On the control rather than beside it, so `aria-describedby` carries
+        // the explanation to a reader who never sees the paragraph.
+        reason={canManage ? undefined : t("retention.adminOnly")}
         checked={retainOnly}
         disabled={!canManage || update.isPending}
-        onChange={(event) => update.mutate(event.target.checked)}
+        onChange={(next) => update.mutate(next)}
       />
-      <p className="t-caption">{t("retention.retainOnlyHelp")}</p>
-      {!canManage && <p className="t-caption">{t("retention.adminOnly")}</p>}
       {update.isPending && <p className="t-caption">{t("common.saving")}</p>}
       {update.isError && (
         <p className="t-caption retention-error" role="alert">
@@ -328,6 +369,7 @@ function PostureToggle({
 
 export function RetentionCard() {
   const t = useT();
+  const me = useMe();
   // Reading the ladder and authoring it are separate grants, and the card gates
   // each affordance on the one it actually needs — a role granted read without
   // update gets a card that tells the truth rather than buttons that 403.
@@ -364,12 +406,35 @@ export function RetentionCard() {
     },
   });
 
-  // After every hook, so the hook call order stays unconditional. Both queries
-  // are `enabled: canRead`, so no request fires for a viewer who holds no read
-  // grant — and a card that could only report a 403 it always expected is worse
-  // than no card at all.
+  // After every hook, so the hook call order stays unconditional.
+  //
+  // Withheld, not absent: a permission is what denies this, so the card keeps
+  // its place and says so. It shares the Privacy & audit page with the consent
+  // registry an ops seat comes here for, and beside a subject queue that
+  // explains its own emptiness — a card that simply vanished would leave that
+  // reader to conclude this installation keeps everything forever.
+  //
+  // No request either, and that half stands: both queries are `enabled: canRead`
+  // because the answer is already known, and asking the server for a 403 in
+  // order to render it would turn a settled denial into a failure with a Retry
+  // that cannot succeed. Gated on the /me probe itself so the notice waits for
+  // the grants rather than flashing while they are in flight.
   if (!canRead) {
-    return null;
+    return (
+      <Card
+        title={t("retention.title")}
+        sub={t("retention.sub")}
+        style={{ marginBottom: "var(--space-4)" }}
+      >
+        <QueryGate query={me}>
+          {() => (
+            <EmptyState>
+              <p className="t-small">{t("retention.withheld")}</p>
+            </EmptyState>
+          )}
+        </QueryGate>
+      </Card>
+    );
   }
 
   return (

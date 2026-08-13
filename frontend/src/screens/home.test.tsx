@@ -317,7 +317,7 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
   // This is the one place connector health reaches a user without visiting
   // Settings (Task 11) — a degraded source is news, so the sentence (the
   // shared connectors.* vocabulary, Task 5) shows and jumps into Settings →
-  // Integrations.
+  // Connections, which is where a reader's own mailboxes live.
   const digestBase = {
     date: "2026-07-16",
     generated_at: "2026-07-17T03:00:00Z",
@@ -334,7 +334,7 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     },
   };
 
-  it("shows a connector-health line when a digest source is unhealthy, and jumps to Settings → Integrations", async () => {
+  it("shows a connector-health line when a digest source is unhealthy, and jumps to Settings → Connections", async () => {
     stubApi({
       "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
       "GET /digest": () =>

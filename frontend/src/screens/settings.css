@@ -366,7 +366,8 @@
   max-width: 76ch;
 }
 
-/* Connected inboxes (Integrations tab): one row per live capture connection. */
+/* Connected inboxes (the personal Connections entry): one row per live capture
+   connection. A mailbox is per-user, which is why it is not on Integrations. */
 .connectors-list {
   list-style: none;
   margin: var(--space-3) 0 0;

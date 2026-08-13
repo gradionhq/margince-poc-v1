@@ -91,6 +91,7 @@ export const de = {
   "nav.search": "Suchergebnisse",
 
   "shell.railAria": "Hauptnavigation",
+  "shell.skipToContent": "Zum Inhalt springen",
   "shell.logoAria": "Margince",
   "shell.search": "Suche",
   "shell.signOutAria": "Abmelden",
@@ -331,6 +332,7 @@ export const de = {
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
   "common.saving": "Wird gespeichert…",
+  "common.loading": "Wird geladen…",
 
   // "Funktioniert nicht mehr", nicht "Fehler aufgetreten": die Ansicht ist
   // stehengeblieben, und das ist die Beobachtung, die der Lesende selbst
@@ -392,7 +394,7 @@ export const de = {
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
   "overlay.chipLabel": "Liest aus HubSpot",
   "overlay.chipAria":
-    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Verbindungen, um die Verbindung zu verwalten.",
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
   "overlay.refused":
     "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
   "overlay.filterUnsupported":
@@ -411,7 +413,8 @@ export const de = {
   "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
   "overlay.empty":
     "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
-  "overlay.adminOnly": "Du hast keine Berechtigung, HubSpot zu verbinden.",
+  "overlay.adminOnly":
+    "Du hast keine Berechtigung, die HubSpot-Verbindung zu ändern.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "USA",
@@ -968,34 +971,34 @@ export const de = {
   "linkedinImport.sub":
     "Eigenen Export importieren und sehen, wen das Team bereits kennt",
   "linkedinImport.explainer":
-    "LinkedIn stellt Ihnen unter Einstellungen → Datenschutz → Kopie Ihrer Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen: Sie erscheinen weder in Suche noch in Listen oder Kontaktseiten, und niemand kann ihnen schreiben.",
-  "linkedinImport.profileLabel": "Ihre LinkedIn-Profil-URL",
+    "LinkedIn stellt dir unter Einstellungen → Datenschutz → Kopie deiner Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen — sie erscheinen weder in der Suche noch in Listen oder auf Kontaktseiten, und niemand kann ihnen schreiben.",
+  "linkedinImport.profileLabel": "Deine LinkedIn-Profil-URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Profil speichern",
   "linkedinImport.connectedNote":
     "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
   "linkedinImport.notConnectedNote":
-    "Noch nicht verbunden. Mit Ihrer Profil-URL werden importierte Kontakte Ihnen namentlich zugeordnet.",
+    "Noch nicht verbunden. Mit deiner Profil-URL werden importierte Kontakte dir namentlich zugeordnet.",
   "linkedinImport.whichFile":
     "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
   "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
   "linkedinImport.noMatchesYet":
-    "Noch keine Treffer, und das ist in einem neuen Workspace normal: Ihre Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen Ihrer E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
+    "Noch keine Treffer, und das ist in einem neuen Workspace normal: Deine Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen deiner E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
   "linkedinImport.working": "Export wird gelesen…",
   "linkedinImport.imported": "Kontakte importiert",
   "linkedinImport.confirmed": "Einer Person zugeordnet",
-  "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
+  "linkedinImport.suggested": "Wartet auf deine Bestätigung",
 
   // Die Prüfliste und die Reichweiten-Tabelle (ADR-0078 §2.1b).
-  "linkedinReach.title": "Wohin Ihr Netzwerk reicht",
+  "linkedinReach.title": "Wohin dein Netzwerk reicht",
   "linkedinReach.sub":
-    "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",
+    "Firmen im CRM, bei denen du bereits jemanden kennst — die meisten Verbindungen zuerst.",
   "linkedinReach.empty":
-    "Noch keine Ihrer Verbindungen arbeitet bei einer erfassten Firma.",
+    "Noch keine deiner Verbindungen arbeitet bei einer erfassten Firma.",
   "linkedinReach.allUnresolved":
-    "Alle {unresolved} Ihrer Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
+    "Alle {unresolved} deiner Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
   "linkedinReach.account": "Firma",
-  "linkedinReach.connections": "Sie kennen",
+  "linkedinReach.connections": "Du kennst",
   "linkedinReach.onFile": "Bereits Personen",
   "linkedinReach.onFileOf": "{onFile} von {total}",
   "linkedinReach.footnote":
@@ -1628,7 +1631,7 @@ export const de = {
   "compose.sendUnavailable":
     "Versand ist nicht verfügbar (kein Mailer konfiguriert).",
   "compose.mailboxNotSendCapable":
-    "Ihr Postfach ist zum Erfassen verbunden, hat aber nie die Erlaubnis zum Senden erhalten. Verbinden Sie es neu und stimmen Sie dem Versand zu — ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern.",
+    "Dein Postfach ist zum Erfassen verbunden, hat aber nie die Erlaubnis zum Senden erhalten. Verbinde es neu und stimme dem Versand zu — ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern.",
   "compose.mailboxNotSendCapableGoto": "Postfach neu verbinden",
   "compose.sharedUnsubscribeToken":
     "Eine Nachricht mit Abmeldelink erreicht immer nur eine Adresse, denn dieser Link ist der Einwilligungsnachweis genau dieses Empfängers. Senden Sie sie einzeln, ohne Cc.",
@@ -1693,9 +1696,10 @@ export const de = {
     "Erstell in den Einstellungen einen Passport und häng einen MCP-fähigen Agenten an deinen Workspace. Er liest nur, was du sehen kannst.",
   "ai.paletteHint": "Frag von überall mit",
 
-  "settings.identity": "Du",
+  "settings.identity": "Profil",
   "settings.preferences": "Voreinstellungen",
-  "settings.preferencesSub": "Design und Sprache, für diesen Browser.",
+  "settings.preferencesSub":
+    "Das Design merkt sich dieser Browser. Die Sprache gilt für diese Sitzung.",
   "role.admin": "Admin",
   "role.manager": "Manager",
   "role.rep": "Vertrieb",
@@ -1709,6 +1713,11 @@ export const de = {
   "settings.passports": "Agenten-Passports",
   "settings.passportsSub":
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+  "passport.scope.read": "Datensätze lesen",
+  "passport.scope.draft": "Nachrichten entwerfen",
+  "passport.scope.write": "Datensätze ändern",
+  "passport.scope.send": "Nachrichten senden",
+  "passport.scope.enrich": "Kontaktdaten kaufen",
   "passport.select": "Passport",
   "passport.noneOption": "Kein Passport",
   "settings.passportsLendHint":
@@ -1751,6 +1760,8 @@ export const de = {
   "settings.tierAdvance": "Deal-Phase weiterschieben — immer erst bestätigen.",
   "settings.locked": "gesperrt",
   "settings.purposes": "Einwilligungszwecke",
+  "settings.purposesSub":
+    "Wofür diese Installation Einwilligung einholt und auf welcher Rechtsgrundlage jeder Zweck steht.",
   "settings.created": "erstellt {date}",
   "settings.expires": "läuft ab {date}",
   "settings.revoked": "widerrufen",
@@ -1804,7 +1815,7 @@ export const de = {
   "import.another": "Weitere Datei importieren",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
-    "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
+    "Nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen.",
   "settings.resetDataDesc":
     "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Workspace-Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
   "settings.resetDataButton": "Daten zurücksetzen…",
@@ -1820,7 +1831,7 @@ export const de = {
 
   "settings.jobs": "Hintergrund-Jobs",
   "settings.jobsSub":
-    "was in der Warteschlange hängt und wessen Arbeit gescheitert ist",
+    "Was in der Warteschlange hängt und wessen Arbeit gescheitert ist.",
   "jobs.adminOnly":
     "Nur ein Admin sieht den Zustand der Hintergrund-Jobs. Der Bericht umfasst die Arbeit der ganzen Installation und wird deshalb nicht breiter gezeigt.",
   "jobs.empty":
@@ -1884,6 +1895,8 @@ export const de = {
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
 
+  "privacy.purposesReadOnly":
+    "Nur-Lese-Ansicht — nur ein Admin oder Ops kann einen Zweck anlegen.",
   "privacy.addPurpose": "Zweck hinzufügen",
   "privacy.purposeKey": "Schlüssel",
   "privacy.purposeLabel": "Bezeichnung",
@@ -1933,6 +1946,8 @@ export const de = {
   "retention.retainOnlyHelp":
     "Solange dies aktiv ist, vernichtet diese Installation nichts: kein Anonymisieren und kein Löschen, unabhängig davon, was eine Richtlinie unten vorsieht. Archivieren läuft weiter — ein archivierter Datensatz bleibt erhalten.",
   "retention.adminOnly": "Nur ein Admin oder Ops kann die Aufbewahrung ändern.",
+  "retention.withheld":
+    "Nur ein Admin oder Ops sieht die Aufbewahrungsregeln. Diese Regeln legen fest, was diese Installation für alle behält, und werden deshalb nicht breiter gezeigt.",
   "retention.addPolicy": "Richtlinie hinzufügen",
   "retention.create": "Richtlinie erstellen",
   "retention.scope": "Gilt für",
@@ -1977,7 +1992,10 @@ export const de = {
   "retention.scopeAiCallPayloadContent": "KI-Aufruf-Nutzdaten",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub": "Pipelines und ihre Phasen konfigurieren.",
+  "settings.pipelinesReadOnly":
+    "Nur-Lese-Ansicht — du darfst Pipelines und ihre Phasen nicht ändern.",
+  "settings.pipelinesSub":
+    "Die Phasen, die ein Deal durchläuft — eine Leiter je Pipeline.",
   "pipeline.new": "Neue Pipeline",
   "pipeline.edit": "Pipeline bearbeiten",
   "pipeline.name": "Name",
@@ -2295,7 +2313,7 @@ export const de = {
   "ob.s4.connectLive": "Aktiv und erfassend",
   "ob.s4.connectConfirmFailed": "Die Verbindung konnte nicht bestätigt werden.",
   "ob.s4.connectRetry":
-    "Öffne Einstellungen → Integrationen, um es erneut zu versuchen.",
+    "Öffne Einstellungen → Verbindungen, um es erneut zu versuchen.",
   "ob.s4.connectDenied":
     "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
   "ob.s4.googleBtn": "Zugriff auf mein Gmail erlauben",
@@ -2327,7 +2345,7 @@ export const de = {
   "dedupe.dismissNote": "Ausblenden",
   "backfill.title": "E-Mail-Verlauf importieren",
   "backfill.intro":
-    "Wählen Sie, wie weit zurück importiert wird. Umfang und geschätzte Kosten sehen Sie vor dem Start — Sie können diesen Schritt auch überspringen.",
+    "Wähle, wie weit zurück importiert wird. Umfang und geschätzte Kosten siehst du vor dem Start — du kannst diesen Schritt auch überspringen.",
   "backfill.windowLabel": "Import-Zeitraum",
   "backfill.window3m": "3 Monate",
   "backfill.window6m": "6 Monate",
@@ -2368,7 +2386,7 @@ export const de = {
   "backfill.staleUpdated":
     "Zuletzt aktualisiert vor {duration} — kein aktueller Fortschritt.",
 
-  // Connected inboxes (Einstellungen → Integrationen).
+  // Connected inboxes (Einstellungen → Verbindungen).
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
     "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
@@ -2387,7 +2405,7 @@ export const de = {
   "connectors.statusDisconnected": "Getrennt",
   "connectors.cannotSend": "Nur Erfassung — kein Versand",
   "connectors.reconnectToSend":
-    "Verbinden Sie dieses Postfach neu, um daraus zu senden. Ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern — der Anbieter erteilt die Sendeerlaubnis nur bei einer neuen Verbindung.",
+    "Verbinde dieses Postfach neu, um daraus zu senden. Ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern — der Anbieter erteilt die Sendeerlaubnis nur bei einer neuen Verbindung.",
   "connectors.lastSynced": "Zuletzt synchronisiert {at}",
   "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
   "connectors.nextCheck": "Nächste Prüfung ~{at}",
@@ -2420,16 +2438,16 @@ export const de = {
   // Das OAuth-Rückkehrergebnis (Task 2): der Callback landet auf
   // #/settings/connections/{outcome} — ein schließbarer Hinweis, gesteuert
   // von diesem Routensegment.
-  "connectors.oauthOk": "Verbunden. Ihr Postfach erfasst jetzt.",
+  "connectors.oauthOk": "Verbunden. Dein Postfach erfasst jetzt.",
   "connectors.oauthDenied":
-    "Sie haben den Zugriff abgelehnt — es wurde nichts verbunden.",
+    "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
   "connectors.oauthError":
-    "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
+    "Die Verbindung konnte nicht hergestellt werden — bitte versuch es erneut.",
   // Zwei Fälle, für die "erneut versuchen" falsch wäre: der Anbieter hat die
   // Freigabe abgelehnt, und die API des Anbieters ist für diese Installation
   // nicht aktiviert (das kann keine Nutzeraktion beheben).
   "connectors.oauthRejected":
-    "Der Anbieter hat die Verbindung abgelehnt. Bestätigen Sie alle angefragten Berechtigungen und versuchen Sie es dann erneut.",
+    "Der Anbieter hat die Verbindung abgelehnt. Bestätige alle angefragten Berechtigungen und versuche es dann erneut.",
   "connectors.oauthMisconfigured":
     "Diese Installation kann die Verbindung noch nicht abschließen — die API des Anbieters ist dafür nicht aktiviert. Ein Administrator muss sie aktivieren; das Server-Log nennt die betroffene API.",
   "connectors.dismissOutcome": "Schließen",
@@ -2902,7 +2920,7 @@ export const de = {
   "ob.conv.linkedin.connected":
     "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",
   "ob.conv.linkedin.skipped":
-    "LinkedIn \u00fcbersprungen. Sie k\u00f6nnen es jederzeit in den Einstellungen verbinden.",
+    "LinkedIn \u00fcbersprungen. Du kannst es jederzeit in den Einstellungen verbinden.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":
@@ -3506,10 +3524,11 @@ export const de = {
   // Überschrift wiederholt, benennt nichts.
   "settings.tab.account": "Konto",
   "settings.tab.voice": "Schreibstimme",
-  "settings.tab.agents": "Deine Agenten",
+  "settings.tab.agents": "Agenten",
+  "settings.tab.connections": "Verbindungen",
   "settings.tab.general": "Allgemein",
   "settings.tab.people": "Personen & Zugriff",
-  "settings.tab.connections": "Verbindungen",
+  "settings.tab.integrations": "Integrationen",
   "settings.tab.capture": "Erfassung",
   "settings.tab.data-model": "Datenmodell",
   "settings.tab.ai": "KI",
@@ -3520,6 +3539,12 @@ export const de = {
   "settings.rates.fxTitle": "Währungskurse",
   "settings.rates.fxIntro":
     "Wechselkurse, die Fremdwährungsbeträge in deine Basiswährung umrechnen. Neue Kurse gelten ab heute oder später; vergangene Kurse werden nie geändert.",
+  "settings.rates.fxWithheld":
+    "Nur ein Admin oder Ops sieht die Währungskurse. Auf ihnen beruht jede Umrechnung in dieser Installation, deshalb werden sie nicht breiter gezeigt.",
+  "settings.rates.modelWithheld":
+    "Nur ein Admin oder Ops sieht, was die Modelle kosten. Die Preise sind Betriebsinformationen und werden deshalb nicht breiter gezeigt.",
+  "settings.rates.readOnly":
+    "Nur-Lese-Ansicht — du hast keine Berechtigung, Kurse zu ändern.",
   "settings.rates.fxAdd": "Kurs setzen",
   "settings.rates.fxEmpty": "Noch keine Währungskurse.",
   "settings.rates.fxModalTitle": "Währungskurs setzen",
@@ -3732,6 +3757,8 @@ export const de = {
   "users.link.retry": "Erneut versuchen",
   "users.link.done": "Fertig",
   "settings.companyKicker": "Firmenwissen",
+  "settings.companyReadOnly":
+    "Nur-Lese-Ansicht — das Unternehmensprofil zu ändern braucht Schreibrechte auf die Organisation.",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
   "settings.companySub":
     "Halte den gemeinsamen Geschäftskontext für Entwürfe, Angebote, Suche und gesteuerte Agenten aktuell. Jede Aussage bleibt mit Quelle und Urheber verbunden.",
@@ -3777,6 +3804,7 @@ export const de = {
     "Das Lesen der Website ist in dieser Rollout-Stufe nicht aktiviert. Diese drei Antworten reichen für einen nützlichen Firmenkontext — ohne Modellaufruf und ohne externe Anfrage.",
   "settings.companyCreateWorkspace": "Firmenkontext erstellen",
   "product.title": "Produkte",
+  "product.readOnly": "Nur-Lese-Ansicht — du darfst Produkte nicht ändern.",
   "product.settingsSub":
     "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",
   "product.new": "Neues Produkt",
@@ -3801,6 +3829,8 @@ export const de = {
   "product.empty": "Noch keine Produkte.",
 
   "template.title": "Angebotsvorlagen",
+  "template.readOnly":
+    "Nur-Lese-Ansicht — du darfst Angebotsvorlagen nicht ändern.",
   "template.settingsSub": "Markenkonforme DE/EN-PDF-Layouts für Angebote.",
   "template.new": "Neue Vorlage",
   "template.edit": "Vorlage bearbeiten",
@@ -3833,6 +3863,8 @@ export const de = {
   "tools.unreachable": "Bereich nicht gewährt",
 
   "aiusage.title": "KI-Nutzung & Budget",
+  "aiusage.withheld":
+    "Nur ein Betreiber sieht, was die KI-Laufzeit ausgegeben hat. Die Zahlen umfassen die ganze Installation und werden deshalb nicht breiter gezeigt.",
   "aiusage.sub":
     "Ihre eigene Rechnung sichtbar — nach Aufgabe und Stufe, in Tokens.",
   "aiusage.budget": "{spent} von {budget} Tokens · {pct}%",
@@ -3862,6 +3894,8 @@ export const de = {
   "aibanner.dismiss": "Schließen",
 
   "aicalls.title": "KI-Aufrufprotokoll",
+  "aicalls.withheld":
+    "Nur ein Betreiber liest die Aufrufspur. Sie verzeichnet jeden Modellaufruf dieser Installation und wird deshalb nicht breiter gezeigt.",
   "aicalls.sub":
     "Jeder Modellaufruf — Routing, Tokens, Wiederholungen und erfasste Nutzdaten.",
   "aicalls.col.detail": "Detail",
@@ -3975,7 +4009,7 @@ export const de = {
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
 
-  "installationSettings.orgTitle": "Organisation",
+  "installationSettings.orgTitle": "Installation",
   "installationSettings.orgSub":
     "Wie diese Installation heißt und in welcher Zeitzone jede Auswertungsperiode berechnet wird.",
   "installationSettings.currencyTitle": "Währung",
@@ -3992,8 +4026,10 @@ export const de = {
     "ISO-4217-Code, in den alle Beträge für Auswertungen umgerechnet werden. Änderbar, bis der erste Deal dagegen umgerechnet wurde.",
   "installationSettings.baseCurrencyLocked":
     "Gesperrt: Es wurden bereits Deals gegen diese Währung umgerechnet — eine Änderung würde jede darauf aufbauende Auswertung neu bedeuten.",
+  "installationSettings.readOnly":
+    "Nur ein Admin oder Ops kann diese Einstellungen ändern.",
   "installationSettings.save": "Speichern",
-  "captureSettings.title": "Erfassung",
+  "captureSettings.title": "Anreicherung",
   "captureSettings.sub":
     "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",
   "captureSettings.autoEnrich.label":
@@ -4006,12 +4042,13 @@ export const de = {
   "ownDomains.companyTitle": "Unternehmens-Domains",
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
-    "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für Sie.",
+    "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für dich.",
   "ownDomains.irreversible":
     "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht. Wird sie später entfernt, wird ab diesem Zeitpunkt wieder erfasst. Was übersprungen wurde, solange sie eingetragen war, liefert kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
   "ownDomains.fromCompany": "Aus dem Unternehmensprofil. Dort zu ändern:",
+  "ownDomains.openCompany": "Unternehmensprofil öffnen",
   "ownDomains.empty":
-    "Keine weiteren Domains eingetragen. Tragen Sie eine ein, wenn Ihr Unternehmen unter mehr als einer Domain schreibt.",
+    "Keine weiteren Domains eingetragen. Trag eine ein, wenn dein Unternehmen unter mehr als einer Domain schreibt.",
   "ownDomains.confirmed": "bestätigt",
   "ownDomains.candidate":
     "aus einem verbundenen Postfach, noch nicht bestätigt",
@@ -4021,6 +4058,8 @@ export const de = {
   "ownDomains.remove": "{domain} entfernen",
 
   "webhooks.title": "Webhooks",
+  "webhooks.readOnly":
+    "Nur-Lese-Ansicht — nur ein Admin oder Ops kann Abonnements ändern.",
   "webhooks.sub":
     "Ausgehende Abonnements, die signierte HTTP-POSTs für ausgewählte Ereignisse empfangen.",
   "webhooks.new": "Neues Abonnement",
@@ -4039,10 +4078,10 @@ export const de = {
   "webhooks.rotate": "Schlüssel rotieren",
   "webhooks.rotateConfirm.title": "Signaturschlüssel rotieren?",
   "webhooks.rotateConfirm.body":
-    "Mit dem Bestätigen wird der aktuelle Schlüssel sofort ungültig und der neue Schlüssel danach einmalig angezeigt. Kopieren Sie ihn und aktualisieren Sie Ihren Empfänger, sobald die Rotation abgeschlossen ist.",
+    "Mit dem Bestätigen wird der aktuelle Schlüssel sofort ungültig und der neue Schlüssel danach einmalig angezeigt. Kopiere ihn und aktualisiere deinen Empfänger, sobald die Rotation abgeschlossen ist.",
   "webhooks.secret.title": "Signaturschlüssel",
   "webhooks.secret.warning":
-    "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichern Sie ihn jetzt — Zustellungen werden damit signiert.",
+    "Dieser Schlüssel wird nur einmal angezeigt und kann danach nicht erneut abgerufen werden. Speichere ihn jetzt — Zustellungen werden damit signiert.",
   "webhooks.secret.copy": "Kopieren",
   "webhooks.secret.copied": "Kopiert",
   "webhooks.secret.copyFailed":
@@ -4076,6 +4115,8 @@ export const de = {
   "embedreindex.title": "Suchindex",
   "embedreindex.sub":
     "Der Neuindizierungsstatus des Embedding-Speichers — nur admin/ops, auch zum Ansehen.",
+  "embedreindex.withheld":
+    "Nur ein Admin oder Ops sieht den Suchindex. Ihn neu aufzubauen kostet Tokens für die ganze Installation, deshalb wird sein Status nicht breiter gezeigt.",
   "embedreindex.loading": "Indexstatus wird geprüft…",
   "embedreindex.statusUnavailable":
     "Der Indexstatus ist gerade nicht verfügbar.",
@@ -4427,9 +4468,11 @@ export const de = {
   // Der Datenanbieter (ADR-0101). Zwei Oberflächen teilen sich diese
   // Begriffe — die Einstellungskarte und die Personenseite —, damit ein
   // Zustand überall gleich heißt.
+  "provider.readOnly":
+    "Nur-Lese-Ansicht — einen Anbieter zu verbinden kostet Geld und ist eine Admin- oder Ops-Aktion.",
   "provider.title": "Kontaktdaten",
   "provider.sub":
-    "Geprüfte Kontaktdaten zu den Personen in Ihrem CRM zukaufen. Bezahlt wird beim Anbieter mit Guthaben; was davon hier verbraucht wurde, steht unten.",
+    "Geprüfte Kontaktdaten zu den Personen in deinem CRM zukaufen. Bezahlt wird beim Anbieter mit Guthaben; was davon hier verbraucht wurde, steht unten.",
   "provider.notConfigured":
     "In dieser Installation ist kein Datenanbieter verfügbar. Es wird nichts zugekauft, und es kann auch nichts zugekauft werden.",
   "provider.status.connected": "Verbunden",
@@ -4444,7 +4487,7 @@ export const de = {
   "provider.apiKey": "API-Schlüssel",
   "provider.apiKeyStored": "API-Schlüssel ersetzen",
   "provider.apiKeyReplaceHint":
-    "Ein Schlüssel ist hinterlegt und aktiv. Er lässt sich nicht erneut anzeigen, deshalb bleibt dieses Feld leer — einen neuen nur einsetzen, wenn Sie ihn austauschen wollen.",
+    "Ein Schlüssel ist hinterlegt und aktiv. Er lässt sich nicht erneut anzeigen, deshalb bleibt dieses Feld leer — einen neuen nur einsetzen, wenn du ihn austauschen willst.",
   "provider.apiKeyReplacePlaceholder":
     "Neuen Schlüssel einsetzen, um den hinterlegten zu ersetzen",
   "provider.apiKeyHint":
@@ -4460,7 +4503,7 @@ export const de = {
   "provider.deleteDataConfirm.title":
     "Alles löschen, was von diesem Anbieter stammt?",
   "provider.deleteDataConfirm.body":
-    "Jeder Wert dieses Anbieters verschwindet von jedem Kontakt. Was Sie ausgegeben haben, bleibt in den Aufzeichnungen; die Daten nicht. Das lässt sich nicht rückgängig machen.",
+    "Jeder Wert dieses Anbieters verschwindet von jedem Kontakt. Was du ausgegeben hast, bleibt in den Aufzeichnungen; die Daten nicht. Das lässt sich nicht rückgängig machen.",
   "provider.deleteDataConfirm.typed":
     "Zum Bestätigen den Namen des Anbieters eingeben",
   "provider.autoEnrich": "Neue Kontakte automatisch anreichern",
@@ -4470,7 +4513,7 @@ export const de = {
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "Der Anbieter hat uns noch keinen Stand genannt.",
   "provider.credits.notConnected":
-    "Mit einem hinterlegten Schlüssel sehen Sie hier Ihr Guthaben beim Anbieter.",
+    "Mit einem hinterlegten Schlüssel siehst du hier dein Guthaben beim Anbieter.",
   "provider.constraints": "Geltende Grenzen",
   "provider.spend": "Was wir verbraucht haben",
   "provider.spend.hint":
