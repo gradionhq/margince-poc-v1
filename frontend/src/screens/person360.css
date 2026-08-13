@@ -661,6 +661,27 @@
   margin-top: 0;
 }
 
+/* The steering field and the button that uses it, on one line: typing what the
+   mail should be about and asking for it are one action, and splitting them
+   down the drawer would read as two unrelated controls. */
+.pe-draft-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.pe-draft-row > :first-child {
+  flex: 1;
+}
+
+/* A refusal the rep has to act on — a consent gate, an unsendable mailbox —
+   sits beside the control that produced it rather than replacing the drawer. */
+.pe-send-error {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
 /* "Why this draft": the reasoning is a SIBLING of the body, never part of it.
    A body that explained itself is a body the rep has to edit before sending. */
 .pe-why {

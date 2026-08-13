@@ -17,8 +17,10 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { useT } from "../i18n";
-import { throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
+import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
 
 // Only http(s) may become a link. A provider-supplied URL is untrusted input,
@@ -46,49 +48,223 @@ type PersonConsentGuard = components["schemas"]["PersonConsentGuard"];
 
 // --- The composer (State D) ------------------------------------------------
 
+// What the send button says, in the three states it can be in. A sent message
+// keeps saying so: the button is disabled afterwards, and a label that returned
+// to "Send" would invite a second copy of a mail already delivered.
+function sendPhase(
+  send: Readonly<{ isPending: boolean; isSuccess: boolean }>,
+  t: ReturnType<typeof useT>,
+): string {
+  if (send.isSuccess) {
+    return t("person.composer.sent");
+  }
+  return send.isPending
+    ? t("person.composer.sending")
+    : t("person.composer.send");
+}
+
+// The steering field and the button that uses it.
+//
+// Its own component because the composer around it is at the complexity
+// ceiling, and because these two controls are ONE action: what the mail should
+// be about, and the request to write it.
+function DraftBar({
+  intent,
+  onIntentChange,
+  pending,
+  error,
+  onDraft,
+}: Readonly<{
+  intent: string;
+  onIntentChange: (next: string) => void;
+  pending: boolean;
+  error: unknown;
+  onDraft: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {/* Steering, then the draft. The order matters: a rep who types what the
+          mail is about before pressing the button gets a draft about that, and
+          a rep who presses it first gets the record's own reading. */}
+      <label className="pe-field-label" htmlFor="composer-intent">
+        {t("person.composer.intent")}
+      </label>
+      <div className="pe-draft-row">
+        <TextInput
+          id="composer-intent"
+          value={intent}
+          placeholder={t("person.composer.intentHint")}
+          onChange={(event) => onIntentChange(event.target.value)}
+        />
+        <Button small disabled={pending} onClick={onDraft}>
+          <Sparkles size={14} aria-hidden="true" />
+          {pending
+            ? t("person.composer.drafting")
+            : t("person.composer.draftWithAi")}
+        </Button>
+      </div>
+      {error != null && (
+        <p className="pe-send-error">{problemMessageOf(error, t)}</p>
+      )}
+    </>
+  );
+}
+
+// The guard entry that governs THIS send.
+//
+// Consent is decided per purpose, so the guard carries one email entry per
+// purpose — business correspondence, transactional, marketing. "May I email
+// them" therefore has no answer until the rep says what for, and reading the
+// first email entry would let whichever purpose sorts first speak for all of
+// them: a send the server permits would be refused here, under a reason
+// belonging to a purpose nobody chose.
+function emailGuardFor(guard: PersonConsentGuard | undefined, purpose: string) {
+  if (!purpose) {
+    return undefined;
+  }
+  return guard?.entries.find(
+    (entry) => entry.channel === "email" && entry.purpose_key === purpose,
+  );
+}
+
+// Everything a send needs before the button may be pressed. Separate from the
+// consent verdict beside it: one asks whether the message is complete, the
+// other whether it may go at all, and a rep denied for the wrong reason cannot
+// tell which they must fix.
+function canSend(
+  fields: Readonly<{
+    recipient: string;
+    subject: string;
+    body: string;
+    purpose: string;
+  }>,
+): boolean {
+  return (
+    fields.recipient !== "" &&
+    fields.subject.trim() !== "" &&
+    fields.body.trim() !== "" &&
+    fields.purpose !== ""
+  );
+}
+
+// The consent purpose this send falls under. Its own component because the
+// composer is at the complexity ceiling, and because the list comes from the
+// server: a workspace's purposes are configuration, not a fixed enum.
+function PurposePicker({
+  purpose,
+  onChange,
+}: Readonly<{ purpose: string; onChange: (next: string) => void }>) {
+  const t = useT();
+  const purposes = useConsentPurposes();
+  return (
+    <>
+      <label className="pe-field-label" htmlFor="composer-purpose">
+        {t("person.composer.purpose")}
+      </label>
+      <Select
+        aria-label={t("person.composer.purpose")}
+        options={[
+          { value: "", label: "—" },
+          ...(purposes.data?.data ?? []).map((entry) => ({
+            value: entry.key,
+            label: entry.label,
+          })),
+        ]}
+        value={purpose}
+        onChange={onChange}
+      />
+    </>
+  );
+}
+
 export function PersonComposer({
   personId,
   view,
   guard,
   open,
+  intent: initialIntent,
   onClose,
 }: Readonly<{
   personId: string;
   view: Person360;
   guard: PersonConsentGuard | undefined;
   open: boolean;
+  // What the rep (or the moment action that opened this) wants the draft to be
+  // about. A rung that fired knows WHY — "their reply is overdue", "the meeting
+  // needs an agenda" — and that reason shaped nothing until it arrived here.
+  intent?: string;
   onClose: () => void;
 }>) {
   const t = useT();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [sent, setSent] = useState(false);
+  // Keyed on the intent the caller supplied, so a SECOND moment action opening
+  // the same composer replaces the first one's intent instead of leaving the
+  // rep with the reason the previous button had. useState alone seeds once and
+  // would silently ignore every later action.
+  const [intent, setIntent] = useState(initialIntent ?? "");
+  const [seededFrom, setSeededFrom] = useState(initialIntent ?? "");
+  if ((initialIntent ?? "") !== seededFrom) {
+    setSeededFrom(initialIntent ?? "");
+    setIntent(initialIntent ?? "");
+  }
+  const [purpose, setPurpose] = useState("");
 
-  // The draft is fetched when the drawer opens, not on page load: it spends
-  // the workspace's model budget, and a rep who never opens the composer
-  // should not pay for prose nobody reads.
-  const draft = useQuery({
-    enabled: open,
-    queryKey: ["personDraft", personId],
-    queryFn: async () => {
+  // Drafting is a BUTTON, not something the drawer does to you. Opening a
+  // composer to write two sentences yourself should not spend the workspace's
+  // model budget, and a draft that arrives unasked is one the rep has to read
+  // before they can ignore it. The company composer has always worked this way.
+  const draft = useMutation({
+    mutationFn: async () => {
       const { data, error } = await api.POST("/people/{id}/draft-email", {
         params: { path: { id: personId } },
-        body: {},
+        body: intent.trim() ? { intent: intent.trim() } : {},
       });
       if (error) {
         throwProblem(error);
       }
-      if (data) {
-        setSubject(data.subject);
-        setBody(data.body);
+      return data;
+    },
+    onSuccess: (written) => {
+      if (written) {
+        setSubject(written.subject);
+        setBody(written.body);
+      }
+    },
+  });
+
+  const email = emailGuardFor(guard, purpose);
+  const allowed = email?.verdict === "allowed";
+  const recipient = view.person.emails?.[0]?.email ?? "";
+
+  // The send itself. It was a setState — the button said "Staged for approval"
+  // and no request left the browser, so every draft written here was
+  // unsendable. A person-started message opens a new conversation, so it is
+  // POST /emails (the anchored /activities/{id}/send-email answers one), and it
+  // carries the person as its link.
+  const send = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/emails", {
+        body: {
+          subject,
+          body,
+          to: [recipient],
+          consent_purpose: purpose,
+          links: [{ entity_type: "person" as const, entity_id: personId }],
+        },
+      });
+      if (error) {
+        throwProblem(error);
       }
       return data;
     },
   });
 
-  const email = guard?.entries.find((entry) => entry.channel === "email");
-  const allowed = email?.verdict === "allowed";
-  const recipient = view.person.emails?.[0]?.email ?? "";
+  const sendable =
+    allowed &&
+    !send.isSuccess &&
+    canSend({ recipient, subject, body, purpose });
 
   return (
     <Modal
@@ -108,7 +284,9 @@ export function PersonComposer({
           </Button>
         </div>
         {/* The consent verdict leads, with its reason. A rep about to write
-            needs to know whether they may send BEFORE they spend words on it. */}
+            needs to know whether they may send BEFORE they spend words on it —
+            and until a purpose is chosen the honest line is that the question
+            has not been asked yet, not a verdict borrowed from another purpose. */}
         <div
           className={
             allowed
@@ -117,7 +295,12 @@ export function PersonComposer({
           }
         >
           <Check size={15} aria-hidden="true" />
-          <span>{email?.reason ?? t("person.composer.consentUnknown")}</span>
+          <span>
+            {email?.reason ??
+              (purpose
+                ? t("person.composer.consentUnknown")
+                : t("person.composer.consentPickPurpose"))}
+          </span>
         </div>
       </div>
 
@@ -126,6 +309,16 @@ export function PersonComposer({
           {t("person.composer.to")}
         </label>
         <TextInput id="composer-to" value={recipient} readOnly />
+
+        <PurposePicker purpose={purpose} onChange={setPurpose} />
+
+        <DraftBar
+          intent={intent}
+          onIntentChange={setIntent}
+          pending={draft.isPending}
+          error={draft.isError ? draft.error : null}
+          onDraft={() => draft.mutate()}
+        />
 
         <label className="pe-field-label" htmlFor="composer-subject">
           {t("person.composer.subject")}
@@ -142,7 +335,7 @@ export function PersonComposer({
         <Textarea
           id="composer-body"
           rows={12}
-          value={draft.isLoading ? t("person.composer.drafting") : body}
+          value={body}
           onChange={(event) => setBody(event.target.value)}
         />
 
@@ -167,20 +360,23 @@ export function PersonComposer({
       </div>
 
       <div className="drawer-foot">
-        {/* Confirm-first is stated, not implied. The rep is told what the
-            button will do before they press it, because "Send" that does not
-            send is the surprise this notice exists to prevent. */}
+        {/* The human's own click IS the approval for their own send (ADR-0055),
+            so this says what the button does rather than promising a second
+            step that never comes. */}
         <span className="pe-confirm-note">
           <AlertTriangle size={14} aria-hidden="true" />
-          {t("person.composer.confirmFirst")}
+          {t("person.composer.sendNote")}
         </span>
+        {send.isError && (
+          <p className="pe-send-error">{problemMessageOf(send.error, t)}</p>
+        )}
         <Button
           variant="primary"
-          disabled={!allowed || sent}
-          onClick={() => setSent(true)}
+          disabled={!sendable || send.isPending}
+          onClick={() => send.mutate()}
         >
           <Send size={15} aria-hidden="true" />
-          {sent ? t("person.composer.staged") : t("person.composer.reviewSend")}
+          {sendPhase(send, t)}
         </Button>
       </div>
     </Modal>
