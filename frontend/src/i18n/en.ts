@@ -1834,6 +1834,54 @@ export const en = {
   "privacy.legalHold":
     "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
 
+  "retention.title": "Retention",
+  "retention.sub":
+    "how long each kind of record is kept, and what happens when its window runs out",
+  "retention.retainOnly": "Retain-only posture",
+  "retention.retainOnlyHelp":
+    "While this is on, this installation destroys nothing: no anonymising and no erasing, whatever a policy below says. Archiving still runs — an archived record is kept, not destroyed.",
+  "retention.adminOnly": "Only an admin or ops can change retention.",
+  "retention.addPolicy": "Add policy",
+  "retention.create": "Create policy",
+  "retention.scope": "Applies to",
+  "retention.window": "Window in days",
+  "retention.windowDays": "{days} days",
+  "retention.windowInvalid": "A window is a whole number of days, at least 1.",
+  "retention.action": "Action",
+  "retention.actionHint":
+    "Archive keeps the record; anonymise and erase destroy data, and are the two the retain-only posture holds back.",
+  "retention.lawfulBasis": "Lawful basis",
+  "retention.lawfulBasisHint":
+    "Optional. The Art. 6 basis this window is argued from, for the auditor reading the row.",
+  "retention.enabled": "Enabled",
+  "retention.edit": "Edit",
+  "retention.save": "Save policy",
+  "retention.delete": "Delete policy",
+  "retention.deleteTitle": "Delete retention policy?",
+  "retention.deleteBody":
+    "This drops the rule for {scope} entirely, so nothing in that scope ages out any more. To pause the rule and keep its window, turn Enabled off instead.",
+  "retention.duplicateScope":
+    "A policy for this scope already exists — each scope carries at most one rule. Edit the existing row instead.",
+  "retention.empty":
+    "No retention policy yet — nothing in this installation ages out.",
+  "retention.effectActing": "Acting nightly",
+  "retention.effectSuppressed": "Suppressed by retain-only",
+  "retention.effectDisabled": "Disabled",
+  "retention.suppressedWhy":
+    "Enabled, but the retain-only posture is holding it back: this rule destroys data, so it will not act until the posture is turned off.",
+  "retention.disabledWhy":
+    "Turned off and kept — its window is preserved, and nothing in this scope ages out while it is off.",
+  "retention.actionArchive": "Archive",
+  "retention.actionAnonymize": "Anonymise",
+  "retention.actionErase": "Erase",
+  "retention.scopeLeadUnconverted": "Leads that never converted",
+  "retention.scopeActivity": "All captured activity",
+  "retention.scopeActivityTranscript": "Call transcripts",
+  "retention.scopePersonNoConsentNoDeal": "People with no consent and no deal",
+  "retention.scopeDealLost": "Lost deals",
+  "retention.scopeDealWon": "Won deals",
+  "retention.scopeAiCallPayloadContent": "AI call payloads",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages.",
   "pipeline.new": "New pipeline",

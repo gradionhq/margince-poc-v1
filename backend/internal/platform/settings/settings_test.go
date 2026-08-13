@@ -4,19 +4,28 @@
 package settings
 
 // The mechanism's behaviour that needs no database: validation, the refusal
-// shape, and the canonical comparison the write path uses to tell "unchanged"
-// from "differently spelled". The database-backed half — the RBAC gate, the
-// audit row, and the registry refusing an unregistered key on the write path —
-// is proven in internal/compose/integration, which fails loudly without
-// Postgres rather than skipping.
+// shape, the canonical comparison the write path uses to tell "unchanged" from
+// "differently spelled", and the in-transaction read resolving an absent row to
+// the declared default — that last one over a fake for the one true boundary it
+// touches (the row read), because the decision it makes is not a database
+// question. The rest of the database-backed half — the audit row, the write
+// path's own gate, and the registry refusing an unregistered key on a write — is
+// proven in internal/compose/integration, which fails loudly without Postgres
+// rather than skipping.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type overlayPair struct {
@@ -168,3 +177,156 @@ func TestDefaultIsTheValueUntilSomeoneChangesIt(t *testing.T) {
 		t.Errorf("default encoded as %s, want true — a read of an unset setting resolves to this", raw)
 	}
 }
+
+// readerCtx binds a human holding read on the entry's object, which is what the
+// HTTP middleware would have resolved before any store method runs.
+func readerCtx(object string) context.Context {
+	return principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:test",
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"fixture"},
+			Objects:  map[string]principal.ObjectGrant{object: {Read: true}},
+		},
+	})
+}
+
+// TestGetTxResolvesAnAbsentRowToTheDefault is the difference between GetTx and
+// RequireTx, and the reason both exist: a posture nobody has changed is simply
+// off. Refusing an unset value here would mean an installation that never opened
+// the retention screen could not run its nightly pass at all.
+func TestGetTxResolvesAnAbsentRowToTheDefault(t *testing.T) {
+	e := Define[bool]("privacy.probe", "retention_policy", "update", false, nil)
+
+	got, err := GetTx(readerCtx("retention_policy"), &settingRowTx{absent: true}, e)
+	if err != nil {
+		t.Fatalf("GetTx over a setting with no stored row: %v", err)
+	}
+	if got {
+		t.Error("an unset setting read as true, not as its registered default")
+	}
+
+	on := Define[bool]("privacy.probe_on", "retention_policy", "update", true, nil)
+	got, err = GetTx(readerCtx("retention_policy"), &settingRowTx{absent: true}, on)
+	if err != nil {
+		t.Fatalf("GetTx over a setting with no stored row: %v", err)
+	}
+	if !got {
+		t.Error("an unset setting read as false rather than the declared default; the default is the value, not the zero value")
+	}
+}
+
+func TestGetTxReadsTheStoredValue(t *testing.T) {
+	// Default false, stored true: only a real read of the row can tell them
+	// apart, so a decode that fell back to the default would fail here.
+	e := Define[bool]("privacy.probe", "retention_policy", "update", false, nil)
+
+	got, err := GetTx(readerCtx("retention_policy"), &settingRowTx{stored: json.RawMessage(`true`)}, e)
+	if err != nil {
+		t.Fatalf("GetTx over a stored row: %v", err)
+	}
+	if !got {
+		t.Error("a stored true read as false; the stored row must win over the registered default")
+	}
+}
+
+// TestGetTxTakesTheObjectGateBeforeReading matters because the `setting` table
+// carries no RLS: this gate is the only control on it. The fake refuses to serve
+// a read at all, so a passing case here would mean the SQL ran first.
+func TestGetTxTakesTheObjectGateBeforeReading(t *testing.T) {
+	e := Define[bool]("privacy.probe", "retention_policy", "update", false, nil)
+
+	_, err := GetTx(readerCtx("capture_settings"), &settingRowTx{refuseRead: true}, e)
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("GetTx without the object grant = %v, want ErrPermissionDenied", err)
+	}
+}
+
+func TestGetTxReportsAnUndecodableStoredValue(t *testing.T) {
+	e := Define[bool]("privacy.probe", "retention_policy", "update", false, nil)
+
+	_, err := GetTx(readerCtx("retention_policy"), &settingRowTx{stored: json.RawMessage(`"yes"`)}, e)
+	if err == nil {
+		t.Fatal("a string stored for a bool setting decoded silently; a value this build cannot read must refuse")
+	}
+	if !strings.Contains(err.Error(), "privacy.probe") {
+		t.Errorf("refusal does not name the setting that could not be decoded: %v", err)
+	}
+}
+
+// settingRowTx is the DB boundary — the only boundary this file fakes (T11). It
+// answers the one QueryRow currentJSON issues, either with a stored value or
+// with pgx.ErrNoRows for the absent row. refuseRead makes the read itself a test
+// failure, for the case that must never reach SQL. Every other pgx.Tx method
+// panics: GetTx calls none of them, so reaching one is this test's bug.
+type settingRowTx struct {
+	stored     json.RawMessage
+	absent     bool
+	refuseRead bool
+}
+
+// settingRow carries one answer back to the caller's Scan.
+type settingRow struct {
+	value json.RawMessage
+	err   error
+}
+
+func (r settingRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) != 1 {
+		return fmt.Errorf("settingRow: scanned into %d destinations, want 1", len(dest))
+	}
+	target, ok := dest[0].(*json.RawMessage)
+	if !ok {
+		return fmt.Errorf("settingRow: scanned into %T, want *json.RawMessage", dest[0])
+	}
+	*target = r.value
+	return nil
+}
+
+func (f *settingRowTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	if f.refuseRead {
+		return settingRow{err: errors.New("settingRowTx: the read must not happen before the object gate")}
+	}
+	if !strings.Contains(sql, "FROM setting") {
+		return settingRow{err: fmt.Errorf("settingRowTx: unexpected statement %q", sql)}
+	}
+	if f.absent {
+		return settingRow{err: pgx.ErrNoRows}
+	}
+	return settingRow{value: f.stored}
+}
+
+func (f *settingRowTx) Begin(context.Context) (pgx.Tx, error) {
+	panic("settingRowTx: Begin not implemented")
+}
+func (f *settingRowTx) Commit(context.Context) error { panic("settingRowTx: Commit not implemented") }
+func (f *settingRowTx) Rollback(context.Context) error {
+	panic("settingRowTx: Rollback not implemented")
+}
+
+func (f *settingRowTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+	panic("settingRowTx: CopyFrom not implemented")
+}
+
+func (f *settingRowTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
+	panic("settingRowTx: SendBatch not implemented")
+}
+
+func (f *settingRowTx) LargeObjects() pgx.LargeObjects {
+	panic("settingRowTx: LargeObjects not implemented")
+}
+
+func (f *settingRowTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	panic("settingRowTx: Prepare not implemented")
+}
+
+func (f *settingRowTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	panic("settingRowTx: Exec not implemented")
+}
+
+func (f *settingRowTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	panic("settingRowTx: Query not implemented")
+}
+func (f *settingRowTx) Conn() *pgx.Conn { panic("settingRowTx: Conn not implemented") }

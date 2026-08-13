@@ -25,7 +25,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
@@ -46,6 +46,11 @@ func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) 
 	payload.Reason = reason
 	return payload
 }
+
+// actionAnonymize is the in-place anonymization action. Named beside the
+// erase/archive constants the sibling files declare so isDestructive reads as a
+// closed set rather than a pair of string literals.
+const actionAnonymize = "anonymize"
 
 // erasedActivitySubject is the tombstone the retention erase action leaves in
 // an over-age activity's subject line — and, through redactDeliveries, in the
@@ -73,16 +78,22 @@ const maxRecordDuration = 10 * time.Second
 // rather than re-deriving it from constants it cannot see, so raising any bound
 // moves the cap with it.
 //
-// The stage count is one per selector, and what holds it there is that NOTHING
-// WRITES retention_policy but the workspace bootstrap:
-// consent.SeedDefaultRetentionTx plants exactly one row per selector, and the
-// contract exposes no retention-policy operation for anyone to add a second.
-// The schema does NOT hold it — the table's UNIQUE spans a nullable category
-// and Postgres counts NULLs as distinct, so any number of ('activity', NULL)
-// rows are legal and each would claim its own full batch. That seed is also
-// where the ladder is meant to grow (separate rows at increasing retain_days),
-// so a second policy row for one selector — seeded, or through a write path
-// added later — is precisely what invalidates this bound, and has to move it.
+// The stage count is one per selector, and two ENFORCED facts hold it there —
+// neither of them a convention, because an admin can author a policy row:
+//
+//   - `retention_policy_unique` is UNIQUE NULLS NOT DISTINCT, so the database
+//     refuses a second row for one scope, the NULL-category scope included (a
+//     plain UNIQUE would not: Postgres counts NULLs as distinct).
+//   - every write resolves its scope through ParseRetentionScope, so a policy
+//     can only exist for a scope this table has a selector for.
+//
+// Together: at most one enabled policy per selector, therefore at most
+// len(retentionSelectors) policy stages. A second row for one selector is
+// precisely what would make this bound a fiction, which is why both facts are
+// enforced rather than assumed.
+//
+// The §3.4 ladder is unaffected: its rungs are different scopes (`activity` at
+// 1095, `activity/transcript` at 365), never repeated ones.
 //
 // aiRetentionStages adds the engine-owned AI stores, which batch the same way.
 var MaxPassDuration = time.Duration(len(retentionSelectors)+aiRetentionStages) *
@@ -158,59 +169,6 @@ func (s *RetentionService) invalidateGraph(ctx context.Context, tx pgx.Tx, id id
 	return s.invalidateEdges(ctx, tx, id)
 }
 
-// selectors name the records a (object_type, category) policy governs.
-// The closed map is deliberate: a policy row with a scope the engine
-// does not understand is skipped LOUDLY (logged every pass), never
-// half-applied. Every query filters the hold column — and for
-// activities, the holds of every linked record plus the statutory floor.
-var retentionSelectors = map[string]string{
-	"lead/unconverted": `SELECT id FROM lead
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
-		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
-		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
-	"activity/": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.archived_at IS NULL
-		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + correspondenceFloorPredicate(3, 4) + `
-		  AND NOT EXISTS (SELECT 1 FROM activity_link l
-		        LEFT JOIN person p ON p.id = l.person_id
-		        LEFT JOIN organization o ON o.id = l.organization_id
-		        LEFT JOIN deal d ON d.id = l.deal_id
-		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
-		LIMIT $2`,
-	"activity/transcript": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.source_system = 'transcript' AND a.body IS NOT NULL
-		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + correspondenceFloorPredicate(3, 4) + `
-		  AND NOT EXISTS (SELECT 1 FROM activity_link l
-		        LEFT JOIN person p ON p.id = l.person_id
-		        LEFT JOIN organization o ON o.id = l.organization_id
-		        LEFT JOIN deal d ON d.id = l.deal_id
-		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
-		LIMIT $2`,
-	"person/no_consent_no_deal": `SELECT p.id FROM person p
-		WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND p.archived_at IS NULL AND NOT p.legal_hold
-		  AND p.full_name IS DISTINCT FROM 'Erased Subject'
-		  AND p.created_at < now() - make_interval(days => $1)
-		  AND NOT EXISTS (SELECT 1 FROM person_consent pc WHERE pc.person_id = p.id AND pc.state = 'granted')
-		  AND NOT EXISTS (SELECT 1 FROM relationship r
-		        WHERE r.kind = 'deal_stakeholder' AND r.person_id = p.id AND r.archived_at IS NULL)
-		LIMIT $2`,
-	"deal/lost": `SELECT id FROM deal
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status = 'lost' AND archived_at IS NULL AND NOT legal_hold
-		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
-	"ai_call_payload/content": `SELECT id FROM ai_call_payload
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND occurred_at < now() - make_interval(days => $1) LIMIT $2`,
-}
-
 type retentionPolicy struct {
 	// ID stays ids.UUID: a retention policy is a config row, not a
 	// first-class entity, so the kernel mints no kind for it.
@@ -248,218 +206,158 @@ func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 	// two activity policies of the same run.
 	ref := time.Now()
 	for _, pol := range policies {
-		scope := pol.ObjectType + "/"
-		if pol.Category != nil {
-			scope += *pol.Category
+		if err := s.evaluatePolicy(ctx, pol, ref); err != nil {
+			return err
 		}
-		selector, known := retentionSelectors[scope]
-		if !known {
-			s.log.Warn("retention: policy scope has no selector — skipped, not half-applied",
-				"scope", scope, "policy", pol.ID)
-			continue
-		}
-		args := []any{pol.RetainDays, retentionBatch}
-		if pol.ObjectType == "activity" {
-			floor := jurisdiction.RetentionClass{}
-			if pol.Action != "archive" {
-				floor = statutoryCorrespondenceFloor(ref)
-			}
-			args = append(args, floor.Keep.String(), floor.Anchor == jurisdiction.AnchorCalendarYearEnd)
-		}
-		// due stays untyped: the selector's entity varies by policy scope
-		// (lead, activity, person, deal), so the id kind is only known one
-		// dispatch deeper, in apply.
-		var due []ids.UUID
-		err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-			rows, err := tx.Query(ctx, selector, args...)
+	}
+
+	// The two engine-owned sweeps, and they part company under the posture.
+	// The embed sweep still runs — ai_call's columns are routing, spend and
+	// served identity, so ageing them out is hygiene rather than storage
+	// limitation — but narrowed to rows whose deletion cannot reach content
+	// through the ai_call_payload cascade (embedCallWithoutPayload). The voice
+	// corpus stops outright: it holds draft plaintext about real correspondence.
+	retainOnly, err := s.retainOnly(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.evaluateEmbedCallRetention(ctx, retainOnly); err != nil {
+		return err
+	}
+	if retainOnly {
+		s.log.Info("retention: retain-only posture suppresses the voice-signal content sweep")
+		return nil
+	}
+	return s.evaluateVoiceSignalRetention(ctx)
+}
+
+// evaluatePolicy runs ONE policy's stage: resolve what it governs, decide whether
+// it may act at all, then apply its action to a bounded batch of over-age
+// records.
+//
+// Two conditions skip the whole stage rather than failing the pass, and they are
+// the same shape: a scope with no selector, and an action with no executor for
+// that object type. Both are LOUD (logged every pass) and both are unreachable
+// through the authoring surface, which refuses them — so reaching either means a
+// row predates the refusal or a release retired something. Skipping costs one
+// policy; failing would abort the pass and take every LATER policy with it,
+// nightly, until somebody found the row.
+func (s *RetentionService) evaluatePolicy(ctx context.Context, pol retentionPolicy, ref time.Time) error {
+	scope := pol.ObjectType + "/"
+	if pol.Category != nil {
+		scope += *pol.Category
+	}
+	selector, known := retentionSelectors[scope]
+	if !known {
+		s.log.Warn("retention: policy scope has no selector — skipped, not half-applied",
+			"scope", scope, "policy", pol.ID)
+		return nil
+	}
+	if !SupportsRetentionAction(pol.ObjectType, pol.Action) {
+		s.log.Warn("retention: policy action has no executor for its object type — skipped, not half-applied",
+			"scope", scope, "action", pol.Action, "policy", pol.ID,
+			"supported", ActionsForScope(pol.ObjectType))
+		return nil
+	}
+	retainOnly, err := s.retainOnly(ctx)
+	if err != nil {
+		return err
+	}
+	if retainOnly && isDestructive(pol.Action) {
+		// Suppressed before the due-list query, so the records are never
+		// selected. Not audited: audit_log records mutations and a suppression is
+		// the absence of one, so the POSTURE CHANGE is the audited event and the
+		// surface reports the live state as suppressed_by_posture.
+		s.log.Info("retention: retain-only posture suppresses a destructive policy",
+			"scope", scope, "policy", pol.ID, "action", pol.Action)
+		return nil
+	}
+	due, err := s.dueRecords(ctx, pol, selector, ref)
+	if err != nil {
+		return fmt.Errorf("retention %s: select: %w", scope, err)
+	}
+	for _, id := range due {
+		// The posture is re-read per RECORD for a destructive policy, not per
+		// stage. A stage is up to retentionBatch records, each in its own
+		// transaction, so a stage-level read alone let an admin who turned the
+		// posture on mid-stage watch as many as 200 irreversible actions complete
+		// after the promise was made. The cost of checking is one indexed read
+		// against a tiny table; the cost of not checking is measured in destroyed
+		// records, so the asymmetry decides it.
+		if isDestructive(pol.Action) {
+			held, err := s.retainOnly(ctx)
 			if err != nil {
 				return err
 			}
-			due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-			return err
-		})
-		if err != nil {
-			return fmt.Errorf("retention %s: select: %w", scope, err)
-		}
-		for _, id := range due {
-			if err := s.apply(ctx, pol, id); err != nil {
-				return fmt.Errorf("retention %s on %s: %w", scope, id, err)
+			if held {
+				s.log.Info("retention: retain-only posture turned on mid-pass — stopping this policy",
+					"scope", scope, "policy", pol.ID, "action", pol.Action)
+				return nil
 			}
 		}
+		if err := s.apply(ctx, pol, id); err != nil {
+			return fmt.Errorf("retention %s on %s: %w", scope, id, err)
+		}
 	}
-	if err := s.evaluateEmbedCallRetention(ctx); err != nil {
+	return nil
+}
+
+// dueRecords reads one batch of records this policy is over-age for.
+//
+// The activity selectors take two extra args because a destructive action on
+// commercial correspondence is shielded by the statutory floor; ref anchors that
+// comparison at the pass's own instant so two activity policies in one run cannot
+// order mixed-unit periods differently.
+func (s *RetentionService) dueRecords(ctx context.Context, pol retentionPolicy, selector string, ref time.Time) ([]ids.UUID, error) {
+	args := []any{pol.RetainDays, retentionBatch}
+	if pol.ObjectType == "activity" {
+		floor := jurisdiction.RetentionClass{}
+		if pol.Action != actionArchive {
+			floor = statutoryCorrespondenceFloor(ref)
+		}
+		args = append(args, floor.Keep.String(), floor.Anchor == jurisdiction.AnchorCalendarYearEnd)
+	}
+	// The ids stay untyped: the selector's entity varies by policy scope (lead,
+	// activity, person, deal), so the kind is only known one dispatch deeper.
+	var due []ids.UUID
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, selector, args...)
+		if err != nil {
+			return err
+		}
+		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
 		return err
+	})
+	return due, err
+}
+
+// retainOnly reads the installation's retain-only posture (GCS-PARAM-6).
+//
+// Its own short transaction, called once per stage. The alternative — one read
+// for the whole pass — would let a pass that began before an admin set the
+// posture keep destroying records for as long as it ran, which for a bound
+// measured in hours is the wrong answer in the one direction that matters.
+func (s *RetentionService) retainOnly(ctx context.Context) (bool, error) {
+	var held bool
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		held, err = settings.GetTx(ctx, tx, RetainOnly)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("retention: reading the retain-only posture: %w", err)
 	}
-	return s.evaluateVoiceSignalRetention(ctx)
+	return held, nil
+}
+
+// isDestructive reports whether an action destroys data. `archive` retains — it
+// sets archived_at and the record stays readable — so it is the one action the
+// retain-only posture leaves alone.
+func isDestructive(action string) bool {
+	return action == actionAnonymize || action == actionErase
 }
 
 // voiceSignalRetention note: the deadline itself is stamped per row
 // (voice_learning_signal.retention_until, set at capture); this sweep only
 // honors it — the window is the ai module's fixed operational floor, not a
 // policy-configurable domain record.
-
-// apply runs ONE action on ONE record in one audited transaction.
-func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id ids.UUID) error {
-	if pol.ObjectType == "person" && pol.Action == actionErase {
-		return s.eraser.ErasePerson(ctx, id, "retention")
-	}
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var err error
-		switch pol.ObjectType + "/" + pol.Action {
-		case "activity/archive":
-			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
-			if err == nil {
-				err = s.invalidateGraph(ctx, tx, id)
-			}
-		case "activity/erase":
-			err = s.eraseActivityContent(ctx, tx, id)
-		case "deal/archive":
-			_, err = tx.Exec(ctx, `UPDATE deal SET archived_at = now() WHERE id = $1`, id)
-		case "ai_call_payload/erase":
-			// The payload row is deleted outright, not scrubbed in place —
-			// unlike activity/erase there is no metadata half of this record
-			// left to keep: ai_call_payload IS the special-category-adjacent
-			// content, and ai_call (the metadata row it FK-cascades from)
-			// survives untouched. The retention audit entry below carries no
-			// payload bytes, only policy metadata.
-			_, err = tx.Exec(ctx, `DELETE FROM ai_call_payload WHERE id = $1`, id)
-		case "lead/anonymize":
-			_, err = tx.Exec(ctx, `
-				UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
-				  company_name = NULL, candidate_org_key = NULL, raw = NULL,
-				  archived_at = coalesce(archived_at, now())
-				WHERE id = $1`, id)
-			if err == nil {
-				_, err = tx.Exec(ctx,
-					`DELETE FROM embedding WHERE entity_type = 'lead' AND entity_id = $1`, id)
-			}
-		case "person/anonymize":
-			err = anonymizePersonRecord(ctx, tx, id)
-		default:
-			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)
-		}
-		if err != nil {
-			return err
-		}
-		// Retention audits under the verb of the action it ran —
-		// archive, anonymize and erase are all in the closed audit
-		// vocabulary (0053) — so a governance read can tell a retention
-		// anonymize from a user edit, and the field-history projection
-		// can treat anonymize/erase as its scrub boundary instead of
-		// parsing payload shapes. The policy metadata rides the evidence
-		// column, and before/after stay nil: this row records that a
-		// policy acted, not a field diff, so a projectable verb like
-		// archive must carry no payload the field-history diff could
-		// mistake for record fields.
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, pol.Action, pol.ObjectType, id, nil, nil, map[string]any{
-			evidenceKeyRetentionAction: pol.Action, "policy": pol.ID, "retain_days": pol.RetainDays,
-		})
-		if err != nil {
-			return err
-		}
-		policyID := pol.ID
-		return storekit.EmitEventForEntity(ctx, tx, auditID, pol.ObjectType, id, retentionAppliedPayload(pol.Action, &policyID, nil))
-	})
-}
-
-// eraseActivityContent is the activity/erase action. Transcript free-text is
-// the special-category risk; the record of the meeting stays, its content goes
-// — including any attached recording/transcript file (objects first, so the
-// purge shares the person-erase durability guarantee).
-func (s *RetentionService) eraseActivityContent(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	_, err := tx.Exec(ctx,
-		`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
-		id, erasedActivitySubject)
-	if err == nil {
-		_, err = tx.Exec(ctx,
-			`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
-	}
-	if err == nil {
-		err = s.invalidateGraph(ctx, tx, id)
-	}
-	if err == nil {
-		err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
-	}
-	if err == nil {
-		// An outbound message ages out on the schedule of the activity
-		// it belongs to: the send log holds the same recipients,
-		// subject and body, and a policy that emptied one while the
-		// other kept serving them would age out nothing.
-		err = redactDeliveries(ctx, tx, []ids.UUID{id}, erasedActivitySubject)
-	}
-	return err
-}
-
-// anonymizePersonRecord is the person/anonymize action: the same in-place
-// anonymization the eraser performs, minus the suppression list — the subject
-// may lawfully return.
-func anonymizePersonRecord(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	// The subject's addresses, read BEFORE person_email is deleted
-	// below. The graph structures name them by raw address as well as
-	// by person id — that is what the address arm of a participant row
-	// IS — so a sweep that only matched person_id would leave the
-	// address behind, still readable and still re-matchable. Same trap
-	// the eraser hit with the subject's NAME, one column over.
-	subjectEmails, err := collectStrings(ctx, tx,
-		`SELECT lower(email) FROM person_email WHERE person_id = $1`, id)
-	if err != nil {
-		return err
-	}
-	// The NAME too, and before the anonymization below overwrites it —
-	// the ghost sweep matches on it, and by then it is the tombstone.
-	var subjectName string
-	if err := tx.QueryRow(ctx,
-		`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, id).Scan(&subjectName); err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `
-		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-		  title = NULL, raw = NULL,
-		  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
-		  address_region = NULL, address_postal_code = NULL, address_country = NULL,
-		  archived_at = coalesce(archived_at, now())
-		WHERE id = $1`, id, erasedName)
-	if err == nil {
-		_, err = tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		_, err = tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		_, err = tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		// The enrichment sidecar holds the subject's title and employer with
-		// the verbatim sentence naming them. Anonymizing the person row above
-		// cascades to nothing, so a sweep that skipped this would leave the
-		// quote standing beside an "Erased Subject" record.
-		_, err = tx.Exec(ctx, `DELETE FROM person_profile_field WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		// Purchased provider values, and the runs that bought them. Same
-		// reasoning as the sidecar above and the same statements the erasure
-		// path uses: anonymize-in-place cascades to nothing, so without these
-		// the person page would show a bought email and employer beside an
-		// "Erased Subject" name.
-		_, err = tx.Exec(ctx, `DELETE FROM person_provider_claim WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		_, err = tx.Exec(ctx,
-			`UPDATE provider_run SET`+storekit.ScrubProviderRunColumns+` WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		// The channel identity is a resolution key on the subject as
-		// much as their address: left behind, it would keep binding
-		// inbound messages to the row this sweep just anonymized.
-		_, err = tx.Exec(ctx,
-			`DELETE FROM person_channel_identity WHERE person_id = $1`, id)
-	}
-	if err == nil {
-		_, err = tx.Exec(ctx,
-			`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
-	}
-	if err == nil {
-		err = scrubPersonGraphTraces(ctx, tx, id, subjectEmails, subjectName)
-	}
-	return err
-}

@@ -127,8 +127,41 @@ func (b BootstrapAdmin) Password() (string, error) {
 type Seeds struct {
 	Pipeline           *PipelineSeed    `yaml:"pipeline"`
 	ConsentPurposes    []ConsentPurpose `yaml:"consent_purposes"`
+	Retention          *RetentionSeed   `yaml:"retention"`
 	StarterAutomations *bool            `yaml:"starter_automations"`
 	BookingPage        *bool            `yaml:"booking_page"`
+}
+
+// RetentionSeed selects the retention POSTURE a fresh installation is
+// bootstrapped into (GCS-PARAM-7). It does not select the policy rows: those stay
+// the data-model's pins (DM-SEED-1..6) under either posture, so an installation
+// that must keep everything still SEES the ladder it is not running.
+//
+// The key exists because bootstrap plants the rows and the nightly pass can fire
+// before an admin first logs in. A deployment under a contractual
+// keep-everything obligation closes that window here rather than racing it in the
+// UI.
+type RetentionSeed struct {
+	// DefaultPolicy is `standard` or `retain_only`. Empty means standard, which
+	// is the historical behaviour byte for byte.
+	DefaultPolicy string `yaml:"default_policy"`
+}
+
+// The two postures seeds.retention.default_policy admits.
+const (
+	// RetentionStandardPosture plants DM-SEED-1..6 with destruction enabled —
+	// storage limitation (Art. 5(1)(e)) as the out-of-the-box posture.
+	RetentionStandardPosture = "standard"
+	// RetentionRetainOnlyPosture plants the same rows and turns the retain-only
+	// posture on, so nothing is anonymized or erased however over-age it becomes.
+	RetentionRetainOnlyPosture = "retain_only"
+)
+
+// RetainOnly reports whether the configured posture suppresses every destructive
+// retention action. An absent block is the standard posture, so a minimal file
+// behaves exactly like the historical bootstrap.
+func (s Seeds) RetainOnly() bool {
+	return s.Retention != nil && s.Retention.DefaultPolicy == RetentionRetainOnlyPosture
 }
 
 // PipelineSeed configures the default pipeline's open stages. Won/Lost
@@ -328,6 +361,11 @@ func (s Seeds) validate() error {
 			return err
 		}
 	}
+	if s.Retention != nil {
+		if err := s.Retention.validate(); err != nil {
+			return err
+		}
+	}
 	seenKeys := map[string]bool{}
 	for _, p := range s.ConsentPurposes {
 		if p.Key == "" || p.Label == "" {
@@ -339,6 +377,19 @@ func (s Seeds) validate() error {
 		seenKeys[p.Key] = true
 	}
 	return nil
+}
+
+// validate refuses an unrecognized posture loudly. A typo here would otherwise
+// fall back to `standard` in silence — which for the one deployment that set the
+// key on purpose is the exact failure it was set to prevent.
+func (r RetentionSeed) validate() error {
+	switch r.DefaultPolicy {
+	case "", RetentionStandardPosture, RetentionRetainOnlyPosture:
+		return nil
+	default:
+		return fmt.Errorf("deployconfig: seeds.retention.default_policy %q is not %s or %s",
+			r.DefaultPolicy, RetentionStandardPosture, RetentionRetainOnlyPosture)
+	}
 }
 
 func (p PipelineSeed) validate() error {

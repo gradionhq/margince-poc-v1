@@ -163,6 +163,12 @@
         "read": true,
         "update": true
       },
+      "retention_policy": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "saved_view": {
         "create": true,
         "delete": true,
@@ -360,6 +366,12 @@
         "read": true,
         "update": true
       },
+      "retention_policy": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
       "saved_view": {
         "create": true,
         "delete": true,
@@ -552,6 +564,12 @@
         "update": true
       },
       "relationship": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "retention_policy": {
         "create": true,
         "delete": true,
         "read": true,
@@ -754,6 +772,12 @@
         "read": true,
         "update": false
       },
+      "retention_policy": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
       "saved_view": {
         "create": true,
         "delete": true,
@@ -950,6 +974,12 @@
         "delete": false,
         "read": true,
         "update": true
+      },
+      "retention_policy": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
       },
       "saved_view": {
         "create": true,

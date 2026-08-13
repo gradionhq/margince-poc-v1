@@ -79,18 +79,43 @@ func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.U
 	})
 }
 
+// embedCallWithoutPayload narrows the embed sweep to the rows whose deletion
+// destroys nothing but telemetry.
+//
+// It is what makes the sweep safe under the retain-only posture. ai_call's own
+// columns are routing, spend and served identity — no subject content, which is
+// why ageing them out is hygiene rather than storage limitation. But
+// ai_call_payload FK-CASCADES from ai_call (0089), and an embed call's captured
+// payload holds the INPUT TEXTS that were embedded (ai.buildEmbedPayload) —
+// record content, and the same special-category-adjacent content the
+// ai_call_payload/content policy governs. So deleting a payload-bearing embed
+// call destroys subject content through the cascade, in the same pass that
+// suppresses the policy which governs exactly those rows.
+//
+// Under the posture the sweep therefore skips any embed call that has a payload
+// row. With Layer-3 capture off — the default — no embed call has one, so the
+// volume hygiene this sweep exists for is unaffected.
+const embedCallWithoutPayload = `
+	AND NOT EXISTS (SELECT 1 FROM ai_call_payload p WHERE p.ai_call_id = ai_call.id)`
+
 // evaluateEmbedCallRetention erases over-age embedding-kind ai_call trace
 // rows, batched and audited one record per transaction like every other
 // retention action — but driven by the fixed embedCallRetention cap
 // instead of a workspace's retention_policy rows, since these rows are
 // engine telemetry, not a policy-configurable domain record.
-func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error {
+//
+// retainOnly narrows it to the payload-free rows; see embedCallWithoutPayload.
+func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context, retainOnly bool) error {
+	selector := `
+		SELECT id FROM ai_call
+		WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)`
+	if retainOnly {
+		selector += embedCallWithoutPayload
+	}
+	selector += ` LIMIT $2`
 	var due []ids.UUID
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id FROM ai_call
-			WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)
-			LIMIT $2`, embedCallRetention, retentionBatch)
+		rows, err := tx.Query(ctx, selector, embedCallRetention, retentionBatch)
 		if err != nil {
 			return err
 		}

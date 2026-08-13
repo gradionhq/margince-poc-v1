@@ -86,6 +86,7 @@ the workspace but changes none of them.
 | `project` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `quota` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `relationship` | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `retention_policy` | CRUD | ---- | ---- | ---- | CRUD |
 | `saved_view` | CRUD | CRUD | CRUD | CRUD | CRUD |
 | `signal` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `tag` | CRUD | CRUD | CRU- | -R-- | CRUD |

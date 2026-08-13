@@ -1826,6 +1826,56 @@ export const vi = {
   "privacy.legalHold":
     "Bị chặn — lệnh lưu giữ pháp lý. Người này đang trong thời hạn lưu giữ theo luật, nên quyền xoá không thắng ở đây (Art. 17(3)(b)). Việc chặn áp dụng cho mọi vai trò, kể cả quản trị — không có ngoại lệ. Lần thử này đã được ghi vào nhật ký kiểm toán.",
 
+  "retention.title": "Lưu giữ dữ liệu",
+  "retention.sub":
+    "mỗi loại bản ghi được giữ trong bao lâu, và điều gì xảy ra khi hết thời hạn",
+  "retention.retainOnly": "Chế độ chỉ lưu giữ",
+  "retention.retainOnlyHelp":
+    "Khi bật, bản triển khai này không phá huỷ bất cứ gì: không ẩn danh hoá và không xoá, bất kể chính sách bên dưới nói gì. Việc lưu trữ vẫn chạy — bản ghi được lưu trữ là bản ghi vẫn còn.",
+  "retention.adminOnly":
+    "Chỉ quản trị viên hoặc ops mới có thể thay đổi việc lưu giữ.",
+  "retention.addPolicy": "Thêm chính sách",
+  "retention.create": "Tạo chính sách",
+  "retention.scope": "Áp dụng cho",
+  "retention.window": "Thời hạn tính theo ngày",
+  "retention.windowDays": "{days} ngày",
+  "retention.windowInvalid": "Thời hạn là một số ngày nguyên, tối thiểu là 1.",
+  "retention.action": "Hành động",
+  "retention.actionHint":
+    "Lưu trữ vẫn giữ bản ghi; ẩn danh hoá và xoá thì phá huỷ dữ liệu, và đó là hai hành động mà chế độ chỉ lưu giữ chặn lại.",
+  "retention.lawfulBasis": "Cơ sở pháp lý",
+  "retention.lawfulBasisHint":
+    "Không bắt buộc. Cơ sở theo Điều 6 mà thời hạn này dựa vào, dành cho người kiểm toán đọc dòng này.",
+  "retention.enabled": "Đang bật",
+  "retention.edit": "Sửa",
+  "retention.save": "Lưu chính sách",
+  "retention.delete": "Xoá chính sách",
+  "retention.deleteTitle": "Xoá chính sách lưu giữ?",
+  "retention.deleteBody":
+    "Việc này loại bỏ hoàn toàn quy tắc cho {scope}, nên không còn gì trong phạm vi đó hết hạn nữa. Muốn tạm dừng quy tắc mà vẫn giữ thời hạn, hãy tắt nó đi thay vì xoá.",
+  "retention.duplicateScope":
+    "Đã có một chính sách cho phạm vi này — mỗi phạm vi chỉ mang tối đa một quy tắc. Hãy sửa dòng đang có thay vì tạo mới.",
+  "retention.empty":
+    "Chưa có chính sách lưu giữ nào — không gì trong bản triển khai này hết hạn.",
+  "retention.effectActing": "Chạy mỗi đêm",
+  "retention.effectSuppressed": "Bị chế độ chỉ lưu giữ chặn lại",
+  "retention.effectDisabled": "Đã tắt",
+  "retention.suppressedWhy":
+    "Đang bật, nhưng chế độ chỉ lưu giữ đang chặn nó lại: quy tắc này phá huỷ dữ liệu, nên nó sẽ không chạy cho tới khi chế độ đó được tắt.",
+  "retention.disabledWhy":
+    "Đã tắt nhưng vẫn được giữ — thời hạn của nó còn nguyên, và trong lúc tắt thì không gì trong phạm vi này hết hạn.",
+  "retention.actionArchive": "Lưu trữ",
+  "retention.actionAnonymize": "Ẩn danh hoá",
+  "retention.actionErase": "Xoá",
+  "retention.scopeLeadUnconverted": "Khách tiềm năng chưa chuyển đổi",
+  "retention.scopeActivity": "Toàn bộ hoạt động đã thu nhận",
+  "retention.scopeActivityTranscript": "Bản ghi lời gọi",
+  "retention.scopePersonNoConsentNoDeal":
+    "Người không có đồng thuận và không có deal",
+  "retention.scopeDealLost": "Deal đã mất",
+  "retention.scopeDealWon": "Deal đã thắng",
+  "retention.scopeAiCallPayloadContent": "Nội dung lời gọi AI",
+
   "settings.pipelines": "Pipeline",
   "settings.pipelinesSub": "Cấu hình pipeline và các giai đoạn của chúng.",
   "pipeline.new": "Pipeline mới",

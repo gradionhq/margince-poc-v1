@@ -7304,6 +7304,175 @@ paths:
               schema: { $ref: '#/components/schemas/ConsentPurpose' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /retention/settings:
+    get:
+      tags: [Compliance]
+      operationId: getRetentionSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: The installation's retention posture (admin/ops).
+      description: |
+        Reads the retain-only posture (GCS-PARAM-6). While it holds, the nightly evaluator
+        applies no `anonymize` and no `erase` — whatever any policy row says — so an
+        installation under a contractual keep-everything obligation destroys nothing. `archive`
+        actions are unaffected, because archiving retains.
+
+        Admin/ops-only, read included: the retention screen is an admin surface and no other
+        role has a consumer for it. Governed by the `retention_policy` RBAC object.
+
+        Human-only, like every sibling governance read (`listRoles`, `listAuditLog`,
+        `listAiCalls`): what an installation destroys and whether destruction is currently
+        suspended is not reconnaissance to hand an agent, even one carrying an admin's passport.
+      responses:
+        '200':
+          description: The retention posture.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [Compliance]
+      operationId: updateRetentionSettings
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Set the installation's retention posture (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never decides whether the installation
+        deletes. A sparse patch: an omitted field is left unchanged.
+
+        Turning the posture ON suspends every destructive action immediately; the policy rows are
+        left exactly as they are, so turning it OFF resumes enforcement with nothing to re-author.
+        Audit-only write, no event (EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRetentionSettingsRequest' }
+      responses:
+        '200':
+          description: The updated retention posture.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /retention-policies:
+    get:
+      tags: [Compliance]
+      operationId: listRetentionPolicies
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: List the installation's retention policies (admin/ops).
+      description: |
+        The storage-limitation ladder as data (UC-GDPR-09, DM-SEED-1..6): one row per scope, one
+        action per row, ladders composing as separate rows at increasing `retain_days`.
+
+        `suppressed_by_posture` reports a row the retain-only posture is currently overriding, so
+        the surface can say WHY an enabled policy is not acting instead of leaving it
+        unexplained.
+
+        Unpaged, and it carries no cursor or limit: the collection is bounded by the
+        `RetentionScope` enum, so there is never a second page. Declaring parameters the handler
+        would discard would promise a `422 cursor_param_mismatch` that can never happen.
+      responses:
+        '200':
+          description: A page of retention policies.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/RetentionPolicy' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Compliance]
+      operationId: createRetentionPolicy
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Author a retention policy (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never authors a deletion rule.
+
+        `scope` comes from the authorable vocabulary (GCS-PARAM-8), which is exactly the set the
+        evaluator has a selector for: a policy for any other scope would be skipped, loudly,
+        every pass forever, so it is refused rather than stored. A scope that already holds a
+        policy is `409` — edit that row instead, which the list read hands you — because an
+        upsert would let one admin overwrite a colleague's window while believing they had added
+        a rule.
+
+        Authoring a destructive policy while the retain-only posture holds SUCCEEDS and reads
+        back suppressed: preparing the ladder to run after an obligation lapses is legitimate
+        work, and refusing it would force the posture off first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRetentionPolicyRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionPolicy' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /retention-policies/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Compliance]
+      operationId: updateRetentionPolicy
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Edit a retention policy (admin/ops).
+      description: |
+        Sparse — an omitted field is left unchanged. `enabled: false` is how a policy is disabled
+        WITHOUT deleting it, preserving the row and its audit history (UC-GDPR-09 E2).
+
+        The scope is deliberately not patchable: re-targeting a row would silently re-attribute
+        every audited change made to it, so a different scope is a different policy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRetentionPolicyRequest' }
+      responses:
+        '200':
+          description: The updated policy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionPolicy' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Compliance]
+      operationId: deleteRetentionPolicy
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Delete a retention policy (admin/ops).
+      description: |
+        Removes the configuration row. The records it governed are untouched — deleting a policy
+        stops future actions, it never undoes past ones. Audited under `archive`.
+
+        Prefer `enabled: false` when the intent is to pause: a deleted row takes its window and
+        its lawful basis with it.
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /people/{id}/consent:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -16929,7 +17098,8 @@ components:
          automation, voice_profile, product, offer, signal, saved_view, custom_field,
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
-         channel_connection, import_run, installation_settings, finance, integrations]
+         channel_connection, import_run, installation_settings, finance, integrations,
+         retention_policy]
 
     RbacAction:
       type: string
@@ -18659,6 +18829,106 @@ components:
         key: { type: string }
         label: { type: string }
         requires_double_opt_in: { type: boolean, default: false }
+
+    RetentionScope:
+      type: string
+      description: |
+        An authorable retention scope (GCS-PARAM-8) — a `(object_type, category)` pair the nightly
+        evaluator has a selector for. The enum IS the authorable set, so a client cannot offer a
+        scope that would be stored and then skipped every pass. `activity` is the bare object type
+        (the row whose `category` is null); every other value carries its category after the slash.
+
+        Extending this enum means adding a selector in the same change.
+      enum:
+        - lead/unconverted
+        - activity
+        - activity/transcript
+        - person/no_consent_no_deal
+        - deal/lost
+        - deal/won
+        - ai_call_payload/content
+
+    RetentionAction:
+      type: string
+      description: |
+        What happens to a record past its window. One action per policy row — a ladder is separate
+        rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+        `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+      enum: [archive, anonymize, erase]
+
+    RetentionPolicy:
+      type: object
+      description: |
+        One storage-limitation rule (DM-DDL-10, UC-GDPR-09). At most one row exists per scope,
+        enforced by the database rather than by this surface.
+      required: [id, scope, object_type, retain_days, action, enabled, suppressed_by_posture]
+      properties:
+        id: { type: string, format: uuid }
+        scope: { $ref: '#/components/schemas/RetentionScope' }
+        object_type:
+          type: string
+          description: The scope's object type, split out so a client need not parse `scope`.
+        category:
+          type: [string, 'null']
+          description: The scope's finer category, or null for a bare object-type policy.
+        retain_days:
+          type: integer
+          minimum: 1
+          description: Age in days past which the action fires. Whole days; the evaluator compares against `now()`.
+        action: { $ref: '#/components/schemas/RetentionAction' }
+        lawful_basis:
+          type: [string, 'null']
+          description: The Art. 6 basis this window is argued from, for the auditor reading the row.
+        enabled:
+          type: boolean
+          description: A disabled policy is preserved and inert — the way to pause a rule without losing its window.
+        suppressed_by_posture:
+          type: boolean
+          description: |
+            Server-derived; the create and update request schemas do not carry it, which is what
+            makes it unwritable — a `readOnly` marker here would only turn the response field
+            optional in the generated clients.
+            True when the retain-only posture is currently overriding this row — an `anonymize` or
+            `erase` policy on an installation that destroys nothing. The row is unchanged and
+            resumes the moment the posture is lifted.
+
+    CreateRetentionPolicyRequest:
+      type: object
+      required: [scope, retain_days, action]
+      properties:
+        scope: { $ref: '#/components/schemas/RetentionScope' }
+        retain_days: { type: integer, minimum: 1 }
+        action: { $ref: '#/components/schemas/RetentionAction' }
+        lawful_basis: { type: [string, 'null'] }
+        enabled: { type: boolean, default: true }
+
+    UpdateRetentionPolicyRequest:
+      type: object
+      description: A sparse policy patch. The scope is not patchable — a different scope is a different policy.
+      properties:
+        retain_days: { type: integer, minimum: 1 }
+        action: { $ref: '#/components/schemas/RetentionAction' }
+        lawful_basis: { type: [string, 'null'] }
+        enabled: { type: boolean }
+
+    RetentionSettings:
+      type: object
+      description: The installation's retention posture (GCS-PARAM-6).
+      required: [retain_only]
+      properties:
+        retain_only:
+          type: boolean
+          description: |
+            When true, the nightly evaluator applies no `anonymize` and no `erase` — whatever any
+            policy row says. `archive` is unaffected. Default false: storage limitation
+            (Art. 5(1)(e)) is the out-of-the-box posture, and the installation under a
+            keep-everything obligation opts in.
+
+    UpdateRetentionSettingsRequest:
+      type: object
+      description: A sparse retention-posture patch (admin/ops).
+      properties:
+        retain_only: { type: boolean, description: Turn the retain-only posture on or off. }
 
     PersonConsentState:
       type: object

@@ -12,20 +12,30 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // Handlers is privacy's transport surface: the audit-log governance
-// read and the field-history projection (the erasure/SAR/retention
-// engines run behind the DSR queue and the worker, not their own
-// routes).
+// read, the field-history projection, and the retention-authoring
+// surface (the erasure/SAR engines and the nightly evaluator run behind
+// the DSR queue and the worker, not their own routes).
 type Handlers struct {
 	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
-	db *database.DB
+	db       *database.DB
+	policies *PolicyStore
+	posture  *PostureStore
 }
 
-// NewHandlers wires the transport over the installation-bound pool.
-func NewHandlers(db *database.DB) Handlers { return Handlers{db: db} }
+// NewHandlers wires the transport over the installation-bound pool and the
+// assembled settings catalog.
+//
+// The catalog is a constructor argument rather than an option because every route
+// here needs it: the posture routes read and write it, and the policy list reports
+// each row's live suppression against it.
+func NewHandlers(db *database.DB, store *settings.Store) Handlers {
+	return Handlers{db: db, policies: NewPolicyStore(db), posture: NewPostureStore(store)}
+}
 
 // ListAuditLog implements (GET /audit-log).
 func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params crmcontracts.ListAuditLogParams) {

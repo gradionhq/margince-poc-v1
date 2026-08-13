@@ -6831,6 +6831,60 @@ func (e RelationshipStrengthBucket) Valid() bool {
 	}
 }
 
+// Defines values for RetentionAction.
+const (
+	Anonymize RetentionAction = "anonymize"
+	Archive   RetentionAction = "archive"
+	Erase     RetentionAction = "erase"
+)
+
+// Valid indicates whether the value is a known member of the RetentionAction enum.
+func (e RetentionAction) Valid() bool {
+	switch e {
+	case Anonymize:
+		return true
+	case Archive:
+		return true
+	case Erase:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RetentionScope.
+const (
+	RetentionScopeActivity              RetentionScope = "activity"
+	RetentionScopeActivitytranscript    RetentionScope = "activity/transcript"
+	RetentionScopeAiCallPayloadcontent  RetentionScope = "ai_call_payload/content"
+	RetentionScopeDeallost              RetentionScope = "deal/lost"
+	RetentionScopeDealwon               RetentionScope = "deal/won"
+	RetentionScopeLeadunconverted       RetentionScope = "lead/unconverted"
+	RetentionScopePersonnoConsentNoDeal RetentionScope = "person/no_consent_no_deal"
+)
+
+// Valid indicates whether the value is a known member of the RetentionScope enum.
+func (e RetentionScope) Valid() bool {
+	switch e {
+	case RetentionScopeActivity:
+		return true
+	case RetentionScopeActivitytranscript:
+		return true
+	case RetentionScopeAiCallPayloadcontent:
+		return true
+	case RetentionScopeDeallost:
+		return true
+	case RetentionScopeDealwon:
+		return true
+	case RetentionScopeLeadunconverted:
+		return true
+	case RetentionScopePersonnoConsentNoDeal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunReportRequestAggregatesFn.
 const (
 	RunReportRequestAggregatesFnAvg           RunReportRequestAggregatesFn = "avg"
@@ -8129,31 +8183,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -12151,6 +12205,25 @@ type CreateRelationshipRequest struct {
 
 // CreateRelationshipRequestKind defines model for CreateRelationshipRequest.Kind.
 type CreateRelationshipRequestKind string
+
+// CreateRetentionPolicyRequest defines model for CreateRetentionPolicyRequest.
+type CreateRetentionPolicyRequest struct {
+	// Action What happens to a record past its window. One action per policy row — a ladder is separate
+	// rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+	// `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+	Action      RetentionAction `json:"action"`
+	Enabled     *bool           `json:"enabled,omitempty"`
+	LawfulBasis *string         `json:"lawful_basis,omitempty"`
+	RetainDays  int             `json:"retain_days"`
+
+	// Scope An authorable retention scope (GCS-PARAM-8) — a `(object_type, category)` pair the nightly
+	// evaluator has a selector for. The enum IS the authorable set, so a client cannot offer a
+	// scope that would be stored and then skipped every pass. `activity` is the bare object type
+	// (the row whose `category` is null); every other value carries its category after the slash.
+	//
+	// Extending this enum means adding a selector in the same change.
+	Scope RetentionScope `json:"scope"`
+}
 
 // CreateSavedViewRequest defines model for CreateSavedViewRequest.
 type CreateSavedViewRequest struct {
@@ -16888,6 +16961,69 @@ type RequestAccessResponse struct {
 	Requested bool `json:"requested"`
 }
 
+// RetentionAction What happens to a record past its window. One action per policy row — a ladder is separate
+// rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+// `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+type RetentionAction string
+
+// RetentionPolicy One storage-limitation rule (DM-DDL-10, UC-GDPR-09). At most one row exists per scope,
+// enforced by the database rather than by this surface.
+type RetentionPolicy struct {
+	// Action What happens to a record past its window. One action per policy row — a ladder is separate
+	// rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+	// `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+	Action RetentionAction `json:"action"`
+
+	// Category The scope's finer category, or null for a bare object-type policy.
+	Category *string `json:"category,omitempty"`
+
+	// Enabled A disabled policy is preserved and inert — the way to pause a rule without losing its window.
+	Enabled bool               `json:"enabled"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// LawfulBasis The Art. 6 basis this window is argued from, for the auditor reading the row.
+	LawfulBasis *string `json:"lawful_basis,omitempty"`
+
+	// ObjectType The scope's object type, split out so a client need not parse `scope`.
+	ObjectType string `json:"object_type"`
+
+	// RetainDays Age in days past which the action fires. Whole days; the evaluator compares against `now()`.
+	RetainDays int `json:"retain_days"`
+
+	// Scope An authorable retention scope (GCS-PARAM-8) — a `(object_type, category)` pair the nightly
+	// evaluator has a selector for. The enum IS the authorable set, so a client cannot offer a
+	// scope that would be stored and then skipped every pass. `activity` is the bare object type
+	// (the row whose `category` is null); every other value carries its category after the slash.
+	//
+	// Extending this enum means adding a selector in the same change.
+	Scope RetentionScope `json:"scope"`
+
+	// SuppressedByPosture Server-derived; the create and update request schemas do not carry it, which is what
+	// makes it unwritable — a `readOnly` marker here would only turn the response field
+	// optional in the generated clients.
+	// True when the retain-only posture is currently overriding this row — an `anonymize` or
+	// `erase` policy on an installation that destroys nothing. The row is unchanged and
+	// resumes the moment the posture is lifted.
+	SuppressedByPosture bool `json:"suppressed_by_posture"`
+}
+
+// RetentionScope An authorable retention scope (GCS-PARAM-8) — a `(object_type, category)` pair the nightly
+// evaluator has a selector for. The enum IS the authorable set, so a client cannot offer a
+// scope that would be stored and then skipped every pass. `activity` is the bare object type
+// (the row whose `category` is null); every other value carries its category after the slash.
+//
+// Extending this enum means adding a selector in the same change.
+type RetentionScope string
+
+// RetentionSettings The installation's retention posture (GCS-PARAM-6).
+type RetentionSettings struct {
+	// RetainOnly When true, the nightly evaluator applies no `anonymize` and no `erase` — whatever any
+	// policy row says. `archive` is unaffected. Default false: storage limitation
+	// (Art. 5(1)(e)) is the out-of-the-box posture, and the installation under a
+	// keep-everything obligation opts in.
+	RetainOnly bool `json:"retain_only"`
+}
+
 // Role One role as `role.permissions` stores it. This is a ROLE's document, not a principal's — unlike `Authorization.objects` nothing here is merged, because the thing being edited is the single role.
 type Role struct {
 	// IsSystem True for a role the workspace bootstrap seeded and the RBAC migrations top up. It is NOT an immutability flag — a system role's grants are editable through `setRoleObjectGrant`, which is what makes granting an extension object possible at all on an installation that never defined a custom role. A client may surface it as "shipped with the product", never as "read-only".
@@ -17763,6 +17899,23 @@ type UpdateRelationshipRequest struct {
 	IsCurrentPrimary *bool               `json:"is_current_primary,omitempty"`
 	Role             *string             `json:"role,omitempty"`
 	StartedAt        *openapi_types.Date `json:"started_at,omitempty"`
+}
+
+// UpdateRetentionPolicyRequest A sparse policy patch. The scope is not patchable — a different scope is a different policy.
+type UpdateRetentionPolicyRequest struct {
+	// Action What happens to a record past its window. One action per policy row — a ladder is separate
+	// rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
+	// `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
+	Action      *RetentionAction `json:"action,omitempty"`
+	Enabled     *bool            `json:"enabled,omitempty"`
+	LawfulBasis *string          `json:"lawful_basis,omitempty"`
+	RetainDays  *int             `json:"retain_days,omitempty"`
+}
+
+// UpdateRetentionSettingsRequest A sparse retention-posture patch (admin/ops).
+type UpdateRetentionSettingsRequest struct {
+	// RetainOnly Turn the retain-only posture on or off.
+	RetainOnly *bool `json:"retain_only,omitempty"`
 }
 
 // UpdateSavedViewRequest A partial update; omitted fields keep their stored value.
@@ -21905,6 +22058,15 @@ type UpdateRelationshipJSONRequestBody = UpdateRelationshipRequest
 
 // RunReportJSONRequestBody defines body for RunReport for application/json ContentType.
 type RunReportJSONRequestBody = RunReportRequest
+
+// CreateRetentionPolicyJSONRequestBody defines body for CreateRetentionPolicy for application/json ContentType.
+type CreateRetentionPolicyJSONRequestBody = CreateRetentionPolicyRequest
+
+// UpdateRetentionPolicyJSONRequestBody defines body for UpdateRetentionPolicy for application/json ContentType.
+type UpdateRetentionPolicyJSONRequestBody = UpdateRetentionPolicyRequest
+
+// UpdateRetentionSettingsJSONRequestBody defines body for UpdateRetentionSettings for application/json ContentType.
+type UpdateRetentionSettingsJSONRequestBody = UpdateRetentionSettingsRequest
 
 // SetRoleObjectGrantJSONRequestBody defines body for SetRoleObjectGrant for application/json ContentType.
 type SetRoleObjectGrantJSONRequestBody = SetRoleObjectGrantRequest
@@ -28534,6 +28696,24 @@ type ServerInterface interface {
 	// "Explain This Number" — resolve a derivation handle to its definition + source rows.
 	// (GET /reports/{report}/derivation)
 	ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams)
+	// List the installation's retention policies (admin/ops).
+	// (GET /retention-policies)
+	ListRetentionPolicies(w http.ResponseWriter, r *http.Request)
+	// Author a retention policy (admin/ops).
+	// (POST /retention-policies)
+	CreateRetentionPolicy(w http.ResponseWriter, r *http.Request)
+	// Delete a retention policy (admin/ops).
+	// (DELETE /retention-policies/{id})
+	DeleteRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id)
+	// Edit a retention policy (admin/ops).
+	// (PATCH /retention-policies/{id})
+	UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id)
+	// The installation's retention posture (admin/ops).
+	// (GET /retention/settings)
+	GetRetentionSettings(w http.ResponseWriter, r *http.Request)
+	// Set the installation's retention posture (admin/ops).
+	// (PATCH /retention/settings)
+	UpdateRetentionSettings(w http.ResponseWriter, r *http.Request)
 	// List the workspace's roles with their object grants. Admin-only, human-only.
 	// (GET /roles)
 	ListRoles(w http.ResponseWriter, r *http.Request)
@@ -30430,6 +30610,42 @@ func (_ Unimplemented) RunReport(w http.ResponseWriter, r *http.Request, report 
 // "Explain This Number" — resolve a derivation handle to its definition + source rows.
 // (GET /reports/{report}/derivation)
 func (_ Unimplemented) ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the installation's retention policies (admin/ops).
+// (GET /retention-policies)
+func (_ Unimplemented) ListRetentionPolicies(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Author a retention policy (admin/ops).
+// (POST /retention-policies)
+func (_ Unimplemented) CreateRetentionPolicy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a retention policy (admin/ops).
+// (DELETE /retention-policies/{id})
+func (_ Unimplemented) DeleteRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Edit a retention policy (admin/ops).
+// (PATCH /retention-policies/{id})
+func (_ Unimplemented) UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The installation's retention posture (admin/ops).
+// (GET /retention/settings)
+func (_ Unimplemented) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the installation's retention posture (admin/ops).
+// (PATCH /retention/settings)
+func (_ Unimplemented) UpdateRetentionSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -43859,6 +44075,150 @@ func (siw *ServerInterfaceWrapper) ExplainReport(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListRetentionPolicies operation middleware
+func (siw *ServerInterfaceWrapper) ListRetentionPolicies(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRetentionPolicies(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRetentionPolicy operation middleware
+func (siw *ServerInterfaceWrapper) CreateRetentionPolicy(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRetentionPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRetentionPolicy operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRetentionPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRetentionPolicy(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRetentionPolicy operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRetentionPolicy(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRetentionSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRetentionSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateRetentionSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateRetentionSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateRetentionSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -47717,6 +48077,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/reports/{report}/derivation", wrapper.ExplainReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/retention-policies", wrapper.ListRetentionPolicies)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/retention-policies", wrapper.CreateRetentionPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/retention-policies/{id}", wrapper.DeleteRetentionPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/retention-policies/{id}", wrapper.UpdateRetentionPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/retention/settings", wrapper.GetRetentionSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/retention/settings", wrapper.UpdateRetentionSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/roles", wrapper.ListRoles)

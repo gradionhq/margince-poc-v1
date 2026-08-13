@@ -27,8 +27,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -86,6 +88,9 @@ func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context
 		if err := seedConsent(ctx, tx, seeds.ConsentPurposes); err != nil {
 			return err
 		}
+		if err := seedRetentionPosture(ctx, tx, seeds); err != nil {
+			return err
+		}
 		if err := ai.SeedWorkspaceDefaultsTx(ctx, tx, time.Now().UTC()); err != nil {
 			return err
 		}
@@ -127,6 +132,23 @@ func seedConsent(ctx context.Context, tx pgx.Tx, configured []deployconfig.Conse
 		return err
 	}
 	return consent.SeedDefaultRetentionTx(ctx, tx)
+}
+
+// seedRetentionPosture turns the retain-only posture on when the deployment asked
+// for it (GCS-PARAM-7). It runs INSIDE the bootstrap transaction, beside the
+// policy rows it governs: an installation that declared it destroys nothing must
+// not be reachable in a state where the rows exist and the posture does not, even
+// briefly.
+//
+// The standard posture writes NO row, deliberately. An absent setting reads as
+// its registered default (false), so seeding a row that merely restates the
+// default would add a row saying nothing and make "has anyone ever changed this?"
+// unanswerable — the same reasoning 0190 applied to capture_auto_enrich.
+func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.Seeds) error {
+	if !seeds.RetainOnly() {
+		return nil
+	}
+	return settings.SeedValue(ctx, tx, privacy.RetainOnly, true)
 }
 
 // seedBookingPage provisions the admin's public booking page: the

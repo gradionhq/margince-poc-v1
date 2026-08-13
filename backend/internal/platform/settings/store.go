@@ -271,6 +271,34 @@ func currentJSON(ctx context.Context, tx pgx.Tx, def Definition) (json.RawMessag
 	return raw, nil
 }
 
+// GetTx reads a setting inside a transaction the caller already holds, and
+// resolves an absent row to the registered default — the in-transaction twin of
+// Get, where RequireTx is the twin of a read that must refuse an unset value.
+//
+// Both in-transaction readers exist because the two questions are genuinely
+// different. A money basis nobody has written is a fault (RequireTx): the
+// installation is measured in it. A posture nobody has changed is simply off,
+// and refusing to answer would mean an installation that never opened the
+// retention screen could not run its nightly pass at all.
+//
+// Takes the same object gate the pooled readers take, for the same reason: the
+// `setting` table carries no RLS, so this gate is the only control on it.
+func GetTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
+	var zero T
+	if err := auth.Require(ctx, e.Object(), principal.ActionRead); err != nil {
+		return zero, err
+	}
+	raw, err := currentJSON(ctx, tx, e)
+	if err != nil {
+		return zero, err
+	}
+	var out T
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return zero, fmt.Errorf("settings: decoding %s: %w", e.Key(), err)
+	}
+	return out, nil
+}
+
 // ResetConfig restores the CONFIGURATION settings to first-boot state by
 // deleting their rows: an absent row reads as the registered default, which is
 // exactly what a fresh installation sees. Identity settings are spared.

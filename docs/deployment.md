@@ -93,6 +93,26 @@ serves `/mcp` and `/oauth/*`, and **must** set `MARGINCE_PUBLIC_BASE_URL` — th
 api refuses to boot on that gate without it. Remove the `mcp` block to keep the
 connector off; the code default is off, so an absent block exposes nothing.
 
+**Decide the retention posture before first boot if the installation must keep
+everything.** By default the shipped storage-limitation ladder runs: an
+unconverted lead is anonymized after a year, a meeting transcript and an AI
+payload are erased after a year (Art. 5(1)(e), compliant out of the box). An
+installation under a contractual or statutory keep-everything obligation sets
+
+```yaml
+seeds:
+  retention:
+    default_policy: retain_only
+```
+
+which plants the same policy rows and suppresses every destructive action — no
+anonymize, no erase, whatever a policy says. Archive still runs, because
+archiving retains. The posture is a first-boot value only: an admin changes it
+afterwards on the privacy settings screen, and it survives restarts and upgrades
+because it is stored, not re-read from this file. Setting it here rather than in
+the UI closes the window between bootstrap planting the rows and the first admin
+sign-in, in which the nightly pass could otherwise fire.
+
 Your `margince.yaml`'s `password_file` **must point to where the entrypoint writes
 `MARGINCE_ADMIN_PASSWORD`** — `secrets/admin-password` (i.e.
 `/app/secrets/admin-password`; the api's working dir is `/app`). Set that value in
