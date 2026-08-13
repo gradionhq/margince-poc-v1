@@ -14,7 +14,7 @@ ALTER TABLE saved_view ADD COLUMN workspace_id uuid;
 ALTER TABLE quota ADD COLUMN workspace_id uuid;
 
 DO $$
-DECLARE ws uuid := (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
+DECLARE ws uuid := (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 BEGIN
   UPDATE list SET workspace_id = ws;
   UPDATE list_member SET workspace_id = ws;

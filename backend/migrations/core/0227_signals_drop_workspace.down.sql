@@ -14,8 +14,8 @@
 ALTER TABLE signal ADD COLUMN workspace_id uuid;
 ALTER TABLE signal_resolution ADD COLUMN workspace_id uuid;
 
-UPDATE signal SET workspace_id = (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
-UPDATE signal_resolution SET workspace_id = (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
+UPDATE signal SET workspace_id = (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
+UPDATE signal_resolution SET workspace_id = (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 
 ALTER TABLE signal ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE signal_resolution ALTER COLUMN workspace_id SET NOT NULL;

@@ -95,10 +95,9 @@ func (s *VoiceStore) RecordDraftedSignal(ctx context.Context, profileID ids.UUID
 		var signalID ids.UUID
 		err := tx.QueryRow(ctx, `
 			INSERT INTO voice_learning_signal
-			  (workspace_id, voice_profile_id, profile_version, draft_ref_hash, outcome,
+			  (voice_profile_id, profile_version, draft_ref_hash, outcome,
 			   generated_original, retention_until, source, captured_by, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, 'drafted', $4, $5, 'draft', $6, $7)
+			VALUES ($1, $2, $3, 'drafted', $4, $5, 'draft', $6, $7)
 			ON CONFLICT (draft_ref_hash) DO NOTHING
 			RETURNING id`, profileID, profileVersion, hash[:], generatedOriginal,
 			now.Add(voiceLearningSignalRetention), actor.ID, now).Scan(&signalID)

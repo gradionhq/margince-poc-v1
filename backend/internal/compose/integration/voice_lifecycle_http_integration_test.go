@@ -66,14 +66,14 @@ const voiceLifecycleEvaluation = `{
   "passed": true
 }`
 
-func seedVoiceLifecycleHistory(t *testing.T, e *apptest.AppEnv, profileID string) (ids.UUID, ids.UUID) {
+func seedVoiceLifecycleHistory(t *testing.T, e *apptest.AppEnv, profileID string) ids.UUID {
 	t.Helper()
 	ctx := context.Background()
-	var workspaceID, ownerID ids.UUID
+	var ownerID ids.UUID
 	if err := e.Owner.QueryRow(
 		ctx,
-		`SELECT workspace_id, owner_id FROM voice_profile WHERE id = $1`, profileID,
-	).Scan(&workspaceID, &ownerID); err != nil {
+		`SELECT owner_id FROM voice_profile WHERE id = $1`, profileID,
+	).Scan(&ownerID); err != nil {
 		t.Fatal(err)
 	}
 	capturedBy := "human:" + ownerID.String()
@@ -86,25 +86,24 @@ func seedVoiceLifecycleHistory(t *testing.T, e *apptest.AppEnv, profileID string
 	}
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_version
-		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+		  (voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason,
 		   model_provider, model_name, builder_version, activation_policy_version,
 		   evaluation_json, review_reasons, activated_at, source, captured_by, updated_at)
-		VALUES ($1, $2, 1, 'active', 'active version 1',
+		VALUES ($1, 1, 'active', 'active version 1',
 		        '{"document":"active version 1"}', '{"avg_sentence_words":8}',
 		        'active-hash', 1, 'manual', 'test', 'test-model', 'test-builder', '1',
-		        $3::jsonb, '{}', now(), 'ui', $4, now())`,
-		workspaceID, profileID, voiceLifecycleEvaluation, capturedBy); err != nil {
+		        $2::jsonb, '{}', now(), 'ui', $3, now())`,
+		profileID, voiceLifecycleEvaluation, capturedBy); err != nil {
 		t.Fatal(err)
 	}
-	seedVoiceLifecycleCandidate(t, e, workspaceID, profileID, 2, 1, capturedBy)
-	return workspaceID, ownerID
+	seedVoiceLifecycleCandidate(t, e, profileID, 2, 1, capturedBy)
+	return ownerID
 }
 
 func seedVoiceLifecycleCandidate(
 	t *testing.T,
 	e *apptest.AppEnv,
-	workspaceID ids.UUID,
 	profileID string,
 	profileVersion int,
 	predecessor int,
@@ -115,39 +114,39 @@ func seedVoiceLifecycleCandidate(
 	artifact := "candidate version " + strconv.Itoa(profileVersion)
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_version
-		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+		  (voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
 		   model_provider, model_name, builder_version, activation_policy_version,
 		   evaluation_json, review_reasons, source, captured_by, updated_at)
-		VALUES ($1, $2, $3, 'candidate', $4,
-		        jsonb_build_object('document', $4::text), '{"avg_sentence_words":9}',
-		        $5, 2, 'automatic', $6, 'test', 'test-model', 'test-builder', '1',
-		        $7::jsonb, ARRAY['owner review'], 'system', $8, now())`,
-		workspaceID, profileID, profileVersion, artifact,
+		VALUES ($1, $2, 'candidate', $3,
+		        jsonb_build_object('document', $3::text), '{"avg_sentence_words":9}',
+		        $4, 2, 'automatic', $5, 'test', 'test-model', 'test-builder', '1',
+		        $6::jsonb, ARRAY['owner review'], 'system', $7, now())`,
+		profileID, profileVersion, artifact,
 		"candidate-hash-"+strconv.Itoa(profileVersion), predecessor,
 		voiceLifecycleEvaluation, capturedBy); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO voice_profile_delta
-		  (workspace_id, voice_profile_id, from_version, to_version, classification,
+		  (voice_profile_id, from_version, to_version, classification,
 		   activation_outcome, delta_json)
-		VALUES ($1, $2, $3, $4, 'routine', 'review_required',
+		VALUES ($1, $2, $3, 'routine', 'review_required',
 		        '{"words_added":10,"sources_added":1,"sources_excluded":0,"identity_word_jaccard":1,"signature_set_jaccard":1,"avoid_rules_added":0,"avoid_rules_removed":0,"register_rules_removed":0}')`,
-		workspaceID, profileID, predecessor, profileVersion); err != nil {
+		profileID, predecessor, profileVersion); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func seedVoiceDraftSignal(t *testing.T, e *apptest.AppEnv, workspaceID ids.UUID, profileID string, ownerID ids.UUID, draftRef string) {
+func seedVoiceDraftSignal(t *testing.T, e *apptest.AppEnv, profileID string, ownerID ids.UUID, draftRef string) {
 	t.Helper()
 	hash := sha256.Sum256([]byte(draftRef))
 	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, profile_version, draft_ref_hash, outcome,
+		  (voice_profile_id, profile_version, draft_ref_hash, outcome,
 		   generated_original, transformations, retention_until, source, captured_by)
-		VALUES ($1, $2, 2, $3, 'drafted', 'generated draft', '[]', $4, 'system', $5)`,
-		workspaceID, profileID, hash[:], time.Now().UTC().Add(30*24*time.Hour),
+		VALUES ($1, 2, $2, 'drafted', 'generated draft', '[]', $3, 'system', $4)`,
+		profileID, hash[:], time.Now().UTC().Add(30*24*time.Hour),
 		"human:"+ownerID.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +169,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	if removed.ID != removable.Source.ID || removed.Version != removable.Source.Version+1 {
 		t.Fatalf("removed source = %+v, want archived version of %+v", removed, removable.Source)
 	}
-	workspaceID, ownerID := seedVoiceLifecycleHistory(t, e, created.ID)
+	ownerID := seedVoiceLifecycleHistory(t, e, created.ID)
 
 	if status := e.Call(t, "GET", base+"/versions?cursor=not-a-cursor", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid version cursor → %d, want 422", status)
@@ -227,7 +226,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 		t.Fatalf("applied version = %+v", applied)
 	}
 
-	seedVoiceLifecycleCandidate(t, e, workspaceID, created.ID, 3, 2, "human:"+ownerID.String())
+	seedVoiceLifecycleCandidate(t, e, created.ID, 3, 2, "human:"+ownerID.String())
 	var rejected voiceVersionWire
 	if status := e.Call(t, "POST", base+"/versions/3/reject", nil,
 		map[string]string{"If-Match": "1"}, &rejected); status != http.StatusOK {
@@ -253,7 +252,7 @@ func TestVoiceLifecycleHTTPRoundTrip(t *testing.T) {
 	}
 
 	draftRef := "draft:lifecycle-http"
-	seedVoiceDraftSignal(t, e, workspaceID, created.ID, ownerID, draftRef)
+	seedVoiceDraftSignal(t, e, created.ID, ownerID, draftRef)
 	var beforeReject voiceLearningSummaryWire
 	if status := e.Call(t, "GET", base+"/learning", nil, nil, &beforeReject); status != http.StatusOK {
 		t.Fatalf("learning summary → %d", status)

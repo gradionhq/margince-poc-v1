@@ -1,8 +1,12 @@
 -- Reverse of 0231: the eight tables carry the tenant column again.
 --
--- The backfill reads `workspace` because there is exactly one to read: 0217's
--- pre-flight refuses to run against a database holding more than one live
--- workspace, and ADR-0061 §3 has the API refusing to start in that state. If
+-- The backfill reads the LIVE workspace, and the predicate is the point: 0217's
+-- pre-flight refuses to run against a database holding more than one workspace
+-- with archived_at IS NULL, so there is exactly one live row — but an
+-- installation that resolved to one organization by ARCHIVING the others still
+-- has those rows, and 0217 names that residue explicitly. Ordering by
+-- created_at alone would hand every restored row to whichever workspace
+-- happened to be created first, archived or not. If
 -- `workspace` is empty and a table is not, SET NOT NULL fails and the rollback
 -- stops — the honest outcome, since no value this migration could write would
 -- be true.
@@ -17,7 +21,7 @@ ALTER TABLE data_subject_request ADD COLUMN workspace_id uuid;
 ALTER TABLE preference_token ADD COLUMN workspace_id uuid;
 
 DO $$
-DECLARE ws uuid := (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
+DECLARE ws uuid := (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 BEGIN
   UPDATE consent_purpose SET workspace_id = ws;
   UPDATE person_consent SET workspace_id = ws;

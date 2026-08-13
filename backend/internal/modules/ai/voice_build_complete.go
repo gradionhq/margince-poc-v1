@@ -194,12 +194,11 @@ func (s *VoiceStore) persistBuildVersion(ctx context.Context, tx pgx.Tx, build V
 	}
 	version, err := scanVoiceVersion(tx.QueryRow(ctx, storekit.SQLf(`
 		INSERT INTO voice_profile_version
-		  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+		  (voice_profile_id, profile_version, status, voice_profile_md,
 		   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
 		   model_provider, model_name, builder_version, activation_policy_version,
 		   evaluation_json, review_reasons, activated_at, source, captured_by, updated_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '2', $14, $15, $16, 'build', $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '2', $14, $15, $16, 'build', $17, $18)
 		RETURNING %s`, voiceVersionColumns),
 		build.ProfileID, nextVersion, status, outcome.Artifact.Markdown,
 		storekit.JSONArg(profileJSON), statsJSON,
@@ -247,10 +246,9 @@ func insertVoiceBuildDelta(ctx context.Context, tx pgx.Tx, build VoiceBuild, pro
 	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO voice_profile_delta
-		  (workspace_id, voice_profile_id, from_version, to_version, classification,
+		  (voice_profile_id, from_version, to_version, classification,
 		   activation_outcome, delta_json)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6)`,
+		VALUES ($1, $2, $3, $4, $5, $6)`,
 		build.ProfileID, voicePredecessor(profile.ProfileVersion), nextVersion,
 		outcome.Classification, outcome.Action, storekit.JSONArg(delta))
 	return err
