@@ -193,12 +193,15 @@ test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", asyn
   await expect(page.locator(".askfab")).toHaveCount(0);
 });
 
-// The account block carries the three things it is FOR — this person's own
-// account, the installation's settings, and the way out — and nothing that
-// changes a setting in place: theme and language are preferences and live on
-// Settings → Account. A menu offering a control would put a per-person setting
-// in the one place a reader goes to LEAVE.
-test("features/10 §7: the account menu offers its two surfaces and the way out, and no preferences", async ({
+// The account block carries the two things it is FOR — this person's own account
+// and the way out — and nothing that changes a setting in place: theme and
+// language are preferences and live on Settings → Account. A menu offering a
+// control would put a per-person setting in the one place a reader goes to LEAVE.
+//
+// And no second row into settings generally: it landed on the same page the
+// account row does, since settings opens on its first entry, while the rail
+// already carries that door.
+test("features/10 §7: the account menu offers this person's surface and the way out, and no preferences", async ({
   page,
 }) => {
   await page.goto("/#/home");
@@ -208,9 +211,7 @@ test("features/10 §7: the account menu offers its two surfaces and the way out,
     "href",
     "#/settings/account",
   );
-  await expect(
-    menu.getByRole("link", { name: "Einstellungen" }),
-  ).toHaveAttribute("href", "#/settings");
+  await expect(menu.getByRole("link")).toHaveCount(1);
   await expect(menu.getByRole("button", { name: "Abmelden" })).toBeVisible();
   await expect(menu.getByRole("combobox")).toHaveCount(0);
 });

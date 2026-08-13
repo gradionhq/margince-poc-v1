@@ -47,7 +47,10 @@ else
     echo "FAIL: pkg-freeze — cannot enumerate release tags (git tag failed)" >&2
     exit 1
   fi
-  if printf '%s\n' "$RELEASE_TAGS" | grep -qE '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+  # Here-string, not a pipe: `grep -q` exits on its first match and SIGPIPEs a
+  # producer mid-write, which `set -o pipefail` reports as a failed pipeline —
+  # so a tag list long enough to block printf would read as "no release tag".
+  if grep -qE '^v[1-9][0-9]*\.[0-9]+\.[0-9]+$' <<<"$RELEASE_TAGS"; then
     MODE=enforce
   else
     MODE=advisory
