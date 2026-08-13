@@ -79,18 +79,18 @@ type previewDef struct {
 // previewNotYetSupported builds a previewDef that documents a gap
 // rather than fabricating one: previewDef's match is a STATIC
 // storekit.Predicate over ONE table with ONE RBAC-scoped resource, and
-// three catalog entries genuinely do not fit that shape yet —
+// two catalog entries genuinely do not fit that shape yet —
 // no_activity_reminder and check_in_cadence's candidate set spans every
 // linked entity type (activities/lasttouch.go's LastTouchBefore
 // coalesces person/organization/deal/lead) with no single RBAC resource
 // to scope a row-visibility clause against, and BOTH their own "if" is
 // relative to "now minus the instance's own N days" — a runtime value
-// this registry's static map cannot parameterize on. renewal_reminder
-// has no candidate source wired at all yet (handlers_clock.go's
-// own extensive doc on that gap: no seam reaches an arbitrary cf_*
-// column's value). Fabricating any of the three risks a wrong or
-// over-wide RBAC scope on a preview endpoint — a security-sensitive
-// surface — which is worse than an honest "not yet".
+// this registry's static map cannot parameterize on. Fabricating either
+// risks a wrong or over-wide RBAC scope on a preview endpoint — a
+// security-sensitive surface — which is worse than an honest "not yet".
+// renewal_reminder USED to sit here too (no candidate source was wired),
+// but resolvePreviewRecipe now builds its previewDef dynamically instead
+// of listing it as a static gap — see that function's own doc.
 func previewNotYetSupported(reason string) previewDef {
 	return previewDef{unsupported: reason}
 }
@@ -228,15 +228,14 @@ func activityPreviewDefs() map[string]previewDef {
 
 // unsupportedPreviewDefs are the catalog entries previewNotYetSupported
 // documents (its own doc explains why each cannot fit previewDef's
-// static, single-table shape yet).
+// static, single-table shape yet). renewal_reminder is NOT here: its
+// previewDef is built dynamically per-instance instead (resolvePreviewRecipe).
 func unsupportedPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
 		noActivityReminderName: previewNotYetSupported(
 			"preview is not yet supported for no_activity_reminder: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
 		checkInCadenceName: previewNotYetSupported(
 			"preview is not yet supported for check_in_cadence: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
-		renewalReminderName: previewNotYetSupported(
-			"preview is not yet supported for renewal_reminder: no candidate source is wired for a custom renewal-date field yet"),
 	}
 }
 
@@ -249,7 +248,8 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 	if err != nil {
 		return AutomationPreviewResult{}, err
 	}
-	def, window, err := resolvePreviewRecipe(stored, in)
+	now := s.now().UTC()
+	def, window, err := resolvePreviewRecipe(stored, in, now)
 	if err != nil {
 		return AutomationPreviewResult{}, err
 	}
@@ -259,7 +259,7 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 		return AutomationPreviewResult{}, err
 	}
 
-	since := s.now().UTC().AddDate(0, 0, -window)
+	since := now.AddDate(0, 0, -window)
 	res := AutomationPreviewResult{WindowDays: window}
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return def.measure(ctx, tx, since, &res)
@@ -273,7 +273,15 @@ func (s *AutomationStore) Preview(ctx context.Context, id ids.AutomationID, in A
 // resolvePreviewRecipe picks the recipe under preview — the stored
 // instance, or the request's draft override — and validates it exactly
 // the way a save would, so the editor's preview 422s match its save 422s.
-func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput) (previewDef, int, error) {
+//
+// renewal_reminder is the one key with no static previewDefs() entry:
+// its table and watched column are per-instance (the workspace's own
+// object/date_field params), so a static map entry cannot name them.
+// renewalPreviewDef builds this instance's previewDef at request time
+// instead, from whichever params are in effect (the draft override, or
+// the stored instance's own) — see its own doc for what that recipe can
+// and cannot answer.
+func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput, now time.Time) (previewDef, int, error) {
 	key := stored.Key
 	if in.Key != nil {
 		key = *in.Key
@@ -294,6 +302,13 @@ func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput) (preview
 			return previewDef{}, 0, &ParamError{Field: "window_days",
 				Reason: fmt.Sprintf("must be between 1 and %d days", previewMaxWindowDays)}
 		}
+	}
+	if key == renewalReminderName {
+		p, err := renewalPreviewParams(stored, in)
+		if err != nil {
+			return previewDef{}, 0, err
+		}
+		return renewalPreviewDef(now, p), window, nil
 	}
 	def, ok := previewDefs()[key]
 	if !ok {

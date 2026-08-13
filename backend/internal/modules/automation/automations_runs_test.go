@@ -47,6 +47,12 @@ func TestRunOutcomeAndStatusMapsAreTotalInverses(t *testing.T) {
 func TestEveryCatalogKeyHasAPreviewDefinition(t *testing.T) {
 	defs := previewDefs()
 	for _, entry := range Catalog() {
+		if entry.Key == renewalReminderName {
+			// Not one of previewDefs()'s static entries: its table/column
+			// are per-instance, so resolvePreviewRecipe builds its
+			// previewDef dynamically instead (renewalPreviewDef's own doc).
+			continue
+		}
 		def, ok := defs[entry.Key]
 		if !ok {
 			t.Errorf("catalog key %q has no preview definition — POST /automations/{id}/preview would 500", entry.Key)
