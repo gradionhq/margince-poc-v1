@@ -564,7 +564,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
     await expect(page.getByText(/eu1/)).toBeVisible();
     // Per-object sync rows: person + organization landed fresh; deal is still
@@ -686,7 +686,7 @@ test.describe("B-EP09.23: overlay mode", () => {
 
   test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
     await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
     // Distinct from the per-object "Backfill abgeschlossen" copy already on
@@ -699,7 +699,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
     // The chip is the only accent badge that is a link; the mapping card on
     // this tab wears the same badge on the row for the signed-in user, so an
     // unqualified `.badge-accent` would be counting two different things.
@@ -739,7 +739,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     // nothing, which is the one way a mapping workflow must not be able to
     // look correct.
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/connections");
+    await page.goto("/#/settings/integrations");
 
     // Seeded state: the admin's own seat, matched to a HubSpot owner by email.
     await expect(page.getByText("Über E-Mail zugeordnet")).toBeVisible();

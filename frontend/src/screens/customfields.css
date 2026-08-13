@@ -70,11 +70,17 @@
 
 /* This screen's hint line, in both its spellings: a standalone paragraph, and
    the caption a Field renders for its own control (`.cf-field` marks a field
-   whose hint is one of these). One rule, so the two cannot drift apart. */
+   whose hint is one of these). One rule, so the two cannot drift apart.
+
+   --textMeta, not --textTertiary: this is 11.5px prose a reader is meant to READ,
+   and tertiary is the de-emphasis ink that clears 3:1 for incidental text rather
+   than the 4.5:1 body text owes. tokens.css names textMeta the canonical AA
+   small-text role, and axe measured this pair failing on both spellings once the
+   Data model page joined the AA sweep. */
 .cf-hint,
 .cf-field > .t-caption {
   font-size: 11.5px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   line-height: 1.45;
   margin: 6px 0;
 }
