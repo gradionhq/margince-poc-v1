@@ -142,6 +142,17 @@ func (f *candidatesFixture) seedLead(t *testing.T, value time.Time) ids.UUID {
 	return id
 }
 
+// archiveLead stamps archived_at on a seeded lead — a raw UPDATE, the
+// same posture seedLead already takes (this suite reads a table it does
+// not own the writes to, so there is no store here to archive through).
+func (f *candidatesFixture) archiveLead(t *testing.T, id ids.UUID) {
+	t.Helper()
+	if _, err := f.owner.Exec(context.Background(),
+		`UPDATE lead SET archived_at = now() WHERE id = $1`, id); err != nil {
+		t.Fatalf("archiving lead: %v", err)
+	}
+}
+
 func TestDateFieldCandidates_RefusesAnUnknownColumn(t *testing.T) {
 	f := setupCandidates(t)
 	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -183,6 +194,40 @@ func TestDateFieldCandidates_LiteralBetweenMatchesTheStoredValue(t *testing.T) {
 	}
 	if !got[0].OccurrenceDate.Equal(inWindow) {
 		t.Errorf("OccurrenceDate = %s, want %s — a one-time field's occurrence IS its stored value", got[0].OccurrenceDate, inWindow)
+	}
+}
+
+// TestDateFieldCandidates_ExcludesArchivedRows proves an archived lead
+// never mints a reminder task: its date value falls squarely inside the
+// window, but archived_at IS NULL excludes it from both the literal and
+// recurring query shapes — the same exclusion the preview side already
+// applies (previewBaseWhereNotArchived, automations_preview.go); the
+// real scan path must agree, or an archived record could still surface
+// a task the workspace has no reason to expect.
+func TestDateFieldCandidates_ExcludesArchivedRows(t *testing.T) {
+	f := setupCandidates(t)
+	inWindow := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	activeID := f.seedLead(t, inWindow)
+	archivedID := f.seedLead(t, inWindow)
+	f.archiveLead(t, archivedID)
+
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	literal, err := f.svc.DateFieldCandidates(f.ctx, "lead", f.dateCol, from, to, false, 50)
+	if err != nil {
+		t.Fatalf("DateFieldCandidates (literal): %v", err)
+	}
+	if len(literal) != 1 || literal[0].EntityID != activeID {
+		t.Fatalf("literal candidates = %+v, want exactly the active lead, never the archived one", literal)
+	}
+
+	recurring, err := f.svc.DateFieldCandidates(f.ctx, "lead", f.dateCol, from, to, true, 50)
+	if err != nil {
+		t.Fatalf("DateFieldCandidates (recurring): %v", err)
+	}
+	if len(recurring) != 1 || recurring[0].EntityID != activeID {
+		t.Fatalf("recurring candidates = %+v, want exactly the active lead, never the archived one", recurring)
 	}
 }
 
@@ -261,5 +306,46 @@ func TestDateFieldCandidates_RecurringFullYearWindowMatchesEveryMonthDay(t *test
 	wantOccurrence := time.Date(2027, 3, 1, 0, 0, 0, 0, got[0].OccurrenceDate.Location())
 	if !got[0].OccurrenceDate.Equal(wantOccurrence) {
 		t.Errorf("OccurrenceDate = %s, want %s", got[0].OccurrenceDate, wantOccurrence)
+	}
+}
+
+// TestFieldObjectsAllCarryArchivedAt is a fitness function, not a
+// hand-verified list: DateFieldCandidates hard-codes "archived_at IS
+// NULL" into every query it builds (candidates.go), which is only ever
+// safe because every member of FieldObjects happens to carry that
+// column today. Nothing derives that obligation from the tree — a
+// SEVENTH object added to FieldObjects without archived_at would turn a
+// real clock-scan pass into a runtime 42703/500, not a compile error or
+// a caught test failure, unless this test is the one asserting it.
+func TestFieldObjectsAllCarryArchivedAt(t *testing.T) {
+	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
+	if ownerDSN == "" {
+		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, ownerDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	}()
+
+	for _, object := range FieldObjects {
+		var exists bool
+		err := owner.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'archived_at'
+			)`, object).Scan(&exists)
+		if err != nil {
+			t.Fatalf("checking %s.archived_at: %v", object, err)
+		}
+		if !exists {
+			t.Errorf("customfields.FieldObjects includes %q, but its table has no archived_at column — "+
+				"DateFieldCandidates' query builders hard-code that exclusion and would fail at scan time", object)
+		}
 	}
 }

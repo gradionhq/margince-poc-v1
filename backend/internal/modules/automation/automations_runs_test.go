@@ -68,7 +68,8 @@ func TestEveryCatalogKeyHasAPreviewDefinition(t *testing.T) {
 				Key:    renewalReminderName,
 				Params: json.RawMessage(`{"object":"person","date_field":"cf_renewal_date","days_before":30}`),
 			}
-			def, _, err := resolvePreviewRecipe(context.Background(), renewalCatalog, stored, AutomationPreviewInput{}, time.Now())
+			fixedNow := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+			def, _, err := resolvePreviewRecipe(context.Background(), renewalCatalog, stored, AutomationPreviewInput{}, fixedNow)
 			if err != nil {
 				t.Errorf("resolvePreviewRecipe for a configured renewal_reminder instance: %v", err)
 				continue

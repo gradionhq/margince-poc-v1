@@ -170,6 +170,18 @@ func TestRenewalReminderPreviewMatchesTheRealSeededRows(t *testing.T) {
 	if result.ExcludedByPermission != 0 {
 		t.Errorf("ExcludedByPermission = %d, want 0 — this caller can see everything it matched", result.ExcludedByPermission)
 	}
+	// WouldHaveFired asks a DIFFERENT question than MatchesNow: not "is
+	// the value in [now, now+days_before] RIGHT NOW" but "did the value
+	// fall in that window at ANY point in the trailing window_days" — the
+	// due-soon person's (10 days out) active-match span opens
+	// days_before=30 days before its OWN value, i.e. ~20 days AGO
+	// (previewNow-20), which is inside the trailing 30-day estimate
+	// window [previewNow-30, previewNow] even though the person was not
+	// yet a MatchesNow candidate 30 days ago — so it must count here too,
+	// not just in MatchesNow.
+	if result.WouldHaveFired == nil || *result.WouldHaveFired != 1 {
+		t.Fatalf("WouldHaveFired = %v, want exactly 1 (the due-soon person's active-match span overlaps the trailing estimate window)", result.WouldHaveFired)
+	}
 	_ = dueLater // asserted by absence: MatchesNow/Sample above already exclude it
 }
 

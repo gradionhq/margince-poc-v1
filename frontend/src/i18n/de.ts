@@ -3366,6 +3366,8 @@ export const de = {
   "auto.dateField.needsObject":
     "Wähle zuerst ein Objekt aus, um dessen Datumsfelder anzuzeigen.",
   "auto.dateField.empty": "Dieses Objekt hat noch keine aktiven Datumsfelder.",
+  "auto.dateField.loadError":
+    "Die Datumsfelder dieses Objekts konnten nicht geladen werden. Erneut versuchen.",
 
   "auto.runs.open": "Läufe",
   "auto.runs.title": "Laufverlauf",

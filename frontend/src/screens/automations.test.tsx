@@ -743,6 +743,46 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     ).toBeNull();
   });
 
+  it("disables the date_field picker with a load-error hint when /custom-fields fails, rather than an empty enabled control", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const request = input instanceof Request ? input : null;
+        const url = String(request ? request.url : input);
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ allow: AUTOMATION_OPERATOR }));
+        }
+        if (url.includes("/automations/catalog")) {
+          return jsonResponse({ data: [renewalCatalogEntry] });
+        }
+        if (url.includes("/custom-fields")) {
+          return jsonResponse(
+            { code: "internal", message: "custom field lookup failed" },
+            500,
+          );
+        }
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }),
+    );
+    render(<AutomationsAdmin />);
+    await waitFor(() =>
+      expect(screen.getByText("Renewal reminder")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Use template" }));
+
+    await pickOption(
+      userEvent.setup(),
+      screen.getByRole("combobox", { name: "object" }),
+      "person",
+    );
+
+    const picker = screen.getByRole("combobox", { name: "date_field" });
+    await waitFor(() => expect(picker).toBeDisabled());
+    expect(
+      screen.getByText("Couldn't load this object's date fields. Try again."),
+    ).toBeTruthy();
+  });
+
   it("round-trips the boolean and the picked date field through paramsFromValues into the create request", async () => {
     const calls: Recorded[] = [];
     vi.stubGlobal("fetch", renewalBackend(calls));

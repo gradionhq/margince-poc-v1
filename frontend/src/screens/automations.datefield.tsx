@@ -68,8 +68,18 @@ export function DateFieldSelect({
     queryKey: ["custom-fields", object],
     enabled: known,
     queryFn: async () => {
+      // Narrow inside the closure, not with a cast at the call site: the
+      // compiler proves the object query param is a real
+      // CustomFieldQueryObject here, rather than trusting `enabled: known`
+      // to have kept queryFn from ever running otherwise — a guarantee
+      // that would silently stop holding if either changed later.
+      if (!isCustomFieldQueryObject(object)) {
+        throw new Error(
+          "DateFieldSelect queryFn ran for an unsupported object",
+        );
+      }
       const { data, error } = await api.GET("/custom-fields", {
-        params: { query: { object: object as CustomFieldQueryObject } },
+        params: { query: { object } },
       });
       if (error) {
         throwProblem(error);
@@ -85,14 +95,19 @@ export function DateFieldSelect({
     : [];
 
   // Disabled whenever there is nothing real to choose from yet — no object
-  // picked, or the chosen object simply has no active date field — rather
-  // than opening on an empty list a click could never fill.
-  const disabled = !known || (fields.isSuccess && options.length === 0);
+  // picked, the fetch itself failed, or the chosen object simply has no
+  // active date field — rather than opening on an empty list a click
+  // could never fill, or (worse) an empty list with no indication the
+  // fetch behind it failed.
+  const disabled =
+    !known || fields.isError || (fields.isSuccess && options.length === 0);
   const hint = !known
     ? t("auto.dateField.needsObject")
-    : fields.isSuccess && options.length === 0
-      ? t("auto.dateField.empty")
-      : undefined;
+    : fields.isError
+      ? t("auto.dateField.loadError")
+      : fields.isSuccess && options.length === 0
+        ? t("auto.dateField.empty")
+        : undefined;
 
   return (
     <>

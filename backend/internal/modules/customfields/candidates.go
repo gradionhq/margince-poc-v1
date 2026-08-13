@@ -70,7 +70,10 @@ const minDateFieldCandidatesLimit = 1
 // [from, to] — literally when recurring is false, by MONTH/DAY when
 // recurring is true (a window that crosses Dec 31 → Jan 1 matches via an
 // OR of two MMDD ranges rather than a single BETWEEN, since MMDD is not
-// a linearly ordered domain across that boundary).
+// a linearly ordered domain across that boundary). Never considers an
+// ARCHIVED row a candidate, in either shape: an archived record must
+// never mint a reminder task, the same posture the preview side takes
+// (previewBaseWhereNotArchived, automation/automations_preview.go).
 //
 // limit bounds the query exactly like clockScanBatchLimit bounds
 // activities.LastTouchBefore (automation/timescan.go) — one scan pass
@@ -139,13 +142,20 @@ type dateFieldRow struct {
 }
 
 // queryLiteralCandidates is the one-time-field shape: a plain BETWEEN
-// over the column's real stored value. quotedTable/quotedCol are already
+// over the column's real stored value (the archived-row exclusion is
+// documented once, on DateFieldCandidates above). from/to bind as
+// DATE-only strings, not raw time.Time: the column is a DATE with no
+// time-of-day component, and binding a timestamp with today's actual
+// clock time would exclude a same-day match on the `from` boundary
+// (today's midnight-valued DATE compares before "now, 14:32") while
+// silently including one on `to` — a boundary inconsistency between
+// otherwise-identical bounds. quotedTable/quotedCol are already
 // validated identifiers (DateFieldCandidates), safe to format directly.
 func queryLiteralCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quotedCol string, from, to time.Time, limit int) ([]dateFieldRow, error) {
 	query := fmt.Sprintf(
-		`SELECT id, %[1]s FROM %[2]s WHERE %[1]s BETWEEN $1 AND $2 ORDER BY %[1]s, id LIMIT $3`,
+		`SELECT id, %[1]s FROM %[2]s WHERE archived_at IS NULL AND %[1]s BETWEEN $1 AND $2 ORDER BY %[1]s, id LIMIT $3`,
 		quotedCol, quotedTable)
-	return scanDateFieldRows(ctx, tx, query, limit, from, to)
+	return scanDateFieldRows(ctx, tx, query, limit, from.Format(time.DateOnly), to.Format(time.DateOnly))
 }
 
 // queryRecurringCandidates is the yearly-recurrence shape: compares the
@@ -169,7 +179,7 @@ func queryRecurringCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quote
 	} else {
 		predicate = fmt.Sprintf(`(to_char(%[1]s,'MMDD') >= $1 OR to_char(%[1]s,'MMDD') <= $2)`, quotedCol)
 	}
-	query := fmt.Sprintf(`SELECT id, %[1]s FROM %[2]s WHERE %[3]s ORDER BY %[1]s, id LIMIT $3`,
+	query := fmt.Sprintf(`SELECT id, %[1]s FROM %[2]s WHERE archived_at IS NULL AND %[3]s ORDER BY %[1]s, id LIMIT $3`,
 		quotedCol, quotedTable, predicate)
 	return scanDateFieldRows(ctx, tx, query, limit, fromMMDD, toMMDD)
 }
@@ -177,8 +187,8 @@ func queryRecurringCandidates(ctx context.Context, tx pgx.Tx, quotedTable, quote
 // scanDateFieldRows runs query (already built with validated identifiers
 // by its caller) and scans the (id, date) result shape both candidate
 // queries share. args are the query's own $1/$2 binds in order — a
-// time.Time pair for the literal shape, a MMDD string pair for the
-// recurring shape — with limit always bound last as $3, since every
+// DATE-only string pair for the literal shape, an MMDD string pair for
+// the recurring shape — with limit always bound last as $3, since every
 // candidate query shares that same LIMIT position regardless of what its
 // own predicate binds.
 func scanDateFieldRows(ctx context.Context, tx pgx.Tx, query string, limit int, args ...any) ([]dateFieldRow, error) {

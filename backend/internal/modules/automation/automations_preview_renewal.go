@@ -150,8 +150,8 @@ func validateRenewalPreviewDateField(ctx context.Context, catalog fieldcatalog.R
 // around a column known to be real.
 func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 	quotedCol := pgx.Identifier{p.Column}.Sanitize()
-	from := now.Format("2006-01-02")
-	to := now.AddDate(0, 0, p.DaysBefore).Format("2006-01-02")
+	from := now.Format(time.DateOnly)
+	to := now.AddDate(0, 0, p.DaysBefore).Format(time.DateOnly)
 	return previewDef{
 		table:     p.Object,
 		baseWhere: previewBaseWhereNotArchived,
@@ -162,24 +162,51 @@ func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 			{Field: paramKeyDateField, Op: storekit.OpGte, Value: from},
 			{Field: paramKeyDateField, Op: storekit.OpLte, Value: to},
 		}},
-		// firedCount: entities whose watched date already fell inside the
-		// trailing window — the past-occurrences reading of "would have
-		// fired", the same convention every other firedCount closure
-		// counts against (a completed event within [since, now]). This
-		// deliberately does NOT apply previewBaseWhereNotArchived, matching
-		// leadPreviewDefs' assignLeadOwnerName ("every lead created in the
-		// window was one firing — including leads since archived or
-		// routed"): a firing that already happened is a historical fact
-		// about that pass, independent of the row's CURRENT archived
-		// status, so an entity archived after its renewal date fired still
-		// counts here even though it is excluded from MatchesNow's
-		// right-now snapshot above.
+		// firedCount answers "how many watched dates would have fired at
+		// SOME point in [since, now]" — not "whose value falls in
+		// [since, now]" (that undercounts: a value 5 days out from now
+		// would have started matching days_before days ago and stays a
+		// match through today, so its ACTIVE-match span is
+		// [value-days_before, value], and it counts here whenever that
+		// span overlaps [since, now] at all). Two spans [a,b] and [c,d]
+		// overlap iff a<=d AND c<=b — substituting
+		// [value-days_before, value] for [a,b] and [since, now] for
+		// [c,d] and rearranging gives value in [since, now+days_before],
+		// which is what this queries: shifting only the UPPER bound by
+		// days_before, not both (a symmetric shift of both bounds would
+		// undercount a value whose active-match span closed before
+		// since+days_before but still overlapped [since, now]). `to`
+		// (above) IS that upper bound, reused rather than recomputed, so
+		// the two can never drift onto two different horizons.
+		//
+		// This is the "fresh enablement" reading, not the "already
+		// running" one: a live instance's own occurrence key
+		// (anchorIdempotencyKey, handlers_clock.go) claims each value
+		// exactly once, at value-days_before, so an ALREADY-ENABLED
+		// instance's true firing count over [since, now] is narrower —
+		// value in [since+days_before, now+days_before] — because a
+		// value whose firing instant fell before `since` already claimed
+		// its row and would not fire again inside the window even though
+		// its active-match span still overlaps it. The wider
+		// span-overlap reading here answers the question a PREVIEW
+		// actually asks — "if I turn this on now, what would it have
+		// caught over the trailing window" — where there is no prior
+		// claimed anchor to exclude.
+		//
+		// Deliberately does NOT apply previewBaseWhereNotArchived,
+		// matching leadPreviewDefs' assignLeadOwnerName ("every lead
+		// created in the window was one firing — including leads since
+		// archived or routed"): a firing that already happened is a
+		// historical fact about that pass, independent of the row's
+		// CURRENT archived status, so an entity archived after its
+		// renewal date fired still counts here even though it is
+		// excluded from MatchesNow's right-now snapshot above.
 		firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 			var n int
 			err := tx.QueryRow(ctx, storekit.SQLf(
 				`SELECT count(*) FROM %s WHERE %s BETWEEN $1 AND $2`, p.Object, quotedCol,
 			),
-				since.Format("2006-01-02"), now.Format("2006-01-02")).Scan(&n)
+				since.Format(time.DateOnly), to).Scan(&n)
 			return n, err
 		},
 	}

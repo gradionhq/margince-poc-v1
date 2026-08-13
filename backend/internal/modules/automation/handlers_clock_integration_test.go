@@ -193,11 +193,21 @@ func TestRenewalReminderScanIsANoOpWhenUnconfigured(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
-	scanner := NewTimeScannerWithClock(engine, &fakeActivityScan{}, nil, func() time.Time { return now }, log)
+	// A recording fake, not nil: fx.seedAutomation seeds no object/date_field
+	// params, so renewalDateFieldScanParams' errRenewalScanParamsMissing
+	// skips the instance before the seam is ever consulted (timescan.go's
+	// scanDateFieldInstanceCandidates) — proven directly below, so a
+	// future change that DID reach the seam would fail loudly on a real
+	// call recorded, rather than panicking on a nil interface.
+	dateScan := &fakeDateFieldScan{}
+	scanner := NewTimeScannerWithClock(engine, &fakeActivityScan{}, dateScan, func() time.Time { return now }, log)
 
 	ctx := principal.WithWorkspaceID(context.Background(), fx.ws)
 	if err := scanner.ScanWorkspace(ctx, fx.ws); err != nil {
 		t.Fatalf("ScanWorkspace: %v", err)
+	}
+	if len(dateScan.calls) != 0 {
+		t.Errorf("DateFieldScan.Candidates called %d times, want 0 — an unconfigured instance never reaches the seam", len(dateScan.calls))
 	}
 
 	n := fx.count(t, `SELECT count(*) FROM workflow_run WHERE handler = $1`, renewalReminderName)
