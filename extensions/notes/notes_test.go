@@ -63,6 +63,7 @@ func TestEveryToolTheContractDeclaresHasBehavior(t *testing.T) {
 	// hand when one changes.
 	want := []string{
 		"add_note",
+		"file_note",
 		"list_notes",
 		"remove_note",
 		"sign_payload",
@@ -125,6 +126,7 @@ func TestMigrationsAreEmbedded(t *testing.T) {
 		"0001_note.down.sql", "0001_note.up.sql",
 		"0002_note_kind.down.sql", "0002_note_kind.up.sql",
 		"0003_note_workspace_index.down.sql", "0003_note_workspace_index.up.sql",
+		"0004_note_filing.down.sql", "0004_note_filing.up.sql",
 	}; !slices.Equal(names, want) {
 		t.Fatalf("embedded migrations = %v, want %v — a pair missing from the EMBED is a pair nothing applies, however present it is on disk", names, want)
 	}

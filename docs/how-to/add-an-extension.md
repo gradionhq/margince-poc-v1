@@ -271,6 +271,19 @@ restricted role against a throwaway database and re-reads the catalog):
   else, because a foreign key onto a core table takes a lock on core writes and can refuse a core
   delete forever after.
 
+**A core record is not yours to write in SQL — the port is.** `tx.Core()` is the governed door onto the
+product's own records: `tx.Core().Activities().Create(…)` files an activity through the same write path
+the HTTP surface uses, so it is checked against the CALLER's live permissions, refused with `ErrNotFound`
+for a subject they cannot see, audited, published as an event, and attributed to your unit — all inside
+the transaction your own row is in, so the two commit together or not at all. `extensions/notes/filing.go`
+is the worked example, and `backend/pkg/extension/crm` holds the shapes it takes and returns.
+
+Three refusals to design for rather than discover: a scheduled JOB TICK gets `ErrForbidden` (it runs as
+your unit, with no caller whose permissions a core write could be checked against — your own tables stay
+writable); an OVERLAY workspace gets `ErrOverlayUnsupported` (its native records are not the live ones);
+and custom fields are refused rather than dropped. Grants are the other thing to plan: filing needs the
+caller to hold your unit's object AND the core `activity` one, and nothing declares that pairing yet.
+
 **And what your migrations may CREATE is what your SQL may NAME — in your tests too.** `rt.Tx()` runs
 on the shared `margince_app` role, so a statement naming `person` would work, which is why
 `TestExtensionSQLNamesOnlyTheUnitsOwnTables` (`backend/extensionsqlscope_test.go`) reads **every `.go`

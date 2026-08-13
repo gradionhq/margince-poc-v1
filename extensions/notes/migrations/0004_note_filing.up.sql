@@ -1,0 +1,21 @@
+-- SPDX-License-Identifier: BUSL-1.1
+-- SPDX-FileCopyrightText: 2026 Gradion
+--
+-- A note can be FILED to a record: the core activity it created, remembered
+-- here so the screen can say which notes reached the timeline and which are
+-- still only the unit's.
+--
+-- A plain uuid and NOT a foreign key onto activity, which is the one thing
+-- worth stating about this column. A unit's tables may reference workspace(id)
+-- and nothing else in public (the migration gate mints a role that CAN point
+-- nowhere else): a foreign key onto a core table takes a lock on core writes
+-- and can refuse a core delete forever after, which is a unit reaching into the
+-- product's own operations. What this column holds is a RECEIPT — the id the
+-- port answered with — and a receipt for a record that later went away is
+-- correct history, not a dangling reference.
+--
+-- A new migration rather than a line in 0001, for the reason 0002 and 0003 give
+-- at length: dbmigrate keys on the version, so an amended 0001 runs on exactly
+-- the installations that did not need it.
+ALTER TABLE ext.ext_notes_note
+    ADD COLUMN filed_activity_id uuid;

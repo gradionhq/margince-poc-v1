@@ -32,8 +32,24 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "702c4a7ae9b3dab1482169de320ec57af63b1c91c87619c2d356fdf8278a2b5b",
-      "digest": "sha256:8c2e468bad5998b2cc9317240a55ed214c7e8709ce91cad9e832e2280d801351"
+      "fragment_hash": "0c5182e93e406c57e822344f1cf3b6a3c5839b9f449b96aef49feddf84bb209f",
+      "digest": "sha256:1012069f65f6059f2d260fe0bcf4945e0258436a6c74d75e5de8e2a457818fec"
+    },
+    {
+      "id": "tool/file_note",
+      "unit": "notes",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "notesFile",
+      "route": "/ext/notes/file",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "fb78ae8c11743197abdfed382754a5611bfb011789d620e17e2681a95d124c9b",
+      "digest": "sha256:df8e38d3d926a6de8c64036b214079925c60e403f7b0846c876237df2c1aa444"
     },
     {
       "id": "tool/list_notes",
@@ -48,8 +64,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "c4a57e463deaea98556893f1b4b238e2d2ad37b98be490dc8f78504e574024e7",
-      "digest": "sha256:c3c53abef296ce589431c13e301c72fac6860895af4a961add3800be559d16fe"
+      "fragment_hash": "8a76bbb10fbc62d41f943abdcbd5e0336d475b9e55619e464a10deee80006f83",
+      "digest": "sha256:2e0ac22343faf4d802ff540a6f5472c0db451b3e0d41cc4f2820dd93aa95f5b0"
     },
     {
       "id": "tool/remove_note",

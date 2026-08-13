@@ -32,10 +32,18 @@
 //
 //   - Runtime.Tx, which hands out arbitrary SQL and so cannot make a unit's
 //     write carry the audit and event records the core's own repositories are
-//     required to write. The intended replacement separates a read-only
-//     transaction from a governed mutation that returns structured change
-//     descriptors the core writes for. Tx is expected to be REMOVED, not
-//     merely joined by a sibling.
+//     required to write.
+//
+//     This entry USED to say Tx would be removed and replaced by a governed
+//     mutation returning change descriptors. It is now joined by one instead:
+//     Tx.Core() is the governed door, and it makes the core's own write — the
+//     RBAC check, the audit row, the outbox event, the attribution — rather
+//     than describing a change for the core to make. Tx's three SQL verbs stay
+//     for the unit's OWN tables, which is what they were always the right
+//     shape for. What remains unstable is their reach: a unit's SQL runs on the
+//     shared application role today, and narrowing it to a per-unit database
+//     role (issue #628) is a change every unit's SQL feels.
+//
 //   - The frontend surface a unit screen imports, whose exported client type
 //     currently infers foreign types (openapi-fetch) into the published shape.
 //     Replacing those with core-owned interfaces changes the exported types.

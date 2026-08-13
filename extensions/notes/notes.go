@@ -11,9 +11,10 @@
 //
 //   - migrations/ — ext_notes_note, workspace-scoped under forced RLS. Add a
 //     note, restart the stack, it is still there.
-//   - api/ — six governed operations under /ext/notes/, three of them gating
-//     on the unit's own RBAC object ext_notes_note. A read-only seat sees the
-//     list and no Add control.
+//   - api/ — seven governed operations under /ext/notes/, gating on three RBAC
+//     objects of the unit's own. A read-only seat sees the list and no Add
+//     control; ext_notes_filing is the one no seeded role holds, because
+//     filing writes a record the whole product shares.
 //   - secrets — a stored HMAC signing key, proven by USE. Signing a payload is
 //     the whole demonstration; no operation returns the key, masked or
 //     otherwise, because the production shape this stands in for (a webhook
@@ -22,7 +23,7 @@
 //     is the only thing on the screen that happens without a user, and naming
 //     the workspace is what makes the dispatcher's FAN-OUT visible rather than
 //     silently demonstrating the single-tenant case.
-//   - Tools — the same six operations reach the agent as governed tools;
+//   - Tools — the same seven operations reach the agent as governed tools;
 //     list_notes is the one an operator asks "what's in my demo notepad".
 //   - the screen — served from the CORE frontend tree, not from this unit.
 //     extensions/<name>/frontend/ is still an unbuilt capability layer that
@@ -68,6 +69,7 @@ func New() extension.Extension {
 		Tools: []extension.Tool{
 			{Name: "list_notes", Handle: listNotes},
 			{Name: "add_note", Handle: addNote},
+			{Name: "file_note", Handle: fileNote},
 			{Name: "remove_note", Handle: removeNote},
 			{Name: "store_signing_key", Handle: storeSigningKey},
 			{Name: "signing_key_status", Handle: signingKeyStatus},
