@@ -259,25 +259,70 @@ const ownHeaderRunes = 400
 // refusing to read it would answer Unknown for a forward whose language is
 // perfectly clear.
 func replyText(runes []rune) (text []rune, lead int) {
-	runes = cutAt(runes, quoteStart(runes))
-	runes = cutAt(runes, signatureStart(runes))
+	runes = cutAt(runes, earliest(quoteStart(runes), signatureStart(runes)))
 	return runes, min(len(runes), LeadRunes)
+}
+
+// earliest picks the first boundary any of the detectors found, ignoring the
+// ones that found nothing.
+//
+// ONE cut, at the earliest boundary — not one cut per detector. Cutting
+// sequentially looks equivalent and is not, in both directions:
+//
+//   - The second cut measures the floor against text the first cut already
+//     shortened. A short reply plus a long signature clears twelve words, so
+//     the quote goes; the signature cut then sees only the short reply, falls
+//     under the floor, and leaves the English signature in. The reply loses to
+//     its own signature, which is the defect this file exists to fix.
+//   - Whichever detector runs first wins, even when it found a LATER boundary.
+//     A footer at rune 84 followed by a sig-dash at 264 kept the footer.
+//
+// Both disappear once the boundaries are compared before anything is cut and
+// the floor is measured once, against the text as it arrived.
+func earliest(offsets ...int) int {
+	found := -1
+	for _, offset := range offsets {
+		if offset >= 0 && (found < 0 || offset < found) {
+			found = offset
+		}
+	}
+	return found
 }
 
 // cutAt drops everything from the offset down, unless doing so would leave too
 // little text to read.
 //
-// The floor is what keeps every cut honest. A message that is ONLY a quote, or
+// The floor is what keeps the cut honest. A message that is ONLY a quote, or
 // only a footer, keeps it: then that text is all the evidence there is, and
 // refusing to read it answers Unknown for a forward whose language is perfectly
 // clear. The quote cut learned this the expensive way — twice, from a user
-// report — and the signature cut inherits the same guard rather than rediscover
-// it. A negative offset means nothing announced itself, so nothing is cut.
+// report. A negative offset means nothing announced itself, so nothing is cut.
 func cutAt(runes []rune, offset int) []rune {
-	if offset <= 0 || WordsWritten(string(runes[:offset])) < minReplyWords {
+	if offset <= 0 {
 		return runes
 	}
-	return runes[:offset]
+	kept := runes[:offset]
+	if WordsWritten(string(kept)) >= minReplyWords || saysSomething(kept) {
+		return kept
+	}
+	return runes
+}
+
+// saysSomething reports whether this much text scores as a language on its own.
+//
+// The word floor asks how MUCH was written, and that is the wrong question for
+// a short reply. "Hallo Marek, danke dir, ich schaue es mir an" is nine words —
+// under the floor — and unmistakably German, so refusing to cut left an English
+// signature below it in the pool, where it outvoted the reply.
+//
+// The floor still guards what it was built for. A forwarded mail's subject line
+// plus two address headers is roughly eight words of proper nouns and dates,
+// and it clears no stopword bar in any language, so it answers false here and
+// the message keeps its quoted body — which is the defect that put the floor
+// there in the first place.
+func saysSomething(kept []rune) bool {
+	de, en := scoreStopwords(kept, len(kept))
+	return winner(de, en) != Unknown || vietnameseByDiacritics(kept)
 }
 
 // minReplyWords is how much text has to sit above a quote before that text is

@@ -84,12 +84,14 @@ func TestTheSigDashIsMatchedExactlyAndNotByNearMisses(t *testing.T) {
 // line. The same words inside a sentence are somebody writing about a message,
 // and cutting there would silently truncate their reply.
 func TestAFooterLeadOnlyCutsAtTheStartOfALine(t *testing.T) {
-	const lead = "This email and any attachments are confidential."
+	// A real notice, because the detector requires one: a lead phrase on a short
+	// line is somebody writing a sentence, not a company's boilerplate.
+	const lead = "This email and any attachments are confidential and intended solely for the addressee."
 
 	if got := footerStart([]rune("Hallo,\n\nbis bald.\n\n" + lead)); got < 0 {
 		t.Error("a footer opening its own line should be found")
 	}
-	mid := "I checked whether this email and any attachments are confidential and\nthey are not."
+	mid := "I checked whether this email and any attachments are confidential and\nthey are not, which is a thing worth knowing before we send it onward."
 	if got := footerStart([]rune(mid)); got >= 0 {
 		t.Errorf("the same phrase mid-sentence must not cut, got offset %d", got)
 	}
@@ -112,5 +114,66 @@ func TestNeitherCutIsAllowedToLeaveTooLittleToRead(t *testing.T) {
 	long := []rune("Hallo Marek, vielen Dank für die Unterlagen, ich melde mich nächste Woche bei dir.\n\n-- \nsignature here")
 	if got := cutAt(long, sigDashStart(long)); len(got) >= len(long) {
 		t.Error("a real reply above a sig-dash should be cut free of the signature")
+	}
+}
+
+// Two orderings the first version of this file got wrong, both found by review.
+// Each is a case where a cut ran and the English stayed in anyway.
+func TestTheEarliestBoundaryWins(t *testing.T) {
+	const footer = "This email and any attachments are confidential and intended solely for the use of the addressee, and may not be disclosed or copied by anyone else."
+
+	// A company that puts its legal notice ABOVE the signature block. Trusting
+	// the sig-dash first cut at the LATER boundary and left the footer in.
+	body := "Hallo Marek,\n\nvielen Dank für die Unterlagen, ich melde mich nächste Woche bei dir.\n\n" +
+		footer + "\n\n-- \nLars Jankowfsky, Gradion"
+	if got := Detect(body); got != German {
+		t.Errorf("a footer above the sig-dash must still be cut: Detect = %q, want %q", got, German)
+	}
+
+	// A short reply, a signature, and then a quoted German thread. Cutting at
+	// the sig-dash is what saves it: leaving the English signature in the pool
+	// let it outvote the reply above it.
+	quoted := "Hallo Marek, danke dir für die Unterlagen, ich schaue sie mir an.\n\n-- \n" +
+		"Best regards from all of us here at the office, and do let us know\n" +
+		"if there is anything further we can help you with at any time.\n\n" +
+		"On Monday, Marek wrote:\n> Hallo Lars, anbei die Unterlagen zum Angebot.\n"
+	if got := Detect(quoted); got != German {
+		t.Errorf("an English signature must not outvote the reply: Detect = %q, want %q", got, German)
+	}
+}
+
+// A lead phrase can open an ordinary sentence, and cutting there throws away
+// the reply. The length floor is what separates the two, so it is pinned.
+func TestAnOrdinarySentenceIsNotAFooter(t *testing.T) {
+	prose := "The information contained in this proposal explains our position\n" +
+		"on the dispatch integration, and I would welcome your thoughts on it\n" +
+		"before we take it any further with the wider team."
+	if got := footerStart([]rune(prose)); got >= 0 {
+		t.Errorf("prose opening with a footer-ish phrase must not cut, got offset %d", got)
+	}
+	if got := Detect(prose); got != English {
+		t.Errorf("and the message still reads as what it is: Detect = %q", got)
+	}
+}
+
+// A reply can be shorter than the word floor and still be plainly one language.
+// The floor counts words, which is the wrong question for a curt answer, so a
+// ten-word German reply under an English signature used to keep the signature
+// in the pool and come back English.
+func TestACurtReplyUnderTheWordFloorIsStillRead(t *testing.T) {
+	for _, reply := range []string{
+		"Danke dir, das schaue ich mir an und melde mich.",
+		"Ja, das passt so für mich, ich bin damit einverstanden.",
+	} {
+		// Under the floor, by construction: if these ever clear it the test has
+		// stopped covering the branch it was written for.
+		if got := WordsWritten(reply); got >= minReplyWords {
+			t.Fatalf("this case must sit UNDER the word floor to be worth anything, got %d words", got)
+		}
+		body := reply + "\n\n-- \nBest regards from all of us here at the office,\n" +
+			"and do let us know if there is anything further we can help with.\n"
+		if got := Detect(body); got != German {
+			t.Errorf("Detect(%q…) = %q, want %q", reply[:20], got, German)
+		}
 	}
 }

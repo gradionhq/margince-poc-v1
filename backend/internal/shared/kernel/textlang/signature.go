@@ -23,11 +23,12 @@ import (
 // differently. The sig-dash is a convention and is trusted on sight. A legal
 // footer has no convention, so it is recognized by the phrases such notices
 // actually open with, in the languages this product has correspondence in.
+// Whichever comes first wins. Trusting the sig-dash unconditionally hid an
+// EARLIER footer whenever a company put its legal notice above the signature
+// block: the footer's English stayed in the text and outvoted the reply, which
+// is the case this function exists to prevent.
 func signatureStart(runes []rune) int {
-	if cut := sigDashStart(runes); cut >= 0 {
-		return cut
-	}
-	return footerStart(runes)
+	return earliest(sigDashStart(runes), footerStart(runes))
 }
 
 // sigDashStart finds the RFC 3676 §4.3 sig-dash: a line that is exactly "--",
@@ -46,10 +47,16 @@ func sigDashStart(runes []rune) int {
 // a line, lowercased, because that is where a notice begins — the same words
 // mid-sentence ("the information you sent") are prose and must not cut.
 //
-// The list is short on purpose. Every entry here is a phrase that only appears
-// at the head of boilerplate, so a false positive costs a truncated reply while
-// a missing entry costs only the footer's votes staying in the pool. Erring
-// toward missing one is the cheaper mistake.
+// The list is short on purpose, and every entry is SPECIFIC enough that it can
+// only open boilerplate. A generic opener is the trap: "the information
+// contained in this" also opens "…proposal explains our position", so the
+// entries name the noun ("in this e-mail") and a bare "disclaimer:" is left out
+// entirely, because a person writing about a disclaimer starts a line with it.
+//
+// The asymmetry is why. A false positive TRUNCATES somebody's real reply and
+// then answers with the wrong language; a missing entry only leaves that
+// footer's votes in the pool, where the lead window usually still carries the
+// reply. Missing one is the cheaper mistake, so the list errs that way.
 var footerLeads = []string{
 	// English.
 	"this email and any attachments",
@@ -58,11 +65,12 @@ var footerLeads = []string{
 	"this email is confidential",
 	"this e-mail is confidential",
 	"this message is confidential",
-	"the information contained in this",
+	"the information contained in this e-mail",
+	"the information contained in this email",
+	"the information contained in this message",
 	"this transmission is intended",
 	"if you are not the intended recipient",
 	"please consider the environment",
-	"disclaimer:",
 	"confidentiality notice",
 	// German.
 	"diese e-mail und etwaige",
@@ -81,10 +89,23 @@ var footerLeads = []string{
 	"nếu bạn không phải là người nhận",
 }
 
+// footerMinRunes is how much text has to follow a lead phrase on its own line
+// before it is read as boilerplate.
+//
+// A legal notice is long — the short ones in the wild still run past a hundred
+// characters — while somebody who happens to open a line with one of these
+// phrases is writing a sentence. The floor costs nothing on a real footer and
+// spares a reply that starts with the same words.
+const footerMinRunes = 60
+
 // footerStart finds the first line that opens a legal footer.
 func footerStart(runes []rune) int {
 	return firstLineWhere(runes, func(line string) bool {
-		lower := strings.ToLower(strings.TrimSpace(line))
+		trimmed := strings.TrimSpace(line)
+		if len([]rune(trimmed)) < footerMinRunes {
+			return false
+		}
+		lower := strings.ToLower(trimmed)
 		for _, lead := range footerLeads {
 			if strings.HasPrefix(lower, lead) {
 				return true
