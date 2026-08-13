@@ -685,7 +685,12 @@ function EmailSignatureCard() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      // Hand the edit back to the server's answer. It trims what it stores, so
+      // a member who typed trailing spaces would otherwise keep seeing them
+      // over a row that no longer has them — with Save still lit, offering to
+      // save a difference that exists only in the browser.
+      setBody(saved?.body ?? "");
       queryClient.invalidateQueries({ queryKey: ["me-email-signature"] });
     },
   });
