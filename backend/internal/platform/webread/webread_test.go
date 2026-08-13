@@ -26,6 +26,18 @@ func TestStripTagsSurvivesUnicodeCaseFolding(t *testing.T) {
 	}
 }
 
+func TestStripTagsDecodesCharacterReferences(t *testing.T) {
+	// German legal notices routinely arrive entity-encoded. The reduced
+	// text is what the verbatim evidence gates compare a model's quote
+	// against, so it must carry the decoded spelling the model will use —
+	// undecoded, a site's own registered address is refused as unprinted.
+	got := StripTags("<p>Zitadellenstra&szlig;e 14a</p><p>D-&nbsp;21079 Hamburg f&uuml;r &quot;BJA&quot;</p>")
+	want := `Zitadellenstraße 14a D- 21079 Hamburg für "BJA"`
+	if got != want {
+		t.Fatalf("StripTags = %q, want %q", got, want)
+	}
+}
+
 // The policy reading is REP (RFC 9309): longest match wins, Allow beats
 // Disallow at equal length, the group naming this bot beats *, and an empty
 // Disallow means allow-all.

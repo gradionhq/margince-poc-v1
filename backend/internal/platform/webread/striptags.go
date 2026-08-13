@@ -3,23 +3,31 @@
 
 package webread
 
-import "strings"
+import (
+	"html"
+	"strings"
+)
 
-// StripTags reduces HTML to whitespace-normalized text. Deliberately crude:
-// evidence snippets are matched against THIS text, so the same reduction
-// defines both what the model sees and what counts as verbatim — any change
-// here silently invalidates stored evidence, treat the output as a contract.
-func StripTags(html string) string {
+// StripTags reduces HTML to whitespace-normalized text with character
+// references decoded. Deliberately crude otherwise: evidence snippets are
+// matched against THIS text, so the same reduction defines both what the
+// model sees and what counts as verbatim — any change here silently
+// invalidates stored evidence, treat the output as a contract.
+//
+// Decoding is part of that contract: a page printing "Zitadellenstra&szlig;e"
+// must reduce to the "Zitadellenstraße" a model will quote back, or the
+// verbatim gates refuse the site's own address as unprinted.
+func StripTags(doc string) string {
 	var b strings.Builder
 	inTag, inScript := false, false
-	for i, r := range html {
+	for i, r := range doc {
 		switch {
 		case inScript:
-			if r == '<' && (tagPrefix(html[i:], "</script") || tagPrefix(html[i:], "</style")) {
+			if r == '<' && (tagPrefix(doc[i:], "</script") || tagPrefix(doc[i:], "</style")) {
 				inScript, inTag = false, true
 			}
 		case r == '<':
-			if tagPrefix(html[i:], "<script") || tagPrefix(html[i:], "<style") {
+			if tagPrefix(doc[i:], "<script") || tagPrefix(doc[i:], "<style") {
 				inScript = true
 			} else {
 				inTag = true
@@ -31,7 +39,9 @@ func StripTags(html string) string {
 			b.WriteRune(r)
 		}
 	}
-	return strings.Join(strings.Fields(b.String()), " ")
+	// Unescape before collapsing: &nbsp; decodes to U+00A0, which is
+	// whitespace the collapse must still fold to one plain space.
+	return strings.Join(strings.Fields(html.UnescapeString(b.String())), " ")
 }
 
 // tagPrefix is an ASCII case-insensitive TAG-NAME test on the ORIGINAL bytes:
