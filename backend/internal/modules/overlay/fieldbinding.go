@@ -38,7 +38,12 @@ const (
 	// own rows, derived computes from mirrored ones. DerivedFrom names the
 	// wire slots it is computed from, and each must be mapped on the same
 	// entity: a slot derived from something the mirror does not carry is
-	// native_only wearing a friendlier name.
+	// native_only wearing a friendlier name. What the gates reach stops
+	// there, and an author declaring one should know it: they prove the named
+	// sources are mapped and that the slot's value follows from the mirrored
+	// payload, but nothing proves the computation reads THOSE sources — a slot
+	// computed from other mirrored data passes both. The list is a claim about
+	// the code that has to be kept true by reading it.
 	DispositionDerived Disposition = "derived"
 )
 

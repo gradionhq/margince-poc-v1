@@ -605,6 +605,64 @@ func TestAColumnWritingAChildCollectionsParentIsADeclarationError(t *testing.T) 
 	}
 }
 
+// external_id and last_synced_at are Apply's own writes, from ExternalKey and
+// Baseline, and the field loop runs after them — so a field claiming either
+// wins in silence, and the mirror loses the identity a record is matched by or
+// the incumbent last-modified instant the wire reports as updated_at.
+func TestAFieldWritingAStructuralTargetIsADeclarationError(t *testing.T) {
+	for _, tc := range []struct {
+		target      string
+		declaration string
+	}{
+		{target: "external_id", declaration: "ExternalKey"},
+		{target: "last_synced_at", declaration: "Baseline"},
+	} {
+		t.Run(tc.target, func(t *testing.T) {
+			m := overlay.ObjectMapping{
+				Source: "contacts", Target: "person",
+				ExternalKey: "hs_object_id", Baseline: "hs_lastmodifieddate",
+				Fields: []overlay.FieldMapping{
+					{From: []string{"hs_legacy_key"}, To: tc.target, Kind: overlay.TargetColumn},
+				},
+			}
+			// The record carries none of the mapped properties, so the field writes
+			// nothing and only a check made on the declaration itself can catch it.
+			_, _, err := overlay.Apply(m, map[string]any{"unrelated": "x"})
+			if err == nil {
+				t.Fatalf("Apply accepted a field writing %s, which %s already writes; the field silently replaces it", tc.target, tc.declaration)
+			}
+			if !strings.Contains(err.Error(), tc.target) || !strings.Contains(err.Error(), "hs_legacy_key") {
+				t.Errorf("error %q does not name both the contested target and the offending field, so it does not say where to look", err)
+			}
+			if !strings.Contains(err.Error(), tc.declaration) {
+				t.Errorf("error %q does not name %s as the other writer, leaving a reader hunting for a field that writes %s and finding none",
+					err, tc.declaration, tc.target)
+			}
+		})
+	}
+}
+
+// The reservation follows the declaration, not the key name: a mapping that
+// declares no ExternalKey and no Baseline writes neither structural target, so
+// a field may land both — and an omitted declaration must never reserve the
+// empty string as a target of its own.
+func TestAFieldMayWriteAStructuralKeyNoDeclarationClaims(t *testing.T) {
+	m := overlay.ObjectMapping{
+		Source: "contacts", Target: "person",
+		Fields: []overlay.FieldMapping{
+			{From: []string{"hs_object_id"}, To: "external_id", Kind: overlay.TargetColumn},
+			{From: []string{"hs_lastmodifieddate"}, To: "last_synced_at", Kind: overlay.TargetColumn},
+		},
+	}
+	out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "hs_lastmodifieddate": "2026-08-01T09:00:00Z"})
+	if err != nil {
+		t.Fatalf("Apply rejected fields landing structural keys the mapping declares no writer for: %v", err)
+	}
+	if out["external_id"] != "1" || out["last_synced_at"] != "2026-08-01T09:00:00Z" {
+		t.Errorf("out = %v, want the fields' own values on external_id and last_synced_at", out)
+	}
+}
+
 // Rows of ONE collection are the shape the child kind exists for: they share a
 // parent key by design, and each declares its own position within it.
 func TestTwoChildRowsOfOneCollectionAreNotACollision(t *testing.T) {

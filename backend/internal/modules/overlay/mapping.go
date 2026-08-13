@@ -113,8 +113,8 @@ type ObjectMapping struct {
 }
 
 // keyExternalID/keyLastSyncedAt are the two structural mirror targets Apply
-// writes directly (from ExternalKey/Baseline) — reserved, so a mapping's
-// Const may never claim them.
+// writes directly (from ExternalKey/Baseline) — reserved, so neither a
+// mapping's Const nor a field's target may claim them.
 const (
 	keyExternalID   = "external_id"
 	keyLastSyncedAt = "last_synced_at"
@@ -134,7 +134,7 @@ const childPositionKey = "position"
 // does with them — "flag" surfaces them, never silently drops per
 // UC-E18-01 F3), and an error if the mapping itself is malformed (an
 // unknown Transform name, an unrecognized TargetKind, child rows of one
-// parent that collide, or two fields writing one target).
+// parent that collide, or two writers landing on one target).
 func Apply(m ObjectMapping, raw map[string]any) (map[string]any, []string, error) {
 	if err := checkChildRowDeclarations(m); err != nil {
 		return nil, nil, err
@@ -245,12 +245,23 @@ func checkChildRowDeclarations(m ObjectMapping) error {
 // Rows of ONE child collection are the shape the child kind exists for: they
 // share a parent key by design, and checkChildRowDeclarations already keeps
 // each row's position within it unique.
+//
+// Apply's own structural writes are in the matrix too: they land before the
+// field loop runs, so a field claiming one of them is the same silent
+// replacement with the mirror's identity or its watermark as the value lost.
 func checkTargetCollisions(m ObjectMapping) error {
+	structural := structuralWriters(m)
 	writers := make(map[string]FieldMapping, len(m.Fields))
 	for _, f := range m.Fields {
 		target := f.To
 		if f.Kind == TargetChild {
 			target, _, _ = strings.Cut(f.To, ".")
+		}
+		if declaration, reserved := structural[target]; reserved {
+			return fmt.Errorf("overlay: %s target %q (from %v) writes %q, which the mapping's %s already writes, "+
+				"so the field silently replaces it; %q and %q are the mirror's own identity and watermark and no "+
+				"field may land on them — give this one a target of its own",
+				f.Kind, f.To, f.From, target, declaration, keyExternalID, keyLastSyncedAt)
 		}
 		first, claimed := writers[target]
 		if !claimed {
@@ -266,6 +277,21 @@ func checkTargetCollisions(m ObjectMapping) error {
 			first.Kind, first.To, first.From, f.Kind, f.To, f.From, target)
 	}
 	return nil
+}
+
+// structuralWriters answers the canonical targets the mapping's own structural
+// declarations write, each named as the reader would have to name it to fix a
+// collision. A declaration left empty writes nothing, so it reserves nothing:
+// a mapping with no Baseline is free to land last_synced_at from a field.
+func structuralWriters(m ObjectMapping) map[string]string {
+	writers := map[string]string{}
+	if m.ExternalKey != "" {
+		writers[keyExternalID] = fmt.Sprintf("ExternalKey %q", m.ExternalKey)
+	}
+	if m.Baseline != "" {
+		writers[keyLastSyncedAt] = fmt.Sprintf("Baseline %q", m.Baseline)
+	}
+	return writers
 }
 
 // checkChildRow validates one TargetChild field's row declaration and answers

@@ -16,7 +16,7 @@ package compose
 // instant — each falling back to the mirror's own last-synced instant, the only
 // time the mirror can claim for itself, where the incumbent stamped none. A
 // deal's, a lead's and an activity's created_at is that fallback throughout,
-// since no mapping for those classes reads a create property.
+// since no mapping for those classes maps an incumbent create instant.
 
 import (
 	"context"
