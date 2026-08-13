@@ -311,6 +311,7 @@ export const de = {
   "rel.startedAt": "Beginn",
   "rel.endedAt": "Ende",
   "rel.current": "aktuell",
+  "rel.endedOn": "bis {when}",
   "rel.remove": "Entfernen",
   "rel.removeConfirm":
     "Bist du sicher? Das entfernt die Beziehung — es gibt keine Rückgängig-Funktion.",
@@ -4308,6 +4309,8 @@ export const de = {
   "person.rail.noEmployment": "Keine Beschäftigung erfasst.",
   "person.rail.addEmployment": "Unternehmen hinzufügen",
   "person.rail.employer": "Arbeitgeber",
+  "person.rail.allOrgsConnected":
+    "Jeder Treffer ist bereits mit dieser Person verknüpft.",
   "person.rail.isCurrentEmployer": "Das ist der aktuelle Arbeitgeber",
   "person.rail.markEnded": "Als beendet markieren",
   "person.rail.removeEmploymentTitle": "Dieses Unternehmen entfernen?",

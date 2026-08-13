@@ -465,6 +465,15 @@
    reinvented. It never becomes a grid — a rail that re-columns is a second
    body rather than a margin.
    --------------------------------------------------------------------------- */
+/* A row's overflow menu is positioned against the row, so it opens INSIDE the
+   panel's box — and the panel clips its own overflow to keep full-bleed rows
+   inside its rounded corners. The menu would be sliced by that edge, so the
+   rail's panel lets its children out; its rows draw no fill at the corners
+   that would spill in return. */
+.pe-rail > .panel {
+  overflow: visible;
+}
+
 .pe-rail .pe-sect {
   border-top: 1px solid var(--borderSubtle);
   padding-top: 0;
@@ -580,8 +589,17 @@
 /* Employers: the same name-over-proof anatomy as `.pe-colleague`, ruled
    between entries the way `.pe-rail-row` rules between readings — a list
    of edges, not a single fact, so it needs the same separator the rail's
-   other lists already use. */
+   other lists already use. The row is also the hover/focus scope for its
+   own overflow menu below. */
+/* The connection on the left, its verbs at the far right — the trigger sits at
+   the row's end because its menu opens back towards the record it belongs to.
+   Anchored under the org name instead, the menu would open away from the page
+   and off the edge of the column. */
 .pe-employment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
   padding: var(--space-2) 0;
 }
 
@@ -606,13 +624,30 @@
   margin-top: var(--space-1);
 }
 
-/* The two per-row verbs, right-aligned under the row's own facts — same
-   shape webhooks.tsx's per-row replay/rotate affordances use, so a rail row
-   and a table row read the same "the verbs live at the end" way. */
+/* The row's own verbs, folded behind an overflow trigger — this row already
+   holds a focusable inline-edit control, so a rarely-used "mark as ended" or
+   "remove" sitting in plain view beside it competes for attention the role
+   edit deserves more. Hidden until the row is hovered or something inside it
+   (the role field, the trigger itself) has focus — the same reveal
+   company360.css's `.co-task-verbs` uses for its own row verbs. */
+.pe-employment-body {
+  display: block;
+  min-width: 0;
+}
+
 .pe-employment-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
+  opacity: 0;
+}
+.pe-employment:hover .pe-employment-actions,
+.pe-employment:focus-within .pe-employment-actions {
+  opacity: 1;
+}
+/* A coarse pointer has no hover to reveal the trigger with, and nothing else
+   on the row asks for keyboard focus first — so it stays on. */
+@media (hover: none) {
+  .pe-employment-actions {
+    opacity: 1;
+  }
 }
 
 /* Signals: a coloured dot the row's tone comes from, then the finding. */

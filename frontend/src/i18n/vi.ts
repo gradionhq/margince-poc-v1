@@ -317,6 +317,7 @@ export const vi = {
   "rel.startedAt": "Bắt đầu",
   "rel.endedAt": "Kết thúc",
   "rel.current": "hiện tại",
+  "rel.endedOn": "đến {when}",
   "rel.remove": "Gỡ",
   "rel.removeConfirm":
     "Bạn chắc chứ? Thao tác này gỡ quan hệ — không có nút hoàn tác.",
@@ -4293,6 +4294,8 @@ export const vi = {
   "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
   "person.rail.addEmployment": "Thêm công ty",
   "person.rail.employer": "Nơi làm việc",
+  "person.rail.allOrgsConnected":
+    "Mọi kết quả đều đã liên kết với người này rồi.",
   "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
   "person.rail.markEnded": "Đánh dấu đã kết thúc",
   "person.rail.removeEmploymentTitle": "Gỡ công ty này?",

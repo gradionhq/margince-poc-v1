@@ -319,6 +319,7 @@ export const en = {
   "rel.startedAt": "Started",
   "rel.endedAt": "Ended",
   "rel.current": "current",
+  "rel.endedOn": "until {when}",
   "rel.remove": "Remove",
   "rel.removeConfirm":
     "Are you sure? This removes the relationship — there is no undo control.",
@@ -4316,6 +4317,8 @@ export const en = {
   "person.rail.noEmployment": "No employment on record.",
   "person.rail.addEmployment": "Add company",
   "person.rail.employer": "Employer",
+  "person.rail.allOrgsConnected":
+    "Every match is already connected to this person.",
   "person.rail.isCurrentEmployer": "This is their current employer",
   "person.rail.markEnded": "Mark as ended",
   "person.rail.removeEmploymentTitle": "Remove this company?",

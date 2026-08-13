@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Mail, Phone } from "lucide-react";
-import { useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -13,6 +13,7 @@ import {
   Disclosure,
   Field,
   Modal,
+  OverflowMenu,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -445,6 +446,14 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
   const employments = [...(view.employments?.data ?? [])].sort(
     (a, b) => Number(b.is_current_primary) - Number(a.is_current_primary),
   );
+  // Every org this person already has a live edge to — the 360 projection
+  // drops an edge the moment it is removed, so this list IS the live set,
+  // nothing further to filter. AddEmploymentModal excludes these from its
+  // own picker so a rep cannot draw a second edge to a company already on
+  // this list.
+  const connectedOrgIds = employments.map(
+    (employment) => employment.organization_id,
+  );
   return (
     <Disclosure
       className="pe-sect"
@@ -481,6 +490,7 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
         onClose={() => setAdding(false)}
         personId={person.id}
         create={actions.create}
+        excludedOrgIds={connectedOrgIds}
       />
       {/* Remove is the irreversible verb — the connection and its history are
           gone, not merely dated — so it is the one that sits behind a
@@ -521,7 +531,10 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
 // One employment edge: the org it names, the role at that org (inline-
 // editable — this is the ONE place a per-company title is corrected;
 // `person.title` is a different field, edited in Details above), the dates,
-// and the two per-row verbs a writer holds.
+// and the row's own verbs folded behind an OverflowMenu — this row already
+// carries a focusable inline-edit control, so the verbs stay out of the way
+// until the row is hovered or that control (or the trigger itself) has
+// focus, the same reveal the company page's task rows use for theirs.
 function EmploymentRow({
   employment,
   personId,
@@ -544,54 +557,58 @@ function EmploymentRow({
     actions.end.variables?.relationship_id === employment.relationship_id;
   return (
     <div className="pe-employment">
-      <span className="pe-employment-org">
-        {employment.organization_name ? (
-          <button
-            type="button"
-            className="pe-meta-link"
-            onClick={() =>
-              navigate({
-                screen: "companies",
-                id: employment.organization_id,
-              })
+      <span className="pe-employment-body">
+        <span className="pe-employment-org">
+          {employment.organization_name ? (
+            <button
+              type="button"
+              className="pe-meta-link"
+              onClick={() =>
+                navigate({
+                  screen: "companies",
+                  id: employment.organization_id,
+                })
+              }
+            >
+              {employment.organization_name}
+            </button>
+          ) : (
+            <span className="inlinetext">{t("field.unset")}</span>
+          )}
+          {employment.is_current_primary && (
+            <span className="pe-rail-value-good">{t("rel.current")}</span>
+          )}
+        </span>
+        <span className="pe-employment-role">
+          <InlineText
+            label={t("rel.role")}
+            value={employment.role ?? ""}
+            placeholder={t("field.addTitle")}
+            canEdit={canEdit}
+            readOnlyReason={readOnlyReason}
+            onSave={(next) =>
+              patchEmployment(employment, personId, { role: next || null })
             }
-          >
-            {employment.organization_name}
-          </button>
-        ) : (
-          <span className="inlinetext">{t("field.unset")}</span>
-        )}
-        {employment.is_current_primary && (
-          <span className="pe-rail-value-good">{t("rel.current")}</span>
-        )}
+          />
+        </span>
+        {detail && <span className="pe-colleague-proof">{detail}</span>}
       </span>
-      <span className="pe-employment-role">
-        <InlineText
-          label={t("rel.role")}
-          value={employment.role ?? ""}
-          placeholder={t("field.addTitle")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) =>
-            patchEmployment(employment, personId, { role: next || null })
-          }
-        />
-      </span>
-      {detail && <span className="pe-colleague-proof">{detail}</span>}
       {canEdit && (
         <span className="pe-employment-actions">
-          {!employment.ended_at && (
-            <Button
-              small
-              disabled={ending}
-              onClick={() => actions.end.mutate(employment)}
-            >
-              {t("person.rail.markEnded")}
+          <OverflowMenu label={t("record.moreActions")}>
+            {!employment.ended_at && (
+              <Button
+                small
+                disabled={ending}
+                onClick={() => actions.end.mutate(employment)}
+              >
+                {t("person.rail.markEnded")}
+              </Button>
+            )}
+            <Button small variant="danger" onClick={onRemove}>
+              {t("rel.remove")}
             </Button>
-          )}
-          <Button small variant="danger" onClick={onRemove}>
-            {t("rel.remove")}
-          </Button>
+          </OverflowMenu>
         </span>
       )}
       {ending && actions.end.isError && (
@@ -613,22 +630,48 @@ function AddEmploymentModal({
   onClose,
   personId,
   create,
+  excludedOrgIds,
 }: Readonly<{
   open: boolean;
   onClose: () => void;
   personId: string;
   create: EmploymentActions["create"];
+  // Organizations this person already has a live employment edge to — the
+  // picker refuses to offer a second edge to the same company, since only
+  // a duplicated current-primary is refused server-side.
+  excludedOrgIds: ReadonlyArray<string>;
 }>) {
   const t = useT();
   const headingId = useId();
   const [org, setOrg] = useState<RecordPickerCandidate | null>(null);
   const [role, setRole] = useState("");
   const [isCurrent, setIsCurrent] = useState(false);
+  const [allConnected, setAllConnected] = useState(false);
+
+  // Wraps the shared org search with this person's own already-connected
+  // list. Kept on `excludedOrgIds` alone, nothing that changes while the
+  // reader types — RecordPicker treats a new `searchTargets` identity as a
+  // new search space and empties whatever it was already showing.
+  const searchTargets = useCallback(
+    async (q: string) => {
+      const results = await searchOrganizationCandidates(q);
+      const offered = results.filter(
+        (candidate) => !excludedOrgIds.includes(candidate.id),
+      );
+      // Every match this query found is a company already on the list, not
+      // an empty search — the two read the same in a bare candidate box, so
+      // the modal says which one it is rather than leaving a silent gap.
+      setAllConnected(results.length > 0 && offered.length === 0);
+      return offered;
+    },
+    [excludedOrgIds],
+  );
 
   function close() {
     setOrg(null);
     setRole("");
     setIsCurrent(false);
+    setAllConnected(false);
     create.reset();
     onClose();
   }
@@ -647,11 +690,14 @@ function AddEmploymentModal({
           <span className="t-label">{t("person.rail.employer")}</span>
           <RecordPicker
             label={t("person.rail.employer")}
-            searchTargets={searchOrganizationCandidates}
+            searchTargets={searchTargets}
             selected={org}
             onPick={setOrg}
             disabled={create.isPending}
           />
+          {!org && allConnected && (
+            <p className="t-caption">{t("person.rail.allOrgsConnected")}</p>
+          )}
         </div>
         <Field label={t("rel.role")}>
           {(control) => (
@@ -715,17 +761,28 @@ function AddEmploymentModal({
 // convention personmemory.tsx's own `dayMonth` renders every other date on
 // this page with, so the two rail sections never disagree about what
 // "12 Jan" means.
+// An employment that has ENDED says so even when nobody recorded when it
+// began: a period is a nicety, but a former employer that reads like a current
+// one is a rep writing to the wrong company. Only a connection with neither
+// date has nothing to say.
 function employmentDetail(
   employment: Employment,
   t: ReturnType<typeof useT>,
 ): string {
-  if (!employment.started_at) {
-    return "";
+  const start = employment.started_at
+    ? dayMonth(employment.started_at)
+    : undefined;
+  const end = employment.ended_at ? dayMonth(employment.ended_at) : undefined;
+  if (start && end) {
+    return `${start} – ${end}`;
   }
-  const end = employment.ended_at
-    ? dayMonth(employment.ended_at)
-    : t("rel.current");
-  return `${dayMonth(employment.started_at)} – ${end}`;
+  if (end) {
+    return t("rel.endedOn", { when: end });
+  }
+  if (start) {
+    return `${start} – ${t("rel.current")}`;
+  }
+  return "";
 }
 
 function dayMonth(at: string): string {
