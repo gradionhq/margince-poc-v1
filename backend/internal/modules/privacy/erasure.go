@@ -423,14 +423,9 @@ func deleteSubjectIdentifierRows(ctx context.Context, tx pgx.Tx, personID ids.Pe
 // consent_event, audit and outbox rows through the exact capability this
 // erasure certifies destroyed. Deleted rather than revoked, like the address
 // and phone rows beside it — a revoked row still holds the subject's person
-// link. The workspace predicate is explicit because preference_token is
-// deliberately outside RLS (it IS the token→tenant resolver, 0048), so
-// nothing else scopes this statement.
+// link.
 func deletePreferenceToken(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
-	_, err := tx.Exec(ctx, `
-		DELETE FROM preference_token
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND person_id = $1`, personID)
+	_, err := tx.Exec(ctx, `DELETE FROM preference_token WHERE person_id = $1`, personID)
 	return err
 }
 

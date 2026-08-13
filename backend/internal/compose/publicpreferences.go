@@ -64,16 +64,20 @@ func publicPreferences(store *consent.Store, limits publicPreferenceLimiters) fu
 				return
 			}
 
-			ref, err := store.ResolvePreferenceToken(r.Context(), token)
-			if err != nil {
-				// Unknown and revoked tokens read identically as absent — the
-				// surface never becomes a consent-state oracle.
+			// Resolved for its refusal, not its answer: the handlers resolve
+			// the token again for the person it names, while this gate exists
+			// to turn an unknown, revoked or expired token away before any of
+			// them run. Unknown and revoked read identically as absent — the
+			// surface never becomes a consent-state oracle.
+			if _, err := store.ResolvePreferenceToken(r.Context(), token); err != nil {
 				httperr.Write(w, r, err)
 				return
 			}
 
-			ctx := principal.WithWorkspaceID(r.Context(), ref.WorkspaceID.UUID)
-			ctx = principal.WithActor(ctx, principal.Principal{
+			// The workspace is already bound: the identity middleware binds
+			// the installation's into every request context, public paths
+			// included, before this runs.
+			ctx := principal.WithActor(r.Context(), principal.Principal{
 				Type: principal.PrincipalSystem,
 				ID:   "system:public_preferences",
 			})

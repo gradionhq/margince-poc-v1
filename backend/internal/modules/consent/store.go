@@ -36,7 +36,6 @@ func NewStore(db *database.DB) *Store {
 
 type Purpose struct {
 	ID                  ids.PurposeID
-	WorkspaceID         ids.WorkspaceID
 	Key                 string
 	Label               string
 	RequiresDoubleOptIn bool
@@ -75,7 +74,7 @@ func (s *Store) ListPurposes(ctx context.Context) ([]Purpose, error) {
 	var out []Purpose
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, workspace_id, key, label, requires_double_opt_in, created_at
+			SELECT id, key, label, requires_double_opt_in, created_at
 			FROM consent_purpose WHERE archived_at IS NULL ORDER BY key`)
 		if err != nil {
 			return err
@@ -83,7 +82,7 @@ func (s *Store) ListPurposes(ctx context.Context) ([]Purpose, error) {
 		defer rows.Close()
 		for rows.Next() {
 			var p Purpose
-			if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Key, &p.Label, &p.RequiresDoubleOptIn, &p.CreatedAt); err != nil {
+			if err := rows.Scan(&p.ID, &p.Key, &p.Label, &p.RequiresDoubleOptIn, &p.CreatedAt); err != nil {
 				return err
 			}
 			out = append(out, p)
@@ -107,11 +106,11 @@ func (s *Store) CreatePurpose(ctx context.Context, key, label string, requiresDO
 	var p Purpose
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
-			INSERT INTO consent_purpose (workspace_id, key, label, requires_double_opt_in)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-			RETURNING id, workspace_id, key, label, requires_double_opt_in, created_at`,
+			INSERT INTO consent_purpose (key, label, requires_double_opt_in)
+			VALUES ($1, $2, $3)
+			RETURNING id, key, label, requires_double_opt_in, created_at`,
 			key, label, requiresDOI).
-			Scan(&p.ID, &p.WorkspaceID, &p.Key, &p.Label, &p.RequiresDoubleOptIn, &p.CreatedAt)
+			Scan(&p.ID, &p.Key, &p.Label, &p.RequiresDoubleOptIn, &p.CreatedAt)
 		if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "consent_purpose_key_unique" {
 			return fmt.Errorf("purpose %q: %w", key, apperrors.ErrConflict)
 		}
@@ -431,8 +430,8 @@ func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in Record
 // lead×purpose); the other arm's column stays NULL.
 func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, sub subject, doiConfirmedAt *time.Time, capturedAt time.Time, actorID string) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO person_consent (workspace_id, `+sub.column+`, purpose_id, state, lawful_basis, captured_at, source)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+		INSERT INTO person_consent (`+sub.column+`, purpose_id, state, lawful_basis, captured_at, source)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (`+sub.column+`, purpose_id)
 		DO UPDATE SET state = EXCLUDED.state, lawful_basis = EXCLUDED.lawful_basis,
 		              captured_at = EXCLUDED.captured_at, source = EXCLUDED.source`,
@@ -440,10 +439,9 @@ func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, sub 
 		return err
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO consent_event (workspace_id, `+sub.column+`, purpose_id, new_state, lawful_basis, source,
+		INSERT INTO consent_event (`+sub.column+`, purpose_id, new_state, lawful_basis, source,
 		                           policy_text, policy_version, double_opt_in_confirmed_at, captured_at, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, coalesce($5, 'api'), coalesce($6, 'recorded via API'), coalesce($7, 'v1'), $8, $9, $10)`,
+		VALUES ($1, $2, $3, $4, coalesce($5, 'api'), coalesce($6, 'recorded via API'), coalesce($7, 'v1'), $8, $9, $10)`,
 		sub.id, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
 		in.PolicyText, in.PolicyVersion, doiConfirmedAt, capturedAt, actorID)
 	return err
