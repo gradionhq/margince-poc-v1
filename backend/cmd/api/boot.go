@@ -69,9 +69,12 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	}
 	// The re-check runs on the process context — the signal context main built —
 	// so it lives exactly as long as this role serves and needs no stop of its
-	// own. Unlike the app-view refresh lane it holds nothing open and answers
-	// nobody: a re-check that is cut short mid-shutdown loses a reading the
-	// process was about to stop reporting anyway.
+	// own. What cancellation actually ends is the WAIT between ticks: wazero is
+	// built without WithCloseOnContextDone, so a check already inside the module
+	// runs to completion whatever happens to the context. That is why the loop
+	// holds nothing open and answers nobody — there is no work here for a
+	// shutdown to interrupt safely, only a reading the process was about to stop
+	// reporting.
 	go license.RunRecheck(ctx)
 	return deployCfg, license, nil
 }

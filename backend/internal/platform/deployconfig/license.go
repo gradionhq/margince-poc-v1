@@ -25,21 +25,37 @@ type License struct {
 	TokenFile string `yaml:"token_file"`
 }
 
+// TokenLimit bounds a token file. A license is a JWT — a few hundred bytes, a
+// few thousand at the outside — and everything downstream copies it whole: into
+// a process environment, into a WebAssembly module's linear memory, and into
+// whatever the module quotes back on refusal. A pointed-at-the-wrong-file
+// mistake (a log, an image) must fail as one rather than being carried.
+const TokenLimit = 64 << 10
+
 // Token resolves the license token: the environment variable when set,
 // otherwise the file reference, otherwise empty for an unlicensed
 // installation.
 //
-// A configured file that cannot be read, or that holds nothing, is an ERROR
-// rather than an unlicensed installation. Those two are the same posture to
-// every later caller, and an operator who typed the path wrong would otherwise
-// get a workspace that silently believes it has no entitlement — which is
-// exactly the failure the strict decoder above exists to prevent.
+// A configured file that cannot be read, that holds nothing, or that is too
+// large to be a license is an ERROR rather than an unlicensed installation.
+// Those two are the same posture to every later caller, and an operator who
+// typed the path wrong would otherwise get a workspace that silently believes it
+// has no entitlement — which is exactly the failure the file's strict decoding
+// (an unknown key is a boot error) exists to prevent everywhere else.
 func (l License) Token() (string, error) {
 	if token := strings.TrimSpace(os.Getenv(LicenseTokenEnvVar)); token != "" {
 		return token, nil
 	}
 	if l.TokenFile == "" {
 		return "", nil
+	}
+	info, err := os.Stat(l.TokenFile)
+	if err != nil {
+		return "", fmt.Errorf("deployconfig: reading license.token_file: %w", err)
+	}
+	if info.Size() > TokenLimit {
+		return "", fmt.Errorf("deployconfig: license.token_file %s is %d bytes; a license token is not (limit %d) — "+
+			"check the path points at the token and not at something else", l.TokenFile, info.Size(), TokenLimit)
 	}
 	raw, err := os.ReadFile(l.TokenFile) // #nosec G304 -- the operator's own token path; reading it is the function's purpose
 	if err != nil {
@@ -54,4 +70,20 @@ func (l License) Token() (string, error) {
 			"or write the license token into the file", l.TokenFile)
 	}
 	return token, nil
+}
+
+// TokenOrigin names where Token would take a token from, for the boot log.
+//
+// Which of the two won is worth saying out loud: the environment outranks the
+// file, so an installation can be pointed at a different license — or, with the
+// file absent, at none — by whoever can set a variable in the deploy pipeline
+// without touching the deployment file the operator reviews.
+func (l License) TokenOrigin() string {
+	if strings.TrimSpace(os.Getenv(LicenseTokenEnvVar)) != "" {
+		return LicenseTokenEnvVar
+	}
+	if l.TokenFile != "" {
+		return "license.token_file"
+	}
+	return "none"
 }

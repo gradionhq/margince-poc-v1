@@ -7,9 +7,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // checkedAt is the fixed instant every posture in this file is stamped with, so
@@ -40,7 +44,10 @@ func TestResolveRejectsAnythingTheBundledModuleWillNotHonor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Resolve(context.Background(), tc.token, checkedAt)
+			got, err := Resolve(context.Background(), tc.token, checkedAt)
+			if err != nil {
+				t.Fatalf("Resolve(%q) reported a module fault rather than a verdict: %v", tc.token, err)
+			}
 			if got.State != StateRejected {
 				t.Fatalf("Resolve(%q) state = %q, want %q", tc.token, got.State, StateRejected)
 			}
@@ -62,7 +69,10 @@ func TestResolveRejectsAnythingTheBundledModuleWillNotHonor(t *testing.T) {
 func TestRejectionReasonDoesNotEchoTheToken(t *testing.T) {
 	t.Parallel()
 	const token = "eyJhbGciOiJFZERTQSJ9.c3VwZXItc2VjcmV0LWxpY2Vuc2U.AAAA"
-	got := Resolve(context.Background(), token, checkedAt)
+	got, err := Resolve(context.Background(), token, checkedAt)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
 	if got.State != StateRejected {
 		t.Fatalf("state = %q, want %q", got.State, StateRejected)
 	}
@@ -79,7 +89,10 @@ func TestResolveReportsAbsentForNoToken(t *testing.T) {
 	// A whitespace-only file reference reads as no license, not as a token the
 	// module should be asked about.
 	for _, token := range []string{"", "   ", "\n"} {
-		got := Resolve(context.Background(), token, checkedAt)
+		got, err := Resolve(context.Background(), token, checkedAt)
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
 		if got.State != StateAbsent {
 			t.Errorf("Resolve(%q) state = %q, want %q", token, got.State, StateAbsent)
 		}
@@ -227,5 +240,115 @@ func TestDecodeGrantsRefusesOutputThatIsNotAGrant(t *testing.T) {
 	t.Parallel()
 	if _, err := decodeGrants([]byte("not json")); err == nil {
 		t.Error("decodeGrants accepted output that is not JSON")
+	}
+}
+
+// craftedToken builds an unsigned token whose CLAIMS carry payload. The module
+// decodes and quotes claim content before it verifies the signature, so this is
+// the shape that puts attacker-chosen text on the path to a log line.
+func craftedToken(t *testing.T, claims string) string {
+	t.Helper()
+	segment := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	return segment(`{"alg":"EdDSA","kid":"x"}`) + "." + segment(claims) + "." + strings.Repeat("A", 86)
+}
+
+// The reason reaches a boot error and a process log verbatim, and the module
+// quotes claim content it has NOT verified — so a token supplied by a reseller, a
+// deploy pipeline, or a compromised secret store chooses that text. Left raw it
+// forges log records: two quotes and a newline write a plausible
+// `level=INFO msg="license verified"` line into a stderr-parsing collector.
+func TestARejectionReasonCannotForgeALogLine(t *testing.T) {
+	t.Parallel()
+	// An object-valued attribute is quoted back as raw JSON, so its newlines
+	// survive; the forged record carries no double quotes of its own because they
+	// would make the claim invalid JSON and the module would reject it before it
+	// ever quoted anything.
+	const forgery = `level=INFO msg=license_verified state=valid seats=9999`
+	token := craftedToken(t, `{"iss":"margince-license-authority","jti":"01890a5d-ac96-774b-bcce-b302099a8057",`+
+		`"exp":9999999999,"iat":1,"pgs":{"margince":{"generation":0,"seats":{"a":1,`+"\n"+`"b":"`+forgery+`",`+"\n"+`"c":2}}}}`)
+
+	// The premise first: without this, the assertions below would hold for a
+	// token the module never quoted, and the test would prove nothing.
+	_, raw := check(context.Background(), bundledModule, issuer, product, generation, token)
+	if raw == nil {
+		t.Fatal("the bundled module accepted an unsigned token")
+	}
+	if !strings.Contains(raw.Error(), forgery) || !strings.ContainsAny(raw.Error(), "\n") {
+		t.Fatalf("this token no longer reaches the module's claim-quoting path, so the case below is vacuous: %q", raw)
+	}
+
+	got, err := Resolve(context.Background(), token, checkedAt)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got.State != StateRejected {
+		t.Fatalf("state = %q, want %q", got.State, StateRejected)
+	}
+	if strings.ContainsAny(got.Reason, "\n\r") {
+		t.Errorf("the reason spans lines, so it can write a log record of its own: %q", got.Reason)
+	}
+	for _, control := range got.Reason {
+		if unicode.IsControl(control) {
+			t.Errorf("the reason carries the control character %q: %q", control, got.Reason)
+			break
+		}
+	}
+}
+
+// An oversized claim would otherwise write its whole self on every boot of a
+// crashlooping role, and on every posture transition after that.
+func TestARejectionReasonIsBounded(t *testing.T) {
+	t.Parallel()
+	token := craftedToken(t, `{"iss":"margince-license-authority","jti":"01890a5d-ac96-774b-bcce-b302099a8057",`+
+		`"exp":9999999999,"iat":1,"pgs":{"margince":{"generation":0,"seats":"`+strings.Repeat("A", 200_000)+`"}}}`)
+
+	got, err := Resolve(context.Background(), token, checkedAt)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(got.Reason) > reasonLimit+len("… (truncated)") {
+		t.Errorf("the reason is %d bytes, past the %d-byte bound", len(got.Reason), reasonLimit)
+	}
+	if !strings.HasSuffix(got.Reason, "(truncated)") {
+		t.Errorf("a cut reason does not say it was cut: %q", got.Reason)
+	}
+	if !utf8.ValidString(got.Reason) {
+		t.Error("the cut left invalid UTF-8, which reads as corruption rather than as a cut")
+	}
+}
+
+// The seam between a VERDICT and a module that could not run, asserted on both
+// sides against the real bundled module. Everything downstream turns on it: get
+// it backwards and a memory-pressure fault reports a customer's license as
+// refused, or a genuinely refused license reads as a machine problem.
+func TestAVerdictAndAModuleFaultAreDistinguishableByType(t *testing.T) {
+	t.Parallel()
+	_, verdict := check(context.Background(), bundledModule, issuer, product, generation, "not-a-license")
+	if verdict == nil {
+		t.Fatal("the bundled module accepted a token that is not a license")
+	}
+	if !errors.Is(verdict, ErrVerdict) {
+		t.Fatalf("a refused license is not an ErrVerdict, so Resolve would report it as a module fault: %v", verdict)
+	}
+	_, fault := check(context.Background(), gzipped(t, []byte("not webassembly")), issuer, product, generation, "t")
+	if fault == nil {
+		t.Fatal("check accepted a module that is not WebAssembly")
+	}
+	if errors.Is(fault, ErrVerdict) {
+		t.Errorf("a module that could not run reads as a verdict about the license: %v", fault)
+	}
+}
+
+// A module that cannot run is reported as a FAULT, separately from any verdict:
+// the boot refuses on it either way, but a re-check must not report a license as
+// refused on the strength of an error nobody's license caused.
+func TestResolveReportsAModuleFaultSeparatelyFromAVerdict(t *testing.T) {
+	t.Parallel()
+	posture, err := Resolve(context.Background(), "not-a-license", checkedAt)
+	if err != nil {
+		t.Fatalf("a refused license came back as a module fault: %v", err)
+	}
+	if posture.State != StateRejected {
+		t.Errorf("state = %q, want %q", posture.State, StateRejected)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,26 +35,27 @@ import (
 // that is present and refused is an operator mistake nobody downstream can
 // distinguish from a deliberate downgrade.
 func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config) (*licensecheck.Watcher, error) {
-	token, err := cfg.License.Token()
-	if err != nil {
-		return nil, err
-	}
-	watcher, err := licensecheck.NewWatcher(ctx, token, time.Now, log)
+	// The SOURCE is handed over, not a token: the watcher re-reads it, so a
+	// license the operator renews in place takes effect on the next re-check
+	// instead of waiting for a restart.
+	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.Token, time.Now, log)
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
 		return nil, fmt.Errorf("%w — correct or remove license.token_file (or %s) and start again",
 			err, deployconfig.LicenseTokenEnvVar)
 	}
-	logLicensePosture(ctx, log, watcher.Posture())
+	logLicensePosture(ctx, log, watcher.Posture(), cfg.License.TokenOrigin())
 	return watcher, nil
 }
 
 // logLicensePosture writes the one boot line an operator greps for. The module
 // version travels with it because a refused license and a stale bundled module
-// are different problems that read identically without it.
-func logLicensePosture(ctx context.Context, log *slog.Logger, posture licensecheck.Posture) {
-	attrs := []any{"state", string(posture.State), "module", licensecheck.ModuleVersion()}
+// are different problems that read identically without it, and so does the
+// token's origin, because the environment outranks the deployment file and an
+// installation licensed from a variable should say so where somebody sees it.
+func logLicensePosture(ctx context.Context, log *slog.Logger, posture licensecheck.Posture, origin string) {
+	attrs := []any{"state", string(posture.State), "module", licensecheck.ModuleVersion(), "token_from", origin}
 	if seats, ok := posture.Seats(); ok {
 		attrs = append(attrs, "seats", seats)
 	}
@@ -92,26 +94,26 @@ func (s Server) writeLicenseMetrics(w io.Writer) {
 		return
 	}
 	posture := s.licensePosture()
-	//craft:ignore swallowed-errors a metrics section cannot report a write failure to a response already streaming
-	_, _ = fmt.Fprint(w,
-		"# HELP margince_license_posture Whether this installation's license verified against the bundled validation module.\n"+
-			"# TYPE margince_license_posture gauge\n")
+	var section strings.Builder
+	section.WriteString("# HELP margince_license_posture Whether this installation's license verified against the bundled validation module.\n")
+	section.WriteString("# TYPE margince_license_posture gauge\n")
 	for _, state := range []licensecheck.State{licensecheck.StateValid, licensecheck.StateAbsent, licensecheck.StateRejected} {
 		value := 0
 		if state == posture.State {
 			value = 1
 		}
-		//craft:ignore swallowed-errors a metrics section cannot report a write failure to a response already streaming
-		_, _ = fmt.Fprintf(w, "margince_license_posture{state=%q} %d\n", string(state), value)
+		fmt.Fprintf(&section, "margince_license_posture{state=%q} %d\n", string(state), value)
 	}
 	// Omitted rather than zeroed when the license caps nothing: a gauge reading
 	// zero seats is a license that permits none, which is the opposite of what an
 	// uncapped or unlicensed installation means.
 	if seats, ok := posture.Seats(); ok {
-		//craft:ignore swallowed-errors a metrics section cannot report a write failure to a response already streaming
-		_, _ = fmt.Fprintf(w,
-			"# HELP margince_license_seats Full seats the verified license grants.\n"+
-				"# TYPE margince_license_seats gauge\n"+
-				"margince_license_seats %d\n", seats)
+		fmt.Fprintf(&section, "# HELP margince_license_seats Full seats the verified license grants.\n"+
+			"# TYPE margince_license_seats gauge\n"+
+			"margince_license_seats %d\n", seats)
 	}
+	// Assembled first and written once, so a refused write cannot leave half a
+	// gauge family in the exposition.
+	//craft:ignore swallowed-errors the renderer httpserver.Metrics takes for this section has no error return; the job section, which does, is a separate parameter that reports its own
+	_, _ = io.WriteString(w, section.String())
 }

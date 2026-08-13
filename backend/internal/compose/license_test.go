@@ -178,3 +178,24 @@ func TestAssembledMetricsSectionsOmitTheLicenseWhenNoneWasWired(t *testing.T) {
 		t.Errorf("a role with no posture wired reported one:\n%s", out.String())
 	}
 }
+
+// The boot line names which source the token came from. The environment outranks
+// the deployment file, so an installation licensed from a variable — set by
+// whoever controls the deploy pipeline rather than by whoever reviews the config
+// — should say so where somebody reads it.
+// Which source the token came from reaches the boot line. deployconfig owns the
+// naming (TestTokenOriginNamesTheSourceThatWins covers all four); what is
+// asserted here is that EnsureLicense actually puts it in the record, since a
+// posture logged without its source cannot answer "which license is this
+// installation running on".
+func TestEnsureLicenseBootLineNamesTheTokenSource(t *testing.T) {
+	unlicensedEnvironment(t)
+	var log bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}); err != nil {
+		t.Fatalf("EnsureLicense: %v", err)
+	}
+	if !strings.Contains(log.String(), "token_from=none") {
+		t.Errorf("the boot line does not name the token's source: %q", log.String())
+	}
+}

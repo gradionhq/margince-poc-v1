@@ -20,8 +20,12 @@ package licensecheck
 import (
 	"context"
 	_ "embed"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // The identity of the grant this build accepts, fixed at compile time.
@@ -73,12 +77,12 @@ const (
 	// StateValid means the module verified the token and returned this product's
 	// grant, within its expiry plus the grace period the module itself carries.
 	StateValid State = "valid"
-	// StateRejected means a token was configured and the module would not honor
-	// it: an untrusted signature, the wrong issuer, expiry past grace, or no
-	// grant for this product at this generation. A module that could not RUN at
-	// all lands here too — a validation module this build cannot execute is a
-	// broken build, and reading it as an unlicensed installation would turn a
-	// packaging mistake into a silent downgrade.
+	// StateRejected means a token was configured and the module JUDGED it: an
+	// untrusted signature, the wrong issuer, expiry past grace, or no grant for
+	// this product at this generation. A module that could not RUN at all is not
+	// this state — it is Resolve's error, because no verdict exists — and a boot
+	// refuses on either, since reading a broken build as an unlicensed
+	// installation would turn a packaging mistake into a silent downgrade.
 	StateRejected State = "rejected"
 )
 
@@ -96,10 +100,13 @@ type Posture struct {
 	// without changing — so this is carried whole rather than projected into
 	// fields that would drop what this build does not yet know to read.
 	Grants Grants
-	// Reason is the module's own account of a rejection, empty otherwise. It is
-	// operator-facing — a boot error and a log line — and is never served to a
-	// client: it describes the installation's configuration, not the caller's
-	// request.
+	// Reason is why a license was refused, empty otherwise. It is operator-facing
+	// — a boot error and a log line — and is never served to a client: it
+	// describes the installation's configuration, not the caller's request.
+	//
+	// It is the module's text, and the module quotes claim content it has not
+	// verified yet, so treat it as chosen by whoever supplied the token rather
+	// than by the module. sanitizeReason is what makes it safe to log.
 	Reason string
 	// CheckedAt is when this answer was resolved, so a stale posture is
 	// recognizable as one.
@@ -133,16 +140,66 @@ func (p Posture) Seats() (int, bool) {
 // "now" means here; the module checks expiry against the host's real clock
 // either way, which is the upstream contract and not ours to fake.
 //
+// The error return is reserved for a module that could not RUN — a malformed
+// blob, a trap, a framing nothing could unwrap. That is a fault in this build,
+// not a judgment about the license, and it is separate from the posture so a
+// caller can tell the two apart: a boot refuses on either, while a re-check
+// keeps the verdict it already has rather than reporting a license as refused on
+// the strength of an error nobody's license caused.
+//
 // An empty token is absent rather than an error: a configured token that cannot
 // be READ is caught where it is read (deployconfig), so by the time a token
 // reaches this function, empty means the operator configured none.
-func Resolve(ctx context.Context, token string, now time.Time) Posture {
+func Resolve(ctx context.Context, token string, now time.Time) (Posture, error) {
 	if strings.TrimSpace(token) == "" {
-		return Posture{State: StateAbsent, CheckedAt: now}
+		return Posture{State: StateAbsent, CheckedAt: now}, nil
 	}
 	grants, err := check(ctx, bundledModule, issuer, product, generation, token)
-	if err != nil {
-		return Posture{State: StateRejected, Reason: err.Error(), CheckedAt: now}
+	switch {
+	case errors.Is(err, ErrVerdict):
+		return Posture{State: StateRejected, Reason: sanitizeReason(err.Error()), CheckedAt: now}, nil
+	case err != nil:
+		return Posture{}, fmt.Errorf("licensecheck: the bundled validation module (%s) could not run: %s",
+			ModuleVersion(), sanitizeReason(err.Error()))
+	case grants == nil:
+		// Exit 0 with `null` on stdout decodes without error and is not a grant.
+		// Admitting it would license an installation nothing granted.
+		return Posture{State: StateRejected, Reason: "the module reported no grant at all", CheckedAt: now}, nil
+	default:
+		return Posture{State: StateValid, Grants: grants, CheckedAt: now}, nil
 	}
-	return Posture{State: StateValid, Grants: grants, CheckedAt: now}
+}
+
+// reasonLimit bounds what one rejection can contribute to a log line or a boot
+// error.
+const reasonLimit = 400
+
+// sanitizeReason makes the module's account of a rejection safe to put in a log
+// line and an operator-facing error.
+//
+// It has to, because the module decodes and quotes claim content BEFORE it
+// verifies the signature — so this text is chosen by whoever supplied the token,
+// not by the module. Left raw, a crafted attribute injects newlines and
+// logfmt-shaped text into the process log (a forged "license verified" record is
+// two quotes and a newline away), and an oversized one writes megabytes on every
+// boot of a crashlooping role. Control characters become spaces so the reason
+// stays one line, and the whole thing is capped.
+func sanitizeReason(reason string) string {
+	oneLine := strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || r == '\r' || unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, reason)
+	oneLine = strings.TrimSpace(oneLine)
+	if len(oneLine) <= reasonLimit {
+		return oneLine
+	}
+	// Cut on a rune boundary; a truncated multi-byte sequence would render as a
+	// replacement character and read as corruption rather than as a cut.
+	cut := oneLine[:reasonLimit]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "… (truncated)"
 }

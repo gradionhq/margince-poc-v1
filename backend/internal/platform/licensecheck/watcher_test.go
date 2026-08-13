@@ -6,6 +6,7 @@ package licensecheck
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -16,9 +17,27 @@ import (
 // re-check's stamp is a value the assertions can name.
 func fixedClock(at time.Time) func() time.Time { return func() time.Time { return at } }
 
+// tokens is a TokenSource a test drives — the same seam production uses, where
+// deployconfig re-reads the operator's file or variable.
+type tokens struct {
+	token string
+	err   error
+	reads int
+}
+
+func (t *tokens) source() (string, error) {
+	t.reads++
+	return t.token, t.err
+}
+
+func warnLog(into *bytes.Buffer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(into, &slog.HandlerOptions{Level: slog.LevelWarn}))
+}
+
 func TestNewWatcherRefusesARejectedLicense(t *testing.T) {
 	t.Parallel()
-	_, err := NewWatcher(context.Background(), "not-a-license", fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	source := &tokens{token: "not-a-license"}
+	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
 	if err == nil {
 		t.Fatal("NewWatcher accepted a license the module refuses; the role would serve on a bad license")
 	}
@@ -29,9 +48,24 @@ func TestNewWatcherRefusesARejectedLicense(t *testing.T) {
 	}
 }
 
+// A token that cannot be read is the caller's error to report, not a posture:
+// this is deployconfig's mistyped-path refusal arriving through the source.
+func TestNewWatcherRefusesATokenItCannotRead(t *testing.T) {
+	t.Parallel()
+	source := &tokens{err: errors.New("reading license.token_file: no such file")}
+	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	if err == nil {
+		t.Fatal("NewWatcher booted on a token source that could not answer")
+	}
+	if !strings.Contains(err.Error(), "license.token_file") {
+		t.Errorf("boot refusal %q drops what the source said", err)
+	}
+}
+
 func TestNewWatcherBootsWithoutALicense(t *testing.T) {
 	t.Parallel()
-	w, err := NewWatcher(context.Background(), "", fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewWatcher refused an unlicensed installation: %v", err)
 	}
@@ -45,8 +79,8 @@ func TestNewWatcherBootsWithoutALicense(t *testing.T) {
 func TestRecheckRecordsADegradedPostureAndLogsTheTransition(t *testing.T) {
 	t.Parallel()
 	var log bytes.Buffer
-	w, err := NewWatcher(context.Background(), "", fixedClock(checkedAt),
-		slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log))
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -54,7 +88,7 @@ func TestRecheckRecordsADegradedPostureAndLogsTheTransition(t *testing.T) {
 	// The license the process booted with stops being honored. Standing in for
 	// expiry-past-grace, which no token this repository can mint would reach.
 	later := checkedAt.Add(48 * time.Hour)
-	w.token = "no-longer-honored"
+	source.token = "no-longer-honored"
 	w.now = fixedClock(later)
 	w.Recheck(context.Background())
 
@@ -73,13 +107,56 @@ func TestRecheckRecordsADegradedPostureAndLogsTheTransition(t *testing.T) {
 	}
 }
 
+// The re-check re-READS the token, so a license replaced in place is picked up.
+// A watcher holding the boot-time value could only ever watch a license lapse,
+// and would keep reporting a refusal an operator had already fixed.
+func TestRecheckReadsTheTokenAgainRatherThanTheOneItBootedWith(t *testing.T) {
+	t.Parallel()
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	if source.reads != 1 {
+		t.Fatalf("the boot read the token source %d times, want once", source.reads)
+	}
+	w.Recheck(context.Background())
+	if source.reads != 2 {
+		t.Errorf("the re-check read the token source %d times in total, want 2 — a replaced token would never be seen",
+			source.reads)
+	}
+}
+
+// A source that stops answering says nothing about the license, so the posture
+// stands. Degrading here would tell an operator their license was refused when
+// what broke was the machinery for asking.
+func TestRecheckKeepsThePostureWhenTheTokenCannotBeRead(t *testing.T) {
+	t.Parallel()
+	var log bytes.Buffer
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt),
+		slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	source.err = errors.New("token file vanished")
+	w.Recheck(context.Background())
+
+	if got := w.Posture(); got.State != StateAbsent {
+		t.Errorf("posture = %q, want it to stand at %q", got.State, StateAbsent)
+	}
+	if !strings.Contains(log.String(), "keeping the posture") {
+		t.Errorf("the fault log %q does not say the posture was kept", log.String())
+	}
+}
+
 // A steady posture is silent. An operator scanning a year of logs should find
 // the day the license lapsed, not a line per day saying it had not.
 func TestRecheckSaysNothingWhenTheStateIsUnchanged(t *testing.T) {
 	t.Parallel()
 	var log bytes.Buffer
-	w, err := NewWatcher(context.Background(), "", fixedClock(checkedAt),
-		slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log))
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -92,11 +169,41 @@ func TestRecheckSaysNothingWhenTheStateIsUnchanged(t *testing.T) {
 	}
 }
 
+// The type's promise is that nothing about a license ends a serving process. The
+// module runs through a runtime that panics rather than returning on some faults,
+// and this loop is a bare goroutine in the api's boot — an escaping panic would
+// be process death with a stack dump instead of a degraded posture.
+func TestRecheckSurvivesAPanicOnTheWayToAVerdict(t *testing.T) {
+	t.Parallel()
+	var log bytes.Buffer
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source,
+		fixedClock(checkedAt), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	w.now = func() time.Time { panic("the runtime came apart") }
+
+	w.Recheck(context.Background())
+
+	if got := w.Posture(); got.State != StateAbsent {
+		t.Errorf("posture = %q, want the last resolved %q", got.State, StateAbsent)
+	}
+	line := log.String()
+	if !strings.Contains(line, "panicked") || !strings.Contains(line, "the runtime came apart") {
+		t.Errorf("the fault log %q does not report the panic", line)
+	}
+	if !strings.Contains(line, "stack") {
+		t.Error("the fault log carries no stack; a panic nobody can locate is a panic nobody fixes")
+	}
+}
+
 // The loop ends with its context and does not outlive the process role that
 // started it.
 func TestRunRecheckStopsWhenTheContextIsCancelled(t *testing.T) {
 	t.Parallel()
-	w, err := NewWatcher(context.Background(), "", fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	source := &tokens{}
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}

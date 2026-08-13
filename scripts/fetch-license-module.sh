@@ -11,14 +11,20 @@
 # repository's CI jobs have. So the blob is committed, and this script is how it
 # is replaced — never by hand, so the digest beside it cannot drift from it.
 #
-# WHAT IS VERIFIED: the downloaded bytes against the digest GitHub itself
-# computed for the stored asset, before anything is written into the tree. The
-# release's own SHA256SUMS file covers only the four CLI binaries and not the
-# wasm module, so the API's per-asset digest is the available authority; asking
-# upstream to cover the module in SHA256SUMS too is tracked in issue #1190.
-# Committing the digest is the second half: internal/platform/licensecheck's
-# TestBundledModuleMatchesItsRecordedDigest holds the blob to it on every build,
-# so a swapped or truncated module fails the gate rather than a boot.
+# WHAT IS VERIFIED, and what is not. The downloaded bytes are checked against the
+# digest GitHub computed for the stored asset, and the committed digest then holds
+# the blob on every build (internal/platform/licensecheck's
+# TestBundledModuleMatchesItsRecordedDigest), so a truncated download, a
+# hand-edited blob, and a refresh that forgot its pin all fail loudly.
+#
+# Neither check is a SIGNATURE, and the difference matters: both sides of each
+# comparison come from the same release, so anyone able to publish or replace an
+# asset in that repository controls both, and this script would faithfully pin
+# what they published. What limits that today is the sandbox the module runs in
+# (no filesystem, no sockets, one environment variable), not this verification.
+# The release's own SHA256SUMS covers only the four CLI binaries; getting the
+# module covered there, and a detached signature to anchor provenance properly,
+# is tracked in issue #1190.
 #
 # USAGE
 #   scripts/fetch-license-module.sh              refetch the pinned release
@@ -67,11 +73,21 @@ fi
 # comparison is against a value this script did not derive from the bytes it is
 # checking. The release's SHA256SUMS covers only the CLI binaries, so this
 # per-asset digest is the available authority (issue #1190).
-read -r asset expected <<<"$(gh api "repos/$repo/releases/tags/$tag" \
+matches="$(gh api "repos/$repo/releases/tags/$tag" \
   --jq ".assets[] | select(.name|test(\"^licensecheck[.]wasm[.]\")) | \"\(.name) \(.digest)\"" |
   sed 's/sha256://')"
-if [[ -z "${asset:-}" || ! "${expected:-}" =~ ^[0-9a-f]{64}$ ]]; then
-  echo "fetch-license-module: release $tag publishes no $asset_glob with a sha256 digest" >&2
+# Exactly one, or refuse. A release carrying two framings (the gzip-to-brotli
+# transition is precisely when that happens) would otherwise bundle whichever the
+# API happened to list first, and `make license-module` would stop being
+# deterministic at the one moment it matters most.
+if [[ "$(printf '%s\n' "$matches" | grep -c .)" -ne 1 ]]; then
+  echo "fetch-license-module: release $tag must publish exactly one $asset_glob; it publishes:" >&2
+  printf '%s\n' "${matches:-  (none)}" >&2
+  exit 1
+fi
+read -r asset expected <<<"$matches"
+if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "fetch-license-module: release $tag publishes $asset with no sha256 digest" >&2
   exit 1
 fi
 

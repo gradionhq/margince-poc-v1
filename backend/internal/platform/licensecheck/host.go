@@ -12,10 +12,18 @@ package licensecheck
 // importing it would make this product unbuildable for exactly the people who
 // need to prove their entitlement.
 //
-// Deliberately a verbatim copy, down to MustInstantiate below, because hand-
-// syncing a diverged copy is how the two drift. What it accepts is therefore
+// Deliberately a near-verbatim copy, down to MustInstantiate below, because
+// hand-syncing a diverged copy is how the two drift. What it accepts is therefore
 // upstream's decision: a raw, gzipped or brotli-compressed module, decided by
 // the bytes rather than by a file name.
+//
+// THE ONE DIVERGENCE, and it is additive: a rejection is wrapped in ErrVerdict so
+// a caller can tell "the module judged this license" from "the module could not
+// run" without reading the message. The wording is unchanged; this repository
+// forbids classifying errors by message text (backend/errmatch_test.go), and it is
+// right to — the two mean opposite things to a running installation, and a
+// reworded string upstream would silently turn every fault into a refusal. Worth
+// offering upstream so the divergence closes.
 //
 // That commit is NEWER than the release module/VERSION pins, and the two are
 // expected to move independently: this side is the reader, and it reads every
@@ -43,11 +51,24 @@ import (
 // module's output. JSON numbers decode to float64.
 type Grants = map[string]any
 
+// ErrVerdict marks an error as the module's JUDGMENT about a license — an
+// untrusted signature, the wrong issuer, expiry past grace, no grant for this
+// product — as opposed to a failure to run the module at all. Only run() wraps
+// it, and Resolve is what reads it.
+var ErrVerdict = errors.New("license rejected")
+
 // check runs the module (compiled wasm bytes, gzipped or raw) to validate token
 // for product at generation, issued by issuer. It returns the granted
 // attributes, or an error when the module rejects the license or fails to run.
 // The token is passed to the module as the MARGINCE_LICENSE environment
 // variable; issuer, product and generation are passed as arguments.
+//
+// The parameters this repository only ever passes constants for stay parameters:
+// the signature is upstream's, and narrowing it here would make the copy harder
+// to compare against the original than the unused generality costs. The tests
+// pass the same constants for the same reason — what varies is the token.
+//
+//nolint:unparam // upstream's signature, kept comparable; see the vendoring note above
 func check(ctx context.Context, module []byte, issuer, product string, generation int, token string) (Grants, error) {
 	module, err := maybeDecompress(module)
 	if err != nil {
@@ -124,7 +145,7 @@ func run(ctx context.Context, module []byte, issuer, product string, generation 
 	}
 	var exit *sys.ExitError
 	if errors.As(err, &exit) {
-		return nil, fmt.Errorf("license rejected: %s", strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("%w: %s", ErrVerdict, strings.TrimSpace(stderr.String()))
 	}
 	return nil, fmt.Errorf("run module: %w", err)
 }

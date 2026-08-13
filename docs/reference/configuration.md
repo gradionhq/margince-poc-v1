@@ -712,8 +712,17 @@ downstream, so a mistyped path must not read as a deliberate choice.
 
 A license that lapses **while the process runs** does not stop it. The api
 re-checks daily and its `/metrics` posture degrades; nothing goes offline
-mid-month without a human in the loop. Enforcement of the granted seat count is
+mid-month without a human in the loop. The re-check re-reads `token_file` (or the
+variable) each time, so a license renewed in place takes effect within a day
+without a restart. Anything that is not a verdict — an unreadable token, a module
+that failed to run — leaves the posture the process last resolved and is logged
+as itself: none of those is evidence about the license, and degrading on one would
+report a refusal that no license caused. Enforcement of the granted seat count is
 not implemented yet (issue #1190).
+
+A token is read up to 64 KiB. A larger file is a boot error rather than a token,
+because a path pointing at something that is not a license (a log, an image) is a
+mistake to report, and everything downstream copies the token whole.
 
 Every development and CI process in this repository runs unlicensed, which is
 why an absent license is a supported posture rather than a refusal.

@@ -4,6 +4,7 @@
 package deployconfig
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,5 +123,64 @@ func TestLicenseSectionParses(t *testing.T) {
 	}
 	if _, err := Parse([]byte("version: 1\nlicense:\n  token: inline-secret\n")); err == nil {
 		t.Error("Parse accepted an inline license token; secrets are file references and an unknown key is a boot error")
+	}
+}
+
+// A path pointed at the wrong file — a log, an image, a whole database dump —
+// fails as the mistake it is. Everything downstream copies the token whole: into
+// a process environment, into a WebAssembly module's memory, and into whatever
+// that module quotes back on refusal.
+func TestLicenseTokenRefusesAFileTooLargeToBeALicense(t *testing.T) {
+	unlicensedEnvironment(t)
+	path := filepath.Join(t.TempDir(), "not-a-license")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), TokenLimit+1), 0o600); err != nil {
+		t.Fatalf("write oversized file: %v", err)
+	}
+	_, err := License{TokenFile: path}.Token()
+	if err == nil {
+		t.Fatal("Token read a file too large to be a license token")
+	}
+	if !strings.Contains(err.Error(), "check the path points at the token") {
+		t.Errorf("error = %q, want it to name the likely mistake", err)
+	}
+}
+
+// A token exactly at the limit is still read: the bound refuses what cannot be a
+// license, not what is merely large.
+func TestLicenseTokenAcceptsAFileAtTheLimit(t *testing.T) {
+	unlicensedEnvironment(t)
+	path := filepath.Join(t.TempDir(), "license")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), TokenLimit), 0o600); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+	got, err := License{TokenFile: path}.Token()
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if len(got) != TokenLimit {
+		t.Errorf("Token() returned %d bytes, want %d", len(got), TokenLimit)
+	}
+}
+
+// The boot line says which of the two sources a token came from, because the
+// environment outranks the file an operator reviews.
+func TestTokenOriginNamesTheSourceThatWins(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     string
+		license License
+		want    string
+	}{
+		{name: "nothing configured", want: "none"},
+		{name: "the file reference", license: License{TokenFile: "/etc/margince/license"}, want: "license.token_file"},
+		{name: "the environment, over a file", env: "a.token", license: License{TokenFile: "/etc/margince/license"}, want: LicenseTokenEnvVar},
+		{name: "an empty variable does not win", env: "  ", license: License{TokenFile: "/etc/margince/license"}, want: "license.token_file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(LicenseTokenEnvVar, tc.env)
+			if got := tc.license.TokenOrigin(); got != tc.want {
+				t.Errorf("TokenOrigin() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
