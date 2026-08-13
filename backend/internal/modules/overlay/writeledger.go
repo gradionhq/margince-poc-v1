@@ -101,7 +101,7 @@ func (l *WriteLedger) OpenEntries(ctx context.Context, objectClass, externalID s
 				INSERT INTO overlay_write_ledger
 					(workspace_id, object_class, external_id, property, value_hash, value_canonical)
 				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
-				ON CONFLICT (workspace_id, object_class, external_id, property, value_hash)
+				ON CONFLICT (object_class, external_id, property, value_hash)
 				DO UPDATE SET value_canonical = EXCLUDED.value_canonical, opened_at = now()`,
 				objectClass, externalID, prop, l.hash(val), val,
 			); err != nil {
@@ -192,7 +192,7 @@ func haltMirrorTx(ctx context.Context, tx pgx.Tx, reason string) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO overlay_mirror_halt (workspace_id, reason)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1)
-		ON CONFLICT (workspace_id) DO UPDATE SET reason = EXCLUDED.reason, detected_at = now()`,
+		ON CONFLICT ((true)) DO UPDATE SET reason = EXCLUDED.reason, detected_at = now()`,
 		reason); err != nil {
 		return fmt.Errorf("overlay: recording the mirror halt: %w", err)
 	}

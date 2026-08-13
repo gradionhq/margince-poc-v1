@@ -210,7 +210,7 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
 		VALUES ($1, $2, $3, $4::numeric, $5)
-		ON CONFLICT (workspace_id, from_currency, to_currency, rate_date)
+		ON CONFLICT (from_currency, to_currency, rate_date)
 		DO UPDATE SET rate = EXCLUDED.rate
 		RETURNING id, from_currency, to_currency, rate::text, rate_date`,
 		storekit.MustWorkspace(ctx), from, base, rate, effDate,

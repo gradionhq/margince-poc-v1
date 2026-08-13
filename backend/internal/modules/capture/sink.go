@@ -218,7 +218,7 @@ func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRec
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-		ON CONFLICT (workspace_id, source_system, source_id) DO NOTHING`,
+		ON CONFLICT (source_system, source_id) DO NOTHING`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
 		return fmt.Errorf("capture: raw store: %w", err)
 	}
@@ -329,7 +329,7 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), $12, $13)
-		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
+		ON CONFLICT (source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,

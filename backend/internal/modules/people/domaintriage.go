@@ -144,7 +144,7 @@ func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, o
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO organization_domain_disposition (workspace_id, domain, status, owner_id)
 		VALUES ($1, $2, 'pending', $3)
-		ON CONFLICT (workspace_id, domain) DO NOTHING`,
+		ON CONFLICT (domain) DO NOTHING`,
 		workspaceID(ctx), domain, ownerID)
 	if err != nil {
 		return false, fmt.Errorf("people: opening the disposition question for %s: %w", domain, err)

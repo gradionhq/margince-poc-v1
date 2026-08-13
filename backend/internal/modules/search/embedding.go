@@ -109,7 +109,7 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector)
-			ON CONFLICT (workspace_id, entity_type, entity_id, chunk_ix)
+			ON CONFLICT (entity_type, entity_id, chunk_ix)
 			DO UPDATE SET chunk_hash = EXCLUDED.chunk_hash, model = EXCLUDED.model,
 			              embedding = EXCLUDED.embedding, created_at = now()
 			WHERE embedding.chunk_hash IS NOT DISTINCT FROM $6`,

@@ -319,7 +319,7 @@ func (s *Service) save(ctx context.Context, userID ids.UserID, orgID ids.Organiz
 			INSERT INTO org_brief (workspace_id, user_id, organization_id, fingerprint,
 			                       generated_at, generated_by, payload)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (workspace_id, user_id, organization_id) DO UPDATE
+			ON CONFLICT (user_id, organization_id) DO UPDATE
 			SET fingerprint = EXCLUDED.fingerprint,
 			    generated_at = EXCLUDED.generated_at,
 			    generated_by = EXCLUDED.generated_by,

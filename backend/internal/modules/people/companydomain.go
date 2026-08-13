@@ -68,7 +68,7 @@ func setCompanyDomain(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
 		 VALUES ($1, $2, lower($3), true, 'manual', $4)
-		 ON CONFLICT (workspace_id, domain) WHERE archived_at IS NULL
+		 ON CONFLICT (domain) WHERE archived_at IS NULL
 		 DO UPDATE SET is_primary = true
 		 WHERE organization_domain.organization_id = EXCLUDED.organization_id
 		 RETURNING organization_id`,

@@ -207,9 +207,9 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (strin
 	// One disposition per address per state, whichever index arbitrates it: a
 	// second message from the same stranger joins the open question, and a
 	// second newsletter does not append another copy of the same answer.
-	conflict := "(workspace_id, email) WHERE status IN ('pending', 'unsure')"
+	conflict := "(email) WHERE status IN ('pending', 'unsure')"
 	if in.Status == PendingStatusSuppressed {
-		conflict = "(workspace_id, email) WHERE status = 'suppressed'"
+		conflict = "(email) WHERE status = 'suppressed'"
 	}
 	// Due-ness is stamped with the DATABASE's clock, never the caller's. ClaimDue
 	// compares next_attempt_at against Postgres now(), so a next_attempt_at taken

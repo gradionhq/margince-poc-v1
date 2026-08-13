@@ -124,7 +124,7 @@ func (s *VoiceStore) persistPreparedSource(ctx context.Context, tx pgx.Tx, profi
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, 'manual', $2, $3, $4, $5, $6, $7, $8, $9,
 			        false, NULL, 'voice-v1', $10, 'ui', $11, $12)
-			ON CONFLICT (workspace_id, voice_profile_id, source_ref) DO UPDATE SET
+			ON CONFLICT (voice_profile_id, source_ref) DO UPDATE SET
 			  origin = 'manual',
 			  kind = EXCLUDED.kind,
 			  register = EXCLUDED.register,

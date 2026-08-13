@@ -85,7 +85,7 @@ func (s *Service) DismissMoment(ctx context.Context, personID ids.PersonID, in c
 			INSERT INTO person_moment_dismissal
 				(workspace_id, user_id, person_id, claim_key, evidence_fingerprint)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (workspace_id, user_id, person_id, claim_key)
+			ON CONFLICT (user_id, person_id, claim_key)
 			DO UPDATE SET evidence_fingerprint = EXCLUDED.evidence_fingerprint,
 			              dismissed_at = now()`,
 			storekit.MustWorkspace(ctx), userID, personID, in.ClaimKey, in.EvidenceFingerprint)

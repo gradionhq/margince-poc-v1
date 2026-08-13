@@ -78,7 +78,7 @@ func recordSweepSuccess(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, updated_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), 0, now(), now())
-			ON CONFLICT (workspace_id) DO UPDATE SET last_success_at = now(), updated_at = now()`)
+			ON CONFLICT ((true)) DO UPDATE SET last_success_at = now(), updated_at = now()`)
 		return err
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func markBackfillDone(ctx context.Context, t *testing.T, pool *pgxpool.Pool, inc
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, truncated)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, '', true, false)
-			ON CONFLICT (workspace_id, object_class) DO UPDATE SET done = true, truncated = false`,
+			ON CONFLICT (object_class) DO UPDATE SET done = true, truncated = false`,
 			incumbentClass)
 		return err
 	})

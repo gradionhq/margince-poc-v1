@@ -133,7 +133,7 @@ func (s *Store) SaveMyLinkedInAccount(ctx context.Context, in SaveMyLinkedInAcco
 			INSERT INTO linkedin_account (workspace_id, user_id, profile_url, connected_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, NULLIF($2, ''), CASE WHEN $3 THEN now() END)
-			ON CONFLICT (workspace_id, user_id) DO UPDATE SET
+			ON CONFLICT (user_id) DO UPDATE SET
 			    profile_url = NULLIF($2, ''),
 			    connected_at = CASE
 			      WHEN $3 THEN coalesce(linkedin_account.connected_at, now())

@@ -131,7 +131,7 @@ INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, upd
 SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, now(), 'fresh'
 WHERE NOT EXISTS (SELECT 1 FROM overlay_tombstone t
     WHERE t.workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid AND t.object_class=$1 AND t.external_id=$2)
-ON CONFLICT (workspace_id, object_class, external_id) DO UPDATE
+ON CONFLICT (object_class, external_id) DO UPDATE
    SET fields=EXCLUDED.fields, updated_at_baseline=EXCLUDED.updated_at_baseline,
        owner_external_id=EXCLUDED.owner_external_id, last_synced_at=now()
    WHERE overlay_mirror.sync_state <> 'pending_sync'
@@ -289,7 +289,7 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 const upsertAssocSQL = `
 INSERT INTO overlay_association (workspace_id, from_type, from_id, to_type, to_id, type_id, category, label, direction)
 VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (workspace_id, from_type, from_id, to_type, to_id, type_id) DO UPDATE
+ON CONFLICT (from_type, from_id, to_type, to_id, type_id) DO UPDATE
    SET category = EXCLUDED.category, label = EXCLUDED.label, direction = EXCLUDED.direction`
 
 // UpsertAssoc records one incumbent association edge. Direction is

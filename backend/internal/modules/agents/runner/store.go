@@ -49,7 +49,7 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 		row := tx.QueryRow(ctx, `
 			INSERT INTO agent_run (workspace_id, agent_spec, goal, trigger_ref, passport_id)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-			ON CONFLICT (workspace_id, trigger_ref) DO NOTHING
+			ON CONFLICT (trigger_ref) DO NOTHING
 			RETURNING id`,
 			spec.Name, spec.Goal, triggerRef, passportID)
 		var raw string
@@ -249,7 +249,7 @@ func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, pas
 		_, err := tx.Exec(ctx, `
 			INSERT INTO runner_job (workspace_id, agent_spec, trigger_ref, passport_id, due_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-			ON CONFLICT (workspace_id, agent_spec, trigger_ref) DO NOTHING`,
+			ON CONFLICT (agent_spec, trigger_ref) DO NOTHING`,
 			specName, triggerRef, passportID, dueAt)
 		if err != nil {
 			return fmt.Errorf("runner: enqueue job: %w", err)

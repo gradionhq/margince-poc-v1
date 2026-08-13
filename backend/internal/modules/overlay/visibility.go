@@ -83,7 +83,7 @@ INSERT INTO mirror_visibility (workspace_id, incumbent, mirror_user_id, object_c
 SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, m.incumbent, m.app_user_id, $2, $3, true, now()
 FROM mirror_user_map m
 WHERE m.incumbent_user_id = $1
-ON CONFLICT (workspace_id, incumbent, mirror_user_id, object_class, external_id)
+ON CONFLICT (incumbent, mirror_user_id, object_class, external_id)
 DO UPDATE SET can_see = true, snapshot_at = now()`
 
 // ProjectOwnerVisibility computes can_see = (owner maps to this user) for
@@ -268,7 +268,7 @@ SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4
  WHERE $4 = 'manual'
     OR NOT EXISTS (SELECT 1 FROM mirror_user_automap_block b
                     WHERE b.app_user_id = $1 AND b.incumbent = $2)
-ON CONFLICT (workspace_id, app_user_id, incumbent) DO UPDATE
+ON CONFLICT (app_user_id, incumbent) DO UPDATE
    SET incumbent_user_id = EXCLUDED.incumbent_user_id, match_source = EXCLUDED.match_source`
 
 // selectPriorMappingSQL reads the (workspace, appUser, incumbent) mapping's

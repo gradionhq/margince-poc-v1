@@ -319,7 +319,7 @@ func upsertOrganizationFacts(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceI
 			  (workspace_id, organization_id, category, field, value, value_key,
 			   evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'site_read', $10, $11)
-			ON CONFLICT (workspace_id, organization_id, category, field, value_key)
+			ON CONFLICT (organization_id, category, field, value_key)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
 			              source = EXCLUDED.source, captured_by = EXCLUDED.captured_by,

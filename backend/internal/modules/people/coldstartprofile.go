@@ -342,7 +342,7 @@ func applyEvidenceFieldsWithOverwrite(
 			INSERT INTO organization_profile_field
 			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			ON CONFLICT (workspace_id, organization_id, field)
+			ON CONFLICT (organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
 			              source = EXCLUDED.source,

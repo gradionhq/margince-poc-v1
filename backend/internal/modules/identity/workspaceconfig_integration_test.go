@@ -164,40 +164,6 @@ func TestResetWorkspaceConfigRestoresSettingsAndKeepsIdentity(t *testing.T) {
 	}
 }
 
-// TestResetWorkspaceConfigLeavesOtherWorkspacesAlone: workspace is the one
-// table outside RLS (data-model §1.2), so nothing under this statement stops
-// it from restoring every row in the table. The bound GUC is the whole
-// isolation, which makes a co-tenant's settings surviving the property worth
-// asserting rather than assuming.
-func TestResetWorkspaceConfigLeavesOtherWorkspacesAlone(t *testing.T) {
-	owner, pool := setupIdentityDB(t)
-	ctx := context.Background()
-	mine := seedConfigWorkspace(t, pool, "mine")
-	theirs := seedConfigWorkspace(t, pool, "theirs")
-
-	if _, err := owner.Exec(ctx,
-		`UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`,
-		theirs); err != nil {
-		t.Fatalf("configuring the co-tenant: %v", err)
-	}
-
-	wsCtx := principal.WithWorkspaceID(ctx, mine)
-	if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
-		return ResetWorkspaceConfig(wsCtx, tx)
-	}); err != nil {
-		t.Fatalf("ResetWorkspaceConfig: %v", err)
-	}
-
-	var mode string
-	if err := owner.QueryRow(ctx,
-		`SELECT x_sor_mode FROM workspace WHERE id = $1`, theirs).Scan(&mode); err != nil {
-		t.Fatalf("reading the co-tenant back: %v", err)
-	}
-	if mode != "overlay" {
-		t.Errorf("the co-tenant's x_sor_mode = %q, want overlay — one installation's reset reconfigured another's", mode)
-	}
-}
-
 // TestPreservedWorkspaceColumnsAreRealAndExcluded is the stale-name rail: each
 // preserved name must still be a column of the workspace table. A rename or a
 // drop that left the set behind would not fail anything — the name simply

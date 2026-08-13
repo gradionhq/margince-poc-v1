@@ -236,7 +236,7 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 		       f.user_id, f.person_id, f.last_at, f.last_inbound_at, f.last_outbound_at,
 		       f.count_90d, f.in_90d, f.out_90d, f.count_total, now()
 		  FROM folded f
-		ON CONFLICT (workspace_id, user_id, person_id) DO UPDATE SET
+		ON CONFLICT (user_id, person_id) DO UPDATE SET
 		    last_at          = EXCLUDED.last_at,
 		    last_inbound_at  = EXCLUDED.last_inbound_at,
 		    last_outbound_at = EXCLUDED.last_outbound_at,

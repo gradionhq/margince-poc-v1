@@ -149,7 +149,7 @@ func mirrorCustomers(
 			       (workspace_id, connection_id, external_customer_id, display_name,
 			        source_updated_at, sync_hash, source, captured_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (workspace_id, connection_id, external_customer_id)
+			ON CONFLICT (connection_id, external_customer_id)
 			DO UPDATE SET display_name = EXCLUDED.display_name,
 			              source_updated_at = EXCLUDED.source_updated_at,
 			              sync_hash = EXCLUDED.sync_hash

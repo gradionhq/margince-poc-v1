@@ -87,19 +87,6 @@ func (e *sendEnv) absorbedRow(t *testing.T, id ids.ActivityID) absorbedEcho {
 	return row
 }
 
-// seedNeighbourWorkspace is a second tenant on the same database — the only
-// way to seed a row this workspace's transaction must not be able to see.
-func (e *sendEnv) seedNeighbourWorkspace(t *testing.T) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		id, "neighbour-"+id.String()); err != nil {
-		t.Fatalf("seeding the neighbouring workspace: %v", err)
-	}
-	return id
-}
-
 // seedPerson writes the counterparty an auto-created record would have made.
 func (e *sendEnv) seedPerson(t *testing.T, name string) ids.UUID {
 	t.Helper()
@@ -429,33 +416,6 @@ func TestAbsorbRefusesARowThatIsNotThisMessagesEcho(t *testing.T) {
 				t.Errorf("the bystander's source_id = %q, want it untouched (%q)", untouched.sourceID, stampedIdentity)
 			}
 		})
-	}
-}
-
-// The natural-key index is per workspace, so another tenant holding the same
-// identity does not even collide — and must not be readable, let alone
-// archivable, from this one. The re-key simply succeeds.
-func TestAbsorbNeverReachesAnotherWorkspacesRowOnTheSameIdentity(t *testing.T) {
-	e := setupSend(t)
-	survivor := e.seedSentEmail(t, mintedIdentity)
-	neighbour := e.seedNeighbourWorkspace(t)
-	// Shaped exactly like this message's own echo, so the workspace bound is
-	// the only thing keeping it out of reach.
-	theirs := e.seedEcho(t, echoSeed{
-		workspace: neighbour, direction: "outbound", kind: "email",
-		source: "gmail:" + stampedIdentity, capturedBy: "connector:gmail",
-		counterparty: counterparty,
-	})
-
-	e.reconcile(t, survivor, stampedIdentity)
-
-	if row := e.sentRow(t, survivor); row.sourceID != stampedIdentity {
-		t.Errorf("the survivor's source_id = %q, want the stamped identity %q: another tenant's row is not a collision",
-			row.sourceID, stampedIdentity)
-	}
-	untouched := e.absorbedRow(t, theirs)
-	if untouched.archived || untouched.sourceID != stampedIdentity {
-		t.Errorf("the neighbouring workspace's row = %+v, want it untouched — one tenant's send must not reach another's timeline", untouched)
 	}
 }
 

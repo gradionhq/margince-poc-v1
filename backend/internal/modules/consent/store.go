@@ -433,7 +433,7 @@ func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, sub 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO person_consent (workspace_id, `+sub.column+`, purpose_id, state, lawful_basis, captured_at, source)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
-		ON CONFLICT (workspace_id, `+sub.column+`, purpose_id)
+		ON CONFLICT (`+sub.column+`, purpose_id)
 		DO UPDATE SET state = EXCLUDED.state, lawful_basis = EXCLUDED.lawful_basis,
 		              captured_at = EXCLUDED.captured_at, source = EXCLUDED.source`,
 		sub.id, in.PurposeID, in.NewState, in.LawfulBasis, capturedAt, in.Source); err != nil {

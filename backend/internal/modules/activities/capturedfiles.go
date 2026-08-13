@@ -174,7 +174,7 @@ func insertCapturedAttachment(
 		        $5, $6, $7, $8, $9,
 		        'email_attachment', $10, $2,
 		        $11, $12, $13)
-		ON CONFLICT (workspace_id, external_source_id, external_part_id)
+		ON CONFLICT (external_source_id, external_part_id)
 		  WHERE external_source_id IS NOT NULL DO NOTHING`,
 		file.id, activityID, file.file.Filename, nullIfEmpty(file.file.ContentType),
 		len(file.file.Body), file.key, file.checksum, from.System, from.CapturedBy,

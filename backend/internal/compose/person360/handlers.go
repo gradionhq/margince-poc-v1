@@ -138,7 +138,7 @@ func (s *Service) Acknowledge(ctx context.Context, personID ids.PersonID) (crmco
 		return tx.QueryRow(ctx, `
 			INSERT INTO user_record_view (workspace_id, user_id, entity_type, entity_id, last_viewed_at)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (workspace_id, user_id, entity_type, entity_id)
+			ON CONFLICT (user_id, entity_type, entity_id)
 			DO UPDATE SET last_viewed_at = GREATEST(user_record_view.last_viewed_at, EXCLUDED.last_viewed_at)
 			RETURNING last_viewed_at`,
 			storekit.MustWorkspace(ctx), userID, entityTypePerson, personID, now).Scan(&stored)

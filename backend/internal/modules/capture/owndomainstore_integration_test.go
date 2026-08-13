@@ -236,40 +236,6 @@ func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 	}
 }
 
-// One workspace's removal leaves another's identical row alone. The DELETE
-// carries no workspace predicate and relies entirely on RLS, so the isolation
-// is asserted rather than assumed.
-func TestRemovingADomainLeavesAnotherWorkspacesAlone(t *testing.T) {
-	// A store per workspace, because the handle carries the tenant now
-	// (ADR-0091 §9 step 3). One store driven by two contexts would run both
-	// halves against the first workspace, and the isolation this asserts would
-	// be asserted against nothing.
-	first, firstDB := ownDomainWorkspace(t)
-	second, secondDB := ownDomainWorkspace(t)
-	firstStore := capture.NewOwnDomainStore(firstDB)
-	secondStore := capture.NewOwnDomainStore(secondDB)
-
-	for _, s := range []struct {
-		ctx   context.Context
-		store *capture.OwnDomainStore
-	}{{first, firstStore}, {second, secondStore}} {
-		if _, err := s.store.Add(s.ctx, "shared.example"); err != nil {
-			t.Fatalf("Add: %v", err)
-		}
-	}
-	if err := firstStore.Remove(first, "shared.example"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-
-	list, err := secondStore.List(second)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(list.Domains) != 1 || list.Domains[0].Domain != "shared.example" {
-		t.Errorf("the other workspace's set = %+v, want its own row untouched", list.Domains)
-	}
-}
-
 // The registry is workspace CONFIGURATION, not a record, so its writes are
 // audit-only: no outbox envelope, no public event. That makes audit_log the
 // ONLY place a change is recorded, and an unaudited write here would leave a

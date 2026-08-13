@@ -219,7 +219,7 @@ func upsertVerdict(ctx context.Context, tx pgx.Tx, in RecordInput, key, captured
 		   verdict, corrected_value, note, source, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, $2, $3, $4, $5, $6, $7, 'human', $8)
-		ON CONFLICT (workspace_id, subject_type, subject_id, claim_kind, claim_key)
+		ON CONFLICT (subject_type, subject_id, claim_kind, claim_key)
 		DO UPDATE SET verdict = EXCLUDED.verdict,
 		              corrected_value = EXCLUDED.corrected_value,
 		              note = EXCLUDED.note,
