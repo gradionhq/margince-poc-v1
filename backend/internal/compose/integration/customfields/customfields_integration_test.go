@@ -109,12 +109,12 @@ func TestCustomFieldCreate_AtomicRollback_OnCatalogConflict(t *testing.T) {
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
 	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
 
-	// Same (workspace, object, slug), different column_name: invisible to
-	// the pre-check, fatal to the INSERT.
+	// Same (object, slug), different column_name: invisible to the
+	// pre-check, fatal to the INSERT.
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO custom_field (workspace_id, object, slug, label, type, column_name, created_by)
-		 VALUES ($1, 'deal', 'renewal_date', 'Pre-existing', 'text', 'cf_renewal_date_other', $2)`,
-		e.WS, e.Rep1); err != nil {
+		`INSERT INTO custom_field (object, slug, label, type, column_name, created_by)
+		 VALUES ('deal', 'renewal_date', 'Pre-existing', 'text', 'cf_renewal_date_other', $1)`,
+		e.Rep1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,34 +130,42 @@ func TestCustomFieldCreate_AtomicRollback_OnCatalogConflict(t *testing.T) {
 	}
 }
 
-func TestCustomFieldCreate_CrossWorkspaceCollision_AnswersColumnTaken(t *testing.T) {
+// A physical column that no catalog row claims is the one shape
+// ColumnTakenError still answers. It used to mean "another workspace holds
+// this column name"; with one installation it means the table already carries
+// the name — a half-applied change, or a core column the cf_ namespace has run
+// into. The refusal matters either way: an ALTER that discovers this itself
+// fails mid-transaction, taking the audit write with it.
+func TestCustomFieldCreate_UnclaimedColumnAnswersColumnTaken(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
 
-	if _, err := svc.Create(e.As(e.Rep1, nil, integration.CustomFieldAdminPerms), dateSpec("Renewal date")); err != nil {
-		t.Fatalf("first workspace's create: %v", err)
+	// Added directly, so no catalog row claims it. The integration harness
+	// resets rows between tests and keeps the schema, so this one drops its
+	// own column rather than leaving every later test in the package facing a
+	// name it never added.
+	if _, err := owner.Exec(context.Background(),
+		`ALTER TABLE deal ADD COLUMN cf_renewal_date date`); err != nil {
+		t.Fatalf("planting the unclaimed column: %v", err)
 	}
-	wsB, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(),
+			`ALTER TABLE deal DROP COLUMN cf_renewal_date`); err != nil {
+			t.Errorf("dropping the unclaimed column: %v", err)
+		}
+	})
 
-	_, err := svc.Create(ctxB, dateSpec("Renewal date"))
+	_, err := svc.Create(e.As(e.Rep1, nil, integration.CustomFieldAdminPerms), dateSpec("Renewal date"))
 	var taken *customfieldsmod.ColumnTakenError
 	if !errors.As(err, &taken) {
-		t.Fatalf("the second workspace's identical slug must answer ColumnTakenError, got %v", err)
+		t.Fatalf("a column the table already carries must answer ColumnTakenError, got %v", err)
 	}
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatal("ColumnTakenError must read as the 409 conflict sentinel")
 	}
-	if !columnOnTable(t, owner, "deal", "cf_renewal_date") {
-		t.Fatal("the FIRST workspace's column must survive the refused second claim")
-	}
-	var n int
-	if err := owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM custom_field WHERE workspace_id = $1`, wsB).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Fatalf("the refused workspace must gain no catalog row, got %d", n)
+	if n := e.WsCount(t, `SELECT count(*) FROM custom_field WHERE object = 'deal' AND slug = 'renewal_date'`); n != 0 {
+		t.Fatalf("a refused create must leave no catalog row, got %d", n)
 	}
 }
 

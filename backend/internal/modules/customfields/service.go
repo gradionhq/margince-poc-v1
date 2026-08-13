@@ -151,7 +151,7 @@ func (e *ColumnTakenError) Is(target error) bool { return target == apperrors.Er
 
 // catalogColumns is the ONE spelling of the custom_field row selection,
 // in scanCustomField's scan order.
-const catalogColumns = `id, workspace_id, object, slug, label, type, status, archived_at,
+const catalogColumns = `id, object, slug, label, type, status, archived_at,
 	column_name, currency, options, created_by, created_at, updated_at, version`
 
 // scanCustomField scans one catalogColumns row into the contract shape
@@ -159,13 +159,13 @@ const catalogColumns = `id, workspace_id, object, slug, label, type, status, arc
 func scanCustomField(row pgx.Row) (crmcontracts.CustomField, error) {
 	var (
 		out                          crmcontracts.CustomField
-		id, wsID, createdBy          ids.UUID
+		id, createdBy                ids.UUID
 		object, typ, status, colName string
 		currency                     *string
 		optionsRaw                   []byte
 		version                      int64
 	)
-	err := row.Scan(&id, &wsID, &object, &out.Slug, &out.Label, &typ, &status, &out.ArchivedAt,
+	err := row.Scan(&id, &object, &out.Slug, &out.Label, &typ, &status, &out.ArchivedAt,
 		&colName, &currency, &optionsRaw, &createdBy, &out.CreatedAt, &out.UpdatedAt, &version)
 	if err != nil {
 		return crmcontracts.CustomField{}, err
