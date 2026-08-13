@@ -5,11 +5,14 @@ package compose
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // Every advertised target must survive BOTH paths — the create and the patch.
@@ -205,5 +208,100 @@ func TestToContractReportNeverSumsAPredictionWithAnOutcome(t *testing.T) {
 	})
 	if done.Disposition.Created != 3 {
 		t.Fatalf("completed created = %d, want the 3 that actually landed", done.Disposition.Created)
+	}
+}
+
+// A flat file carries no edges, so an edge reaching the writer came from
+// somewhere it does not understand. It is disclosed as not applied, never
+// swallowed as done.
+func TestCSVWritersDiscloseAnEdgeItCannotApply(t *testing.T) {
+	w := &csvWriters{object: migration.ObjectLead}
+
+	res, err := w.Associate(t.Context(), migration.Assoc{FromType: "lead", ToType: "organization"})
+	if err != nil {
+		t.Fatalf("Associate: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("an edge a delimited import cannot carry was reported as applied")
+	}
+	if res.Reason == "" {
+		t.Fatal("the non-applied edge carries no reason, so the report cannot disclose it")
+	}
+}
+
+// Nothing to repair: every landing commits the record and its identity row in
+// one transaction, which is the answer the seam documents for such a writer.
+func TestCSVWritersHaveNoIdentitiesToReconcile(t *testing.T) {
+	w := &csvWriters{object: migration.ObjectLead}
+	if err := w.ReconcileIdentities(t.Context()); err != nil {
+		t.Fatalf("ReconcileIdentities: %v", err)
+	}
+}
+
+// The run carries one object. A row for another one is an error rather than a
+// quiet no-op: it would mean the source and the run disagree about what is
+// being imported.
+func TestCSVWritersRefuseARowForAnotherObject(t *testing.T) {
+	w := &csvWriters{object: migration.ObjectLead, nativeIDs: map[string]ids.UUID{}}
+
+	if _, err := w.Ensure(t.Context(), migration.ObjectOrganization, migration.Row{ExternalID: "x"}); err == nil {
+		t.Fatal("a row for an object this run does not carry was accepted")
+	}
+}
+
+// The stamp an imported row carries is the reserved import namespace, which the
+// wire mappers refuse — so a client cannot pre-plant a row under a guessed
+// import id and have the store hand it back as already imported.
+func TestImportedRowsCarryTheReservedProvenance(t *testing.T) {
+	w := &csvWriters{object: migration.ObjectLead}
+
+	stamp := w.provenanceOf("ada@lovelace.example")
+	if !strings.HasPrefix(stamp, provenance.ReservedSourceSystemPrefix) {
+		t.Fatalf("provenance %q does not sit in the reserved import namespace", stamp)
+	}
+	if !strings.Contains(stamp, migration.ObjectLead) || !strings.Contains(stamp, "ada@lovelace.example") {
+		t.Fatalf("provenance %q does not name the object and the source row", stamp)
+	}
+	if !strings.HasPrefix(csvSourceSystem(), provenance.ReservedSourceSystemPrefix) {
+		t.Fatalf("source system %q is not reserved", csvSourceSystem())
+	}
+}
+
+// A skip the SOURCE recorded never reached the writer, so nothing else in the
+// report would mention it — it is folded into the object's own skips, with the
+// line a human opens the file to.
+func TestSkippedLinesReachTheObjectsReport(t *testing.T) {
+	report := migration.Report{Objects: []migration.ObjectReport{{Object: migration.ObjectLead}}}
+
+	out := withSkippedLines(report, migration.ObjectLead, []migration.SkippedLine{{Line: 7, Reason: "no key"}})
+
+	if len(out.Objects[0].Skipped) != 1 {
+		t.Fatalf("skips = %+v, want the source's own disclosure", out.Objects[0].Skipped)
+	}
+	if got := lineOf(out.Objects[0].Skipped[0].ExternalID); got != 7 {
+		t.Fatalf("line = %d, want 7 — the report must send a human to the right line", got)
+	}
+	// An object the report does not carry cannot silently swallow them either.
+	untouched := withSkippedLines(report, migration.ObjectOrganization, []migration.SkippedLine{{Line: 2}})
+	if len(untouched.Objects[0].Skipped) != 1 {
+		t.Fatalf("skips = %+v, want the lead's own single skip", untouched.Objects[0].Skipped)
+	}
+}
+
+func TestColumnProfileReachesTheWireWithSamplesAndRate(t *testing.T) {
+	out := toContractColumns(migration.Profile{Columns: []migration.Column{
+		{Header: "Email", FillRate: 0.5, Samples: []string{"a@x.test"}},
+		{Header: "Empty"},
+	}})
+
+	if len(out) != 2 {
+		t.Fatalf("columns = %d, want 2", len(out))
+	}
+	if out[0].FillRate != 0.5 || len(out[0].Samples) != 1 {
+		t.Fatalf("column = %+v, want the rate and the sample the profile carried", out[0])
+	}
+	// An empty column answers [], never null: the contract promises an array.
+	if out[1].Samples == nil {
+		t.Fatal("a column with no samples serialized as null")
 	}
 }

@@ -490,3 +490,118 @@ func TestCSVImportRunNamesWhoOpenedIt(t *testing.T) {
 		t.Fatal("the run does not say who opened it")
 	}
 }
+
+type organizationListDTO struct {
+	Data []struct {
+		DisplayName string `json:"display_name"`
+		LegalName   string `json:"legal_name"`
+		Industry    string `json:"industry"`
+		Description string `json:"description"`
+	} `json:"data"`
+}
+
+func organizations(t *testing.T, e *apptest.AppEnv) organizationListDTO {
+	t.Helper()
+	var orgs organizationListDTO
+	if status := e.Call(t, http.MethodGet, "/v1/organizations?limit=100", nil, nil, &orgs); status != http.StatusOK {
+		t.Fatalf("GET /v1/organizations → %d, want 200", status)
+	}
+	return orgs
+}
+
+// The second object an import can land, end to end — and the fields a create
+// path is easy to forget: legal_name and description reach the stored record
+// on the FIRST import, not only when a second upload happens to patch them.
+func TestCSVImportLandsOrganizationsWithEveryMappedField(t *testing.T) {
+	e := setupImportApp(t)
+
+	const file = "Company,Legal Name,Industry,Description\n" +
+		"Initech,Initech GmbH,software,They make software\n" +
+		"Umbrella,Umbrella AG,biotech,They make other things\n"
+	profile, status := uploadCSV(t, e, "organization", file)
+	if status != http.StatusOK {
+		t.Fatalf("upload → %d, want 200", status)
+	}
+	// "Company" matches no organization field by name, so the human maps it.
+	mapping := map[string]string{
+		"Company": "display_name", "Legal Name": "legal_name",
+		"Industry": "industry", "Description": "description",
+	}
+	var run importRunDTO
+	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
+		"connector": "csv", "object": "organization",
+		"source_ref": profile.SourceRef, "mapping": mapping,
+	}, nil, &run); status != http.StatusAccepted {
+		t.Fatalf("create run → %d, want 202", status)
+	}
+	before := len(organizations(t, e).Data)
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("approve → %d, want 202", status)
+	}
+
+	orgs := organizations(t, e)
+	if len(orgs.Data) != before+2 {
+		t.Fatalf("organizations = %d, want %d", len(orgs.Data), before+2)
+	}
+	var found bool
+	for _, o := range orgs.Data {
+		if o.DisplayName != "Initech" {
+			continue
+		}
+		found = true
+		if o.LegalName != "Initech GmbH" || o.Industry != "software" || o.Description != "They make software" {
+			t.Fatalf("stored %+v — a mapped column that lands on neither create nor update is a column the import lied about", o)
+		}
+	}
+	if !found {
+		t.Fatal("the imported organization is missing")
+	}
+
+	// A corrected file rewrites the fields that changed, on the object whose
+	// natural key is its own name.
+	const corrected = "Company,Legal Name,Industry,Description\n" +
+		"Initech,Initech SE,software,They make software\n" +
+		"Umbrella,Umbrella AG,biotech,They make other things\n"
+	edited, _ := uploadCSV(t, e, "organization", corrected)
+	var editedRun importRunDTO
+	if status := e.Call(t, http.MethodPost, "/v1/imports", apptest.AnyMap{
+		"connector": "csv", "object": "organization",
+		"source_ref": edited.SourceRef, "mapping": mapping,
+	}, nil, &editedRun); status != http.StatusAccepted {
+		t.Fatalf("create corrected run → %d, want 202", status)
+	}
+	var report importReportDTO
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+editedRun.Id+"/report", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("report → %d", status)
+	}
+	if report.Disposition.Updated != 1 || report.Disposition.Unchanged != 1 {
+		t.Fatalf("prediction = %+v, want exactly the one row that changed", report.Disposition)
+	}
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+editedRun.Id+"/approve", nil, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("approve corrected → %d, want 202", status)
+	}
+	for _, o := range organizations(t, e).Data {
+		if o.DisplayName == "Initech" && o.LegalName != "Initech SE" {
+			t.Fatalf("legal name = %q, want the corrected value", o.LegalName)
+		}
+	}
+	if got := len(organizations(t, e).Data); got != before+2 {
+		t.Fatalf("organizations = %d, want %d — a correction updates, it does not duplicate", got, before+2)
+	}
+}
+
+// The upload refuses what it cannot profile, and says which part of the request
+// was wrong rather than failing somewhere later with a run already created.
+func TestCSVImportUploadRefusesWhatItCannotUse(t *testing.T) {
+	e := setupImportApp(t)
+
+	if _, status := uploadCSV(t, e, "deal", prospectCSV); status != http.StatusUnprocessableEntity {
+		t.Fatalf("an unsupported object → %d, want 422", status)
+	}
+	if _, status := uploadCSV(t, e, "lead", ""); status != http.StatusUnprocessableEntity {
+		t.Fatalf("an empty file → %d, want 422", status)
+	}
+	if _, status := uploadCSV(t, e, "lead", "Email,Email\na@x.test,b@x.test\n"); status != http.StatusUnprocessableEntity {
+		t.Fatalf("a duplicate header → %d, want 422", status)
+	}
+}
