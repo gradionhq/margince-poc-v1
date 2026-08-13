@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -110,7 +111,7 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 }
 
 // staleProjectionIDsSQL names the rows ONE declaration must re-project: the
-// rows it governs (the containment filter, $2 — see governedRowsFilter) whose
+// rows it governs (its mirror-id namespace, $2 — see mirrorIDNamespace) whose
 // stored payload it did not produce (staleProjectionSQL over $3, holding that
 // declaration's own current fingerprint). Ordered by external id so a bounded
 // pass takes a stable prefix rather than a different arbitrary slice each time,
@@ -124,7 +125,7 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 const staleProjectionIDsSQL = `
 SELECT external_id FROM overlay_mirror
 WHERE object_class = $1
-  AND fields @> $2::jsonb
+  AND starts_with(external_id, $2)
   AND sync_state <> $4
   AND ` + staleProjectionSQL + `
 ORDER BY external_id
@@ -139,12 +140,8 @@ LIMIT $5`
 // The ids are the INCUMBENT's own (external_id), which is what a re-fetch
 // names, and the caller re-reads them under m.Source.
 func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, limit int) ([]string, error) {
-	governed, err := governedRowsFilter(m)
-	if err != nil {
-		return nil, err
-	}
 	// m's own fingerprint alone, not every declaration projecting onto
-	// m.Target: the containment filter has already narrowed the rows to the
+	// m.Target: the namespace filter has already narrowed the rows to the
 	// ones m produced, so a sibling declaration's fingerprint cannot appear
 	// among them — and admitting one would spare a row nothing re-projects.
 	current, err := encodeFingerprintSets(map[string][]string{m.Target: {Fingerprint(m)}})
@@ -153,7 +150,7 @@ func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, lim
 	}
 	var externalIDs []string
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, staleProjectionIDsSQL, m.Target, governed, current, syncStatePendingSync, limit)
+		rows, err := tx.Query(ctx, staleProjectionIDsSQL, m.Target, mirrorIDNamespace(m.Source), current, syncStatePendingSync, limit)
 		if err != nil {
 			return fmt.Errorf("overlay: listing the %s rows an older declaration projected: %w", m.Source, err)
 		}
@@ -169,27 +166,35 @@ func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, lim
 	return externalIDs, nil
 }
 
-// governedRowsFilter renders the jsonb containment filter that picks out the
-// mirror rows m's declaration produced, as opposed to a sibling declaration's.
-// The mirror is keyed by the CANONICAL class, and several declarations can
-// project onto one — the five engagement classes all land on "activity" —
-// while a re-fetch names the INCUMBENT class, so a row read back under the
-// wrong sibling would be a live incumbent read for a record that class does
-// not hold. Const is what separates them: its entries are copied verbatim into
-// every payload the declaration projects (mapping.go's Apply), and each
-// registry's own TestEveryDeclarationSharingATargetIsSeparableByItsConstants
-// holds it to declaring constants that contradict between siblings. A
-// declaration with no constants therefore has its target to itself, and the
-// empty object — which every payload contains — is the honest filter for it.
-func governedRowsFilter(m ObjectMapping) (string, error) {
-	if len(m.Const) == 0 {
-		return "{}", nil
+// mirrorIDNamespace renders the external-id prefix that picks out the mirror
+// rows the declaration reading incumbentClass produced, as opposed to a sibling
+// declaration's. The mirror is keyed by the CANONICAL class, and several
+// declarations can project onto one — the five engagement classes all land on
+// "activity" — while a re-fetch names the INCUMBENT class, so a row read back
+// under the wrong sibling would be a live incumbent read for a record that
+// class does not hold.
+//
+// The mirror key's own namespace is what separates them: an engagement's
+// external_id is "<class>:<id>" (OVA-MAP-7), which is what keeps two classes
+// from colliding on (workspace, object_class, external_id) and what the id
+// bridge reads a class back out of (provider.go). Attribution therefore rests
+// on the row's IDENTITY, which no declaration edit can move — changing a
+// namespace would break the mirror key, the association join and PurgeRecord
+// long before it broke re-projection. Anything a declaration writes INTO the
+// payload is instead an input to the very digest whose change defines
+// staleness, so it would select nothing in exactly the pass where every row of
+// the class had just gone stale.
+//
+// A class that owns its canonical target namespaces nothing and needs no
+// narrowing: the empty prefix, which every id starts with, is the honest filter
+// for it. It is also the cheaper predicate either way — it reads the key column
+// the rows are already ordered by, rather than testing containment against a
+// payload no index covers.
+func mirrorIDNamespace(incumbentClass string) string {
+	if !slices.Contains(incumbentEngagementClasses, incumbentClass) {
+		return ""
 	}
-	encoded, err := json.Marshal(m.Const)
-	if err != nil {
-		return "", fmt.Errorf("overlay: encoding the %s declaration's constant fields: %w", m.Source, err)
-	}
-	return string(encoded), nil
+	return incumbentClass + ":"
 }
 
 // mirroredClasses lists the canonical object classes overlay_mirror currently

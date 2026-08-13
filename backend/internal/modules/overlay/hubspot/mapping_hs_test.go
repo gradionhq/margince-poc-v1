@@ -4,7 +4,6 @@
 package hubspot_test
 
 import (
-	"reflect"
 	"slices"
 	"testing"
 
@@ -620,52 +619,42 @@ func TestIncumbentClassesForReverseResolvesEveryMappedTarget(t *testing.T) {
 	}
 }
 
-// TestEveryDeclarationSharingATargetIsSeparableByItsConstants holds the
-// registry to the premise the mirror's re-projection rests on: the mirror is
-// keyed by the CANONICAL class, so two declarations projecting onto one target
-// put their rows in the same bucket, while every re-read of a record names the
-// INCUMBENT class. A row can only be re-fetched under the declaration that
-// produced it, and Const — copied verbatim into every payload the declaration
-// projects — is what tells the rows apart (overlay's governedRowsFilter). Two
-// siblings that did not contradict on a shared key would leave the mirror with
-// rows nothing can attribute, and the sweep would re-read a call as a task: a
-// live incumbent read that can only 404, repeated every pass, forever.
+// TestEveryDeclarationSharingATargetMintsNamespacedMirrorIDs holds the registry
+// to the premise the mirror's re-projection rests on: the mirror is keyed by
+// the CANONICAL class, so two declarations projecting onto one target put their
+// rows in the same bucket, while every re-read of a record names the INCUMBENT
+// class. A row can only be re-fetched under the declaration that produced it,
+// and the mirror id's own "<class>:" namespace (OVA-MAP-7, activityid.go) is
+// what tells the rows apart. A declaration that joined a shared target with
+// bare ids would leave the mirror with rows nothing can attribute, and the
+// sweep would re-read a call as a task: a live incumbent read that can only
+// 404, repeated every pass, forever.
 //
 // Derived from ProjectionFingerprints' keys, which the registry itself
 // derives, so a declaration added later is held to this without anyone
 // remembering to add it here.
-func TestEveryDeclarationSharingATargetIsSeparableByItsConstants(t *testing.T) {
-	byTarget := map[string][]overlay.ObjectMapping{}
+func TestEveryDeclarationSharingATargetMintsNamespacedMirrorIDs(t *testing.T) {
+	sourcesByTarget := map[string][]string{}
 	for source := range hubspot.ProjectionFingerprints() {
 		m, ok := hubspot.Mapping(source)
 		if !ok {
 			t.Fatalf("Mapping(%q): the registry fingerprints a class it does not declare", source)
 		}
-		byTarget[m.Target] = append(byTarget[m.Target], m)
+		sourcesByTarget[m.Target] = append(sourcesByTarget[m.Target], m.Source)
 	}
-	for target, siblings := range byTarget {
-		for i, a := range siblings {
-			for _, b := range siblings[i+1:] {
-				if !constantsContradict(a.Const, b.Const) {
-					t.Errorf("declarations %q and %q both project onto %q but no constant contradicts between them, "+
-						"so a mirror row of that class cannot be attributed to either; give each the constant that names it",
-						a.Source, b.Source, target)
-				}
+	namespaced := overlay.IncumbentEngagementClasses()
+	for target, sources := range sourcesByTarget {
+		if len(sources) < 2 {
+			continue // the declaration has its target to itself; every row of it is its own
+		}
+		for _, source := range sources {
+			if !slices.Contains(namespaced, source) {
+				t.Errorf("declaration %q shares the canonical target %q with %d other(s) but mints bare mirror ids, "+
+					"so a row of that class cannot be attributed to it; namespace its ids by its own class (OVA-MAP-7)",
+					source, target, len(sources)-1)
 			}
 		}
 	}
-}
-
-// constantsContradict reports whether a and b declare a shared key with
-// different values — the property that makes a jsonb containment filter for
-// one of them exclude every row the other produced.
-func constantsContradict(a, b map[string]any) bool {
-	for key, left := range a {
-		if right, shared := b[key]; shared && !reflect.DeepEqual(left, right) {
-			return true
-		}
-	}
-	return false
 }
 
 // TestMappingReportsAnUndeclaredObjectClassAsAnHonestGap proves Mapping's

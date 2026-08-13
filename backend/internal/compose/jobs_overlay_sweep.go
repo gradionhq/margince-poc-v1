@@ -219,6 +219,12 @@ func sweepDeletionPhase(ctx context.Context, deps sweepDeps, workspace ids.Works
 // dev/demo cap on the initial load and is unset in production, so bounding
 // re-projection by it would mean "unbounded" in exactly the deployment that
 // needs the bound.
+//
+// 200 is what the poller's own cadence makes of it: --overlay-reconcile-interval
+// defaults to 2 minutes (cmd/worker/config.go), so one class converges at up to
+// 6,000 rows an hour and an estate of 100,000 rows of that class inside a day —
+// fast enough that a mapping change is not a week-long flip freeze, slow enough
+// that the queue never holds more than a tick's worth of re-fetches.
 const reprojectionEnqueueLimit = 200
 
 // sweepReprojectionPhase re-fetches the rows an OLDER mapping declaration
@@ -246,9 +252,11 @@ const reprojectionEnqueueLimit = 200
 func sweepReprojectionPhase(ctx context.Context, deps sweepDeps, workspace ids.WorkspaceID, objectClass string) {
 	m, ok := hubspot.Mapping(objectClass)
 	if !ok {
-		// An honest gap, not a guess: with no declaration there is no
-		// fingerprint to judge this class's rows against, and calling them all
-		// stale would re-read the class every pass forever.
+		// Unreachable while overlayObjectClasses is exactly the set the
+		// registry declares, and handled rather than assumed away because the
+		// two are separate lists: an undeclared class has no fingerprint to
+		// judge its rows against, and calling them all stale would re-read the
+		// class every pass forever.
 		deps.log.WarnContext(ctx, "overlay reconcile: no mapping declaration for this object class, skipping re-projection",
 			"workspace", workspace.String(), "object_class", objectClass)
 		return
