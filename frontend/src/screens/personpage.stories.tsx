@@ -3,12 +3,18 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
+import { ProviderCard } from "./integrations-provider";
 import {
   PersonBriefCard,
   PersonCommercialCard,
   PersonCommitmentsCard,
   PersonMattersCard,
 } from "./personcards";
+import {
+  PersonComposer,
+  PersonMeetingBrief,
+  PersonResearchDrawer,
+} from "./persondrawers";
 import { PersonMemory } from "./personmemory";
 import { PersonPageV2 } from "./personpage";
 import { PersonRail } from "./personrail";
@@ -509,4 +515,146 @@ export const OverviewPanels: Story = {
       </div>
     </StoryProviders>
   ),
+};
+
+// --- Drawers: the three surfaces the page opens over itself -----------------
+//
+// Each renders `open`, since a closed drawer paints nothing and would capture
+// as a blank frame — the point of these stories is the drawer itself.
+
+const consentGuardAllowed: components["schemas"]["PersonConsentGuard"] = {
+  person_id: "p-1",
+  entries: [
+    {
+      purpose_key: "business_correspondence",
+      purpose_label: "Business correspondence",
+      purpose_class: "business_correspondence",
+      channel: "email",
+      verdict: "allowed",
+      reason: "She wrote to you on 1 Aug 2026.",
+    },
+  ],
+};
+
+export const Composer: Story = {
+  render: () => {
+    installFetchStub({
+      "POST /people/p-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: retrofit timeline",
+          body: "Hi Dana,\n\nHappy to push the review back a week — does the 20th work?\n\nBest,",
+          to: ["dana@brandt.example"],
+          reasoning: [
+            {
+              kind: "commitment",
+              label: "You owe her the updated retrofit quote.",
+            },
+            {
+              kind: "conversation",
+              label: "She asked to push the review back a week.",
+            },
+          ],
+          generated_by: "deterministic",
+          ai_generated: false,
+        }),
+    });
+    return (
+      <StoryProviders>
+        <PersonComposer
+          personId="p-1"
+          view={populated}
+          guard={consentGuardAllowed}
+          open
+          onClose={() => {}}
+        />
+      </StoryProviders>
+    );
+  },
+};
+
+// The research drawer under ADR-0096 D4's supported configuration: no
+// provider is registered, so the honest read is "not connected" rather than
+// an invented result. `providerProfile` is likewise absent — nothing was
+// bought either, and this is the one place where both halves of the drawer
+// agree on that.
+export const ResearchDrawer: Story = {
+  render: () => {
+    installFetchStub({
+      "POST /people/p-1/research": () =>
+        jsonResponse({
+          person_id: "p-1",
+          state: "not_connected",
+          generated_at: "2026-08-13T09:00:00Z",
+          claims: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <PersonResearchDrawer
+          personId="p-1"
+          personName="Dana Buyer"
+          providerProfile={undefined}
+          open
+          onClose={() => {}}
+        />
+      </StoryProviders>
+    );
+  },
+};
+
+export const MeetingBrief: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /activities/a-2/meeting-brief": () =>
+        jsonResponse({
+          activity_id: "a-2",
+          generated_at: "2026-08-13T09:00:00Z",
+          generated_by: "deterministic",
+          sections: [
+            {
+              kind: "goal",
+              sentences: [
+                {
+                  text: "Confirm the retrofit timeline and lock the depot offline window.",
+                  evidence: [{ entity_type: "activity", entity_id: "a-1" }],
+                },
+              ],
+            },
+            {
+              kind: "commitments",
+              sentences: [
+                {
+                  text: "You owe Dana the updated retrofit quote.",
+                  evidence: [{ entity_type: "activity", entity_id: "a-1" }],
+                },
+              ],
+            },
+          ],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <PersonMeetingBrief activityId="a-2" open onClose={() => {}} />
+      </StoryProviders>
+    );
+  },
+};
+
+// --- Provider section: the not-configured state -----------------------------
+//
+// The state a stack with no provider key actually renders (PI-AC-9) — the
+// server answers 501 code:not_implemented, the same shape connectors.tsx
+// stubs for a connector nobody wired.
+export const ProviderNotConfigured: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /provider-connections": () =>
+        jsonResponse({ code: "not_implemented" }, 501),
+    });
+    return (
+      <StoryProviders>
+        <ProviderCard />
+      </StoryProviders>
+    );
+  },
 };
