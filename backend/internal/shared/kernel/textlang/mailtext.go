@@ -61,14 +61,24 @@ func IsMailHeader(line string) bool {
 // evidence there is. Grounding asks the opposite question — what did our
 // correspondent write that a draft may stand on — and the honest answer for a
 // message that added nothing of its own is nothing.
+//
+// That case is not only the ">"-prefixed one. A forwarded mail announces itself
+// with "-----Original Message-----" and then carries plain unprefixed headers
+// and prose: nobody on this thread wrote a word of it, and letting it through
+// would ground a draft in a third party's text and put their address in the
+// prompt. So the cut is made at the first quote marker wherever it falls,
+// including the very first line.
+//
+// maxRunes must be positive. A caller asking for a bounded opening and getting
+// the whole message back is the failure this bound exists to prevent, so a
+// non-positive bound yields nothing rather than everything.
 func MessageOpening(body string, maxRunes int) string {
-	stripped := stripMailHeaders(body)
-	if isEntirelyQuoted(stripped) {
+	if maxRunes <= 0 {
 		return ""
 	}
-	text := strings.TrimSpace(NewTextOnly(stripped))
+	text := strings.TrimSpace(authoredText(stripMailHeaders(body)))
 	runes := []rune(text)
-	if maxRunes > 0 && len(runes) > maxRunes {
+	if len(runes) > maxRunes {
 		return strings.TrimSpace(string(runes[:maxRunes]))
 	}
 	return text
@@ -101,10 +111,51 @@ func stripMailHeaders(body string) string {
 		// header block. Keep the whole thing rather than guess where it ends.
 		return body
 	}
-	// Every line looked like a header and no blank line ever closed the block.
-	// The real capture shape always has that separator, so this is prose that
-	// happens to be shaped like headers — keep it rather than return nothing.
+	// Every line was a header and no blank line ever closed the block. That is
+	// what capture writes for a mail with no body at all — the folded
+	// "From: …\nTo: …" and nothing after it (mailmap.Message.ToRecord) — so the
+	// message is its addresses and there is nothing anybody wrote.
+	//
+	// It is ALSO what a paragraph opening "From: our finance team's perspective"
+	// over "To: make this work we need…" looks like, and eating that would drop
+	// a real message. The two are told apart by what follows the colon: capture
+	// writes an address there, and prose writes words. Only the address shape is
+	// dropped.
+	if headerBlockIsAddressesOnly(lines) {
+		return ""
+	}
 	return body
+}
+
+// headerBlockIsAddressesOnly reports whether every line of a closed-less header
+// run carries an address rather than prose, which is what separates the
+// envelope capture stores for a body-less mail from a sentence that happens to
+// begin "From: …".
+func headerBlockIsAddressesOnly(lines []string) bool {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		_, value, found := strings.Cut(trimmed, ":")
+		if !found || !looksLikeAddressField(strings.TrimSpace(value)) {
+			return false
+		}
+	}
+	return true
+}
+
+// looksLikeAddressField reports whether a header's value is the address (or the
+// "-" capture writes when it has none) rather than a sentence.
+//
+// An address carries no spaces; a sentence carries several. Anything with a
+// space that is not a bare "-" reads as prose, which keeps the strip narrow:
+// dropping a real paragraph is the worse failure of the two.
+func looksLikeAddressField(value string) bool {
+	if value == "" || value == "-" {
+		return true
+	}
+	return !strings.ContainsFunc(value, unicode.IsSpace)
 }
 
 // WordsWritten counts the words in text that somebody actually wrote, ignoring

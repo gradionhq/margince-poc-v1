@@ -239,25 +239,25 @@ func startsQuote(line []rune) bool {
 	return isAttributionLine(text)
 }
 
-// isEntirelyQuoted reports whether every non-blank line of text is quoted or an
-// attribution header — a message that forwarded or quoted something and added
-// no words of its own.
+// authoredText is the text above the first quoted or forwarded line — what the
+// sender wrote themselves, with everything they merely carried along removed.
 //
-// It reuses startsQuote rather than testing for '>' so the two answers cannot
-// drift: a marker this file learns about reaches both readings at once.
-func isEntirelyQuoted(text string) bool {
-	wrote := false
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if !startsQuote([]rune(trimmed)) {
-			return false
-		}
-		wrote = true
+// It differs from NewTextOnly in exactly one way, and that difference is its
+// whole reason to exist: a boundary at the very first line cuts to nothing here
+// rather than keeping the quote. NewTextOnly's caller asks what language a text
+// is in, where a quote is evidence worth reading; this one's caller asks what
+// our correspondent said that a draft may stand on, where a message that added
+// nothing of its own has no answer to give.
+//
+// It reuses startsQuote and signatureStart rather than scanning for '>' so a
+// marker this file learns about reaches every reading at once.
+func authoredText(text string) string {
+	runes := []rune(text)
+	offset := earliest(quoteStart(runes), signatureStart(runes))
+	if offset < 0 {
+		return text
 	}
-	return wrote
+	return string(runes[:offset])
 }
 
 // isAttributionLine reports whether the line is a client's "On <date>, <name>
