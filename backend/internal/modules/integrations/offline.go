@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,8 +38,12 @@ type OfflineProvider struct {
 	// pollsBeforeDone makes the polled transport real: the first N polls
 	// answer pending, like Surfe's ~9 one-second polls.
 	pollsBeforeDone int
-	polls           map[string]*atomic.Int64
-	now             func() time.Time
+	// polls counts them per provider job id. A sync.Map because the poll sweep
+	// is genuinely concurrent — one process polls many runs at once, and a
+	// plain map lost entries here, which reset the count to 1 on every sweep so
+	// a run in the dev stack never left in_progress.
+	polls sync.Map
+	now   func() time.Time
 }
 
 // NewOfflineProvider builds the fake. pollsBeforeDone of 0 completes on the
@@ -47,7 +52,6 @@ type OfflineProvider struct {
 func NewOfflineProvider(pollsBeforeDone int, now func() time.Time) *OfflineProvider {
 	return &OfflineProvider{
 		pollsBeforeDone: pollsBeforeDone,
-		polls:           map[string]*atomic.Int64{},
 		now:             now,
 	}
 }
@@ -169,10 +173,12 @@ func (p *OfflineProvider) Submit(ctx context.Context, cred provider.Credential, 
 // platform parks no payload between attempts.
 func (p *OfflineProvider) Poll(ctx context.Context, cred provider.Credential, jobID string) (provider.PollStatus, error) {
 	p.calls.Add(1)
-	counter, ok := p.polls[jobID]
+	// LoadOrStore, not load-then-store: two sweeps polling the same run at once
+	// would otherwise each install their own counter and neither would climb.
+	entry, _ := p.polls.LoadOrStore(jobID, &atomic.Int64{})
+	counter, ok := entry.(*atomic.Int64)
 	if !ok {
-		counter = &atomic.Int64{}
-		p.polls[jobID] = counter
+		return provider.PollStatus{}, fmt.Errorf("offline provider: poll counter for %s has type %T", jobID, entry)
 	}
 	if int(counter.Add(1)) <= p.pollsBeforeDone {
 		return provider.PollStatus{Outcome: provider.OutcomePending}, nil
