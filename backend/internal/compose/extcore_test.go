@@ -10,11 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 	"github.com/gradionhq/margince/backend/pkg/extension/crm"
 )
@@ -170,5 +173,99 @@ func TestLinkToAppends(t *testing.T) {
 		LinkTo(crm.CreateActivityRequestLinksEntityTypeOrganization, "3f2504e0-4f89-41d3-9a0c-0305e82c3301")
 	if request.Links == nil || len(*request.Links) != 2 {
 		t.Fatalf("links = %v, want both", request.Links)
+	}
+}
+
+// A handler is HANDED a context per invocation, so it can keep one. Passing a
+// retained context to a Core verb must not carry the identity that came with
+// it: the verb re-binds the invocation's own authority over whatever it is
+// given, and what a handler passes contributes cancellation and its own values
+// and nothing else.
+//
+// This is the one defect that would have defeated the port's whole claim, so it
+// is asserted on the value the write actually runs under rather than on the
+// absence of a symptom.
+func TestACoreVerbRebindsTheInvocationsAuthorityOverAHandlersContext(t *testing.T) {
+	invocation := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "the-live-caller",
+	})
+	// What a unit could keep from an earlier, higher-privileged call.
+	retained := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "an-earlier-admin",
+	})
+
+	var sawUnderTheWrite string
+	core := extensionCore{authority: func(ctx context.Context) (context.Context, error) {
+		// The Runtime's own scoped, standing in: it rebinds from the
+		// invocation, never from what it is handed.
+		if actor, bound := principal.Actor(invocation); bound {
+			ctx = principal.WithActor(ctx, actor)
+		}
+		if actor, bound := principal.Actor(ctx); bound {
+			sawUnderTheWrite = actor.ID
+		}
+		return ctx, nil
+	}}
+
+	bound, err := core.authorised(retained)
+	if err != nil {
+		t.Fatalf("authorised: %v", err)
+	}
+	if sawUnderTheWrite != "the-live-caller" {
+		t.Errorf("the write would run as %q, want the invocation's own caller", sawUnderTheWrite)
+	}
+	if actor, ok := principal.Actor(bound); !ok || actor.ID != "the-live-caller" {
+		t.Errorf("the bound context carries %v, want the live caller", actor)
+	}
+}
+
+// A Core built without the invocation's authority refuses rather than falling
+// back to the caller's context, because the fallback is exactly the swap above.
+func TestACoreWithNoAuthorityRefuses(t *testing.T) {
+	_, err := extensionCore{}.authorised(context.Background())
+	if err == nil {
+		t.Fatal("a core with no authority accepted a context")
+	}
+	if !strings.Contains(err.Error(), "authority") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
+	}
+}
+
+// The attribution is BOUND BY PRODUCTION, which is the half a test that binds
+// it itself cannot show.
+//
+// storekit's own test proves the merge rule against a context it constructs;
+// this one proves the context is constructed at all, by calling the Runtime's
+// scoped — the same function every capability goes through — and reading what
+// it produced. Without it, the whole attribution story could ship inert and
+// green, which is exactly how it was found.
+func TestTheRuntimeBindsTheUnitsAttribution(t *testing.T) {
+	invocation := principal.WithWorkspaceID(
+		principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalHuman, ID: "the-caller",
+		}), ids.NewV7())
+
+	// The binding a served call has, minus a database: scoped refuses on an
+	// unwired ROLE before it binds anything, and &pgxpool.Pool{} is a handle
+	// nothing on this path dials. What is under test is the context scoped
+	// builds, not what a connection would do with it.
+	rt := runtimeFor(invocation, "notes", "1.0.0", "tool/file_note",
+		extensionRuntimeBinding{pool: &pgxpool.Pool{}})
+	// A handler's own context, carrying none of the invocation's facts.
+	bound, err := rt.scoped(context.Background())
+	if err != nil {
+		t.Fatalf("scoped: %v", err)
+	}
+
+	attribution, stamped := provenance.ExtensionFrom(bound)
+	if !stamped {
+		t.Fatal("no attribution was bound, so every core write this unit makes is anonymous in the audit log")
+	}
+	if attribution.Unit != "notes" || attribution.Version != "1.0.0" || attribution.Via != "tool/file_note" {
+		t.Errorf("attribution = %+v, want the unit, its declared version and the surface the call arrived on", attribution)
+	}
+	// And the rest of the invocation's authority, since the same call binds it.
+	if actor, ok := principal.Actor(bound); !ok || actor.ID != "the-caller" {
+		t.Errorf("actor = %v, want the invocation's own", actor)
 	}
 }

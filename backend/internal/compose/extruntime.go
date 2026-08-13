@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -108,7 +109,13 @@ func boundExtensionRuntime() extensionRuntimeBinding {
 // the surface gives a unit no way to say.
 type callRuntime struct {
 	unit string
-	deps extensionRuntimeBinding
+	// version and via are what a core write made through this Runtime is
+	// ATTRIBUTED to. Both are the core's own knowledge — the composed
+	// declaration's version and the surface the call arrived on — and neither
+	// is anything the handler can reach or influence.
+	version string
+	via     string
+	deps    extensionRuntimeBinding
 
 	// callCtx is the context the INVOCATION arrived on, held for exactly one
 	// value: the workspace. Every capability re-derives the tenant from here
@@ -141,8 +148,8 @@ var _ extension.Runtime = (*callRuntime)(nil)
 // It returns the concrete type rather than the published interface because
 // the caller needs release, which is the core's side of the lifetime contract
 // and deliberately not on the surface a handler holds.
-func runtimeFor(ctx context.Context, unit string, deps extensionRuntimeBinding) *callRuntime {
-	return &callRuntime{unit: unit, deps: deps, callCtx: ctx, live: true}
+func runtimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	return &callRuntime{unit: unit, version: version, via: via, deps: deps, callCtx: ctx, live: true}
 }
 
 // jobRuntimeFor mints the Runtime for one JOB tick, which differs from an
@@ -161,8 +168,8 @@ func runtimeFor(ctx context.Context, unit string, deps extensionRuntimeBinding) 
 // to guess it from a principal that looks, field by field, like a real agent
 // call. Nothing else about the tick changes: the actor on callCtx is still the
 // one every capability and every policy sees.
-func jobRuntimeFor(ctx context.Context, unit string, deps extensionRuntimeBinding) *callRuntime {
-	rt := runtimeFor(ctx, unit, deps)
+func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	rt := runtimeFor(ctx, unit, version, via, deps)
 	rt.systemCaller = true
 	return rt
 }
@@ -248,7 +255,15 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 	if correlation, bound := principal.CorrelationID(r.callCtx); bound {
 		ctx = principal.WithCorrelationID(ctx, correlation)
 	}
-	return ctx, nil
+	// And WHAT carried the action, which is a second dimension beside who took
+	// it: every core write made under this context records the unit, its
+	// declared version and the surface the call arrived on. Bound here rather
+	// than at the write, for the same reason as the three above — this is the
+	// one place that knows the invocation, and a value a handler could supply
+	// would be a unit able to sign another unit's name.
+	return provenance.WithExtension(ctx, provenance.Extension{
+		Unit: r.unit, Version: r.version, Via: r.via,
+	}), nil
 }
 
 // Secrets hands out the unit's own namespace, guarded by this Runtime's
@@ -283,7 +298,7 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 			return err
 		}
 		return fn(ctx, extensionTx{tx: tx, core: extensionCore{
-			tx: tx, tick: r.systemCaller, deps: r.deps,
+			tx: tx, tick: r.systemCaller, deps: r.deps, authority: r.scoped,
 		}})
 	})
 }
@@ -416,74 +431,4 @@ func (s callSecrets) DeleteUser(ctx context.Context, userID extension.UserID, ke
 		return err
 	}
 	return s.inner.DeleteUser(ctx, userID, key)
-}
-
-// extensionTx bridges the published three-verb seam to pgx. It lives in
-// internal/ and not in pkg/ because pkg/ is stdlib-only (depguard
-// pkg-purity, and TestPublishedSurfaceIsPure): a published interface can
-// describe a transaction, but only the core can hold one.
-//
-// There is no lifetime guard on this type. A Tx used after its transaction
-// ended answers pgx's own ErrTxClosed, which is already an honest refusal —
-// and it is the accurate one, because the transaction can end while the
-// Runtime is still perfectly live (the callback returned, the call did not).
-// ErrRuntimeExpired there would name the wrong fault.
-type extensionTx struct {
-	tx pgx.Tx
-	// core is what the transaction can reach BESIDE the unit's own SQL, and it
-	// is built by the Runtime rather than by this type: whether the invocation
-	// has a caller, and what the role bound at boot, are facts about the call,
-	// not about the transaction.
-	core extensionCore
-}
-
-//nolint:ireturn // returning the published port IS the seam: a unit holds extension.Core, never a core type.
-func (t extensionTx) Core() extension.Core {
-	return t.core
-}
-
-func (t extensionTx) Exec(ctx context.Context, sql string, args ...any) (int64, error) {
-	tag, err := t.tx.Exec(ctx, sql, args...)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
-}
-
-//nolint:ireturn // Rows is the published cursor; a unit must never hold pgx.Rows.
-func (t extensionTx) Query(ctx context.Context, sql string, args ...any) (extension.Rows, error) {
-	rows, err := t.tx.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	return extensionRows{rows: rows}, nil
-}
-
-//nolint:ireturn // Row is the published deferred read; the error is deferred to Scan by design.
-func (t extensionTx) QueryRow(ctx context.Context, sql string, args ...any) extension.Row {
-	return extensionRow{row: t.tx.QueryRow(ctx, sql, args...)}
-}
-
-// extensionRows is pgx's cursor behind the published one. The four methods
-// line up exactly, which is why the published seam was spelled this way.
-type extensionRows struct{ rows pgx.Rows }
-
-func (r extensionRows) Next() bool             { return r.rows.Next() }
-func (r extensionRows) Scan(dest ...any) error { return r.rows.Scan(dest...) }
-func (r extensionRows) Err() error             { return r.rows.Err() }
-func (r extensionRows) Close()                 { r.rows.Close() }
-
-// extensionRow defers one read's error to Scan, translating the empty match
-// into the published sentinel — a unit matching on pgx.ErrNoRows would be
-// binding a driver this surface never published.
-type extensionRow struct{ row pgx.Row }
-
-func (r extensionRow) Scan(dest ...any) error {
-	if err := r.row.Scan(dest...); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return extension.ErrNoRows
-		}
-		return err
-	}
-	return nil
 }

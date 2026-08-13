@@ -171,7 +171,7 @@ func stringParam(fn reflect.Type) string {
 // pgx — and it is NOT ErrRuntimeExpired, which would tell a unit author to
 // look at their own handler's lifetime for a deployment's wiring fault.
 func TestRuntimeRefusesBeforeTouchingAnUnwiredPool(t *testing.T) {
-	rt := runtimeFor(context.Background(), "demo", extensionRuntimeBinding{})
+	rt := runtimeFor(context.Background(), "demo", "1.0.0", "tool/probe", extensionRuntimeBinding{})
 	if _, err := rt.Secrets().Get(context.Background(), "k"); !errors.Is(err, errExtensionRuntimeUnwired) {
 		t.Fatalf("unwired Secrets().Get = %v, want errExtensionRuntimeUnwired", err)
 	}
@@ -219,7 +219,7 @@ func TestRuntimeCallerIsTheInvocationsPrincipal(t *testing.T) {
 			if tc.actor != nil {
 				ctx = principal.WithActor(ctx, *tc.actor)
 			}
-			if got := runtimeFor(ctx, "demo", extensionRuntimeBinding{}).Caller(); got != tc.want {
+			if got := runtimeFor(ctx, "demo", "1.0.0", "tool/probe", extensionRuntimeBinding{}).Caller(); got != tc.want {
 				t.Fatalf("Caller() = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -240,7 +240,7 @@ func TestRuntimeCallerNeverRendersAZeroUserID(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := principal.WithActor(context.Background(), actor)
-			if got := runtimeFor(ctx, "demo", extensionRuntimeBinding{}).Caller(); got.UserID != "" {
+			if got := runtimeFor(ctx, "demo", "1.0.0", "tool/probe", extensionRuntimeBinding{}).Caller(); got.UserID != "" {
 				t.Fatalf("Caller().UserID = %q, want the empty string", got.UserID)
 			}
 		})
@@ -258,7 +258,7 @@ func TestRuntimeCallerOfAJobTickIsTheSystem(t *testing.T) {
 		ID:     "agent:demo",
 		UserID: ids.NewV7(), // the dispatcher's is_agent seat, not a person
 	})
-	if got := jobRuntimeFor(ctx, "demo", extensionRuntimeBinding{}).Caller(); got != (extension.Caller{}) {
+	if got := jobRuntimeFor(ctx, "demo", "", "job/probe", extensionRuntimeBinding{}).Caller(); got != (extension.Caller{}) {
 		t.Fatalf("a job tick's Caller() = %+v, want the zero Caller", got)
 	}
 }
@@ -273,7 +273,7 @@ func TestRuntimeCallerStillAnswersAfterRelease(t *testing.T) {
 	ctx := principal.WithActor(context.Background(),
 		principal.Principal{Type: principal.PrincipalHuman, UserID: human})
 
-	rt := runtimeFor(ctx, "demo", extensionRuntimeBinding{})
+	rt := runtimeFor(ctx, "demo", "1.0.0", "tool/probe", extensionRuntimeBinding{})
 	live := rt.Caller()
 	rt.release()
 	if got := rt.Caller(); got != live {

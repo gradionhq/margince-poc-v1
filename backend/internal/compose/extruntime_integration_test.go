@@ -69,7 +69,7 @@ func (e *extRuntimeEnv) callCtx(ws ids.UUID) context.Context {
 // the core never produces.
 func (e *extRuntimeEnv) runtime(unit string) (*callRuntime, context.Context) {
 	ctx := e.callCtx(e.WS)
-	return runtimeFor(ctx, unit, extensionRuntimeBinding{pool: e.Pool, vault: e.vault}), ctx
+	return runtimeFor(ctx, unit, "1.0.0", "tool/probe", extensionRuntimeBinding{pool: e.Pool, vault: e.vault}), ctx
 }
 
 // TestRuntimeTxIsPinnedToTheInvokingWorkspace: the core binds the tenant GUC
@@ -100,7 +100,7 @@ func TestRuntimeTxRefusesACallWithNoWorkspace(t *testing.T) {
 	e := setupExtRuntime(t)
 	// Minted from an INVOCATION with no tenant: that, and not the context the
 	// handler passes, is where the workspace now comes from.
-	rt := runtimeFor(context.Background(), "alpha", extensionRuntimeBinding{pool: e.Pool, vault: e.vault})
+	rt := runtimeFor(context.Background(), "alpha", "1.0.0", "tool/probe", extensionRuntimeBinding{pool: e.Pool, vault: e.vault})
 
 	ran := false
 	err := rt.Tx(context.Background(), func(context.Context, extension.Tx) error {

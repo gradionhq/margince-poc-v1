@@ -18,11 +18,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -35,7 +37,27 @@ import (
 // the unit's own row and the core record it writes are in the same transaction,
 // so they commit together or not at all.
 type extensionCore struct {
+	// tx is the CALLER's transaction, held rather than taken as a parameter —
+	// which is also why this file is outside what backend/txseamacquire_test.go
+	// can see. That gate walks functions that TAKE a pgx.Tx; nothing here does,
+	// so a verb added below that reaches for a connection of its own would pass
+	// it green and deadlock under a saturated pool. It happened once already in
+	// this file's own history. Every verb runs on this handle and asks for
+	// nothing else.
 	tx pgx.Tx
+	// authority re-binds the INVOCATION's workspace, actor, correlation and
+	// attribution onto whatever context a verb is handed. It is the Runtime's
+	// own scoped, held here rather than re-derived, so the port and the unit's
+	// SQL are governed by one rule.
+	//
+	// Without it the port's whole claim fails on one line of unit code. A
+	// handler is HANDED a context per invocation, so it can keep one: an
+	// admin's, from an earlier call. Passing that to a Core verb during a
+	// lower-privileged call would put the admin's actor on auth.Require, on the
+	// row-scope clauses and on the audit row, and the write would be one the
+	// live caller could not have made. What a handler passes now contributes
+	// cancellation, deadline and its own values — never an identity.
+	authority func(context.Context) (context.Context, error)
 	// tick marks an invocation with no human behind it. Held rather than
 	// re-derived because the reason a tick is refused is about the INVOCATION,
 	// not about the context the handler passes in.
@@ -52,10 +74,31 @@ type extensionActivities struct{ core extensionCore }
 
 // Create files one activity through the product's own write path.
 func (a extensionActivities) Create(ctx context.Context, in crm.CreateActivityRequest) (crm.Activity, error) {
-	if err := a.core.admit(ctx); err != nil {
+	// The tick refusal is FIRST, before anything is bound or read, because it
+	// is about what the invocation IS rather than about anything it asked for:
+	// there is no caller here whose authority a core write could be checked
+	// against, so nothing later in this function has a question to answer.
+	if err := a.core.refuseTick(); err != nil {
 		return crm.Activity{}, err
 	}
-	request, err := transcode[crmcontracts.CreateActivityRequest](in)
+	ctx, err := a.core.authorised(ctx)
+	if err != nil {
+		return crm.Activity{}, err
+	}
+	// The caller's own grant for the write, BEFORE the workspace's mode is
+	// consulted. The store checks it again and that check is the invariant;
+	// this one is about ordering. Refusing on mode first would answer
+	// ErrOverlayUnsupported to a caller who is not allowed to make the write at
+	// all, which tells them something about the installation that their refusal
+	// should not.
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+		return crm.Activity{}, portRefusal(err)
+	}
+	if err := a.core.refuseOverlay(ctx); err != nil {
+		return crm.Activity{}, err
+	}
+	request, transcodeErr := transcode[crmcontracts.CreateActivityRequest](in)
+	err = transcodeErr
 	if err != nil {
 		return crm.Activity{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err)
 	}
@@ -79,9 +122,21 @@ func (a extensionActivities) Create(ctx context.Context, in crm.CreateActivityRe
 	return published, nil
 }
 
-// admit is the check every Core verb makes before it does anything: the two
-// invocations that may not reach core records at all.
-func (c extensionCore) admit(ctx context.Context) error {
+// authorised re-binds the invocation's authority onto the context a verb was
+// handed, and refuses on a Runtime the call has finished with.
+func (c extensionCore) authorised(ctx context.Context) (context.Context, error) {
+	if c.authority == nil {
+		return nil, fmt.Errorf("compose: this core port was built without the invocation's authority, so no write can be checked against it")
+	}
+	bound, err := c.authority(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return bound, nil
+}
+
+// refuseTick refuses the invocation that has no caller behind it.
+func (c extensionCore) refuseTick() error {
 	if c.tick {
 		// A tick runs as the unit, with nobody behind it. Core writes are
 		// checked against the CALLER's live RBAC, and there is no caller to
@@ -92,6 +147,12 @@ func (c extensionCore) admit(ctx context.Context) error {
 		// for.
 		return fmt.Errorf("%w: a scheduled job runs with no caller, and a core write is checked against the caller's own permissions", extension.ErrForbidden)
 	}
+	return nil
+}
+
+// refuseOverlay refuses a core write in a workspace whose records live
+// somewhere else.
+func (c extensionCore) refuseOverlay(ctx context.Context) error {
 	workspace, bound := principal.WorkspaceID(ctx)
 	if !bound {
 		return database.ErrNoWorkspace
@@ -109,7 +170,12 @@ func (c extensionCore) admit(ctx context.Context) error {
 	// own read narrows that window and cannot close it.
 	overlaid, err := overlayModeOf(ctx, c.tx, workspace)
 	if err != nil {
-		return fmt.Errorf("compose: resolving the workspace's record mode for an extension core write: %w", err)
+		// Logged here and NOT returned: the text of a failed workspace read is
+		// a relation name and a SQL state, and a unit is not a reader those are
+		// written for. What it gets is that the write was refused.
+		slog.Default().ErrorContext(ctx, "compose: resolving the workspace record mode for an extension core write",
+			"workspace", workspace.String(), "error", err)
+		return errors.New("extension: the core could not establish where this workspace's records live, so nothing was written")
 	}
 	if overlaid {
 		return extension.ErrOverlayUnsupported

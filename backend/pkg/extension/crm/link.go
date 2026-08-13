@@ -15,12 +15,16 @@ package crm
 // is a convenience over the contract, not a shape the contract declares, and a
 // generator that invented helpers would be inventing surface.
 func (r CreateActivityRequest) LinkTo(entityType CreateActivityRequestLinksEntityType, entityID string) CreateActivityRequest {
+	// CLONED, not appended to in place. The receiver is a value, so a caller
+	// reasonably reads two LinkTo calls off one base request as two independent
+	// requests — and an append into shared spare capacity would have the second
+	// overwrite the link the first is still holding.
 	links := []struct {
 		EntityId   string                               `json:"entity_id"` //nolint:staticcheck // the generated field's own name; renaming breaks the assignment
 		EntityType CreateActivityRequestLinksEntityType `json:"entity_type"`
 	}{}
 	if r.Links != nil {
-		links = *r.Links
+		links = append(links, *r.Links...)
 	}
 	links = append(links, struct {
 		EntityId   string                               `json:"entity_id"` //nolint:staticcheck // the generated field's own name; renaming breaks the assignment

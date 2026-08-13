@@ -314,7 +314,10 @@ func (w *extJobWorkspaceWorker) deriveAuthority(ctx context.Context, args extJob
 //     here puts it back on the path every other worker's failure takes.
 func (w *extJobWorkspaceWorker) tick(ctx context.Context) (err error) {
 	deps := boundExtensionRuntime()
-	rt := jobRuntimeFor(ctx, string(w.decl.Unit), deps)
+	// No version: a job declaration carries none, and a tick writes no core
+	// record to attribute (Core refuses one outright), so the surface alone is
+	// the whole of what a tick's provenance could say.
+	rt := jobRuntimeFor(ctx, string(w.decl.Unit), "", "job/"+w.decl.Job, deps)
 	defer rt.release()
 	defer func() {
 		if r := recover(); r != nil {
