@@ -57,6 +57,10 @@ func TestTheRecordProviderServesExactlyTheSeamVocabulary(t *testing.T) {
 	as := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	native := NewProvider(e.Pool)
 
+	if len(datasource.EntityTypes()) == 0 {
+		t.Fatal("the seam declares no entity type at all — the half of this gate that covers the served " +
+			"types is asserting nothing")
+	}
 	for _, entity := range datasource.EntityTypes() {
 		// A random id: the answer under test is whether this provider ROUTES
 		// the type, and a miss says routed-and-absent as clearly as a hit says

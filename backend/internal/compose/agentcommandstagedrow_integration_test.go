@@ -49,6 +49,7 @@ import (
 // it.
 type stagedApproval struct {
 	kind           string
+	status         string
 	targetType     string
 	targetID       string
 	pinned         bool
@@ -74,6 +75,14 @@ func TestBothDoorsStageOneRowForOneOperation(t *testing.T) {
 	rest := readStagedApproval(agent, t, e, restID)
 	tool := readStagedApproval(agent, t, e, toolID)
 
+	// Both doors stage for the same operation against the same target inside one
+	// test, and staging force-expires a stale pending approval that shares a
+	// proposal identity (approvals/staging.go). Every comparison below is about
+	// a row a human can decide from, so a superseded row must not pass as one.
+	if rest.status != "pending" || tool.status != "pending" {
+		t.Fatalf("the staged rows are %q (REST) and %q (tool), want both pending — an expired row is not "+
+			"one a human can decide from", rest.status, tool.status)
+	}
 	if rest.kind != tool.kind {
 		t.Errorf("the doors staged kinds %q and %q — an approval's kind is what the decision grants are "+
 			"mapped by, so one of the two is decidable by a different set of people", rest.kind, tool.kind)
@@ -271,10 +280,11 @@ func readStagedApproval(as context.Context, t *testing.T, e *integration.Env, id
 	var row stagedApproval
 	if err := database.WithWorkspaceTx(as, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(as, `
-			SELECT kind, coalesce(target_entity_type, ''), coalesce(target_entity_id::text, ''),
+			SELECT kind, status, coalesce(target_entity_type, ''), coalesce(target_entity_id::text, ''),
 			       target_version IS NOT NULL, proposed_change::text, diff_hash
 			FROM approval WHERE id = $1`, id).Scan(
-			&row.kind, &row.targetType, &row.targetID, &row.pinned, &row.proposedChange, &row.diffHash)
+			&row.kind, &row.status, &row.targetType, &row.targetID, &row.pinned, &row.proposedChange,
+			&row.diffHash)
 	}); err != nil {
 		t.Fatalf("reading staged approval %s: %v", id, err)
 	}

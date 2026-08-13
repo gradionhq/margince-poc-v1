@@ -165,8 +165,8 @@ var unrunnableCalls = map[string]unrunnableCall{
 	"updateProject": {
 		refusal: refusedArgument("nickname", "the patch names a member a project has no field for"),
 		build: func() (*http.Request, []byte) {
-			return routedFixture(http.MethodPatch, "/v1/projects/"+ids.NewV7().String(),
-				ids.NewV7().String(), `{"nickname":"typo"}`)
+			id := ids.NewV7().String()
+			return routedFixture(http.MethodPatch, "/v1/projects/"+id, id, `{"nickname":"typo"}`)
 		},
 	},
 	"createProject": bodyFixture("/v1/projects", `{"nickname":"typo"}`, "nickname"),

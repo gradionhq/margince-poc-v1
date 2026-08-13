@@ -151,12 +151,24 @@ func TestCanonicalRESTCallHashesContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, h2, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(` {"a": 1, "b": 2} `), keyBindsTheRetry)
+	_, h2, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(` {"a": 1, "b": 2} `), keyBindsTheRetry)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if h1 != h2 {
 		t.Fatal("equivalent bodies must hash equal — redemption would refuse the identical call")
 	}
-	_, h3, _ := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":3}`), keyBindsTheRetry)
-	_, h4, _ := canonicalRESTCall("updatePerson", "/v1/people/y", http.Header{}, []byte(`{"a":1,"b":2}`), keyBindsTheRetry)
+	// Both errors are asserted, not dropped: a refused input hashes to "", and an
+	// empty hash satisfies the inequality below while proving nothing about a
+	// different body or a different path.
+	_, h3, err := canonicalRESTCall("updatePerson", "/v1/people/x", http.Header{}, []byte(`{"a":1,"b":3}`), keyBindsTheRetry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, h4, err := canonicalRESTCall("updatePerson", "/v1/people/y", http.Header{}, []byte(`{"a":1,"b":2}`), keyBindsTheRetry)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if h1 == h3 || h1 == h4 {
 		t.Fatal("a different body or target must not ride the staged approval")
 	}

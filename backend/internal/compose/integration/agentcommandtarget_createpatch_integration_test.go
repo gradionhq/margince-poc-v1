@@ -123,6 +123,18 @@ func TestARestPatchOutsideTheToolSchemaStagesTheRowWithID(t *testing.T) {
 	if *targetID != created.Subscription.ID {
 		t.Errorf("staged target_entity_id = %s, want %s", *targetID, created.Subscription.ID)
 	}
+
+	// The staged row is only half the proof: a door that staged the approval AND
+	// applied the patch answers everything above unchanged.
+	var state string
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT state FROM webhook_subscription WHERE id = $1`, created.Subscription.ID).Scan(&state); err != nil {
+		t.Fatalf("reading the subscription back: %v", err)
+	}
+	if state != "active" {
+		t.Errorf("the subscription is %q — the agent performed unattended the write this confirm-first "+
+			"tier should have staged", state)
+	}
 }
 
 // The regression this rules out: createCustomField creates a record type
@@ -163,6 +175,16 @@ func TestARestCreateCustomFieldStagesRatherThanRefuses(t *testing.T) {
 	if targetID != nil {
 		t.Errorf("staged target_entity_id = %v, want NULL — a create names no existing row", *targetID)
 	}
+
+	var n int
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM custom_field WHERE label = 'Champion Score'`).Scan(&n); err != nil {
+		t.Fatalf("counting custom fields: %v", err)
+	}
+	if n != 0 {
+		t.Error("a custom field labelled Champion Score exists — the agent performed unattended the write " +
+			"this confirm-first tier should have staged")
+	}
 }
 
 // The same regression, on createWebhookSubscription — the other create
@@ -200,5 +222,17 @@ func TestARestCreateWebhookSubscriptionStagesRatherThanRefuses(t *testing.T) {
 	}
 	if targetID != nil {
 		t.Errorf("staged target_entity_id = %v, want NULL — a create names no existing row", *targetID)
+	}
+
+	// Nothing else in this test creates a subscription, so the staged create is
+	// the only one that could have written a row.
+	var n int
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM webhook_subscription`).Scan(&n); err != nil {
+		t.Fatalf("counting webhook subscriptions: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("%d webhook subscriptions exist — the agent performed unattended the write this "+
+			"confirm-first tier should have staged", n)
 	}
 }
