@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/provider"
 )
 
@@ -158,6 +159,61 @@ func TestAmbiguousSubmissionParksUnknownAndHoldsTheReservation(t *testing.T) {
 	}
 	if held == 0 {
 		t.Fatal("the reservation was released on an unknown outcome — the next run could double-spend credits the customer may have been charged")
+	}
+}
+
+// Disconnecting takes the provider's balance with the credential.
+//
+// The number was obtained BY presenting the key the disconnect destroys, so
+// keeping it leaves the settings card showing "19 credits left" beside "Not
+// connected" — a figure nothing can refresh and nobody has standing to assert.
+// The customer's own ceilings survive, because those are their policy rather
+// than the provider's reading.
+func TestDisconnectClearsTheProviderBalanceAndKeepsTheCeilings(t *testing.T) {
+	e := setupRuns(t, runsConfig{ceilings: map[string]int{"email": 25}})
+	sealCredential(t, e)
+
+	ctx := context.Background()
+	if _, err := e.owner.Exec(ctx, `
+		UPDATE provider_connection_budget b
+		   SET last_known_balance = 19, balance_read_at = now()
+		  FROM provider_connection c
+		 WHERE c.id = b.connection_id AND c.provider = 'surfe'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Its own principal: disconnecting is a DELETE on integrations, and the
+	// shared rep context deliberately carries read only. Widening that would
+	// weaken every other test in this file.
+	admin := principal.WithActor(e.ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:admin-" + e.ws.String(),
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"integrations": {Read: true, Delete: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	if err := e.store.Disconnect(admin, "surfe"); err != nil {
+		t.Fatal(err)
+	}
+
+	var balance, ceiling *int
+	var readAt *time.Time
+	if err := e.owner.QueryRow(ctx, `
+		SELECT b.last_known_balance, b.balance_read_at, b.monthly_ceiling
+		  FROM provider_connection_budget b
+		  JOIN provider_connection c ON c.id = b.connection_id
+		 WHERE c.provider = 'surfe' AND b.pool = 'email'`).
+		Scan(&balance, &readAt, &ceiling); err != nil {
+		t.Fatal(err)
+	}
+	if balance != nil {
+		t.Errorf("the balance survived the disconnect (%d credits) — the card would show credits for a key that no longer exists", *balance)
+	}
+	if readAt != nil {
+		t.Errorf("the balance timestamp survived the disconnect (%s) — it dates a reading whose credential is gone", readAt.Format(time.RFC3339))
+	}
+	if ceiling == nil || *ceiling != 25 {
+		t.Errorf("the monthly ceiling is %v, want 25 — disconnecting withdraws the provider's number, not the customer's own limit", ceiling)
 	}
 }
 

@@ -4350,6 +4350,11 @@ export const en = {
   "provider.apiKey": "API key",
   "provider.apiKeyHint":
     "Sealed as soon as it is verified. It is never shown again, and never leaves this installation except to the provider.",
+  "provider.apiKeyStored": "Replace the API key",
+  "provider.apiKeyReplaceHint":
+    "A key is stored and in use. It cannot be shown again, so this box stays empty — paste a new one only if you are replacing it.",
+  "provider.apiKeyReplacePlaceholder":
+    "Paste a new key to replace the stored one",
   "provider.connectConfirm.title": "Connect this data provider?",
   "provider.connectConfirm.body":
     "The key is checked against the provider before anything is saved. Once connected, enriching a contact spends your credits.",
@@ -4369,14 +4374,21 @@ export const en = {
   "provider.credits": "Credits left with the provider",
   "provider.credits.pool": "{pool}",
   "provider.credits.none": "The provider has not told us a balance yet.",
+  "provider.credits.notConnected":
+    "Connect a key to see what credit you have with the provider.",
   "provider.constraints": "Limits in force",
   "provider.spend": "What we have used",
   "provider.spend.hint":
     "Our own record of what enrichment consumed. Not the provider's invoice — the same credits can be spent through their app, so the two figures differ legitimately.",
   "provider.spend.thisMonth": "This month",
-  "provider.spend.charged": "{pool}: {credits} credits over {count} lookups",
-  "provider.spend.held":
-    "{credits} of those are held against lookups whose outcome we never learned.",
+  "provider.spend.month": "Month",
+  "provider.spend.pool": "Pool",
+  "provider.spend.chargedHead": "Credits",
+  // "Held" rather than "unknown": the column holds credits whose outcome the
+  // provider never reported, which is what a human reconciles against the
+  // invoice. Kept out of the Credits column on purpose.
+  "provider.spend.heldHead": "Held",
+  "provider.spend.runsHead": "Lookups",
   "provider.spend.none": "Nothing has been bought yet.",
   "provider.mode": "When to enrich",
   "provider.mode.automatic_on_create": "As contacts are added",

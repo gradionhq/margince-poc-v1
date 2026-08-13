@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+import "./integrations-provider.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, Plug, Trash2 } from "lucide-react";
+import { Plug, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -17,6 +18,7 @@ import {
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { ProviderMark } from "../design-system/provider-mark";
 import { Meter } from "../design-system/readings";
 import { useT } from "../i18n";
 import {
@@ -102,12 +104,12 @@ function ProviderConnectionRow({
 }: Readonly<{ connection: ProviderConnection }>) {
   const t = useT();
   return (
-    <section className="pe-card">
-      <header
-        style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}
-      >
-        <Database aria-hidden />
-        <strong>{connection.provider}</strong>
+    <section className="provider-card">
+      <header className="provider-card-head">
+        <span className="provider-card-mark">
+          <ProviderMark providerKey={connection.provider} />
+        </span>
+        <span className="provider-card-name">{connection.provider}</span>
         <Badge tone={connectionTone(connection.status)}>
           {t(connectionLabel(connection.status))}
         </Badge>
@@ -135,8 +137,8 @@ function SpendBlock({
   if (months.length === 0) {
     return (
       <div>
-        <h3>{t("provider.spend")}</h3>
-        <p className="muted">{t("provider.spend.none")}</p>
+        <div className="provider-block-title">{t("provider.spend")}</div>
+        <p className="provider-empty">{t("provider.spend.none")}</p>
       </div>
     );
   }
@@ -147,34 +149,41 @@ function SpendBlock({
   const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   return (
     <div>
-      <h3>{t("provider.spend")}</h3>
-      <p className="muted">{t("provider.spend.hint")}</p>
-      {months.map((month) => (
-        <div key={`${month.month}-${month.pool}`}>
-          <span className="muted">
-            {month.month === current
-              ? t("provider.spend.thisMonth")
-              : month.month}
-          </span>{" "}
-          <span>
-            {t("provider.spend.charged", {
-              pool: month.pool,
-              credits: month.charged_credits,
-              count: month.runs,
-            })}
-          </span>
-          {month.held_credits > 0 && (
-            // Never folded into the charge: the platform does not know
-            // whether those credits were spent, and a total that quietly
-            // counted them either way would assert something it cannot
-            // support. This is the figure a human reconciles against the
-            // provider's invoice.
-            <p className="muted">
-              {t("provider.spend.held", { credits: month.held_credits })}
-            </p>
-          )}
-        </div>
-      ))}
+      <div className="provider-block-title">{t("provider.spend")}</div>
+      <table className="provider-spend-table">
+        <thead>
+          <tr>
+            <th>{t("provider.spend.month")}</th>
+            <th>{t("provider.spend.pool")}</th>
+            <th>{t("provider.spend.chargedHead")}</th>
+            <th>{t("provider.spend.heldHead")}</th>
+            <th>{t("provider.spend.runsHead")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {months.map((month) => (
+            <tr key={`${month.month}-${month.pool}`}>
+              <td>
+                {month.month === current
+                  ? t("provider.spend.thisMonth")
+                  : month.month}
+              </td>
+              <td>{month.pool}</td>
+              <td>{month.charged_credits}</td>
+              {/* Never folded into the charge: the platform does not know
+                  whether those credits were spent, and a total that quietly
+                  counted them either way would assert something it cannot
+                  support. This is the figure a human reconciles against the
+                  provider's invoice. */}
+              <td className="provider-held">
+                {month.held_credits > 0 ? month.held_credits : "—"}
+              </td>
+              <td>{month.runs}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="provider-block-hint">{t("provider.spend.hint")}</p>
     </div>
   );
 }
@@ -185,26 +194,39 @@ function CreditsBlock({
   const t = useT();
   // Iterated, never hardcoded to email/mobile: the pool names are the
   // PROVIDER's own vocabulary, and a second provider meters different ones.
-  const pools = Object.entries(connection.credits?.pools ?? {});
+  // A pool whose balance is null is a pool we have no reading for — the
+  // disconnect clears the number with the credential that fetched it. Rendering
+  // it as 0 would assert an empty account, which is a different claim from
+  // "we do not know" and the one thing this block must never say by accident.
+  const pools = Object.entries(connection.credits?.pools ?? {}).filter(
+    ([, balance]) => balance !== null && balance !== undefined,
+  );
   if (pools.length === 0) {
-    return <p className="muted">{t("provider.credits.none")}</p>;
+    // Two different silences. With no key we never asked, and saying the
+    // provider "has not told us" would blame them for our own empty state.
+    return (
+      <p className="muted">
+        {connection.credential_present
+          ? t("provider.credits.none")
+          : t("provider.credits.notConnected")}
+      </p>
+    );
   }
   const highest = Math.max(1, ...pools.map(([, balance]) => balance ?? 0));
   return (
     <div>
-      <h3>{t("provider.credits")}</h3>
-      {pools.map(([pool, balance]) => (
-        <div key={pool}>
-          <span>{t("provider.credits.pool", { pool })}</span>
-          <Meter
-            value={balance ?? 0}
-            max={highest}
-            label={String(balance ?? 0)}
-          />
-        </div>
-      ))}
+      <div className="provider-block-title">{t("provider.credits")}</div>
+      <div className="provider-pools">
+        {pools.map(([pool, balance]) => (
+          <div className="provider-pool" key={pool}>
+            <span className="provider-pool-name">{pool}</span>
+            <Meter value={balance ?? 0} max={highest} label="" />
+            <span className="provider-pool-value">{balance ?? 0}</span>
+          </div>
+        ))}
+      </div>
       {(connection.effective_constraints ?? []).length > 0 && (
-        <p className="muted">
+        <p className="provider-block-hint">
           {t("provider.constraints")}:{" "}
           {(connection.effective_constraints ?? []).join(", ")}
         </p>
@@ -360,7 +382,7 @@ function CredentialBlock({
 
   const connected = connection.credential_present;
   return (
-    <div>
+    <div className="provider-credential">
       <form
         className="form-stack"
         onSubmit={(event) => {
@@ -370,7 +392,20 @@ function CredentialBlock({
           }
         }}
       >
-        <Field label={t("provider.apiKey")} hint={t("provider.apiKeyHint")}>
+        {/* The field is write-only in both states: a sealed key is never sent
+            back to the browser, so the box is empty even when one is in place.
+            Left unexplained that reads as "no key connected" while the card
+            above shows a live balance — so the label and the hint say which
+            state this is, and the placeholder does not pretend to hold a
+            value. */}
+        <Field
+          label={connected ? t("provider.apiKeyStored") : t("provider.apiKey")}
+          hint={
+            connected
+              ? t("provider.apiKeyReplaceHint")
+              : t("provider.apiKeyHint")
+          }
+        >
           {(control) => (
             <TextInput
               {...control}
@@ -378,11 +413,14 @@ function CredentialBlock({
               autoComplete="off"
               value={key}
               required
+              placeholder={
+                connected ? t("provider.apiKeyReplacePlaceholder") : ""
+              }
               onChange={(event) => setKey(event.target.value)}
             />
           )}
         </Field>
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        <div className="provider-actions">
           <Button
             small
             variant="primary"

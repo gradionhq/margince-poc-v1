@@ -1,0 +1,146 @@
+/* The contact-data provider card.
+ *
+ * The card answers four questions in a fixed order, and the layout has to keep
+ * them apart: who this provider is, what credit is left with THEM, what WE
+ * spent, and how the key is managed. Run together as one column of prose — the
+ * first version — a reader could not tell the provider's balance from our own
+ * accounting, which is the one confusion this card exists to prevent.
+ */
+
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--borderSubtle);
+  border-radius: 10px;
+}
+
+.provider-card + .provider-card {
+  margin-top: var(--space-4);
+}
+
+/* Header: the mark, the name, the state. */
+.provider-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.provider-card-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex: none;
+}
+
+.provider-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  /* The provider's own capitalization, not the lowercase registry key. */
+  text-transform: capitalize;
+}
+
+/* Every block below the header carries its own heading, so the eye can land
+ * on one question at a time. */
+.provider-block-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--textSecondary);
+  margin-bottom: var(--space-2);
+}
+
+.provider-block-hint {
+  font-size: 13px;
+  color: var(--textSecondary);
+  margin-top: var(--space-2);
+}
+
+/* Balances: one row per pool, the number reading as the figure it is rather
+ * than as body text. */
+.provider-pools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.provider-pool {
+  display: grid;
+  grid-template-columns: 6rem 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.provider-pool-name {
+  font-size: 13px;
+  color: var(--textSecondary);
+  text-transform: capitalize;
+}
+
+.provider-pool-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 3ch;
+  text-align: right;
+}
+
+/* Spend: a small table, because it is a series of figures and reads as one.
+ * Tabular numerals so the columns line up down the page. */
+.provider-spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.provider-spend-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--textSecondary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+/* Month and pool are labels and read left; the three figure columns read right
+ * so their digits line up under each other, each holding a fixed width so they
+ * stay grouped instead of stranded across the table. */
+.provider-spend-table th:nth-child(n + 3),
+.provider-spend-table td:nth-child(n + 3) {
+  width: 6rem;
+  text-align: right;
+}
+
+.provider-spend-table td {
+  padding: var(--space-2) 0;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.provider-spend-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* A held figure is not a charge. It reads quieter than the total beside it so
+ * nobody adds the two together by eye. */
+.provider-held {
+  color: var(--textSecondary);
+}
+
+/* The key form and its actions, fenced off from the numbers above. */
+.provider-credential {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.provider-empty {
+  font-size: 13px;
+  color: var(--textSecondary);
+}
