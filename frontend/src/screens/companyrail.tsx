@@ -195,8 +195,13 @@ function HealthSection({
           {dimensions.map(([name, dimension]) =>
             dimension?.rating ? (
               <div className="co-health-meter" key={name}>
-                <span className="t-caption">
-                  {t(HEALTH_DIMENSION_LABEL[name])}
+                <span className="co-health-meter-head">
+                  <span className="t-caption">
+                    {t(HEALTH_DIMENSION_LABEL[name])}
+                  </span>
+                  <span className="co-health-meter-reason">
+                    {dimension.reason}
+                  </span>
                 </span>
                 <Meter
                   value={HEALTH_RANK.indexOf(dimension.rating) + 1}
@@ -205,15 +210,18 @@ function HealthSection({
                   flat={!(dimension.rating in HEALTH_METER_TONE)}
                   label={t(HEALTH_DIMENSION_LABEL[name])}
                 />
-                <span className="co-row-meta">{dimension.reason}</span>
               </div>
             ) : null,
           )}
-          {lines.map((line) => (
-            <p className="co-row-meta" key={line}>
-              {line}
-            </p>
-          ))}
+          {lines.length > 0 && (
+            <div className="co-health-lines">
+              {lines.map((line) => (
+                <p className="co-row-meta" key={line}>
+                  {line}
+                </p>
+              ))}
+            </div>
+          )}
           {health?.single_threaded && (
             <p className="co-row-meta">
               <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>

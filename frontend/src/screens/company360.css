@@ -1005,11 +1005,41 @@
    apart into one row per dimension, same rhythm as .co-growth-fit-scores). */
 .co-health-meter {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding: var(--space-2) 0;
 }
-.co-health-meter + .co-health-meter {
-  border-top: 1px solid var(--borderSubtle);
+.co-health-meter:first-child {
+  padding-top: 0;
+}
+/* Label and its reading share one line; the meter reads as the label's
+   own bar rather than a separate block, so the whole dimension is two
+   lines tall instead of three. */
+.co-health-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.co-health-meter-reason {
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.co-health-meter .meterbar {
+  height: 6px;
+  margin: 0;
+}
+/* The four counting facts read as one tight paragraph, set apart from the
+   meters above by real space so the block reads as a separate answer
+   rather than a fifth meter row. */
+.co-health-lines {
+  margin-top: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 /* A roster row: the monogram, the name over the title, and, where the graph
