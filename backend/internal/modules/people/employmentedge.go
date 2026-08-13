@@ -132,9 +132,13 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 		return attachToSettledVerdict(ctx, tx, in, prior, res)
 	}
 	if known {
-		// The question is open and somebody already asked it — the crawl is
-		// coming, or the sweep will re-ask. Nothing further from this message.
-		return nil
+		// The question is open. Usually somebody already asked it and the crawl
+		// is coming, so this message adds nothing — but a WITHHELD domain is
+		// open with its cursor cleared, which means no sweep will ever offer it
+		// again. New mail is new evidence, so it rearms the question: a company
+		// whose site was down when we first looked gets another chance the next
+		// time somebody there writes, instead of waiting for a human forever.
+		return reopenWithheldDispositionTx(ctx, tx, base, in.OwnerID)
 	}
 	opened, err := recordPendingDispositionTx(ctx, tx, base, in.OwnerID)
 	if err != nil {

@@ -8,6 +8,7 @@ DROP INDEX idx_domain_disposition_admission;
 
 ALTER TABLE organization_domain_disposition
   DROP CONSTRAINT organization_domain_disposition_admission_shape,
+  DROP CONSTRAINT organization_domain_disposition_pending_reason_shape,
   DROP COLUMN admission_at,
   DROP COLUMN admission_source,
   DROP COLUMN admission_reason,

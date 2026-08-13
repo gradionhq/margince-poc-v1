@@ -83,7 +83,16 @@ type DomainDisposition struct {
 	OwnerID        *ids.UUID
 	OrganizationID *ids.OrganizationID
 	Attempts       int
+	// Admission is the standing decision about the domain, "" when none was
+	// made. It travels on the LOCKED read so a caller decides from the same row
+	// version it is about to write: a suppression committing between an
+	// unlocked check and the lock would otherwise let a company verdict already
+	// in flight create exactly the record the refusal forbids.
+	Admission string
 }
+
+// Suppressed reports a standing refusal to give this domain a company.
+func (d DomainDisposition) Suppressed() bool { return d.Admission == DomainSuppressed }
 
 // Settled reports whether the question is answered — anything but pending.
 func (d DomainDisposition) Settled() bool { return d.Status != "" && d.Status != DomainPending }
@@ -112,10 +121,11 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 	var source *string
 	var orgID *ids.UUID
 	err := tx.QueryRow(ctx, `
-		SELECT domain, status, source, owner_id, organization_id, attempts
+		SELECT domain, status, source, owner_id, organization_id, attempts,
+		       COALESCE(admission, '')
 		FROM organization_domain_disposition
 		WHERE domain = $1
-		FOR UPDATE`, domain).Scan(&d.Domain, &d.Status, &source, &d.OwnerID, &orgID, &d.Attempts)
+		FOR UPDATE`, domain).Scan(&d.Domain, &d.Status, &source, &d.OwnerID, &orgID, &d.Attempts, &d.Admission)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DomainDisposition{}, false, nil
 	}
@@ -392,7 +402,12 @@ func domainSuppressedTx(ctx context.Context, tx pgx.Tx, domain string) (bool, er
 // The row is created if the domain has never been seen, because an admin
 // blocking a competitor's newsletter before it ever arrives is the same
 // decision as blocking one that already did.
-func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reason, source string) error {
+// The source is NOT a parameter: this method IS the human path, the one the
+// admin surface calls, and it takes the organization-update gate above. A
+// caller-supplied source would let any code claim human authority and make its
+// decision sticky, which is the one thing the stickiness rule exists to stop.
+// Machine callers use SuppressBulkSenderDomainTx, which stamps its own source.
+func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reason string) error {
 	if admission != DomainSuppressed && admission != DomainAdmitted {
 		return fmt.Errorf("people: %q is not a domain admission", admission)
 	}
@@ -406,7 +421,7 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 		return err
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		return setDomainAdmissionTx(ctx, tx, domain, admission, reason, source)
+		return setDomainAdmissionTx(ctx, tx, domain, admission, reason, AdmissionSourceHuman)
 	})
 }
 
@@ -424,6 +439,11 @@ func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, rea
 		       admission_reason = EXCLUDED.admission_reason,
 		       admission_source = EXCLUDED.admission_source,
 		       admission_at = now(),
+		       -- A refused domain is not waiting on evidence; it has an answer.
+		       -- Only a suppression clears the marker, because admitting one
+		       -- leaves the company question genuinely open again.
+		       pending_reason = CASE WHEN EXCLUDED.admission = 'suppressed'
+		                             THEN NULL ELSE organization_domain_disposition.pending_reason END,
 		       updated_at = now()
 		 -- The sticky rule: an automatic caller may not overwrite a decision a
 		 -- HUMAN made, while a human may overwrite anything. Guarded on the
@@ -461,4 +481,57 @@ func (s *Store) SuppressBulkSenderDomainTx(ctx context.Context, tx pgx.Tx, domai
 		return nil
 	}
 	return setDomainAdmissionTx(ctx, tx, base, DomainSuppressed, reason, AdmissionSourceVerdict)
+}
+
+// reopenWithheldDispositionTx puts a withheld domain back in the sweep's path.
+//
+// A domain marked unevidenced has no next_attempt_at, which is what stops it
+// being crawled over and over on evidence that is not going to improve on its
+// own. New mail IS evidence that it might: somebody there is still writing, so
+// the site is worth another look. This also repairs the two ways such a row can
+// be stranded — a machine-created suppression row has no owner, and an owner is
+// what the triage needs before it may mint anything.
+//
+// Guarded on the withheld state, so it cannot disturb a question already in
+// flight, and never touches a SUPPRESSED domain: a refusal is not a question
+// waiting for evidence.
+func reopenWithheldDispositionTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_domain_disposition
+		   SET pending_reason = NULL,
+		       attempts = 0,
+		       next_attempt_at = now(),
+		       owner_id = COALESCE(owner_id, $2),
+		       updated_at = now()
+		 WHERE domain = $1
+		   AND status = $3
+		   AND admission IS DISTINCT FROM $4
+		   AND (pending_reason = 'unevidenced' OR next_attempt_at IS NULL OR owner_id IS NULL)`,
+		domain, ownerID, DomainPending, DomainSuppressed); err != nil {
+		return fmt.Errorf("people: reopening the withheld question for %s: %w", domain, err)
+	}
+	return nil
+}
+
+// admitClaimedDomainTx lifts a standing refusal because a human deliberately
+// claimed the domain for a company they are creating or editing.
+//
+// It writes only when a suppression is actually there, so an ordinary create on
+// an ordinary domain adds no row and leaves the admin's blocked list showing
+// only decisions somebody made. A domain never refused needs no admission.
+func admitClaimedDomainTx(ctx context.Context, tx pgx.Tx, domain string) error {
+	base, ok := freemail.Hostname(domain)
+	if !ok {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_domain_disposition
+		   SET admission = $2, admission_source = $3, admission_at = now(),
+		       admission_reason = 'a person put this domain on a company they created',
+		       updated_at = now()
+		 WHERE domain = $1 AND admission = $4`,
+		base, DomainAdmitted, AdmissionSourceHuman, DomainSuppressed); err != nil {
+		return fmt.Errorf("people: admitting the claimed domain %s: %w", base, err)
+	}
+	return nil
 }

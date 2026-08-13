@@ -137,20 +137,6 @@ func markDispositionUnevidenced(ctx context.Context, tx pgx.Tx, domain, evidence
 }
 
 func (s *Store) resolveDomainTriageTx(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
-	// The last gate before a company exists, and the one that has to hold: a
-	// crawl already in flight when the domain was refused would otherwise land
-	// its verdict here and create the very record the refusal forbids. The
-	// sweeps skip suppressed domains, but a read they started earlier does not
-	// know that.
-	if in.Status == DomainCompany {
-		suppressed, err := domainSuppressedTx(ctx, tx, in.Domain)
-		if err != nil {
-			return ResolveDomainTriageResult{}, err
-		}
-		if suppressed {
-			return ResolveDomainTriageResult{}, nil
-		}
-	}
 	// The lock every concurrent ensure on this domain waits behind, taken
 	// before anything is decided so no ensure can slip between the read and
 	// the write and conclude the question is still open.
@@ -169,6 +155,15 @@ func (s *Store) resolveDomainTriageTx(ctx context.Context, tx pgx.Tx, in Resolve
 		// while settleDisposition's own pending-guard kept the ledger saying
 		// `personal`. The answer stands; the replay is a no-op.
 		return ResolveDomainTriageResult{OrganizationID: prior.OrganizationID}, nil
+	}
+	// The last gate before a company exists, and it reads the LOCKED row: a
+	// crawl already in flight when the domain was refused would otherwise land
+	// its verdict here and create the very record the refusal forbids. The
+	// sweeps skip suppressed domains, but a read they started earlier cannot
+	// know that, and an unlocked check would lose the race against a
+	// suppression committing in between.
+	if in.Status == DomainCompany && prior.Suppressed() {
+		return ResolveDomainTriageResult{}, nil
 	}
 	if in.Status != DomainCompany {
 		return ResolveDomainTriageResult{}, settleDisposition(ctx, tx, in, nil)
@@ -339,6 +334,10 @@ func settleDisposition(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInp
 		UPDATE organization_domain_disposition
 		   SET status = $2, source = $3, evidence = NULLIF($4, ''),
 		       organization_id = $5, site_read_id = $6,
+		       -- The question is answered, so it is no longer waiting on
+		       -- evidence. Leaving the marker would keep a settled domain in
+		       -- the "needs a human" list for ever.
+		       pending_reason = NULL,
 		       next_attempt_at = NULL, updated_at = now()
 		 WHERE domain = $1 AND status = 'pending'`,
 		in.Domain, in.Status, in.Source, in.Evidence, orgID, readID); err != nil {

@@ -47,6 +47,15 @@ ALTER TABLE organization_domain_disposition
     CHECK (admission_source IS NULL OR admission_source IN ('verdict', 'heuristic', 'human')),
   ADD COLUMN admission_at timestamptz NULL,
 
+  -- 'unevidenced' describes a question still WAITING, so it may only sit on a
+  -- row that is still pending and not refused. Without this the partial index
+  -- below would keep serving rows whose real state moved on — a settled company
+  -- or a suppressed vendor listed to a human as "awaiting evidence".
+  ADD CONSTRAINT organization_domain_disposition_pending_reason_shape CHECK (
+    pending_reason IS NULL
+    OR (status = 'pending' AND admission IS DISTINCT FROM 'suppressed')
+  ),
+
   -- An admission is a claim about all three columns or none of them.
   ADD CONSTRAINT organization_domain_disposition_admission_shape CHECK (
     (admission IS NULL AND admission_reason IS NULL AND admission_source IS NULL

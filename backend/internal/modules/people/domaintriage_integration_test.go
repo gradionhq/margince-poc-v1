@@ -414,7 +414,7 @@ func TestASuppressedDomainNeverBecomesACompany(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 	if err := e.store.SetDomainAdmission(ctx, "expensify.example", DomainSuppressed,
-		"a tool this business uses, not a company it sells to", AdmissionSourceHuman); err != nil {
+		"a tool this business uses, not a company it sells to"); err != nil {
 		t.Fatalf("suppress: %v", err)
 	}
 
@@ -471,7 +471,7 @@ func TestAHumanAdmissionOutranksEveryLaterMachineRefusal(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainAdmitted,
-		"they became a client", AdmissionSourceHuman); err != nil {
+		"they became a client"); err != nil {
 		t.Fatalf("admit: %v", err)
 	}
 
@@ -489,10 +489,91 @@ func TestAHumanAdmissionOutranksEveryLaterMachineRefusal(t *testing.T) {
 
 	// And a human may still change their own mind.
 	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
-		"they churned", AdmissionSourceHuman); err != nil {
+		"they churned"); err != nil {
 		t.Fatalf("human re-suppress: %v", err)
 	}
 	if _, _, admission, _, _ = e.dispositionRow(ctx, t, "mckinsey.example"); admission != DomainSuppressed {
 		t.Fatalf("admission = %q, want a human able to overwrite their own decision", admission)
 	}
+}
+
+// A withheld domain is not a dead end. Its cursor is cleared so it is not
+// re-crawled on evidence that will not improve by itself — but new mail IS new
+// evidence that somebody there is still writing, so the question reopens.
+// Without this the row is stranded: both sweeps require a cursor, and the
+// review surface it was waiting for does not exist yet.
+func TestNewMailReopensAWithheldDomain(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	e.openTriage(ctx, t, "hello@downsite.example", "", "downsite.example")
+	if _, err := e.store.ResolveUnreadableDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "downsite.example", SeedURL: TriageSeedURL("downsite.example"),
+		Evidence: "the site could not be read",
+	}); err != nil {
+		t.Fatalf("resolve unreadable: %v", err)
+	}
+	if e.dueContains(ctx, t, "downsite.example") {
+		t.Fatal("a withheld domain is still being offered; it would be re-crawled on the same dead evidence")
+	}
+
+	// Somebody else at the same company writes.
+	if _, err := e.store.EnsureCounterparty(ctx,
+		e.ensureInput(ctx, t, "anna@downsite.example", "Anna Weber", "downsite.example")); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+
+	_, reason, _, _, _ := e.dispositionRow(ctx, t, "downsite.example")
+	if reason != "" {
+		t.Errorf("pending_reason = %q, want it cleared — the question is live again", reason)
+	}
+	if !e.dueContains(ctx, t, "downsite.example") {
+		t.Fatal("new mail did not reopen the withheld question; the domain would wait for ever")
+	}
+}
+
+// Creating a company ON a refused domain IS the override. A human doing that
+// has said something stronger than any verdict, so the refusal lifts — and
+// lifts as a HUMAN admission, so no later newsletter puts it back.
+func TestClaimingASuppressedDomainForACompanyLiftsTheRefusal(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if err := e.store.SetDomainAdmission(ctx, "mckinsey.example", DomainSuppressed,
+		"judged a newsletter publisher"); err != nil {
+		t.Fatalf("suppress: %v", err)
+	}
+
+	if _, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "McKinsey", Domains: []OrgDomainInput{{Domain: "mckinsey.example"}},
+	}); err != nil {
+		t.Fatalf("create the company on a refused domain: %v", err)
+	}
+
+	_, _, admission, source, _ := e.dispositionRow(ctx, t, "mckinsey.example")
+	if admission != DomainAdmitted || source != AdmissionSourceHuman {
+		t.Fatalf("admission = %q/%q, want admitted/human — the claim IS the override", admission, source)
+	}
+	// And the refusal cannot come back on the next newsletter from them.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.SuppressBulkSenderDomainTx(ctx, tx, "mckinsey.example", "judged newsletter")
+	}); err != nil {
+		t.Fatalf("machine suppression: %v", err)
+	}
+	if _, _, admission, _, _ = e.dispositionRow(ctx, t, "mckinsey.example"); admission != DomainAdmitted {
+		t.Fatalf("admission = %q, want the human claim to stand", admission)
+	}
+}
+
+// dueContains reports whether the triage sweep is currently offering a domain.
+func (e *dedupeEnv) dueContains(ctx context.Context, t *testing.T, domain string) bool {
+	t.Helper()
+	due, err := e.store.ListDueDomains(ctx, 100)
+	if err != nil {
+		t.Fatalf("listing due domains: %v", err)
+	}
+	for _, d := range due {
+		if d.Domain == domain {
+			return true
+		}
+	}
+	return false
 }
