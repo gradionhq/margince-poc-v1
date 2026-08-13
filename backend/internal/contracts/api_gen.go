@@ -2799,6 +2799,21 @@ func (e CreateDataSubjectRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateImportRunRequestConnector.
+const (
+	CreateImportRunRequestConnectorCsv CreateImportRunRequestConnector = "csv"
+)
+
+// Valid indicates whether the value is a known member of the CreateImportRunRequestConnector enum.
+func (e CreateImportRunRequestConnector) Valid() bool {
+	switch e {
+	case CreateImportRunRequestConnectorCsv:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateLeadRequestStatus.
 const (
 	CreateLeadRequestStatusDisqualified CreateLeadRequestStatus = "disqualified"
@@ -3774,6 +3789,81 @@ func (e HealthDimensionRating) Valid() bool {
 	case HealthDimensionRatingGood:
 		return true
 	case HealthDimensionRatingStrong:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportObject.
+const (
+	ImportObjectLead         ImportObject = "lead"
+	ImportObjectOrganization ImportObject = "organization"
+)
+
+// Valid indicates whether the value is a known member of the ImportObject enum.
+func (e ImportObject) Valid() bool {
+	switch e {
+	case ImportObjectLead:
+		return true
+	case ImportObjectOrganization:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportRunConnector.
+const (
+	ImportRunConnectorBundle     ImportRunConnector = "bundle"
+	ImportRunConnectorCsv        ImportRunConnector = "csv"
+	ImportRunConnectorHubspot    ImportRunConnector = "hubspot"
+	ImportRunConnectorMirror     ImportRunConnector = "mirror"
+	ImportRunConnectorSalesforce ImportRunConnector = "salesforce"
+)
+
+// Valid indicates whether the value is a known member of the ImportRunConnector enum.
+func (e ImportRunConnector) Valid() bool {
+	switch e {
+	case ImportRunConnectorBundle:
+		return true
+	case ImportRunConnectorCsv:
+		return true
+	case ImportRunConnectorHubspot:
+		return true
+	case ImportRunConnectorMirror:
+		return true
+	case ImportRunConnectorSalesforce:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ImportRunStatus.
+const (
+	ImportRunStatusAwaitingApproval ImportRunStatus = "awaiting_approval"
+	ImportRunStatusComplete         ImportRunStatus = "complete"
+	ImportRunStatusFailed           ImportRunStatus = "failed"
+	ImportRunStatusPending          ImportRunStatus = "pending"
+	ImportRunStatusRunning          ImportRunStatus = "running"
+	ImportRunStatusValidating       ImportRunStatus = "validating"
+)
+
+// Valid indicates whether the value is a known member of the ImportRunStatus enum.
+func (e ImportRunStatus) Valid() bool {
+	switch e {
+	case ImportRunStatusAwaitingApproval:
+		return true
+	case ImportRunStatusComplete:
+		return true
+	case ImportRunStatusFailed:
+		return true
+	case ImportRunStatusPending:
+		return true
+	case ImportRunStatusRunning:
+		return true
+	case ImportRunStatusValidating:
 		return true
 	default:
 		return false
@@ -5354,13 +5444,13 @@ func (e OverlayConnectRequestIncumbent) Valid() bool {
 
 // Defines values for OverlayConnectionIncumbent.
 const (
-	OverlayConnectionIncumbentHubspot OverlayConnectionIncumbent = "hubspot"
+	Hubspot OverlayConnectionIncumbent = "hubspot"
 )
 
 // Valid indicates whether the value is a known member of the OverlayConnectionIncumbent enum.
 func (e OverlayConnectionIncumbent) Valid() bool {
 	switch e {
-	case OverlayConnectionIncumbentHubspot:
+	case Hubspot:
 		return true
 	default:
 		return false
@@ -6731,16 +6821,16 @@ func (e RecordConsentRequestNewState) Valid() bool {
 
 // Defines values for RecordGrantAccess.
 const (
-	Read  RecordGrantAccess = "read"
-	Write RecordGrantAccess = "write"
+	RecordGrantAccessRead  RecordGrantAccess = "read"
+	RecordGrantAccessWrite RecordGrantAccess = "write"
 )
 
 // Valid indicates whether the value is a known member of the RecordGrantAccess enum.
 func (e RecordGrantAccess) Valid() bool {
 	switch e {
-	case Read:
+	case RecordGrantAccessRead:
 		return true
-	case Write:
+	case RecordGrantAccessWrite:
 		return true
 	default:
 		return false
@@ -8297,22 +8387,22 @@ func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewResultDetectedFormat.
 const (
-	VoiceCorpusPreviewResultDetectedFormatJson VoiceCorpusPreviewResultDetectedFormat = "json"
-	VoiceCorpusPreviewResultDetectedFormatSrt  VoiceCorpusPreviewResultDetectedFormat = "srt"
-	VoiceCorpusPreviewResultDetectedFormatTxt  VoiceCorpusPreviewResultDetectedFormat = "txt"
-	VoiceCorpusPreviewResultDetectedFormatVtt  VoiceCorpusPreviewResultDetectedFormat = "vtt"
+	Json VoiceCorpusPreviewResultDetectedFormat = "json"
+	Srt  VoiceCorpusPreviewResultDetectedFormat = "srt"
+	Txt  VoiceCorpusPreviewResultDetectedFormat = "txt"
+	Vtt  VoiceCorpusPreviewResultDetectedFormat = "vtt"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewResultDetectedFormat enum.
 func (e VoiceCorpusPreviewResultDetectedFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewResultDetectedFormatJson:
+	case Json:
 		return true
-	case VoiceCorpusPreviewResultDetectedFormatSrt:
+	case Srt:
 		return true
-	case VoiceCorpusPreviewResultDetectedFormatTxt:
+	case Txt:
 		return true
-	case VoiceCorpusPreviewResultDetectedFormatVtt:
+	case Vtt:
 		return true
 	default:
 		return false
@@ -8690,16 +8780,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
-	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
+	Active WebhookSubscriptionState = "active"
+	Paused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case WebhookSubscriptionStateActive:
+	case Active:
 		return true
-	case WebhookSubscriptionStatePaused:
+	case Paused:
 		return true
 	default:
 		return false
@@ -12089,6 +12179,36 @@ type CreateDealRequest struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// CreateImportRunRequest defines model for CreateImportRunRequest.
+type CreateImportRunRequest struct {
+	// Connector The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
+	Connector CreateImportRunRequestConnector `json:"connector"`
+
+	// Mapping `{source column → target field}`, as the human settled it. Validated against the object's live field catalog before the run is created.
+	Mapping map[string]string `json:"mapping"`
+
+	// Object What the file's rows are. `lead` — not `person` — is what a bulk
+	// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+	// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+	// asserts it by number (`0 person, N lead`). A file of people already
+	// known to the business is imported as leads and promoted, not smuggled
+	// past the qualification step by the choice of an enum value.
+	Object ImportObject `json:"object"`
+
+	// SourceKey The source column holding the row's stable id, written to the row's
+	// provenance so a re-uploaded file updates rather than duplicates
+	// (IEM-AC-9) and an undo can find what one run created (S-E15.4c).
+	// Absent means the mapped natural key is used instead; the report
+	// says which was chosen rather than leaving it to be inferred.
+	SourceKey *string `json:"source_key,omitempty"`
+
+	// SourceRef From `uploadImportSource`.
+	SourceRef string `json:"source_ref"`
+}
+
+// CreateImportRunRequestConnector The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
+type CreateImportRunRequestConnector string
+
 // CreateLeadRequest defines model for CreateLeadRequest.
 type CreateLeadRequest struct {
 	CandidateOrgKey *string              `json:"candidate_org_key,omitempty"`
@@ -12977,6 +13097,140 @@ type HealthDimension struct {
 
 // HealthDimensionRating Three values, not a scale. A dimension that cannot be computed is ABSENT rather than rated `unknown`: absence is a fact about the reading, where a rating is a claim about the account.
 type HealthDimensionRating string
+
+// ImportColumn One column of the uploaded file, described well enough to map it without opening the file elsewhere.
+type ImportColumn struct {
+	// FillRate Non-empty values ÷ rows profiled. A column at 0.02 is usually a mapping mistake waiting to happen, and the number is the only way to see that before committing.
+	FillRate float32 `json:"fill_rate"`
+
+	// Header The column name as the file spells it.
+	Header string `json:"header"`
+
+	// Samples Up to three non-empty values, in file order. Values, not statistics — a human recognizes their own data.
+	Samples []string `json:"samples"`
+}
+
+// ImportObject What the file's rows are. `lead` — not `person` — is what a bulk
+// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+// asserts it by number (`0 person, N lead`). A file of people already
+// known to the business is imported as leads and promoted, not smuggled
+// past the qualification step by the choice of an enum value.
+type ImportObject string
+
+// ImportRowIssue One row the import could not take, named by its line so a human can go fix it.
+type ImportRowIssue struct {
+	// Column The offending column, when one is to blame.
+	Column *string `json:"column,omitempty"`
+
+	// Line The line in the uploaded file, counting the header as line 1.
+	Line int `json:"line"`
+
+	// Reason What is wrong, in terms of the file the human uploaded — never a database or driver message.
+	Reason string `json:"reason"`
+}
+
+// ImportRun defines model for ImportRun.
+type ImportRun struct {
+	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// Checkpoint Absolute offset into the source's rows; 0 = not started. What a resume continues from.
+	Checkpoint int `json:"checkpoint"`
+
+	// Connector The two beyond the migrate-in set are the flip's own sources (OVA-WIRE-8).
+	Connector ImportRunConnector `json:"connector"`
+	CreatedAt time.Time          `json:"created_at"`
+
+	// Error Why a failed run stopped, in the uploader's terms. Never a driver or SQL message.
+	Error *string            `json:"error,omitempty"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Object What the file's rows are. `lead` — not `person` — is what a bulk
+	// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+	// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+	// asserts it by number (`0 person, N lead`). A file of people already
+	// known to the business is imported as leads and promoted, not smuggled
+	// past the qualification step by the choice of an enum value.
+	Object ImportObject `json:"object"`
+	Source string       `json:"source"`
+
+	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+	// carries the checkpoint it stopped at, and resuming continues from
+	// there rather than re-reading the file from the top.
+	Status    ImportRunStatus `json:"status"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// ImportRunConnector The two beyond the migrate-in set are the flip's own sources (OVA-WIRE-8).
+type ImportRunConnector string
+
+// ImportRunDisposition What the run will do, or did, counted per outcome. The four sum to the rows read — a disposition that does not add up is hiding something.
+type ImportRunDisposition struct {
+	Created int `json:"created"`
+	Skipped int `json:"skipped"`
+
+	// Unchanged Matched, and every mapped value already equal. Counted separately from `updated` because reporting work that never happened inflates both the report and the audit trail.
+	Unchanged int `json:"unchanged"`
+
+	// Updated Rows matched to an existing record whose mapped values differ. An editable source re-imported after a correction lands here — this is not the frozen-snapshot case, where a match can never differ.
+	Updated int `json:"updated"`
+}
+
+// ImportRunReport The same shape before and after approval: a dry run reports what the
+// commit will do, a finished run reports what it did.
+type ImportRunReport struct {
+	// Disposition What the run will do, or did, counted per outcome. The four sum to the rows read — a disposition that does not add up is hiding something.
+	Disposition ImportRunDisposition `json:"disposition"`
+
+	// EstimatedDurationSeconds A dry run's estimate for the commit. Null when the run has already finished and the real duration is on the run record.
+	EstimatedDurationSeconds *int `json:"estimated_duration_seconds,omitempty"`
+
+	// Issues Row-level refusals, enumerated. A file half-ignored under a success message is worse than a refusal.
+	Issues   []ImportRowIssue   `json:"issues"`
+	RowsRead int                `json:"rows_read"`
+	RunId    openapi_types.UUID `json:"run_id"`
+
+	// SourceKeyUsed Which column identified a row for idempotency — the request's `source_key`, or the natural key chosen in its absence. Stated because the whole re-run guarantee rests on it.
+	SourceKeyUsed string `json:"source_key_used"`
+
+	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+	// carries the checkpoint it stopped at, and resuming continues from
+	// there rather than re-reading the file from the top.
+	Status ImportRunStatus `json:"status"`
+}
+
+// ImportRunStatus IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+// carries the checkpoint it stopped at, and resuming continues from
+// there rather than re-reading the file from the top.
+type ImportRunStatus string
+
+// ImportSourceProfile What one uploaded file looks like, plus the mapping proposed for it.
+// Nothing here is stored against a run yet: the human may change every
+// line of `suggested_mapping` before `createImportRun` accepts one.
+type ImportSourceProfile struct {
+	Columns []ImportColumn `json:"columns"`
+
+	// Object What the file's rows are. `lead` — not `person` — is what a bulk
+	// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+	// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+	// asserts it by number (`0 person, N lead`). A file of people already
+	// known to the business is imported as leads and promoted, not smuggled
+	// past the qualification step by the choice of an enum value.
+	Object ImportObject `json:"object"`
+
+	// RowsProfiled Rows read to build this profile. May be fewer than the file holds — the profile is a sample, and saying so is what keeps `fill_rate` honest.
+	RowsProfiled int `json:"rows_profiled"`
+
+	// SourceRef Opaque handle to the stored upload. Supplied verbatim to `createImportRun`; never a path a client can construct.
+	SourceRef string `json:"source_ref"`
+
+	// SuggestedMapping Proposed `{source column → target field}`. Normalized-name matches only; an unmatched column is absent rather than guessed.
+	SuggestedMapping map[string]string `json:"suggested_mapping"`
+
+	// Targets Every field this object can receive, custom fields included — the closed set a mapping may name.
+	Targets []string `json:"targets"`
+}
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
 type IngestVoiceCorpusSourceRequest struct {
@@ -19591,6 +19845,20 @@ type ListFxRatesParams struct {
 	From *string `form:"from,omitempty" json:"from,omitempty"`
 }
 
+// UploadImportSourceMultipartBody defines parameters for UploadImportSource.
+type UploadImportSourceMultipartBody struct {
+	// File The delimited file to import. UTF-8; the first row is the header.
+	File openapi_types.File `json:"file"`
+
+	// Object What the file's rows are. `lead` — not `person` — is what a bulk
+	// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+	// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+	// asserts it by number (`0 person, N lead`). A file of people already
+	// known to the business is imported as leads and promoted, not smuggled
+	// past the qualification step by the choice of an enum value.
+	Object ImportObject `json:"object"`
+}
+
 // ListLeadsParams defines parameters for ListLeads.
 type ListLeadsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -22006,6 +22274,12 @@ type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
+
+// CreateImportRunJSONRequestBody defines body for CreateImportRun for application/json ContentType.
+type CreateImportRunJSONRequestBody = CreateImportRunRequest
+
+// UploadImportSourceMultipartRequestBody defines body for UploadImportSource for multipart/form-data ContentType.
+type UploadImportSourceMultipartRequestBody UploadImportSourceMultipartBody
 
 // UpdateInstallationSettingsJSONRequestBody defines body for UpdateInstallationSettings for application/json ContentType.
 type UpdateInstallationSettingsJSONRequestBody = UpdateInstallationSettingsRequest
@@ -28338,6 +28612,21 @@ type ServerInterface interface {
 	// Enqueue an async FX-rate refresh (stages 🟡 proposals).
 	// (POST /fx-rates/propose-refresh)
 	ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request)
+	// Create an import run from an uploaded source and a column mapping, and dry-run it.
+	// (POST /imports)
+	CreateImportRun(w http.ResponseWriter, r *http.Request)
+	// Upload a file to import, and read back what its columns actually contain.
+	// (POST /imports/sources)
+	UploadImportSource(w http.ResponseWriter, r *http.Request)
+	// Read one import run's lifecycle state.
+	// (GET /imports/{id})
+	GetImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Approve a validated import run and commit it.
+	// (POST /imports/{id}/approve)
+	ApproveImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Read the run's report — what will happen, or what did.
+	// (GET /imports/{id}/report)
+	GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// The installation's own settings.
 	// (GET /installation/settings)
 	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
@@ -29775,6 +30064,36 @@ func (_ Unimplemented) SetFxRate(w http.ResponseWriter, r *http.Request) {
 // Enqueue an async FX-rate refresh (stages 🟡 proposals).
 // (POST /fx-rates/propose-refresh)
 func (_ Unimplemented) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create an import run from an uploaded source and a column mapping, and dry-run it.
+// (POST /imports)
+func (_ Unimplemented) CreateImportRun(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Upload a file to import, and read back what its columns actually contain.
+// (POST /imports/sources)
+func (_ Unimplemented) UploadImportSource(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read one import run's lifecycle state.
+// (GET /imports/{id})
+func (_ Unimplemented) GetImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Approve a validated import run and commit it.
+// (POST /imports/{id}/approve)
+func (_ Unimplemented) ApproveImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the run's report — what will happen, or what did.
+// (GET /imports/{id}/report)
+func (_ Unimplemented) GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36372,6 +36691,142 @@ func (siw *ServerInterfaceWrapper) ProposeFxRateRefresh(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ProposeFxRateRefresh(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateImportRun operation middleware
+func (siw *ServerInterfaceWrapper) CreateImportRun(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateImportRun(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadImportSource operation middleware
+func (siw *ServerInterfaceWrapper) UploadImportSource(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadImportSource(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetImportRun operation middleware
+func (siw *ServerInterfaceWrapper) GetImportRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetImportRun(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveImportRun operation middleware
+func (siw *ServerInterfaceWrapper) ApproveImportRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveImportRun(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetImportRunReport operation middleware
+func (siw *ServerInterfaceWrapper) GetImportRunReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetImportRunReport(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -47777,6 +48232,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/fx-rates/propose-refresh", wrapper.ProposeFxRateRefresh)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/imports", wrapper.CreateImportRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/imports/sources", wrapper.UploadImportSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/imports/{id}", wrapper.GetImportRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/imports/{id}/approve", wrapper.ApproveImportRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/imports/{id}/report", wrapper.GetImportRunReport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)

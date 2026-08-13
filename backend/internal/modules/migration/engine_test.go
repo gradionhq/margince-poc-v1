@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -20,8 +21,10 @@ import (
 // nil pool is what proves it: a guard that ever slipped behind the query would
 // reach the pool and panic here instead of quietly passing.
 //
-// All seven are covered rather than sampled, because "every entry point" is the
-// claim — a new method that forgets the gate is only caught if the list is whole.
+// Every entry point is covered rather than sampled, because "every entry point"
+// is the claim — a new method that forgets the gate is only caught if the list
+// is whole. TestEveryRunStoreEntryPointIsGateChecked below keeps the list whole
+// by deriving it from the type rather than trusting this one to be updated.
 func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 	ctx := principal.WithActor(context.Background(), principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:ungranted",
@@ -56,6 +59,23 @@ func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 				[]IdentityPair{{ExternalID: "1", NativeID: ids.NewV7()}})
 		}},
 		{"Resume", func() error { return s.Resume(ctx, runID) }},
+		{"CreateStagedRun", func() error {
+			_, err := s.CreateStagedRun(ctx, CreateStagedRunInput{
+				Connector: ConnectorCSV, SourceRef: "x", Source: "t",
+				Mapping: RunMapping{Object: ObjectLead, Fields: map[string]string{"Email": "email"}, SourceKey: "Email"},
+			})
+			return err
+		}},
+		{"AwaitApproval", func() error { return s.AwaitApproval(ctx, runID, Report{}) }},
+		{"Approve", func() error { _, err := s.Approve(ctx, runID); return err }},
+		{"ResumeApproved", func() error { _, err := s.ResumeApproved(ctx, runID); return err }},
+		{"FailValidation", func() error { return s.FailValidation(ctx, runID, errors.New("boom")) }},
+		{"GetStaged", func() error { _, err := s.GetStaged(ctx, runID); return err }},
+		{"RecordIdentityTx", func() error {
+			// The borrowed transaction is never reached: the grant is taken
+			// first, which is the whole claim. A nil tx proves it.
+			return s.RecordIdentityTx(ctx, nil, runID, "hubspot", "contact", "1", ids.NewV7())
+		}},
 	} {
 		t.Run(entry.name, func(t *testing.T) {
 			if err := entry.call(); !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -581,6 +601,27 @@ func TestTheRepairRunsEvenWhenNoCheckpointWasEverRecorded(t *testing.T) {
 	for key, n := range seen {
 		if n != 1 {
 			t.Errorf("%s was written %d times; the record the crash landed was created again", key, n)
+		}
+	}
+}
+
+// The list above is only a proof while it is COMPLETE, and a hand-written list
+// stops being complete the moment somebody adds a method. This derives the
+// obligation from the type instead: every exported RunStore method that takes a
+// context must appear in the refusal table.
+func TestEveryRunStoreEntryPointIsGateChecked(t *testing.T) {
+	checked := map[string]bool{
+		"Create": true, "Get": true, "Latest": true, "LookupIdentity": true,
+		"RecordIdentity": true, "RecordIdentities": true, "Resume": true,
+		"CreateStagedRun": true, "AwaitApproval": true, "Approve": true,
+		"ResumeApproved": true, "FailValidation": true, "GetStaged": true,
+		"RecordIdentityTx": true,
+	}
+	rt := reflect.TypeOf(&RunStore{})
+	for i := range rt.NumMethod() {
+		name := rt.Method(i).Name
+		if !checked[name] {
+			t.Errorf("RunStore.%s is an exported entry point with no line in the ungranted-role table", name)
 		}
 	}
 }

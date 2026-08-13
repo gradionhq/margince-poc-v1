@@ -523,6 +523,26 @@ func (stubs) ProposeFxRateRefresh(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "ProposeFxRateRefresh")
 }
 
+func (stubs) CreateImportRun(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateImportRun")
+}
+
+func (stubs) UploadImportSource(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UploadImportSource")
+}
+
+func (stubs) GetImportRun(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetImportRun")
+}
+
+func (stubs) ApproveImportRun(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ApproveImportRun")
+}
+
+func (stubs) GetImportRunReport(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetImportRunReport")
+}
+
 func (stubs) GetInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetInstallationSettings")
 }

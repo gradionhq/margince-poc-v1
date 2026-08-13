@@ -82,6 +82,7 @@ type Server struct {
 	installationSettingsHandlers
 	consumerMailDomainHandlers
 	blockedDomainHandlers
+	importHandlers
 	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
