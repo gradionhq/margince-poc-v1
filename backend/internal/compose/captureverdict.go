@@ -294,6 +294,9 @@ func (e *CounterpartyVerdictEngine) apply(ctx context.Context, row capture.Pendi
 			// visible; no contact is invented for a mailbox nobody owns.
 			return nil
 		case capture.KindNewsletter, capture.KindTransactional, capture.KindSpam:
+			if err := e.suppressSenderDomain(ctx, tx, row, kind); err != nil {
+				return err
+			}
 			return e.hideNoise(ctx, tx, row)
 		}
 		return fmt.Errorf("verdict: no effect defined for sender kind %q", kind)
@@ -451,4 +454,27 @@ func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []ca
 				"disposition", row.ID.String(), "err", err)
 		}
 	}
+}
+
+// suppressSenderDomain refuses the sender's domain a company.
+//
+// Hiding the mail is not enough on its own. A newsletter publisher or an
+// expense tool has a real corporate website, so if a NAMED employee ever writes
+// from that domain the triage reads their site, finds a genuine company, and
+// creates it — the vendor arrives in the CRM by another door. The refusal has
+// to be a standing decision about the domain, which is why it is recorded here
+// rather than inferred from the sender each time.
+//
+// It never overwrites a human's admission (the store's guard), so an admin who
+// let a domain in keeps it in no matter how much bulk mail follows.
+//
+// A free-mail domain is skipped: nobody's employer is gmail.com, so there is no
+// company to refuse, and suppressing it would put a consumer mail provider in
+// the admin's blocked list as though it were a decision anyone made.
+func (e *CounterpartyVerdictEngine) suppressSenderDomain(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty, kind string) error {
+	if row.Domain == "" {
+		return nil
+	}
+	return e.people.SuppressBulkSenderDomainTx(ctx, tx, row.Domain,
+		"mail from this domain was judged "+kind+", so it is not a company this business works with")
 }

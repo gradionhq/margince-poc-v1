@@ -248,6 +248,7 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 //
 // The order is load-bearing at every step:
 //
+//	a suppressed domain                     → no company, no question, ever
 //	an organization already on this domain  → attach; a human's row always wins
 //	consumer mail                           → no company, and no question to ask
 //	a settled verdict                       → obey it
@@ -262,6 +263,22 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	// or a key in a query: the person still lands, with no employer.
 	base, ok := freemail.Hostname(in.Domain)
 	if !ok {
+		return nil
+	}
+	// The standing refusal runs FIRST, ahead of the dedupe attach.
+	//
+	// A vendor the business merely uses — an expense tool, a ticket shop — has a
+	// real corporate website, so every evidence test the triage can run says
+	// "company". The refusal is therefore a decision about the DOMAIN, and it
+	// has to be consulted before anything can attach a person to a company on
+	// it: consulted later, a named employee writing from that domain would find
+	// the organization a previous message created and quietly re-employ
+	// everyone onto it.
+	suppressed, err := domainSuppressedTx(ctx, tx, base)
+	if err != nil {
+		return err
+	}
+	if suppressed {
 		return nil
 	}
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain, base}})

@@ -95,6 +95,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/capture:ReleaseBudget":                 "returns the slot ReserveBudget took, same sweep",
 	"internal/modules/capture:ReserveBudget":                 "auto-enrich budget reservation for the sweep's own slot; an accounting write with no record and no actor",
 	"internal/modules/capture:Resolve":                       "sweep verdict write for a row the loop already claimed; the claim is the authority and there is no principal to gate",
+	"internal/modules/people:SuppressBulkSenderDomainTx":     "the verdict engine's own effect, inside the transaction that concluded the sender is bulk mail; it runs under the system principal with no human actor, exactly like the ClaimDue sweep that reaches it",
 	"internal/modules/capture:ResolveAs":                     "the same sweep verdict write as Resolve, recording the sender kind alongside the status; same claim, same absence of a principal",
 	"internal/modules/capture:ResolveReviewed":               "approvals EFFECT EXECUTOR (compose/captureverdictaccept.go): it runs after a human approved the staged review, and the approval record is the authority — the approvals surface took the grant",
 	"internal/modules/capture:ResolveReviewedAs":             "the same approvals effect executor as ResolveReviewed, recording the sender kind the human's acceptance implies; same approval record, same authority",

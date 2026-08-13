@@ -74,15 +74,22 @@ func (s *Store) ResolveDomainTriage(ctx context.Context, in ResolveDomainTriageI
 	return res, nil
 }
 
-// ResolveUnreadableDomainTriage settles a domain whose site gave no answer —
+// ResolveUnreadableDomainTriage answers a domain whose site gave no answer —
 // unreachable, or read and identifying nobody. The sender's own name is the
 // last evidence available, and it is tested HERE, inside the same transaction
 // and under the same row lock as the verdict it produces, against the very
 // people a company answer would have employed.
 //
-// A domain that is somebody's name is theirs. Anything else gets the
-// organization it would have got before triage existed: a real business whose
-// site is down must not lose its record over an outage.
+// A domain that is somebody's name is theirs, and that settles.
+//
+// Anything else is WITHHELD, not created. It used to get "the organization it
+// would have got before triage existed" on the reasoning that a real business
+// whose site is down must not lose its record over an outage — but the record
+// it got was a title-cased domain label with every field empty, and the
+// disposition settled so nothing ever asked again. That produced 40 of 108
+// organizations in a real import, "Pwc" and "Mckinsey" among them, each frozen
+// as a shell. A withheld domain stays PENDING with its reason recorded, so the
+// site can be read again later and a human can decide meanwhile.
 func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
 	var res ResolveDomainTriageResult
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -92,19 +99,12 @@ func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDom
 		}
 		if DomainLooksPersonal(registrableLabel(in.Domain), persons) {
 			in.Status, in.Source = DomainPersonal, DomainSourceHeuristic
-		} else {
-			in.Status, in.Source = DomainCompany, DomainSourceHeuristic
-		}
-		res, err = s.resolveDomainTriageTx(ctx, tx, in)
-		if err != nil {
+			res, err = s.resolveDomainTriageTx(ctx, tx, in)
 			return err
 		}
-		if in.Status == DomainCompany {
-			// The organization exists, but nothing evidenced it — record that
-			// honestly rather than claiming a site said so.
-			return markDispositionUnevidenced(ctx, tx, in.Domain)
-		}
-		return nil
+		// No site, no name that explains the domain: nothing has EARNED a
+		// company. Left open, marked, and answerable later.
+		return markDispositionUnevidenced(ctx, tx, in.Domain, in.Evidence)
 	})
 	if err != nil {
 		return ResolveDomainTriageResult{}, err
@@ -112,24 +112,45 @@ func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDom
 	return res, nil
 }
 
-// markDispositionUnevidenced downgrades a company answer nothing corroborated
-// to no_site: the organization stands, and the ledger says why it exists.
+// markDispositionUnevidenced records that a domain's question is still open
+// because nothing evidenced a company — the site could not be read, and the
+// sender's name did not explain the domain.
 //
-// Guarded on the answer this call itself just wrote. Unguarded it would also
-// rewrite a `company` a HUMAN settled (adoptDispositionForOrg), turning their
-// deliberate override into "nothing evidenced this" — the exact overwrite
-// settleDisposition is guarded to prevent.
-func markDispositionUnevidenced(ctx context.Context, tx pgx.Tx, domain string) error {
+// It keeps status='pending' deliberately. Pending is the ONE value every
+// due-scan, queue-mark and exhaustion query treats as open, so a withheld
+// domain stays retryable and stays visible without teaching five other queries
+// a second word for the same thing.
+//
+// Guarded on pending so it cannot overwrite an answer a HUMAN settled: an admin
+// who confirmed the company owns that verdict, and a later sweep finding the
+// site still unreadable must not quietly reopen their decision.
+func markDispositionUnevidenced(ctx context.Context, tx pgx.Tx, domain, evidence string) error {
 	if _, err := tx.Exec(ctx, `
-		UPDATE organization_domain_disposition SET status = $2, updated_at = now()
-		 WHERE domain = $1 AND status = $3 AND source = $4`,
-		domain, DomainNoSite, DomainCompany, DomainSourceHeuristic); err != nil {
-		return fmt.Errorf("people: recording that %s was never evidenced: %w", domain, err)
+		UPDATE organization_domain_disposition
+		   SET pending_reason = 'unevidenced', evidence = NULLIF($2, ''),
+		       next_attempt_at = NULL, updated_at = now()
+		 WHERE domain = $1 AND status = $3`,
+		domain, evidence, DomainPending); err != nil {
+		return fmt.Errorf("people: recording that %s evidenced no company: %w", domain, err)
 	}
 	return nil
 }
 
 func (s *Store) resolveDomainTriageTx(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
+	// The last gate before a company exists, and the one that has to hold: a
+	// crawl already in flight when the domain was refused would otherwise land
+	// its verdict here and create the very record the refusal forbids. The
+	// sweeps skip suppressed domains, but a read they started earlier does not
+	// know that.
+	if in.Status == DomainCompany {
+		suppressed, err := domainSuppressedTx(ctx, tx, in.Domain)
+		if err != nil {
+			return ResolveDomainTriageResult{}, err
+		}
+		if suppressed {
+			return ResolveDomainTriageResult{}, nil
+		}
+	}
 	// The lock every concurrent ensure on this domain waits behind, taken
 	// before anything is decided so no ensure can slip between the read and
 	// the write and conclude the question is still open.

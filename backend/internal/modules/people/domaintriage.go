@@ -19,7 +19,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The verdicts a domain can carry. Only Pending leaves the question open.
@@ -164,6 +167,10 @@ func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, err
 			SELECT d.domain
 			FROM organization_domain_disposition d
 			WHERE d.status = 'pending'
+			  -- A refused domain is not a question. Crawling one would find the
+			  -- vendor's real corporate site, answer "company", and create
+			  -- exactly the record the refusal exists to prevent.
+			  AND d.admission IS DISTINCT FROM 'suppressed'
 			  -- A domain nobody is accountable for may not mint rows, so it is
 			  -- not worth a crawl either (ResolveDomainTriage stamps the org's
 			  -- owner from this column).
@@ -240,6 +247,7 @@ func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, e
 		rows, err := tx.Query(ctx, `
 			SELECT domain FROM organization_domain_disposition
 			WHERE status = 'pending'
+			  AND admission IS DISTINCT FROM 'suppressed'
 			  AND owner_id IS NOT NULL
 			  AND next_attempt_at IS NOT NULL
 			  AND next_attempt_at <= now()
@@ -335,4 +343,122 @@ func PersonsOnDomain(ctx context.Context, tx pgx.Tx, domain string) ([]DomainPer
 		out[at].EmailLocals = append(out[at].EmailLocals, local)
 	}
 	return out, rows.Err()
+}
+
+// The standing admission a domain can carry, independent of any one sender.
+const (
+	// DomainSuppressed refuses a domain a company outright — a vendor or
+	// service the business uses rather than sells to. Every evidence test says
+	// "company" for these; the point is that the workspace does not want one.
+	DomainSuppressed = "suppressed"
+	// DomainAdmitted is a human's override, and it is STICKY: no later verdict
+	// or heuristic may re-suppress a domain a person deliberately let in.
+	DomainAdmitted = "admitted"
+)
+
+// What decided an admission.
+const (
+	AdmissionSourceVerdict   = "verdict"
+	AdmissionSourceHeuristic = "heuristic"
+	AdmissionSourceHuman     = "human"
+)
+
+// domainSuppressedTx reports whether a domain carries a standing refusal.
+//
+// A human admission always wins: the column can only hold one value, and
+// SuppressDomain refuses to overwrite 'admitted', so reading suppression here
+// needs no second check for it.
+func domainSuppressedTx(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
+	var suppressed bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM organization_domain_disposition
+		   WHERE domain = $1 AND admission = $2)`, domain, DomainSuppressed).Scan(&suppressed)
+	if err != nil {
+		return false, fmt.Errorf("people: reading the admission of %s: %w", domain, err)
+	}
+	return suppressed, nil
+}
+
+// SetDomainAdmission records a standing decision about a domain: refuse it a
+// company, or admit it and keep it admitted.
+//
+// A human decision is STICKY. An admin who unblocks mckinsey.com because it
+// became a client must not find it re-suppressed by the next newsletter that
+// arrives from it, so an automatic caller may not overwrite a human's row —
+// the guard is on the SOURCE already stored, not on the value being written.
+// A human may always overwrite anything, including another human's decision.
+//
+// The row is created if the domain has never been seen, because an admin
+// blocking a competitor's newsletter before it ever arrives is the same
+// decision as blocking one that already did.
+func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reason, source string) error {
+	if admission != DomainSuppressed && admission != DomainAdmitted {
+		return fmt.Errorf("people: %q is not a domain admission", admission)
+	}
+	if reason == "" {
+		return errors.New("people: a domain admission needs a reason a human can read")
+	}
+	// Blocking a domain decides that no company will ever exist for it, and
+	// unblocking one lets the next message create it. Both are the organization
+	// object's own write authority, so both take the same gate a create does.
+	if err := auth.Require(ctx, entityOrganization, principal.ActionUpdate); err != nil {
+		return err
+	}
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return setDomainAdmissionTx(ctx, tx, domain, admission, reason, source)
+	})
+}
+
+// setDomainAdmissionTx is SetDomainAdmission on the caller's transaction, for
+// the verdict engine, which must record the refusal in the same commit as the
+// verdict that concluded it.
+func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, reason, source string) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO organization_domain_disposition
+		  (workspace_id, domain, status, admission, admission_reason, admission_source, admission_at)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, $2, $3, $4, $5, now())
+		ON CONFLICT (workspace_id, domain) DO UPDATE
+		   SET admission = EXCLUDED.admission,
+		       admission_reason = EXCLUDED.admission_reason,
+		       admission_source = EXCLUDED.admission_source,
+		       admission_at = now(),
+		       updated_at = now()
+		 -- The sticky rule: an automatic caller may not overwrite a decision a
+		 -- HUMAN made, while a human may overwrite anything. Guarded on the
+		 -- source already stored, not on the value being written, because what
+		 -- must survive is the authority behind the row rather than which way
+		 -- it happened to point.
+		 WHERE organization_domain_disposition.admission_source IS DISTINCT FROM $6
+		    OR EXCLUDED.admission_source = $6`,
+		domain, DomainPending, admission, reason, source, AdmissionSourceHuman); err != nil {
+		return fmt.Errorf("people: recording the admission of %s: %w", domain, err)
+	}
+	return nil
+}
+
+// SuppressBulkSenderDomainTx refuses a domain a company because its mail was
+// judged bulk or automated, on the caller's transaction so the refusal commits
+// with the verdict that concluded it.
+//
+// A consumer-mail domain is skipped. Nobody's employer is gmail.com, so there
+// is no company to refuse, and recording one would put a mail provider in the
+// admin's blocked list as though somebody had decided something about it. The
+// workspace's own carve-outs travel with the check, exactly as they do in the
+// ensure path — an admin who declared a shared domain corporate must see it
+// judged that way on both sides.
+func (s *Store) SuppressBulkSenderDomainTx(ctx context.Context, tx pgx.Tx, domain, reason string) error {
+	base, ok := freemail.Hostname(domain)
+	if !ok {
+		return nil
+	}
+	consumerMail, err := s.consumerMailMatcher(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if consumerMail.IsConsumer(base) {
+		return nil
+	}
+	return setDomainAdmissionTx(ctx, tx, base, DomainSuppressed, reason, AdmissionSourceVerdict)
 }
