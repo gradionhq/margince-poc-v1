@@ -53,7 +53,9 @@ bootstrap_admin:
 # Omitted, the installation runs unlicensed, which is what every dev and CI
 # process here does. Configured and REFUSED, the api and the worker both refuse
 # to boot — a license that is present and unhonored is an operator mistake, not a
-# downgrade to choose silently. MARGINCE_LICENSE overrides the file when set.
+# downgrade to choose silently. MARGINCE_LICENSE overrides the file when it holds
+# a non-empty value; exporting it empty falls through to the file rather than
+# switching the installation off.
 # license:
 #   token_file: config/margince-license
 

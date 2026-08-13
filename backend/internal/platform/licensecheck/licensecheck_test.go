@@ -4,6 +4,8 @@
 package licensecheck
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"strings"
 	"testing"
@@ -87,18 +89,57 @@ func TestResolveReportsAbsentForNoToken(t *testing.T) {
 	}
 }
 
-// A run failure is a rejection, not an absence: a validation module this build
-// cannot execute is a packaging fault, and reading it as "unlicensed" would turn
-// one into a silent downgrade.
-func TestUnrunnableModuleIsRejectedRatherThanTreatedAsUnlicensed(t *testing.T) {
+// A module this build cannot execute is a packaging fault, not an absence:
+// reading either failure below as "unlicensed" would turn one into a silent
+// downgrade. Both are errors, and each names its own stage — a blob that never
+// unwrapped and one that unwrapped into something wazero refused are different
+// things to go and fix.
+func TestAModuleThatCannotRunIsRejectedRatherThanTreatedAsUnlicensed(t *testing.T) {
 	t.Parallel()
-	_, err := check(context.Background(), []byte("this is not webassembly"), issuer, product, generation, "any-token")
-	if err == nil {
-		t.Fatal("check accepted a module that is not WebAssembly")
+	for _, tc := range []struct {
+		name   string
+		module []byte
+		stage  string
+	}{
+		{
+			// Not raw wasm and not gzip, so it is read as brotli and is not that
+			// either — the shape a truncated download has.
+			name:   "bytes that unwrap as nothing",
+			module: []byte("this is not a module in any framing"),
+			stage:  "decompress module",
+		},
+		{
+			name:   "a well-formed archive of something that is not wasm",
+			module: gzipped(t, []byte("still not webassembly")),
+			stage:  "run module",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := check(context.Background(), tc.module, issuer, product, generation, "any-token")
+			if err == nil {
+				t.Fatal("check accepted a module that is not WebAssembly")
+			}
+			if !strings.Contains(err.Error(), tc.stage) {
+				t.Errorf("error = %q, want it to name the %q stage so the fault is placeable", err, tc.stage)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "run module") {
-		t.Errorf("error = %q, want it to name the run failure so it is distinguishable from a refused license", err)
+}
+
+// gzipped frames payload the way the older published artifact was framed, which
+// the host still accepts.
+func gzipped(t *testing.T, payload []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	writer := gzip.NewWriter(&out)
+	if _, err := writer.Write(payload); err != nil {
+		t.Fatalf("gzip write: %v", err)
 	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return out.Bytes()
 }
 
 func TestSeats(t *testing.T) {

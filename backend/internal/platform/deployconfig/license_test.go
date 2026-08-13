@@ -10,7 +10,20 @@ import (
 	"testing"
 )
 
+// unlicensedEnvironment makes the environment say what a test about the FILE
+// reference needs it to say: nothing. Token reads the variable first, so an
+// engineer or CI lane that exports a real license would otherwise fail every
+// test below for a reason that has nothing to do with the code. Empty rather
+// than unset because that is the state Token treats as no license, and it is
+// the one a container that declares the variable without filling it produces.
+// (t.Setenv forbids t.Parallel, which is why no test here runs parallel.)
+func unlicensedEnvironment(t *testing.T) {
+	t.Helper()
+	t.Setenv(LicenseTokenEnvVar, "")
+}
+
 func TestLicenseTokenReadsTheFileReference(t *testing.T) {
+	unlicensedEnvironment(t)
 	path := filepath.Join(t.TempDir(), "license")
 	// Written the way a secret store or an editor leaves it: a trailing newline.
 	if err := os.WriteFile(path, []byte("a.token.value\n"), 0o600); err != nil {
@@ -59,6 +72,7 @@ func TestLicenseTokenIgnoresAnEmptyEnvironmentValue(t *testing.T) {
 }
 
 func TestLicenseTokenIsEmptyForAnUnlicensedInstallation(t *testing.T) {
+	unlicensedEnvironment(t)
 	got, err := License{}.Token()
 	if err != nil {
 		t.Fatalf("Token: %v", err)
@@ -71,6 +85,7 @@ func TestLicenseTokenIsEmptyForAnUnlicensedInstallation(t *testing.T) {
 // A path that does not resolve must fail the boot. Read as "unlicensed" it would
 // hand the operator a workspace that quietly believes it has no entitlement.
 func TestLicenseTokenRefusesAnUnreadableFileRatherThanReadingAsUnlicensed(t *testing.T) {
+	unlicensedEnvironment(t)
 	_, err := License{TokenFile: filepath.Join(t.TempDir(), "typo")}.Token()
 	if err == nil {
 		t.Fatal("Token accepted a token_file that does not exist")
@@ -81,6 +96,7 @@ func TestLicenseTokenRefusesAnUnreadableFileRatherThanReadingAsUnlicensed(t *tes
 }
 
 func TestLicenseTokenRefusesAnEmptyFile(t *testing.T) {
+	unlicensedEnvironment(t)
 	path := filepath.Join(t.TempDir(), "license")
 	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)

@@ -29,7 +29,13 @@
 set -euo pipefail
 
 repo="gradionhq/margince-constellation"
-asset="licensecheck.wasm.gz"
+# The asset's COMPRESSION is upstream's to change — it moved from gzip to brotli
+# once already — and the host reads the format out of the bytes rather than the
+# name, so this matches whatever framing the release publishes and the tree
+# always holds it under one fixed name. That keeps a refresh a data-only diff:
+# nothing in the Go tree names a compression format.
+asset_glob="licensecheck.wasm.*"
+bundled="licensecheck.wasm.module"
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module_dir="$root_dir/backend/internal/platform/licensecheck/module"
 
@@ -45,13 +51,27 @@ if [[ ! "$tag" =~ ^sha-[0-9a-f]{12,}$ ]]; then
   exit 1
 fi
 
+# The tag names a commit by convention; that it RESOLVES to that commit is
+# checked rather than assumed. A moved or hand-made tag would otherwise pass the
+# shape check above and hand over an asset built from something else entirely,
+# while every reader of the pin — the vendoring comment in host.go included —
+# takes the twelve hex digits as the commit the module was built from.
+resolved="$(gh api "repos/$repo/commits/$tag" --jq '.sha')"
+if [[ "$resolved" != "${tag#sha-}"* ]]; then
+  echo "fetch-license-module: tag $tag resolves to commit $resolved, which it does not name;" >&2
+  echo "  refusing to fetch an asset whose provenance the pin would misstate" >&2
+  exit 1
+fi
+
 # GitHub's own digest for the stored asset, read BEFORE the download so the
 # comparison is against a value this script did not derive from the bytes it is
-# checking.
-expected="$(gh api "repos/$repo/releases/tags/$tag" \
-  --jq ".assets[] | select(.name==\"$asset\") | .digest" | sed 's/^sha256://')"
-if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
-  echo "fetch-license-module: release $tag publishes no $asset with a sha256 digest" >&2
+# checking. The release's SHA256SUMS covers only the CLI binaries, so this
+# per-asset digest is the available authority (issue #1190).
+read -r asset expected <<<"$(gh api "repos/$repo/releases/tags/$tag" \
+  --jq ".assets[] | select(.name|test(\"^licensecheck[.]wasm[.]\")) | \"\(.name) \(.digest)\"" |
+  sed 's/sha256://')"
+if [[ -z "${asset:-}" || ! "${expected:-}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "fetch-license-module: release $tag publishes no $asset_glob with a sha256 digest" >&2
   exit 1
 fi
 
@@ -67,11 +87,12 @@ if [[ "$actual" != "$expected" ]]; then
   exit 1
 fi
 
-# Both files are rewritten together, and only after the bytes verified: a tree
-# holding a module and a digest that disagree is the one state the committed
-# digest exists to make impossible.
-mv "$work_dir/$asset" "$module_dir/$asset"
+# All three files are rewritten together, and only after the bytes verified: a
+# tree holding a module and a digest that disagree is the one state the committed
+# digest exists to make impossible. The digest is recorded against the UPSTREAM
+# asset name, so the pin still says which artifact was fetched.
+mv "$work_dir/$asset" "$module_dir/$bundled"
 printf '%s\n' "$tag" > "$module_dir/VERSION"
-(cd "$module_dir" && shasum -a 256 "$asset" > "$asset.sha256")
+(cd "$module_dir" && printf '%s  %s\n' "$actual" "$asset" > "$bundled.sha256")
 
 echo "fetch-license-module: $asset pinned to $tag (sha256 $expected)"

@@ -17,6 +17,7 @@ require github.com/gradionhq/margince/composition v0.0.0
 replace github.com/gradionhq/margince/composition => ../composition
 
 require (
+	github.com/andybalholm/brotli v1.2.2
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/getkin/kin-openapi v0.146.0

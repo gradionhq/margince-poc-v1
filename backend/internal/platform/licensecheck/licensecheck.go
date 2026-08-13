@@ -42,9 +42,15 @@ const (
 // The bundled module and the release it came from. Both are rewritten together
 // by `make license-module`; module_test.go holds the blob to the recorded digest
 // so a swapped or truncated one fails the build gate rather than a boot.
+//
+// The file name says nothing about compression on purpose. Upstream's framing is
+// upstream's to change — it moved from gzip to brotli once already — and the host
+// reads the format out of the bytes, so a refresh that changes it stays a
+// data-only diff instead of also editing this directive. Which artifact was
+// fetched is recorded in the digest file beside the blob.
 var (
-	//go:embed module/licensecheck.wasm.gz
-	moduleGz []byte
+	//go:embed module/licensecheck.wasm.module
+	bundledModule []byte
 	//go:embed module/VERSION
 	moduleVersion string
 )
@@ -134,7 +140,7 @@ func Resolve(ctx context.Context, token string, now time.Time) Posture {
 	if strings.TrimSpace(token) == "" {
 		return Posture{State: StateAbsent, CheckedAt: now}
 	}
-	grants, err := check(ctx, moduleGz, issuer, product, generation, token)
+	grants, err := check(ctx, bundledModule, issuer, product, generation, token)
 	if err != nil {
 		return Posture{State: StateRejected, Reason: err.Error(), CheckedAt: now}
 	}

@@ -52,6 +52,9 @@ vendors:
   # runs in-process, sandboxed to the arguments and one environment variable the
   # host hands it. Pure Go, no cgo, no transitive dependencies.
   wazero: { in: github.com/tetratelabs/** }
+  # The compression the published module arrives in. Confined to the vendored
+  # host adapter, which decides the framing from the bytes rather than a name.
+  brotli: { in: github.com/andybalholm/** }
 
 components:
   # The published extension surface (ADR-0069 §3): the outermost Tier-0
@@ -102,8 +105,9 @@ deps:
     mayDependOn: [platform, contracts, migrations]
     # yaml: the deployment configuration file (deployconfig, A107/ADR-0061).
     # xnet: webread's crawl mechanics (html tokenizer + publicsuffix).
-    # wazero: licensecheck's runtime for the bundled validation module.
-    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet, ximage, oksvg, wazero]
+    # wazero + brotli: licensecheck's runtime for the bundled validation
+    # module, and the compression it is published in.
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet, ximage, oksvg, wazero, brotli]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:

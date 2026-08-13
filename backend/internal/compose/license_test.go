@@ -17,8 +17,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 )
 
+// unlicensedEnvironment makes the environment say what these tests need it to
+// say: nothing. deployconfig.License.Token reads MARGINCE_LICENSE before it
+// looks at the file reference, so an engineer or CI lane that exports a real
+// license would otherwise fail all three for a reason that has nothing to do
+// with the code — one would stop being absent, and two would stop exercising
+// the file path they name. (t.Setenv forbids t.Parallel, which is why these
+// three do not run parallel.)
+func unlicensedEnvironment(t *testing.T) {
+	t.Helper()
+	t.Setenv(deployconfig.LicenseTokenEnvVar, "")
+}
+
 func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
-	t.Parallel()
+	unlicensedEnvironment(t)
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -41,7 +53,7 @@ func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
 }
 
 func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T) {
-	t.Parallel()
+	unlicensedEnvironment(t)
 	path := filepath.Join(t.TempDir(), "license")
 	if err := os.WriteFile(path, []byte("not.a.license"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
@@ -64,7 +76,7 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 // A path that does not resolve fails the boot rather than reading as an
 // unlicensed installation, which is the same posture to everything downstream.
 func TestEnsureLicenseRefusesAnUnreadableTokenFile(t *testing.T) {
-	t.Parallel()
+	unlicensedEnvironment(t)
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: filepath.Join(t.TempDir(), "typo")}}
 	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg); err == nil {
 		t.Fatal("EnsureLicense booted with a token_file that does not exist")

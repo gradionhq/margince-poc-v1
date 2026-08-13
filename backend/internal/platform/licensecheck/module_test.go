@@ -4,6 +4,7 @@
 package licensecheck
 
 import (
+	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -12,7 +13,7 @@ import (
 	"testing"
 )
 
-//go:embed module/licensecheck.wasm.gz.sha256
+//go:embed module/licensecheck.wasm.module.sha256
 var recordedDigest string
 
 // The bundled module is a binary nobody reviews by reading it, fetched from a
@@ -25,34 +26,39 @@ func TestBundledModuleMatchesItsRecordedDigest(t *testing.T) {
 	t.Parallel()
 	want, name, ok := strings.Cut(strings.TrimSpace(recordedDigest), " ")
 	if !ok {
-		t.Fatalf("module/licensecheck.wasm.gz.sha256 is not in `shasum -a 256` format: %q", recordedDigest)
+		t.Fatalf("module/licensecheck.wasm.module.sha256 is not in `shasum -a 256` format: %q", recordedDigest)
 	}
-	if !strings.Contains(name, "licensecheck.wasm.gz") {
-		t.Errorf("the digest file names %q, not the bundled module", strings.TrimSpace(name))
+	// The digest names the UPSTREAM asset, which is how the tree records which
+	// artifact was fetched once the bundled file name stopped saying so.
+	if !strings.HasPrefix(strings.TrimSpace(name), "licensecheck.wasm.") {
+		t.Errorf("the digest file names %q, not a published licensecheck module", strings.TrimSpace(name))
 	}
-	sum := sha256.Sum256(moduleGz)
+	sum := sha256.Sum256(bundledModule)
 	if got := hex.EncodeToString(sum[:]); got != want {
-		t.Errorf("the bundled module hashes to %s but module/licensecheck.wasm.gz.sha256 records %s —\n"+
+		t.Errorf("the bundled module hashes to %s but module/licensecheck.wasm.module.sha256 records %s —\n"+
 			"if the module was refreshed on purpose, `make license-module` rewrites both together", got, want)
 	}
 }
 
-// The module is embedded compressed, as published. The host gunzips it, so a
-// blob that lost its gzip header would still be handed to wazero — as wasm it
-// is not — and the failure would surface at boot as an unrunnable module rather
-// than here.
-func TestBundledModuleIsGzipped(t *testing.T) {
+// What the blob has to BE, whatever framing upstream published it in: something
+// the host can unwrap into a WebAssembly module. Asserted through the real
+// maybeDecompress rather than by sniffing a magic number here, so this keeps
+// holding across a compression change instead of pinning the tree to gzip.
+func TestBundledModuleUnwrapsToAWebAssemblyModule(t *testing.T) {
 	t.Parallel()
-	if len(moduleGz) < 2 || moduleGz[0] != 0x1f || moduleGz[1] != 0x8b {
-		t.Fatal("module/licensecheck.wasm.gz does not carry the gzip magic bytes")
-	}
-	raw, err := maybeDecompress(moduleGz)
+	raw, err := maybeDecompress(bundledModule)
 	if err != nil {
-		t.Fatalf("gunzip the bundled module: %v", err)
+		t.Fatalf("unwrap the bundled module: %v", err)
 	}
 	// The wasm preamble: \0asm plus the version word.
-	if len(raw) < 8 || string(raw[:4]) != "\x00asm" {
-		t.Fatal("the decompressed module does not begin with the WebAssembly preamble")
+	if len(raw) < 8 || !bytes.HasPrefix(raw, wasmMagic) {
+		t.Fatal("the unwrapped module does not begin with the WebAssembly preamble")
+	}
+	// A compressed artifact is the point of bundling one: the raw module is
+	// roughly five times the size, and it is embedded in every binary.
+	if len(bundledModule) >= len(raw) {
+		t.Errorf("the bundled module is %d bytes and unwraps to %d — it is not the compressed artifact",
+			len(bundledModule), len(raw))
 	}
 }
 

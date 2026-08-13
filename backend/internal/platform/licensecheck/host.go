@@ -6,11 +6,21 @@ package licensecheck
 // The wazero host that runs the bundled validation module in this process.
 //
 // Vendored from margince-constellation's tools/licensecheckwasm/host/host.go at
-// 9e9c638b8d03f195abfb60317999435ca6400fbf, the same commit module/ was built
-// from, and kept in step with it by hand. It is a copy rather than an import
-// because that package lives in a private module: a public source installation
-// could not resolve the import path, so importing it would make this product
-// unbuildable for exactly the people who need to prove their entitlement.
+// 2b30e0aa27525a7a706891f42553325249105e2b, and kept in step with it by hand. It
+// is a copy rather than an import because that package lives in a private
+// module: a public source installation could not resolve the import path, so
+// importing it would make this product unbuildable for exactly the people who
+// need to prove their entitlement.
+//
+// Deliberately a verbatim copy, down to MustInstantiate below, because hand-
+// syncing a diverged copy is how the two drift. What it accepts is therefore
+// upstream's decision: a raw, gzipped or brotli-compressed module, decided by
+// the bytes rather than by a file name.
+//
+// That commit is NEWER than the release module/VERSION pins, and the two are
+// expected to move independently: this side is the reader, and it reads every
+// framing upstream has published, so a source that runs ahead of the bundled
+// artifact is the safe direction rather than a mismatch to reconcile.
 
 import (
 	"bytes"
@@ -23,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andybalholm/brotli"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
@@ -49,22 +60,36 @@ func check(ctx context.Context, module []byte, issuer, product string, generatio
 	return decodeGrants(out)
 }
 
-// maybeDecompress gunzips module when it carries the gzip magic bytes, so the
-// compressed module — about a quarter the size — can be embedded and passed
-// straight to check. Raw wasm (no gzip header) is returned unchanged.
+// wasmMagic starts every WebAssembly module: "\0asm".
+var wasmMagic = []byte{0x00, 0x61, 0x73, 0x6d}
+
+// maybeDecompress returns the module bytes, decompressing them when the consumer
+// embedded a compressed module — about a fifth of the size — and passed it
+// straight to check. The published artifact is brotli, which has no magic
+// number, so the module magic decides: bytes that already start with "\0asm" are
+// a raw module, gzip is recognized by its own magic, and everything else is read
+// as brotli.
 func maybeDecompress(module []byte) ([]byte, error) {
-	if len(module) < 2 || module[0] != 0x1f || module[1] != 0x8b {
+	switch {
+	case bytes.HasPrefix(module, wasmMagic):
 		return module, nil
+	case len(module) >= 2 && module[0] == 0x1f && module[1] == 0x8b:
+		reader, err := gzip.NewReader(bytes.NewReader(module))
+		if err != nil {
+			return nil, fmt.Errorf("gunzip module: %w", err)
+		}
+		//craft:ignore swallowed-errors a read-only gzip reader over a byte slice holds no resource whose close can fail meaningfully
+		defer func() { _ = reader.Close() }()
+		return readAll(reader, "gunzip module")
+	default:
+		return readAll(brotli.NewReader(bytes.NewReader(module)), "decompress module")
 	}
-	reader, err := gzip.NewReader(bytes.NewReader(module))
-	if err != nil {
-		return nil, fmt.Errorf("gunzip module: %w", err)
-	}
-	//craft:ignore swallowed-errors a read-only gzip reader over a byte slice holds no resource whose close can fail meaningfully
-	defer func() { _ = reader.Close() }()
+}
+
+func readAll(reader io.Reader, what string) ([]byte, error) {
 	out, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("gunzip module: %w", err)
+		return nil, fmt.Errorf("%s: %w", what, err)
 	}
 	return out, nil
 }
