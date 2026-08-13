@@ -28,10 +28,23 @@ export {
 //
 // Picking a record is the one interaction a unit cannot avoid the moment it
 // writes anything the product owns, and it is not a control anybody should
-// rebuild: debounce, in-flight cancellation, the failed-search line, the
-// selected state and the keyboard behaviour are five decisions each, and a
-// unit getting one of them wrong is a screen that looks like the product and
-// behaves like a prototype.
+// rebuild: the debounce, a late answer ignored rather than rendered, the
+// candidates dropped when the search space changes, and the selected state are
+// four decisions each, and a unit getting one of them wrong is a screen that
+// looks like the product and behaves like a prototype.
+//
+// WHAT IT DOES NOT DO, because the difference costs a caller nothing to know
+// and everything to assume:
+//
+//   - It ignores a stale answer; it does not ABORT the request. Rapid typing
+//     still reaches the server, so a searchTargets that is expensive to answer
+//     needs a bound of its own.
+//   - Its failed-search line is the component's own English, from the caught
+//     error. A unit that needs that line translated cannot supply it here yet
+//     — the honest workaround is a searchTargets that resolves empty and says
+//     so in the unit's own copy.
+//   - It is a labelled field over a list of buttons, not a combobox: no
+//     role=combobox, no aria-expanded, no arrow-key navigation.
 //
 // It carries NO transport of its own — the caller supplies searchTargets — so
 // exporting it publishes a rendering promise and no data one. A unit reaches

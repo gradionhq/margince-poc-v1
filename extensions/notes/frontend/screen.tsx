@@ -396,10 +396,10 @@ async function searchSubjects(
   type: SubjectType,
   q: string,
 ): Promise<RecordPickerCandidate[]> {
-  const { data, error } = await api.GET("/search", {
+  const { data, error, response } = await api.GET("/search", {
     params: { query: { q, types: [type], limit: SUBJECT_CANDIDATES } },
   });
-  if (error) {
+  if (error || !response.ok) {
     throwProblem(error);
   }
   return data.data.flatMap((hit) =>
@@ -440,22 +440,37 @@ function FilingCard() {
   // needs the name, and holding the candidate keeps the two from disagreeing.
   const [subject, setSubject] = useState<RecordPickerCandidate | null>(null);
   const [filed, setFiled] = useState(false);
-  // Bound to the type the form is on, and MEMOISED on it: RecordPicker's
-  // debounce effect depends on this function, so a fresh closure per render
-  // would restart the timer on every keystroke and never fire.
+  // Bound to the type the form is on, and MEMOISED on it — which is
+  // load-bearing rather than tidy. RecordPicker keys BOTH of its effects on
+  // this function: the debounce, and the one that empties the candidate list
+  // when the search space changes. This card re-renders whenever the note body
+  // is typed or the filing mutation flips state, so an unmemoised closure
+  // would be a new search space on each of those — clearing the candidates
+  // somebody is reading, and restarting the debounce under them.
   const searchSubjectsFor = useCallback(
     (q: string) => searchSubjects(subjectType, q),
     [subjectType],
   );
 
+  // The filing takes its values as mutation VARIABLES rather than closing over
+  // the form's state, and that is not style: a mutationFn is captured at
+  // render and its options are refreshed in a passive effect, so a close-run
+  // submit can invoke the function from a render where the record was still
+  // unpicked. Passed in, the request cannot name a record the person had not
+  // chosen — and the type below says so, which is why there is no `?? ""`
+  // fallback left to reason about.
   const file = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (filing: {
+      body: string;
+      subjectType: SubjectType;
+      subjectID: string;
+    }) => {
       setFiled(false);
       const { error, response } = await api.POST("/ext/notes/file", {
         body: {
-          body,
-          subject_type: subjectType,
-          subject_id: subject?.id ?? "",
+          body: filing.body,
+          subject_type: filing.subjectType,
+          subject_id: filing.subjectID,
         },
       });
       if (error || !response.ok) {
@@ -533,9 +548,9 @@ function FilingCard() {
       </Field>
       {/*
         The record itself, by name. It is not wrapped in a Field: RecordPicker
-        renders its own labelled search input, and a second label around it
-        would be two labels for one control — which is what a screen reader
-        would then read out.
+        renders its own labelled search input and takes no id, so a Field
+        around it would render a label pointing at an element that does not
+        exist — a dangling `htmlFor`, which is worse than the plain control.
       */}
       <RecordPicker
         label={t("extNotes.filing.subjectSearchLabel")}
@@ -549,7 +564,15 @@ function FilingCard() {
       />
       <Button
         disabled={body.trim() === "" || subject === null || file.isPending}
-        onClick={() => file.mutate()}
+        onClick={() => {
+          // Narrowed HERE rather than trusted from the disabled condition: the
+          // button's state is a rendering, and the request's argument is the
+          // fact.
+          if (subject === null) {
+            return;
+          }
+          file.mutate({ body, subjectType, subjectID: subject.id });
+        }}
       >
         {t("extNotes.filing.file")}
       </Button>

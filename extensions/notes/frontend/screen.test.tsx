@@ -601,14 +601,23 @@ describe("filing a note to a record", () => {
   // A hit the contract types as nullable-titled is DROPPED rather than
   // rendered as an empty row: a candidate nobody can read is one nobody can
   // choose on purpose.
-  it("offers no candidate for a hit with no title", async () => {
-    const { calls, fetchStub } = stubTransport(FILING_GRANT, {
+  //
+  // Two hits, one of each, because the assertion has to be about the FILTER.
+  // "No candidate appeared" is also what a search that never ran looks like,
+  // and a titled hit beside the titleless one is what tells them apart.
+  it("offers the hit that has a title and drops the one that does not", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
       ...listOnly,
       "/search": () => ({
         data: [
           {
-            type: "deal",
+            type: "person",
             id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            title: "Acme renewal",
+          },
+          {
+            type: "person",
+            id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
             title: null,
           },
         ],
@@ -623,17 +632,52 @@ describe("filing a note to a record", () => {
       await screen.findByLabelText("Find the record by name"),
       "acme",
     );
-    // The search ran and answered; nothing became pickable, so filing stays
-    // impossible. Asserted on the control rather than on the absence of a row,
-    // because "no row appeared" is also what a search that never ran looks
-    // like — the /search call is what separates them.
-    await waitFor(() => {
-      expect(calls.some((call) => call.path === "/search")).toBe(true);
-    });
+
+    // The readable one is offered...
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "File to record" })
-        .disabled,
-    ).toBe(true);
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    ).toBeTruthy();
+    // ...and it is the ONLY candidate: the titleless hit would render as a
+    // button with no accessible name, which is what this counts.
+    const candidates = screen
+      .getAllByRole("button")
+      .filter((button) => button.textContent?.trim() !== "");
+    expect(
+      candidates.filter((button) => button.textContent === "Acme renewal"),
+    ).toHaveLength(1);
+    expect(
+      screen
+        .queryAllByRole("button")
+        .filter((button) => button.textContent?.trim() === ""),
+    ).toHaveLength(0);
+  });
+
+  // The candidates already on SCREEN belong to the search space they came
+  // from. Switching the record type mid-search leaves the previous type's
+  // results rendered and clickable until the new search resolves — and picking
+  // one there files a person against a deal.
+  it("drops the candidates on screen when the record type changes", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      ...searchAnswers,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Find the record by name"),
+      "acme",
+    );
+    expect(
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    ).toBeTruthy();
+
+    await user.click(screen.getByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
+
+    // Gone at once, rather than when the next search happens to answer.
+    expect(screen.queryByRole("button", { name: "Acme renewal" })).toBeNull();
   });
 
   // The two grants are separate and the second one is the server's to check, so
