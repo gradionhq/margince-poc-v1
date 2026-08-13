@@ -1,5 +1,10 @@
 # Code owners are requested for review automatically on any PR touching
-# their paths. Later entries win over earlier ones for overlapping paths.
+# their paths. Later entries win over earlier ones for overlapping paths,
+# so the catch-all comes first and every rule below narrows it.
+
+# Default owner: without this, a PR touching anything not named below
+# requests no reviewer at all.
+*                                   @gradionhq/margince
 
 # The extension tier (ADR-0069) and every seam that defines it.
 /extensions/                        @lstrojny

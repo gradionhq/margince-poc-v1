@@ -1,0 +1,99 @@
+name: Capability gap or proposal
+description: Behaviour the product should have and does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Margince is built contract-first.** The specification is the source of
+        truth and the code is built from it: when the two disagree, the
+        specification wins. That shapes what happens to this issue.
+
+        - If the specification already asks for this and the code does not do it
+          yet, that is a **capability gap** — a normal unit of work here.
+        - If the specification is silent, this is a **proposal**, and the
+          specification changes first. Landing the spec change is part of the
+          work, not somebody else's prerequisite.
+        - If the specification says the opposite, that is a **discrepancy** to
+          be reconciled upstream — not something to be worked around in this
+          code.
+
+  - type: textarea
+    id: need
+    attributes:
+      label: What should be possible
+      description: >-
+        The capability from the point of view of whoever needs it — a user, an
+        operator, or an agent acting for one of them. Describe the outcome, not
+        an implementation.
+      placeholder: >-
+        An agent should be able to see which of its own staged 🟡 actions are
+        still awaiting approval, so it can report status without polling every
+        record it touched.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: spec-status
+    attributes:
+      label: What the specification says
+      description: >-
+        The specification repository is private, so this is a self-report. Answer
+        honestly, including "I have no access" — that is expected from outside
+        contributors and simply means a maintainer resolves it.
+      options:
+        - The spec asks for this already (capability gap)
+        - The spec is silent (proposal — spec change needed first)
+        - The spec appears to say the opposite (discrepancy)
+        - I have no access to the specification
+    validations:
+      required: true
+
+  - type: input
+    id: spec-ref
+    attributes:
+      label: Specification reference
+      description: >-
+        Chapter, ADR number, appendix, or pin ID — the identifier only. Never
+        paste specification paths or contents into this public repository.
+      placeholder: "ADR-0055, or subsystems/deals-and-pipeline.md AC-7"
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What has to be done instead today
+      description: >-
+        The workaround, if one exists, and what it costs. "Nothing — it is simply
+        impossible" is a complete answer, and a stronger one than a vague
+        estimate.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      multiple: true
+      options:
+        - REST API (/v1)
+        - MCP tool surface (/mcp)
+        - Web UI
+        - CLI or operational tooling
+        - Extension seam (backend/pkg, extensions/)
+        - Data model or migrations
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      description: >-
+        This repository is public. Everything you paste here is public
+        permanently, including in the git history of edits.
+      options:
+        - label: >-
+            No secrets, no customer or personal data, no local filesystem paths,
+            and no private specification paths or contents — the specification
+            is cited by chapter, ADR, or pin ID.
+          required: true

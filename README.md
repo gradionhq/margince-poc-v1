@@ -39,8 +39,9 @@ doesn't ship
 ## This repository
 
 This is the build repo: the running Go code. The full specification
-(product, architecture, OpenAPI contract, data model, a ~700-ticket
-work breakdown) lives in a separate spec repo.
+(product principles, architecture, the OpenAPI contract, the data model,
+and a subsystem chapter per capability carrying its own acceptance
+criteria) lives in a separate spec repo.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
@@ -55,6 +56,8 @@ wins.
 Also: [STATUS.md](STATUS.md) — progress and session pickup point ·
 [AGENTS.md](AGENTS.md) — binding engineering rules ·
 [SECURITY.md](SECURITY.md) — vulnerability reporting (private, via GitHub Security Advisories) ·
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — how we behave here, including about
+unexplainable contributions ·
 [CHANGELOG.md](CHANGELOG.md).
 
 Everything below this line is for people (and agents) working on the code.

@@ -1,0 +1,48 @@
+name: Documentation defect
+description: A document is wrong, stale, missing, or impossible to follow.
+labels: ["documentation"]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Which document
+      description: The path in this repository, or the URL.
+      placeholder: docs/reference/make-targets.md, or README.md
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong with it
+      options:
+        - It is wrong (states something untrue about the code)
+        - It is stale (was true once, the code moved)
+        - It cannot be followed (a step fails, or a prerequisite is unstated)
+        - It is missing (nothing documents this at all)
+        - A link is broken
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: Details
+      description: >-
+        What the document says, what is actually true, and how you found out. If
+        a documented command failed, paste what it printed.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      description: >-
+        This repository is public. Everything you paste here is public
+        permanently, including in the git history of edits.
+      options:
+        - label: >-
+            No secrets, no customer or personal data, no local filesystem paths,
+            and no private specification paths or contents.
+          required: true

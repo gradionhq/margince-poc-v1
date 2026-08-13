@@ -6,18 +6,25 @@ are welcome and taken seriously.
 
 ## Reporting a vulnerability
 
-Please report vulnerabilities **privately** via GitHub Security
-Advisories on the `gradionhq` repository ("Security" tab → "Report a
-vulnerability"). Do not open a public issue or pull request for a
-security finding — a public report before a fix ships puts every
-deployment at risk.
+Report vulnerabilities **privately** through GitHub Security Advisories:
+**[open a draft advisory](https://github.com/gradionhq/margince-poc-v1/security/advisories/new)**
+(or: the repository's "Security" tab → "Report a vulnerability"). If you
+cannot use GitHub, mail **security@gradion.com** instead. Do not open a
+public issue or pull request for a security finding — a public report
+before a fix ships puts every deployment at risk.
 
 What to include: the affected endpoint/tool/component, a minimal
 reproduction (requests, payloads, or a failing test), and the impact you
 believe it has (cross-tenant read, privilege escalation, agent
-governance bypass, …). We will acknowledge the report, keep you informed
-through the advisory thread, and credit you in the fix unless you prefer
-otherwise.
+governance bypass, …).
+
+What to expect: an acknowledgement within **3 business days** and an
+initial assessment — in scope or not, and our read on severity — within
+**10 business days**. After that you are kept informed through the
+advisory thread until the fix ships. We credit you in the advisory and
+the changelog unless you prefer otherwise. This is a pre-release proof of
+concept maintained by a small team, so we do not commit to a fix
+deadline; we do commit to telling you where the report stands.
 
 ## Scope
 
@@ -54,4 +61,14 @@ land on `main`.
 ## No bounty
 
 There is currently no bug bounty program and no promise of monetary
-reward. We do credit reporters in the advisory and the changelog.
+reward. Credit in the advisory and the changelog is what we offer, and we
+will not quietly fix a report without it.
+
+## Safe harbour
+
+We will not pursue or support legal action against anyone who reports in
+good faith under this policy: research only against your own deployment,
+no access to data that is not yours, no denial of service against a
+deployment you do not run, and no disclosure before a fix ships or we
+agree on a date. Report promptly once you find something, and give us a
+reasonable chance to fix it.
