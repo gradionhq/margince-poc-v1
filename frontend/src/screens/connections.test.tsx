@@ -633,7 +633,8 @@ describe("the warm-intro move", () => {
     next_move: {
       kind: "intro_request",
       draft_subject: "Kurze Vorstellung zu Brandt?",
-      draft_body: "Hallo Dana,\n\nkönntest du mich kurz vorstellen?",
+      draft_body:
+        "Hallo Dana,\n\nkönntest du mich kurz vorstellen?\n\nKI-unterstützt erstellt.",
       ai_disclosure: "KI-unterstützt erstellt.",
     },
     evidence: {
@@ -654,7 +655,12 @@ describe("the warm-intro move", () => {
         fetched.push(pathname);
         if (pathname.endsWith("/intro-path")) {
           return jsonResponse(
-            introStatus === 200 ? INTRO : { title: "cold signal" },
+            introStatus === 200
+              ? INTRO
+              : {
+                  title: "There is no warm path to propose",
+                  detail: "PROBLEM-DETAIL: signal s-1 is cold",
+                },
             introStatus,
           );
         }
@@ -682,24 +688,44 @@ describe("the warm-intro move", () => {
       await screen.findByText("Kurze Vorstellung zu Brandt?"),
     ).toBeTruthy();
     expect(screen.getByText(/könntest du mich kurz vorstellen/)).toBeTruthy();
-    // Art. 50 travels with the draft: a rep must not read model-written prose
-    // without being told it is model-written.
-    expect(screen.getByText("KI-unterstützt erstellt.")).toBeTruthy();
+    // Art. 50 travels with the draft, INSIDE the body, because the body is
+    // what a rep copies and sends — a disclosure rendered only beside it would
+    // be left behind by the copy. It is asserted here as part of the body's own
+    // text, and the panel deliberately does not print the payload's separate
+    // ai_disclosure field a second time.
+    expect(screen.getByText(/KI-unterstützt erstellt\./)).toBeTruthy();
+    expect(screen.queryAllByText("KI-unterstützt erstellt.")).toHaveLength(0);
   });
 
   // A cold or unresolved signal answers 422 and a reader without the grant
   // answers 404. Neither is a broken card: the panel is absent, and the graph
   // it sits under still renders.
-  it("stays silent when the server has no path to propose", async () => {
-    stubWithIntro(422);
+  // A cold signal answers 422 and a reader without the signal grant answers
+  // 403. Neither is a broken card: the panel is absent, the graph under it
+  // still renders, and — the part worth pinning — the server's problem text
+  // never reaches the reader.
+  it.each([
+    [422, "the signal is cold or unresolved"],
+    [403, "the reader lacks the signal grant"],
+  ])("stays silent on %i, when %s", async (status) => {
+    const fetched = stubWithIntro(status);
     render(<ConnectionsCard orgId={ROOT} />);
 
     const expand = await screen.findByRole("button", { name: "See it larger" });
     expand.click();
 
+    // The request must actually have been made, or this test would pass just
+    // as happily against a panel that was deleted.
+    await waitFor(() => {
+      expect(fetched.some((p) => p.endsWith("/intro-path"))).toBe(true);
+    });
     await waitFor(() => {
       expect(screen.getAllByText("Dana Buyer").length).toBeGreaterThan(0);
     });
     expect(screen.queryByText("KI-unterstützt erstellt.")).toBeNull();
+    // The problem document is diagnostic text for an operator. None of it —
+    // title or detail — belongs on a card a rep is reading.
+    expect(screen.queryByText(/no warm path/i)).toBeNull();
+    expect(screen.queryByText(/PROBLEM-DETAIL/)).toBeNull();
   });
 });

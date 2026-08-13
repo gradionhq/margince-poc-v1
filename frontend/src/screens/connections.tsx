@@ -467,9 +467,15 @@ function IntroPathPanel({ signalId }: Readonly<{ signalId: string }>) {
       </p>
       <p className="cx-intro-subject">{move.draft_subject}</p>
       {/* The body arrives as plain text with its own line breaks, and it is
-          model-written, so it is rendered as text and never as markup. */}
+          model-written, so it is rendered as text and never as markup.
+
+          The Art. 50 disclosure is NOT rendered beside it, though the payload
+          carries it separately: intropath.go already composes it into the body,
+          and the body is what a rep copies and sends. Showing the field again
+          here printed it twice — and dropping it from the body instead would
+          send the disclosure-free version, which is the one thing Art. 50 does
+          not allow. */}
       <p className="cx-intro-body">{move.draft_body}</p>
-      <p className="co-row-meta">{move.ai_disclosure}</p>
     </section>
   );
 }
