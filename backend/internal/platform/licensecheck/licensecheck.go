@@ -19,6 +19,8 @@ package licensecheck
 
 import (
 	"context"
+	// Blank: nothing here calls into embed, but the //go:embed directives below
+	// need it imported to bind the bundled module and its pin into the binary.
 	_ "embed"
 	"errors"
 	"fmt"
