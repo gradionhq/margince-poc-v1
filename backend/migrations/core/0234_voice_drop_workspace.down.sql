@@ -1,11 +1,16 @@
 -- Reverse of 0234: the six voice tables carry the tenant column again.
 --
--- The backfill reads `workspace` because there is exactly one to read: 0217's
--- pre-flight refuses to run against a database holding more than one live
--- workspace, and ADR-0061 §3 has the API refusing to start in that state. If
--- `workspace` is empty and a table is not, SET NOT NULL fails and the rollback
--- stops — the honest outcome, since no value this migration could write would
--- be true.
+-- The backfill reads the LIVE workspace, and the predicate is the point: 0217's
+-- pre-flight refuses to run against a database holding more than one workspace
+-- with archived_at IS NULL, so there is exactly one live row — but an
+-- installation that resolved to one organization by ARCHIVING the others still
+-- has those rows, and 0217 names that residue explicitly. Ordering by
+-- created_at alone would hand every restored row to whichever workspace
+-- happened to be created first, archived or not.
+--
+-- If no live workspace exists and a table is not empty, SET NOT NULL fails and
+-- the rollback stops — the honest outcome, since no value this migration could
+-- write would be true.
 
 ALTER TABLE voice_profile ADD COLUMN workspace_id uuid;
 ALTER TABLE voice_corpus_source ADD COLUMN workspace_id uuid;
@@ -15,7 +20,7 @@ ALTER TABLE voice_profile_delta ADD COLUMN workspace_id uuid;
 ALTER TABLE voice_learning_signal ADD COLUMN workspace_id uuid;
 
 DO $$
-DECLARE ws uuid := (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
+DECLARE ws uuid := (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 BEGIN
   UPDATE voice_profile SET workspace_id = ws;
   UPDATE voice_corpus_source SET workspace_id = ws;

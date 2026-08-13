@@ -1,10 +1,12 @@
 -- Reverse of 0229: the catalog carries the tenant column again.
 --
--- The backfill reads `workspace` rather than reconstructing each row's original
--- tenant, because there is only one to read: 0217's pre-flight refuses to run
--- against a database holding more than one live workspace, and ADR-0061 §3 has
--- the API refusing to start in that state. `ORDER BY created_at LIMIT 1` is
--- determinism about which row of a one-row table, not a choice among tenants.
+-- The backfill reads the LIVE workspace, and the predicate is the point: 0217's
+-- pre-flight refuses to run against a database holding more than one workspace
+-- with archived_at IS NULL, so there is exactly one live row — but an
+-- installation that resolved to one organization by ARCHIVING the others still
+-- has those rows, and 0217 names that residue explicitly. Ordering by
+-- created_at alone would hand every restored row to whichever workspace
+-- happened to be created first, archived or not.
 --
 -- If `workspace` is empty and the catalog is not, SET NOT NULL fails and the
 -- rollback stops — the honest outcome, since no value this migration could
@@ -12,7 +14,7 @@
 
 ALTER TABLE custom_field ADD COLUMN workspace_id uuid;
 
-UPDATE custom_field SET workspace_id = (SELECT id FROM workspace ORDER BY created_at LIMIT 1);
+UPDATE custom_field SET workspace_id = (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 
 ALTER TABLE custom_field ALTER COLUMN workspace_id SET NOT NULL;
 ALTER TABLE custom_field ADD CONSTRAINT custom_field_workspace_id_fkey
