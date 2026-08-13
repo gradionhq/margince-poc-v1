@@ -50,13 +50,17 @@ func (s *Service) Decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 // re-tiers and re-admits like any other call. The old hash, and any
 // token bound to it, no longer opens anything.
 //
-// What an edit may touch is bounded: the staged payload's entity
-// references are pinned (assertSameEntityRefs), so the edit corrects the
-// action but cannot re-aim it at another record. That bound is the
-// admission control on this arm — a server-proposed effect resolves its
-// target from the payload and may run under a system principal, so the
-// stores' own RBAC and row-scope gates cannot be relied on to re-check
-// what the human wrote.
+// What an edit may touch is bounded by TWO assertions, because a record is
+// named two different ways depending on how the call was staged: the staged
+// payload's entity references are pinned (assertSameEntityRefs) for a value
+// carried as a field, and a REST staging's operation/path are pinned
+// separately (assertSameCallIdentity) for a record named inside the request
+// path instead, which entityRefs cannot see. Together they mean the edit
+// corrects the action but cannot re-aim it at another record or another
+// call. That bound is the admission control on this arm — a server-proposed
+// effect resolves its target from the payload and may run under a system
+// principal, so the stores' own RBAC and row-scope gates cannot be relied on
+// to re-check what the human wrote.
 func (s *Service) DecideEdited(ctx context.Context, id ids.ApprovalID, edited json.RawMessage) (row, error) {
 	if len(edited) == 0 {
 		return row{}, &InvalidEditError{Cause: errors.New("empty payload")}
@@ -231,6 +235,11 @@ func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edite
 	// STAGED payload named, and the effect resolves what it writes from the
 	// payload rather than from the approval's target. See editscope.go.
 	if err := assertSameEntityRefs(a.ProposedChange, canonical); err != nil {
+		return err
+	}
+	// The same rule for the half entityRefs cannot see: a record named inside the
+	// request path rather than as a field of its own.
+	if err := assertSameCallIdentity(a.ProposedChange, canonical); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,

@@ -96,9 +96,9 @@ func TestTheAccountStartedSendStagesACreate(t *testing.T) {
 // The inbox row is the whole of what a human reads before releasing a send, so
 // an addressee missing from it is a recipient nobody agreed to.
 func TestTheAccountStartedSendSummaryNamesEveryArgumentItReleases(t *testing.T) {
-	got := describeAccountSend(SendAccountEmailArgs{SendEmailArgs: SendEmailArgs{
+	got := describeAccountSend(SendAccountEmailCommand{
 		To: []string{"buyer@example.test"}, Cc: []string{"rival@example.test"}, Subject: "Q3 pricing",
-	}}, []RecordLink{{EntityType: "organization", EntityID: ids.NewV7()}})
+	}, []RecordLink{{EntityType: "organization", EntityID: ids.NewV7()}})
 
 	for _, want := range []string{"buyer@example.test", "rival@example.test", `"Q3 pricing"`, "1 record(s)"} {
 		if !strings.Contains(got, want) {

@@ -164,7 +164,7 @@ func (seamProbeLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string,
 	return nil, errSeamReached
 }
 
-func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, EnrichDepth) (json.RawMessage, error) {
 	return nil, errSeamReached
 }
 

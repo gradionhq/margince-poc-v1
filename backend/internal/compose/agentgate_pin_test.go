@@ -61,7 +61,7 @@ func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 			rctx.URLParams.Add("id", dealID.String())
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-			stageRefusal(httptest.NewRecorder(), req, staging, pol, nil)
+			stageRefusal(httptest.NewRecorder(), req, staging, restCommandDeps{records: seamRecord{}}, pol, nil)
 
 			if staging.last.TargetType != "deal" || staging.last.TargetID != dealID {
 				t.Fatalf("staged target = (%s,%s), want (deal,%s) — the engine cannot pin a target it was not given",

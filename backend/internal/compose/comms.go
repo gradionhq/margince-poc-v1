@@ -134,9 +134,24 @@ func (c commsAdapter) SendMessage(ctx context.Context, anchor ids.UUID, in agent
 }
 
 // IsChannelKind delegates to activities.IsChannelKind — the same test the
-// store's own SendMessage refuses on — so StageInfo's pre-check and Handle's
+// store's own SendMessage refuses on — so the staging pre-check and Handle's
 // eventual refusal can never drift onto two different answers for the same kind.
 func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
+// channelKinds is that same question WITHOUT the send machinery around it, for
+// the REST admission gate: its send_message resolver must refuse a non-channel
+// anchor before a human is asked about the reply, and it has no reason to hold
+// a seam that can also send mail, book meetings and read calendars in order to
+// ask (restCommandDeps, agentcommand.go).
+//
+// It reaches activities.IsChannelKind exactly as the adapter above does, so the
+// two are one answer arrived at from two places rather than two answers — there
+// is no state here for a second opinion to accumulate in.
+type channelKinds struct{}
+
+func (channelKinds) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
+var _ agents.ChannelKinds = channelKinds{}
 
 func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (agents.AvailabilityResult, error) {
 	hostID, err := defaultHost(ctx, host)

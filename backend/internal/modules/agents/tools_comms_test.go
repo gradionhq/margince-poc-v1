@@ -433,9 +433,9 @@ func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
 	host, deal, org := ids.NewV7(), ids.NewV7(), ids.NewV7()
 
 	t.Run("a send names its cc, not only its to", func(t *testing.T) {
-		got := describeSend(sendEmailToolArgs{SendEmailArgs: SendEmailArgs{
+		got := describeSend(SendEmailCommand{
 			To: []string{"buyer@example.test"}, Cc: []string{"rival@example.test"}, Subject: "Q3 pricing",
-		}})
+		})
 		for _, want := range []string{"buyer@example.test", "rival@example.test", `"Q3 pricing"`} {
 			if !strings.Contains(got, want) {
 				t.Errorf("summary %q does not name %q", got, want)
@@ -444,12 +444,12 @@ func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
 	})
 
 	t.Run("a booking names whose calendar and how many records", func(t *testing.T) {
-		args := BookMeetingArgs{
+		cmd := BookMeetingCommand{
 			HostUserID: &host, Subject: "Review",
 			Start: time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC),
 			End:   time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC),
 		}
-		got := describeBooking(args, []RecordLink{
+		got := describeBooking(cmd, []RecordLink{
 			{EntityType: "deal", EntityID: deal}, {EntityType: "organization", EntityID: org},
 		})
 		for _, want := range []string{host.String(), "2 record(s)", `"Review"`} {

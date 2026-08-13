@@ -17,9 +17,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -62,66 +59,34 @@ func (t sendAccountEmailTool) Spec() mcp.ToolSpec {
 	}
 }
 
-// StageInfo puts a refused account-started send in the inbox instead of
-// dead-ending it.
-//
-// WHAT IT STAGES IS A CREATE, and the shape says so: the target type is
-// `activity` with no id and no version pin. This send answers no message, so
-// there is no row its effect depends on — approvals.settledByShape reads that
-// shape as decidable on the object-read floor plus the decision grants, and it
-// is the same row the REST door stages when the identical call arrives as a
-// bearer request (compose.stageRefusal takes its target id from the route's
-// {id} parameter, and this route has none). One operation, one staged shape,
-// whichever door it came through.
-//
-// A LINK CANNOT BE THE TARGET here, the way book_meeting's first link is.
-// Two constraints close it: the REST door takes its target from the route and
-// never reads the body, so naming one would stage a kind two ways; and the pin
-// is taken SERVER-SIDE from the target pair (approvals.resolveTargetVersion),
-// so an organization target pins a version that an enrichment run bumps while
-// an overnight proposal waits for someone's morning inbox — cancelling a send
-// the record's own content never invalidated. The waiver that declines a pin is
-// reserved for kinds whose effect approvals itself applies
-// (TestEveryContextTargetKindIsAKindWeStage); this effect is performed by the
-// agent's own approved retry.
-//
-// So the approver is bounded by read+create on `activity` and NOT by the row
-// scope of the records the message is filed under — a manager whose scope
-// excludes them can still release this send and read its proposed text. The
-// reply path binds its approver to the anchor instead. Closing the difference
-// takes a staging gate that can derive a target from the body, which is shared
-// machinery rather than this verb's: issue #928.
-//
-// The links are still read, because that is a question about the STAGER's
-// reach rather than the approver's: the store refuses a link the caller cannot
-// see, at execution — so without the same probe here, an agent naming a company
-// it cannot read mints an approval a human reads, approves, and watches fail
-// with the one-shot authority already spent.
-//
-// What this does not pre-empt, so neither reads as covered: the consent gate's
-// per-purpose verdict, the workspace's mailbox send capability, and whether an
-// address belongs to a person on file. All are refusals a human's yes cannot
-// fix, and all need reads staging does not have.
+// StageInfo decodes this door's arguments into the account-started send
+// command and delegates: the refusals and the staged subject live in the
+// resolver (commandlinked.go), where the REST door reaches the same ones for
+// the same operation — including the CREATE shape this stages, target type
+// `activity` with no id and no pin, which the REST door used to reach by a
+// different route entirely (its route carries no `{id}` for the walk to read).
 func (t sendAccountEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
-	args, links, err := readAccountSendArgs(in)
-	if err != nil {
+	var args SendAccountEmailArgs
+	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if _, err := readStageableLinks(ctx, t.p, links); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityActivity),
-		Summary:    describeAccountSend(args, links),
-	}, nil
+	return StageSubject(ctx, NewSendAccountEmailCall(t.p, SendAccountEmailCommand{
+		To:      args.To,
+		Cc:      args.Cc,
+		Subject: args.Subject,
+		Links:   args.Links,
+	}))
 }
 
 // readAccountSendArgs decodes one call and applies the refusals the send path
 // would otherwise raise only after a human had approved it.
 //
-// Both doors go through it, and that is the point: the MCP surface does not
+// Handle goes through it, and that is the point: the MCP surface does not
 // validate arguments against an InputSchema — that schema is documentation —
-// so a rule enforced only at staging is one an approved retry never meets.
+// so a rule enforced only at staging is one an approved retry never meets. It
+// calls the SAME two functions the resolver's Guards calls rather than
+// restating either, so the approved retry cannot be admitted by a rule the
+// staging never applied.
 func readAccountSendArgs(in json.RawMessage) (SendAccountEmailArgs, []RecordLink, error) {
 	var args SendAccountEmailArgs
 	if err := decodeArgs(in, &args); err != nil {
@@ -130,35 +95,14 @@ func readAccountSendArgs(in json.RawMessage) (SendAccountEmailArgs, []RecordLink
 	if err := requireAddressee(args.To); err != nil {
 		return SendAccountEmailArgs{}, nil, err
 	}
-	if len(args.Links) == 0 {
-		return SendAccountEmailArgs{}, nil, &BadArgsError{
-			Cause: errors.New("`links` needs at least one entry: a message filed under no record " +
-				"is one nobody finds again, and the store refuses it"),
-			Guidance: "name the company, person or deal this conversation is about",
-		}
+	if err := requireAccountSendLinks(args.Links); err != nil {
+		return SendAccountEmailArgs{}, nil, err
 	}
 	links, err := uniqueRecordLinks(args.Links)
 	if err != nil {
 		return SendAccountEmailArgs{}, nil, err
 	}
 	return args, links, nil
-}
-
-// describeAccountSend is the one line the inbox shows for an account-started
-// send: who it reaches, cc included, what it says it is about, and how many
-// records it will land on.
-//
-// Every addressee, for the reason the reply twin's summary states — an unnamed
-// recipient is a recipient nobody agreed to. The links are counted rather than
-// listed: their ids mean nothing to a human reading one line, and the staged
-// row is decidable on the activity floor rather than on those records, so
-// naming them would disclose more than the decision rests on.
-func describeAccountSend(args SendAccountEmailArgs, links []RecordLink) string {
-	summary := fmt.Sprintf("Start an email conversation with %s", strings.Join(args.To, ", "))
-	if len(args.Cc) > 0 {
-		summary += fmt.Sprintf(", cc %s", strings.Join(args.Cc, ", "))
-	}
-	return summary + fmt.Sprintf(", subject %q, filed under %d record(s)", args.Subject, len(links))
 }
 
 func (t sendAccountEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

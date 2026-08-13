@@ -51,7 +51,7 @@ func (p versionedDeal) Read(context.Context, datasource.EntityRef) (datasource.R
 // resolves it: through the generated policy table's op→tool mapping. The
 // registry comes back with it because the dispatch this door performs charges
 // its counters against that same surface.
-func advanceSpec(t *testing.T, deps tierDeps) (*agents.Registry, mcp.ToolSpec) {
+func advanceSpec(t *testing.T, deps restCommandDeps) (*agents.Registry, mcp.ToolSpec) {
 	t.Helper()
 	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
 	agents.RegisterCoreTools(reg, deps.records, deps.stages, nil, nil)
@@ -71,7 +71,7 @@ func advanceSpec(t *testing.T, deps tierDeps) (*agents.Registry, mcp.ToolSpec) {
 func admitOpenMove(t *testing.T, callerIfMatch string) (seen string, status int) {
 	t.Helper()
 	deal, stage := ids.NewV7(), ids.NewV7()
-	deps := tierDeps{
+	deps := restCommandDeps{
 		stages:  reopenStages{semantics: map[ids.UUID]string{stage: "open"}},
 		records: versionedDeal{stageID: stage, version: 12},
 	}
@@ -83,9 +83,8 @@ func admitOpenMove(t *testing.T, callerIfMatch string) (seen string, status int)
 	r = r.WithContext(agentRequestCtx(r.Context()))
 
 	reg, spec := advanceSpec(t, deps)
-	ctx, err := auth.NewGate(fullSeat{}).Admit(r.Context(), spec, func() (mcp.TierResolverInput, error) {
-		return advanceDealTierInput(r.Context(), deps, agentPolicy{}, r, body)
-	})
+	pol := agentPolicies["POST /v1/deals/{id}/advance"]
+	ctx, err := auth.NewGate(fullSeat{}).Admit(r.Context(), spec, tierInput(r.Context(), spec, pol, deps, r, body))
 	if err != nil {
 		t.Fatalf("the open→open move was refused: %v", err)
 	}
@@ -95,9 +94,7 @@ func admitOpenMove(t *testing.T, callerIfMatch string) (seen string, status int)
 		seen = got.Header.Get("If-Match")
 	})
 	recorder := httptest.NewRecorder()
-	admitAgentCall(recorder, r, next, admissionOutcome{
-		pol: agentPolicies["POST /v1/deals/{id}/advance"], spec: spec, registry: reg,
-	})
+	admitAgentCall(recorder, r, next, admissionOutcome{pol: pol, spec: spec, registry: reg})
 	return seen, recorder.Code
 }
 
@@ -158,7 +155,7 @@ func TestACallerIfMatchTheGateDidNotReadIsRefused(t *testing.T) {
 // passing if pin forwarding regressed for every static call on the surface.
 func TestAWriteWithNoAdmittedPinIsForwardedUnconditioned(t *testing.T) {
 	stage := ids.NewV7()
-	deps := tierDeps{
+	deps := restCommandDeps{
 		stages:  reopenStages{semantics: map[ids.UUID]string{stage: "open"}},
 		records: versionedDeal{stageID: stage, version: 12},
 	}
@@ -178,11 +175,7 @@ func TestAWriteWithNoAdmittedPinIsForwardedUnconditioned(t *testing.T) {
 	body := []byte(`{"display_name":"Ada"}`)
 	r := httptest.NewRequest(http.MethodPost, "/v1/people", bytes.NewReader(body))
 	r = r.WithContext(agentRequestCtx(r.Context()))
-	resolve, known := tierInput(r.Context(), spec, pol, deps, r, body)
-	if !known {
-		t.Fatal("the gate has no tier input for a static-tier create")
-	}
-	ctx, err := auth.NewGate(fullSeat{}).Admit(r.Context(), spec, resolve)
+	ctx, err := auth.NewGate(fullSeat{}).Admit(r.Context(), spec, tierInput(r.Context(), spec, pol, deps, r, body))
 	if err != nil {
 		t.Fatalf("the create was refused: %v", err)
 	}

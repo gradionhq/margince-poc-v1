@@ -69,31 +69,23 @@ func (t progressDeal) ResolverInput(ctx context.Context, in json.RawMessage) (mc
 	return DealMoveTierInput(ctx, t.p, t.stages, args.DealID, args.ToStageID, in)
 }
 
-// StageInfo pins the staged move to the deal's CURRENT version, exactly
-// like advance_deal — the approval covers the deal as the human saw it.
+// StageInfo decodes this door's arguments into the SAME command advance_deal
+// stages (AdvanceDealCommand, commandlifecycle.go) and delegates.
+//
+// The same command, not a same-shaped one: the two tools stage the same act,
+// so a human reading an inbox should not have to know which tool proposed a
+// move to understand what approving it does — and the note this intent adds
+// afterwards is not part of the move, so it changes neither the target, the
+// pin, nor the sentence.
 func (t progressDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args progressDealArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	semantic, _, err := t.stages.StageSemantic(ctx, args.ToStageID)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: "deal", TargetID: args.DealID, TargetVersion: &rec.Version,
-		// The same sentence advance_deal stages, because the two tools stage the
-		// same act — a human reading an inbox should not have to know which tool
-		// proposed a move to understand what approving it does.
-		Summary: dealMoveSummary(ctx, t.stages, rec, semantic),
-	}, nil
+	return StageSubject(ctx, NewAdvanceDealCall(t.p, t.stages, AdvanceDealCommand{
+		DealID:    args.DealID,
+		ToStageID: args.ToStageID,
+	}))
 }
 
 func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

@@ -205,7 +205,7 @@ func (inertLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string, *st
 	return nil, nil
 }
 
-func (inertLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+func (inertLifecycle) EnrichCompany(context.Context, ids.UUID, string, EnrichDepth) (json.RawMessage, error) {
 	return nil, nil
 }
 

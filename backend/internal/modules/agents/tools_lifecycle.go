@@ -18,9 +18,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -108,8 +105,8 @@ func (t relinkActivity) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if !relinkTargets[args.EntityType] {
-		return nil, &BadArgsError{Cause: fmt.Errorf("entity_type %q is not a link target", args.EntityType)}
+	if err := requireLinkTarget(args.EntityType); err != nil {
+		return nil, err
 	}
 	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
 	noteEvidence(ctx, datasource.EntityType(args.EntityType), args.EntityID)
@@ -141,22 +138,16 @@ func (t disqualifyLead) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the retirement command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandlifecycle.go), where the REST door reaches the same ones for the
+// same operation.
 func (t disqualifyLead) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args disqualifyLeadArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityLead, ID: args.LeadID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityLead), TargetID: args.LeadID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Disqualify lead %s", recordLabel(rec)),
-	}, nil
+	return StageSubject(ctx, NewDisqualifyLeadCall(t.p, DisqualifyLeadCommand(args)))
 }
 
 func (t disqualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -210,22 +201,23 @@ func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 	}
 }
 
+// StageInfo decodes this door's arguments into the phase-transition command
+// and delegates: the refusals — the phase vocabulary, the reason a close
+// requires, and the project itself — and the staged subject live in the
+// resolver (commandlifecycle.go), where the REST door reaches the same ones
+// for the same operation. It decodes without admitting, because Guards admits:
+// StageSubject runs the refusals before the subject, so a phase this door
+// would have rejected still never reaches a human's inbox.
 func (t advanceProjectPhase) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
-	args, err := t.readArgs(in)
-	if err != nil {
+	var args advanceProjectPhaseArgs
+	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityProject, ID: args.ProjectID})
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseStagingElsewhere(rec); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType: string(datasource.EntityProject), TargetID: args.ProjectID, TargetVersion: &rec.Version,
-		Summary: fmt.Sprintf("Move project %s to %s", recordLabel(rec), args.ToPhase),
-	}, nil
+	return StageSubject(ctx, NewAdvanceProjectPhaseCall(t.p, AdvanceProjectPhaseCommand{
+		ProjectID: args.ProjectID,
+		ToPhase:   args.ToPhase,
+		Reason:    args.Reason,
+	}))
 }
 
 func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -245,23 +237,18 @@ func (t advanceProjectPhase) Handle(ctx context.Context, in json.RawMessage) (js
 	return t.advancer.AdvanceProjectPhase(ctx, args.ProjectID, args.ToPhase, args.Reason, pin)
 }
 
-// readArgs decodes and admits the phase in one place, so the staging path and
-// the execution path cannot disagree about what a valid transition is — a phase
-// this refuses must never reach a human's inbox.
+// readArgs decodes and admits the transition for the EXECUTION path, through
+// the resolver's own requireProjectPhase (commandlifecycle.go) rather than a
+// second copy of it. Closing without a reason is refused by the contract, and
+// refusing it at both doors is what keeps a human from spending an approval on
+// a rule the agent could have been told before anyone was asked.
 func (t advanceProjectPhase) readArgs(in json.RawMessage) (advanceProjectPhaseArgs, error) {
 	var args advanceProjectPhaseArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return advanceProjectPhaseArgs{}, err
 	}
-	if !projectPhases[args.ToPhase] {
-		return advanceProjectPhaseArgs{}, &BadArgsError{Cause: fmt.Errorf("to_phase %q is not a project phase", args.ToPhase)}
-	}
-	// Closing without a reason is refused by the contract, so refusing it here
-	// is what keeps the promise above: without it the call stages, a human
-	// approves, and the redemption then fails on a rule the agent could have
-	// been told before anyone was asked.
-	if args.ToPhase == projectPhaseClosed && (args.Reason == nil || strings.TrimSpace(*args.Reason) == "") {
-		return advanceProjectPhaseArgs{}, &BadArgsError{Cause: errors.New("reason is required when to_phase is closed")}
+	if err := requireProjectPhase(args.ToPhase, args.Reason); err != nil {
+		return advanceProjectPhaseArgs{}, err
 	}
 	return args, nil
 }

@@ -86,10 +86,11 @@ func TestEnrichRefusesToStageAMirrorHeldOrganization(t *testing.T) {
 }
 
 type recordingEnricher struct {
-	url, depth string
+	url   string
+	depth EnrichDepth
 }
 
-func (e *recordingEnricher) EnrichCompany(_ context.Context, _ ids.UUID, url, depth string) (json.RawMessage, error) {
+func (e *recordingEnricher) EnrichCompany(_ context.Context, _ ids.UUID, url string, depth EnrichDepth) (json.RawMessage, error) {
 	e.url, e.depth = url, depth
 	return nil, nil
 }

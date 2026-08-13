@@ -15,9 +15,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -96,104 +93,21 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 	}
 }
 
-// StageInfo puts a refused booking in the inbox instead of dead-ending it.
+// StageInfo decodes this door's arguments into the booking command and
+// delegates: the refusals and the staged subject live in the resolver
+// (commandlinked.go), where the REST door reaches the same ones for the same
+// operation.
 //
-// A booking anchors on no existing row, so unlike the two send verbs it has no
-// single target handed to it. What it does have is its links, and every one of
-// them is read through readStageableLinks — the shared rule for a call that
-// names its own records.
-//
-// The first link becomes the displayed target and supplies the pin, which is
-// what makes a booking's staged row bind to a record rather than float free: a
-// meeting is a commitment ON that record, and the human deciding it is the one
-// whose scope reaches it. A booking with NO links is refused before any of
-// that: crm.yaml requires them, and a staged approval with no target is a human
-// asked to release a meeting attached to nothing — nothing to show them, and no
-// version to pin it against.
+// This door's wire shape IS the command's field set — the arguments differ
+// only in carrying JSON tags — so it converts rather than restating the
+// fields, and a command that grows one fails to compile here instead of
+// quietly leaving it unset.
 func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if err := requireBookingWindow(args); err != nil {
-		return StageInfo{}, err
-	}
-	if err := requireBookingLinks(args); err != nil {
-		return StageInfo{}, err
-	}
-	links, err := uniqueRecordLinks(args.Links)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	records, err := readStageableLinks(ctx, t.p, links)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		TargetType:    links[0].EntityType,
-		TargetID:      links[0].EntityID,
-		TargetVersion: &records[0].Version,
-		Summary:       describeBooking(args, links),
-	}, nil
-}
-
-// requireBookingWindow refuses a booking that ends before it starts.
-//
-// The store refuses it too (errBookingEndNotAfterStart), which is why this is
-// not a correctness hole — but reaching THAT refusal costs the human's approval
-// on the way past, since redemption is consumed before the handler runs. So
-// both doors ask first, the same rule the link checks below follow.
-func requireBookingWindow(args BookMeetingArgs) error {
-	if args.End.After(args.Start) {
-		return nil
-	}
-	return &BadArgsError{Cause: fmt.Errorf(
-		"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
-		args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
-}
-
-// requireBookingLinks enforces what the schema states: at least one link.
-//
-// It is a function rather than a line in StageInfo because the MCP surface does
-// not validate arguments against an InputSchema — that schema is documentation —
-// so the rule holds only where the code puts it, and this verb has two doors: the
-// staging path and the post-approval execute. A rule enforced at one of them is
-// a rule a caller meets only sometimes.
-func requireBookingLinks(args BookMeetingArgs) error {
-	if len(args.Links) > 0 {
-		return nil
-	}
-	return &BadArgsError{Cause: errors.New(
-		"`links` needs at least one entry: a booking names who and what it is about, " +
-			"and one attached to nothing cannot be approved against a record")}
-}
-
-// describeBooking is the one line the inbox shows.
-//
-// It names every argument that changes what gets released — the slot, the
-// subject, WHOSE calendar it lands on, and how many records it attaches to.
-// A human approving from the inbox row sees only this string, so an argument
-// missing from it is an effect nobody agreed to: the REST admission gate's own
-// summary enumerates every body field for exactly this reason, and the two
-// transports stage the same operation.
-//
-// The subject is the agent's own text, so it is quoted rather than run into
-// the sentence; the approvals engine sanitizes every summary at the single
-// staging path regardless.
-func describeBooking(args BookMeetingArgs, links []RecordLink) string {
-	subject := args.Subject
-	if strings.TrimSpace(subject) == "" {
-		subject = "(no subject)"
-	}
-	summary := fmt.Sprintf("Book %q from %s to %s",
-		subject, args.Start.Format(time.RFC3339), args.End.Format(time.RFC3339))
-	if args.HostUserID != nil {
-		summary += fmt.Sprintf(" on %s's calendar", args.HostUserID)
-	}
-	if len(links) > 0 {
-		summary += fmt.Sprintf(", attached to %d record(s)", len(links))
-	}
-	return summary
+	return StageSubject(ctx, NewBookMeetingCall(t.p, BookMeetingCommand(args)))
 }
 
 func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -204,13 +118,15 @@ func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 	// Both doors, not just staging. This one is reached with an approval already
 	// redeemed, so a call that skipped StageInfo would otherwise execute a
 	// booking the schema says is impossible — and the cap and the dedupe are
-	// part of that: the human approved "attached to N record(s)" as StageInfo
+	// part of that: the human approved "attached to N record(s)" as the resolver
 	// counted them, and a booking that reaches the seam with the raw list is one
 	// whose approval was read against a different reach than the one it takes.
-	if err := requireBookingWindow(args); err != nil {
+	// The functions are the resolver's own (commandlinked.go), not a second
+	// spelling of them.
+	if err := requireBookingWindow(args.Start, args.End); err != nil {
 		return nil, err
 	}
-	if err := requireBookingLinks(args); err != nil {
+	if err := requireBookingLinks(args.Links); err != nil {
 		return nil, err
 	}
 	links, err := uniqueRecordLinks(args.Links)

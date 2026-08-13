@@ -22,8 +22,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
+
+// var-checked here rather than left implicit: a signature typo on the method
+// below would otherwise compile clean and simply never match in
+// httperr.Classify, which is a silent 500 nobody would connect to this file.
+var _ apperrors.MessageFault = (*BadArgsError)(nil)
 
 // decodeArgs is the surface's input validation: strict JSON — unknown argument
 // names are errors rather than silent drops, and the arguments are exactly ONE
@@ -115,6 +121,30 @@ func (e *BadArgsError) Error() string {
 	return msg + "; " + e.Guidance
 }
 func (e *BadArgsError) Unwrap() error { return e.Cause }
+
+// MessageFault lets a BadArgsError classify correctly when it reaches the REST
+// surface — which the create/patch resolvers' shared Guards are the first
+// callers to do, since every earlier BadArgsError site answered the MCP tool
+// door alone. httperr.Classify has no notion of this package's own error type,
+// and moduleDeclaredFault (its comment: "a module opts in by implementing a
+// method") is the seam built for exactly that; without it the REST door would
+// answer a caller's own mistake with an opaque 500, which is the one thing
+// clientInputValidation's own doc says must never happen.
+//
+// The code REUSES validation_error rather than minting one: crm.yaml already
+// declares it for exactly this class of caller mistake (httperr.Validation's
+// own code), and inventing a second would put an undocumented code in front
+// of a client that branches on the documented one (P3 — the contract wins).
+// A code this package needs of its own belongs in an upstream contract
+// change, the same rule compose's EmptyReportPlanError.MessageFault states
+// for its own reused code.
+//
+// The MCP tool door is untouched by this: Dispatcher.explain matches
+// *BadArgsError by type BEFORE it ever consults httperr.Classify, so this
+// method is never read on that path.
+func (e *BadArgsError) MessageFault() (code, message string) {
+	return "validation_error", e.Error()
+}
 
 // boundDetail caps a message at n bytes, cutting on a rune boundary so the
 // result stays valid UTF-8 rather than ending mid-sequence.

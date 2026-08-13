@@ -31,6 +31,7 @@ package approvals
 // is what ADR-0036 §4 is for.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -44,8 +45,14 @@ import (
 type RetargetedEditError struct{ Paths []string }
 
 func (e *RetargetedEditError) Error() string {
-	return "edited_payload changes the entity reference at " + strings.Join(e.Paths, ", ") +
-		"; an edit may correct a staged action's content, never the record it applies to"
+	// "the record it applies to" covers both callers of this type: an entity
+	// reference IS the record (assertSameEntityRefs), and operation/path say
+	// WHICH CALL runs against it (assertSameCallIdentity) — an edited
+	// operation is a different effect on the same or a different record, not
+	// a value change, so the message says what both share rather than
+	// naming "entity reference" on a path that is not one.
+	return "edited_payload changes what runs at " + strings.Join(e.Paths, ", ") +
+		"; an edit may correct a staged action's content, never the call or the record it applies to"
 }
 
 // refEscape makes an object key unambiguous inside a path. The editor CHOOSES
@@ -121,6 +128,76 @@ func assertSameEntityRefs(original, edited json.RawMessage) error {
 	// Sorted so the refusal reads the same on every run — the paths come out
 	// of a map, and an error message that reorders itself is one a reviewer
 	// cannot diff against the last one.
+	sort.Strings(changed)
+	return &RetargetedEditError{Paths: changed}
+}
+
+// callIdentityBody is the ONE top-level member of a REST staging that is
+// CONTENT — a human is meant to correct it. Every other top-level member says
+// WHICH CALL was staged: the transport writes them (compose.canonicalRESTCall)
+// and the redemption re-derives them from the retry's own method, URL and
+// headers, so an edit that changes one moves the effect to a different
+// operation, a different record, or a different precondition while every
+// other check still reads the original.
+//
+// Pinned by EXCLUDING body rather than by naming "operation" and "path"
+// deliberately: a hand-maintained allowlist stays correct only until the
+// canonical call grows a member nobody remembered to add here — and it will,
+// since headers like If-Match and Idempotency-Key are the version pin and the
+// retry key, exactly what this guard exists to protect. Denying by default
+// means a member the transport starts writing tomorrow is pinned by
+// construction, not by someone updating a list.
+const callIdentityBody = "body"
+
+// isRESTStaging reports whether a payload carries the members a REST staging
+// always writes. A tool staging (the MCP door stages tool arguments, not a
+// method/path/body triple) has neither operation nor path, and pinning every
+// one of ITS top-level members here — deny-by-default applied past this gate
+// — would make every tool-staged approval uneditable; entityRefs governs its
+// content instead.
+func isRESTStaging(payload map[string]json.RawMessage) bool {
+	_, hasOp := payload["operation"]
+	_, hasPath := payload["path"]
+	return hasOp || hasPath
+}
+
+// assertSameCallIdentity refuses an edit that changes which call was staged.
+func assertSameCallIdentity(original, edited json.RawMessage) error {
+	var before, after map[string]json.RawMessage
+	if err := json.Unmarshal(original, &before); err != nil {
+		return fmt.Errorf("approvals: decoding a proposed change to compare its call identity: %w", err)
+	}
+	if err := json.Unmarshal(edited, &after); err != nil {
+		return fmt.Errorf("approvals: decoding an edited change to compare its call identity: %w", err)
+	}
+	if !isRESTStaging(before) && !isRESTStaging(after) {
+		return nil
+	}
+	members := map[string]struct{}{}
+	for member := range before {
+		if member != callIdentityBody {
+			members[member] = struct{}{}
+		}
+	}
+	for member := range after {
+		if member != callIdentityBody {
+			members[member] = struct{}{}
+		}
+	}
+	var changed []string
+	for member := range members {
+		was, had := before[member]
+		now, has := after[member]
+		if had != has || !bytes.Equal(was, now) {
+			changed = append(changed, "/"+member)
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	// Sorted for the same reason assertSameEntityRefs sorts: the paths come
+	// out of a map, and a refusal that reorders itself on every run is one a
+	// reviewer cannot diff against the last one.
 	sort.Strings(changed)
 	return &RetargetedEditError{Paths: changed}
 }

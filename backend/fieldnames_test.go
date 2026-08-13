@@ -352,6 +352,9 @@ var validationFieldsOutsideTheContract = gatekit.Waive(map[string]string{
 	"arguments": "compose/registry.go's MCP tools/call handler names params.arguments, which is " +
 		"the JSON-RPC request shape rather than a REST contract property — correct for that " +
 		"wire, and absent from api_gen.go's tags because no REST body carries it",
+	"lineItemId": "crm.yaml's own PATH parameter name on /offers/{id}/line-items/{lineItemId} — " +
+		"correct for that wire, and absent from api_gen.go's tags because no request body carries " +
+		"a line item's own id as a JSON property (agentcommandnested.go's lineItemID)",
 })
 
 // A field name published through the transport helper has to BE a field name.

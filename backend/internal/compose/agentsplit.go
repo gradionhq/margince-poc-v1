@@ -25,14 +25,48 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// opRenameCustomField is the one patch operation both this file and
+// agentcommand.go's restCommands table name: the sole action-shaped op
+// (comment below) that is ALSO a whole-record field patch the governance seam
+// stages, so it is the one place those two lists have to agree on the same
+// operationId spelled the same way.
+const opRenameCustomField = "renameCustomField"
+
+// The remaining five action-shaped ops named below are ALSO both this
+// file's and agentcommand.go's restCommands table's
+// (agentcommandnested.go): named once here so the two do not spell an
+// operationId twice each. opUpsertPartner is named alongside them for the
+// same reason — agentcommand.go's restCommands entry needs the identical
+// spelling — even though (its own comment below says why) upsertPartner is
+// NOT a member of the map these five populate.
+const (
+	opAddListMember       = "addListMember"
+	opApplyTag            = "applyTag"
+	opAddOfferLineItem    = "addOfferLineItem"
+	opUpdateOfferLineItem = "updateOfferLineItem"
+	opRemoveOfferLineItem = "removeOfferLineItem"
+	opUpsertPartner       = "upsertPartner"
+)
+
 // actionShapedUpdateOps are the update_record twins whose body is a
 // membership/apply request naming ANOTHER record, or a mutation of a
-// CHILD record (an offer's line items), not a field patch on the routed
+// CHILD record (an offer's line items), NOT a field patch on the routed
 // record itself — there is no human-typed field of the routed record the
-// call could overwrite, so the ownership probe has nothing to ask and the
-// call runs 🟢 by design (an op absent here gets the full split; the
-// deliberate inclusion is upsertPartner, which the resolver maps
-// partner→organization so its patch IS a field patch on that org).
+// call could overwrite, so the ownership probe has nothing to ask, and the
+// call runs 🟢 by design. Membership is earned by that one test; an op
+// absent here gets the full split instead.
+//
+// upsertPartner LOOKS like it belongs — PUT .../partner, a body naming
+// partner fields — but is deliberately ABSENT: the resolver
+// (commandnested.go) maps partner→organization, so this patch really IS a
+// field patch on the routed record (the organization), which is exactly
+// the case this map exists to exclude. An agent overwriting a human-typed
+// partner field (cert_status, margin_tier, …) has to stage, the same §2.1
+// precedence protection every ordinary organization field patch gets —
+// adding upsertPartner here would silently disable that protection for
+// this one operation. TestUpsertPartnerStagesAHumanOwnedPartnerField pins
+// the split running for it.
+//
 // renameCustomField is here for a different reason: its target is a
 // catalog CONFIG row, not record data — §2.1 human-edit precedence
 // protects human-typed record values from agent overwrite, while a
@@ -40,28 +74,43 @@ import (
 // left to the split, the creating admin's audit trail would mark `label`
 // human-owned and silently convert every agent rename into a 🟡 staging.
 var actionShapedUpdateOps = map[string]bool{
-	"applyTag":            true,
-	"addListMember":       true,
-	"addOfferLineItem":    true,
-	"updateOfferLineItem": true,
-	"removeOfferLineItem": true,
-	"renameCustomField":   true,
+	opApplyTag:            true,
+	opAddListMember:       true,
+	opAddOfferLineItem:    true,
+	opUpdateOfferLineItem: true,
+	opRemoveOfferLineItem: true,
+	opRenameCustomField:   true,
 }
 
-// splitOrRedeemUpdate is the per-field human-edit-precedence split
+// splitUpdateDeps is what splitHumanOwnedUpdate needs to decide and stage a
+// conflict, bundled for the same reason restCommandDeps is: the three are
+// fixed at composition (admissionOutcome.staging/commands/ownership, set once
+// per gate from agentGate's own parameters, not per request), so threading
+// them as positional arguments churns the signature every time one more join
+// is needed rather than describing what this REST split actually depends on.
+type splitUpdateDeps struct {
+	staging   agents.Approvals
+	commands  restCommandDeps
+	ownership agents.FieldOwnership
+}
+
+// splitHumanOwnedUpdate is the per-field human-edit-precedence split
 // (interfaces.md §2.1) on the REST twin of the 🟢 update_record verb. The
 // body IS the field patch; the route's record_type annotation and {id}
 // name the audited record. Fields whose current value a human last wrote
 // are withheld and staged as a 🟡 approval while the rest of the patch
 // proceeds to the handler in the same request — mirroring the MCP tool,
-// so transport never changes what a human decision protects. An
-// X-Approval-Token redeems a prior staging: the approved retry carries
-// exactly the staged sub-patch, whose hash the staging was bound to.
-func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+// so transport never changes what a human decision protects.
+//
+// A retry presenting an X-Approval-Token never arrives here: the auto-execute
+// arm consumes the token and forwards the released call straight to the handler
+// (runAutoExecuted, agentgateauto.go), because that retry carries exactly the staged
+// sub-patch whose hash the approval was bound to and re-splitting it would stage
+// a second approval for the overwrite just approved. This function used to
+// redeem the token itself, which is how every OTHER tool's 🟢 arm came to ignore
+// one (gradionhq/margince-poc-v1#812).
+func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, deps splitUpdateDeps, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	if handled, _ := redeemIfPresented(w, r, next, staging, pol, body); handled {
-		return
-	}
 	raw := chi.URLParam(r, "id")
 	if raw == "" {
 		// Every field-patch twin routes with {id} today; a future route
@@ -77,7 +126,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}
-	split, err := agents.SplitHumanOwned(ctx, ownership, string(pol.RecordType), targetID, body)
+	split, err := agents.SplitHumanOwned(ctx, deps.ownership, string(pol.RecordType), targetID, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -86,7 +135,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		next.ServeHTTP(w, r)
 		return
 	}
-	if staging == nil {
+	if deps.staging == nil {
 		httperr.Write(w, r, fmt.Errorf("fields %s were last edited by a human, and this surface has no approvals engine to stage the overwrite: %w",
 			strings.Join(split.Conflicts, ", "), apperrors.ErrRequiresApproval))
 		return
@@ -95,19 +144,72 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
-		stageRefusal(w, r, staging, pol, body)
+		//
+		// stageRefusal resolves through the SAME command seam every other
+		// registered patch op does (agentcommand.go's patchCommand, now that
+		// all thirteen whole-record patch routes are registered), which means
+		// this branch carries patchResolver.Guards too: a records.Read plus
+		// refuseStagingElsewhere the split path never ran on its own before
+		// that registration. That is deliberate, not a side effect nobody
+		// noticed — an approval staged here for a mirror-held
+		// (Authoritative:false) record could never be redeemed anyway, since
+		// redemption's version pin reads our own tables, so refusing now
+		// beats spending a human's yes on a call that cannot be released.
+		stageRefusal(w, r, deps.staging, deps.commands, pol, body)
 		return
 	}
-	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)
+	applyAutoExecuteAndStageResidue(w, r, next, deps.staging, deps.commands, pol, split)
 }
 
-// applyAutoExecuteAndStageResidue handles the mixed patch: the auto-execute remainder
-// runs through the real handler first, then the residue is staged against
-// the post-write version — the state the approving human will actually
-// judge, so this call's own auto-execute half cannot invalidate its staged half
-// (ADR-0036 §2). The staging note is spliced into the handler's own 2xx
-// record body, making the split legible in a single response.
-func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, targetID ids.UUID, split agents.PatchSplit) {
+// applyAutoExecuteAndStageResidue handles the mixed patch: everything that can
+// refuse the residue is settled first, then the auto-execute remainder runs
+// through the real handler, and only then is the residue staged — against the
+// post-write version, the state the approving human will actually judge, so this
+// call's own auto-execute half cannot invalidate its staged half (ADR-0036 §2).
+// The staging note is spliced into the handler's own 2xx record body, making the
+// split legible in a single response.
+func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, pol agentPolicy, split agents.PatchSplit) {
+	// Everything this function can REFUSE on is settled before the auto-execute
+	// half runs, because none of it depends on that write: the canonical form and
+	// the staged target are functions of pol, the request's own path and headers,
+	// and split.Staged, all of which exist before the handler is dispatched. Asked
+	// afterwards — which is where they used to be — a resolver or Guards refusal
+	// answered a refusal status for a request whose first half had already
+	// committed, and the buffered 2xx was dropped: the agent was told the change
+	// was refused and could retry the whole patch against a record that had
+	// already moved (gradionhq/margince-poc-v1#1073). Asked here, a refusal costs
+	// the caller only a retry, which is the rule pinAutoExecutedWrite already
+	// applies to the unconsumed case.
+	//
+	// This does NOT move the pin: approvals resolves target_version itself, inside
+	// the staging transaction (the comment on the Stage call below), which still
+	// runs after the write — so the residue is still staged against the post-write
+	// state the approving human judges (ADR-0036 §2).
+	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, r.Header, split.Staged, keySettledByThisCall)
+	if cErr != nil {
+		httperr.Write(w, r, cErr)
+		return
+	}
+	// The staged target is resolved through the SAME seam stageRefusal uses
+	// (stagedTarget, which is resolveStagedTarget plus the untyped-target
+	// check), not read off pol.RecordType directly:
+	// upsertPartner's declared record_type is "partner", but its resolver
+	// (modules/agents/commandnested.go) stages "organization" — the row a
+	// human's decision and the approvals surface's own visibility probe
+	// actually depend on. Staging target_entity_type="partner" here would
+	// have named a pair neither targetProbes nor existenceProbes
+	// (approvals/targetvisibility.go) has a rule for, so the approval fails
+	// closed as invisible and undecidable — the zombie authority object
+	// this whole seam exists to prevent, for the one write this branch is
+	// supposed to protect. body is split.Staged, the sub-patch this
+	// approval actually binds to (canonicalRESTCall's own argument, above),
+	// not the full original request half of which already ran.
+	info, ok := stagedTarget(w, r, commands, pol, split.Staged)
+	if !ok {
+		// stagedTarget already wrote the refusal, and nothing has been
+		// written to the record yet, so it is the whole answer.
+		return
+	}
 	r.Body = io.NopCloser(bytes.NewReader(split.AutoExecute))
 	r.ContentLength = int64(len(split.AutoExecute))
 	buffered := newBufferedResponse()
@@ -134,18 +236,21 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 			pol.Op, strings.Join(split.Conflicts, ", "), uErr))
 		return
 	}
-	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, split.Staged)
-	if cErr != nil {
-		httperr.Write(w, r, cErr)
-		return
-	}
+	// No version pin travels from here, and the residue is still staged against
+	// the state the approving human will actually judge (ADR-0036 §2). What
+	// makes that true is WHEN the pin is read, not who supplies it: the
+	// approvals engine resolves target_version itself, inside the staging
+	// transaction (approvals.insertProposalInTx), which this call reaches only
+	// after the auto-execute half above committed — so the version it takes is
+	// the post-write one, and this call's own successful half cannot invalidate
+	// its own staged half. A pin named here would not survive the trip anyway:
+	// approvalsAdapter.Stage (registry.go) forwards none, deliberately.
 	approvalID, sErr := staging.Stage(r.Context(), agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     string(pol.RecordType),
-		TargetID:       targetID,
-		TargetVersion:  recordVersion(record),
+		TargetType:     info.TargetType,
+		TargetID:       info.TargetID,
 		// The staged sub-patch is what the approval binds to, so the summary
 		// names the values it would write, not only the field names it would
 		// write them to: "overwrite human-edited amount_minor" told an
@@ -167,23 +272,6 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 			strings.Join(split.Conflicts, ", "), approvalID, approvalTokenHeader, approvalID),
 	}
 	buffered.flushJSON(w, r, record)
-}
-
-// recordVersion pins the staged residue to the record version the auto-execute
-// half of the split produced. Contract record bodies carry the read-only
-// `version` (RowVersion, ADR-0036 §3); a response without one yields no
-// pin rather than a wrong one. The body is decoded with UseNumber, so the
-// value arrives as json.Number and is read losslessly.
-func recordVersion(record map[string]any) *int64 {
-	number, ok := record["version"].(json.Number)
-	if !ok {
-		return nil
-	}
-	version, err := number.Int64()
-	if err != nil {
-		return nil
-	}
-	return &version
 }
 
 // bufferedResponse holds a handler's answer so the gate can decide

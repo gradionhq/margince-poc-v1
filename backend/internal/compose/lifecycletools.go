@@ -85,13 +85,14 @@ func (p projectPhaseAdvancer) AdvanceProjectPhase(
 type companyEnricher struct{ srv *Server }
 
 func (c companyEnricher) EnrichCompany(
-	ctx context.Context, orgID ids.UUID, overrideURL, depth string,
+	ctx context.Context, orgID ids.UUID, overrideURL string, depth agents.EnrichDepth,
 ) (json.RawMessage, error) {
 	// Routed on the seam's own constants, and an unknown depth is REFUSED
-	// rather than falling through to the cheaper read: the tool admits the
-	// vocabulary before it gets here, so a value arriving unrecognised means
-	// the two halves disagree, and answering a one-page scrape to a site read
-	// would be a wrong answer rather than an error.
+	// rather than falling through to the cheaper read: both doors resolve the
+	// vocabulary before it gets here — the tool by admitting its `depth`
+	// argument, the REST door by which of its two routes was taken — so a value
+	// arriving unrecognised means the halves disagree, and answering a one-page
+	// scrape to a site read would be a wrong answer rather than an error.
 	switch depth {
 	case agents.EnrichDepthSite:
 		if c.srv == nil || c.srv.siteReadHandlers.engine == nil {
