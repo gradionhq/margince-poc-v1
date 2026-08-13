@@ -84,6 +84,8 @@ export const de = {
   "nav.group.records": "Datensätze",
   "nav.group.work": "Arbeit",
   "nav.group.intelligence": "Auswertung",
+  "nav.group.units": "Einheiten",
+  "nav.units.entry": "Einheit",
   "nav.dedupe": "Duplikate",
   "nav.products": "Produkte",
   "nav.offerTemplates": "Angebotsvorlagen",

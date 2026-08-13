@@ -38,11 +38,15 @@ describe("the published frontend surface", () => {
       "EmptyState",
       "Field",
       "SectionHeader",
+      "Select",
       "TextInput",
     ]);
     expect(Object.keys(apiSurface).sort()).toEqual([
+      "ProblemError",
       "QueryStates",
       "api",
+      "isVersionSkew",
+      "problemMessageOf",
       "throwProblem",
     ]);
     expect(Object.keys(appSurface).sort()).toEqual([

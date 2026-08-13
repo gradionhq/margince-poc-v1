@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
+
+import { LocaleProvider } from "@margince/frontend/app";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "@margince/frontend/app";
 import NotesScreen from "./screen";
 
 // The reference extension's screen, over a stubbed transport.
@@ -406,8 +407,297 @@ describe("the Demo Notepad screen", () => {
     // 403 — which matters here more than on a one-shot read, because this
     // query POLLS: an ungranted seat would otherwise repeat a refused request
     // every fifteen seconds for as long as the tab is open.
-    expect(calls.some((c) => c.path === "/ext/notes/list")).toBe(
-      false,
+    expect(calls.some((c) => c.path === "/ext/notes/list")).toBe(false);
+  });
+});
+
+// The grants filing needs on the unit's side. The CORE `activity:create` grant
+// it also needs is not here and cannot be: nothing declares the pairing, so a
+// seat can hold this one and still be refused by the server — which is the
+// state the failure copy is written for.
+const FILING_GRANT = {
+  seat_type: "full",
+  objects: {
+    ext_notes_note: { read: true, create: true, delete: true },
+    ext_notes_signing_key: { read: true, update: true },
+    ext_notes_filing: { create: true },
+  },
+};
+
+describe("filing a note to a record", () => {
+  const listOnly = { "/ext/notes/list": () => ({ notes: [] }) };
+
+  it("is absent for a seat that was not granted it", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, listOnly);
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+    expect(
+      await screen.findByText("You have not been granted filing."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "File to record" })).toBeNull();
+  });
+
+  it("sends the note, the record kind and the record it was filed to", async () => {
+    const { calls, fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      "/ext/notes/file": () => ({
+        id: "11111111-1111-4111-8111-111111111111",
+        kind: "note",
+        body: "a filed note",
+        filed_activity_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        created_at: "2026-08-13T09:30:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Note to file"),
+      "a filed note",
     );
+    await user.type(
+      screen.getByLabelText("Record id"),
+      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    );
+    // Through the Select, not on its default: the narrowing that turns the
+    // control's string back into the contract's enum is the code this case is
+    // about, and a filing that never touches the control never runs it.
+    await user.click(screen.getByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
+    await user.click(screen.getByRole("button", { name: "File to record" }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.path === "/ext/notes/file")).toBe(true);
+    });
+    const filed = calls.find((call) => call.path === "/ext/notes/file");
+    expect(filed?.body).toEqual({
+      body: "a filed note",
+      subject_type: "deal",
+      subject_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    });
+    // Both halves landed, so the form clears and says so.
+    expect(
+      await screen.findByText("Filed to the record's timeline."),
+    ).toBeTruthy();
+  });
+
+  // The two grants are separate and the second one is the server's to check, so
+  // the copy says what is true either way: nothing was written.
+  it("says nothing was written when the server refuses", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      "/ext/notes/file": () => {
+        throw new Error("refused");
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Note to file"),
+      "a filed note",
+    );
+    await user.type(
+      screen.getByLabelText("Record id"),
+      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    );
+    await user.click(screen.getByRole("button", { name: "File to record" }));
+
+    expect(
+      await screen.findByText(
+        "The note may not have been filed. Check the notepad below before trying again.",
+      ),
+    ).toBeTruthy();
+    // Nothing clears on a failure: retyping a note whose outcome is unknown is
+    // how a person files it twice.
+    expect(screen.getByLabelText<HTMLInputElement>("Note to file").value).toBe(
+      "a filed note",
+    );
+  });
+});
+
+describe("the signing card's answer", () => {
+  const stored = {
+    "/ext/notes/signing-key/status": () => ({ stored: true }),
+  };
+  const listOnly = { "/ext/notes/list": () => ({ notes: [] }) };
+
+  async function sign(user: ReturnType<typeof userEvent.setup>, text: string) {
+    await user.type(await screen.findByLabelText("Payload to sign"), text);
+    await user.click(screen.getByRole("button", { name: "Sign" }));
+  }
+
+  // The envelope the server actually used to send, nesting the payload under
+  // `data`. The generated types mark both members required, so the compiler
+  // does not help — and unguarded this rendered the string "undefined
+  // undefined" as a signature, which a person cannot tell from a real one.
+  it("shows no signature at all when the payload is not the declared shape", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => ({
+        data: { algorithm: "HMAC-SHA256", signature: "abc123" },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    await sign(userEvent.setup(), "sign me");
+    expect(
+      await screen.findByText("Nothing was signed. Store a signing key first."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
+  // The other half of the same defect: a signature left standing through a
+  // LATER attempt that failed still reads as the answer for the payload on
+  // screen. Cleared at the start of the mutation, not on its success.
+  it("clears the signature when a later attempt fails", async () => {
+    let firstCall = true;
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => {
+        if (firstCall) {
+          firstCall = false;
+          return { algorithm: "HMAC-SHA256", signature: "abc123" };
+        }
+        throw new Error("refused");
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await sign(user, "sign me");
+    expect(await screen.findByText("HMAC-SHA256 abc123")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sign" }));
+    await waitFor(() => {
+      expect(screen.queryByText("HMAC-SHA256 abc123")).toBeNull();
+    });
+  });
+
+  // The payload stays editable while a signing is in flight, so an answer can
+  // arrive for text nobody is looking at any more.
+  it("ignores an answer for a payload that has since changed", async () => {
+    let release: (() => void) | undefined;
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => ({
+        algorithm: "HMAC-SHA256",
+        signature: "abc123",
+      }),
+    });
+    const gated = async (input: Request | string | URL) => {
+      const answer = fetchStub(input);
+      if (
+        String(input instanceof Request ? input.url : input).includes(
+          "signature",
+        )
+      ) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return answer;
+    };
+    vi.stubGlobal("fetch", vi.fn(gated));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await sign(user, "sign me");
+    // In flight: the person moves on to a different payload.
+    await user.type(screen.getByLabelText("Payload to sign"), " and again");
+    release?.();
+
+    // The answer has to have ARRIVED before its absence means anything: the
+    // Sign button is disabled for the whole flight, so waiting for it to come
+    // back is waiting for the mutation to settle. Without this the assertion
+    // below passes while the request is still in the air, which is a test that
+    // cannot fail.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign" }).hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    expect(screen.queryByText("HMAC-SHA256 abc123")).toBeNull();
+  });
+
+  // A signature belongs to the payload it was computed over. Left standing, it
+  // sits beside text it does not sign — which reads as verification of the new
+  // payload.
+  it("clears the signature when the payload changes", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...listOnly,
+      ...stored,
+      "/ext/notes/signature": () => ({
+        algorithm: "HMAC-SHA256",
+        signature: "abc123",
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await sign(user, "sign me");
+    expect(await screen.findByText("HMAC-SHA256 abc123")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Payload to sign"), " and again");
+    expect(screen.queryByText("HMAC-SHA256 abc123")).toBeNull();
+  });
+});
+
+describe("a refused removal", () => {
+  // One flag over a list names no row, and it survives the next row's success.
+  it("is reported on the row it was pressed for", async () => {
+    const notes = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        body: "first",
+        created_at: "2026-08-13T09:30:00Z",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        body: "second",
+        created_at: "2026-08-13T09:31:00Z",
+      },
+    ];
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/notes/list": () => ({ notes }),
+      "/ext/notes/signing-key/status": () => ({ stored: false }),
+      "/ext/notes/remove": () => {
+        throw new Error("refused");
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await screen.findByText(/second/);
+    const removes = screen.getAllByRole("button", { name: "Remove" });
+    await user.click(removes[1]);
+
+    const refusal = "The note was not removed. Nothing was changed.";
+    await waitFor(() => {
+      expect(screen.getAllByText(refusal)).toHaveLength(1);
+    });
+    // ON the row it was pressed for, which is the whole difference from one
+    // message under the list.
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[1].textContent).toContain(refusal);
+    expect(rows[0].textContent).not.toContain(refusal);
+
+    // And it does not outlive the next attempt: a message from the row before
+    // last is the other half of what one flag over a list got wrong.
+    await user.click(removes[0]);
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")[1].textContent).not.toContain(
+        refusal,
+      );
+    });
   });
 });

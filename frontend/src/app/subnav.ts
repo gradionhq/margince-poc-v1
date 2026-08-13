@@ -22,6 +22,11 @@ export type NavLevelEntry = {
   // is the `audit` entry of the section the `settings` screen publishes.
   id: string;
   labelKey: MessageKey;
+  // label is what an entry the PRODUCT did not name is called: a composed
+  // unit's title is the installation's text, so it has no message key and no
+  // translation. When present it wins over labelKey, which such an entry sets
+  // to the generic fallback a caller would otherwise have to invent.
+  label?: string;
   icon: LucideIcon;
   // The level this entry opens. Grouping is possible at every depth, so the
   // children are a flat list only until one needs headings.
@@ -56,6 +61,9 @@ export type NavTrailLevel = {
   // Present, it prints the level's own heading and pushes the group labels a
   // heading level down.
   titleKey?: MessageKey;
+  // title is titleKey's counterpart for a level opened by an entry the PRODUCT
+  // did not name — see NavLevelEntry.label. It wins over titleKey when set.
+  title?: string;
   groups: readonly NavLevelGroup[];
   activeId?: string;
   path: readonly string[];
@@ -104,10 +112,15 @@ export function navTrail(
   top: NavTrailLevel,
   route: Route,
   section?: NavSection,
+  // Which of the top level's rows the route makes current. It defaults to the
+  // route's screen, which is what a primary entry's id is for every
+  // destination the PRODUCT owns — and is passed explicitly by the caller that
+  // knows better: a composed unit's row is `ext/<unit>` while its route's
+  // screen is `ext`, so deriving it here would mark nothing current on every
+  // unit route.
+  activeId: string = route.screen,
 ): readonly NavTrailLevel[] {
-  // The primary level's entries ARE screens, so the route's first segment is
-  // what marks one current.
-  const trail: NavTrailLevel[] = [{ ...top, activeId: route.screen }];
+  const trail: NavTrailLevel[] = [{ ...top, activeId }];
   if (!section || section.screen !== route.screen) {
     return trail;
   }
@@ -129,8 +142,12 @@ export function navTrail(
     }
     level = {
       // A child level is named by the entry that opened it — the reader drilled
-      // in through that word, so it is the word that says where they are.
+      // in through that word, so it is the word that says where they are. Which
+      // means an entry named by the INSTALLATION names its child level too:
+      // carrying only the key here would title a composed unit's sub-level with
+      // the generic fallback the row itself no longer shows.
       titleKey: active.labelKey,
+      title: active.label,
       groups: [{ items: children }],
       activeId: segments[depth],
       path: [...level.path, active.id],

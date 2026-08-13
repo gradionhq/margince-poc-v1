@@ -632,7 +632,7 @@ function SectionPickGroup({
           onClick={onPick}
         >
           <entry.icon size={16} aria-hidden />
-          {t(entry.labelKey)}
+          {entry.label ?? t(entry.labelKey)}
         </a>
       ))}
     </div>
@@ -664,7 +664,7 @@ function SectionSwitcher({
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const close = useCallback(() => setOpen(false), []);
-  const label = t(entry.labelKey);
+  const label = entry.label ?? t(entry.labelKey);
   return (
     <>
       <button
@@ -742,7 +742,9 @@ export function PageHead({
   // else on screen says which section this page belongs to: the pair swaps, the
   // heading names the section, and the switcher under it names the entry and
   // opens the others. Each of the two is still named exactly once.
-  const entryTitle = inSection ? t(inSection.entry.labelKey) : undefined;
+  const entryTitle = inSection
+    ? (inSection.entry.label ?? t(inSection.entry.labelKey))
+    : undefined;
   const sectionTitle =
     phone && inSection ? t(inSection.section.titleKey) : undefined;
   const title =
@@ -768,8 +770,9 @@ export function PageHead({
   // than yielding to a surface that will not name itself either.
   //
   // No crumb, unlike a record: a record's trail leads back to its list, and
-  // there is no `#/ext` index to lead back to. Task 13/14 owns a unit's place in
-  // the rail; when it lands, this is where a trail would go.
+  // there is no `#/ext` index to lead back to. A unit's place in the
+  // rail is the primary level's Units group (nav.ts); what would go HERE is a
+  // level a unit publishes BELOW its own screen, and none does.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
 

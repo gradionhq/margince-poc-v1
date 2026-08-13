@@ -11,6 +11,7 @@ import {
   useRef,
 } from "react";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import {
   type NavCounts,
   type NavLevelEntry,
@@ -194,7 +195,13 @@ function NavLevelRow({
   onSelect: (entry: NavLevelEntry) => void;
 }>) {
   const t = useT();
-  const label = t(entry.labelKey);
+  // The entry's OWN label when it has one: a composed unit is named by the
+  // installation, so its row has no message key to translate. This is the row
+  // the primary level renders, which makes it the site that matters — the
+  // label feeds the row text, the aria-label and the collapsed-rail tooltip
+  // below, and a fallback missing here shows every unit as the literal word
+  // "Unit".
+  const label = entry.label ?? t(entry.labelKey);
   const active = level.activeId === entry.id;
   const key = navTipKey(level, entry.id);
   return (
@@ -318,6 +325,19 @@ function NavLevelBack({
   );
 }
 
+// What a level is CALLED: its own literal when the entry that opened it was
+// named by the installation, its message key otherwise, and nothing when it is
+// the primary level (the navigation landmark names that one).
+function levelTitle(
+  level: NavTrailLevel,
+  t: (key: MessageKey) => string,
+): string {
+  if (level.title) {
+    return level.title;
+  }
+  return level.titleKey ? t(level.titleKey) : "";
+}
+
 export function NavLevelView({
   level,
   parent,
@@ -341,7 +361,9 @@ export function NavLevelView({
       {parent && (
         <NavLevelBack parent={parent} state={state} onWalkUp={onWalkUp} />
       )}
-      {level.titleKey && <h2 className="navtitle">{t(level.titleKey)}</h2>}
+      {levelTitle(level, t) && (
+        <h2 className="navtitle">{levelTitle(level, t)}</h2>
+      )}
       {level.groups.map((group, index) => (
         <NavLevelGroupView
           key={group.headingKey ?? `group-${index}`}
@@ -349,7 +371,7 @@ export function NavLevelView({
           group={group}
           // A level that names itself has taken the level-2 heading, so its
           // groups sit under it rather than beside it in the outline.
-          headingTag={level.titleKey ? "h3" : "h2"}
+          headingTag={levelTitle(level, t) ? "h3" : "h2"}
           counts={counts}
           state={state}
           onSelect={onSelect}

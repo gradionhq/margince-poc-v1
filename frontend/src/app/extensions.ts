@@ -53,14 +53,16 @@ export type ExtensionScreenRegistry = Readonly<
  * namespace token everywhere else in the tier (tables, roles, job kinds,
  * `/v1/ext/<name>` routes); this is its hash-route spelling.
  *
- * NOT YET REACHABLE FROM THE NAV. `nav.ts`'s `NAV_GROUPS` is the canonical
- * 10-item list and `shell.test.tsx` pins its order, so a composed unit is
- * reachable only by typing the hash today. That is correct for this slice —
- * there is no unit with a surface worth a rail slot, and inventing one would
- * mean deciding where a variable number of installation-defined entries sit in
- * a list whose order is normative. Task 13/14 owns that decision (a "Units"
- * group under the labelled groups is the obvious shape) and will need
- * `RAIL_LESS_SCREENS` reviewed at the same time.
+ * REACHABLE FROM THE NAV, as the last group. `nav.ts` keeps `NAV_GROUPS` as the
+ * canonical 10-item list whose order `shell.test.tsx` pins, and appends a
+ * "Units" group built from the composed set — after the product's own groups,
+ * and only when the installation composed something. The vanilla tree composes
+ * none, which is why that pinned order needed no revising.
+ *
+ * `RAIL_LESS_SCREENS` was reviewed with it and is unchanged: a unit's screen
+ * wants the rail like any other destination. What it does NOT get is a badge or
+ * a phone-bar slot — both are the product's judgement about what deserves a
+ * person's attention, and it cannot make one for a surface it did not write.
  */
 export const EXTENSION_SCREEN = "ext";
 

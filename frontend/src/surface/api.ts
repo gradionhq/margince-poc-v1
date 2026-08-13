@@ -14,5 +14,21 @@
 // QueryStates and throwProblem are here for the same reason a unit does not
 // write its own loading spinner: an installation should not be able to tell
 // which screens the core wrote from how they fail.
+//
+// The other three are one capability, not three, which is why they arrive
+// together. A unit that catches a failed WRITE has to say what went wrong
+// (problemMessageOf), and has to tell the one failure a person can act on
+// from the ones they cannot — a version skew means somebody else edited the
+// record, and the answer is "reload and try again" rather than an error card.
+// isVersionSkew takes the RFC 7807 body, and the only way to reach that body
+// from a caught error is the class, so exporting two of the three publishes a
+// helper a unit cannot call. problemMessageOf's MessageKey is already
+// published through useT, so this widens no type surface.
 export { api } from "../api/client";
-export { QueryStates, throwProblem } from "../screens/common";
+export {
+  isVersionSkew,
+  ProblemError,
+  problemMessageOf,
+  QueryStates,
+  throwProblem,
+} from "../screens/common";
