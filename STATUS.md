@@ -74,10 +74,21 @@ needs the whole file to start a session.
 
 The page ships (ADR-0096/0097/0098, concept `person-record-page-v2`): header,
 six-slot strip, seven URL-addressable tabs, the server-selected Today moment,
-the 2×2 grid, conversation memory, the six-card rail, and three wide drawers —
-composer, research, meeting brief. Both overview states render from real data
-and differ because the DATA differs. `scripts/seed-person-page.sh` seeds them
-through the production writers.
+the overview panels, conversation memory, the context rail, and three wide
+drawers — composer, research, meeting brief. Both overview states render from
+real data and differ because the DATA differs. `scripts/seed-person-page.sh`
+seeds them through the production writers.
+
+**Its shape is now the company record's, and that deviates from the concept
+(#1141).** The page is built from the shared primitives rather than its own
+copies of them: the readings row is the design system's `StatStrip`, every card
+is a `Panel`, and the six-slot strip rides `RecordView`'s band. Three of those
+changes contradict `person-record-page-v2` §5.1/§5.11, which pin a right rail
+and two equal card columns — the rail is the LEFT column here, the overview is
+one vertical stack, and the brief leads it with a three-column band stating
+where the deal, the loops and what-matters stand (each of those three panels
+then renders only when it has more to say than its empty state). Nothing was
+removed. #1141 carries the reconciliation; the spec decides which shape wins.
 
 What it owes, in the order it matters:
 
@@ -111,7 +122,12 @@ and no upload surface exists yet.
 
 **Playwright has no person-record spec.** The page was verified by hand at
 1536×1024 and by clicking every button; the visual baselines the plan called
-for are not written.
+for are not written. It does now carry a Storybook gallery
+(`personpage.stories.tsx`) covering the page, the readings row with and without
+a grant, both lead tints, the rail, the brief band's two readings, the overview
+stack, the three drawers and the provider section — so `make fe-uat` renders
+every surface the page owns. That is a render gate, not the layout assertions a
+Playwright spec would make.
 
 **The sender declares which consent class applies (#867).** ADR-0098 makes
 `business_correspondence` and `transactional` non-consent classes, and the

@@ -2,7 +2,8 @@ import { ExternalLink, FileText, Mail } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { Avatar, Badge } from "../design-system/atoms";
+import { Avatar, Badge, Button, Checkbox } from "../design-system/atoms";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { money } from "./personstrip";
@@ -20,47 +21,115 @@ type ConversationClaim = components["schemas"]["ConversationClaim"];
 export function PersonBriefCard({
   brief,
   loading,
-}: Readonly<{ brief: PersonBrief | undefined; loading: boolean }>) {
+  view,
+}: Readonly<{
+  brief: PersonBrief | undefined;
+  loading: boolean;
+  view: Person360;
+}>) {
   const t = useT();
+  const firstName = view.person.full_name.split(" ")[0];
   return (
-    <section className="pe-card" data-testid="person-brief">
-      <h3 className="pe-card-title">{t("person.brief.title")}</h3>
-      {loading && <p className="pe-prose">{t("person.brief.reading")}</p>}
-      {!loading && (!brief || brief.sentences.length === 0) && (
-        // Honest rather than blank: a brief with nothing to say has nothing to
-        // say, and inventing prose to fill the card is the one thing the
-        // grounding rule forbids.
-        <p className="pe-prose">{t("person.brief.empty")}</p>
-      )}
-      {brief && brief.sentences.length > 0 && (
-        <>
-          <p className="pe-prose">
-            {brief.sentences.map((sentence) => sentence.text).join(" ")}
-          </p>
-          <div className="pe-chiprow">
-            {/* One chip per distinct source, not per citation: several
-                sentences routinely cite the same thread, and rendering the
-                chip once per mention would repeat it and collide on its key. */}
-            {[
-              ...new Map(
-                brief.sentences.flatMap((sentence) =>
-                  sentence.evidence.map(
-                    (cited) =>
-                      [
-                        `${cited.entity_type}-${cited.entity_id}`,
-                        cited,
-                      ] as const,
+    <Panel title={t("person.brief.title")}>
+      <PanelBody>
+        {loading && <p className="pe-prose">{t("person.brief.reading")}</p>}
+        {!loading && (!brief || brief.sentences.length === 0) && (
+          // Honest rather than blank: a brief with nothing to say has nothing to
+          // say, and inventing prose to fill the card is the one thing the
+          // grounding rule forbids.
+          <p className="pe-prose">{t("person.brief.empty")}</p>
+        )}
+        {brief && brief.sentences.length > 0 && (
+          <>
+            <p className="pe-prose">
+              {brief.sentences.map((sentence) => sentence.text).join(" ")}
+            </p>
+            <div className="pe-chiprow">
+              {/* One chip per distinct source, not per citation: several
+                  sentences routinely cite the same thread, and rendering the
+                  chip once per mention would repeat it and collide on its key. */}
+              {[
+                ...new Map(
+                  brief.sentences.flatMap((sentence) =>
+                    sentence.evidence.map(
+                      (cited) =>
+                        [
+                          `${cited.entity_type}-${cited.entity_id}`,
+                          cited,
+                        ] as const,
+                    ),
                   ),
-                ),
-              ).entries(),
-            ].map(([key, cited]) => (
-              <SourceChip key={key} kind={cited.entity_type} />
-            ))}
-          </div>
-        </>
-      )}
-    </section>
+                ).entries(),
+              ].map(([key, cited]) => (
+                <SourceChip key={key} kind={cited.entity_type} />
+              ))}
+            </div>
+          </>
+        )}
+      </PanelBody>
+      <PanelBody className="pe-brief-state">
+        {/* The band under the prose: the three detail panels below only render
+            when they have something beyond their own empty sentence, so this
+            is the one place a reader always finds all three states named,
+            whether or not the panel that expands on them is present. */}
+        <div className="pe-brief-block">
+          <h3 className="pe-brief-label t-caption">
+            {t("person.commercial.title")}
+          </h3>
+          <p className="pe-brief-line">{commercialLine(view, t)}</p>
+        </div>
+        <div className="pe-brief-block">
+          <h3 className="pe-brief-label t-caption">
+            {t("person.loops.title")}
+          </h3>
+          <p className="pe-brief-line">{commitmentsLine(view, t)}</p>
+        </div>
+        <div className="pe-brief-block">
+          <h3 className="pe-brief-label t-caption">
+            {t("person.matters.title", { name: firstName })}
+          </h3>
+          <p className="pe-brief-line">{mattersLine(view, t)}</p>
+        </div>
+      </PanelBody>
+    </Panel>
   );
+}
+
+// The band's commercial block: the same "does this card have anything to
+// show" test PersonCommercialCard makes, so the band and the panel below it
+// never disagree about whether there is a deal to speak of.
+export function hasCommercial(view: Person360): boolean {
+  const commercial = view.commercial;
+  if (!commercial) {
+    return false;
+  }
+  return (
+    commercial.deal != null ||
+    commercial.role != null ||
+    commercial.committee.length > 0
+  );
+}
+
+function commercialLine(view: Person360, t: ReturnType<typeof useT>): string {
+  const commercial = view.commercial;
+  if (!commercial) {
+    return t("person.commercial.withheld");
+  }
+  const deal = commercial.deal;
+  if (deal) {
+    const amount =
+      deal.amount_minor != null && deal.currency
+        ? money(deal.amount_minor, deal.currency)
+        : null;
+    return [deal.title, amount].filter(Boolean).join(" · ");
+  }
+  if (commercial.role) {
+    return readableRole(commercial.role);
+  }
+  if (commercial.committee.length > 0) {
+    return t("person.commercial.committee");
+  }
+  return t("person.commercial.noDeal");
 }
 
 function SourceChip({ kind }: Readonly<{ kind: string }>) {
@@ -101,26 +170,48 @@ export function PersonMattersCard({
   const t = useT();
   const claims = view.claims ?? [];
   return (
-    <section className="pe-card" data-testid="person-matters">
-      <h3 className="pe-card-title">
-        {t("person.matters.title", { name: firstName })}
-      </h3>
+    <Panel title={t("person.matters.title", { name: firstName })}>
       {MATTERS.map((row) => {
         const match = claims.find(
           (claim) => claim.kind === row.kind && claim.status !== "dismissed",
         );
         return (
-          <div className="pe-row" key={row.kind}>
+          <PanelRow className="pe-row" key={row.kind}>
             <span className="pe-row-label">{t(row.labelKey)}</span>
             <span className="pe-row-value">
               {match ? match.body : <Absent />}
             </span>
             {match && <FileText size={15} aria-hidden="true" />}
-          </div>
+          </PanelRow>
         );
       })}
-    </section>
+    </Panel>
   );
+}
+
+// The band's what-matters block: true the moment any row PersonMattersCard
+// lists has a live claim behind it, so a band that says "captured" is never
+// followed by a panel showing nothing but "Nothing captured yet" three times.
+export function hasMatters(view: Person360): boolean {
+  const claims = view.claims ?? [];
+  return MATTERS.some((row) =>
+    claims.some(
+      (claim) => claim.kind === row.kind && claim.status !== "dismissed",
+    ),
+  );
+}
+
+function mattersLine(view: Person360, t: ReturnType<typeof useT>): string {
+  const claims = view.claims ?? [];
+  const present = MATTERS.filter((row) =>
+    claims.some(
+      (claim) => claim.kind === row.kind && claim.status !== "dismissed",
+    ),
+  );
+  if (present.length === 0) {
+    return t("person.matters.absent");
+  }
+  return present.map((row) => t(row.labelKey)).join(", ");
 }
 
 // Absence has meaning (concept §4.7): a row nobody has said anything about
@@ -141,71 +232,82 @@ export function PersonCommercialCard({ view }: Readonly<{ view: Person360 }>) {
     // The section was withheld. "You may not see deals" and "there is no deal"
     // are different facts, and only the first belongs here.
     return (
-      <section className="pe-card" data-testid="person-commercial">
-        <h3 className="pe-card-title">{t("person.commercial.title")}</h3>
-        <p className="pe-prose">{t("person.commercial.withheld")}</p>
-      </section>
+      <Panel title={t("person.commercial.title")}>
+        <PanelBody>
+          <p className="pe-prose">{t("person.commercial.withheld")}</p>
+        </PanelBody>
+      </Panel>
     );
   }
   const deal = commercial.deal;
   return (
-    <section className="pe-card" data-testid="person-commercial">
-      <h3 className="pe-card-title">{t("person.commercial.title")}</h3>
-      {!deal && <p className="pe-prose">{t("person.commercial.noDeal")}</p>}
-      {deal && (
-        <>
-          <div className="pe-deal-head">
-            <span className="pe-deal-title">{deal.title}</span>
-            {commercial.role && (
-              <Badge tone="success">{readableRole(commercial.role)}</Badge>
-            )}
-          </div>
-          <div className="pe-deal-figures">
-            {[
-              deal.amount_minor != null && deal.currency
-                ? money(deal.amount_minor, deal.currency)
-                : null,
-              deal.stage,
-              deal.close_date
-                ? t("person.commercial.closes", {
-                    date: shortDate(deal.close_date),
-                  })
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </div>
+    <Panel title={t("person.commercial.title")}>
+      <PanelBody>
+        {/* "No open deal" is a fact about the deal, not about the role or the
+            committee — a person can carry a buying role and sit on a
+            committee with nothing currently for sale, and both facts belong
+            on the card whether or not there is a deal to hang them off. */}
+        {!deal && <p className="pe-prose">{t("person.commercial.noDeal")}</p>}
+        {!deal && commercial.role && (
+          <Badge tone="success">{readableRole(commercial.role)}</Badge>
+        )}
+        {deal && (
+          <>
+            <div className="pe-deal-head">
+              <span className="pe-deal-title">{deal.title}</span>
+              {commercial.role && (
+                <Badge tone="success">{readableRole(commercial.role)}</Badge>
+              )}
+            </div>
+            <div className="pe-deal-figures">
+              {[
+                deal.amount_minor != null && deal.currency
+                  ? money(deal.amount_minor, deal.currency)
+                  : null,
+                deal.stage,
+                deal.close_date
+                  ? t("person.commercial.closes", {
+                      date: shortDate(deal.close_date),
+                    })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </>
+        )}
 
-          {commercial.committee.length > 0 && (
-            <>
-              <div className="pe-committee-label">
-                {t("person.commercial.committee")}
+        {commercial.committee.length > 0 && (
+          <>
+            <div className="pe-committee-label">
+              {t("person.commercial.committee")}
+            </div>
+            {commercial.committee.map((member) => (
+              <div className="pe-committee-row" key={member.person_id}>
+                <span className="pe-committee-person">
+                  <Avatar name={member.full_name} src={member.photo_url} />
+                  <span>{member.full_name}</span>
+                </span>
+                <span className="pe-committee-role">
+                  {readableRole(member.role)}
+                </span>
               </div>
-              {commercial.committee.map((member) => (
-                <div className="pe-committee-row" key={member.person_id}>
-                  <span className="pe-committee-person">
-                    <Avatar name={member.full_name} src={member.photo_url} />
-                    <span>{member.full_name}</span>
-                  </span>
-                  <span className="pe-committee-role">
-                    {readableRole(member.role)}
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
+            ))}
+          </>
+        )}
 
-          <button
-            type="button"
+        {deal && (
+          <Button
+            small
             className="pe-rail-more"
             onClick={() => navigate({ screen: "deals", id: deal.deal_id })}
           >
             {t("person.commercial.openDeal")}{" "}
             <ExternalLink size={13} aria-hidden="true" />
-          </button>
-        </>
-      )}
-    </section>
+          </Button>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -235,6 +337,31 @@ const LOOPS: ReadonlyArray<{ kind: string; prefixKey: MessageKey | null }> = [
   { kind: "open_question", prefixKey: "person.loops.question" },
 ];
 
+// The band's commitments block: the same non-dismissed, loop-kind test the
+// card's row list runs, so an empty band block and an empty panel are always
+// the same fact rather than two independent reads of the claims.
+export function hasCommitments(view: Person360): boolean {
+  const claims = view.claims ?? [];
+  return LOOPS.some((loop) =>
+    claims.some(
+      (claim) => claim.kind === loop.kind && claim.status !== "dismissed",
+    ),
+  );
+}
+
+function commitmentsLine(view: Person360, t: ReturnType<typeof useT>): string {
+  const claims = view.claims ?? [];
+  const openCount = LOOPS.flatMap((loop) =>
+    claims.filter(
+      (claim) => claim.kind === loop.kind && claim.status !== "dismissed",
+    ),
+  ).length;
+  if (openCount === 0) {
+    return t("person.loops.empty");
+  }
+  return `${openCount} ${t("person.loops.open")}`;
+}
+
 export function PersonCommitmentsCard({
   view,
   firstName,
@@ -249,24 +376,38 @@ export function PersonCommitmentsCard({
       .map((claim) => ({ claim, loop })),
   );
   return (
-    <section className="pe-card" data-testid="person-commitments">
-      <h3 className="pe-card-title">{t("person.loops.title")}</h3>
+    <Panel title={t("person.loops.title")}>
       {rows.length === 0 && (
         // An empty commitments card on a record whose mail contains no
         // promises is CORRECT behaviour, not a gap (ADR-0097 consequences).
-        <p className="pe-prose">{t("person.loops.empty")}</p>
+        <PanelBody>
+          <p className="pe-prose">{t("person.loops.empty")}</p>
+        </PanelBody>
       )}
       {rows.map(({ claim, loop }) => (
-        <div className="pe-loop" key={claim.id}>
-          <input type="checkbox" checked={claim.status === "done"} readOnly />
+        <PanelRow className="pe-loop" key={claim.id}>
+          {/* A read of the claim's done state, never a write: disabled so a
+              click can't nudge the tick, and the accessible name lives here
+              (sr-only) because the visible body sits in its own cell so the
+              row's three-column rhythm holds. */}
+          <Checkbox
+            label={
+              <span className="sr-only">
+                {loopPrefix(loop, firstName, t)}
+                {claim.body}
+              </span>
+            }
+            checked={claim.status === "done"}
+            disabled
+          />
           <span className="pe-loop-body">
             {loopPrefix(loop, firstName, t)}
             {claim.body}
           </span>
           <LoopStatus claim={claim} />
-        </div>
+        </PanelRow>
       ))}
-    </section>
+    </Panel>
   );
 }
 

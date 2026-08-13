@@ -319,6 +319,7 @@ export const en = {
   "rel.startedAt": "Started",
   "rel.endedAt": "Ended",
   "rel.current": "current",
+  "rel.endedOn": "until {when}",
   "rel.remove": "Remove",
   "rel.removeConfirm":
     "Are you sure? This removes the relationship — there is no undo control.",
@@ -1470,6 +1471,8 @@ export const en = {
   "field.addLegalName": "Add legal name",
   "field.addIndustry": "Add industry",
   "field.addLinkedinUrl": "Add LinkedIn URL",
+  "field.addFullName": "Add name",
+  "field.addTitle": "Add title",
   "field.addAddressLine1": "Add street and number",
   "field.addAddressLine2": "Add address line 2",
   "field.addPostalCode": "Add postal code",
@@ -4303,6 +4306,31 @@ export const en = {
   "person.page.ownerAssigned": "Assigned",
   "person.page.ownerUnassigned": "Unassigned",
   "person.page.linkedin": "LinkedIn",
+  // The rail's own details grid: the contact's own fields, at a glance above
+  // the six relationship sections below it.
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Set when this contact was added. Email and phone cannot be changed here.",
+  "person.rail.archivedReadOnly":
+    "This contact is archived. Restore them to change anything here.",
+  // Fired when an employment row's version could not be read back before a
+  // write — the row is not saved unpinned, so the reader is told to reload
+  // rather than left to think the edit landed.
+  "person.rail.employmentVersionUnresolved":
+    "This row's current version could not be read back to save against. Reload and try again.",
+  // The employers section: every employment edge this person holds, current
+  // one first — a person can work at more than one company at once.
+  "person.rail.employmentTitle": "Companies",
+  "person.rail.noEmployment": "No employment on record.",
+  "person.rail.addEmployment": "Add company",
+  "person.rail.employer": "Employer",
+  "person.rail.allOrgsConnected":
+    "Every match is already connected to this person.",
+  "person.rail.isCurrentEmployer": "This is their current employer",
+  "person.rail.markEnded": "Mark as ended",
+  "person.rail.removeEmploymentTitle": "Remove this company connection?",
+  "person.rail.removeEmploymentBody":
+    "The link to {org} and the history hanging off it disappear, and this cannot be undone. {org} itself stays. If they simply left, mark it ended instead.",
   "person.page.tabPlaceholder":
     "This tab is not built yet. The overview carries the relationship; this will carry {topic}.",
   "person.tab.overview": "Overview",

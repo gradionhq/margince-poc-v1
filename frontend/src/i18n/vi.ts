@@ -317,6 +317,7 @@ export const vi = {
   "rel.startedAt": "Bắt đầu",
   "rel.endedAt": "Kết thúc",
   "rel.current": "hiện tại",
+  "rel.endedOn": "đến {when}",
   "rel.remove": "Gỡ",
   "rel.removeConfirm":
     "Bạn chắc chứ? Thao tác này gỡ quan hệ — không có nút hoàn tác.",
@@ -1458,6 +1459,8 @@ export const vi = {
   "field.addLegalName": "Thêm tên pháp lý",
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
+  "field.addFullName": "Thêm họ và tên",
+  "field.addTitle": "Thêm chức danh",
   "field.addAddressLine1": "Thêm số nhà và tên đường",
   "field.addAddressLine2": "Thêm địa chỉ dòng 2",
   "field.addPostalCode": "Thêm mã bưu chính",
@@ -4284,6 +4287,24 @@ export const vi = {
   "person.page.ownerAssigned": "Đã giao",
   "person.page.ownerUnassigned": "Chưa giao",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Chi tiết",
+  "person.rail.contactMethodImmutable":
+    "Được thiết lập khi tạo liên hệ này. Email và số điện thoại không thể thay đổi tại đây.",
+  "person.rail.archivedReadOnly":
+    "Liên hệ này đã lưu trữ. Khôi phục để thay đổi bất kỳ thông tin nào tại đây.",
+  "person.rail.employmentVersionUnresolved":
+    "Không đọc lại được phiên bản hiện tại của dòng này để lưu. Hãy tải lại và thử lại.",
+  "person.rail.employmentTitle": "Công ty",
+  "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
+  "person.rail.addEmployment": "Thêm công ty",
+  "person.rail.employer": "Nơi làm việc",
+  "person.rail.allOrgsConnected":
+    "Mọi kết quả đều đã liên kết với người này rồi.",
+  "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
+  "person.rail.markEnded": "Đánh dấu đã kết thúc",
+  "person.rail.removeEmploymentTitle": "Gỡ liên kết với công ty này?",
+  "person.rail.removeEmploymentBody":
+    "Liên kết với {org} và toàn bộ lịch sử liên quan sẽ biến mất, không thể hoàn tác. Bản thân {org} vẫn được giữ lại. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
   "person.page.tabPlaceholder":
     "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
   "person.tab.overview": "Tổng quan",

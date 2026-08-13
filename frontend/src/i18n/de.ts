@@ -311,6 +311,7 @@ export const de = {
   "rel.startedAt": "Beginn",
   "rel.endedAt": "Ende",
   "rel.current": "aktuell",
+  "rel.endedOn": "bis {when}",
   "rel.remove": "Entfernen",
   "rel.removeConfirm":
     "Bist du sicher? Das entfernt die Beziehung — es gibt keine Rückgängig-Funktion.",
@@ -1467,6 +1468,8 @@ export const de = {
   "field.addLegalName": "Rechtlichen Namen hinzufügen",
   "field.addIndustry": "Branche hinzufügen",
   "field.addLinkedinUrl": "LinkedIn-URL hinzufügen",
+  "field.addFullName": "Namen hinzufügen",
+  "field.addTitle": "Titel hinzufügen",
   "field.addAddressLine1": "Straße und Hausnummer hinzufügen",
   "field.addAddressLine2": "Adresszusatz hinzufügen",
   "field.addPostalCode": "Postleitzahl hinzufügen",
@@ -4299,6 +4302,25 @@ export const de = {
   "person.page.ownerAssigned": "Zugewiesen",
   "person.page.ownerUnassigned": "Nicht zugewiesen",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Beim Anlegen dieses Kontakts festgelegt. E-Mail und Telefon können hier nicht geändert werden.",
+  "person.rail.archivedReadOnly":
+    "Dieser Kontakt ist archiviert. Stelle ihn wieder her, um hier etwas zu ändern.",
+  "person.rail.employmentVersionUnresolved":
+    "Die aktuelle Version dieser Zeile konnte nicht zum Speichern zurückgelesen werden. Lade neu und versuche es erneut.",
+  "person.rail.employmentTitle": "Unternehmen",
+  "person.rail.noEmployment": "Keine Beschäftigung erfasst.",
+  "person.rail.addEmployment": "Unternehmen hinzufügen",
+  "person.rail.employer": "Arbeitgeber",
+  "person.rail.allOrgsConnected":
+    "Jeder Treffer ist bereits mit dieser Person verknüpft.",
+  "person.rail.isCurrentEmployer": "Das ist der aktuelle Arbeitgeber",
+  "person.rail.markEnded": "Als beendet markieren",
+  "person.rail.removeEmploymentTitle":
+    "Diese Unternehmensverbindung entfernen?",
+  "person.rail.removeEmploymentBody":
+    "Die Verbindung zu {org} und die daran hängende Historie verschwinden, und das lässt sich nicht rückgängig machen. {org} selbst bleibt. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
   "person.page.tabPlaceholder":
     "Dieser Reiter ist noch nicht gebaut. Die Übersicht trägt die Beziehung; hier kommt {topic} hin.",
   "person.tab.overview": "Übersicht",

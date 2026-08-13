@@ -14,91 +14,57 @@
   gap: var(--space-3);
 }
 
-/* ---------------------------------------------------------------------------
-   The relationship state strip (§5.3): six slots, one bordered row.
+/* The relationship state strip (§5.3) is the design system's `StatStrip` — one
+   plate of ruled slots, the same shape and the same type scale the company
+   record's readings row draws. Nothing about it is the person page's own, so
+   nothing about it is styled here.
 
-   Six equal columns rather than auto-fit, because the slots are a fixed
-   vocabulary and a reflow that reorders them changes what the reader is
-   comparing. Below the two-column threshold they wrap to three and then two,
-   never to one: a single column of six labelled figures is a list, and the
-   whole point of the strip is reading them side by side.
+   ---------------------------------------------------------------------------
+   The identity line under the name: how to reach this person, and who holds the
+   relationship. ONE wrapping line — the facts are a few words each, and split
+   across rows they made the header three deep for no gain.
    --------------------------------------------------------------------------- */
-.pe-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  margin-bottom: var(--space-4);
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: 10px;
-  align-items: center;
-}
-
-.pe-slot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.pe-identity-meta {
   min-width: 0;
 }
 
-/* The icon carries the slot's meaning at a glance; it never carries the value,
-   so it stays quiet against the figure beside it. */
-.pe-slot-icon {
+.pe-meta-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  color: var(--textSecondary);
+  gap: var(--space-1) var(--space-4);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--textContent);
 }
 
-.pe-slot-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px; /* ds:ignore optical, below the 4px scale's floor */
+/* Standing — the buying role, who owns the record — sits in the same line as
+   the contact methods but quieter within it: it qualifies the record rather
+   than being a way to act on it. */
+.pe-meta-quiet {
+  color: var(--textMeta);
+}
+
+.pe-meta-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
 }
 
-.pe-slot-label {
-  font-size: 12px;
-  line-height: 1.2;
-  color: var(--textSecondary);
+/* A company is a record of its own, so its name in the header is a link and
+   reads as one: no button chrome, the page's own link colour. */
+.pe-meta-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
 }
 
-/* The figure leads. It is what the reader came to the strip for, so it is
-   larger and darker than its own label — the inverse of a form field. */
-.pe-slot-value {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--textPrimary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pe-slot-value-good {
-  color: var(--success);
-}
-
-.pe-slot-value-muted {
-  color: var(--textSecondary);
-  font-weight: 500;
-}
-
-@media (max-width: 1200px) {
-  .pe-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    row-gap: var(--space-5);
-  }
-}
-
-@media (max-width: 700px) {
-  .pe-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.pe-meta-link:hover {
+  text-decoration: underline;
 }
 
 /* ---------------------------------------------------------------------------
@@ -117,39 +83,60 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Today with {first name} (§5.5): the full-width card the page opens on.
+   Today with {first name} (§5.5): the panel the page opens on — the lead.
 
-   It is deliberately not in the grid below. The moment is the page's answer,
-   and an answer that shares a row with two other cards is one of three things
-   to read rather than the thing to do.
+   It leads the stack rather than sharing a row: the moment is the page's
+   answer, and an answer beside two other cards is one of three things to read
+   rather than the thing to do. Its shape is the design system's `Panel`, so
+   only the lead's own tint and its two-column interior live here.
    --------------------------------------------------------------------------- */
+/* The head carries the tint, not the whole plate: the panel stays the same
+   surface as every panel under it and its HEADING says this one asks for a
+   move. A fully tinted card competes with its own content. */
 .pe-today {
+  border-color: var(--accentMed);
+}
+.pe-today > .panel-head {
+  background: var(--accentLight);
+  border-bottom-color: var(--accentMed);
+}
+.pe-today > .panel-head h2 {
+  color: var(--accent);
+}
+.pe-today > .panel-foot {
+  border-top-color: var(--accentMed);
+}
+
+/* The amber variant (State B). The tone is the finding — a relationship that
+   stopped, a promise that is late — so it recolours the panel's own frame and
+   head rather than adding a badge inside it. */
+.pe-today-warn {
+  border-color: var(--warnBorder);
+}
+.pe-today-warn > .panel-head {
+  background: var(--warnBg);
+  border-bottom-color: var(--warnBorder);
+}
+.pe-today-warn > .panel-head h2 {
+  color: var(--textPrimary);
+}
+.pe-today-warn > .panel-foot {
+  border-top-color: var(--warnBorder);
+}
+
+/* The ask and the verbs that answer it, side by side: the buttons sit with the
+   moment they act on rather than under everything it says. */
+.pe-today-lead {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-6);
   align-items: start;
-  padding: var(--space-5);
-  margin-bottom: var(--space-4);
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: 10px;
-}
-
-/* The amber variant (State B). The tone is the finding — a relationship that
-   stopped — so it colours the card rather than a badge inside it. */
-.pe-today-warn {
-  background: var(--warnBg);
-  border-color: var(--warnBorder);
 }
 
 .pe-today-head {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--textSecondary);
 }
 
 .pe-today-headline {
@@ -187,18 +174,33 @@
 .pe-today-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   align-items: stretch;
   min-width: 160px;
 }
 
-/* Sources and freshness sit under the evidence, quiet: they qualify the card
-   without competing with it. */
+/* A verb and what pressing it will do, as one block: the readiness belongs to
+   its own button and must not drift next to the one below it. */
+.pe-today-verb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: stretch;
+}
+
+.pe-today-verb-state {
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--textMeta);
+}
+
+/* Sources and freshness ride the panel's own footer band, quiet: they qualify
+   the whole reading rather than any one line of it. */
 .pe-today-foot {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-4);
   font-size: 12px;
   color: var(--textSecondary);
 }
@@ -214,7 +216,7 @@
 }
 
 @media (max-width: 900px) {
-  .pe-today {
+  .pe-today-lead {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -224,68 +226,38 @@
 }
 
 /* ---------------------------------------------------------------------------
-   The 2×2 content grid (§5.1): two equal columns below the Today card.
+   The overview's own column: ONE vertical stack of same-shaped panels, the
+   company record's shape.
 
-   Equal columns, not auto-fit: the mockup pairs a narrow left card with a
-   wider right one by CONTENT, and letting the grid choose column counts by
-   available width would break the pairing at arbitrary sizes.
+   Not a two-column grid of half-width cards. Every panel here is read top to
+   bottom once rather than compared with the one beside it, and the brief is
+   prose — in a half-width column it gets a measure too narrow to read as
+   prose, which is the one thing that card has to do.
    --------------------------------------------------------------------------- */
-.pe-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-  align-items: start;
-  margin-bottom: var(--space-4);
-}
-
-.pe-col {
+.pe-overview-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   min-width: 0;
 }
 
-@media (max-width: 900px) {
-  .pe-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* ---------------------------------------------------------------------------
-   Cards. The person page's card is the company page's card at the same
-   rhythm; it is restated here rather than shared because the two pages are
-   allowed to diverge and a shared class would make that a coordination
-   problem.
+   Cards. The person page's panels are the design system's `Panel` — the
+   record page's titled-card shape, which is why there is no `.pe-card` here.
+   What remains is the anatomy INSIDE a panel that is the person's own.
    --------------------------------------------------------------------------- */
-.pe-card {
-  padding: var(--space-4) var(--space-5);
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: 10px;
-}
 
-.pe-card-title {
-  margin: 0 0 var(--space-3);
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--textPrimary);
-}
-
-/* A row of labelled facts — "what matters", the consent card. The label
-   column is fixed so the values line up down the card; a value that wraps
-   pushes its own row taller and leaves the others alone. */
+/* A row of labelled facts — "what matters", the consent card. It is a
+   `PanelRow`, so the hairline, the hover and the panel's own gutters come from
+   there; what is the person's own is the fixed label column, which lines the
+   values up down the card while a value that wraps pushes only its own row
+   taller. */
 .pe-row {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: center;
-  padding: var(--space-3) 0;
-  border-top: 1px solid var(--borderSubtle);
   font-size: 14px;
-}
-
-.pe-row:first-of-type {
-  border-top: 0;
 }
 
 .pe-row-label {
@@ -305,16 +277,43 @@
   color: var(--textContent);
 }
 
-/* The header's contact pills sit clear of the line above them. */
-.pe-chiprow-spaced {
-  margin-top: var(--space-2);
-}
-
 /* The source chips under the brief — where each sentence was read from. */
 .pe-chiprow {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* The three-column state band under the brief's prose: a hairline reads as a
+   band closing the prose above it, rather than more prose running on. */
+.pe-brief-state {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.pe-brief-label {
+  margin-top: 0;
+  margin-bottom: var(--space-1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+
+.pe-brief-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+@media (max-width: 900px) {
+  .pe-brief-state {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -376,13 +375,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: center;
-  padding: var(--space-3) 0;
-  border-top: 1px solid var(--borderSubtle);
   font-size: 14px;
-}
-
-.pe-loop:first-of-type {
-  border-top: 0;
 }
 
 .pe-loop-body {
@@ -402,30 +395,17 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Conversation memory (§5.10): full width under the grid. Threads as
+   Conversation memory (§5.10): the last panel in the stack. Threads as
    entities, not transport events.
    --------------------------------------------------------------------------- */
-.pe-memory {
-  margin-bottom: var(--space-4);
-}
-
-.pe-memory-filters {
-  margin-bottom: var(--space-3);
-}
-
-/* Date · channel · body · status · time. The date and channel columns are
-   fixed so the eye runs down them; the body takes what is left. */
+/* A thread as one row. It is a `PanelRow`, so the hairline and the gutters come
+   from there; the column template is the memory's own — date, channel, what it
+   said, its standing, the time. */
 .pe-memory-row {
   display: grid;
   grid-template-columns: 64px auto minmax(0, 1fr) auto auto;
   gap: var(--space-3);
   align-items: start;
-  padding: var(--space-4) 0;
-  border-top: 1px solid var(--borderSubtle);
-}
-
-.pe-memory-row:first-of-type {
-  border-top: 0;
 }
 
 .pe-memory-date {
@@ -479,26 +459,60 @@
 }
 
 /* ---------------------------------------------------------------------------
-   The right rail (§5.11): six cards, one column. It never becomes a grid —
-   a rail that re-columns is a second body rather than a margin.
+   The right rail (§5.11): one continuous panel, its six slices told apart by
+   a hairline rather than by a gap between cards — the company record's rail
+   anatomy (company360.css `.co-rail .co-sect`), mirrored here rather than
+   reinvented. It never becomes a grid — a rail that re-columns is a second
+   body rather than a margin.
    --------------------------------------------------------------------------- */
-.pe-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  align-items: stretch;
+/* A row's overflow menu is positioned against the row, so it opens INSIDE the
+   panel's box — and the panel clips its own overflow to keep full-bleed rows
+   inside its rounded corners. The menu would be sliced by that edge, so the
+   rail's panel lets its children out; its rows draw no fill at the corners
+   that would spill in return. */
+.pe-rail > .panel {
+  overflow: visible;
 }
 
-.pe-rail > .pe-card {
+.pe-rail .pe-sect {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: 0;
+  margin-bottom: 0;
+}
+.pe-rail .pe-sect > summary {
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--textMeta);
+  transition: background 0.15s;
+}
+.pe-rail .pe-sect > summary:hover {
+  background: var(--bgHover);
+}
+/* `t-label` (design-system/atoms.tsx) is a plain span wrapping the whole
+   `summary` prop, so it has to grow to fill the row before .pe-sect-summary's
+   own flex has anywhere to push the trailing control into. */
+.pe-rail .pe-sect > summary .t-label {
+  flex: 1;
+  min-width: 0;
+}
+.pe-rail .pe-sect > summary .btn {
+  margin-left: auto;
+}
+.pe-rail .pe-sect .disclosure-body {
+  margin-top: 0;
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+/* The pulse summary's own row: the section name, then its Explain button
+   pushed to the far end. */
+.pe-sect-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
-}
-
-.pe-rail-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
 }
 
 /* A rail row is one action or one reading: label left, value right. */
@@ -572,6 +586,70 @@
   color: var(--textSecondary);
 }
 
+/* Employers: the same name-over-proof anatomy as `.pe-colleague`, ruled
+   between entries the way `.pe-rail-row` rules between readings — a list
+   of edges, not a single fact, so it needs the same separator the rail's
+   other lists already use. The row is also the hover/focus scope for its
+   own overflow menu below. */
+/* The connection on the left, its verbs at the far right — the trigger sits at
+   the row's end because its menu opens back towards the record it belongs to.
+   Anchored under the org name instead, the menu would open away from the page
+   and off the edge of the column. */
+.pe-employment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.pe-employment + .pe-employment {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.pe-employment-org {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+}
+
+/* The role sits under the org name, on its own line — it is the ONE thing
+   in this row that is a control (InlineText), so it gets its own line
+   rather than fighting the org name and its badge for space. */
+.pe-employment-role {
+  display: block;
+  font-size: 13px;
+  color: var(--textContent);
+  margin-top: var(--space-1);
+}
+
+/* The row's own verbs, folded behind an overflow trigger — this row already
+   holds a focusable inline-edit control, so a rarely-used "mark as ended" or
+   "remove" sitting in plain view beside it competes for attention the role
+   edit deserves more. Hidden until the row is hovered or something inside it
+   (the role field, the trigger itself) has focus — the same reveal
+   company360.css's `.co-task-verbs` uses for its own row verbs. */
+.pe-employment-body {
+  display: block;
+  min-width: 0;
+}
+
+.pe-employment-actions {
+  opacity: 0;
+}
+.pe-employment:hover .pe-employment-actions,
+.pe-employment:focus-within .pe-employment-actions {
+  opacity: 1;
+}
+/* A coarse pointer has no hover to reveal the trigger with, and nothing else
+   on the row asks for keyboard focus first — so it stays on. */
+@media (hover: none) {
+  .pe-employment-actions {
+    opacity: 1;
+  }
+}
+
 /* Signals: a coloured dot the row's tone comes from, then the finding. */
 .pe-signal {
   display: grid;
@@ -620,6 +698,16 @@
    own content rhythm — the frame, the sticky header and the sticky footer come
    from the drawer variant itself.
    --------------------------------------------------------------------------- */
+/* A block's heading INSIDE a drawer, under the dialog's own title. It carries
+   the panel heading's weight without the design system's `SectionHeader`,
+   which draws an h2 — the level the dialog title already occupies. */
+.pe-section-title {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--textPrimary);
+}
+
 .pe-drawer-title {
   display: flex;
   align-items: center;

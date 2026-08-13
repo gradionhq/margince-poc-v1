@@ -324,7 +324,10 @@ export function StatCard({
   label: string;
   value: string;
   detail?: string;
-  tone?: "warn" | "danger";
+  // `good` is not "no tone": a slot whose reading is a VERDICT says so in both
+  // directions, and a verdict that is fine reads as fine rather than as one
+  // nobody has judged yet.
+  tone?: "good" | "warn" | "danger";
   // Where the figure came from, named on the card that shows it. A money
   // reading a reader cannot trace is one they have to go and verify
   // elsewhere, which is the trip the badge saves them.
