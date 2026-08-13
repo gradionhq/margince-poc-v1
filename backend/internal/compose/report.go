@@ -34,6 +34,7 @@ const (
 	colPipelineID     = "t.pipeline_id"
 	colStageID        = "t.stage_id"
 	colOrganizationID = "t.organization_id"
+	colCurrency       = "t.currency"
 	whereArchivedNull = "t.archived_at IS NULL"
 
 	// partnerSourcedExpr mirrors modules/deals.appendDealFilters' own
@@ -167,7 +168,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStatus:         "t.status",
 			"pipeline_id":       colPipelineID,
 			fieldWinProbability: colWinProbability,
-			fieldCurrency:       "t.currency",
+			fieldCurrency:       colCurrency,
 		},
 		measures: map[string]string{
 			"amount_minor":           colAmountMinor,
@@ -187,7 +188,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldOrganizationID: colOrganizationID,
 			fieldPartnerSourced: partnerSourcedExpr,
 			fieldStalled:        deals.StalledSQL("t"),
-			fieldCurrency:       "t.currency",
+			fieldCurrency:       colCurrency,
 		},
 		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
@@ -228,7 +229,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          "t.currency",
+			"currency":          colCurrency,
 			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
@@ -240,7 +241,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
-			"currency":          "t.currency",
+			"currency":          colCurrency,
 		},
 		defaultBy: []string{"forecast_category"},
 		defaultAggs: []reportAggregate{
