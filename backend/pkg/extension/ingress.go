@@ -49,6 +49,12 @@ type IngressSource struct {
 
 	// Lands are the record kinds this source produces. Empty is invalid rather
 	// than meaning "all": a declaration an operator reads must say what it does.
+	//
+	// One kind is landable today (KindActivity) and a Record carries exactly
+	// one payload, so this list currently states what the call could not
+	// contradict anyway. It is the growth point: the second kind arrives as a
+	// second Record field, and the gate that a unit may land only what it
+	// declared arrives with it, in the core.
 	Lands []RecordKind
 }
 
@@ -84,20 +90,6 @@ func (s IngressSource) Validate() error {
 		}
 	}
 	return nil
-}
-
-// LandsActivity reports whether this source declared the activity kind.
-//
-// Exported because the core asks it at the ingest call: a unit that declared a
-// source but not this kind is refused there rather than at boot, since the
-// declaration is legal and only the call is not.
-func (s IngressSource) LandsActivity() bool {
-	for _, declared := range s.Lands {
-		if declared == KindActivity {
-			return true
-		}
-	}
-	return false
 }
 
 // Message direction, relative to the member whose connection produced the

@@ -80,17 +80,25 @@ type extensionRuntimeBinding struct {
 }
 
 // BindExtensionCapture records the capture pipeline a unit's ingress lands
-// through. Called by the roles that compose capture, after the sink exists.
+// through. A role that runs unattended extension work — a job tick, a
+// subscription delivery — calls it once at boot with the same deployment
+// capture config its own connectors run on.
 //
-// Separate from BindExtensionRuntime rather than a fourth parameter on it,
+// It takes the CONFIG and assembles the sink here rather than accepting one,
+// which is the whole point of the signature: newCaptureSink is the one spelling
+// that attaches the file keeper, the merge stager and the counterparty ensurer,
+// and a parameter of type *capture.Sink would let a caller hand over a
+// hand-assembled pipeline that lands activities and silently creates no people.
+//
+// Separate from BindExtensionRuntime rather than a third parameter on it,
 // because the two answer different questions: every role has a pool and a
-// custodian, and only some compose a capture pipeline. A role that never calls
+// custodian, and only some run work that can ingest. A role that never calls
 // this leaves ingress refusing with errIngressUnwired, which is the honest
 // answer for a process that has nowhere to put a captured record.
-func BindExtensionCapture(sink *capture.Sink) {
+func BindExtensionCapture(pool *pgxpool.Pool, cfg CaptureConfig) {
 	extensionRuntimeDeps.mu.Lock()
 	defer extensionRuntimeDeps.mu.Unlock()
-	extensionRuntimeDeps.captureSink = sink
+	extensionRuntimeDeps.captureSink = newCaptureSink(pool, cfg)
 }
 
 // BindExtensionRuntime records what a governed extension tool's per-call

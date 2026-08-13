@@ -52,13 +52,16 @@ const ingressPrincipalPrefix = "connector:ext:"
 // is, then the record's own shape, and only then the two that cost a query —
 // the member's consent and their live authority.
 func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec extension.Record) (extension.Result, error) {
-	source, err := r.declaredIngress(rec.System)
-	if err != nil {
+	// The declared source is resolved rather than read: what comes back is
+	// unused today and that is a fact about the vocabulary, not an oversight.
+	// A source declares which KINDS it lands, and exactly one kind is landable
+	// (extension.KindActivity), which the declaration grammar already enforces
+	// at generation and at boot — while a Record carries one Activity and has
+	// no field a second kind could arrive in. So there is no call this side
+	// could refuse for landing an undeclared kind. When a second kind is
+	// published, the gate belongs here, against Lands.
+	if _, err := r.declaredIngress(rec.System); err != nil {
 		return extension.Result{}, err
-	}
-	if !source.LandsActivity() {
-		return extension.Result{}, fmt.Errorf("%w: ingress source %q does not declare the activity kind",
-			extension.ErrInvalid, rec.System)
 	}
 	// An invocation with a caller has two authorities in play — the caller's
 	// and the member's — and the shape where those differ is the one a
@@ -73,13 +76,17 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}
-	ctx, err = r.scoped(ctx)
-	if err != nil {
-		return extension.Result{}, err
-	}
+	// Whether this ROLE can accept a record at all is answered before the
+	// call's context is rebound: it costs nothing, it is the same answer for
+	// every call, and a deployment fault should not read as a refusal about
+	// this particular record.
 	sink := r.deps.captureSink
 	if sink == nil {
 		return extension.Result{}, errIngressUnwired
+	}
+	ctx, err := r.scoped(ctx)
+	if err != nil {
+		return extension.Result{}, err
 	}
 	runCtx, err := r.ingressAuthority(ctx, on)
 	if err != nil {

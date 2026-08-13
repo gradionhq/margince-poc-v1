@@ -140,12 +140,28 @@ func TestRuntimeIsScopedToTheInvokingUnit(t *testing.T) {
 	rt := reflect.TypeOf((*extension.Runtime)(nil)).Elem()
 	for i := range rt.NumMethod() {
 		m := rt.Method(i)
-		if named := stringParam(m.Type); named != "" {
+		if named := stringParam(m.Type); named != "" && !nameableByAMember[named] {
 			t.Fatalf("extension.Runtime.%s takes a %s — a unit name is a string, so this is a parameter "+
 				"through which a handler could ask to be re-scoped", m.Name, named)
 		}
 	}
 }
+
+// nameableByAMember is the one reviewed exception to the rule above, and it is
+// narrow on purpose: a parameter naming a MEMBER of this installation, never a
+// unit.
+//
+// Ingest takes one because a connector poll acts for the member whose
+// credential produced the record, and that member has to be named. What keeps
+// it from being the re-scoping parameter this test refuses is that the name is
+// not TRUSTED: the core checks the member currently holds one of this unit's
+// user-scoped secrets — depositing a credential is the consent act — and then
+// resolves what they may do right now, so naming a colleague buys a unit
+// nothing it could not already do for the members who asked it to.
+//
+// A bare string stays refused. The exception is by TYPE, so a future parameter
+// that means something else cannot arrive under it.
+var nameableByAMember = map[string]bool{"extension.UserID": true}
 
 // stringParam reports the first string-kinded parameter of fn, descending one
 // level into a callback parameter (Tx hands the unit a func, and a unit name
