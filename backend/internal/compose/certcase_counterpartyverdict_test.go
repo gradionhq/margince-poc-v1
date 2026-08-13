@@ -119,8 +119,8 @@ func TestVerdictCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 	}{
 		{
 			name:       "the expected verdict, well formed",
-			expected:   capture.PendingStatusReal,
-			answer:     func(id string) string { return verdictReply(id, capture.PendingStatusReal) },
+			expected:   capture.KindPerson,
+			answer:     func(id string) string { return verdictReply(id, capture.KindPerson) },
 			wantResult: aitasks.OutcomeAccepted,
 		},
 		{
@@ -128,23 +128,23 @@ func TestVerdictCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			// answer about an address nobody asked about is the shape a talked-into
 			// model takes, and the record has to be able to say so.
 			name:     "an answer about a sender nobody asked about",
-			expected: capture.PendingStatusReal,
+			expected: capture.KindPerson,
 			answer: func(string) string {
-				return verdictReply(ids.NewV7().String(), capture.PendingStatusReal)
+				return verdictReply(ids.NewV7().String(), capture.KindPerson)
 			},
 			wantResult: aitasks.OutcomeInvalid,
 			wantDetail: "was not requested",
 		},
 		{
 			name:       "a verdict outside the closed vocabulary",
-			expected:   capture.PendingStatusReal,
+			expected:   capture.KindPerson,
 			answer:     func(id string) string { return verdictReply(id, capture.PendingStatusUnsure) },
 			wantResult: aitasks.OutcomeInvalid,
-			wantDetail: "is not real|noise",
+			wantDetail: "is not one of person|role_mailbox",
 		},
 		{
 			name:       "a reply that is not the required JSON",
-			expected:   capture.PendingStatusReal,
+			expected:   capture.KindPerson,
 			answer:     func(string) string { return "I decline to answer." },
 			wantResult: aitasks.OutcomeInvalid,
 			wantDetail: "unparseable",
@@ -153,10 +153,10 @@ func TestVerdictCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			// Well formed and wrong is a measurement of the model, not a defect in
 			// the reply — the opposite fix from every case above it.
 			name:       "a well-formed answer the scenario disagrees with",
-			expected:   capture.PendingStatusReal,
-			answer:     func(id string) string { return verdictReply(id, capture.PendingStatusNoise) },
+			expected:   capture.KindPerson,
+			answer:     func(id string) string { return verdictReply(id, capture.KindSpam) },
 			wantResult: aitasks.OutcomeWrongAnswer,
-			wantDetail: capture.PendingStatusNoise,
+			wantDetail: capture.KindSpam,
 		},
 	}
 	for _, tc := range cases {
@@ -203,12 +203,12 @@ func TestVerdictCaseMintsTheRowIDRatherThanReadingIt(t *testing.T) {
 
 	ask := func() string {
 		t.Helper()
-		prepared, err := counterpartyVerdictCases{}.Prepare(fixture, verdictExpectation(t, capture.PendingStatusReal))
+		prepared, err := counterpartyVerdictCases{}.Prepare(fixture, verdictExpectation(t, capture.KindPerson))
 		if err != nil {
 			t.Fatalf("preparing the case: %v", err)
 		}
 		stub := &verdictCompleterStub{answer: func(id string) string {
-			return verdictReply(id, capture.PendingStatusReal)
+			return verdictReply(id, capture.KindPerson)
 		}}
 		if _, err := prepared.Run(context.Background(), stub); err != nil {
 			t.Fatalf("running the case: %v", err)
@@ -233,8 +233,8 @@ func TestVerdictCaseMintsTheRowIDRatherThanReadingIt(t *testing.T) {
 // production request but recorded nothing would certify a request nobody can
 // inspect.
 func TestVerdictCaseTraceCarriesTheRequestItIssued(t *testing.T) {
-	outcome, trace := runVerdictCase(t, capture.PendingStatusReal,
-		func(id string) string { return verdictReply(id, capture.PendingStatusReal) })
+	outcome, trace := runVerdictCase(t, capture.KindPerson,
+		func(id string) string { return verdictReply(id, capture.KindPerson) })
 
 	if outcome.Result != aitasks.OutcomeAccepted {
 		t.Fatalf("Result = %q (%s), want accepted", outcome.Result, outcome.Detail)
@@ -242,7 +242,7 @@ func TestVerdictCaseTraceCarriesTheRequestItIssued(t *testing.T) {
 	if len(trace.Requests) != 1 {
 		t.Fatalf("the trace carries %d requests, want the one this site issues", len(trace.Requests))
 	}
-	if !strings.Contains(trace.Requests[0].System, "first-time email sender") {
+	if !strings.Contains(trace.Requests[0].System, "first-time email address is") {
 		t.Errorf("the traced request is not the verdict prompt: %q", trace.Requests[0].System)
 	}
 	if !strings.Contains(trace.Requests[0].Messages[0].Content, "We need forty seats by March.") {
@@ -262,7 +262,7 @@ func TestVerdictCaseRefusesAnUnreachableExpectedVerdict(t *testing.T) {
 		if err == nil {
 			t.Fatalf("a scenario expecting %q prepared", expected)
 		}
-		if !strings.Contains(err.Error(), "real|noise") {
+		if !strings.Contains(err.Error(), "not a sender kind") {
 			t.Errorf("the refusal does not name the closed vocabulary: %v", err)
 		}
 	}
@@ -272,7 +272,7 @@ func TestVerdictCaseRefusesAnUnreachableExpectedVerdict(t *testing.T) {
 // nothing about the reply — and a case that ran it anyway would report a number
 // nobody wrote a claim for.
 func TestVerdictCaseRefusesAnExpectationItCannotRead(t *testing.T) {
-	for _, expected := range []json.RawMessage{nil, json.RawMessage(`{"verdict":"real"}`), json.RawMessage(`7`)} {
+	for _, expected := range []json.RawMessage{nil, json.RawMessage(`{"verdict":"person"}`), json.RawMessage(`7`)} {
 		_, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t), expected)
 		if err == nil {
 			t.Fatalf("a scenario expecting %s prepared", expected)

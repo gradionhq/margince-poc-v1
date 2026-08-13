@@ -51,7 +51,7 @@ func verdictRequest(row capture.PendingCounterparty) model.Request {
 	sender := fmt.Sprintf("From: %s (%s)\nSubject: %s\n%s",
 		row.DisplayName, row.Email, row.Subject, row.Body)
 	prompt.WriteString(fence.WrapAttr("id", row.ID.String(), sender) + "\n")
-	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
+	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id, where "verdict" is the sender kind.`)
 
 	return model.Request{
 		System:         verdictSystemFor(fence),
@@ -121,8 +121,9 @@ func validateVerdictPayload(payload verdictPayload, row capture.PendingCounterpa
 			return fmt.Sprintf("result id %q appears twice", clampToken(r.ID))
 		}
 		seen[r.ID] = true
-		if !verdictLabels[r.Verdict] {
-			return fmt.Sprintf("verdict %q is not real|noise", clampToken(r.Verdict))
+		if _, known := statusForKind(r.Verdict); !known {
+			return fmt.Sprintf("kind %q is not one of person|role_mailbox|organization_sender|newsletter|transactional|spam",
+				clampToken(r.Verdict))
 		}
 		if r.Confidence < 0 || r.Confidence > 1 {
 			return fmt.Sprintf("confidence %v is outside [0,1]", r.Confidence)
@@ -161,8 +162,10 @@ func verdictSchema() json.RawMessage {
 		map[string]schema.Node{
 			"results": schema.Array(schema.Object(
 				map[string]schema.Node{
-					"id":                    schema.String(),
-					"verdict":               schema.Enum(capture.PendingStatusReal, capture.PendingStatusNoise),
+					"id": schema.String(),
+					"verdict": schema.Enum(capture.KindPerson, capture.KindRoleMailbox,
+						capture.KindOrganizationSender, capture.KindNewsletter,
+						capture.KindTransactional, capture.KindSpam),
 					extractionConfidenceKey: schema.Number(),
 				},
 				"id", "verdict", "confidence",

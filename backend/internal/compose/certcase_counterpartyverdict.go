@@ -86,9 +86,9 @@ func (counterpartyVerdictCases) Prepare(fixture, expected json.RawMessage) (aita
 	// refuses every reply that could satisfy it, so the scenario would measure
 	// nothing for as long as it stayed in the corpus. Naming it here costs a
 	// parse; finding it later costs a paid run.
-	if !verdictLabels[want] {
+	if _, known := statusForKind(want); !known {
 		return nil, fmt.Errorf(
-			"capture_counterparty_verdict/verdict: the scenario expects %q, which is not real|noise", want)
+			"capture_counterparty_verdict/verdict: the scenario expects %q, which is not a sender kind", want)
 	}
 	return &counterpartyVerdictCase{
 		row: capture.PendingCounterparty{

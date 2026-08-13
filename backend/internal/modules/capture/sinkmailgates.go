@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -91,21 +92,95 @@ func (s *Sink) internalDomainTx(ctx context.Context, tx pgx.Tx, domain string) (
 // The first outbound message to an address counts immediately: writing to
 // someone is affirmative intent toward them, and it is the message being
 // captured right now that supplies it (the activity commits before this runs).
+//
+// One shape is excluded, and it is narrow on purpose: a SINGLE outbound whose
+// own text declines. A founder answering unsolicited mail with "not interested"
+// produced exactly one attested outbound, and that was enough to admit the
+// spammer ahead of every suppression rule — the record for "PE Insights" in a
+// real import came from precisely that reply. Declining is the one thing a
+// person writes that means the opposite of intent.
+//
+// Everything else still counts on sight. A reply that engages — a question, a
+// price, a meeting — is intent no matter that it answered rather than opened,
+// and so is any second outbound. The test is the WORDS, not the direction or
+// the order: a rule that demoted every reply would have refused a prospect who
+// wrote first and got answered, which is the most ordinary shape there is.
 func (s *Sink) correspondencePositiveTx(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
 	normalized := normalizeEmail(email)
 	if normalized == "" {
 		return false, nil
 	}
-	var corresponded bool
-	err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-		  SELECT 1 FROM activity
-		  WHERE counterparty_email = $1 AND counterparty_outbound_attested
-		)`, normalized).Scan(&corresponded)
+	// Body and subject travel SEPARATELY because only the body carries a quoted
+	// thread. Concatenating them first would leave no way to strip the sender's
+	// own words out of our reply.
+	rows, err := tx.Query(ctx, `
+		SELECT COALESCE(subject, ''), COALESCE(body, '')
+		  FROM activity
+		 WHERE counterparty_email = $1 AND counterparty_outbound_attested
+		 LIMIT 2`, normalized)
 	if err != nil {
 		return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
 	}
-	return corresponded, nil
+	defer rows.Close()
+	var texts []string
+	for rows.Next() {
+		var subject, body string
+		if err := rows.Scan(&subject, &body); err != nil {
+			return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
+		}
+		// Only what the SENDER of this outbound message wrote. A stored body
+		// keeps the quoted thread beneath the reply (mailmap caps it at 8000
+		// runes, it does not strip it), so a spammer who writes "not interested"
+		// in their own mail would otherwise put those words into our reply the
+		// moment somebody hits Reply — and talk themselves out of the CRM by
+		// feeding this gate a decline the mailbox owner never wrote.
+		texts = append(texts, subject+" "+textlang.NewTextOnly(body))
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
+	}
+	switch len(texts) {
+	case 0:
+		return false, nil
+	case 1:
+		return !isDecliningReply(texts[0]), nil
+	default:
+		// The LIMIT 2 above is why this is safe on a high-volume address: the
+		// query stops at the only distinction that matters, one outbound versus
+		// more than one, and never loads a whole correspondence to count it.
+		// Two or more outbound messages are a correspondence whatever any one of
+		// them says; nobody declines twice and keeps writing.
+		return true, nil
+	}
+}
+
+// declinePhrases are what a person writes to end a conversation they never
+// wanted. Deliberately short and unambiguous: every entry here has to be a
+// phrase whose presence means "stop", because a false positive sends a genuine
+// prospect to the verdict engine (a delay, and recoverable) while a false
+// negative admits a spammer permanently.
+var declinePhrases = []string{
+	"not interested", "no interest", "kein interesse", "nicht interessiert",
+	"please remove me", "remove me from", "unsubscribe", "opt out", "opt-out",
+	"austragen", "abmelden", "bitte löschen sie", "keine weiteren e-mails",
+	"do not contact", "don't contact", "stop emailing", "stop contacting",
+	"no thanks", "no thank you",
+}
+
+// isDecliningReply reports whether an outbound message is a refusal rather than
+// engagement. It reads the message's own words; the LLM verdict that follows
+// reads the whole thread and has the final say.
+func isDecliningReply(text string) bool {
+	// Whitespace is collapsed before matching: a mail client wraps lines where
+	// it likes, so "not\ninterested" is the same sentence as "not interested"
+	// and a matcher that missed it would be defeated by the window width.
+	lowered := strings.Join(strings.Fields(strings.ToLower(text)), " ")
+	for _, phrase := range declinePhrases {
+		if strings.Contains(lowered, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // registrySuppresses runs T2 against the transactional/ESP registry

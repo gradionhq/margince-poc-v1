@@ -368,3 +368,163 @@ func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
 		t.Fatalf("budget spent = %d, want 0 — nothing here started a read, so nothing may stay reserved", n)
 	}
 }
+
+// Declining is not a relationship. The T1 gate reads what the one outbound
+// message SAYS, because "not interested" is the reply a person writes to end a
+// conversation they never wanted — and admitting the sender on the strength of
+// it is how a real import ended up with a customer-grade record for a firm that
+// had cold-mailed the founder.
+func TestCaptureTierGateRefusesToAdmitASenderTheOwnerDeclined(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
+
+	t.Run("a single declining reply does not admit the sender", func(t *testing.T) {
+		sync(t, email("deals@peinsights.example", "PE Insights", captureOwner, "pe1@peinsights.example", ""))
+		syncSent(t, map[string]bool{"pe2@myco.example": true},
+			emailSaying("deals@peinsights.example", "pe2@myco.example", "pe1@peinsights.example",
+				"Thanks, but we are not interested. Please remove me from your list."))
+
+		// The reply IS attested outbound — the evidence exists, and the gate
+		// still refuses it, which is the whole point.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM activity
+			WHERE counterparty_email = 'deals@peinsights.example' AND counterparty_outbound_attested`); n != 1 {
+			t.Fatalf("%d attested outbound activities, want 1 — the scenario needs the evidence present", n)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'deals@peinsights.example'`); n != 0 {
+			t.Fatalf("%d persons for a sender the owner declined, want 0", n)
+		}
+		// Not dropped — deferred. The verdict engine reads the thread and has
+		// the final say; refusing T1 only means the question stays open.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'deals@peinsights.example' AND status = 'pending'`); n != 1 {
+			t.Fatalf("%d open questions for the declined sender, want exactly 1", n)
+		}
+	})
+
+	t.Run("a reply that engages admits the sender immediately", func(t *testing.T) {
+		// The other half, and the reason the rule reads words rather than
+		// direction: answering a prospect is the most ordinary correspondence
+		// there is, and a gate that demoted every reply would refuse it.
+		sync(t, email("buyer@northwind.example", "Buyer", captureOwner, "nw1@northwind.example", ""))
+		syncSent(t, map[string]bool{"nw2@myco.example": true},
+			emailSaying("buyer@northwind.example", "nw2@myco.example", "nw1@northwind.example",
+				"Happy to help — can you do a call on Thursday to talk through pricing?"))
+
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'buyer@northwind.example'`); n != 1 {
+			t.Fatalf("%d persons for a prospect the owner engaged, want exactly 1", n)
+		}
+	})
+
+	t.Run("a second outbound admits the sender whatever the first said", func(t *testing.T) {
+		// Nobody declines twice and keeps writing. Two attested outbounds are a
+		// correspondence regardless of the words in either.
+		sync(t, email("sales@laterdeal.example", "Later Deal", captureOwner, "ld1@laterdeal.example", ""))
+		syncSent(t, map[string]bool{"ld2@myco.example": true},
+			emailSaying("sales@laterdeal.example", "ld2@myco.example", "ld1@laterdeal.example",
+				"Not interested right now."))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'sales@laterdeal.example'`); n != 0 {
+			t.Fatalf("%d persons after the decline alone, want 0", n)
+		}
+
+		syncSent(t, map[string]bool{"ld3@myco.example": true},
+			emailSaying("sales@laterdeal.example", "ld3@myco.example", "ld1@laterdeal.example",
+				"Actually, let us revisit this in Q3."))
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'sales@laterdeal.example'`); n != 1 {
+			t.Fatalf("%d persons after a second outbound, want exactly 1", n)
+		}
+	})
+}
+
+// The attack the quote-strip exists to refuse: a sender plants the decline
+// phrase in THEIR OWN mail, so that the moment the mailbox owner hits Reply the
+// words appear inside our outbound body. Read naively that reads as the owner
+// declining, and the sender talks themselves out of the CRM — a suppression
+// anybody can trigger on anybody by writing one sentence.
+func TestCaptureTierGateReadsOnlyWhatTheOwnerActuallyWrote(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
+
+	sync(t, email("rep@planted.example", "Rep", captureOwner, "pl1@planted.example", ""))
+	// The reply the owner sent: their own line on top, the sender's planted
+	// text quoted beneath it exactly as every mail client leaves it.
+	syncSent(t, map[string]bool{"pl2@myco.example": true},
+		emailSaying("rep@planted.example", "pl2@myco.example", "pl1@planted.example",
+			"Yes please, send the contract over.\r\n\r\n"+
+				"On Wed, Jun 4, 2026 at 08:00, Rep <rep@planted.example> wrote:\r\n"+
+				"> Hello — if you are not interested, please remove me from your list\r\n"+
+				"> and unsubscribe here.\r\n"))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		WHERE pe.email = 'rep@planted.example'`); n != 1 {
+		t.Fatalf("%d persons, want 1 — the decline was quoted from the SENDER, not written by the owner", n)
+	}
+}
+
+// A decided role mailbox stays nobody on its NEXT message.
+//
+// The verdict resolves such an address to the `real` LIFECYCLE — the mail is
+// genuine correspondence and hiding it would be wrong — while creating no
+// contact, because a shared mailbox has no human to name. The tier ladder then
+// asks what the workspace already decided, and reading the status alone says
+// "known counterparty, create the person": the contact the verdict declined
+// would appear the moment support@ wrote again. The kind is what stops that.
+func TestCaptureTierGateNeverMintsAPersonForADecidedRoleMailbox(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+	const addr = "support@respacio.example"
+
+	// The first message opens the question the way capture really does: a
+	// first-time stranger defers, and the row it writes is the one the verdict
+	// engine would answer.
+	sync(t, email(addr, "Respacio Support", captureOwner, "rs1@respacio.example", ""))
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'support@respacio.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d deferred questions after first contact, want exactly 1", n)
+	}
+
+	// The ledger as the verdict engine leaves it: real lifecycle, kind
+	// role_mailbox, no person created.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE capture_pending_counterparty
+			   SET status = 'real', kind = 'role_mailbox',
+			       disposition_reason = 'capture_counterparty_verdict', resolved_at = now()
+			 WHERE email = $1`, addr)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The SECOND message is the one that used to mint the contact.
+	sync(t, email(addr, "Respacio Support", captureOwner, "rs2@respacio.example", ""))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		WHERE pe.email = 'support@respacio.example'`); n != 0 {
+		t.Fatalf("%d persons for a decided role mailbox, want 0 — the kind must outlive the verdict pass", n)
+	}
+	// Decided means decided: the question is not re-opened and re-billed.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'support@respacio.example' AND status = 'pending'`); n != 0 {
+		t.Fatalf("%d re-opened questions for a decided mailbox, want 0", n)
+	}
+	// The mail itself stays visible. This kind is real correspondence.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM activity
+		WHERE counterparty_email = 'support@respacio.example' AND archived_at IS NULL`); n != 2 {
+		t.Fatalf("%d visible messages, want 2 — a role mailbox is not noise", n)
+	}
+}

@@ -105,6 +105,25 @@ func email(from, fromName, to, msgID, refs string) []byte {
 	return []byte(strings.Join(lines, "\r\n"))
 }
 
+// emailSaying is email() with the body a scenario needs to be about, always
+// FROM the mailbox owner. The T1 gate reads what an OUTBOUND message says — a
+// reply that declines is not intent toward the sender — and an inbound body has
+// no bearing on that rule, so there is no sender to vary.
+func emailSaying(to, msgID, refs, body string) []byte {
+	lines := []string{
+		"From: " + captureOwner,
+		"To: " + to,
+		"Subject: project",
+		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
+		"Message-ID: <" + msgID + ">",
+	}
+	if refs != "" {
+		lines = append(lines, "References: <"+refs+">")
+	}
+	lines = append(lines, "Content-Type: text/plain", "", body, "")
+	return []byte(strings.Join(lines, "\r\n"))
+}
+
 // emailWithListUnsub builds a message carrying an RFC 2369 List-Unsubscribe
 // header — the bulk-mail corroboration the transactional prefix rule needs.
 // Always addressed to captureOwner: these scenarios vary the SENDER, and a

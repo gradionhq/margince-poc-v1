@@ -15,15 +15,17 @@ fixture:
     Unsubscribe | Manage preferences | View in browser
 expect:
   outcome: accepted
-  answer: noise
+  answer: newsletter
   rubric: >
     A bulk marketing send with every mass-mail marker present: a digest sender
     address, promotional subject, a list-membership explanation and unsubscribe
     footer. Nobody at this business has a relationship with the sender.
-    A verdict of "noise" scores high. A verdict of "real" scores low — it is the
+    A kind of "newsletter" scores high. "person" scores low — it is the
     junk-record outcome ADR-0072 exists to prevent, though it is the SAFE
     direction of error: a wrongly created record is visible and deletable, where
-    a wrongly hidden prospect is neither.
+    a wrongly hidden prospect is neither. "spam" is a near miss: the mail is
+    bulk marketing either way and both hide it, so the effect is right even
+    though the label is less precise.
   bands:
     certified_min: 70
     degraded_min: 50
