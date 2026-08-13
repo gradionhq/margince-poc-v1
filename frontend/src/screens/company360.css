@@ -37,9 +37,8 @@
   margin-bottom: 0;
 }
 
-/* Owned by the reading that FOLLOWS it, same rule as .today-tile's own
-   separator above: a line that wraps never leaves a dot stranded at its
-   end. */
+/* The dot between two readings on one line. Owned by the reading that FOLLOWS
+   it, so a line that wraps never leaves a separator stranded at its end. */
 .co-sep {
   color: var(--textMeta);
 }
@@ -1078,153 +1077,208 @@
   font-size: var(--fs-meta);
   color: var(--textMeta);
 }
-/* The brief's context reads as a SENTENCE, not as a second table. The strip
-   directly above it is already a grid of label-over-value tiles, and a second
-   grid of the same shape under it reads as one table split in half — nothing
-   tells the reader why a reading sits in the upper block rather than the
-   lower one. Two jobs, two shapes: the strip states what the account IS, in a
-   grid; the brief says what is true TODAY, in a line. */
-.today-tiles {
-  display: grid;
-  /* One row, one column per reading. auto-fit packed four readings into three
-     columns and left the fourth stranded on a row of its own, which reads as
-     a table that ran out of room rather than as the account's four answers. */
-  grid-template-columns: repeat(var(--today-readings, 4), minmax(0, 1fr));
-  grid-template-rows: auto auto;
-  gap: var(--space-1) var(--space-5);
-  padding: var(--space-4) var(--space-5);
+/* The brief's context is a STANDFIRST: one line under the panel's title that
+   says why the moves below it are being asked, and then gets out of the way.
+   It sat as a grid of label-over-value tiles, directly beneath a state strip
+   that is already a grid of label-over-value tiles — one table split in half,
+   with nothing telling a reader why a reading belonged to the upper block
+   rather than the lower one. Two jobs, two shapes: the strip states what the
+   account IS, in a grid; this says what is true TODAY, in a sentence. */
+/* The context sits on its own plate, inset from the panel's edges, while the
+   moves below run full-bleed on the panel's own ground. That is the whole
+   device: a reader can tell which part of the panel is what IS from which
+   part is what to DO before reading a word of either, and nothing on the
+   plate looks pressable. */
+.today-context {
+  margin: var(--space-4) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
 }
-@media (max-width: 68rem) {
-  .today-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-/* Each reading owns a cell: its name on one line, its answer under it. Run
-   together on one wrapping line the readings broke mid-item and the dots
-   between them ended up floating against whichever one happened to wrap, so
-   the band read as a sentence that had come apart rather than as four things
-   the account is. */
-/* Two rows the whole band shares: every name on one line, every answer
-   beginning on the next. Sized per cell the answers started wherever their
-   own label happened to end, so a reading whose answer wrapped sat a line
-   below its neighbours and the row lost the baseline that makes it scannable. */
-.today-tile {
-  display: grid;
-  grid-template-rows: subgrid;
-  grid-row: span 2;
-  grid-template-columns: auto auto 1fr;
-  align-content: start;
-  gap: 0 var(--space-2);
-  min-width: 0;
-}
-.today-tile .today-headline {
-  grid-column: 1 / -1;
-}
-/* The separator belongs to the reading that FOLLOWS it, so a line that wraps
-   never leaves a dot stranded at its end. */
-/* No separators: the grid's own columns do that work now, and a dot between
-   cells reads as punctuation in a sentence the layout no longer is. */
-/* Sentence case, at reading size. Caps earn their place in a GRID, where a
-   label owns its column and must be told apart from the value beneath it. Set
-   inline, four capitalised labels beside four capitalised qualifiers put eight
-   shouting runs in one line and the line stops reading as a line. The label is
-   the quiet half: the reading beside it is what the reader came for. */
-.today-tile-label {
+/* Whose move it is, at the top and in its own weight: the one thing a reader
+   must know before the moves under it mean anything. */
+.today-lead {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  white-space: nowrap;
-  overflow: hidden;
-  order: -2;
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-regular);
-  letter-spacing: var(--tracking-normal);
-  text-transform: none;
-  color: var(--textMeta);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--textContent);
 }
-.today-tile-label svg {
+/* The mark carries the state's colour so the block reads before it is read.
+   It is 6px of ink rather than a token step: a dot sized off the spacing
+   scale is either a full stop or a bullet, and this is neither. */
+.today-lead-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
   flex: none;
 }
-.today-tile-label > :not(svg) {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.today-lead-warn {
+  color: var(--warn);
 }
-.today-headline {
+.today-lead-danger {
+  color: var(--danger);
+}
+/* The state stays at the block's own colour even when the mark is coloured:
+   a whole line set in warning colour reads as an alarm, and the state is a
+   fact about the account rather than a fault in it. */
+.today-lead-state {
+  color: var(--textContent);
+}
+/* How long it has stood that way — quieter than the state, and never so long
+   that it becomes the sentence. */
+.today-lead-note {
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}
+/* The readings behind the lead: names in one column, answers in the other,
+   so a reader sweeps the answers down a single margin. A rule above them
+   separates the account's STATE from the evidence for it. */
+.today-readings {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--borderSubtle);
   font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
+}
+/* Each reading is one grid row, its two halves landing in the two columns:
+   the wrapper exists so the pair carries one key and one anchor, not so it
+   draws a box of its own. */
+.today-reading {
+  display: contents;
+}
+.today-reading dt {
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+}
+.today-reading dd {
+  margin: 0;
   color: var(--textContent);
   overflow-wrap: anywhere;
 }
-/* The claim-kind is a footnote to its reading — checkable without being read.
-   Every reading carries one, fact included: a qualifier that appeared only on
-   the judgements would teach the reader that an unlabelled one is unexamined.
-   In a line this dense it has to be the quietest thing in it, which is why it
-   sheds the Badge's pill entirely rather than only its fill. */
-/* Beside the reading's NAME rather than under its answer: on its own line it
-   cost every cell a third row to say one quiet word. */
-.today-tile > .badge {
-  order: -1;
-  align-self: flex-start;
-  padding: 0;
-  background: none;
-  border: 0;
-  text-transform: lowercase;
-  letter-spacing: var(--tracking-normal);
+/* What the reading could not see before making its claim, trailing the answer
+   it qualifies. */
+.today-reading-note {
+  margin-left: var(--space-2);
   font-size: var(--fs-meta);
-  font-weight: var(--fw-regular);
   color: var(--textMeta);
 }
-/* Each reading keeps its date and its reason in the record it came from. Here
-   the detail is what would turn the sentence back into a table. */
-.today-detail {
-  display: none;
-}
-/* The tiles carry their own inset, so the body around them adds none. */
-.co-lead .panel-body:has(.today-tiles) {
-  padding: 0;
-}
 
-/* A move is one line: the ask, its reason, and the verb at the row's end. The
-   ask reads at body weight rather than as a heading — the panel already
-   announces itself, and four headings under one header is the page saying the
-   same thing twice. */
+/* A move is the row's own paragraph: the ask, its reason under it, and the
+   verbs at the row's end. Ask and reason ran inline as one wrapping line,
+   which held four moves in less height and cost the reader the thing that
+   makes a list of asks scannable — every ask starting at the same margin,
+   with its reason beneath rather than beside it. */
 .co-lead .co-move {
   align-items: center;
 }
+/* The ask carries a little more air under it than the rest of the column: it
+   names the move, and the two lines below it are the case FOR that move, so
+   they belong closer to each other than to the thing they argue for. */
 .co-lead .co-move-ask {
   font-size: var(--fs-body);
   font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  margin-bottom: var(--space-1);
 }
+/* Two columns for the whole row: the left is what the move CLAIMS — ask,
+   reason, the evidence it rests on — and the right is what a reader can do
+   about it. That split is what keeps a column of verbs starting at the same
+   margin whether or not the move above it gave a reason. */
+/* One rhythm down the left column: the reason and the provenance under it sit
+   at the same interval, so the case for the move reads as one block rather
+   than as a line with a footnote. */
 .co-lead .co-move-body {
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-3) var(--space-4);
 }
+/* The rows the verbs span have to be EXPLICIT rows. `grid-row: 1 / -1` counts
+   its end line in the explicit grid, so on a grid that declares columns only,
+   -1 resolves to the first line and the verbs land in row one alone — sizing
+   that row to the button and pushing the ask half a button away from its own
+   reason. The count follows what the left column actually holds, because an
+   explicit row with nothing in it still draws its gap. */
+.co-lead .co-move-body:has(.co-move-why) {
+  grid-template-rows: auto auto;
+}
+.co-lead .co-move-body:has(.co-move-why):has(.co-move-cites) {
+  grid-template-rows: auto auto auto;
+}
+/* An equal `gap` does NOT draw equal gutters: half-leading lives inside each
+   line's own box, so three lines at three sizes push their neighbours apart by
+   three different amounts and the column reads as unevenly spaced however the
+   gap is set. Trimming the leading makes the box end where the letters do, so
+   the gap above is the whole distance a reader sees. A browser that does not
+   support it falls back to the leading it always had. */
+.co-lead .co-move-ask,
 .co-lead .co-move-why {
-  flex: 1 1 24ch;
+  text-box: trim-both cap alphabetic;
 }
-.co-lead > .panel-head {
-  gap: var(--space-2);
+.co-lead .co-move-ask,
+.co-lead .co-move-why,
+.co-lead .co-move-cites {
+  grid-column: 1;
 }
-.co-lead > .panel-head h2 {
-  font-size: var(--fs-body);
-  font-weight: var(--fw-semibold);
+/* The provenance line, under the reason and quieter than it: which record the
+   advice read, and when that record is dated. It answers "where did this come
+   from" for a reader who doubts the row, and stays out of the way of one who
+   does not. */
+.co-lead .co-move-cites {
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+  /* Pulled up against the reason it belongs to: the chip is a bordered box and
+     an equal gap reads as a wider one, so the correction is optical. */
+  margin-top: -2px;
 }
-/* Every verb sits at the row's end, whether or not the move gave a reason.
-   Left to the body's own flow, a move with nothing to explain puts its button
-   directly against the ask while its neighbour's sits at the far margin, and
-   a column of buttons that starts in a different place on each row reads as
-   an accident. */
+/* Citations START this line here rather than trailing a sentence, so they drop
+   the inline gap that separates them from prose everywhere else. Kept, it
+   indents the first citation against the ask and the reason above it, and
+   three left edges that nearly agree read as a mistake, not as a hierarchy. */
+.co-lead .co-move-cites > .co-brief-cites {
+  margin-inline-start: 0;
+}
+/* The wrapper stops being a box of its own so its two halves can land in the
+   row's own two columns: the evidence belongs under the reason it supports,
+   and the verbs opposite all of it. */
 .co-lead .co-move-do {
-  margin-left: auto;
+  display: contents;
+}
+.co-lead .co-move-actions {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+/* Putting a move off is not a second verb. Stripped of its border it reads as
+   the aside it is, and the row keeps exactly one control that looks pressable
+   for the thing it wants done. */
+.co-move-defer {
+  border-color: transparent;
+  background: none;
+  color: var(--textMeta);
+}
+.co-move-defer:hover:not(:disabled) {
+  background: none;
+  color: var(--textContent);
 }
 .co-lead > .panel-head {
   gap: var(--space-2);
 }
-/* The header names the account's own day, so it carries the date the reading
-   was taken rather than leaving it to a footer nobody reaches. */
+/* The panel's own name, at body weight: the record's tabs and its heading are
+   already louder, and a brief that shouts over them stops reading as one part
+   of a page. */
 .co-lead > .panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--fs-body);
   font-weight: var(--fw-semibold);
 }

@@ -1,18 +1,9 @@
-import {
-  ArrowLeftRight,
-  CalendarClock,
-  Info,
-  type LucideIcon,
-  MessageSquare,
-  TriangleAlert,
-  Waypoints,
-} from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
-import { type Locale, useLocale, useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
   ENGAGEMENT_LABELS,
@@ -21,7 +12,6 @@ import {
   RECORD_ZONE,
   type SuggestionAction,
   signalKindLabel,
-  signalTone,
   useSuggestionsBody,
 } from "./company360";
 
@@ -30,19 +20,29 @@ import {
 // ("Today on this account" and "Worth doing next") that used to say the same
 // things twice between them: this one merged reading, not two that agree.
 //
-// TWO PARTS. A CONTEXT band of dated readings — whose move it is, the way
+// TWO PARTS. A CONTEXT block of dated readings — whose move it is, the way
 // in, what was last said, what is running, what is wrong — and, under it,
 // the MOVES: the advice rows and the two verbs (draft a follow-up, prepare a
 // meeting) that act on that context. The context states what IS; the moves
 // say what to DO about it, and the split between them is this component's
 // whole reason to exist.
 //
-// THE ONE RULE THAT SHAPES THE CONTEXT BAND: a fact, an assessment and a
-// recommendation are different kinds of claim and are labelled differently. "A
-// meeting is booked for Thursday" is checkable. "This account has gone quiet" is
-// a judgement made from a threshold. Rendering both in one voice is how a
-// product gets trusted for the wrong things and then distrusted for all of
-// them.
+// THE SPLIT IS DRAWN, not merely ordered. The context sits on its own tinted
+// plate, inset from the panel's edges; the moves run full-bleed on the panel's
+// own ground with their verbs at the row's end. A reader can tell which half
+// is which before reading a word of either, and nothing on the plate looks
+// pressable.
+//
+// WITHIN THE BLOCK, ONE READING LEADS. Whose move it is, with how long it has
+// stood that way, sits above a rule in its own weight; the readings that
+// support it are a label-and-answer list beneath. That is a claim about
+// importance and it is the only ranking on the panel — everything under the
+// rule is drawn alike, because a reader who cannot predict an order stops
+// trusting it.
+//
+// A reading that is BAD NEWS still says so, in colour: an account gone quiet,
+// a deal stalled, a move that has been ours for weeks. Nothing else in the
+// block is coloured, so the colour means one thing.
 //
 // The second rule is quieter and does more work: an item appears only when it
 // has something to say. Missing data is not a recommendation — "no meeting
@@ -66,36 +66,32 @@ import {
 
 type Organization360 = components["schemas"]["Organization360"];
 
-// The three kinds of claim, in the order a reader should trust them.
-type Nature = "fact" | "assessment" | "recommendation";
-
-const NATURE_LABEL: Record<Nature, MessageKey> = {
-  fact: "today.nature.fact",
-  assessment: "today.nature.assessment",
-  recommendation: "today.nature.recommendation",
-};
-
-const NATURE_TONE: Record<Nature, "accent" | "warn" | undefined> = {
-  fact: undefined,
-  assessment: "warn",
-  recommendation: "accent",
-};
-
+// One reading under the lead: its name on the left, its answer on the right.
+// Every one carries a label, because in a column of answers an unlabelled one
+// is a sentence with nothing to hold it — "Demo Admin → Hill Pruksananont" is
+// two names and an arrow until "Best route" stands in front of it.
 type TodayItem = {
   key: string;
-  // What kind of reading this is, drawn beside the label. Six tiles of
-  // undifferentiated text is a paragraph in a grid.
-  icon: LucideIcon;
-  // Names the tile — "Whose move", "Best route". The headline below it is
-  // the answer, and an answer with no question is a fact floating on a card.
   label: string;
-  nature: Nature;
   headline: string;
-  // The reason this is here now, in the reader's words. A line that would read
-  // the same next month is not today's business.
-  detail?: string;
-  // Colours the headline where the reading itself is bad news — an open
-  // risk, a stalled deal, an account gone quiet.
+  // What the reading could not see before making its claim, drawn quieter
+  // than the claim itself. Only a reading whose honesty depends on it carries
+  // one; it is not a slot for a second sentence.
+  qualifier?: string;
+};
+
+// The lead reading: whose move it is, at the top of the context block and in
+// its own weight. It is the one thing on the panel a reader must know before
+// the moves under it mean anything, which is why it is not one row of the
+// list beneath it.
+type TodayLead = {
+  headline: string;
+  // How long it has stood that way, beside the state and quieter than it. A
+  // state with no duration is a status; with one it is a fact a rep can act
+  // on.
+  note?: string;
+  // Colours the state where it is bad news — an account gone quiet, a move
+  // that has been ours for weeks.
   tone?: "warn" | "danger";
 };
 
@@ -161,35 +157,22 @@ export function TodayOnThisAccount({
     );
   }
 
-  const items = todayContextItems({
+  const ctx: TodayContext = {
     view,
     t,
     when: (at: string) => formatDateTime(at, locale, RECORD_ZONE),
-    locale,
-  });
+  };
+  const lead = whoseMove(ctx);
+  const items = todayContextItems(ctx);
   const manualMoves = manualMoveRows({ view, t, onPrepareMeeting, onDraftTo });
   const commitment = nextCommitmentLine(view, t);
-  const hasContext = items.length > 0;
+  const hasContext = lead !== null || items.length > 0;
   const hasMoves = suggestions.ready || manualMoves.length > 0;
-  // The way OUT of the brief belongs beside its name, not under it: a footer
-  // band holding one link is a whole row of the record spent on a link. The
-  // band below is kept for what genuinely belongs to the brief as a whole —
-  // the commitment it is counting down to, and what the advice could not show.
-  const footer =
-    commitment || suggestions.footer ? (
-      <>
-        {commitment && (
-          <Badge tone={commitment.overdue ? "warn" : undefined}>
-            {commitment.headline}
-          </Badge>
-        )}
-        {suggestions.footer}
-      </>
-    ) : undefined;
+  const footer = briefFooter(commitment, suggestions.footer);
 
   return (
     <Panel
-      title={t("today.title")}
+      title={<TodayTitle moves={suggestions.count + manualMoves.length} />}
       className="co-lead"
       titleAction={
         onOpenTasks && (
@@ -209,48 +192,7 @@ export function TodayOnThisAccount({
         </PanelBody>
       ) : (
         <>
-          {hasContext && (
-            <PanelBody>
-              <ul className="today-tiles">
-                {items.map((item) => (
-                  // The key's prefix names WHICH reading this is ("move",
-                  // "interaction", …). Exposed so a layout test can anchor on
-                  // the tile it means without matching drawn copy, which
-                  // would make a translation edit fail a layout suite.
-                  <li
-                    key={item.key}
-                    className="today-tile"
-                    data-tile={item.key.split(":")[0]}
-                  >
-                    <span className="today-tile-label">
-                      <item.icon size={14} aria-hidden="true" />
-                      {item.label}
-                    </span>
-                    <span
-                      className={
-                        item.tone
-                          ? `today-headline today-headline-${item.tone}`
-                          : "today-headline"
-                      }
-                    >
-                      {item.headline}
-                    </span>
-                    {item.detail && (
-                      <span className="today-detail">{item.detail}</span>
-                    )}
-                    {/* The kind of claim, last: it qualifies the reading
-                        above it rather than announcing it. Every tile
-                        carries one, fact included — a label that appears
-                        only on the judgements teaches the reader that
-                        unlabelled means unexamined. */}
-                    <Badge tone={NATURE_TONE[item.nature]}>
-                      {t(NATURE_LABEL[item.nature])}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            </PanelBody>
-          )}
+          {hasContext && <TodayContextBlock lead={lead} items={items} />}
           {suggestions.rows}
           {manualMoves}
         </>
@@ -259,6 +201,98 @@ export function TodayOnThisAccount({
         <TodayWithheld view={view} />
       )}
     </Panel>
+  );
+}
+
+// The band under the rows: what the brief as a whole is counting down to, and
+// what the advice could not show. Undefined rather than an empty fragment when
+// there is neither — Panel draws the band on truthiness, and an empty band is
+// a row of the record spent on nothing.
+//
+// The way OUT of the brief is deliberately not here: a footer holding one link
+// is that same wasted row, so "View tasks" sits beside the panel's name.
+function briefFooter(
+  commitment: ReturnType<typeof nextCommitmentLine>,
+  fromAdvice: ReactNode,
+): ReactNode | undefined {
+  if (!commitment && !fromAdvice) {
+    return undefined;
+  }
+  return (
+    <>
+      {commitment && (
+        <Badge tone={commitment.overdue ? "warn" : undefined}>
+          {commitment.headline}
+        </Badge>
+      )}
+      {fromAdvice}
+    </>
+  );
+}
+
+// The panel's name, and how many moves are waiting behind it. The count
+// answers "how much is on me here" before the reader has read a single row,
+// and it counts what is DRAWN — a count that included advice the panel
+// withheld would send a reader looking for rows that are not there.
+function TodayTitle({ moves }: Readonly<{ moves: number }>) {
+  const t = useT();
+  return (
+    <>
+      {t("today.title")}
+      {moves > 0 && <Badge tone="accent">{moves}</Badge>}
+    </>
+  );
+}
+
+// The context block: the state of the account at the top of the panel, and
+// the readings behind it under a rule. It is drawn on its own plate so a
+// reader can tell at a glance which part of the panel is what IS and which
+// part is what to DO — the moves below run full-bleed on the panel's own
+// ground, and nothing here looks pressable.
+function TodayContextBlock({
+  lead,
+  items,
+}: Readonly<{ lead: TodayLead | null; items: TodayItem[] }>) {
+  return (
+    <div className="today-context">
+      {lead && (
+        <p
+          className={
+            lead.tone ? `today-lead today-lead-${lead.tone}` : "today-lead"
+          }
+          data-tile="move"
+        >
+          {/* A mark, not a word: it colours with the state and says nothing a
+              screen reader would have to hear twice. */}
+          <span className="today-lead-mark" aria-hidden="true" />
+          <span className="today-lead-state">{lead.headline}</span>
+          {lead.note && <span className="today-lead-note">{lead.note}</span>}
+        </p>
+      )}
+      {items.length > 0 && (
+        <dl className="today-readings">
+          {items.map((item) => (
+            // The key's prefix names WHICH reading this is ("route",
+            // "interaction", …). Exposed so a layout test can anchor on the
+            // reading it means without matching drawn copy, which would make
+            // a translation edit fail a layout suite.
+            <div
+              key={item.key}
+              className="today-reading"
+              data-tile={item.key.split(":")[0]}
+            >
+              <dt>{item.label}</dt>
+              <dd>
+                {item.headline}
+                {item.qualifier && (
+                  <span className="today-reading-note">{item.qualifier}</span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
   );
 }
 
@@ -413,7 +447,6 @@ function TodayWithheld({ view }: Readonly<{ view: Organization360 }>) {
 // the shape that made the ordering invisible inside the conditions.
 function todayContextItems(ctx: TodayContext): TodayItem[] {
   return [
-    whoseMove(ctx),
     bookedMeeting(ctx),
     bestRoute(ctx),
     lastInteraction(ctx),
@@ -421,36 +454,49 @@ function todayContextItems(ctx: TodayContext): TodayItem[] {
   ].filter((item): item is TodayItem => item !== null);
 }
 
-// Whose move it is, and since when. Lifted from the state strip's own
-// engagement tile rather than re-derived: the strip no longer draws it (it
-// is a DATED reading, not the account's standing state), and the brief reads
-// the same `state_strip.engagement` field the strip used to.
-function whoseMove({ view, t, when }: TodayContext): TodayItem | null {
+// Whose move it is, and how long it has been. Lifted from the state strip's
+// own engagement tile rather than re-derived: the strip no longer draws it
+// (it is a DATED reading, not the account's standing state), and the brief
+// reads the same `state_strip.engagement` field the strip used to.
+function whoseMove({ view, t }: TodayContext): TodayLead | null {
   const engagement = view.state_strip?.engagement;
   if (!engagement) {
     return null;
   }
-  const detail =
-    engagement.last_inbound_at || engagement.last_outbound_at
-      ? t("co.strip.lastBoth", {
-          inbound: engagement.last_inbound_at
-            ? when(engagement.last_inbound_at)
-            : t("co.strip.never"),
-          outbound: engagement.last_outbound_at
-            ? when(engagement.last_outbound_at)
-            : t("co.strip.never"),
-        })
-      : undefined;
   return {
-    key: "move",
-    icon: ArrowLeftRight,
-    label: t("co.strip.engagement"),
-    nature: "fact",
     headline: t(ENGAGEMENT_LABELS[engagement.state]),
-    detail,
+    note: silenceNote(view, t),
     tone: ENGAGEMENT_TONE[engagement.state],
   };
 }
+
+// How long the account has been silent, counted from the last thing WE sent
+// and measured against the same `as_of` the rest of the page is read at — so
+// the number does not drift while a tab is left open, and does not disagree
+// with the dates beside it.
+//
+// Only when they owe us. Counting days since our own last message says
+// nothing when the reply already came, and "no answer in 19 days" against a
+// thread that ended with their answer is the kind of line that costs a reader
+// trust in the whole panel.
+function silenceNote(
+  view: Organization360,
+  t: TodayContext["t"],
+): string | undefined {
+  const engagement = view.state_strip?.engagement;
+  const sent = engagement?.last_outbound_at;
+  if (!sent || engagement.state !== "waiting_on_them") {
+    return undefined;
+  }
+  const days = Math.floor(
+    (Date.parse(view.as_of) - Date.parse(sent)) / MS_PER_DAY,
+  );
+  // Same day, or a clock that disagrees with itself: "no answer in 0 days"
+  // reads as a fault, and there is nothing yet to report.
+  return days > 0 ? t("today.silence.days", { count: days }) : undefined;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Who on our side can actually reach the account, and through whom.
 //
@@ -477,32 +523,27 @@ function bestRoute({ view, t }: TodayContext): TodayItem | null {
   }
   return {
     key: `route:${best.person_id}`,
-    icon: Waypoints,
     label: t("today.tile.route"),
-    nature: "fact",
     headline: t("today.route.headline", {
       colleague: route.display_name,
       contact: best.full_name,
     }),
-    detail: routeDetail(view, best, t),
+    qualifier: routeQualifier(view, t),
   };
 }
 
-// The remainder of THIS contact's routes, and — when the contact list itself
-// was capped — that the page did not see every contact before choosing.
-function routeDetail(
+// What this reading did NOT see before calling something best. The contact
+// section is one page, so on a large account this is the best route among the
+// contacts the page carries — a "best" that is really "best of the first 25"
+// is the kind of quiet omission that costs a reader trust in every other
+// reading beside it.
+function routeQualifier(
   view: Organization360,
-  best: Organization360Contact,
   t: TodayContext["t"],
 ): string | undefined {
-  const parts: string[] = [];
-  if (best.routes && best.routes.remainder > 0) {
-    parts.push(t("today.route.remainder", { count: best.routes.remainder }));
-  }
-  if (view.people?.page?.has_more) {
-    parts.push(t("today.route.ofThoseShown"));
-  }
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  return view.people?.page?.has_more
+    ? t("today.route.ofThoseShown")
+    : undefined;
 }
 
 // Strongest first, with the id as the tiebreak so two contacts on the same
@@ -529,20 +570,21 @@ function openRisk({ view, t }: TodayContext): TodayItem | null {
   if (!signal) {
     return null;
   }
-  // An `info` signal is not a risk. "New opportunity" under a Risk heading in
-  // a warning colour tells a rep something is wrong when the page meant the
-  // opposite, so the label and the tone both follow the severity.
+  // An `info` signal is not a risk. "New opportunity" filed under Risk tells a
+  // rep something is wrong when the page meant the opposite, so the name of
+  // the reading follows the severity.
   const worrying = signal.severity !== "info";
   return {
     key: `signal:${signal.kind}`,
-    icon: worrying ? TriangleAlert : Info,
+    // The label is what says this is a judgement: a signal is a threshold
+    // someone chose, fired on records rather than seen, and a summary standing
+    // on its own in a column of facts would read as one more of them.
     label: t(worrying ? "today.tile.risk" : "today.tile.signal"),
-    // An assessment, not a fact: a signal is a threshold someone chose,
-    // fired on records rather than observed directly.
-    nature: "assessment",
-    headline: signalKindLabel(signal.kind, t),
-    detail: signal.summary ?? undefined,
-    tone: signalTone(signal.severity),
+    // The server's own summary when it wrote one: "We wrote 19 days ago and
+    // nobody has answered" says what fired AND on what evidence, where the
+    // kind alone leaves a reader to guess. The kind is the fallback for a rule
+    // that summarised nothing.
+    headline: signal.summary ?? signalKindLabel(signal.kind, t),
   };
 }
 
@@ -594,21 +636,24 @@ function lastInteraction({ view, t, when }: TodayContext): TodayItem | null {
   }
   return {
     key: `interaction:${latest.id}`,
-    icon: MessageSquare,
     label: t("today.tile.lastInteraction"),
-    nature: "fact",
-    headline: latest.subject,
-    detail: latest.occurred_at ? when(latest.occurred_at) : undefined,
+    headline: latest.occurred_at
+      ? t("today.exchange.subjectWhen", {
+          subject: latest.subject,
+          when: when(latest.occurred_at),
+        })
+      : latest.subject,
   };
 }
 
 type TodayContext = {
   view: Organization360;
   t: (key: MessageKey, vars?: Record<string, string | number>) => string;
+  // Dates are formatted at the presentation edge, so a builder is handed the
+  // formatter rather than the reader's locale: none of them chooses a format,
+  // and one that could would be the second place this page decides how a date
+  // looks.
   when: (at: string) => string;
-  // Money is formatted at the presentation edge, so the deal tile needs the
-  // reader's locale rather than a pre-formatted string.
-  locale: Locale;
 };
 
 type Organization360Contact = NonNullable<
@@ -628,19 +673,16 @@ function bookedMeeting({ view, t, when }: TodayContext): TodayItem | null {
   if (!meeting) {
     return null;
   }
-  const who = meeting.participants
-    .map((participant) => participant.display_name)
-    .join(", ");
   return {
     key: `meeting:${meeting.activity_id}`,
-    icon: CalendarClock,
     label: t("today.tile.meeting"),
-    nature: "fact",
-    // Preparing for it is the moves section's verb now, not a link inside
-    // the tile: one button, in the place the reader looks for verbs.
-    headline: meeting.subject,
-    detail: who
-      ? t("today.meeting.withWhen", { who, when: when(meeting.starts_at) })
-      : when(meeting.starts_at),
+    // What it is and when, in that order — the same shape the last exchange
+    // reads in, because both answer "what happened, and when". Who is in it
+    // belongs to the move row that prepares for it, beside the button: a
+    // reading nobody can act on from here does not need the guest list.
+    headline: t("today.exchange.subjectWhen", {
+      subject: meeting.subject,
+      when: when(meeting.starts_at),
+    }),
   };
 }
