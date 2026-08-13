@@ -124,21 +124,51 @@ type wireGate struct {
 	unmirrored map[string]any
 }
 
-// check holds every binding the registry calls mapped to reaching a caller. An
-// entity that declares none is a failure rather than a pass: this gate would
-// otherwise report green while checking nothing.
+// check holds every binding that claims the mirror reaches a caller — mapped
+// and derived alike — to actually reaching one. An entity that declares no
+// mapped binding is a failure rather than a pass: this gate would otherwise
+// report green while checking nothing. The guard counts only mapped bindings,
+// because a derived one cannot stand in for a mapped one anyway — the registry
+// obliges every derived slot to name mapped sources on this same entity — and
+// counting it would let the vacuity check be answered by a slot with no
+// mirrored input of its own.
 func (g wireGate) check(t *testing.T) {
 	t.Helper()
 	mapped := 0
 	for _, b := range g.entity.Bindings {
-		if b.Disposition != overlay.DispositionMapped {
-			continue
+		switch b.Disposition {
+		case overlay.DispositionMapped:
+			mapped++
+			g.checkBinding(t, b)
+		case overlay.DispositionDerived:
+			g.checkDerived(t, b)
 		}
-		mapped++
-		g.checkBinding(t, b)
 	}
 	if mapped == 0 {
 		t.Fatalf("%s declares no mapped bindings; this gate would pass while checking nothing", g.entity.Entity)
+	}
+}
+
+// checkDerived holds a derived binding to the same end state a mapped one is
+// held to — the slot reaches the caller carrying a value the mirror caused —
+// while asking nothing about a canonical key or an incumbent property it
+// deliberately claims none of. Its sources are checked as mapped bindings in
+// their own right, so what remains here is the step nothing else observes: that
+// the wire performs the derivation at all.
+func (g wireGate) checkDerived(t *testing.T, b overlay.FieldBinding) {
+	t.Helper()
+	value, present := g.mirrored[b.WireSlot]
+	if !present || value == nil {
+		t.Errorf("%s.%s is declared derived from %v, but the assembled body leaves it empty. Either %s never "+
+			"computes it, or the binding claims a derivation nothing performs.",
+			g.entity.Entity, b.WireSlot, b.DerivedFrom, g.assembler)
+		return
+	}
+	if reflect.DeepEqual(value, g.unmirrored[b.WireSlot]) {
+		t.Errorf("%s.%s is declared derived from %v, but the assembled body carries %v — the very value a record "+
+			"with an EMPTY payload produces, so nothing the mirror holds reached the caller. Have %s derive it "+
+			"from %v, or give %s inputs whose result differs from the fallback.",
+			g.entity.Entity, b.WireSlot, b.DerivedFrom, value, g.assembler, b.DerivedFrom, g.fixture)
 	}
 }
 

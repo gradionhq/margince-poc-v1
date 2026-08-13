@@ -212,6 +212,29 @@ func overlayOrganizationDomains(parent openapi_types.UUID, fields map[string]any
 	return &out
 }
 
+// overlayWebsiteURL renders a mirrored company's website from its primary
+// domain row. website_url is DERIVED and never stored (ADR-0085): the native
+// read path renders "https://" + the primary domain, and a mirrored company
+// owes the caller the same answer from the same fact. It reads the collection
+// this wire already publishes rather than the payload a second time, so the two
+// can never name different domains. A collection where no row claims the flag
+// yields nothing — which domain is the company's is the mapping's assertion,
+// never this reader's to pick by position, and the native path leaves the slot
+// absent on exactly the same rows.
+func overlayWebsiteURL(domains *[]crmcontracts.OrganizationDomain) *string {
+	if domains == nil {
+		return nil
+	}
+	for _, row := range *domains {
+		if !row.IsPrimary {
+			continue
+		}
+		website := "https://" + row.Domain
+		return &website
+	}
+	return nil
+}
+
 // The attribute vocabulary a mirrored child row declares, in one place next to
 // the readers below: everything a row carries beyond its own mapped column.
 // The mapping module writes these keys (overlay's ChildRow.Attrs and its

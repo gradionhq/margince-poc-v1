@@ -27,16 +27,37 @@ const (
 	// no mirror could ever supply it (a version counter, a relationship
 	// strength computed from captured interactions).
 	DispositionNativeOnly Disposition = "native_only"
+	// DispositionDerived means the mirror carries this slot's INPUTS and the
+	// wire computes the slot from them, so it reads no canonical key of its
+	// own. It exists because the alternative spellings are both false: mapped
+	// would claim a key a second slot already reads, and the registry rejects
+	// two slots claiming one key precisely so a real double-write cannot hide;
+	// native_only would say no mirror could help, when the mirror is exactly
+	// where the value comes from. The line between the two is whose data the
+	// computation runs over — native_only computes from THIS installation's
+	// own rows, derived computes from mirrored ones. DerivedFrom names the
+	// wire slots it is computed from, and each must be mapped on the same
+	// entity: a slot derived from something the mirror does not carry is
+	// native_only wearing a friendlier name. What the gates reach stops
+	// there, and an author declaring one should know it: they prove the named
+	// sources are mapped and that the slot's value follows from the mirrored
+	// payload, but nothing proves the computation reads THOSE sources — a slot
+	// computed from other mirrored data passes both. The list is a claim about
+	// the code that has to be kept true by reading it.
+	DispositionDerived Disposition = "derived"
 )
 
 // FieldBinding is one contract field's overlay disposition for one entity.
 // CanonicalKey is the mirror's own jsonb key, which keeps the core column's
 // spelling rather than the contract's where the two differ; it is empty
-// unless the field is mapped.
+// unless the field is mapped. DerivedFrom names the wire slots a derived
+// field is computed from — slots, not canonical keys, so the dependency is
+// stated in the vocabulary the wire assembly itself reads back.
 type FieldBinding struct {
 	WireSlot     string
 	CanonicalKey string
 	Incumbent    []string
+	DerivedFrom  []string
 	Transform    string
 	Disposition  Disposition
 	Reason       string
@@ -157,13 +178,12 @@ var personBindings = EntityBinding{
 // organizationBindings disposition every contract Organization field. Armed,
 // on the same terms personBindings is.
 //
-// Seven fields the incumbent could fill are deferred rather than mapped, and
+// Six fields the incumbent could fill are deferred rather than mapped, and
 // each names the reason it is not a one-line addition: one needs a projection
 // that does not exist yet (an association sweep for the parent), four need a
 // decision the mapping cannot make on its own (a length rule, a URL
 // normalization, two remaps onto vocabularies this product defines on its own
-// axes), and two need a read the adapter does not perform (the archive flag,
-// the primary-domain derivation).
+// axes), and one needs a read the adapter does not perform (the archive flag).
 //
 //nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" and "industry" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
 var organizationBindings = EntityBinding{
@@ -178,9 +198,10 @@ var organizationBindings = EntityBinding{
 		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
 		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"hs_lastmodifieddate"}, Disposition: DispositionMapped},
 
+		{WireSlot: "website_url", Disposition: DispositionDerived, DerivedFrom: []string{"domains"}},
+
 		{WireSlot: "parent_org_id", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1023"},
 		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1024"},
-		{WireSlot: "website_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1025"},
 		{WireSlot: "description", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1026"},
 		{WireSlot: "linkedin_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1027"},
 		{WireSlot: "lifecycle", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1028"},

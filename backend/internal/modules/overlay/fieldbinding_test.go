@@ -39,6 +39,38 @@ func TestFieldBindingsAreInternallyConsistent(t *testing.T) {
 			}
 			checkDisposition(t, entity.Entity, b)
 		}
+		checkDerivedFrom(t, entity)
+	}
+}
+
+// checkDerivedFrom holds every derived binding to the invariant that gives the
+// disposition its meaning: a slot the wire computes must be computed from
+// slots the mirror really carries. Unenforced, "derived" would be a way to
+// claim mirrored data for a field no mirrored value ever reaches — native_only
+// with a friendlier name. It is checked per entity rather than per binding
+// because the sources are named in the same entity's vocabulary; a slot mapped
+// on a sibling entity says nothing about this one's mirror.
+func checkDerivedFrom(t *testing.T, entity overlay.EntityBinding) {
+	t.Helper()
+	mapped := map[string]bool{}
+	for _, b := range entity.Bindings {
+		if b.Disposition == overlay.DispositionMapped {
+			mapped[b.WireSlot] = true
+		}
+	}
+	for _, b := range entity.Bindings {
+		if b.Disposition != overlay.DispositionDerived {
+			continue
+		}
+		for _, source := range b.DerivedFrom {
+			if mapped[source] {
+				continue
+			}
+			t.Errorf("%s.%s is derived from %s.%s, which is not a mapped binding on this entity — so the mirror "+
+				"carries no input the derivation could run over. Map %q, or point %q's DerivedFrom at the slots "+
+				"the mirror really supplies.",
+				entity.Entity, b.WireSlot, entity.Entity, source, source, b.WireSlot)
+		}
 	}
 }
 
@@ -47,6 +79,10 @@ func TestFieldBindingsAreInternallyConsistent(t *testing.T) {
 // it carries nothing — an unexplained absence is how a gap becomes permanent.
 func checkDisposition(t *testing.T, entity string, b overlay.FieldBinding) {
 	t.Helper()
+	if b.Disposition != overlay.DispositionDerived && len(b.DerivedFrom) > 0 {
+		t.Errorf("%s.%s is %s but names DerivedFrom %v; only a derived slot is computed from other slots, so the "+
+			"list would be read by nothing", entity, b.WireSlot, b.Disposition, b.DerivedFrom)
+	}
 	switch b.Disposition {
 	case overlay.DispositionMapped:
 		if b.CanonicalKey == "" || len(b.Incumbent) == 0 {
@@ -58,6 +94,16 @@ func checkDisposition(t *testing.T, entity string, b overlay.FieldBinding) {
 		}
 		if b.CanonicalKey != "" || len(b.Incumbent) > 0 || b.Transform != "" {
 			t.Errorf("%s.%s is deferred but names a canonical key, an incumbent property or a transform; a slot nothing fills must claim no source, or the registry reads as a working mapping", entity, b.WireSlot)
+		}
+	case overlay.DispositionDerived:
+		if len(b.DerivedFrom) == 0 {
+			t.Errorf("%s.%s is derived but names no source slot; set DerivedFrom to the wire slots it is computed "+
+				"from, or say plainly which of the other four dispositions it really is", entity, b.WireSlot)
+		}
+		if b.CanonicalKey != "" || len(b.Incumbent) > 0 {
+			t.Errorf("%s.%s is derived but claims canonical key %q and incumbent properties %v; a derived slot "+
+				"reads no source of its own — the ones it depends on belong to the DerivedFrom slots %v",
+				entity, b.WireSlot, b.CanonicalKey, b.Incumbent, b.DerivedFrom)
 		}
 	case overlay.DispositionUnmappable, overlay.DispositionNativeOnly:
 		if strings.TrimSpace(b.Reason) == "" {
