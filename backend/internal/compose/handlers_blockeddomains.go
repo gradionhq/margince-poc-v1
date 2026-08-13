@@ -11,6 +11,7 @@ package compose
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -23,9 +24,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// blockedDomainPageSize bounds the admin list. Large enough that a real
-// installation's refusals fit on one screen-scroll, small enough that the query
-// cannot become a table walk.
+// blockedDomainPageSize bounds the admin list. Refusals accumulate on their own
+// from every bulk-sender verdict, so the page is a page and the response says
+// how many decisions exist — an operator hunting a missing company must be able
+// to tell "not refused" from "past the end of this list".
 const blockedDomainPageSize = 200
 
 // maxBlockedDomainReason mirrors the contract's maxLength for the reason field.
@@ -41,7 +43,7 @@ func (h blockedDomainHandlers) ListBlockedDomains(w http.ResponseWriter, r *http
 		httperr.Write(w, r, err)
 		return
 	}
-	entries, err := h.people.ListDomainAdmissions(r.Context(), blockedDomainPageSize)
+	entries, total, err := h.people.ListDomainAdmissions(r.Context(), blockedDomainPageSize)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -51,7 +53,7 @@ func (h blockedDomainHandlers) ListBlockedDomains(w http.ResponseWriter, r *http
 	for _, e := range entries {
 		out = append(out, toContractBlockedDomain(e))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.BlockedDomainListResponse{Data: out})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.BlockedDomainListResponse{Data: out, Total: total})
 }
 
 func (h blockedDomainHandlers) SetBlockedDomain(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +70,14 @@ func (h blockedDomainHandlers) SetBlockedDomain(w http.ResponseWriter, r *http.R
 	// which field is wrong. The store re-checks both — it is reachable from
 	// other callers — but its errors are internal ones, and a 500 for a missing
 	// reason tells an admin nothing they can act on.
+	// The generated type carries the enum check and never runs it, so an
+	// unknown value would reach the store, come back as an internal error, and
+	// answer 500 where the contract declares 422.
+	if !body.Admission.Valid() {
+		httperr.Write(w, r, httperr.Validation("admission", "invalid",
+			`admission is either "suppressed" or "admitted"`))
+		return
+	}
 	if strings.TrimSpace(body.Reason) == "" {
 		httperr.Write(w, r, httperr.Validation("reason", "required",
 			"a blocked domain needs a reason somebody can review"))
@@ -78,12 +88,13 @@ func (h blockedDomainHandlers) SetBlockedDomain(w http.ResponseWriter, r *http.R
 	// of the list is served it back in full.
 	if len([]rune(body.Reason)) > maxBlockedDomainReason {
 		httperr.Write(w, r, httperr.Validation("reason", "too_long",
-			"a reason is at most 500 characters"))
+			fmt.Sprintf("a reason is at most %d characters; this one is %d",
+				maxBlockedDomainReason, len([]rune(body.Reason)))))
 		return
 	}
 	if _, ok := freemail.Hostname(body.Domain); !ok {
 		httperr.Write(w, r, httperr.Validation("domain", "invalid",
-			"that is not a domain name"))
+			"expected a domain name like example.com; a full email address or a URL is not one"))
 		return
 	}
 	// The store answers with what it STORED, not what was sent: it normalizes

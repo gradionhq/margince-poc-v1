@@ -106,7 +106,10 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 		// was it before" is the question this surface exists to answer. Without
 		// it admission_source says "human" but never WHICH human, and
 		// admission_at is overwritten on every change.
-		before := beforeAdmissionImage(ctx, tx, base)
+		before, _, err := beforeAdmissionImage(ctx, tx, base)
+		if err != nil {
+			return err
+		}
 		if err := setDomainAdmissionTx(ctx, tx, base, admission, reason, AdmissionSourceHuman); err != nil {
 			return err
 		}
@@ -126,7 +129,6 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 				return err
 			}
 		}
-		var err error
 		stored, err = readDomainAdmissionTx(ctx, tx, base)
 		if err != nil {
 			return err
@@ -165,10 +167,8 @@ func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, rea
 		       -- leaves the company question genuinely open again.
 		       pending_reason = CASE WHEN EXCLUDED.admission = 'suppressed'
 		                             THEN NULL ELSE organization_domain_disposition.pending_reason END,
-		       -- A refused domain is not waiting for a crawl. The sweeps filter
-		       -- on admission as well, so this is belt and braces — but a row
-		       -- that still names a next attempt reads as scheduled work to
-		       -- anybody looking at the ledger, and it is not.
+		       -- next_attempt_at means scheduled work, and a refused domain has
+		       -- none: nothing will crawl it while the refusal stands.
 		       next_attempt_at = CASE WHEN EXCLUDED.admission = 'suppressed'
 		                              THEN NULL ELSE organization_domain_disposition.next_attempt_at END,
 		       updated_at = now()
@@ -257,7 +257,7 @@ func admitClaimedDomainTx(ctx context.Context, tx pgx.Tx, domain string) error {
 	// then protects for ever — defeating the guard by writing the word it
 	// checks for. An agent's claim creates the company and leaves the standing
 	// refusal exactly as the human left it.
-	if actingHuman(ctx) == nil || !claimedByHuman(ctx) {
+	if !claimedByHuman(ctx) {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `
@@ -292,12 +292,18 @@ type BlockedDomain struct {
 // Read-gated rather than write-gated: every role may SEE why a company is
 // missing, while only admin/ops may change it. An operator who cannot find out
 // that a domain was refused has no way to know the CRM is not simply empty.
-func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedDomain, error) {
+func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedDomain, int, error) {
 	if err := auth.Require(ctx, entityOrganization, principal.ActionRead); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var out []BlockedDomain
+	var total int
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM organization_domain_disposition
+			 WHERE admission IS NOT NULL`).Scan(&total); err != nil {
+			return fmt.Errorf("people: counting domain admissions: %w", err)
+		}
 		rows, err := tx.Query(ctx, `
 			SELECT id, domain, admission, COALESCE(admission_reason, ''),
 			       COALESCE(admission_source, ''), admission_at, organization_id
@@ -349,49 +355,66 @@ func (s *Store) ListDomainAdmissions(ctx context.Context, limit int) ([]BlockedD
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return out, nil
+	return out, total, nil
 }
 
 // reopenAdmittedDomainTx puts a just-admitted domain back in the triage sweep's
 // path, so the company question a refusal closed gets asked again.
 //
-// Guarded on the admission this call just wrote, so it cannot disturb a domain
-// somebody else is deciding about, and it leaves a SETTLED question alone: a
-// domain that already has its company needs no second answer, and the people on
-// it are already employed there.
+// It re-opens every state EXCEPT 'company'. A domain that already has its
+// company needs no second answer and its people are already employed there —
+// but 'personal', 'provider' and 'no_site' are settled WITHOUT one, and those
+// are exactly the domains an admin unblocks. Guarding on 'pending' alone left
+// them matching zero rows: the admin's decision recorded, and nothing else
+// happening, which is the failure this function exists to prevent.
+//
+// Setting the status back to pending is what the sweep reads; clearing the
+// evidence is what stops the old refusal being shown as the reason for a
+// question that is open again.
 func reopenAdmittedDomainTx(ctx context.Context, tx pgx.Tx, domain string, ownerID *ids.UUID) error {
-	// owner_id is a POINTER, not a zero uuid: the column has a foreign key to
-	// app_user, so a forged zero would fail the constraint rather than record
-	// "nobody". NULL is the honest spelling of an owner we do not have.
+	// owner_id has a foreign key to app_user, so it is a POINTER: a zero uuid
+	// would fail that constraint rather than record "nobody", and NULL is the
+	// honest spelling of an owner we do not have.
 	if _, err := tx.Exec(ctx, `
 		UPDATE organization_domain_disposition
-		   SET pending_reason = NULL,
+		   SET status = $4,
+		       pending_reason = NULL,
+		       evidence = NULL,
 		       attempts = 0,
 		       next_attempt_at = now(),
 		       owner_id = COALESCE(owner_id, $2),
 		       updated_at = now()
-		 WHERE domain = $1 AND admission = $3 AND status = $4`,
-		domain, ownerID, DomainAdmitted, DomainPending); err != nil {
+		 WHERE domain = $1 AND admission = $3 AND status <> $5`,
+		domain, ownerID, DomainAdmitted, DomainPending, DomainCompany); err != nil {
 		return fmt.Errorf("people: re-opening the company question for %s: %w", domain, err)
 	}
 	return nil
 }
 
 // beforeAdmissionImage is the decision this write is about to replace, or nil
-// when the domain carried none. A read that fails is not worth failing the
-// write over — the audit row is better with an unknown before-image than the
-// admin's decision refused over a missing one.
-func beforeAdmissionImage(ctx context.Context, tx pgx.Tx, domain string) map[string]any {
+// when the domain carried none.
+//
+// A domain nobody has decided about is the ordinary case and answers nil. Any
+// OTHER failure is returned, because the alternative is an audit row that says
+// "there was nothing before" for a change that overwrote something — a false
+// record of the one thing this image exists to prove.
+func beforeAdmissionImage(ctx context.Context, tx pgx.Tx, domain string) (image map[string]any, decided bool, err error) {
 	var admission, reason, source string
-	if err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT COALESCE(admission, ''), COALESCE(admission_reason, ''), COALESCE(admission_source, '')
 		  FROM organization_domain_disposition WHERE domain = $1`, domain).
-		Scan(&admission, &reason, &source); err != nil || admission == "" {
-		return nil
+		Scan(&admission, &reason, &source)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), err == nil && admission == "":
+		return nil, false, nil
+	case err != nil:
+		return nil, false, fmt.Errorf("people: reading the decision %s carried before: %w", domain, err)
 	}
-	return map[string]any{"admission": admission, "admission_reason": reason, "admission_source": source}
+	return map[string]any{
+		"admission": admission, "admission_reason": reason, "admission_source": source,
+	}, true, nil
 }
 
 // readDomainAdmissionTx reads back what was actually stored, which is not what
@@ -441,5 +464,10 @@ func actingHuman(ctx context.Context) *ids.UUID {
 // machine decisions are then forbidden to revisit.
 func claimedByHuman(ctx context.Context) bool {
 	actor, ok := principal.Actor(ctx)
-	return ok && actor.OnBehalfOf.IsZero() && !actor.UserID.IsZero()
+	// PrincipalHuman is the field that answers this, and it is what
+	// auth.RequireHuman reads. OnBehalfOf looked like the same question and is
+	// not: several genuine human paths set it to the caller's own id, so
+	// testing it would refuse a refusal-lift to a person who really did claim
+	// the domain.
+	return ok && actor.Type == principal.PrincipalHuman && !actor.UserID.IsZero()
 }

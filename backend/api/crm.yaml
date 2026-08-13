@@ -11655,9 +11655,15 @@ components:
           description: 'Why. Required, because a refusal nobody can explain is one nobody can review.'
     BlockedDomainListResponse:
       type: object
-      required: [data]
+      required: [data, total]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/BlockedDomain' } }
+        total:
+          type: integer
+          description: |
+            How many decisions exist, which is not how many are returned. Refusals accumulate
+            automatically from every bulk-sender verdict, so a list that quietly stopped at its
+            page size would tell an operator their domain was never refused when it was.
     ConsumerMailDomain:
       type: object
       description: |

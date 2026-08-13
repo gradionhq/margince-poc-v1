@@ -641,7 +641,7 @@ func TestTheBlockedDomainListShowsWhatDecidedEachRefusal(t *testing.T) {
 		t.Fatalf("machine suppression: %v", err)
 	}
 
-	entries, err := e.store.ListDomainAdmissions(ctx, 50)
+	entries, _, err := e.store.ListDomainAdmissions(ctx, 50)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestTheBlockedDomainListWithholdsAnInvisibleCompany(t *testing.T) {
 	}
 
 	// The owner sees the company they captured.
-	mine, err := e.store.ListDomainAdmissions(owner, 50)
+	mine, _, err := e.store.ListDomainAdmissions(owner, 50)
 	if err != nil {
 		t.Fatalf("list as the owner: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestTheBlockedDomainListWithholdsAnInvisibleCompany(t *testing.T) {
 
 	// A colleague sees the decision — that is the point of the list — but not
 	// a pointer to the record itself.
-	theirs, err := e.store.ListDomainAdmissions(e.asOther(), 50)
+	theirs, _, err := e.store.ListDomainAdmissions(e.asOther(), 50)
 	if err != nil {
 		t.Fatalf("list as a colleague: %v", err)
 	}

@@ -29,7 +29,8 @@ type blockedDomainDTO struct {
 }
 
 type blockedDomainListDTO struct {
-	Data []blockedDomainDTO `json:"data"`
+	Data  []blockedDomainDTO `json:"data"`
+	Total int                `json:"total"`
 }
 
 func TestBlockedDomainsOverHTTP(t *testing.T) {
@@ -109,5 +110,43 @@ func TestBlockedDomainsOverHTTP(t *testing.T) {
 			"reason": strings.Repeat("x", 501),
 		}, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("PUT with an over-long reason → %d, want 422", status)
+	}
+}
+
+// Reading why a company is missing is not an administrative privilege; deciding
+// it is. A read seat must be able to see that a domain was refused — otherwise
+// they cannot tell a refusal from an empty CRM — while changing it is refused.
+func TestBlockedDomainsSplitTheReadFromTheWrite(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	// Recorded while the seat can still write, so there is something to read.
+	if status := e.Call(t, "PUT", "/v1/capture/blocked-domains",
+		map[string]string{
+			"domain": "vendor.example", "admission": "suppressed",
+			"reason": "a tool we use, not a customer",
+		}, nil, nil); status != http.StatusOK {
+		t.Fatalf("PUT → %d, want 200", status)
+	}
+
+	// The read ceiling: the same human, now on a seat that may not mutate.
+	e.SetWorkspaceSeat(t, e.Slug, "read")
+
+	var list blockedDomainListDTO
+	if status := e.Call(t, "GET", "/v1/capture/blocked-domains", nil, nil, &list); status != http.StatusOK {
+		t.Fatalf("read-seat GET → %d, want 200 — seeing why a company is missing is not a privilege", status)
+	}
+	if len(list.Data) != 1 || list.Data[0].Reason == "" {
+		t.Fatalf("the read seat sees %+v, want the refusal and its reason", list.Data)
+	}
+	if list.Total != 1 {
+		t.Fatalf("total = %d, want 1 — the caller must be able to tell a short page from a short list", list.Total)
+	}
+
+	if status := e.Call(t, "PUT", "/v1/capture/blocked-domains",
+		map[string]string{
+			"domain": "other.example", "admission": "suppressed", "reason": "no",
+		}, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("read-seat PUT → %d, want 403 — deciding is admin/ops", status)
 	}
 }

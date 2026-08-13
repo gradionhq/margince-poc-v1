@@ -10953,6 +10953,11 @@ type BlockedDomainSource string
 // BlockedDomainListResponse defines model for BlockedDomainListResponse.
 type BlockedDomainListResponse struct {
 	Data []BlockedDomain `json:"data"`
+
+	// Total How many decisions exist, which is not how many are returned. Refusals accumulate
+	// automatically from every bulk-sender verdict, so a list that quietly stopped at its
+	// page size would tell an operator their domain was never refused when it was.
+	Total int `json:"total"`
 }
 
 // BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
