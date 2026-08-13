@@ -7,12 +7,14 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
+import { DateFieldSelect } from "./automations.datefield";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
@@ -28,7 +30,7 @@ type Automation = components["schemas"]["Automation"];
 
 export type ParamField = {
   key: string;
-  kind: "integer" | "string";
+  kind: "integer" | "string" | "boolean" | "date_field";
   min?: number;
   max?: number;
   initial: string;
@@ -51,6 +53,9 @@ function paramKind(type: unknown): ParamField["kind"] | null {
   if (type === "integer" || type === "number") {
     return "integer";
   }
+  if (type === "boolean") {
+    return "boolean";
+  }
   if (type === "string") {
     return "string";
   }
@@ -60,11 +65,23 @@ function paramKind(type: unknown): ParamField["kind"] | null {
 // The ONLY source of editable parameters: the catalog entry's JSON schema.
 export function paramFields(schema: Record<string, unknown>): ParamField[] {
   const properties = isRecord(schema.properties) ? schema.properties : {};
+  // renewal_reminder's date_field names a workspace's own cf_* column, not a
+  // fixed value — but nothing in the JSON schema type system marks a string
+  // as "this is a column reference". The schema DOES say which object owns
+  // it (its sibling `object` property), and only a schema declaring BOTH has
+  // enough context to resolve a column list, so that pairing — not the bare
+  // key name, which some future automation could reuse for something
+  // unrelated — is what selects the picker over a free-text box.
+  const isDateFieldPicker =
+    "object" in properties && "date_field" in properties;
   return Object.entries(properties).flatMap(([key, raw]) => {
     if (!isRecord(raw)) {
       return [];
     }
-    const kind = paramKind(raw.type);
+    const kind: ParamField["kind"] | null =
+      key === "date_field" && isDateFieldPicker
+        ? "date_field"
+        : paramKind(raw.type);
     if (kind === null) {
       return [];
     }
@@ -87,8 +104,73 @@ function paramsFromValues(
   return Object.fromEntries(
     fields.map((field) => {
       const value = values[field.key] ?? field.initial;
-      return [field.key, field.kind === "integer" ? Number(value) : value];
+      if (field.kind === "integer") {
+        return [field.key, Number(value)];
+      }
+      if (field.kind === "boolean") {
+        return [field.key, value === "true"];
+      }
+      return [field.key, value];
     }),
+  );
+}
+
+// One schema-derived param's control, lifted out of AutomationForm so that
+// function stays a shape a reader can hold at once as this grows a third
+// input kind. A Checkbox carries its own label (the design system's own
+// Checkbox/Switch split: this STATES an intent the Save button below then
+// submits, so the field's usual heading span would just repeat it) — every
+// other kind keeps the heading span the rest of the form uses.
+function ParamFieldControl({
+  field,
+  formId,
+  value,
+  object,
+  onChange,
+}: Readonly<{
+  field: ParamField;
+  formId: string;
+  value: string;
+  object: string;
+  onChange: (value: string) => void;
+}>) {
+  if (field.kind === "boolean") {
+    return (
+      <div className="field" style={{ marginTop: "var(--space-2)" }}>
+        <Checkbox
+          label={field.key}
+          checked={value === "true"}
+          onChange={(event) =>
+            onChange(event.target.checked ? "true" : "false")
+          }
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="field" style={{ marginTop: "var(--space-2)" }}>
+      <span className="t-label" id={`${formId}-${field.key}`}>
+        {field.key}
+      </span>
+      {field.kind === "date_field" ? (
+        <DateFieldSelect
+          object={object}
+          value={value}
+          onChange={onChange}
+          labelId={`${formId}-${field.key}`}
+        />
+      ) : (
+        <TextInput
+          type={field.kind === "integer" ? "number" : "text"}
+          aria-labelledby={`${formId}-${field.key}`}
+          min={field.min}
+          max={field.max}
+          required
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -152,25 +234,16 @@ function AutomationForm({
         />
       </div>
       {fields.map((field) => (
-        <div className="field" key={field.key} style={{ marginTop: 8 }}>
-          <span className="t-label" id={`${formId}-${field.key}`}>
-            {field.key}
-          </span>
-          <TextInput
-            type={field.kind === "integer" ? "number" : "text"}
-            aria-labelledby={`${formId}-${field.key}`}
-            min={field.min}
-            max={field.max}
-            required
-            value={values[field.key] ?? ""}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                [field.key]: event.target.value,
-              }))
-            }
-          />
-        </div>
+        <ParamFieldControl
+          key={field.key}
+          field={field}
+          formId={formId}
+          value={values[field.key] ?? field.initial}
+          object={values.object ?? ""}
+          onChange={(next) =>
+            setValues((current) => ({ ...current, [field.key]: next }))
+          }
+        />
       ))}
       <div className="approval-gate" style={{ marginTop: 10 }}>
         <Button type="submit" variant="primary" small disabled={pending}>
