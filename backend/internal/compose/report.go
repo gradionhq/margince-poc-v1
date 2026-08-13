@@ -33,6 +33,38 @@ const (
 	colPipelineID     = "t.pipeline_id"
 	colStageID        = "t.stage_id"
 	whereArchivedNull = "t.archived_at IS NULL"
+
+	// joinStageForWinProbability is the one join a spec adds when it needs the
+	// deal's current stage for win_probability. It is safe from BOTH directions
+	// a join can go wrong: it cannot MULTIPLY rows (a to-one lookup — deal.stage_id
+	// is NOT NULL, stage.id is its PK) and it cannot DROP one under the workspace
+	// GUC either — every deal's stage_id is validated against the SAME workspace
+	// at write time (modules/deals writes inside the RLS tx), so a deal's stage row
+	// is never invisible to the deal's own scope.
+	joinStageForWinProbability = "JOIN stage s ON s.id = t.stage_id"
+	colWinProbability          = "s.win_probability"
+
+	// weightedAmountMinorExpr is the one spelling of "weighted value" (formulas
+	// §6, AC-F1): round PER DEAL, half away from zero, so a roll-up over it
+	// equals the sum of its own rows exactly. Shared by every spec that joins
+	// stage for win_probability, so the forecast report and any other
+	// per-stage weighted figure cannot drift apart. The multiply casts to
+	// numeric first — amount_minor is an unbounded bigint, and bigint × smallint
+	// overflows before the /100.0 below would otherwise widen it.
+	weightedAmountMinorExpr = "round((t.amount_minor::numeric * s.win_probability) / 100.0)::bigint"
+	// fieldWeightedAmountMinor is the API-facing measure name every spec that
+	// defines weightedAmountMinorExpr registers it under.
+	fieldWeightedAmountMinor = "weighted_amount_minor"
+
+	// fieldStageID, fieldStatus and fieldWinProbability are report-vocabulary
+	// field NAMES (map keys) — distinct from the col* constants above, which
+	// are the SQL expressions those names resolve to. Declared here, not
+	// borrowed from an unrelated surface's vocabulary (overlay's query-param
+	// names happen to share these spellings, but renaming one must never
+	// rename the other).
+	fieldStageID        = "stage_id"
+	fieldStatus         = "status"
+	fieldWinProbability = "win_probability"
 )
 
 type reportAggregate struct {
@@ -112,14 +144,27 @@ var prebuiltReports = map[string]reportSpec{
 		},
 	},
 	"deals-by-stage": {
-		entity:     datasource.EntityDeal,
-		table:      "deal",
-		baseWhere:  whereArchivedNull,
-		basePlain:  "live (unarchived) deals",
-		dimensions: map[string]string{"stage_id": colStageID, "status": "t.status", "pipeline_id": colPipelineID},
-		measures:   map[string]string{"amount_minor": colAmountMinor},
-		filters:    map[string]string{"pipeline_id": colPipelineID, "status": "t.status", "owner_id": colOwnerID},
-		defaultBy:  []string{"stage_id"},
+		entity:    datasource.EntityDeal,
+		table:     "deal",
+		joins:     []string{joinStageForWinProbability},
+		baseWhere: whereArchivedNull,
+		basePlain: "live (unarchived) deals",
+		dimensions: map[string]string{
+			fieldStageID:        colStageID,
+			fieldStatus:         "t.status",
+			"pipeline_id":       colPipelineID,
+			fieldWinProbability: colWinProbability,
+		},
+		measures: map[string]string{
+			"amount_minor":           colAmountMinor,
+			fieldWeightedAmountMinor: weightedAmountMinorExpr,
+		},
+		// No stage_id filter: nothing serves it (the screen groups BY stage_id
+		// instead), and a filter key this report has no caller for is public
+		// agent surface (the run_report catalog, mcp-info.{json,md}) with no
+		// concrete use behind it.
+		filters:   map[string]string{"pipeline_id": colPipelineID, fieldStatus: "t.status", "owner_id": colOwnerID},
+		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "amount_minor_sum"},
@@ -150,24 +195,24 @@ var prebuiltReports = map[string]reportSpec{
 	"forecast": {
 		entity:    datasource.EntityDeal,
 		table:     "deal",
-		joins:     []string{"JOIN stage s ON s.id = t.stage_id"},
+		joins:     []string{joinStageForWinProbability},
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
 			"owner_id":          colOwnerID,
-			"stage_id":          colStageID,
+			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
-			"win_probability":   "s.win_probability",
+			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
-			"amount_minor":          colAmountMinor,
-			"weighted_amount_minor": "round((t.amount_minor * s.win_probability) / 100.0)::bigint",
+			"amount_minor":           colAmountMinor,
+			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		filters: map[string]string{
 			"owner_id":          colOwnerID,
-			"stage_id":          colStageID,
+			fieldStageID:        colStageID,
 			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
@@ -176,7 +221,7 @@ var prebuiltReports = map[string]reportSpec{
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
-			{Fn: "sum", Field: "weighted_amount_minor", As: "weighted_minor"},
+			{Fn: "sum", Field: fieldWeightedAmountMinor, As: "weighted_minor"},
 		},
 	},
 }

@@ -186,6 +186,20 @@ describe("buildColumns", () => {
     expect(columns[0].weightedMinor).toBe(60_000);
     expect(columns[1].sumHidden).toBe(true);
   });
+
+  // AC-F1: the weighted column must round PER DEAL, then sum —
+  // not sum the raw amounts and round once. 12343 × 20% = 2468.6, which
+  // rounds up to 2469 per deal (two deals: 4938); summing first gives
+  // 24686 × 20% = 4937.2, which rounds DOWN to 4937. The two derivations
+  // disagree by exactly the case this asserts.
+  it("rounds each deal's weighted value before summing, not the column sum", () => {
+    const columns = buildColumns(stages, [
+      deal({ id: "a", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
+      deal({ id: "b", stage_id: "s1", amount_minor: 12_343, currency: "EUR" }),
+    ]);
+    expect(columns[0].rawMinor).toBe(24_686);
+    expect(columns[0].weightedMinor).toBe(4_938);
+  });
 });
 
 function stubBackend(

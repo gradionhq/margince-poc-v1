@@ -185,7 +185,7 @@ func TestForecastSpecShape(t *testing.T) {
 	if got := spec.fromClause(); got != "deal t JOIN stage s ON s.id = t.stage_id" {
 		t.Errorf("fromClause = %q", got)
 	}
-	if spec.measures["weighted_amount_minor"] != "round((t.amount_minor * s.win_probability) / 100.0)::bigint" {
+	if spec.measures["weighted_amount_minor"] != "round((t.amount_minor::numeric * s.win_probability) / 100.0)::bigint" {
 		t.Errorf("weighted measure = %q", spec.measures["weighted_amount_minor"])
 	}
 	if spec.measures["amount_minor"] != "t.amount_minor" {

@@ -130,6 +130,7 @@ describe("ReportsScreen", () => {
           {
             forecast_category: "commit",
             raw_minor: 500000,
+            weighted_minor: 300000,
             deal_count: 3,
             currency: "EUR",
           },
@@ -149,6 +150,75 @@ describe("ReportsScreen", () => {
           b.body.group_by.includes("forecast_category"),
       ),
     ).toBe(true);
+    // AC-F1: the weighted forecast is the server's own figure —
+    // requested and rendered, not left computed-and-unshown.
+    expect(
+      bodies.some(
+        (b) =>
+          b.key === "forecast" &&
+          Array.isArray(b.body.aggregates) &&
+          (b.body.aggregates as { field?: string }[]).some(
+            (a) => a.field === "weighted_amount_minor",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("renders the slipped bucket in the Forecast tiles", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        forecastRows: [
+          {
+            forecast_category: "slipped",
+            raw_minor: 90000,
+            weighted_minor: 45000,
+            deal_count: 1,
+            currency: "EUR",
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Forecast" }),
+    );
+    await waitFor(() => expect(screen.getByText("Slipped")).toBeTruthy());
+  });
+
+  it("deals-by-stage requests and renders the server's weighted_minor, not a client re-derivation", async () => {
+    const bodies: { key: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        onRun: (key, body) => bodies.push({ key, body }),
+        // 12343 × 20% per deal (2469 × 2 = 4938) — a figure a client can only
+        // reproduce by rounding round(24686 × 20%) = 4937, the wrong way.
+        stageRows: [
+          {
+            stage_id: "pl-s1",
+            raw_minor: 24686,
+            weighted_minor: 4938,
+            deal_count: 2,
+            currency: "EUR",
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    await waitFor(() => expect(screen.getByText("Qualify")).toBeTruthy());
+    expect(
+      bodies.some(
+        (b) =>
+          b.key === "deals-by-stage" &&
+          Array.isArray(b.body.aggregates) &&
+          (b.body.aggregates as { field?: string }[]).some(
+            (a) => a.field === "weighted_amount_minor",
+          ),
+      ),
+    ).toBe(true);
+    expect(await screen.findByText("€49.38")).toBeTruthy();
+    expect(screen.queryByText("€49.37")).toBeNull();
   });
 
   it("switching to Open deals per company groups by organization_id and renders a table", async () => {

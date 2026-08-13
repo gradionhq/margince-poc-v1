@@ -199,21 +199,25 @@ func decodeWire(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, in
 	}
 }
 
-func (e *forecastEnv) runForecast(t *testing.T, ctx context.Context, body string) reportResultWire {
+// runReport and explainReport are generic over the report key so every
+// suite in this package shares one spelling of "POST /reports/{report}" and
+// "GET .../derivation" against the real handlers, rather than each report's
+// suite growing its own copy that differs only in the key.
+func (e *forecastEnv) runReport(ctx context.Context, t *testing.T, report, body string) reportResultWire {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/reports/forecast", strings.NewReader(body)).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/v1/reports/"+report, strings.NewReader(body)).WithContext(ctx)
 	rec := httptest.NewRecorder()
-	e.handlers.RunReport(rec, req, "forecast")
+	e.handlers.RunReport(rec, req, report)
 	var result reportResultWire
 	decodeWire(t, rec, http.StatusOK, &result)
 	return result
 }
 
-func (e *forecastEnv) explain(t *testing.T, ctx context.Context, handleURL string) derivationWire {
+func (e *forecastEnv) explainReport(ctx context.Context, t *testing.T, report, handleURL string) derivationWire {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, handleURL, nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
-	e.handlers.ExplainReport(rec, req, "forecast", crmcontracts.ExplainReportParams{})
+	e.handlers.ExplainReport(rec, req, report, crmcontracts.ExplainReportParams{})
 	var result derivationWire
 	decodeWire(t, rec, http.StatusOK, &result)
 	return result
@@ -270,7 +274,7 @@ func TestForecastRollupReconcilesToConstituentDeals(t *testing.T) {
 	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, archived_at, source, captured_by)
 		VALUES ($1, $2, 'Archived', $3, $4, 77777, 'EUR', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
 
-	result := e.runForecast(t, e.Admin(), `{"group_by":["forecast_category"]}`)
+	result := e.runReport(e.Admin(), t, "forecast", `{"group_by":["forecast_category"]}`)
 	if len(result.Rows) != 3 {
 		t.Fatalf("rows = %d (%+v), want commit + best_case + the NULL group", len(result.Rows), result.Rows)
 	}
@@ -338,7 +342,7 @@ func TestForecastByOwnerCountsAMultiStakeholderDealOnce(t *testing.T) {
 			VALUES ($1, $2, 'deal_stakeholder', $3, $4, $5, 'manual', 'human:x')`, dealID, personID, role)
 	}
 
-	result := e.runForecast(t, e.Admin(), `{"group_by":["owner_id"]}`)
+	result := e.runReport(e.Admin(), t, "forecast", `{"group_by":["owner_id"]}`)
 	if len(result.Rows) != 1 {
 		t.Fatalf("rows = %+v, want exactly one owner group", result.Rows)
 	}
@@ -368,7 +372,7 @@ func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 	e.seedOpenDeal(t, "Gamma", 55, &e.Rep1, nil, stringp("commit"))
 	e.seedOpenDeal(t, "Foreign owner", 60, &e.Rep3, int64p(999999), stringp("commit"))
 
-	result := e.runForecast(t, e.Admin(), `{"group_by":["owner_id"]}`)
+	result := e.runReport(e.Admin(), t, "forecast", `{"group_by":["owner_id"]}`)
 	var row map[string]any
 	for _, r := range result.Rows {
 		if r["owner_id"] == e.Rep1.String() {
@@ -383,7 +387,7 @@ func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 	if !ok || handle == "" {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
-	derivation := e.explain(t, e.Admin(), handle)
+	derivation := e.explainReport(e.Admin(), t, "forecast", handle)
 
 	for _, phrase := range []string{
 		"open, unarchived deals",
@@ -441,12 +445,12 @@ func TestForecastDerivationHonorsRowScope(t *testing.T) {
 	e.seedOpenDeal(t, "Theirs", 20, &e.Rep3, int64p(40000), stringp("commit"))
 
 	rep := e.dealReadCtx(e.Rep1, []ids.UUID{e.Team1}, principal.RowScopeTeam)
-	result := e.runForecast(t, rep, `{"group_by":["owner_id"]}`)
+	result := e.runReport(rep, t, "forecast", `{"group_by":["owner_id"]}`)
 	if len(result.Rows) != 1 || result.Rows[0]["owner_id"] != e.Rep1.String() {
 		t.Fatalf("team-scoped report rows = %+v, want only rep1's group", result.Rows)
 	}
 
-	derivation := e.explain(t, rep, result.DerivationURL)
+	derivation := e.explainReport(rep, t, "forecast", result.DerivationURL)
 	if derivation.TotalRows != 2 || len(derivation.Rows) != 2 {
 		t.Fatalf("team-scoped drill-through = %d rows (total %d), want rep1's 2 deals",
 			len(derivation.Rows), derivation.TotalRows)
@@ -461,14 +465,14 @@ func TestForecastDerivationHonorsRowScope(t *testing.T) {
 
 	// A handle pinned to the foreign owner resolves to an EMPTY set
 	// under team scope — anything that returns a record is a read.
-	foreign := e.explain(t, rep, "/v1/reports/forecast/derivation?by=owner_id&agg=count%3A%3Adeals&owner_id="+e.Rep3.String())
+	foreign := e.explainReport(rep, t, "forecast", "/v1/reports/forecast/derivation?by=owner_id&agg=count%3A%3Adeals&owner_id="+e.Rep3.String())
 	if foreign.TotalRows != 0 || len(foreign.Rows) != 0 {
 		t.Errorf("foreign-owner drill-through leaked %d rows (total %d)", len(foreign.Rows), foreign.TotalRows)
 	}
 
 	// Admin (row_scope=all) sees all three — the scope, not the data,
 	// made the difference.
-	full := e.explain(t, e.Admin(), result.DerivationURL)
+	full := e.explainReport(e.Admin(), t, "forecast", result.DerivationURL)
 	if full.TotalRows != 3 {
 		t.Errorf("admin drill-through total = %d, want 3", full.TotalRows)
 	}
