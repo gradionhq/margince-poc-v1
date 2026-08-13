@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // nativeWorkspace is the overlay predicate for a workspace on its own system
@@ -174,5 +176,59 @@ func TestGetPersonProfileFieldsAnswersAnArrayWhenNothingIsEnriched(t *testing.T)
 	}
 	if out.Data == nil {
 		t.Error("the sidecar answered a null list rather than an empty one")
+	}
+}
+
+// A section this reader may not see comes back nil, exactly like a section that
+// is genuinely empty, and the difference is recorded in sections_omitted. A
+// moment rule that reads nil as "there is nothing here" therefore tells a
+// reader without the grant that nothing is scheduled and nobody is waiting on a
+// reply — confident statements about data the page was never allowed to look at.
+//
+// The unit tests for that guard hand-build sections_omitted. This one drives
+// the real assembler with a real principal, so it also proves the guard is
+// keyed to the omission shape assemble.go actually produces rather than to one
+// a test invented.
+func TestAMomentDoesNotClaimAbsenceForASectionTheReaderCouldNotSee(t *testing.T) {
+	e := Setup(t)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	h := personHandlers(e)
+
+	read := func(ctx context.Context) crmcontracts.Person360 {
+		t.Helper()
+		code, body := call(ctx, http.MethodGet, "/v1/people/"+mine.String()+"/360",
+			func(w http.ResponseWriter, r *http.Request) { h.GetPerson360(w, r, crmcontracts.Id(mine)) })
+		if code != http.StatusOK {
+			t.Fatalf("360 → %d, want 200", code)
+		}
+		var page crmcontracts.Person360
+		if err := json.Unmarshal(body, &page); err != nil {
+			t.Fatalf("the composite did not parse: %v", err)
+		}
+		return page
+	}
+
+	// The same record, read by someone who may not see activities.
+	blind := roomPerms
+	blind.Objects = map[string]principal.ObjectGrant{}
+	for object, grant := range roomPerms.Objects {
+		blind.Objects[object] = grant
+	}
+	delete(blind.Objects, "activity")
+
+	page := read(e.As(e.Rep1, []ids.UUID{e.Team1}, blind))
+	if len(page.SectionsOmitted) == 0 {
+		t.Fatal("a reader without the activity grant must be TOLD which sections were withheld")
+	}
+	if page.Moment == nil {
+		t.Fatal("the page still opens on a moment")
+	}
+	// Whatever the ladder chose, it must not be a verdict about the sections
+	// this reader was refused.
+	for _, claim := range []string{"nobody is waiting on a reply", "nothing is owed"} {
+		if strings.Contains(page.Moment.WhyNow, claim) {
+			t.Errorf("the moment says %q to a reader shown %d withheld section(s): %q",
+				claim, len(page.SectionsOmitted), page.Moment.WhyNow)
+		}
 	}
 }

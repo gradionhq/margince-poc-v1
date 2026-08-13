@@ -90,7 +90,7 @@ func (s *Service) momentsSection(ctx context.Context, tx pgx.Tx, personID ids.Pe
 		// Dismissed against THIS evidence. The quiet success state is what the
 		// reader asked for by dismissing, and it is a moment of its own rather
 		// than an empty card.
-		quiet := nothingNeededMoment(now)
+		quiet := nothingNeededMoment(now, out)
 		out.Moment = &quiet
 		return nil
 	}
@@ -144,23 +144,44 @@ func (s *Service) momentDismissed(ctx context.Context, tx pgx.Tx, personID ids.P
 // inputs this build does not have, and a rule that cannot fire belongs nowhere
 // on the page.
 func deriveMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
-	ladder := []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
-		meetingPrepMoment,      // 1. a meeting within 72 hours
-		reEngagedMoment,        // 2. new inbound after a material quiet period
-		overduePromiseMoment,   // 4. an open commitment of ours is overdue
-		goneQuietMoment,        // 5. outbound unanswered past the configured rule
-		roleChangeMoment,       // 6. a new deal role or material relationship change
-		missingNextStepMoment,  // 8. an open deal with no next step involving them
-		thinRelationshipMoment, // 9. no captured interaction or network
-	}
-	for _, rule := range ladder {
-		if moment, ok := rule(now, page); ok {
+	for _, rung := range momentLadder {
+		if moment, ok := rung(now, page); ok {
 			return moment
 		}
 	}
 	// 10. Nothing needs you today. A quiet success state, not a blank card:
 	// "there is nothing here" is an answer, and the reader came for an answer.
-	return nothingNeededMoment(now)
+	return nothingNeededMoment(now, page)
+}
+
+// momentLadder is the ladder itself, named so a test can walk every rung.
+//
+// A rule that is only reachable through deriveMoment can only be tested by
+// constructing a page that makes it win, and the rungs below it then never run
+// at all - which is how three dead buttons sat on untested rungs while a test
+// claiming to be a general rule covered two.
+var momentLadder = []func(time.Time, *crmcontracts.Person360) (crmcontracts.PersonMoment, bool){
+	meetingPrepMoment,      // 1. a meeting within 72 hours
+	reEngagedMoment,        // 2. new inbound after a material quiet period
+	overduePromiseMoment,   // 4. an open commitment of ours is overdue
+	goneQuietMoment,        // 5. outbound unanswered past the configured rule
+	roleChangeMoment,       // 6. a new deal role or material relationship change
+	missingNextStepMoment,  // 8. an open deal with no next step involving them
+	thinRelationshipMoment, // 9. no captured interaction or network
+}
+
+// momentLadderNames names the rungs in momentLadder order, for tests that
+// report which rung they are talking about. A rung that does not fire returns
+// a zero PersonMoment whose Rule is empty, so the name cannot come from the
+// value — it has to be stated here.
+var momentLadderNames = []string{
+	"meeting_prep",
+	"re_engaged",
+	"overdue_promise",
+	"gone_quiet",
+	"role_change",
+	"missing_next_step",
+	"thin_relationship",
 }
 
 // meetingPrepMoment: a meeting is close enough that preparing for it is the
@@ -343,12 +364,52 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 				Prefill: prefill(map[string]string{prefillIntent: "follow_up"}),
 			},
 		},
-		SecondaryActions: &[]crmcontracts.PersonMomentAction{{
-			Kind:  crmcontracts.PersonMomentActionKindAskColleague,
-			Label: "Ask for context",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		}},
+		SecondaryActions: &[]crmcontracts.PersonMomentAction{askColleague()},
 	}, true
+}
+
+// askColleague offers the second play on a quiet relationship: somebody else
+// here may know why it went quiet.
+//
+// It is BLOCKED, and that is the honest state rather than a placeholder. None
+// of the five destinations reaches a screen for asking a colleague, so an
+// available action would render as an enabled button that does nothing when
+// pressed — which is what shipped, and what a rep learns to distrust the page
+// for.
+//
+// Blocked keeps the play visible and says why, which is the difference between
+// a feature that is coming and one that is broken. Note what is and is not
+// missing: the rail's "who knows them" card already NAMES the colleagues, from
+// the same GET /people/{id}/network read. What does not exist is the step after
+// that — a screen for asking one of them — so the reason says that, and not
+// that Margince cannot tell who they are. It sits beside a card listing them.
+func askColleague() crmcontracts.PersonMomentAction {
+	reason := "Sending a colleague a request for context is not available yet"
+	return crmcontracts.PersonMomentAction{
+		Kind:          crmcontracts.PersonMomentActionKindAskColleague,
+		Label:         "Ask for context",
+		State:         crmcontracts.PersonMomentActionStateBlocked,
+		BlockedReason: &reason,
+	}
+}
+
+// logInteraction offers the one thing worth doing on a record with nothing
+// pending: write down something that happened off-system.
+//
+// Blocked for the same reason as askColleague, and it was found by the test
+// that pins that rule rather than by a report — which is the argument for
+// having written the rule instead of the one fix. The screen for it exists
+// (frontend logactivity.tsx, the contract's logActivity POST), but the person
+// page does not route to it and the destination vocabulary has no surface
+// naming it, so an available action here is a button that does nothing.
+func logInteraction() crmcontracts.PersonMomentAction {
+	reason := "Logging an interaction from this card is not available yet"
+	return crmcontracts.PersonMomentAction{
+		Kind:          crmcontracts.PersonMomentActionKindLogActivity,
+		Label:         "Log an interaction",
+		State:         crmcontracts.PersonMomentActionStateBlocked,
+		BlockedReason: &reason,
+	}
 }
 
 // nothingNeededMoment is the quiet success state — rung 10, and the answer far
@@ -357,21 +418,30 @@ func goneQuietMoment(now time.Time, page *crmcontracts.Person360) (crmcontracts.
 // It is a moment rather than an absence because the reader opened the page to
 // be told what to do, and "nothing" is a legitimate answer that an empty card
 // fails to give.
-func nothingNeededMoment(now time.Time) crmcontracts.PersonMoment {
+func nothingNeededMoment(now time.Time, page *crmcontracts.Person360) crmcontracts.PersonMoment {
+	why := "No meeting is close, nothing is owed, and nobody is waiting on a reply."
+	// Every rung above this one either fired or found nothing, and "found
+	// nothing" includes "was not allowed to look". Saying nobody is waiting on
+	// a reply when the timeline was withheld states a fact about data this
+	// reader could not see, so the sentence says what is actually true instead.
+	if withheld(page, crmcontracts.Person360SectionsOmittedActivities,
+		crmcontracts.Person360SectionsOmittedLastTouch,
+		crmcontracts.Person360SectionsOmittedNextMeeting,
+		crmcontracts.Person360SectionsOmittedNextSteps,
+		crmcontracts.Person360SectionsOmittedClaims,
+		crmcontracts.Person360SectionsOmittedCommercial) {
+		why = "Nothing needs you in what this record shows you. Parts of it are not yours to see, so this is not the whole picture."
+	}
 	return crmcontracts.PersonMoment{
 		ClaimKey:            "moment:nothing_needed",
 		Rule:                crmcontracts.PersonMomentRuleNothingNeeded,
 		RuleVersion:         ptr(ruleVersion),
 		EvidenceFingerprint: "quiet",
 		Headline:            "Nothing needs you today",
-		WhyNow:              "No meeting is close, nothing is owed, and nobody is waiting on a reply.",
+		WhyNow:              why,
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            []crmcontracts.PersonMomentEvidence{},
 		FreshnessAt:         &now,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindLogActivity,
-			Label: "Log an interaction",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   logInteraction(),
 	}
 }

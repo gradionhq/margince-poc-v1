@@ -70,6 +70,7 @@ function NextBestActions({
           className="pe-rail-row"
           onClick={() => onAction(action)}
           disabled={action.state === "blocked"}
+          title={action.blocked_reason}
         >
           <span className="pe-rail-label">
             {actionIcon(action.kind)}

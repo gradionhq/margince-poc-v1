@@ -18,12 +18,21 @@ import (
 	"strings"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
-// roleChangeMoment: a seat on a deal changed, or the relationship crossed a
-// threshold. Derived from what the page already read, never from a fresh query.
+// roleChangeMoment: the relationship crossed a threshold. Derived from what the
+// page already read, never from a fresh query.
+//
+// The rule id is role_change and the only change it reads is replied_after_gap,
+// which is not a role change — relstrength emits four kinds and none of them is
+// one. So the headline states what the evidence actually shows. Naming the rung
+// for a signal the system does not produce is a contract question, tracked
+// separately; what must not happen meanwhile is the page telling a rep that
+// somebody's seat moved on the strength of a reply.
 func roleChangeMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
 	change, ok := findChange(page, relstrength.ChangeRepliedAfterGap)
 	if !ok {
@@ -31,7 +40,7 @@ func roleChangeMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.P
 	}
 	evidence := []crmcontracts.PersonMomentEvidence{{
 		Type:       crmcontracts.PersonMomentEvidenceTypeRelationshipChange,
-		Label:      "The relationship changed",
+		Label:      "They replied after a long gap",
 		ObservedAt: &change.At,
 	}}
 	return crmcontracts.PersonMoment{
@@ -39,22 +48,47 @@ func roleChangeMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.P
 		Rule:                crmcontracts.PersonMomentRuleRoleChange,
 		RuleVersion:         ptr(ruleVersion),
 		EvidenceFingerprint: fingerprintOf(evidence),
-		Headline:            "Their role on this deal changed",
-		WhyNow:              "Who decides has moved. What worked with the old seat may not work with the new one.",
+		Headline:            "They answered after a long silence",
+		WhyNow:              "A relationship that had gone quiet has moved. The window where a reply is expected is now.",
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
 		FreshnessAt:         &change.At,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindOpenRecord,
-			Label: "Open the deal",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   openDeal(page),
 	}, true
+}
+
+// withheld reports whether any of these sections was kept from this reader.
+//
+// A section the caller may not read comes back NIL, exactly like a section that
+// is genuinely empty, and assemble.go records the difference in SectionsOmitted
+// instead. A rule that reads nil as "there is nothing here" therefore tells a
+// reader without the grant that nothing is scheduled, that nothing has been
+// captured, that nobody is waiting — three confident statements about data the
+// page was not allowed to look at.
+//
+// So every rule whose FINDING IS AN ABSENCE asks this first. A rule that fires
+// on something present (a meeting exists, a promise is overdue) does not need
+// it: what it saw, it saw.
+func withheld(page *crmcontracts.Person360, sections ...crmcontracts.Person360SectionsOmitted) bool {
+	for _, omitted := range page.SectionsOmitted {
+		for _, section := range sections {
+			if omitted == section {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // missingNextStepMoment: there is an open deal and nothing scheduled with the
 // person who sits on it. The gap is the finding.
 func missingNextStepMoment(_ time.Time, page *crmcontracts.Person360) (crmcontracts.PersonMoment, bool) {
+	// "Nothing is scheduled" is only true if this reader could see the schedule.
+	if withheld(page, crmcontracts.Person360SectionsOmittedNextMeeting,
+		crmcontracts.Person360SectionsOmittedNextSteps,
+		crmcontracts.Person360SectionsOmittedCommercial) {
+		return crmcontracts.PersonMoment{}, false
+	}
 	if page.Commercial == nil || page.Commercial.Deal == nil {
 		return crmcontracts.PersonMoment{}, false
 	}
@@ -78,14 +112,13 @@ func missingNextStepMoment(_ time.Time, page *crmcontracts.Person360) (crmcontra
 		WhyNow:              "The deal is live and nothing is scheduled with the person whose seat decides it.",
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindScheduleMeeting,
-			Label: "Book a meeting",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-			Destination: &crmcontracts.PersonMomentDestination{
-				Surface: crmcontracts.PersonMomentDestinationSurfaceRecord,
-			},
-		},
+		RecommendedAction:   bookMeeting(),
+		SecondaryActions: &[]crmcontracts.PersonMomentAction{{
+			Kind:        crmcontracts.PersonMomentActionKindOpenRecord,
+			Label:       "Open the deal",
+			State:       crmcontracts.PersonMomentActionStateAvailable,
+			Destination: dealRecord(deal.DealId),
+		}},
 	}, true
 }
 
@@ -118,12 +151,67 @@ func thinRelationshipMoment(_ time.Time, page *crmcontracts.Person360) (crmcontr
 		WhyNow:              "There is no correspondence and no colleague who knows them. Everything about this record is still to be learned.",
 		Confidence:          crmcontracts.PersonMomentConfidenceObservedFact,
 		Evidence:            evidence,
-		RecommendedAction: crmcontracts.PersonMomentAction{
-			Kind:  crmcontracts.PersonMomentActionKindLogActivity,
-			Label: "Log an interaction",
-			State: crmcontracts.PersonMomentActionStateAvailable,
-		},
+		RecommendedAction:   logInteraction(),
 	}, true
+}
+
+// dealRecord points an action at one deal's page.
+//
+// The entity id is the whole content of this destination: the frontend
+// dispatcher navigates only when it has one, so a record surface without an id
+// is a button that looks live and goes nowhere - which is the same defect as an
+// action with no destination at all, wearing a destination.
+func dealRecord(dealID openapi_types.UUID) *crmcontracts.PersonMomentDestination {
+	entity := crmcontracts.PersonMomentDestinationEntityTypeDeal
+	return &crmcontracts.PersonMomentDestination{
+		Surface:    crmcontracts.PersonMomentDestinationSurfaceRecord,
+		EntityType: &entity,
+		EntityId:   &dealID,
+	}
+}
+
+// openDeal offers the deal this record has open, when the reader can see one.
+//
+// The relationship change names no deal, so the destination comes from the
+// commercial section - and that section is absent for a reader without the
+// deal grant. Blocked there rather than available: an action pointing at a
+// record this caller cannot open would navigate them to a 404, which is worse
+// than a control that says why it is off.
+func openDeal(page *crmcontracts.Person360) crmcontracts.PersonMomentAction {
+	action := crmcontracts.PersonMomentAction{
+		Kind:  crmcontracts.PersonMomentActionKindOpenRecord,
+		Label: "Open the deal",
+		State: crmcontracts.PersonMomentActionStateAvailable,
+	}
+	if page.Commercial == nil || page.Commercial.Deal == nil {
+		reason := "No open deal is visible on this record"
+		action.State = crmcontracts.PersonMomentActionStateBlocked
+		action.BlockedReason = &reason
+		return action
+	}
+	action.Destination = dealRecord(page.Commercial.Deal.DealId)
+	return action
+}
+
+// bookMeeting offers the move this rung is actually about, and blocks it.
+//
+// Pointing "Book a meeting" at the deal record would satisfy every check —
+// a real surface, a real entity id, a client that navigates — and still lie.
+// The reader presses a button that says it books a meeting and lands on a deal
+// page, which is a worse kind of dead button than one that does nothing: it
+// does something, and something else.
+//
+// Nothing in the destination vocabulary opens a scheduler, so blocked is the
+// honest state. Opening the deal stays offered beside it, under its own label,
+// where it is true.
+func bookMeeting() crmcontracts.PersonMomentAction {
+	reason := "Booking a meeting from this card is not available yet"
+	return crmcontracts.PersonMomentAction{
+		Kind:          crmcontracts.PersonMomentActionKindScheduleMeeting,
+		Label:         "Book a meeting",
+		State:         crmcontracts.PersonMomentActionStateBlocked,
+		BlockedReason: &reason,
+	}
 }
 
 // oldestOverdueCommitment finds the promise of OURS that has been late longest.
