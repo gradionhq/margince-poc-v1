@@ -86,6 +86,10 @@ type EnsureCounterpartyResult struct {
 	// TriagePending instead.
 	OrganizationID *ids.OrganizationID
 	DedupeRecorded bool
+	// NameFilled reports that this ensure completed an incumbent's split name
+	// that was previously unknown — the fill-only-if-empty path, never an
+	// overwrite. Counting it separately keeps "created a person" honest.
+	NameFilled bool
 
 	// TriagePending reports that this ensure OPENED a domain's organization
 	// question, and TriageDomain names the domain to ask about. A later message
@@ -163,7 +167,8 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err := auth.Require(ctx, entityPerson, principal.ActionCreate); err != nil {
 		return err
 	}
-	name := counterpartyName(in.DisplayName, in.Email)
+	parsed := ParsePersonName(in.DisplayName, in.Email)
+	name := parsed.Full
 	// The workspace's own consumer-mail list travels with the candidate: the
 	// employer-agreement term must judge a shared domain the same way capture
 	// does, or an admin's carve-out would hold on one side and not the other.
@@ -179,11 +184,13 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	}
 	if match.Decision == DecisionExactCollision {
 		res.PersonID = match.PersonID
-		return nil
+		return fillMissingPersonName(ctx, tx, match.PersonID, parsed, res)
 	}
 
 	id, err := createPerson(ctx, tx, match, PersonSpec{
 		FullName:    name,
+		FirstName:   nameColumn(parsed.First),
+		LastName:    nameColumn(parsed.Last),
 		OwnerID:     ownerFromUUID(&in.OwnerID),
 		Visibility:  visibilityOwner,
 		Quarantined: quarantineSuspect(in.DisplayName, in.Domain),
@@ -336,18 +343,54 @@ func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a,
 	return tag.RowsAffected() > 0, nil
 }
 
-// counterpartyName is the display name we can honestly store: the header
-// name when present, else the address's local part — never empty (person
-// pins full_name NOT NULL).
-func counterpartyName(displayName, email string) string {
-	name := strings.TrimSpace(displayName)
-	if name != "" {
-		return name
+// nameColumn renders a parsed name part for the nullable split-name columns.
+// An unconfident parse leaves them NULL rather than storing "" — a column that
+// says "we do not know" must not be spelled the same as one that says "empty".
+func nameColumn(part string) *string {
+	if part == "" {
+		return nil
 	}
-	if local, _, ok := strings.Cut(email, "@"); ok && local != "" {
-		return local
+	return &part
+}
+
+// fillMissingPersonName completes a person the ladder landed on by exact
+// address, and completes ONLY what is missing.
+//
+// Every incumbent reached here already exists, so this is the one path that can
+// improve a record created before the parser — or by an import, or by hand with
+// only a full name typed in. It is strictly additive: each column carries its
+// own IS NULL guard, so a name a human entered is never rewritten by whatever a
+// mail header happens to spell, and re-running it converges instead of flapping
+// between two spellings of the same person.
+//
+// Unconfident parses write nothing: `schluepmann` is not evidence of a surname
+// with no given name, it is evidence that the local part did not say.
+func fillMissingPersonName(ctx context.Context, tx pgx.Tx, personID ids.PersonID, parsed ParsedName, res *EnsureCounterpartyResult) error {
+	if !parsed.Confident {
+		return nil
 	}
-	return email
+	// The NULL predicate IS the concurrency guard: it is a compare-and-set on
+	// "still unknown", so a writer that filled the name between the dedupe read
+	// and this write keeps their value and this one affects zero rows. Nothing
+	// downstream depends on which of the two won — both wrote a name where there
+	// was none — so a zero count is a no-op, not an error.
+	tag, err := tx.Exec(ctx, `
+		UPDATE person
+		   SET first_name = COALESCE(first_name, $2),
+		       last_name  = COALESCE(last_name, $3),
+		       updated_at = now()
+		 WHERE id = $1
+		   AND (first_name IS NULL OR last_name IS NULL)`,
+		personID, parsed.First, parsed.Last)
+	if err != nil {
+		return fmt.Errorf("people: filling the missing name of person %s: %w", personID, err)
+	}
+	// A zero count is the guard doing its job, not a failure: the row already
+	// carried both names, or a concurrent writer filled them between the dedupe
+	// read and this write. Either way the person has a name that is not this
+	// call's to replace, so the result is reported and deliberately not raised.
+	res.NameFilled = tag.RowsAffected() > 0
+	return nil
 }
 
 // quarantineSuspect flags the cheap impersonation tells (ADR-0063): a
