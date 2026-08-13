@@ -184,6 +184,13 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	}
 	if match.Decision == DecisionExactCollision {
 		res.PersonID = match.PersonID
+		if quarantineSuspect(in.DisplayName, in.Domain) {
+			// The header carries an impersonation tell. A new record would be
+			// created quarantined for review; an EXISTING one has no such
+			// label to wear, so the only safe answer is to learn nothing from
+			// this message. The activity is still captured either way.
+			return nil
+		}
 		return fillMissingPersonName(ctx, tx, match.PersonID, parsed, res)
 	}
 
@@ -369,27 +376,42 @@ func fillMissingPersonName(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	if !parsed.Confident {
 		return nil
 	}
-	// The NULL predicate IS the concurrency guard: it is a compare-and-set on
-	// "still unknown", so a writer that filled the name between the dedupe read
-	// and this write keeps their value and this one affects zero rows. Nothing
-	// downstream depends on which of the two won — both wrote a name where there
-	// was none — so a zero count is a no-op, not an error.
+	// BOTH columns must be empty, and both are written together. A parse is
+	// confident about the PAIR "Bob Jones" — grafting its surname onto a first
+	// name a human typed would build "Alice Jones", a person neither source ever
+	// named. The predicate is also the concurrency guard: a writer who filled
+	// either half between the dedupe read and this write keeps it, because
+	// Postgres re-checks the predicate after waiting on their lock.
 	tag, err := tx.Exec(ctx, `
 		UPDATE person
-		   SET first_name = COALESCE(first_name, $2),
-		       last_name  = COALESCE(last_name, $3),
+		   SET first_name = $2,
+		       last_name  = $3,
 		       updated_at = now()
 		 WHERE id = $1
-		   AND (first_name IS NULL OR last_name IS NULL)`,
+		   AND first_name IS NULL AND last_name IS NULL`,
 		personID, parsed.First, parsed.Last)
 	if err != nil {
 		return fmt.Errorf("people: filling the missing name of person %s: %w", personID, err)
 	}
 	// A zero count is the guard doing its job, not a failure: the row already
-	// carried both names, or a concurrent writer filled them between the dedupe
-	// read and this write. Either way the person has a name that is not this
-	// call's to replace, so the result is reported and deliberately not raised.
-	res.NameFilled = tag.RowsAffected() > 0
+	// carried a name, and it is not this call's to replace.
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	// A mutation that changes a person's stored name is auditable like any other,
+	// and every audited mutation ships its event in the same transaction —
+	// without both, the row changes with no record of what did it and nothing
+	// downstream learns the name it was waiting for.
+	changed := map[string]any{"first_name": parsed.First, "last_name": parsed.Last}
+	auditID, err := storekit.Audit(ctx, tx, "update", entityPerson, personID.UUID, nil, changed)
+	if err != nil {
+		return err
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID,
+		crmcontracts.PublicEventPersonUpdated{ChangedFields: changed}); err != nil {
+		return err
+	}
+	res.NameFilled = true
 	return nil
 }
 

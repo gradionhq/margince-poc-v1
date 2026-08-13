@@ -92,8 +92,22 @@ var nameParticles = map[string]bool{
 // an address, in that order of authority: what the sender calls themselves
 // beats what their mailbox is called.
 func ParsePersonName(displayName, email string) ParsedName {
+	// Both inputs are untrusted header text. Bidi controls are removed before
+	// anything else: they are invisible, they survive every other transform,
+	// and left in `full_name` they make the stored string render as a name it
+	// is not: a right-to-left override before "htimS" makes it display as "Smith".
+	displayName = stripBidiControls(displayName)
+	if tooLongToBeAName(displayName) {
+		displayName = ""
+	}
 	if parsed, ok := parseDisplayName(displayName); ok {
 		return parsed
+	}
+	if tooLongToBeAName(email) {
+		// An address this long is not a name to read. It still has to be
+		// displayable, so it is truncated to something a human can see in a
+		// list rather than dropped or stored whole.
+		return ParsedName{Full: string([]rune(email)[:maxNameInputRunes])}
 	}
 	parsed := parseLocalPart(email)
 	if parsed.Full == "" {
@@ -154,11 +168,15 @@ func parseLocalPart(email string) ParsedName {
 	if base, _, found := strings.Cut(local, "+"); found && base != "" {
 		local = base
 	}
-	if roleLocalParts[strings.ToLower(local)] {
+	if hasRoleToken(local) {
 		return ParsedName{Full: local}
 	}
-	tokens := localPartTokens(local)
-	if len(tokens) == 0 {
+	tokens, complete := localPartTokens(local)
+	if len(tokens) == 0 || !complete {
+		// Something in the address did not read as a word — a dropped field
+		// would change WHICH human this is ("josé.maria.garcia" minus a
+		// decomposed "josé" is a different person), so the whole reading is
+		// refused rather than silently shortened.
 		return ParsedName{Full: local}
 	}
 	// One token is a surname, a handle, or a first name — the local part does
@@ -188,7 +206,9 @@ func parseLocalPart(email string) ParsedName {
 // so it stays inside the token, where capitalizeParts still cases both halves.
 // Splitting on it would turn "Anne-Marie O'Brien" into a three-token name and
 // hand "Marie" to the surname.
-func localPartTokens(local string) []string {
+// It reports complete=false when any field failed to read as a word. The caller
+// must then abstain: dropping a field silently would rename the person.
+func localPartTokens(local string) ([]string, bool) {
 	fields := strings.FieldsFunc(local, func(r rune) bool {
 		return r == '.' || r == '_'
 	})
@@ -196,27 +216,55 @@ func localPartTokens(local string) []string {
 	for _, field := range fields {
 		word := strings.TrimFunc(field, unicode.IsDigit)
 		if word == "" || !isWordLike(word) {
-			continue
+			return nil, false
 		}
 		tokens = append(tokens, word)
 	}
 	if len(tokens) > maxNameTokens {
-		return nil
+		return nil, false
 	}
-	return tokens
+	return tokens, true
+}
+
+// hasRoleToken reports whether a local part names an organizational mailbox
+// rather than a human — the whole of it, or any of its dot/underscore parts.
+// `support.eu@` and `sales.emea@` are the same kind of address as `support@`,
+// and reading them as "Support Eu" invents two people who do not exist.
+func hasRoleToken(local string) bool {
+	if roleLocalParts[strings.ToLower(local)] {
+		return true
+	}
+	for _, field := range strings.FieldsFunc(local, func(r rune) bool {
+		return r == '.' || r == '_' || r == '-'
+	}) {
+		if roleLocalParts[strings.ToLower(field)] {
+			return true
+		}
+	}
+	return false
 }
 
 // isWordLike reports whether a token could be part of a name: letters, plus the
 // apostrophes and hyphens real names carry. A token with a digit in the MIDDLE
 // (`user2name`) is a handle, not a name.
 func isWordLike(token string) bool {
+	letters := 0
 	for _, r := range token {
-		if unicode.IsLetter(r) || r == '\'' || r == '’' || r == '-' {
-			continue
+		switch {
+		case unicode.IsLetter(r):
+			letters++
+		case unicode.IsMark(r):
+			// A combining diacritic belongs to the letter before it: decomposed
+			// "é" is e + U+0301, and refusing the mark would drop the field and
+			// rename the person.
+		case r == '\'' || r == '’' || r == '-':
+		default:
+			return false
 		}
-		return false
 	}
-	return true
+	// Punctuation alone is not a word. Without this, "Alice -" reads as a
+	// person whose surname is a hyphen.
+	return letters > 0
 }
 
 // splitFirstLast decides whether tokens read as a given name and a surname.
@@ -238,6 +286,20 @@ func splitFirstLast(tokens []string) (string, string, bool) {
 	if nameParticles[strings.ToLower(tokens[0])] {
 		return "", "", false
 	}
+	// A name that mixes Latin with a look-alike script is a homoglyph attempt,
+	// not a multilingual name. It still DISPLAYS as given (hiding it would hide
+	// the mail), but nothing derived from it may be claimed as known.
+	if isMixedScriptSpoof(strings.Join(tokens, " ")) {
+		return "", "", false
+	}
+	// Three tokens only read as first+last when the tail is a particle surname
+	// ("Ludwig van Beethoven"). Otherwise the middle token is a middle name, a
+	// second given name, or — in a family-name-first convention written without
+	// a comma — the given name itself, and NOTHING in the string says which.
+	// Two plausible readings mean the honest answer is that we do not know.
+	if len(tokens) == maxNameTokens && !nameParticles[strings.ToLower(tokens[1])] {
+		return "", "", false
+	}
 	first := tokens[0]
 	last := strings.Join(tokens[1:], " ")
 	if first == "" || last == "" {
@@ -246,9 +308,25 @@ func splitFirstLast(tokens []string) (string, string, bool) {
 	return first, last, true
 }
 
+// credentialSuffixes are the post-nominals that follow a comma without making
+// the string surname-first. "Anna Weber, PhD" is Anna Weber; reversing it would
+// file her given name as "PhD".
+var credentialSuffixes = map[string]bool{
+	"phd": true, "ph.d": true, "ph.d.": true, "md": true, "m.d.": true,
+	"mba": true, "msc": true, "m.sc.": true, "bsc": true, "b.sc.": true,
+	"llm": true, "ll.m.": true, "jd": true, "j.d.": true, "cpa": true,
+	"cfa": true, "pe": true, "esq": true, "esq.": true, "rn": true,
+	"dds": true, "dvm": true, "edd": true, "psyd": true, "mpa": true, "mph": true,
+	"jr": true, "jr.": true, "sr": true, "sr.": true,
+	"ii": true, "iii": true, "iv": true,
+	"dipl": true, "dipl.": true, "ing": true, "ing.": true,
+	"mag": true, "mag.": true, "bakk": true, "bakk.": true, "msa": true,
+}
+
 // uncommaName reverses the "Surname, Given" spelling Outlook and address books
-// emit. Only ONE comma qualifies: "Weber, Anna, PhD" carries a credential the
-// reversal would turn into a given name.
+// emit — and ONLY that. Two other shapes wear the same comma and must not be
+// reversed: a post-nominal credential ("Anna Weber, PhD"), and anything with a
+// second comma, which is a list rather than a name.
 func uncommaName(name string) string {
 	before, after, found := strings.Cut(name, ",")
 	if !found || strings.Contains(after, ",") {
@@ -258,7 +336,34 @@ func uncommaName(name string) string {
 	if before == "" || after == "" {
 		return name
 	}
+	// The tail is what would become the GIVEN name. A credential there means
+	// the string was already "Given Surname" with a qualification appended, so
+	// the honest reading is to drop the qualification and keep the order.
+	if isCredentialTail(after) {
+		return before
+	}
+	// A tail of several words is a given name at most ("Anna Maria"); more than
+	// that is a title or a department the reversal would file as a person's
+	// first name.
+	if len(strings.Fields(after)) > 2 {
+		return name
+	}
 	return after + " " + before
+}
+
+// isCredentialTail reports whether every word after the comma is a post-nominal.
+func isCredentialTail(tail string) bool {
+	fields := strings.Fields(tail)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, field := range fields {
+		if !credentialSuffixes[strings.ToLower(strings.TrimSuffix(field, "."))] &&
+			!credentialSuffixes[strings.ToLower(field)] {
+			return false
+		}
+	}
+	return true
 }
 
 // splitHonorific lifts a leading salutation off the name.

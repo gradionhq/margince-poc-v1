@@ -3,7 +3,10 @@
 
 package people
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The cases are the real headers a Gmail import produced, so the table doubles
 // as the record of what was actually wrong: every `want` here is a row that
@@ -102,14 +105,36 @@ func TestParsePersonNameReadsTheNameAHeaderCarries(t *testing.T) {
 			display: "Dr.", email: "d@example.com", wantFull: "Dr.",
 		},
 		{
-			name:    "a middle name still reads as first and last",
+			name:    "three plain tokens are ambiguous and are not split",
 			display: "Anna Maria Weber", email: "amw@example.com",
-			wantFull: "Anna Maria Weber", wantFirst: "Anna", wantLast: "Maria Weber", wantConfide: true,
+			wantFull: "Anna Maria Weber",
 		},
 		{
 			name:    "a second comma means the tail is a credential, not a given name",
 			display: "Weber, Anna, PhD", email: "aw@example.com",
 			wantFull: "Weber, Anna, PhD",
+		},
+		{
+			name:    "a post-nominal after one comma is dropped, not read as a given name",
+			display: "Anna Weber, PhD", email: "aw2@example.com",
+			wantFull: "Anna Weber", wantFirst: "Anna", wantLast: "Weber", wantConfide: true,
+		},
+		{
+			name:  "a departmental mailbox is a role address, not two people",
+			email: "support.eu@example.com", wantFull: "support.eu",
+		},
+		{
+			name:    "punctuation is not a surname",
+			display: "Alice -", email: "a@example.com", wantFull: "Alice -",
+		},
+		{
+			name:    "a name mixing Latin with a look-alike script is never claimed as known",
+			display: "Аlice Smith", email: "as@example.com", wantFull: "Аlice Smith",
+		},
+		{
+			name:    "bidi overrides are stripped so the stored name cannot render as another",
+			display: "Alice \u202ehtimS\u202c", email: "bidi@example.com",
+			wantFull: "Alice htimS", wantFirst: "Alice", wantLast: "htimS", wantConfide: true,
 		},
 		{
 			name:  "a handle with digits in the middle is not split",
@@ -154,6 +179,25 @@ func TestParsePersonNameAlwaysProducesADisplayableName(t *testing.T) {
 		if got := ParsePersonName(in.display, in.email); got.Full == "" {
 			t.Errorf("ParsePersonName(%q, %q) produced an empty Full", in.display, in.email)
 		}
+	}
+}
+
+// A display name is untrusted header text of the sender's choosing. The parser
+// must bound it before splitting, or a multi-megabyte value would be tokenized,
+// rejoined and handed on to dedupe and the database.
+func TestParsePersonNameRefusesAnOversizedHeader(t *testing.T) {
+	t.Parallel()
+	huge := strings.Repeat("A ", 200_000)
+	got := ParsePersonName(huge, "real.person@example.com")
+	if len([]rune(got.Full)) > maxNameInputRunes {
+		t.Errorf("Full is %d runes, want at most %d", len([]rune(got.Full)), maxNameInputRunes)
+	}
+	// The oversized header is discarded, so the address still names the person.
+	if got.First != "Real" || got.Last != "Person" {
+		t.Errorf("got %q %q, want the address read instead of the huge header", got.First, got.Last)
+	}
+	if long := ParsePersonName("", strings.Repeat("a", 5_000)+"@example.com"); len([]rune(long.Full)) > maxNameInputRunes {
+		t.Errorf("oversized address produced %d runes, want at most %d", len([]rune(long.Full)), maxNameInputRunes)
 	}
 }
 
