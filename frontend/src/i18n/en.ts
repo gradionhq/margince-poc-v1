@@ -1758,6 +1758,50 @@ export const en = {
   "settings.revoke": "Revoke",
   "settings.revokeConfirm":
     "This passport's credential is invalidated immediately — the agent loses access on its next call.",
+  "import.title": "Import a file",
+  "import.sub":
+    "Bring a CSV of prospects or companies into the estate. Nothing is written until you have read what it will do.",
+  "import.objectLabel": "What the rows are",
+  "import.object.lead": "Prospects",
+  "import.object.organization": "Companies",
+  "import.objectHint.lead":
+    "Bulk prospects land as leads for a human to qualify — never as contacts.",
+  "import.objectHint.organization":
+    "Companies are matched by the name you map, so a re-upload corrects rather than duplicates.",
+  "import.fileLabel": "The CSV to import",
+  "import.choose": "Choose a file",
+  "import.chooseAnother": "Choose a different file",
+  "import.profiled": "Read from the first {rows} rows of the file.",
+  "import.col.column": "Column",
+  "import.col.filled": "Filled",
+  "import.col.samples": "Values",
+  "import.col.destination": "Goes to",
+  "import.dontImport": "Don't import",
+  "import.noSamples": "empty",
+  "import.destinationFor": "Where {column} goes",
+  "import.identifiedBy":
+    "Rows are identified by {column}, so re-importing this file updates rather than duplicates.",
+  "import.needsIdentifier":
+    "Map a column to {field}. Without it no row can be recognized on a second upload, or undone.",
+  "import.validate": "Check what this will do",
+  "import.validating": "Checking…",
+  "import.previewTitle": "What this import will do",
+  "import.outcomeTitle": "What this import did",
+  "import.count.created": "Create",
+  "import.count.updated": "Update",
+  "import.count.unchanged": "Unchanged",
+  "import.count.skipped": "Skipped",
+  "import.rowsRead": "{rows} rows read, identified by {column}.",
+  "import.issuesLead":
+    "Some rows cannot be imported. They are listed with the line to open in your file.",
+  "import.issueLine": "Line {line}:",
+  "import.commit": "Import {rows} rows",
+  "import.importing": "Importing…",
+  "import.done": "The import finished.",
+  "import.failed":
+    "The import stopped after {checkpoint} rows. Resuming continues from there rather than starting again.",
+  "import.resume": "Resume the import",
+  "import.another": "Import another file",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
     "non-production only — irreversible on this installation",

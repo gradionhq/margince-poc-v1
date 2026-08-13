@@ -1748,6 +1748,50 @@ export const vi = {
   "settings.revoke": "Thu hồi",
   "settings.revokeConfirm":
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
+  "import.title": "Nhập tệp",
+  "import.sub":
+    "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
+  "import.objectLabel": "Các dòng là gì",
+  "import.object.lead": "Khách hàng tiềm năng",
+  "import.object.organization": "Công ty",
+  "import.objectHint.lead":
+    "Dữ liệu nhập hàng loạt vào dạng lead để người thẩm định — không bao giờ thành liên hệ.",
+  "import.objectHint.organization":
+    "Công ty được nhận diện theo tên bạn ánh xạ, nên tải lên lại sẽ sửa chứ không nhân đôi.",
+  "import.fileLabel": "Tệp CSV cần nhập",
+  "import.choose": "Chọn tệp",
+  "import.chooseAnother": "Chọn tệp khác",
+  "import.profiled": "Đọc từ {rows} dòng đầu của tệp.",
+  "import.col.column": "Cột",
+  "import.col.filled": "Có dữ liệu",
+  "import.col.samples": "Giá trị",
+  "import.col.destination": "Ánh xạ vào",
+  "import.dontImport": "Không nhập",
+  "import.noSamples": "trống",
+  "import.destinationFor": "{column} ánh xạ vào đâu",
+  "import.identifiedBy":
+    "Các dòng được nhận diện bằng {column}, nên nhập lại tệp này sẽ cập nhật chứ không nhân đôi.",
+  "import.needsIdentifier":
+    "Hãy ánh xạ một cột vào {field}. Thiếu nó thì không dòng nào được nhận ra ở lần tải lên sau, cũng không hoàn tác được.",
+  "import.validate": "Kiểm tra điều sẽ xảy ra",
+  "import.validating": "Đang kiểm tra…",
+  "import.previewTitle": "Lần nhập này sẽ làm gì",
+  "import.outcomeTitle": "Lần nhập này đã làm gì",
+  "import.count.created": "Tạo mới",
+  "import.count.updated": "Cập nhật",
+  "import.count.unchanged": "Không đổi",
+  "import.count.skipped": "Bỏ qua",
+  "import.rowsRead": "Đã đọc {rows} dòng, nhận diện bằng {column}.",
+  "import.issuesLead":
+    "Một số dòng không nhập được. Danh sách kèm số dòng để bạn mở trong tệp.",
+  "import.issueLine": "Dòng {line}:",
+  "import.commit": "Nhập {rows} dòng",
+  "import.importing": "Đang nhập…",
+  "import.done": "Đã nhập xong.",
+  "import.failed":
+    "Lần nhập dừng sau {checkpoint} dòng. Tiếp tục sẽ chạy tiếp từ đó thay vì làm lại từ đầu.",
+  "import.resume": "Tiếp tục nhập",
+  "import.another": "Nhập tệp khác",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
     "chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này",

@@ -1757,6 +1757,50 @@ export const de = {
   "settings.revoke": "Widerrufen",
   "settings.revokeConfirm":
     "Das Credential dieses Passports wird sofort ungültig — der Agent verliert beim nächsten Aufruf den Zugriff.",
+  "import.title": "Datei importieren",
+  "import.sub":
+    "Eine CSV mit Interessenten oder Firmen einlesen. Es wird nichts geschrieben, bevor Sie gelesen haben, was passieren wird.",
+  "import.objectLabel": "Was die Zeilen sind",
+  "import.object.lead": "Interessenten",
+  "import.object.organization": "Firmen",
+  "import.objectHint.lead":
+    "Massenhaft importierte Interessenten landen als Leads zur Qualifizierung — nie als Kontakte.",
+  "import.objectHint.organization":
+    "Firmen werden über den zugeordneten Namen erkannt, ein erneuter Upload korrigiert also statt zu duplizieren.",
+  "import.fileLabel": "Die zu importierende CSV",
+  "import.choose": "Datei wählen",
+  "import.chooseAnother": "Andere Datei wählen",
+  "import.profiled": "Aus den ersten {rows} Zeilen der Datei gelesen.",
+  "import.col.column": "Spalte",
+  "import.col.filled": "Gefüllt",
+  "import.col.samples": "Werte",
+  "import.col.destination": "Geht nach",
+  "import.dontImport": "Nicht importieren",
+  "import.noSamples": "leer",
+  "import.destinationFor": "Wohin {column} geht",
+  "import.identifiedBy":
+    "Zeilen werden über {column} erkannt — ein erneuter Import dieser Datei aktualisiert statt zu duplizieren.",
+  "import.needsIdentifier":
+    "Ordnen Sie eine Spalte {field} zu. Ohne sie ist keine Zeile beim zweiten Upload wiedererkennbar oder rückgängig zu machen.",
+  "import.validate": "Prüfen, was passieren würde",
+  "import.validating": "Wird geprüft…",
+  "import.previewTitle": "Was dieser Import tun wird",
+  "import.outcomeTitle": "Was dieser Import getan hat",
+  "import.count.created": "Anlegen",
+  "import.count.updated": "Aktualisieren",
+  "import.count.unchanged": "Unverändert",
+  "import.count.skipped": "Übersprungen",
+  "import.rowsRead": "{rows} Zeilen gelesen, erkannt über {column}.",
+  "import.issuesLead":
+    "Einige Zeilen können nicht importiert werden. Sie sind mit der Zeilennummer in Ihrer Datei aufgeführt.",
+  "import.issueLine": "Zeile {line}:",
+  "import.commit": "{rows} Zeilen importieren",
+  "import.importing": "Wird importiert…",
+  "import.done": "Der Import ist abgeschlossen.",
+  "import.failed":
+    "Der Import hat nach {checkpoint} Zeilen gestoppt. Fortsetzen macht dort weiter, statt neu zu beginnen.",
+  "import.resume": "Import fortsetzen",
+  "import.another": "Weitere Datei importieren",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
     "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
