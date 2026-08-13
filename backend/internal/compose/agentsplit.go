@@ -82,6 +82,18 @@ var actionShapedUpdateOps = map[string]bool{
 	opRenameCustomField:   true,
 }
 
+// splitUpdateDeps is what splitHumanOwnedUpdate needs to decide and stage a
+// conflict, bundled for the same reason restCommandDeps is: the three are
+// fixed at composition (admissionOutcome.staging/commands/ownership, set once
+// per gate from agentGate's own parameters, not per request), so threading
+// them as positional arguments churns the signature every time one more join
+// is needed rather than describing what this REST split actually depends on.
+type splitUpdateDeps struct {
+	staging   agents.Approvals
+	commands  restCommandDeps
+	ownership agents.FieldOwnership
+}
+
 // splitHumanOwnedUpdate is the per-field human-edit-precedence split
 // (interfaces.md §2.1) on the REST twin of the 🟢 update_record verb. The
 // body IS the field patch; the route's record_type annotation and {id}
@@ -97,7 +109,7 @@ var actionShapedUpdateOps = map[string]bool{
 // a second approval for the overwrite just approved. This function used to
 // redeem the token itself, which is how every OTHER tool's 🟢 arm came to ignore
 // one (gradionhq/margince-poc-v1#812).
-func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, commands restCommandDeps, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, deps splitUpdateDeps, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	raw := chi.URLParam(r, "id")
 	if raw == "" {
@@ -114,7 +126,7 @@ func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Han
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}
-	split, err := agents.SplitHumanOwned(ctx, ownership, string(pol.RecordType), targetID, body)
+	split, err := agents.SplitHumanOwned(ctx, deps.ownership, string(pol.RecordType), targetID, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -123,7 +135,7 @@ func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Han
 		next.ServeHTTP(w, r)
 		return
 	}
-	if staging == nil {
+	if deps.staging == nil {
 		httperr.Write(w, r, fmt.Errorf("fields %s were last edited by a human, and this surface has no approvals engine to stage the overwrite: %w",
 			strings.Join(split.Conflicts, ", "), apperrors.ErrRequiresApproval))
 		return
@@ -143,10 +155,10 @@ func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Han
 		// (Authoritative:false) record could never be redeemed anyway, since
 		// redemption's version pin reads our own tables, so refusing now
 		// beats spending a human's yes on a call that cannot be released.
-		stageRefusal(w, r, staging, commands, pol, body)
+		stageRefusal(w, r, deps.staging, deps.commands, pol, body)
 		return
 	}
-	applyAutoExecuteAndStageResidue(w, r, next, staging, commands, pol, split)
+	applyAutoExecuteAndStageResidue(w, r, next, deps.staging, deps.commands, pol, split)
 }
 
 // applyAutoExecuteAndStageResidue handles the mixed patch: everything that can

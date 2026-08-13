@@ -148,7 +148,9 @@ func TestSplitAllHumanOwnedRefusesAnExternallyHeldRecord(t *testing.T) {
 		t.Fatal("the handler ran — every field was human-owned, so nothing should have auto-executed")
 	})
 
-	splitHumanOwnedUpdate(rec, req, next, staging, restCommandDeps{records: mirroredRecord{}}, allHumanOwned{}, pol, body)
+	splitHumanOwnedUpdate(rec, req, next,
+		splitUpdateDeps{staging: staging, commands: restCommandDeps{records: mirroredRecord{}}, ownership: allHumanOwned{}},
+		pol, body)
 
 	if staging.last.Tool != "" {
 		t.Errorf("an approval was staged for %q against a record whose authority lives elsewhere — "+

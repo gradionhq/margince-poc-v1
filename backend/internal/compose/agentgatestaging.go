@@ -149,7 +149,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	// inside the transaction that actually mutates, where a concurrent write
 	// loses to the version compare instead of to timing.
 	if redemption.pinned {
-		r.Header.Set("If-Match", strconv.FormatInt(redemption.pin, 10))
+		r.Header.Set(ifMatchHeader, strconv.FormatInt(redemption.pin, 10))
 	}
 	// WithContext shares the header map set just above, so the pin travels with
 	// the released request.

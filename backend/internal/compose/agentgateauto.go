@@ -25,6 +25,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
+const ifMatchHeader = "If-Match"
+
 // runAutoExecuted dispatches a call the gate admitted at the auto-execute tier.
 //
 // An X-Approval-Token on such a call is CONSUMED, whatever tool it names. A
@@ -79,7 +81,9 @@ func runAutoExecuted(w http.ResponseWriter, r *http.Request, next http.Handler, 
 	performed := &effectRecorder{ResponseWriter: w}
 	metered := &servedMeter{ResponseWriter: performed, r: r, reg: outcome.registry, mayRefuse: theEffectAlreadyLanded}
 	if !redeemed && outcome.pol.Tool == toolUpdateRecord && !actionShapedUpdateOps[outcome.pol.Op] {
-		splitHumanOwnedUpdate(metered, r, next, outcome.staging, outcome.commands, outcome.ownership, outcome.pol, outcome.body)
+		splitHumanOwnedUpdate(metered, r, next,
+			splitUpdateDeps{staging: outcome.staging, commands: outcome.commands, ownership: outcome.ownership},
+			outcome.pol, outcome.body)
 	} else {
 		next.ServeHTTP(metered, r)
 	}
@@ -145,7 +149,7 @@ func pinAutoExecutedWrite(w http.ResponseWriter, r *http.Request, redemption tok
 				redemption.pin, admitted, apperrors.ErrVersionSkew))
 			return false
 		}
-		r.Header.Set("If-Match", strconv.FormatInt(redemption.pin, 10))
+		r.Header.Set(ifMatchHeader, strconv.FormatInt(redemption.pin, 10))
 		return true
 	}
 	if !gateRead {
@@ -159,10 +163,10 @@ func pinAutoExecutedWrite(w http.ResponseWriter, r *http.Request, redemption tok
 		// read is then the only proved version, and it overrides the caller's
 		// header for the same reason the released pin does above: the approval is
 		// already spent, so a refusal here would destroy it.
-		r.Header.Set("If-Match", strconv.FormatInt(admitted, 10))
+		r.Header.Set(ifMatchHeader, strconv.FormatInt(admitted, 10))
 		return true
 	}
-	if caller := r.Header.Get("If-Match"); caller != "" {
+	if caller := r.Header.Get(ifMatchHeader); caller != "" {
 		// Compared as the numbers they are: the contract's If-Match is a bare
 		// integer version, and two spellings of one number must not read as
 		// disagreement. A caller header this parser refuses is left for the
@@ -183,6 +187,6 @@ func pinAutoExecutedWrite(w http.ResponseWriter, r *http.Request, redemption tok
 			caller, admitted, apperrors.ErrVersionSkew))
 		return false
 	}
-	r.Header.Set("If-Match", strconv.FormatInt(admitted, 10))
+	r.Header.Set(ifMatchHeader, strconv.FormatInt(admitted, 10))
 	return true
 }
