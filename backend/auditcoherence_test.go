@@ -95,6 +95,60 @@ func TestAuditLogEnumCoherence(t *testing.T) {
 	}
 }
 
+// The third copy of the vocabulary is the SOURCE. Every storekit.Audit call
+// passes its verb as a string literal, and neither check above can see one: a
+// verb no list contains leaves the contract and the DDL in perfect agreement
+// and still fails at INSERT, taking its whole transaction with it.
+//
+// That is not hypothetical. `connect` and `disconnect` shipped this way and
+// made binding a data provider impossible — the CHECK rejected the audit row,
+// the transaction rolled back, and the admin was told to check their own input
+// (migration 0226). Unit tests could not catch it because the constraint lives
+// only in Postgres, and the integration tests seeded rows directly.
+//
+// So this reads the tree the way the other direction reads the migrations.
+func TestEveryAuditVerbTheCodeWritesIsLegal(t *testing.T) {
+	ddl := tableCheckSets(t)
+	allowed, ok := ddl["audit_log.action"]
+	if !ok {
+		t.Fatal("audit_log.action: no CHECK (col IN (...)) constraint found in migrations")
+	}
+	allowedSet := auditStrSet(allowed)
+
+	// The first string argument after the transaction is the verb. A call that
+	// builds it from a variable is invisible here, which is why the write shape
+	// spells them as literals.
+	call := regexp.MustCompile(`storekit\.Audit\(\s*[A-Za-z0-9_.]+\s*,\s*[A-Za-z0-9_.]+\s*,\s*"([a-z_]+)"`)
+
+	found := map[string][]string{}
+	for _, dir := range []string{"internal", "../extensions"} {
+		for _, path := range goSourceFiles(t, dir) {
+			src, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			for _, m := range call.FindAllStringSubmatch(string(src), -1) {
+				found[m[1]] = append(found[m[1]], path)
+			}
+		}
+	}
+	if len(found) == 0 {
+		t.Fatal("no storekit.Audit call sites found — this gate would pass vacuously; check the call pattern")
+	}
+
+	verbs := make([]string, 0, len(found))
+	for v := range found {
+		verbs = append(verbs, v)
+	}
+	sort.Strings(verbs)
+	for _, v := range verbs {
+		if _, ok := allowedSet[v]; !ok {
+			t.Errorf("audit_log.action: code writes %q (%s) but the DDL CHECK rejects it — every write of it fails at INSERT and rolls back its whole transaction; add the verb in a new migration and to crm.yaml",
+				v, strings.Join(found[v], ", "))
+		}
+	}
+}
+
 // auditLogContractEnums returns the sorted action and actor_type enum sets
 // declared on components.schemas.AuditLogEntry in api/crm.yaml.
 func auditLogContractEnums(t *testing.T) (action, actorType []string) {
