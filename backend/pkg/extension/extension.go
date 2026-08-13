@@ -55,6 +55,15 @@
 //     currently infers foreign types (openapi-fetch) into the published shape.
 //     Replacing those with core-owned interfaces changes the exported types.
 //
+//   - Runtime.Ingest, and its `on UserID` parameter above all. Ingress is
+//     OFFERED rather than enforced — a unit lands what it chooses to hand over
+//     — and naming the member the record belongs to is a stand-in for a
+//     first-class per-member connection concept the tier does not have yet. If
+//     one arrives, `on` becomes that connection's identity and every unit's
+//     poll changes with it. What will NOT change is the pair of facts behind
+//     it: the member has to have deposited a credential with the unit, and the
+//     landing runs on their live authority.
+//
 // A unit written against today's surface will need editing when either lands.
 // That is acceptable precisely because the composed set is the trust boundary:
 // every unit is first-party or otherwise reviewed, and they migrate together.
