@@ -172,6 +172,10 @@ func TestACounterpartyWhoIsAKnownHumanGetsTheirRealName(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The installation has written to this address, which is the unforgeable
+	// half: without it a spoofed From could claim any colleague's identity.
+	e.attestOutbound(ctx, t, addr)
+
 	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, addr, "Lars", "jankowfsky.test"))
 	if err != nil || !res.PersonCreated {
 		t.Fatalf("ensure = %+v (err %v), want a created person", res, err)
@@ -206,5 +210,81 @@ func TestAConfidentHeaderOutranksAKnownHumansStoredName(t *testing.T) {
 	}
 	if full, _, last := e.storedName(ctx, t, res.PersonID); full != "Anna Weber" || nameOrNull(last) != "Weber" {
 		t.Fatalf("stored %q / %q, want the name she signs her own mail with", full, nameOrNull(last))
+	}
+}
+
+// attestOutbound records that this installation provably wrote to an address —
+// the T1 evidence, stamped only by a connector reading the owner's own sent
+// copy or by the governed send path.
+func (e *dedupeEnv) attestOutbound(ctx context.Context, t *testing.T, email string) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, subject, counterparty_email,
+			                      counterparty_outbound_attested, source, captured_by)
+			VALUES ($1, $2, 'email', 'hi', $3, true, 'test', 'human:test')`,
+			ids.NewV7(), e.ws, email)
+		return err
+	}); err != nil {
+		t.Fatalf("attesting outbound to %s: %v", email, err)
+	}
+}
+
+// A forged From naming a colleague's address must not put that colleague's
+// stored name on a stranger's record. The header is forgeable; the installation
+// having WRITTEN to the address is not.
+func TestASpoofedHeaderCannotBorrowAKnownHumansName(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	const addr = "colleague@elsewhere.test"
+
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO app_user (id, workspace_id, email, display_name)
+			VALUES ($1, $2, $3, 'Real Colleague')`, ids.NewV7(), e.ws, addr)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// No attested correspondence: nothing proves this installation ever wrote
+	// to the address, so the name stays what the header actually said.
+	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, addr, "Lars", "elsewhere.test"))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	full, first, last := e.storedName(ctx, t, res.PersonID)
+	if full != "Lars" || first != nil || last != nil {
+		t.Fatalf("stored %q / %q / %q, want the header's own word and no borrowed identity",
+			full, nameOrNull(first), nameOrNull(last))
+	}
+}
+
+// The record a person LOOKS at has to change. A fill that writes the split
+// columns and leaves full_name reading "Lars" reports success and changes
+// nothing visible.
+func TestFillingASplitNameAlsoFixesTheDisplayedName(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	const addr = "lars@displayed.test"
+
+	// First contact: the header says one word, so that is what is stored.
+	first, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, addr, "Lars", "displayed.test"))
+	if err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	if full, _, _ := e.storedName(ctx, t, first.PersonID); full != "Lars" {
+		t.Fatalf("full_name = %q on first contact, want the header's word", full)
+	}
+
+	// A later message carries the whole name.
+	if _, err := e.store.EnsureCounterparty(ctx,
+		e.ensureInput(ctx, t, addr, "Lars Jankowfsky", "displayed.test")); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	full, f, l := e.storedName(ctx, t, first.PersonID)
+	if full != "Lars Jankowfsky" || nameOrNull(f) != "Lars" || nameOrNull(l) != "Jankowfsky" {
+		t.Fatalf("stored %q / %q / %q, want the displayed name fixed too",
+			full, nameOrNull(f), nameOrNull(l))
 	}
 }

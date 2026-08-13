@@ -29,6 +29,11 @@ import (
 // to — the display name on the app_user row with that address, or "" when the
 // address is nobody the installation knows.
 //
+// Scoped to the CURRENT workspace and to an ACTIVE seat. Row-level security is
+// retired, so the workspace predicate is the query's own job now; and a
+// deactivated member keeps their row, so archived_at alone would still hand out
+// the name of somebody the installation has stopped trusting.
+//
 // It exists because the header is not always the best evidence available. A
 // message signed only "Lars" from lars@jankowfsky.de parses to a single token,
 // which the parser refuses to split — correctly, since one word is a first
@@ -43,7 +48,10 @@ func KnownHumanName(ctx context.Context, tx pgx.Tx, email string) (string, error
 	var name string
 	err := tx.QueryRow(ctx, `
 		SELECT display_name FROM app_user
-		 WHERE lower(email) = $1 AND archived_at IS NULL`, normalized).Scan(&name)
+		 WHERE lower(email) = $1
+		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND archived_at IS NULL
+		   AND status = 'active'`, normalized).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -71,6 +79,19 @@ func (s *Store) nameCounterparty(ctx context.Context, tx pgx.Tx, in EnsureCounte
 	if parsed.Confident {
 		return parsed, nil
 	}
+	// The From header is FORGEABLE, and this is the one place that would turn a
+	// forged one into an identity claim: a spoofed "Lars <someone@gmail.com>"
+	// would otherwise attach a colleague's real stored name to a stranger's
+	// record. So the address must have carried attested correspondence — mail
+	// this installation itself sent there, or a provider-vouched sent copy —
+	// before their stored name is trusted over the header.
+	attested, err := addressAttestedTx(ctx, tx, in.Email)
+	if err != nil {
+		return ParsedName{}, err
+	}
+	if !attested {
+		return parsed, nil
+	}
 	known, err := KnownHumanName(ctx, tx, in.Email)
 	if err != nil {
 		return ParsedName{}, err
@@ -86,4 +107,28 @@ func (s *Store) nameCounterparty(ctx context.Context, tx pgx.Tx, in EnsureCounte
 		return parsed, nil
 	}
 	return fromUser, nil
+}
+
+// addressAttestedTx reports whether this installation has provably corresponded
+// with an address — the same unforgeable evidence capture's T1 gate reads.
+//
+// It is deliberately NOT the direction column: direction is derived by
+// comparing a forgeable From header against the owner, so a spoofed message
+// would vouch for itself. counterparty_outbound_attested is stamped only by a
+// connector reading the mailbox owner's own sent copy, or by the governed send
+// path itself.
+func addressAttestedTx(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" {
+		return false, nil
+	}
+	var attested bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM activity
+		   WHERE counterparty_email = $1 AND counterparty_outbound_attested)`,
+		normalized).Scan(&attested); err != nil {
+		return false, fmt.Errorf("people: reading whether %s was written to: %w", normalized, err)
+	}
+	return attested, nil
 }
