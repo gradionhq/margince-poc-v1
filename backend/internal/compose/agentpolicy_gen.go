@@ -184,6 +184,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/organizations/{id}/evidence/{entityType}/{entityId}":        {Op: "getClaimEvidence", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/organizations/{id}/growth-fit":                              {Op: "getOrganizationGrowthFit", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/organizations/{id}/logo":                                    {Op: "getOrganizationLogo", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/organizations/{id}/site-reads/latest":                       {Op: "getLatestSiteRead", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/organizations/{id}/site-reads/{readId}":                     {Op: "getSiteRead", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/overlay/export":                                             {Op: "downloadOverlayExport", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/overlay/owners":                                             {Op: "listOverlayOwners", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

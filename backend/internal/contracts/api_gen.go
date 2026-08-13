@@ -28843,6 +28843,9 @@ type ServerInterface interface {
 	// Confirm a profile field without changing its value.
 	// (POST /organizations/{id}/profile-fields/{field}/confirm)
 	ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params ConfirmOrganizationProfileFieldParams)
+	// The newest deep read on this account, so a crawl that failed after the rep navigated away is still visible.
+	// (GET /organizations/{id}/site-reads/latest)
+	GetLatestSiteRead(w http.ResponseWriter, r *http.Request, id Id)
 	// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
 	// (GET /organizations/{id}/site-reads/{readId})
 	GetSiteRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
@@ -30526,6 +30529,12 @@ func (_ Unimplemented) UpdateOrganizationProfileField(w http.ResponseWriter, r *
 // Confirm a profile field without changing its value.
 // (POST /organizations/{id}/profile-fields/{field}/confirm)
 func (_ Unimplemented) ConfirmOrganizationProfileField(w http.ResponseWriter, r *http.Request, id Id, field ProfileFieldKey, params ConfirmOrganizationProfileFieldParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The newest deep read on this account, so a crawl that failed after the rep navigated away is still visible.
+// (GET /organizations/{id}/site-reads/latest)
+func (_ Unimplemented) GetLatestSiteRead(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40429,6 +40438,40 @@ func (siw *ServerInterfaceWrapper) ConfirmOrganizationProfileField(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
+// GetLatestSiteRead operation middleware
+func (siw *ServerInterfaceWrapper) GetLatestSiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLatestSiteRead(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetSiteRead operation middleware
 func (siw *ServerInterfaceWrapper) GetSiteRead(w http.ResponseWriter, r *http.Request) {
 
@@ -48463,6 +48506,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/profile-fields/{field}/confirm", wrapper.ConfirmOrganizationProfileField)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/site-reads/latest", wrapper.GetLatestSiteRead)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/site-reads/{readId}", wrapper.GetSiteRead)

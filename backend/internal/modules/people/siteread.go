@@ -249,63 +249,6 @@ func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.Organizatio
 	return out, joined, nil
 }
 
-// GetSiteRead reads one dossier, scoped to the organization the caller
-// named: a read id that exists under another org — or an org the caller
-// cannot see — is ErrNotFound (existence-hiding).
-func (s *Store) GetSiteRead(ctx context.Context, orgID ids.OrganizationID, readID ids.UUID) (SiteRead, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		return SiteRead{}, err
-	}
-	var out SiteRead
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
-			return err
-		}
-		row := tx.QueryRow(ctx, `
-			SELECT `+siteReadColumns+` FROM site_read
-			WHERE id = $1 AND organization_id = $2`, readID, orgID)
-		var err error
-		out, err = scanSiteRead(row)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("get site read: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return SiteRead{}, err
-	}
-	return out, nil
-}
-
-// GetOnboardingSiteRead reads an unbound dossier without requiring an anchor
-// row to exist. Workspace RLS and the normal organization read/create authority
-// still gate the operational draft.
-func (s *Store) GetOnboardingSiteRead(ctx context.Context, readID ids.UUID) (SiteRead, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		if createErr := auth.Require(ctx, "organization", principal.ActionCreate); createErr != nil {
-			return SiteRead{}, createErr
-		}
-	}
-	var out SiteRead
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		row := tx.QueryRow(ctx, `SELECT `+siteReadColumns+` FROM site_read
-			WHERE id = $1 AND target_kind = 'onboarding'`, readID)
-		var err error
-		out, err = scanSiteRead(row)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return fmt.Errorf("get onboarding site read: %w", err)
-		}
-		return nil
-	})
-	return out, err
-}
-
 // UpdateSiteReadProgress records the worker's live position — the phase
 // and how many pages have committed — on a still-running dossier, so the
 // SPA's poll shows movement during the crawl and the model call instead
