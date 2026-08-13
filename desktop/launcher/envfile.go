@@ -20,7 +20,10 @@ import (
 // incantation.
 //
 // Values here are secrets. The file is created 0600 and never logged.
-func loadEnvFile(path string) ([]string, error) {
+// The returns are NAMED so the deferred close can reach them: with unnamed
+// results the assignment below compiles and does nothing, which is a swallowed
+// error wearing the clothes of a handled one.
+func loadEnvFile(path string) (env []string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
@@ -29,16 +32,15 @@ func loadEnvFile(path string) ([]string, error) {
 		// A failure to close a read-only file cannot corrupt anything, but it
 		// must not be silently discarded either.
 		if closeErr := file.Close(); closeErr != nil && err == nil {
-			err = closeErr
+			err = fmt.Errorf("close %s: %w", path, closeErr)
 		}
 	}()
 
-	var env []string
 	scanner := bufio.NewScanner(file)
 	for line := 1; scanner.Scan(); line++ {
-		entry, err := parseEnvLine(scanner.Text())
-		if err != nil {
-			return nil, fmt.Errorf("%s line %d: %w", path, line, err)
+		entry, parseErr := parseEnvLine(scanner.Text())
+		if parseErr != nil {
+			return nil, fmt.Errorf("%s line %d: %w", path, line, parseErr)
 		}
 		if entry != "" {
 			env = append(env, entry)

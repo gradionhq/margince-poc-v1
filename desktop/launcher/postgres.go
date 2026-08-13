@@ -63,7 +63,8 @@ func resolveSocketDir(l layout) (string, error) {
 			"the installation folder is too deeply nested: the database socket path would be %d bytes and the system limit is %d.\n"+
 				"Move the Margince folder somewhere shorter (for example ~/Margince) and start it again.\n"+
 				"  path: %s",
-			len(path), maxUnixSocketPath, path)
+			len(path), maxUnixSocketPath, path,
+		)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create the socket directory %s: %w", dir, err)
@@ -90,7 +91,8 @@ func (p *postgres) ensureCluster() error {
 	// exist identically on every Mac; combined with UTF8 it gives byte-order
 	// collation. See the design note on collation before shipping: names with
 	// diacritics sort by byte value under this setting.
-	cmd := exec.Command(p.layout.pgBin("initdb"),
+	cmd := exec.Command(
+		p.layout.pgBin("initdb"),
 		"-D", p.layout.pgData(),
 		"-U", ownerRole,
 		"--no-locale",

@@ -30,9 +30,9 @@ distribution ships. **`vector` is not.** pgvector is a third-party extension
 that must be compiled against the exact Postgres build it loads into, so the
 usual embedded-Postgres route cannot work and this owns a custom build.
 
-It is also not optional. `CREATE EXTENSION vector` is migration 22 of 202, so
-a Postgres without it does not degrade — it fails on the user's first launch,
-about a tenth of the way through the migration run.
+It is also not optional. `CREATE EXTENSION vector` is migration 22, so a
+Postgres without it does not degrade — it fails on the user's first launch, a
+small fraction of the way into a migration history that only grows.
 
 The consequence is a standing obligation: Postgres ships patch releases
 roughly quarterly, pgvector releases on its own cadence, and each one means

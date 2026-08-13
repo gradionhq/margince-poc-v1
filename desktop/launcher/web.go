@@ -71,7 +71,8 @@ func (u *ui) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf(
 			"cannot listen on %s: %w\nAnother program is using port %d — quit it, or set MARGINCE_PORT in margince.env to a different port",
-			addr, err, u.port)
+			addr, err, u.port,
+		)
 	}
 
 	mux := http.NewServeMux()

@@ -188,9 +188,18 @@ func freePort() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("reserve a local port: %w", err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		return 0, fmt.Errorf("release reserved port %d: %w", port, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		// Unreachable for a "tcp" listener, but a bare assertion here would
+		// turn a future change of network to a panic in front of the user.
+		unexpected := fmt.Errorf("reserved a local port on an unexpected address type %T", listener.Addr())
+		if closeErr := listener.Close(); closeErr != nil {
+			return 0, fmt.Errorf("%w (and releasing it failed: %v)", unexpected, closeErr)
+		}
+		return 0, unexpected
 	}
-	return port, nil
+	if err := listener.Close(); err != nil {
+		return 0, fmt.Errorf("release reserved port %d: %w", addr.Port, err)
+	}
+	return addr.Port, nil
 }

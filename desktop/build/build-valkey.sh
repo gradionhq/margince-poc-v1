@@ -82,9 +82,13 @@ main() {
 
   install -m 755 "$src/src/valkey-server" "$OUT/valkey-server"
   # install_name_tool is not needed here (nothing was rewritten), but the
-  # binary is re-signed for consistency with the Postgres tree so the whole
-  # Resources directory presents one signing story to the notary.
-  codesign --force --sign - --timestamp=none "$OUT/valkey-server" >/dev/null 2>&1
+  # binary is signed for consistency with the Postgres tree so the whole
+  # runtime/ directory presents one signing story to the notary — and because
+  # build-dist.sh verifies this file's signature and would refuse the build.
+  if ! codesign --force --sign - --timestamp=none "$OUT/valkey-server" >/dev/null 2>&1; then
+    echo "FAIL: could not sign $OUT/valkey-server" >&2
+    exit 1
+  fi
 
   verify
 }

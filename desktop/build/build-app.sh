@@ -46,9 +46,35 @@ sign_binary() {
   codesign --force --sign - --timestamp=none "$1"
 }
 
+# build_frontend builds the COMPOSED SPA, for the same reason the server
+# binaries are built through build/composition/: a bare `pnpm build` resolves
+# the committed empty-tree registry, so the bundle would ship a server with the
+# enabled units linked and a UI that routes none of them. The Dockerfile's web
+# stage is the reference for this lane.
 build_frontend() {
-  log "building the frontend"
-  (cd "$ROOT/frontend" && pnpm install --frozen-lockfile && pnpm build)
+  log "building the frontend (composed)"
+  local registry="$ROOT/build/composition/frontend"
+  if [ ! -f "$registry/extensions.gen.ts" ]; then
+    echo "FAIL: gen-composition did not produce $registry/extensions.gen.ts" >&2
+    exit 1
+  fi
+
+  # The published-event types are the one generated artifact whose composed
+  # form is written back into the tracked source tree (frontend/src/api/), so
+  # this lane refuses to run it: a throwaway Docker layer can afford a dirty
+  # checkout and a developer's cannot. As long as no enabled unit contributes
+  # a public event the two documents are identical and there is nothing to
+  # generate; the moment one does, this says so instead of shipping types that
+  # silently omit it.
+  if ! diff -q "$ROOT/backend/api/public-events.yaml" "$ROOT/build/composition/api/public-events.yaml" >/dev/null; then
+    echo "FAIL: an enabled extension contributes public events, so frontend/src/api/public-events.ts must be regenerated (pnpm gen:events:composed) before this bundle can ship correct types" >&2
+    exit 1
+  fi
+
+  (cd "$ROOT/frontend" &&
+    pnpm install --frozen-lockfile &&
+    MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm gen:composed-types &&
+    MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm build:composed)
   rm -rf "$OUT/web"
   cp -R "$ROOT/frontend/dist" "$OUT/web"
 }

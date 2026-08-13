@@ -54,7 +54,8 @@ func resolveLayout() (layout, error) {
 	if _, err := os.Stat(l.runtimeDir()); err != nil {
 		return layout{}, fmt.Errorf(
 			"this installation is incomplete: %s is unusable (set %s to override): %w",
-			l.runtimeDir(), envHome, err)
+			l.runtimeDir(), envHome, err,
+		)
 	}
 	if err := os.MkdirAll(l.data(), 0o700); err != nil {
 		return layout{}, fmt.Errorf("create the data directory %s: %w", l.data(), err)

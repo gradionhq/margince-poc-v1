@@ -144,13 +144,24 @@ relocate() {
       "$OUT"/lib/postgresql/*) rel="@loader_path/.." ;;
       *) rel="@loader_path" ;;
     esac
+    # A rerun over an already-relocated tree finds the rpath present, which
+    # install_name_tool reports as an error; that one is expected, and the
+    # verify step below is what proves the rpath actually resolved.
     install_name_tool -add_rpath "$rel" "$file" 2>/dev/null || true
 
     # install_name_tool invalidates the code signature, and arm64 macOS
     # refuses to execute an invalidly signed binary ("Killed: 9"). Re-sign
     # ad-hoc; the release pipeline re-signs the whole .app with a real
     # Developer ID afterwards.
-    codesign --force --sign - --timestamp=none "$file" >/dev/null 2>&1
+    #
+    # A failure here must stop the build. Left unsigned, the file runs
+    # nowhere but this machine's build directory — and the first person to
+    # find out is the user, whose database dies with "Killed: 9" and no
+    # explanation.
+    if ! codesign --force --sign - --timestamp=none "$file" >/dev/null 2>&1; then
+      echo "FAIL: could not re-sign $file after relocating it" >&2
+      exit 1
+    fi
   done < <(mach_o_files)
 }
 
