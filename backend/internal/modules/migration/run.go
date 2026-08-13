@@ -22,7 +22,13 @@ import (
 
 // importRunObject is the RBAC object every store entry point gates on —
 // admin/ops-only on every verb (identity/internal/policy).
-const importRunObject = "import_run"
+// ImportRunObject is the RBAC object every run entry point admits on. Exported
+// because the transport that drives the engine lives in compose (a module may
+// not import a sibling), and it must gate on the same object name the store
+// does rather than a second copy of the string.
+const ImportRunObject = "import_run"
+
+const importRunObject = ImportRunObject
 
 // auditFieldStatus names the run status in an import_run audit row.
 const auditFieldStatus = "status"
@@ -46,10 +52,15 @@ type Run struct {
 	Status     string
 	SourceRef  string
 	Checkpoint int
-	Report     *Report
-	Error      string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Mapping is set only for a staged (direct-importer) run: which object the
+	// rows are, which column lands where, and which column identifies a row.
+	// nil on the flip's own runs, which map a frozen snapshot rather than a
+	// file somebody chose the columns of.
+	Mapping   *RunMapping
+	Report    *Report
+	Error     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // RunStore owns the import_run table; every status transition rides the
@@ -180,7 +191,8 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 // flip's advisory lock (compose's FlipImportProbe).
 func MirrorRunInFlight(ctx context.Context, tx pgx.Tx) (bool, error) {
 	var running bool
-	if err := tx.QueryRow(ctx,
+	if err := tx.QueryRow(
+		ctx,
 		`SELECT EXISTS (SELECT 1 FROM import_run WHERE connector = $1 AND status = $2)`,
 		ConnectorMirror, StatusRunning,
 	).Scan(&running); err != nil {
@@ -355,7 +367,8 @@ func FlipImportLiveness(ctx context.Context, tx pgx.Tx, lockKey int64) (bool, er
 	// filters an unrelated session on a sibling database holding the
 	// same number would make Disconnect refuse forever, which is the
 	// exact latch this probe exists to avoid.
-	if err := tx.QueryRow(ctx, `
+	if err := tx.QueryRow(
+		ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_locks
 			WHERE locktype = 'advisory' AND granted AND objsubid = 1

@@ -135,6 +135,10 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// floor.
 	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
 	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
+	// The importer takes the SAME field catalog the people store carries: a
+	// mapping may name a cf_* column, and a catalog that disagreed with the
+	// store's would advertise a destination the write then dropped.
+	s.importHandlers = importHandlers{db: InstallationDB(pool), catalog: customfields.NewService(pool, nil)}
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
