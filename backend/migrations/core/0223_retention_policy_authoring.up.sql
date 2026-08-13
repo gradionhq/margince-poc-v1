@@ -1,4 +1,4 @@
--- 0222: retention policies become authorable — the constraint that makes one
+-- 0223: retention policies become authorable — the constraint that makes one
 -- row per scope true, and the RBAC object that gates authoring one.
 --
 -- Two halves, and they are one change: the surface that lets an admin add a
