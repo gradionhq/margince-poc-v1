@@ -140,8 +140,11 @@ function SpendBlock({
       </div>
     );
   }
-  // The series arrives newest first, so the current month heads the list.
-  const current = months[0].month;
+  // The series only carries months that HAD spend, so its newest entry is not
+  // necessarily this one — an installation that bought nothing yet this month
+  // would otherwise see last month's total labelled as the current bill.
+  const now = new Date();
+  const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   return (
     <div>
       <h3>{t("provider.spend")}</h3>

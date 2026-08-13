@@ -50,7 +50,9 @@ func seedSpendRun(t *testing.T, e *runsEnv, state, pool string, reserved int, ac
 		   configuration_snapshot, requested_categories, created_at, completed_at)
 		VALUES ('person', $1, 'surfe', 'manual', $2, $4, 'fp-' || gen_random_uuid()::text,
 		        gen_random_uuid(), 1, 1, '{}'::jsonb, ARRAY['professional_email'],
-		        date_trunc('month', now() AT TIME ZONE 'UTC') - make_interval(months => $3),
+		        (date_trunc('month', now() AT TIME ZONE 'UTC')
+			           - make_interval(months => $3)) AT TIME ZONE 'UTC'
+			          + interval '2 hours',
 		        now())
 		RETURNING id::text`, e.mine, state, monthsAgo, skipReason).Scan(&runID); err != nil {
 		t.Fatal(err)
@@ -149,6 +151,67 @@ func TestAnUnknownOutcomeIsHeldRatherThanFoldedIntoTheCharge(t *testing.T) {
 	// It still counts against the ceiling, because the credits may have gone.
 	if current.Charged != 2 {
 		t.Errorf("charged = %d, want 2 — a possibly-paid hold must keep occupying the budget", current.Charged)
+	}
+}
+
+// The month boundary is the same instant for the card and for the ceiling, in
+// any session timezone.
+//
+// Truncating to a month yields a timestamp WITHOUT a zone. Compared against
+// created_at, Postgres reads it in the SESSION's zone — so a connection running
+// as anything but UTC drew the boundary hours away from where the grouping puts
+// it. A run in that gap counted toward one number and not the other, which is
+// the precise failure the shared expression exists to rule out.
+func TestTheMonthBoundaryIsUTCWhateverTheSessionZone(t *testing.T) {
+	e := setupRuns(t, runsConfig{})
+	if _, err := e.owner.Exec(context.Background(), `DELETE FROM provider_run`); err != nil {
+		t.Fatal(err)
+	}
+	// Two hours past the UTC month start, so a boundary read in a zone behind
+	// UTC falls on the far side of it.
+	seedSpendRun(t, e, string(provider.RunCompleted), "email", 7, nil, 0)
+
+	var connID string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT id::text FROM provider_connection WHERE provider = 'surfe'`).Scan(&connID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both reads run in ONE transaction whose zone is set far enough west that
+	// a boundary misread is unambiguous. Setting it on the transaction rather
+	// than the pool is what makes the binding certain: pgx hands out an
+	// arbitrary connection per acquisition.
+	var months []MonthlySpend
+	var used int
+	if err := e.store.db.Tx(e.ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(e.ctx, `SET LOCAL TIME ZONE 'America/Los_Angeles'`); err != nil {
+			return err
+		}
+		m, err := e.store.readSpendHistory(e.ctx, tx, "surfe")
+		if err != nil {
+			return err
+		}
+		months = m
+		n, err := e.store.poolUsedThisMonth(e.ctx, tx, connID, "email")
+		used = n
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	wantMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	var charged int
+	for _, m := range months {
+		if m.Pool == "email" && m.Month.UTC().Equal(wantMonth) {
+			charged = m.Charged
+		}
+	}
+	if charged != 7 {
+		t.Errorf("this month's email charge is %d, want 7 — the session zone moved the month boundary, so a run fell into the wrong bucket (months: %+v)", charged, months)
+	}
+	if used != charged {
+		t.Errorf("in a non-UTC session the ceiling counts %d email credits and the card shows %d", used, charged)
 	}
 }
 

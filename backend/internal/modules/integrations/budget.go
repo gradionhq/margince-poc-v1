@@ -130,7 +130,7 @@ func (s *Store) poolUsedThisMonth(ctx context.Context, tx pgx.Tx, connID, pool s
 		  JOIN provider_run run ON run.id = r.run_id
 		 WHERE r.pool = $2
 		   AND run.provider = (SELECT provider FROM provider_connection WHERE id = $1)
-		   AND run.created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')
+		   AND run.created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
 		   AND `+spendExcludedStates,
 		connID, pool).Scan(&used)
 	if err != nil {

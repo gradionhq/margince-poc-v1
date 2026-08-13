@@ -47,6 +47,13 @@ const spendExcludedStates = `run.state <> 'skipped' AND run.state <> 'cancelled'
 // so a reader sees a trend without the connection read growing unbounded.
 const spendMonths = 6
 
+// Both windows below convert the truncated month back to an instant with
+// `AT TIME ZONE 'UTC'`. Truncating alone yields a timestamp WITHOUT a zone,
+// which Postgres then reads in the session's own zone when it meets
+// created_at — so a non-UTC session would draw the month boundary hours away
+// from where the grouping puts it, and the spend total would disagree with the
+// ceiling that refuses the next run.
+
 // MonthlySpend is one calendar month's consumption for one pool.
 type MonthlySpend struct {
 	// Month is the first day of the UTC calendar month, matching the window
@@ -104,8 +111,8 @@ func (s *Store) readSpendHistory(ctx context.Context, tx pgx.Tx, name string) ([
 		  JOIN provider_run run ON run.id = r.run_id
 		 WHERE run.provider = $1
 		   AND `+spendExcludedStates+`
-		   AND run.created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')
-		                          - make_interval(months => $2)
+		   AND run.created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC')
+		                            - make_interval(months => $2)) AT TIME ZONE 'UTC'
 		 GROUP BY month, r.pool
 		 ORDER BY month DESC, r.pool`, name, spendMonths-1)
 	if err != nil {
