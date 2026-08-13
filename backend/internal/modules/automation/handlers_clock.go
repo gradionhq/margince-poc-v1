@@ -408,38 +408,19 @@ func renewalAnchor(ev workflow.Event) (time.Time, error) {
 // past is overdue (task_overdue's own trigger, not this one's), and a
 // date further out than N days is not yet "approaching".
 //
-// Deferred candidate source: TimeScanner has no enumerator wired for
-// this handler today (timescan.go's activityScanHandlers carries no
-// renewalReminderName entry). Sourcing "which records have this custom
-// field's value inside a date range" needs a range query over an
-// arbitrary cf_* column, and neither existing cross-module read seam
-// reaches that:
-//
-//   - fieldcatalog.Reader (shared/ports/fieldcatalog) answers CATALOG
-//     METADATA only — a column's name and type, never a row's value
-//     (its own doc: "a record store has no business with" more than that).
-//   - The one facility that DOES run typed range predicates over a
-//     record table (collections.SegmentEngine / storekit.Query, the
-//     engine compose/filteredexport.go drives) is deliberately closed to
-//     a static, compile-time field vocabulary per resource
-//     (collections/vocab.go's segmentEngines doc: "Only expressions from
-//     this map ever reach the query text") — cf_* columns are excluded
-//     by design. Widening that to a per-workspace dynamic column is real
-//     customfields/collections engineering, not a thin adapter over an
-//     existing seam.
-//   - datasource.SystemOfRecordProvider is FROZEN at V1 (its own doc: a
-//     new verb needs a versioned V2 interface plus a capability probe),
-//     so growing it here is not a smaller lift either.
-//
-// This is the SAME honest-out-of-scope posture ApplyActions' notify case
-// already carries for a workspace with no channel wired
-// (ErrNoNotificationTransport, seams.go): the template is seeded
-// regardless of whether any workspace has configured a renewal-date
-// field (spec §3.5), and a workspace that hasn't simply never surfaces a
-// candidate — never a bug, never a fabricated read. Match, Plan, and
-// IdempotencyKey below are fully correct against whatever anchor a real
-// enumeration would eventually carry, proven directly against hand-built
-// payloads exactly like the two ActivityScan handlers' own unit tests.
+// Candidate source: TimeScanner draws this handler's candidates through
+// the DateFieldScan seam (seams.go), keyed by name in
+// timescan.go's dateFieldScanHandlers — the (object, date_field,
+// recurs_yearly) knobs configuring that read are validated at save time
+// by automations_catalog.go's validateRenewalReminderParams. A recurring
+// field's candidate source projects the anchor onto the CURRENT scan
+// window's year before it ever reaches here (DateFieldAnchor's own doc,
+// seams.go) — which is exactly why Match, Plan, and IdempotencyKey below
+// need no knowledge of recurrence at all: they are fully correct against
+// whatever anchor arrives, one-time or freshly re-projected, the same
+// property TestRenewalReminderRecurringAnchorReArmsEachYear
+// (handlers_clock_test.go) proves directly against hand-built payloads
+// exactly like the two ActivityScan handlers' own unit tests.
 type renewalReminder struct {
 	ex Executors
 }

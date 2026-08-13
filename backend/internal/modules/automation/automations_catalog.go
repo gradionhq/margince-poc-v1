@@ -14,6 +14,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // CatalogEntry describes one instantiable automation type. Key equals
@@ -141,16 +144,117 @@ func checkInCadenceSchema() map[string]any {
 // validateCheckInCadenceParams is checkInCadenceSchema's validator.
 var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 365)
 
-// renewalReminderSchema is renewal_reminder's one-knob shape, keyed
-// "days_before" — renewalDaysBefore's (handlers_clock.go) own
-// reader.
+// renewalReminderObjects is the closed set of record types renewal_reminder
+// may watch — the automation-side twin of customfields.FieldObjects
+// (customfields/engine.go), spelled from the SAME datasource.EntityType
+// constants so the two lists can never drift in spelling even though this
+// module does not import customfields directly (ADR-0054 §9, no sibling
+// imports). Hand-duplicated here for the identical reason
+// catalog_triggers.go's own event-type constants are: "kept as constants
+// here because more than one automation surface... references the same
+// string" — this validator is that surface for the object vocabulary.
+var renewalReminderObjects = []string{
+	string(datasource.EntityPerson),
+	string(datasource.EntityOrganization),
+	string(datasource.EntityDeal),
+	string(datasource.EntityLead),
+	string(datasource.EntityProject),
+}
+
+// renewalReminderObjectSet is renewalReminderObjects as a lookup set —
+// the same precompute-once-at-package-init idiom customfields/engine.go's
+// allowedObjects already uses for the identical shape of problem.
+var renewalReminderObjectSet = func() map[string]bool {
+	m := make(map[string]bool, len(renewalReminderObjects))
+	for _, o := range renewalReminderObjects {
+		m[o] = true
+	}
+	return m
+}()
+
+// renewalReminderSchema is renewal_reminder's shape: days_before
+// (renewalDaysBefore's own reader, handlers_clock.go) plus the three keys
+// #706 adds — object and date_field name the workspace's own cf_* date
+// column to watch, recurs_yearly opts a stored value into yearly
+// re-arming (a birthday, not a one-time deadline) rather than firing once.
 func renewalReminderSchema() map[string]any {
-	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 365,
-		"How many days ahead of the renewal date to remind.")
+	return map[string]any{
+		schemaKeyType:            schemaTypeObject,
+		schemaKeyAdditionalProps: false,
+		schemaKeyProperties: map[string]any{
+			"days_before": map[string]any{
+				schemaKeyType:        "integer",
+				"minimum":            minParamDays,
+				"maximum":            365,
+				"default":            defaultRenewalDaysBefore,
+				schemaKeyDescription: "How many days ahead of the renewal date to remind.",
+			},
+			"object": map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Which record type owns the watched date field: one of " + strings.Join(renewalReminderObjects, ", ") + ".",
+			},
+			"date_field": map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "The workspace's own custom date-field name to watch.",
+			},
+			"recurs_yearly": map[string]any{
+				schemaKeyType:        "boolean",
+				"default":            false,
+				schemaKeyDescription: "Whether the watched date recurs every year (e.g. a birthday) rather than firing once.",
+			},
+		},
+	}
 }
 
 // validateRenewalReminderParams is renewalReminderSchema's validator.
-var validateRenewalReminderParams = validateSingleIntParam("days_before", 365)
+// object is checked against the closed renewalReminderObjectSet and
+// date_field against non-emptiness only — whether date_field actually
+// names a REAL, date-typed column on that object is a save-time check
+// against the workspace's own customfields.Service.ActiveColumns, and
+// this function has no DB handle to run it with (Validate's signature,
+// above, takes only the decoded params map). AutomationStore.Create/Update
+// (automations.go) is where such a check would run if a later ticket
+// grows one; today an instance can be saved naming a column the
+// workspace hasn't created yet, and TimeScanner's own honest no-op for a
+// misconfigured instance (scanDateFieldInstanceCandidates's doc,
+// timescan.go) is the same posture: never a fabricated read, just no
+// candidates until the field exists.
+func validateRenewalReminderParams(params map[string]any) error {
+	for k := range params {
+		switch k {
+		case "days_before", "object", "date_field", "recurs_yearly":
+		default:
+			return &ParamError{Field: "params." + k, Reason: errNotAParameter}
+		}
+	}
+	if v, ok := params["days_before"]; ok {
+		n, ok := v.(float64) // decoded JSON numbers arrive as float64
+		if !ok || n != math.Trunc(n) {
+			return &ParamError{Field: "params.days_before", Reason: "must be an integer"}
+		}
+		if n < float64(minParamDays) || n > 365 {
+			return &ParamError{Field: "params.days_before", Reason: fmt.Sprintf("must be between %d and %d", minParamDays, 365)}
+		}
+	}
+	if v, ok := params["object"]; ok {
+		s, isString := v.(string)
+		if !isString || !renewalReminderObjectSet[s] {
+			return &ParamError{Field: "params.object", Reason: "must be one of " + strings.Join(renewalReminderObjects, ", ")}
+		}
+	}
+	if v, ok := params["date_field"]; ok {
+		s, isString := v.(string)
+		if !isString || s == "" {
+			return &ParamError{Field: "params.date_field", Reason: "must not be empty"}
+		}
+	}
+	if v, ok := params["recurs_yearly"]; ok {
+		if _, isBool := v.(bool); !isBool {
+			return &ParamError{Field: "params.recurs_yearly", Reason: "must be a boolean"}
+		}
+	}
+	return nil
+}
 
 // noParamsSchema is the empty-knob schema for a starter with nothing to
 // parameterize (stage_change_notify, post_meeting_recap): both fire
