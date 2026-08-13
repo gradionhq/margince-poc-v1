@@ -225,6 +225,15 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"organization_domain_disposition.organization_id": "server-derived: set only by ResolveDomainTriage, to the organization that same transaction created or adopted through the gated dedupe chokepoint",
 	"person_email.person_id":                          "child row: written through the person's own gated paths",
 	"person_phone.person_id":                          "child row: written through the person's own gated paths",
+	// The licensed-data-provider platform (ADR-0101). A run names the subject
+	// it spends credits on, so admitting one IS a read of that person: QueueRun
+	// takes auth.EnsureVisible inside the queueing transaction, before any
+	// fence, price or reservation. Without it a rep could name any person id
+	// and buy data on a record outside their scope.
+	"provider_run.person_id": "gated: auth.EnsureVisible in QueueRun, inside the transaction that inserts the run — the object grant alone answers \"may this role read people\", never \"may this caller see THIS person\"",
+	// The claim is a child of the run: it is written only by the domain's
+	// claim sink, from the run's own person_id, and never from a request body.
+	"person_provider_claim.person_id": "child row: written by the claim hand-off from the run's own subject, which QueueRun already gated; the fence is re-run immediately before every write (PI-AC-7)",
 	// telegram-oa design §6.4: the channel-aware ensure contract creates the
 	// Person (owner_id NULL) and this identity satellite in the same
 	// transaction, from the inbound message's own channel principal —
