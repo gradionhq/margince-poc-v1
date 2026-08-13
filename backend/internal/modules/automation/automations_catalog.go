@@ -172,6 +172,15 @@ var renewalReminderObjectSet = func() map[string]bool {
 	return m
 }()
 
+// paramKeyDateField/paramFieldObject name the two strings goconst flags
+// once automations_preview_renewal.go's dynamic previewDef (Task 3)
+// starts referencing them too — one spelling shared across both files
+// rather than a literal repeated at every call site.
+const (
+	paramKeyDateField = "date_field"
+	paramFieldObject  = "params.object"
+)
+
 // renewalReminderSchema is renewal_reminder's shape: days_before
 // (renewalDaysBefore's own reader, handlers_clock.go) plus the three keys
 // #706 adds — object and date_field name the workspace's own cf_* date
@@ -193,7 +202,7 @@ func renewalReminderSchema() map[string]any {
 				schemaKeyType:        schemaTypeString,
 				schemaKeyDescription: "Which record type owns the watched date field: one of " + strings.Join(renewalReminderObjects, ", ") + ".",
 			},
-			"date_field": map[string]any{
+			paramKeyDateField: map[string]any{
 				schemaKeyType:        schemaTypeString,
 				schemaKeyDescription: "The workspace's own custom date-field name to watch.",
 			},
@@ -206,51 +215,98 @@ func renewalReminderSchema() map[string]any {
 	}
 }
 
-// validateRenewalReminderParams is renewalReminderSchema's validator.
-// object is checked against the closed renewalReminderObjectSet and
-// date_field against non-emptiness only — whether date_field actually
-// names a REAL, date-typed column on that object is a save-time check
-// against the workspace's own customfields.Service.ActiveColumns, and
-// this function has no DB handle to run it with (Validate's signature,
-// above, takes only the decoded params map). AutomationStore.Create/Update
-// (automations.go) is where such a check would run if a later ticket
-// grows one; today an instance can be saved naming a column the
-// workspace hasn't created yet, and TimeScanner's own honest no-op for a
-// misconfigured instance (scanDateFieldInstanceCandidates's doc,
-// timescan.go) is the same posture: never a fabricated read, just no
-// candidates until the field exists.
+// validateRenewalDaysBeforeParam checks the one existing knob's bounds —
+// split out of validateRenewalReminderParams so the three new keys #706
+// adds do not push that function over the cyclomatic-complexity ceiling.
+func validateRenewalDaysBeforeParam(params map[string]any) error {
+	v, ok := params["days_before"]
+	if !ok {
+		return nil
+	}
+	n, ok := v.(float64) // decoded JSON numbers arrive as float64
+	if !ok || n != math.Trunc(n) {
+		return &ParamError{Field: "params.days_before", Reason: "must be an integer"}
+	}
+	if n < float64(minParamDays) || n > 365 {
+		return &ParamError{Field: "params.days_before", Reason: fmt.Sprintf("must be between %d and %d", minParamDays, 365)}
+	}
+	return nil
+}
+
+// validateRenewalObjectParam checks object against the closed
+// renewalReminderObjectSet — split out for the same reason
+// validateRenewalDaysBeforeParam is.
+func validateRenewalObjectParam(params map[string]any) error {
+	v, ok := params["object"]
+	if !ok {
+		return nil
+	}
+	s, isString := v.(string)
+	if !isString || !renewalReminderObjectSet[s] {
+		return &ParamError{Field: paramFieldObject, Reason: "must be one of " + strings.Join(renewalReminderObjects, ", ")}
+	}
+	return nil
+}
+
+// validateRenewalDateFieldParam checks date_field for non-emptiness only —
+// whether it actually names a REAL, date-typed column on the chosen
+// object is a save-time check against the workspace's own
+// customfields.Service.ActiveColumns, and this function has no DB handle
+// to run it with (Validate's signature takes only the decoded params
+// map). AutomationStore.Create/Update (automations.go) is where such a
+// check would run if a later ticket grows one; today an instance can be
+// saved naming a column the workspace hasn't created yet, and
+// TimeScanner's own honest no-op for a misconfigured instance
+// (scanDateFieldInstanceCandidates's doc, timescan.go) is the same
+// posture: never a fabricated read, just no candidates until the field
+// exists.
+func validateRenewalDateFieldParam(params map[string]any) error {
+	v, ok := params[paramKeyDateField]
+	if !ok {
+		return nil
+	}
+	s, isString := v.(string)
+	if !isString || s == "" {
+		return &ParamError{Field: "params.date_field", Reason: "must not be empty"}
+	}
+	return nil
+}
+
+// validateRenewalRecursYearlyParam checks recurs_yearly is a real
+// boolean when present — split out for the same reason
+// validateRenewalDaysBeforeParam is.
+func validateRenewalRecursYearlyParam(params map[string]any) error {
+	v, ok := params["recurs_yearly"]
+	if !ok {
+		return nil
+	}
+	if _, isBool := v.(bool); !isBool {
+		return &ParamError{Field: "params.recurs_yearly", Reason: "must be a boolean"}
+	}
+	return nil
+}
+
+// validateRenewalReminderParams is renewalReminderSchema's validator:
+// refuse any key outside the closed set, then run each key's own
+// validator (each a no-op when its key is absent, since a stored
+// instance may not have all four set — TimeScanner's honest no-op for
+// that case, timescan.go).
 func validateRenewalReminderParams(params map[string]any) error {
 	for k := range params {
 		switch k {
-		case "days_before", "object", "date_field", "recurs_yearly":
+		case "days_before", "object", paramKeyDateField, "recurs_yearly":
 		default:
 			return &ParamError{Field: "params." + k, Reason: errNotAParameter}
 		}
 	}
-	if v, ok := params["days_before"]; ok {
-		n, ok := v.(float64) // decoded JSON numbers arrive as float64
-		if !ok || n != math.Trunc(n) {
-			return &ParamError{Field: "params.days_before", Reason: "must be an integer"}
-		}
-		if n < float64(minParamDays) || n > 365 {
-			return &ParamError{Field: "params.days_before", Reason: fmt.Sprintf("must be between %d and %d", minParamDays, 365)}
-		}
-	}
-	if v, ok := params["object"]; ok {
-		s, isString := v.(string)
-		if !isString || !renewalReminderObjectSet[s] {
-			return &ParamError{Field: "params.object", Reason: "must be one of " + strings.Join(renewalReminderObjects, ", ")}
-		}
-	}
-	if v, ok := params["date_field"]; ok {
-		s, isString := v.(string)
-		if !isString || s == "" {
-			return &ParamError{Field: "params.date_field", Reason: "must not be empty"}
-		}
-	}
-	if v, ok := params["recurs_yearly"]; ok {
-		if _, isBool := v.(bool); !isBool {
-			return &ParamError{Field: "params.recurs_yearly", Reason: "must be a boolean"}
+	for _, validate := range []func(map[string]any) error{
+		validateRenewalDaysBeforeParam,
+		validateRenewalObjectParam,
+		validateRenewalDateFieldParam,
+		validateRenewalRecursYearlyParam,
+	} {
+		if err := validate(params); err != nil {
+			return err
 		}
 	}
 	return nil

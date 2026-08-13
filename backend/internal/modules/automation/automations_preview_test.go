@@ -29,8 +29,10 @@ func TestResolvePreviewRecipeRenewalReminder(t *testing.T) {
 	})
 
 	t.Run("stored instance naming an object outside the closed vocabulary is refused", func(t *testing.T) {
-		stored := Automation{Key: renewalReminderName,
-			Params: json.RawMessage(`{"object":"not_a_real_object","date_field":"cf_renewal"}`)}
+		stored := Automation{
+			Key:    renewalReminderName,
+			Params: json.RawMessage(`{"object":"not_a_real_object","date_field":"cf_renewal"}`),
+		}
 		if _, _, err := resolvePreviewRecipe(stored, AutomationPreviewInput{}, now); err == nil {
 			t.Fatal("want a refusal for an unknown object")
 		}
@@ -45,8 +47,10 @@ func TestResolvePreviewRecipeRenewalReminder(t *testing.T) {
 	})
 
 	t.Run("a fully configured instance resolves a previewDef over its own object/column", func(t *testing.T) {
-		stored := Automation{Key: renewalReminderName,
-			Params: json.RawMessage(`{"object":"person","date_field":"cf_renewal","days_before":15}`)}
+		stored := Automation{
+			Key:    renewalReminderName,
+			Params: json.RawMessage(`{"object":"person","date_field":"cf_renewal","days_before":15}`),
+		}
 		def, window, err := resolvePreviewRecipe(stored, AutomationPreviewInput{}, now)
 		if err != nil {
 			t.Fatalf("resolvePreviewRecipe: %v", err)

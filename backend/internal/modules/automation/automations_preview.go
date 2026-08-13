@@ -34,6 +34,12 @@ const (
 	previewSampleLimit       = 5
 )
 
+// previewBaseWhereNotArchived is every previewDef's baseWhere below (and
+// automations_preview_renewal.go's dynamic one) — one spelling for
+// "exclude an archived row" rather than the literal repeated at each
+// catalog entry.
+const previewBaseWhereNotArchived = "t.archived_at IS NULL"
+
 // AutomationPreviewInput carries the optional draft override: nil fields
 // preview the stored instance as-is; a key/params pair previews an
 // edited or not-yet-saved recipe (the editor's preview-before-save).
@@ -118,7 +124,7 @@ func leadPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
 		assignLeadOwnerName: {
 			table:     "lead",
-			baseWhere: "t.archived_at IS NULL",
+			baseWhere: previewBaseWhereNotArchived,
 			fields: map[string]storekit.Field{
 				"status":   {Expr: "t.status", Type: storekit.FieldPicklist},
 				keyOwnerID: {Expr: "t.owner_id", Type: storekit.FieldID},
@@ -141,7 +147,7 @@ func leadPreviewDefs() map[string]previewDef {
 		},
 		routeLeadName: {
 			table:     "lead",
-			baseWhere: "t.archived_at IS NULL",
+			baseWhere: previewBaseWhereNotArchived,
 			fields: map[string]storekit.Field{
 				// No "if" narrows this starter — every new lead gets the
 				// follow-up task; "id exists" is the always-true leaf
@@ -165,7 +171,7 @@ func dealPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
 		stageChangeCreateTaskName: {
 			table:     "deal",
-			baseWhere: "t.archived_at IS NULL",
+			baseWhere: previewBaseWhereNotArchived,
 			fields: map[string]storekit.Field{
 				"status": {Expr: "t.status", Type: storekit.FieldPicklist},
 			},
@@ -185,7 +191,7 @@ func dealPreviewDefs() map[string]previewDef {
 		},
 		stageChangeNotifyName: {
 			table:     "deal",
-			baseWhere: "t.archived_at IS NULL",
+			baseWhere: previewBaseWhereNotArchived,
 			fields: map[string]storekit.Field{
 				// No "if" narrows this starter (it notifies on every move,
 				// won/lost included) — same always-true leaf as route_lead's.
@@ -208,7 +214,7 @@ func activityPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
 		postMeetingRecapName: {
 			table:     "activity",
-			baseWhere: "t.archived_at IS NULL",
+			baseWhere: previewBaseWhereNotArchived,
 			fields: map[string]storekit.Field{
 				"kind": {Expr: "t.kind", Type: storekit.FieldPicklist},
 			},
@@ -233,9 +239,11 @@ func activityPreviewDefs() map[string]previewDef {
 func unsupportedPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
 		noActivityReminderName: previewNotYetSupported(
-			"preview is not yet supported for no_activity_reminder: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
+			"preview is not yet supported for no_activity_reminder: its candidate set spans every linked entity type with no single row-scoped resource to preview against",
+		),
 		checkInCadenceName: previewNotYetSupported(
-			"preview is not yet supported for check_in_cadence: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
+			"preview is not yet supported for check_in_cadence: its candidate set spans every linked entity type with no single row-scoped resource to preview against",
+		),
 	}
 }
 
@@ -299,8 +307,10 @@ func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput, now time
 	if in.WindowDays != nil {
 		window = *in.WindowDays
 		if window < 1 || window > previewMaxWindowDays {
-			return previewDef{}, 0, &ParamError{Field: "window_days",
-				Reason: fmt.Sprintf("must be between 1 and %d days", previewMaxWindowDays)}
+			return previewDef{}, 0, &ParamError{
+				Field:  "window_days",
+				Reason: fmt.Sprintf("must be between 1 and %d days", previewMaxWindowDays),
+			}
 		}
 	}
 	if key == renewalReminderName {
@@ -347,7 +357,8 @@ func (def previewDef) measure(ctx context.Context, tx pgx.Tx, since time.Time, r
 	}
 	var total int
 	if err := tx.QueryRow(ctx, storekit.SQLf(
-		`SELECT count(*) FROM %s t WHERE %s AND %s`, def.table, def.baseWhere, matchSQL),
+		`SELECT count(*) FROM %s t WHERE %s AND %s`, def.table, def.baseWhere, matchSQL,
+	),
 		totalArgs...).Scan(&total); err != nil {
 		return err
 	}
@@ -368,14 +379,16 @@ func (def previewDef) measure(ctx context.Context, tx pgx.Tx, since time.Time, r
 		visibleWhere += " AND " + scope
 	}
 	if err := tx.QueryRow(ctx, storekit.SQLf(
-		`SELECT count(*) FROM %s t WHERE %s`, def.table, visibleWhere), args...).Scan(&res.MatchesNow); err != nil {
+		`SELECT count(*) FROM %s t WHERE %s`, def.table, visibleWhere,
+	), args...).Scan(&res.MatchesNow); err != nil {
 		return err
 	}
 	res.ExcludedByPermission = total - res.MatchesNow
 
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT t.id FROM %s t WHERE %s ORDER BY t.id LIMIT %d`,
-		def.table, visibleWhere, previewSampleLimit), args...)
+		def.table, visibleWhere, previewSampleLimit,
+	), args...)
 	if err != nil {
 		return err
 	}

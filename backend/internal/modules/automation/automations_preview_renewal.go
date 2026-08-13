@@ -54,14 +54,18 @@ func renewalPreviewParams(stored Automation, in AutomationPreviewInput) (dateFie
 	p, err := renewalDateFieldScanParams(raw)
 	if err != nil {
 		if errors.Is(err, errRenewalScanParamsMissing) {
-			return dateFieldScanParams{}, &ParamError{Field: "params.object",
-				Reason: "object and date_field must both be set to preview a renewal reminder"}
+			return dateFieldScanParams{}, &ParamError{
+				Field:  paramFieldObject,
+				Reason: "object and date_field must both be set to preview a renewal reminder",
+			}
 		}
 		return dateFieldScanParams{}, err
 	}
 	if !renewalReminderObjectSet[p.Object] {
-		return dateFieldScanParams{}, &ParamError{Field: "params.object",
-			Reason: "must be one of " + strings.Join(renewalReminderObjects, ", ")}
+		return dateFieldScanParams{}, &ParamError{
+			Field:  paramFieldObject,
+			Reason: "must be one of " + strings.Join(renewalReminderObjects, ", "),
+		}
 	}
 	return p, nil
 }
@@ -95,13 +99,13 @@ func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 	to := now.AddDate(0, 0, p.DaysBefore).Format("2006-01-02")
 	return previewDef{
 		table:     p.Object,
-		baseWhere: "t.archived_at IS NULL",
+		baseWhere: previewBaseWhereNotArchived,
 		fields: map[string]storekit.Field{
-			"date_field": {Expr: "t." + quotedCol, Type: storekit.FieldDate},
+			paramKeyDateField: {Expr: "t." + quotedCol, Type: storekit.FieldDate},
 		},
 		match: storekit.Predicate{And: []storekit.Predicate{
-			{Field: "date_field", Op: storekit.OpGte, Value: from},
-			{Field: "date_field", Op: storekit.OpLte, Value: to},
+			{Field: paramKeyDateField, Op: storekit.OpGte, Value: from},
+			{Field: paramKeyDateField, Op: storekit.OpLte, Value: to},
 		}},
 		// firedCount: entities whose watched date already fell inside the
 		// trailing window — the past-occurrences reading of "would have
@@ -110,7 +114,8 @@ func renewalPreviewDef(now time.Time, p dateFieldScanParams) previewDef {
 		firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 			var n int
 			err := tx.QueryRow(ctx, storekit.SQLf(
-				`SELECT count(*) FROM %s WHERE %s BETWEEN $1 AND $2`, p.Object, quotedCol),
+				`SELECT count(*) FROM %s WHERE %s BETWEEN $1 AND $2`, p.Object, quotedCol,
+			),
 				since.Format("2006-01-02"), now.Format("2006-01-02")).Scan(&n)
 			return n, err
 		},
