@@ -16,7 +16,10 @@ import (
 )
 
 func TestExtensionTypesRouteToTheExtensionStream(t *testing.T) {
-	for _, typ := range []string{"ext_notes.note_added", "ext_de.retention_recomputed", "ext_a1.x"} {
+	// The third is a HYPHENATED unit name as its namespace (`crm-demo` →
+	// `ext_crm_demo`), which is the shape the grammar has to keep admitting
+	// while refusing the near-misses below it.
+	for _, typ := range []string{"ext_notes.note_added", "ext_de.retention_recomputed", "ext_crm_demo.widget_changed", "ext_a1.x"} {
 		stream, err := StreamFor(typ)
 		if err != nil {
 			t.Errorf("StreamFor(%q) refused a well-formed extension type: %v", typ, err)
@@ -35,7 +38,7 @@ func TestMalformedExtensionTypesAreUnroutable(t *testing.T) {
 	// Each of these is a way a type could ALMOST look like a unit's and must
 	// not route: an unroutable outbox row wedges the relay, so the refusal
 	// belongs at the publisher.
-	for _, typ := range map[string]string{
+	for typ, why := range map[string]string{
 		"ext_notes.NoteAdded": "an upper-case verb",
 		"ext_notes.":          "no verb at all",
 		"ext_notes":           "no verb segment",
@@ -43,12 +46,17 @@ func TestMalformedExtensionTypesAreUnroutable(t *testing.T) {
 		"ext_.added":          "an empty namespace",
 		"ext_notes.2nd_try":   "a verb starting with a digit",
 		"notes.added":         "a bare unit name, which would read as a core family",
+		// A namespace no unit NAME can derive: the name grammar joins its
+		// segments with single hyphens, so a doubled or trailing underscore is
+		// a typo rather than somebody's namespace.
+		"ext__notes.note_added": "a doubled underscore in the namespace",
+		"ext_notes_.note_added": "a trailing underscore in the namespace",
 	} {
 		if _, err := StreamFor(typ); err == nil {
-			t.Errorf("StreamFor(%q) routed a malformed extension type", typ)
+			t.Errorf("StreamFor(%q) routed a type with %s", typ, why)
 		}
 		if IsExtensionType(typ) {
-			t.Errorf("IsExtensionType(%q) accepted a malformed extension type", typ)
+			t.Errorf("IsExtensionType(%q) accepted a type with %s", typ, why)
 		}
 	}
 }

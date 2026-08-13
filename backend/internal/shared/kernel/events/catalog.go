@@ -57,13 +57,21 @@ const ExtensionEventVersion = 1
 // — the SQL namespace a unit owns (`ext_` plus its name with hyphens turned to
 // underscores), then a lower snake_case verb.
 //
+// The namespace half mirrors what a unit NAME can actually derive: the name
+// grammar admits `[a-z0-9]+` segments joined by SINGLE hyphens, so the
+// namespace is those segments joined by single underscores and nothing else.
+// Spelling it that way rather than as a loose `[a-z0-9_]+` is what makes
+// `ext__notes.x` and `ext_notes_.x` unroutable — neither is a namespace any
+// unit could own, so a subscription declaring one is a typo the boot can catch
+// instead of a listener that quietly never fires.
+//
 // The namespace half keeps one unit's events out of another's name and out of
 // the core families entirely, and it is the same token that opens the unit's
 // tables and its database role, so a reader who knows one knows the others.
 // Nothing here is a grant: the publisher's namespace is derived from the
 // INVOCATION at the port, where a unit never spells it, and this grammar only
 // says what such a type looks like so the bus can route one.
-var extensionTypeGrammar = regexp.MustCompile(`^ext_[a-z0-9_]+\.[a-z][a-z0-9_]*$`)
+var extensionTypeGrammar = regexp.MustCompile(`^ext_[a-z0-9]+(_[a-z0-9]+)*\.[a-z][a-z0-9_]*$`)
 
 // IsExtensionType reports whether an event type is extension-authored. It is a
 // question about SHAPE, not a registry lookup: the catalog below is the core's
