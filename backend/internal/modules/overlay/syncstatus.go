@@ -32,8 +32,12 @@ import (
 // "person"), not the incumbent's class name — the same vocabulary
 // datasource.EntityType and every other overlay read verb already uses.
 type ObjectSyncStatus struct {
-	Object           string
-	LastSyncedAt     time.Time
+	Object       string
+	LastSyncedAt time.Time
+	// State is the WORST state present across the class's mirror rows —
+	// including a row whose payload an older declaration projected, which
+	// reads as stale because that is what it is: the mirror holds a
+	// projection the current mapping would not produce.
 	State            string
 	BackfillComplete bool
 	// FrozenForFlip marks a mirror held still by a pending overlay→native
@@ -102,10 +106,16 @@ func (s *Service) resolveOverlayMode(ctx context.Context) (incumbent string, err
 // stale row behind a majority-fresh count) and the most recent
 // last_synced_at across the class's rows (the class's own freshest
 // watermark, the number a UI's "last synced" affordance shows).
+//
+// A row an older declaration projected counts toward the class's staleness on
+// exactly the same footing as a stale sync_state (staleProjectionSQL): both
+// mean the mirror holds a payload the current mapping would not produce, and
+// both hold the flip's force-fresh check open — so reading this surface is how
+// an operator sees WHICH class keeps force_fresh_incomplete from clearing.
 const selectMirrorSyncAggregateSQL = `
 SELECT object_class, max(last_synced_at),
        bool_or(sync_state = $1) AS any_pending,
-       bool_or(sync_state = $2) AS any_stale
+       bool_or(sync_state = $2 OR ` + staleProjectionSQL + `) AS any_stale
 FROM overlay_mirror
 GROUP BY object_class
 ORDER BY object_class`
@@ -135,7 +145,15 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 		// contend with it on the same connection (observed: it silently
 		// answered "no row", not a panic — exactly the kind of quiet
 		// wrong-answer a second, nested pass on the drained slice avoids).
-		rows, err := tx.Query(ctx, selectMirrorSyncAggregateSQL, syncStatePendingSync, syncStateStale)
+		classes, err := mirroredClasses(ctx, tx)
+		if err != nil {
+			return err
+		}
+		currentFingerprints, err := s.currentProjectionFingerprints(classes)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, selectMirrorSyncAggregateSQL, syncStatePendingSync, syncStateStale, currentFingerprints)
 		if err != nil {
 			return fmt.Errorf("overlay: aggregating mirror sync state: %w", err)
 		}

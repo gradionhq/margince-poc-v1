@@ -8,9 +8,13 @@ package compose
 // so overlay never imports keyvault's concrete provider selection (the
 // same posture capture.go documents for NewCaptureRegistry). This also
 // wires the sync-status/budget surface: the shared OVB meter every
-// force-fresh read and the budget read must agree on, and the
+// force-fresh read and the budget read must agree on, the
 // canonical->incumbent class translator SyncStatus's backfill-
-// completeness lookup needs. ReconcileOverlay's on-demand sweep request
+// completeness lookup needs, and the mapping registry's current projection
+// fingerprints, which the flip preflight compares every mirror row against.
+// All three are injected here because the overlay module must never import
+// its own hubspot subpackage — that subpackage imports IT.
+// ReconcileOverlay's on-demand sweep request
 // (overlay.Service.RequestSweep) needs none of this compose-level wiring —
 // it only marks the workspace due, which the worker's own periodic sweep
 // (jobs_overlay.go) then picks up.
@@ -91,11 +95,24 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 	svc := overlay.NewService(InstallationDB(pool), vault, ms).
 		WithBudgetMeter(meter).
 		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
+		WithProjectionFingerprints(OverlayProjectionFingerprints()).
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
 		WithFlipImportProbe(FlipImportProbe).
 		WithLogger(log)
 	return overlay.NewHandlers(svc).WithFlipRunner(newFlipRunner(pool, svc, ms, log))
+}
+
+// OverlayProjectionFingerprints answers the current declaration fingerprint of
+// every incumbent class this composition mirrors — what NewOverlayHandlers
+// injects, and therefore what the flip preflight judges every mirror row
+// against. It is exported because this package is the ONE sanctioned place
+// that names the concrete incumbent (AC-OV-1): a suite that seeds the mirror
+// through the fake incumbent still needs to stamp its rows with the
+// declaration the composed server recognises as current, and asks HERE rather
+// than reaching for the adapter itself.
+func OverlayProjectionFingerprints() map[string]string {
+	return hubspot.ProjectionFingerprints()
 }
 
 // hubspotIncumbentFactory builds a live HubSpot adapter over one

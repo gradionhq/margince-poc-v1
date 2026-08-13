@@ -116,6 +116,25 @@ var objectMappings = []overlay.ObjectMapping{
 	callsMapping, meetingsMapping, emailsMapping, notesMapping, tasksMapping,
 }
 
+// ProjectionFingerprints answers every declared incumbent class's CURRENT
+// declaration fingerprint — the digest overlay.Fingerprint takes of the
+// mapping this registry would project that class through today. A mirror row
+// stamped with a fingerprint this map no longer holds was projected by an
+// older declaration, which is what the flip preflight refuses to freeze
+// (flipstate.go). It is keyed by the INCUMBENT class, the same asymmetry
+// IncumbentClassesFor documents: five engagement declarations project onto the
+// one canonical "activity", so a canonical key could name only one of them.
+//
+// Derived from objectMappings, never a second hand-written list, so a mapping
+// added or removed here can never leave a stale fingerprint behind.
+func ProjectionFingerprints() map[string]string {
+	out := make(map[string]string, len(objectMappings))
+	for _, m := range objectMappings {
+		out[m.Source] = overlay.Fingerprint(m)
+	}
+	return out
+}
+
 // IncumbentClassesFor reverse-resolves canonical (a Margince entity-type
 // name, e.g. "person") to the HubSpot object class(es) that map onto it
 // (e.g. "contacts"). This is the seam's asymmetry, made explicit: every

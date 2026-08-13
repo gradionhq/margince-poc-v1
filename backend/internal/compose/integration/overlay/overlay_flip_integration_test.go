@@ -191,7 +191,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		rec := fake.Rec(ext, fields)
 		rec.ObjectClass = canonicalClass
 		rec.OwnerExternalID = "owner-1"
-		fakeInc.Seed(incumbentClass, rec)
+		fakeInc.Seed(incumbentClass, asCurrentProjection(t, rec, incumbentClass))
 	}
 	// Child fields are seeded as COLLECTIONS carrying the attributes the
 	// mapping declares, the shape overlaymod.Apply actually lands them in
@@ -221,7 +221,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	// at every tier, while the mirror row was hidden from every seat).
 	unowned := fake.Rec("p-unowned", map[string]any{"full_name": "Unassigned Contact"})
 	unowned.ObjectClass = "person"
-	fakeInc.Seed(overlaymod.IncumbentClassContacts, unowned)
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, asCurrentProjection(t, unowned, overlaymod.IncumbentClassContacts))
 	seed(overlaymod.IncumbentClassDeals, "deal", "d-open", map[string]any{
 		"name": "Packaging QA", "stage_id": "appointmentscheduled", "amount_minor": int64(21200000), "currency": "EUR",
 	})
