@@ -86,6 +86,10 @@ type EnsureCounterpartyResult struct {
 	// TriagePending instead.
 	OrganizationID *ids.OrganizationID
 	DedupeRecorded bool
+	// NameFilled reports that this ensure completed an incumbent's split name
+	// that was previously unknown — the fill-only-if-empty path, never an
+	// overwrite. Counting it separately keeps "created a person" honest.
+	NameFilled bool
 
 	// TriagePending reports that this ensure OPENED a domain's organization
 	// question, and TriageDomain names the domain to ask about. A later message
@@ -163,7 +167,8 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	if err := auth.Require(ctx, entityPerson, principal.ActionCreate); err != nil {
 		return err
 	}
-	name := counterpartyName(in.DisplayName, in.Email)
+	parsed := ParsePersonName(in.DisplayName, in.Email)
+	name := parsed.Full
 	// The workspace's own consumer-mail list travels with the candidate: the
 	// employer-agreement term must judge a shared domain the same way capture
 	// does, or an admin's carve-out would hold on one side and not the other.
@@ -179,11 +184,20 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	}
 	if match.Decision == DecisionExactCollision {
 		res.PersonID = match.PersonID
-		return nil
+		if quarantineSuspect(in.DisplayName, in.Domain) {
+			// The header carries an impersonation tell. A new record would be
+			// created quarantined for review; an EXISTING one has no such
+			// label to wear, so the only safe answer is to learn nothing from
+			// this message. The activity is still captured either way.
+			return nil
+		}
+		return fillMissingPersonName(ctx, tx, match.PersonID, parsed, res)
 	}
 
 	id, err := createPerson(ctx, tx, match, PersonSpec{
 		FullName:    name,
+		FirstName:   nameColumn(parsed.First),
+		LastName:    nameColumn(parsed.Last),
 		OwnerID:     ownerFromUUID(&in.OwnerID),
 		Visibility:  visibilityOwner,
 		Quarantined: quarantineSuspect(in.DisplayName, in.Domain),
@@ -336,18 +350,69 @@ func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a,
 	return tag.RowsAffected() > 0, nil
 }
 
-// counterpartyName is the display name we can honestly store: the header
-// name when present, else the address's local part — never empty (person
-// pins full_name NOT NULL).
-func counterpartyName(displayName, email string) string {
-	name := strings.TrimSpace(displayName)
-	if name != "" {
-		return name
+// nameColumn renders a parsed name part for the nullable split-name columns.
+// An unconfident parse leaves them NULL rather than storing "" — a column that
+// says "we do not know" must not be spelled the same as one that says "empty".
+func nameColumn(part string) *string {
+	if part == "" {
+		return nil
 	}
-	if local, _, ok := strings.Cut(email, "@"); ok && local != "" {
-		return local
+	return &part
+}
+
+// fillMissingPersonName completes a person the ladder landed on by exact
+// address, and completes ONLY what is missing.
+//
+// Every incumbent reached here already exists, so this is the one path that can
+// improve a record created before the parser — or by an import, or by hand with
+// only a full name typed in. It is strictly additive: each column carries its
+// own IS NULL guard, so a name a human entered is never rewritten by whatever a
+// mail header happens to spell, and re-running it converges instead of flapping
+// between two spellings of the same person.
+//
+// Unconfident parses write nothing: `schluepmann` is not evidence of a surname
+// with no given name, it is evidence that the local part did not say.
+func fillMissingPersonName(ctx context.Context, tx pgx.Tx, personID ids.PersonID, parsed ParsedName, res *EnsureCounterpartyResult) error {
+	if !parsed.Confident {
+		return nil
 	}
-	return email
+	// BOTH columns must be empty, and both are written together. A parse is
+	// confident about the PAIR "Bob Jones" — grafting its surname onto a first
+	// name a human typed would build "Alice Jones", a person neither source ever
+	// named. The predicate is also the concurrency guard: a writer who filled
+	// either half between the dedupe read and this write keeps it, because
+	// Postgres re-checks the predicate after waiting on their lock.
+	tag, err := tx.Exec(ctx, `
+		UPDATE person
+		   SET first_name = $2,
+		       last_name  = $3,
+		       updated_at = now()
+		 WHERE id = $1
+		   AND first_name IS NULL AND last_name IS NULL`,
+		personID, parsed.First, parsed.Last)
+	if err != nil {
+		return fmt.Errorf("people: filling the missing name of person %s: %w", personID, err)
+	}
+	// A zero count is the guard doing its job, not a failure: the row already
+	// carried a name, and it is not this call's to replace.
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	// A mutation that changes a person's stored name is auditable like any other,
+	// and every audited mutation ships its event in the same transaction —
+	// without both, the row changes with no record of what did it and nothing
+	// downstream learns the name it was waiting for.
+	changed := map[string]any{"first_name": parsed.First, "last_name": parsed.Last}
+	auditID, err := storekit.Audit(ctx, tx, "update", entityPerson, personID.UUID, nil, changed)
+	if err != nil {
+		return err
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID,
+		crmcontracts.PublicEventPersonUpdated{ChangedFields: changed}); err != nil {
+		return err
+	}
+	res.NameFilled = true
+	return nil
 }
 
 // quarantineSuspect flags the cheap impersonation tells (ADR-0063): a
