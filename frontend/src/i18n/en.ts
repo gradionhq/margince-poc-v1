@@ -4311,6 +4311,13 @@ export const en = {
   "person.rail.detailsTitle": "Details",
   "person.rail.contactMethodImmutable":
     "Set when this contact was added. Email and phone cannot be changed here.",
+  "person.rail.archivedReadOnly":
+    "This contact is archived. Restore them to change anything here.",
+  // Fired when an employment row's version could not be read back before a
+  // write — the row is not saved unpinned, so the reader is told to reload
+  // rather than left to think the edit landed.
+  "person.rail.employmentVersionUnresolved":
+    "This row's current version could not be read back to save against. Reload and try again.",
   // The employers section: every employment edge this person holds, current
   // one first — a person can work at more than one company at once.
   "person.rail.employmentTitle": "Companies",

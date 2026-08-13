@@ -4305,6 +4305,10 @@ export const de = {
   "person.rail.detailsTitle": "Details",
   "person.rail.contactMethodImmutable":
     "Beim Anlegen dieses Kontakts festgelegt. E-Mail und Telefon können hier nicht geändert werden.",
+  "person.rail.archivedReadOnly":
+    "Dieser Kontakt ist archiviert. Stelle ihn wieder her, um hier etwas zu ändern.",
+  "person.rail.employmentVersionUnresolved":
+    "Die aktuelle Version dieser Zeile konnte nicht zum Speichern zurückgelesen werden. Lade neu und versuche es erneut.",
   "person.rail.employmentTitle": "Unternehmen",
   "person.rail.noEmployment": "Keine Beschäftigung erfasst.",
   "person.rail.addEmployment": "Unternehmen hinzufügen",

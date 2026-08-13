@@ -4290,6 +4290,10 @@ export const vi = {
   "person.rail.detailsTitle": "Chi tiết",
   "person.rail.contactMethodImmutable":
     "Được thiết lập khi tạo liên hệ này. Email và số điện thoại không thể thay đổi tại đây.",
+  "person.rail.archivedReadOnly":
+    "Liên hệ này đã lưu trữ. Khôi phục để thay đổi bất kỳ thông tin nào tại đây.",
+  "person.rail.employmentVersionUnresolved":
+    "Không đọc lại được phiên bản hiện tại của dòng này để lưu. Hãy tải lại và thử lại.",
   "person.rail.employmentTitle": "Công ty",
   "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
   "person.rail.addEmployment": "Thêm công ty",

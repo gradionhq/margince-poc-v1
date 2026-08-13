@@ -122,7 +122,7 @@ function usePersonReadOnlyReason(person: Person): string | undefined {
   const t = useT();
   const overlay = useSorMode() === "overlay";
   if (person.archived_at) {
-    return t("record.archivedReadOnly");
+    return t("person.rail.archivedReadOnly");
   }
   if (overlay) {
     return t("overlay.partialWriteBack");
@@ -360,12 +360,26 @@ async function fetchEmploymentVersion(
 // creation nor its removal: the role InlineText commits below and the
 // "mark as ended" verb both patch through here, so a role edit and an ended
 // date answer the same version-skew and permission failures the same way.
+//
+// An unresolved version is refused here rather than sent unpinned: `ifMatch`
+// with no version sends no If-Match header at all, so a row this rail could
+// not read back would otherwise write straight over whatever changed
+// underneath it instead of failing loud with a 409. The list scoping
+// fetchEmploymentVersion uses can legitimately come back without this row
+// (a narrower read scope, a paged response, an edge whose kind changed), and
+// that has to read as a refusal, not as permission to skip the pin.
 async function patchEmployment(
   employment: Employment,
   personId: string,
   body: UpdateRelationshipRequest,
+  t: ReturnType<typeof useT>,
 ): Promise<void> {
   const version = await fetchEmploymentVersion(employment, personId);
+  if (version === undefined) {
+    throwProblem({
+      detail: t("person.rail.employmentVersionUnresolved"),
+    });
+  }
   const { error } = await api.PATCH("/relationships/{id}", {
     params: {
       path: { id: employment.relationship_id },
@@ -390,6 +404,7 @@ function todayDate(): string {
 // ended date, create, remove — ends in the same refetch and the rail never
 // shows a saved edit next to its own stale value.
 function useEmploymentActions(personId: string) {
+  const t = useT();
   const queryClient = useQueryClient();
   const invalidate = async () => {
     await queryClient.invalidateQueries({
@@ -411,7 +426,7 @@ function useEmploymentActions(personId: string) {
   });
   const end = useMutation({
     mutationFn: (employment: Employment) =>
-      patchEmployment(employment, personId, { ended_at: todayDate() }),
+      patchEmployment(employment, personId, { ended_at: todayDate() }, t),
     onSuccess: invalidate,
   });
   const update = useMutation({
@@ -421,7 +436,7 @@ function useEmploymentActions(personId: string) {
     }: {
       employment: Employment;
       body: UpdateRelationshipRequest;
-    }) => patchEmployment(employment, personId, body),
+    }) => patchEmployment(employment, personId, body, t),
     onSuccess: invalidate,
   });
   const remove = useMutation({
@@ -578,6 +593,15 @@ function EmploymentRow({
   const ending =
     actions.end.isPending &&
     actions.end.variables?.relationship_id === employment.relationship_id;
+  // isPending and isError can never both hold at once (one shared mutation
+  // status behind both), so a failure that only rendered while "ending" was
+  // also true could never actually draw: pending clears before error sets.
+  // This row's own failure is instead keyed on the same identifier ending
+  // uses, just checked against isError rather than isPending, so the row
+  // that failed keeps its message once the mutation has settled.
+  const endFailed =
+    actions.end.isError &&
+    actions.end.variables?.relationship_id === employment.relationship_id;
   return (
     <div className="pe-employment">
       <span className="pe-employment-body">
@@ -637,7 +661,7 @@ function EmploymentRow({
           </OverflowMenu>
         </span>
       )}
-      {ending && actions.end.isError && (
+      {endFailed && (
         <p className="pe-colleague-proof" role="alert">
           {problemMessageOf(actions.end.error, t)}
         </p>
