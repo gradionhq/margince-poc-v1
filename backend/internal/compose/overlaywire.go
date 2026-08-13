@@ -11,12 +11,12 @@ package compose
 // `source: overlay`, the FULL canonical payload rides `raw` (nothing the
 // mapper landed is dropped just because a typed slot doesn't exist for
 // it), and a timestamp is the incumbent's own wherever the mapping mirrors
-// one: a person's and an organization's created_at is the incumbent's create
-// instant and its updated_at the incumbent's last-modified instant, each
-// falling back to the mirror's own last-synced instant — the only time the
-// mirror can claim for itself — where the incumbent stamped none. The other
-// three entities read the mirror's own last-synced instant into both slots,
-// even where the mapping landed the incumbent's (#1016).
+// one: every entity's updated_at is the incumbent's last-modified instant, and
+// a person's and an organization's created_at is the incumbent's create
+// instant — each falling back to the mirror's own last-synced instant, the only
+// time the mirror can claim for itself, where the incumbent stamped none. A
+// deal's, a lead's and an activity's created_at is that fallback throughout,
+// since no mapping for those classes reads a create property.
 
 import (
 	"context"
@@ -223,7 +223,7 @@ func overlayWireDeal(ctx context.Context, rec datasource.Record) (crmcontracts.D
 		Currency:   fieldStringPtr(fields, "currency"),
 		Status:     overlayDealStatus(fieldString(fields, "stage_id")),
 		CreatedAt:  syncedAt,
-		UpdatedAt:  syncedAt,
+		UpdatedAt:  overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:        &fields,
 	}
 	if minor, ok := fieldInt64(fields, "amount_minor"); ok {
@@ -268,7 +268,7 @@ func overlayWireLead(ctx context.Context, rec datasource.Record) (crmcontracts.L
 		Score:       0,
 		Status:      crmcontracts.LeadStatusNew,
 		CreatedAt:   syncedAt,
-		UpdatedAt:   syncedAt,
+		UpdatedAt:   overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:         &fields,
 	}
 	if email := strings.TrimSpace(fieldString(fields, "email")); email != "" {
@@ -307,7 +307,7 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		Body:       fieldStringPtr(fields, "body"),
 		OccurredAt: overlayTimeOr(fields, "occurred_at", syncedAt),
 		CreatedAt:  syncedAt,
-		UpdatedAt:  syncedAt,
+		UpdatedAt:  overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:        &fields,
 	}
 	if dir := crmcontracts.ActivityDirection(strings.ToLower(fieldString(fields, "direction"))); dir == crmcontracts.ActivityDirectionInbound || dir == crmcontracts.ActivityDirectionOutbound {
