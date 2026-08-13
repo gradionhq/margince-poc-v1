@@ -277,8 +277,17 @@ func (s *Store) unseal(ctx context.Context, tx pgx.Tx, ref string) (provider.Cre
 }
 
 // cascadesFor narrows the descriptor's cascades to the ones the frozen
-// category set actually permits: a cascade whose category was not requested
-// was not reserved, and issuing it would spend an unheld credit.
+// category set actually permits — and it uses EXACTLY the test
+// Descriptor.WorstCase uses to price them.
+//
+// Both halves are required: the cascade's own category, and the category
+// whose empty answer triggers it. Testing only the first is how a run comes
+// to issue a cascade nobody reserved — a customer who saved
+// `categories: [personal_email]` alone gets no email reservation at all
+// (CostTable prices personal_email at nothing, and WorstCase skips a cascade
+// whose `After` was not requested), while a request that asked for the
+// fallback would spend two email credits with no row to reconcile them
+// against. They would vanish from the ledger entirely.
 func cascadesFor(desc provider.Descriptor, requested []provider.Category) []provider.Cascade {
 	in := map[provider.Category]bool{}
 	for _, c := range requested {
@@ -286,7 +295,7 @@ func cascadesFor(desc provider.Descriptor, requested []provider.Category) []prov
 	}
 	var out []provider.Cascade
 	for _, c := range desc.Cascades {
-		if in[c.Category] {
+		if in[c.Category] && in[c.After] {
 			out = append(out, c)
 		}
 	}

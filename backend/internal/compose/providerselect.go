@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
+	"github.com/gradionhq/margince/backend/internal/modules/integrations/surfe"
 )
 
 // providerModeEnv selects the adapter: "off" (the default), "offline" for the
@@ -46,11 +47,11 @@ func ProviderRegistryFromEnv(now func() time.Time) (*integrations.Registry, bool
 		}
 		return reg, true, nil
 	case "live":
-		// The live adapter lands with the Surfe wire implementation. Until
-		// then this refuses rather than falling back to the fake: a
-		// deployment that asked for live data and silently got invented data
-		// is the worse of the two failures by far.
-		return nil, false, fmt.Errorf("compose: %s=live, but no live provider adapter is compiled into this build", providerModeEnv)
+		reg, err := integrations.NewRegistry(surfe.New(now))
+		if err != nil {
+			return nil, false, fmt.Errorf("compose: registering the Surfe adapter: %w", err)
+		}
+		return reg, true, nil
 	default:
 		return nil, false, fmt.Errorf("compose: %s=%q is not a provider mode (off, offline, live)", providerModeEnv, mode)
 	}
