@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 
@@ -26,7 +27,17 @@ const summary = {
   has_payload: true,
 };
 
-function mount(captureEnabled = true, withPayload = true) {
+// The trace is gated on automation:update — the server treats the runtime's calls as
+// operator information — so a stub that never answers /me leaves the caller holding
+// no grant and the card correctly says it is withheld instead of rendering rows.
+const OPERATOR: GrantSpec = { automation: ["read", "update"] };
+
+function mount(
+  captureEnabled = true,
+  withPayload = true,
+  allow: GrantSpec = OPERATOR,
+) {
+  const seen: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -34,6 +45,12 @@ function mount(captureEnabled = true, withPayload = true) {
         input instanceof Request ? input.url : String(input),
         "https://test",
       ).pathname;
+      seen.push(path);
+      if (path.endsWith("/v1/me")) {
+        return new Response(JSON.stringify(meFixture({ allow })), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       const body = path.endsWith(summary.id)
         ? {
             ...summary,
@@ -86,6 +103,7 @@ function mount(captureEnabled = true, withPayload = true) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
+  return { seen };
 }
 
 afterEach(() => {
@@ -131,4 +149,17 @@ it("distinguishes capture disabled from a call without payload", async () => {
   expect(
     await screen.findByText("No payload captured for this call."),
   ).toBeTruthy();
+});
+
+it("withholds the trace from a principal without the automation grant, and asks the server for nothing", async () => {
+  // Withheld, not absent: an absent trace claims the installation made no model
+  // calls. The card keeps its title and says whose record this is — and the list
+  // read never fires, because the denial is already known.
+  const { seen } = mount(true, true, { automation: ["read"] });
+
+  expect(
+    await screen.findByText(/only an operator can read the per-call trace/i),
+  ).toBeTruthy();
+  expect(screen.getByText("AI call trace")).toBeTruthy();
+  expect(seen.some((path) => path.includes("/ai/calls"))).toBe(false);
 });

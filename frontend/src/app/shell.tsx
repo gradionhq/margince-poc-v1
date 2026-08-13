@@ -188,10 +188,6 @@ function RailSearch({
 // ten, so — like search — it needs a key of its own that no NAV entry can take.
 const SETTINGS_TIP_KEY = "rail-settings";
 
-// The id the content region answers to. Named once because two elements have to
-// agree on it: the region that receives focus and the control that sends it.
-const CONTENT_REGION_ID = "content";
-
 // WCAG 2.4.1, Bypass Blocks. Every page in the product puts the same block ahead
 // of its content — the brand, the search, up to eleven navigation rows, the More
 // button, the settings door and the account menu — and without this a keyboard
@@ -901,8 +897,9 @@ export function Shell({
   // (`.app` is exactly one viewport tall), the content COLUMN does, and that
   // column is the same element on every route — so it carries the offset the
   // last page was left at straight into the next one. Reading a scrolled AI
-  // settings page and then opening Connections landed the reader partway down
-  // Webhooks, and fewer, longer settings pages made it worse.
+  // settings page and then opening another entry landed the reader partway down
+  // whatever the new page happened to have at that offset, and fewer, longer
+  // settings pages made it worse.
   //
   // Keyed by the ADDRESS, not by `route`: useRoute parses a fresh object every
   // render, so a dependency on the object would re-run this on every keystroke a
@@ -971,12 +968,7 @@ export function Shell({
       {/* Focusable only as the skip link's destination — never a tab stop of its
           own, which is what tabIndex -1 buys. A reader who takes the skip lands
           here, and the next Tab continues into the page's own controls. */}
-      <main
-        className="main"
-        id={CONTENT_REGION_ID}
-        ref={contentRegion}
-        tabIndex={-1}
-      >
+      <main className="main" ref={contentRegion} tabIndex={-1}>
         {leveled ? (
           <SettingsPageHead
             route={route}

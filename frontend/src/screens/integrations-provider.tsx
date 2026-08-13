@@ -7,11 +7,11 @@ import { Plug, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
   Card,
-  Checkbox,
   EmptyState,
   Field,
   TextInput,
@@ -20,12 +20,14 @@ import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { ProviderMark } from "../design-system/provider-mark";
 import { Meter } from "../design-system/readings";
+import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import {
   problemCode,
   problemMessageOf,
   QueryGate,
   throwProblem,
+  useMe,
 } from "./common";
 import { connectionLabel, connectionTone } from "./provider-status";
 
@@ -70,6 +72,22 @@ function useProviderConnections() {
 export function ProviderCard() {
   const t = useT();
   const query = useProviderConnections();
+  // Every seat reads this card — the balances and the spend are a rep's
+  // explanation for a dated value on a person record — while connecting and
+  // destroying are admin/ops. The two answers are computed HERE, once, so the
+  // posture line below and the affordances inside cannot disagree about who
+  // may do what.
+  //
+  // Connect asks for `create` alone, not the create-or-update an upsert would:
+  // the PUT replaces an existing credential, but the server admits it on
+  // `create` whichever it turns out to be, so a reader holding only `update`
+  // would be shown a button that can only 403.
+  const me = useMe();
+  const canConnect = useCanWrite("integrations", "create");
+  const canDestroy = useCanWrite("integrations", "delete");
+  // The configuration PATCH is its own verb (integrations/update.go), so the
+  // auto-enrich switch asks for that rather than borrowing either answer above.
+  const canEdit = useCanWrite("integrations", "update");
   return (
     <Card>
       <h2>{t("provider.title")}</h2>
@@ -85,10 +103,22 @@ export function ProviderCard() {
             <EmptyState>{t("provider.notConfigured")}</EmptyState>
           ) : (
             <>
+              {/* The card keeps its place and says ONCE what a reader without
+                  either write is looking at; the individual controls below are
+                  then simply absent (design-system README, "Absent, disabled,
+                  or withheld"). Gated on the probe having ANSWERED, so a reader
+                  who does hold the grants never sees this flash while /me is in
+                  flight. */}
+              {me.isSuccess && !canConnect && !canDestroy && !canEdit && (
+                <p className="t-caption">{t("provider.readOnly")}</p>
+              )}
               {result.connections.map((connection) => (
                 <ProviderConnectionRow
                   key={connection.provider}
                   connection={connection}
+                  canConnect={canConnect}
+                  canDestroy={canDestroy}
+                  canEdit={canEdit}
                 />
               ))}
             </>
@@ -101,7 +131,15 @@ export function ProviderCard() {
 
 function ProviderConnectionRow({
   connection,
-}: Readonly<{ connection: ProviderConnection }>) {
+  canConnect,
+  canDestroy,
+  canEdit,
+}: Readonly<{
+  connection: ProviderConnection;
+  canConnect: boolean;
+  canDestroy: boolean;
+  canEdit: boolean;
+}>) {
   const t = useT();
   return (
     <section className="provider-card">
@@ -121,8 +159,12 @@ function ProviderConnectionRow({
       </header>
       <CreditsBlock connection={connection} />
       <SpendBlock connection={connection} />
-      <PolicyBlock connection={connection} />
-      <CredentialBlock connection={connection} />
+      <PolicyBlock connection={connection} canEdit={canEdit} />
+      <CredentialBlock
+        connection={connection}
+        canConnect={canConnect}
+        canDestroy={canDestroy}
+      />
     </section>
   );
 }
@@ -299,18 +341,36 @@ function usePatchConfiguration(
   });
 }
 
+// Auto-enrich is the one control here that a reader who may not change it still
+// needs to READ: it is the only place the installation says whether new contacts
+// are being enriched at somebody's expense. So it is neither absent (that would
+// hide a granted read) nor withheld (there is a fact to show) — it is the shape the
+// design system keeps for exactly this: a Switch, because flipping it writes, with
+// `reason` carrying the denial to a screen reader through aria-describedby rather
+// than leaving it beside the control as decoration.
 function PolicyBlock({
   connection,
-}: Readonly<{ connection: ProviderConnection }>) {
+  canEdit,
+}: Readonly<{ connection: ProviderConnection; canEdit: boolean }>) {
   const t = useT();
   const patch = usePatchConfiguration(connection.provider, connection.version);
   const configuration = connection.configuration;
+  const disconnected = connection.status !== "connected";
   return (
     <div>
-      <Checkbox
+      <Switch
         checked={configuration.automatic_individual_create ?? false}
-        disabled={patch.isPending || connection.status !== "connected"}
-        onChange={(event) => patch.mutate(event.target.checked)}
+        // Three causes, and only one of them is worth words. A permission is
+        // permanent and has to be explained; a write in flight explains itself by
+        // finishing, and a disconnected provider is already stated by the status
+        // beside it.
+        //
+        // The shared single-control sentence, not the card's own posture line: that
+        // one names why the CARD is read-only and would say the same thing twice
+        // here, once as prose and once attached to the control.
+        reason={canEdit ? undefined : t("captureSettings.adminOnly")}
+        disabled={!canEdit || patch.isPending || disconnected}
+        onChange={(next) => patch.mutate(next)}
         label={t("provider.autoEnrich")}
       />
       <p className="muted">{t("provider.autoEnrichHint")}</p>
@@ -321,9 +381,35 @@ function PolicyBlock({
   );
 }
 
+// The two destructive decisions, in the one row they share with connect. A
+// component rather than duplicated JSX because they render in two places: beside
+// the key form for a reader who may also connect, and alone for one who may not.
+function DestructiveActions({
+  onDisconnect,
+  onDeleteData,
+}: Readonly<{ onDisconnect: () => void; onDeleteData: () => void }>) {
+  const t = useT();
+  return (
+    <>
+      <Button small variant="danger" type="button" onClick={onDisconnect}>
+        {t("provider.disconnect")}
+      </Button>
+      <Button small variant="danger" type="button" onClick={onDeleteData}>
+        <Trash2 aria-hidden /> {t("provider.deleteData")}
+      </Button>
+    </>
+  );
+}
+
 function CredentialBlock({
   connection,
-}: Readonly<{ connection: ProviderConnection }>) {
+  canConnect,
+  canDestroy,
+}: Readonly<{
+  connection: ProviderConnection;
+  canConnect: boolean;
+  canDestroy: boolean;
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [key, setKey] = useState("");
@@ -393,77 +479,84 @@ function CredentialBlock({
   });
 
   const connected = connection.credential_present;
+  // A stored key is what makes either destructive action meaningful, and the
+  // grant is what makes it permitted.
+  const destructive = connected && canDestroy;
   return (
     <div className="provider-credential">
-      <form
-        className="form-stack"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (key.trim() !== "") {
-            setConfirming(true);
-          }
-        }}
-      >
-        {/* The field is write-only in both states: a sealed key is never sent
-            back to the browser, so the box is empty even when one is in place.
-            Left unexplained that reads as "no key connected" while the card
-            above shows a live balance — so the label and the hint say which
-            state this is, and the placeholder does not pretend to hold a
-            value. */}
-        <Field
-          label={connected ? t("provider.apiKeyStored") : t("provider.apiKey")}
-          hint={
-            connected
-              ? t("provider.apiKeyReplaceHint")
-              : t("provider.apiKeyHint")
-          }
+      {/* The key field goes with the submit it feeds: it is write-only and
+          exists for no other purpose, so a reader who may not connect has
+          nothing to type into it. */}
+      {canConnect && (
+        <form
+          className="form-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (key.trim() !== "") {
+              setConfirming(true);
+            }
+          }}
         >
-          {(control) => (
-            <TextInput
-              {...control}
-              type="password"
-              autoComplete="off"
-              value={key}
-              required
-              placeholder={
-                connected ? t("provider.apiKeyReplacePlaceholder") : ""
-              }
-              onChange={(event) => setKey(event.target.value)}
-            />
-          )}
-        </Field>
-        <div className="provider-actions">
-          <Button
-            small
-            variant="primary"
-            type="submit"
-            disabled={key.trim() === ""}
+          {/* The field is write-only in both states: a sealed key is never sent
+              back to the browser, so the box is empty even when one is in
+              place. Left unexplained that reads as "no key connected" while the
+              card above shows a live balance — so the label and the hint say
+              which state this is, and the placeholder does not pretend to hold
+              a value. */}
+          <Field
+            label={
+              connected ? t("provider.apiKeyStored") : t("provider.apiKey")
+            }
+            hint={
+              connected
+                ? t("provider.apiKeyReplaceHint")
+                : t("provider.apiKeyHint")
+            }
           >
-            <Plug aria-hidden />{" "}
-            {connected ? t("provider.reconnect") : t("provider.connect")}
-          </Button>
-          {connected && (
-            <>
-              <Button
-                small
-                variant="danger"
-                type="button"
-                onClick={() => setDisconnecting(true)}
-              >
-                {t("provider.disconnect")}
-              </Button>
-              <Button
-                small
-                variant="danger"
-                type="button"
-                onClick={() => setDeleting(true)}
-              >
-                <Trash2 aria-hidden /> {t("provider.deleteData")}
-              </Button>
-            </>
-          )}
+            {(control) => (
+              <TextInput
+                {...control}
+                type="password"
+                autoComplete="off"
+                value={key}
+                required
+                placeholder={
+                  connected ? t("provider.apiKeyReplacePlaceholder") : ""
+                }
+                onChange={(event) => setKey(event.target.value)}
+              />
+            )}
+          </Field>
+          <div className="provider-actions">
+            <Button
+              small
+              variant="primary"
+              type="submit"
+              disabled={key.trim() === ""}
+            >
+              <Plug aria-hidden />{" "}
+              {connected ? t("provider.reconnect") : t("provider.connect")}
+            </Button>
+            {destructive && (
+              <DestructiveActions
+                onDisconnect={() => setDisconnecting(true)}
+                onDeleteData={() => setDeleting(true)}
+              />
+            )}
+          </div>
+        </form>
+      )}
+      {/* Stopping the flow and destroying what was bought are a different
+          authority from connecting, so they stand on their own for a reader who
+          holds one grant and not the other. */}
+      {!canConnect && destructive && (
+        <div className="provider-actions">
+          <DestructiveActions
+            onDisconnect={() => setDisconnecting(true)}
+            onDeleteData={() => setDeleting(true)}
+          />
         </div>
-      </form>
+      )}
       {connect.error && (
         <Callout tone="danger">{problemMessageOf(connect.error, t)}</Callout>
       )}

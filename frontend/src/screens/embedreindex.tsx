@@ -14,7 +14,7 @@ import { bandTone } from "./aiusage";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
-// status read is admin/ops-only server-side now (migration 0114:
+// status read is admin/ops-only server-side now (migration 0115:
 // manager/rep/read_only hold no grant at all on embedding_reindex), so
 // this card's status query is itself gated on embedding_reindex:read —
 // a non-ops role would otherwise get a 403 rendered as "status
@@ -325,11 +325,13 @@ export function EmbedReindexCard() {
     },
   });
 
-  // Withheld, not absent: a permission is what denies this (non-ops viewers
-  // hold no grant on embedding_reindex at all server-side, migration 0115), so
-  // the card keeps its place on a maintenance page a non-ops seat reaches for
-  // its other sections — beside a job-health card that explains its own
-  // emptiness — and says why it is empty rather than vanishing.
+  // Withheld, not absent: a permission is what denies this, so the card keeps its
+  // place and says why it is empty rather than vanishing. The reader it is written
+  // for is narrower than it looks — the Maintenance entry opens on this very read
+  // or the admin role, so nobody below ops reaches the page at all. It serves an
+  // operator whose embedding_reindex grant an edited role no longer carries, and
+  // for them an absent card would read as "this installation has no search index"
+  // rather than "this is not yours to see".
   //
   // The query stays `enabled: canRead` and that half of the reasoning stands:
   // the answer is already known, so asking for a 403 in order to render it

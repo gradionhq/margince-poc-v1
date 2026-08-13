@@ -37,6 +37,7 @@ import {
   problemMessageOf,
   QueryGate,
   throwProblem,
+  useMe,
 } from "./common";
 import { EntityRef, useRoster } from "./entityref";
 import {
@@ -192,6 +193,10 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
 
 export function ConsentPurposesCard() {
   const t = useT();
+  // The probe itself, not just its answer: every role predicate reads false
+  // while /me is in flight, so branching on `!canAdminister` alone would flash
+  // the read-only line at an admin on every load.
+  const me = useMe();
   const canAdminister = useHoldsConsentAdminRole();
   const [adding, setAdding] = useState(false);
   const query = useQuery({
@@ -221,6 +226,16 @@ export function ConsentPurposesCard() {
       }
       style={{ marginBottom: "var(--space-4)" }}
     >
+      {/* Dropping the button above without this line leaves a rep looking at a
+          registry that simply has no way to grow, on a page whose other three
+          cards each explain themselves — the reader cannot tell a posture from
+          a control that broke. One sentence for the card's one write
+          affordance, never a disabled button that promises a click. */}
+      {me.isSuccess && !canAdminister && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
+          {t("privacy.purposesReadOnly")}
+        </p>
+      )}
       {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (

@@ -173,12 +173,18 @@ export const AgentToolConsole: Story = {
 };
 
 // The shape a record takes, on one page: the field editor, the pipeline
-// designer, the product list and the offer templates. The custom_field write is
-// what opens the entry — the four surfaces used to be three separate screens
-// behind door-cards, and the doors are gone.
+// designer, the product list and the offer templates. The four surfaces used to
+// be three separate screens behind door-cards, and the doors are gone.
+//
+// The custom_field READ is what opens the entry — opening a page is reading it,
+// and `meFixture` grants only the verbs named here. A write-only fixture reaches
+// no entry at all and the story silently captures the Account fallback instead,
+// which is exactly what it did: nothing asserts on a story, so the gates stayed
+// green while the picture was of the wrong page. The writes stay so the builder
+// and the row actions render.
 export const DataModelTab: Story = {
   render: tab("data-model", {
-    "GET /me": me({ custom_field: ["create", "update"] }),
+    "GET /me": me({ custom_field: ["read", "create", "update"] }),
   }),
 };
 

@@ -412,7 +412,7 @@ export const vi = {
   "overlay.loadFailed": "Không tải được kết nối tới CRM đang dùng.",
   "overlay.empty":
     "Chưa kết nối CRM đang dùng nào. Hãy kết nối HubSpot để đọc bản ghi từ bản sao HubSpot.",
-  "overlay.adminOnly": "Bạn không có quyền kết nối HubSpot.",
+  "overlay.adminOnly": "Bạn không có quyền thay đổi kết nối HubSpot.",
   "overlay.region": "Khu vực",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "Hoa Kỳ",
@@ -1840,6 +1840,8 @@ export const vi = {
   "settings.privacySub": "yêu cầu của chủ thể dữ liệu kèm thời hạn luật định",
   "settings.due": "hạn {date}",
 
+  "privacy.purposesReadOnly":
+    "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thêm được mục đích.",
   "privacy.addPurpose": "Thêm mục đích",
   "privacy.purposeKey": "Khoá",
   "privacy.purposeLabel": "Nhãn",
@@ -1935,6 +1937,8 @@ export const vi = {
   "retention.scopeAiCallPayloadContent": "Nội dung lời gọi AI",
 
   "settings.pipelines": "Pipeline",
+  "settings.pipelinesReadOnly":
+    "Chế độ chỉ đọc — bạn không thể thay đổi pipeline hay các giai đoạn.",
   "settings.pipelinesSub":
     "Các giai đoạn một deal đi qua — mỗi pipeline một thang.",
   "pipeline.new": "Pipeline mới",
@@ -2252,7 +2256,7 @@ export const vi = {
   "ob.s4.connectVerifying": "Đang xác nhận kết nối…",
   "ob.s4.connectLive": "Đang chạy và thu thập",
   "ob.s4.connectConfirmFailed": "Không xác nhận được kết nối.",
-  "ob.s4.connectRetry": "Hãy vào Cài đặt → Tích hợp để thử kết nối lại.",
+  "ob.s4.connectRetry": "Hãy vào Cài đặt → Kết nối để thử kết nối lại.",
   "ob.s4.connectDenied": "Bạn đã từ chối cấp quyền — không có gì được kết nối.",
   "ob.s4.googleBtn": "Cho phép truy cập Gmail của tôi",
   "ob.s4.soon": "Sắp có",
@@ -3478,6 +3482,10 @@ export const vi = {
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
     "Tỷ giá quy đổi số tiền ngoại tệ về tiền tệ gốc của bạn. Tỷ giá mới có hiệu lực từ hôm nay trở đi; tỷ giá quá khứ không bao giờ bị sửa.",
+  "settings.rates.fxWithheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được tỷ giá. Mọi phép quy đổi trong bản cài đặt đều dựa trên chúng, nên không hiển thị rộng hơn.",
+  "settings.rates.modelWithheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được chi phí từng mô hình. Đây là thông tin vận hành, nên không hiển thị rộng hơn.",
   "settings.rates.readOnly":
     "Chế độ chỉ đọc — bạn không có quyền thay đổi tỷ giá.",
   "settings.rates.fxAdd": "Đặt tỷ giá",
@@ -3693,6 +3701,8 @@ export const vi = {
   "users.link.retry": "Thử lại",
   "users.link.done": "Xong",
   "settings.companyKicker": "Tri thức công ty",
+  "settings.companyReadOnly":
+    "Chế độ chỉ đọc — sửa hồ sơ công ty cần quyền ghi trên tổ chức.",
   "settings.companyTitle": "Những gì Margince biết về công ty bạn",
   "settings.companySub":
     "Giữ cho bối cảnh kinh doanh chung — nền cho soạn nháp, báo giá, tìm kiếm và Agent có kiểm soát — luôn chính xác. Mỗi nhận định đều gắn với ai đã cung cấp và nguồn từ đâu.",
@@ -3737,6 +3747,7 @@ export const vi = {
     "Bản triển khai này không bật việc đọc website. Ba câu trả lời sau đã đủ để tạo bối cảnh công ty hữu ích, không gọi mô hình và không có yêu cầu ra bên ngoài.",
   "settings.companyCreateWorkspace": "Tạo bối cảnh công ty",
   "product.title": "Sản phẩm",
+  "product.readOnly": "Chế độ chỉ đọc — bạn không thể thay đổi sản phẩm.",
   "product.settingsSub":
     "Các mục bảng giá mà dòng báo giá chụp lại giá trị từ đó.",
   "product.new": "Sản phẩm mới",
@@ -3761,6 +3772,7 @@ export const vi = {
   "product.empty": "Chưa có sản phẩm nào.",
 
   "template.title": "Mẫu báo giá",
+  "template.readOnly": "Chế độ chỉ đọc — bạn không thể thay đổi mẫu báo giá.",
   "template.settingsSub": "Bố cục PDF DE/EN có thương hiệu cho báo giá.",
   "template.new": "Mẫu mới",
   "template.edit": "Sửa mẫu",
@@ -3793,6 +3805,8 @@ export const vi = {
   "tools.unreachable": "chưa được cấp phạm vi",
 
   "aiusage.title": "Mức dùng và hạn mức AI",
+  "aiusage.withheld":
+    "Chỉ người vận hành mới thấy được chi phí AI. Số liệu bao trùm cả bản cài đặt, nên không hiển thị rộng hơn.",
   "aiusage.sub":
     "Hoá đơn của chính bạn, hiện rõ — theo từng tác vụ và bậc, tính bằng token.",
   "aiusage.budget": "{spent} trên {budget} token · {pct}%",
@@ -3822,6 +3836,8 @@ export const vi = {
   "aibanner.dismiss": "Bỏ qua",
 
   "aicalls.title": "Dấu vết lượt gọi AI",
+  "aicalls.withheld":
+    "Chỉ người vận hành mới đọc được dấu vết từng lượt gọi. Nó ghi lại mọi lượt gọi mô hình của bản cài đặt, nên không hiển thị rộng hơn.",
   "aicalls.sub":
     "Mọi lượt gọi mô hình — danh tính định tuyến, token, số lần thử lại, nội dung đã ghi.",
   "aicalls.col.detail": "Chi tiết",
@@ -3984,6 +4000,8 @@ export const vi = {
   "ownDomains.remove": "Xóa {domain}",
 
   "webhooks.title": "Webhook",
+  "webhooks.readOnly":
+    "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thay đổi được đăng ký.",
   "webhooks.sub":
     "Các đăng ký gửi ra, nhận HTTP POST có chữ ký cho những sự kiện được chọn.",
   "webhooks.new": "Đăng ký mới",
@@ -4387,6 +4405,8 @@ export const vi = {
   // Nhà cung cấp dữ liệu liên hệ (ADR-0101). Hai màn hình dùng chung bộ từ
   // vựng này — thẻ Cài đặt và trang cá nhân — để một trạng thái luôn đọc
   // giống nhau ở mọi nơi.
+  "provider.readOnly":
+    "Chế độ chỉ đọc — kết nối nhà cung cấp tiêu tốn tiền, nên đây là hành động của quản trị viên hoặc ops.",
   "provider.title": "Dữ liệu liên hệ",
   "provider.sub":
     "Mua thông tin liên hệ đã được xác minh cho những người trong CRM. Bạn trả cho nhà cung cấp bằng tín dụng; phần đã dùng ở đây được hiển thị bên dưới.",

@@ -11,7 +11,6 @@ import {
   useCanMutate,
   useCanUpsert,
   useCanWrite,
-  useHoldsWriteGrant,
 } from "./capability";
 import { meFixture } from "./mefixture";
 
@@ -138,57 +137,6 @@ describe("useCan", () => {
     stubMe({ title: "Unauthorized" }, 401);
 
     expect(await can("automation", "update")).toBe(false);
-  });
-});
-
-describe("useHoldsWriteGrant — any write verb", () => {
-  // The question a nav entry into an authoring surface asks. Which write verb
-  // a role holds varies by object — the seeded rep creates and updates a
-  // product but never deletes one — so insisting on one verb would hide a page
-  // its own cards would serve.
-  async function holdsWrite(object: RbacObject): Promise<boolean> {
-    const { result } = renderHook(
-      () => ({ me: useMe(), allowed: useHoldsWriteGrant(object) }),
-      { wrapper },
-    );
-    await waitFor(() => {
-      expect(result.current.me.isPending).toBe(false);
-    });
-    return result.current.allowed;
-  }
-
-  it("accepts any one of create, update and delete", async () => {
-    stubMe(
-      meFixture({
-        allow: {
-          product: ["create"],
-          offer_template: ["update"],
-          pipeline: ["delete"],
-        },
-      }),
-    );
-
-    expect(await holdsWrite("product")).toBe(true);
-    expect(await holdsWrite("offer_template")).toBe(true);
-    expect(await holdsWrite("pipeline")).toBe(true);
-  });
-
-  it("refuses read — the verb every seeded role holds on nearly everything", async () => {
-    // If read counted, this predicate would put every authoring surface in
-    // front of every seat, which is the opposite of what it is for.
-    stubMe(meFixture({ allow: { custom_field: ["read"] } }));
-
-    expect(await holdsWrite("custom_field")).toBe(false);
-    expect(await holdsWrite("fx_rate")).toBe(false);
-  });
-
-  it("ignores the licensing seat, so a read seat still reaches what it may read", async () => {
-    // Deliberately unlike useCanWrite: the seat blocks the mutation, not the
-    // page, and hiding the page would strand a reader on a fallback screen.
-    stubMe(meFixture({ seat: "read", allow: { product: ["update"] } }));
-
-    expect(await mutate()).toBe(false);
-    expect(await holdsWrite("product")).toBe(true);
   });
 });
 

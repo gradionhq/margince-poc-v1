@@ -19,6 +19,11 @@ const E2E_ADMIN_GRANTS: GrantSpec = {
   fx_rate: ["create", "read", "update"],
   ai_model_rate: ["create", "read", "update"],
   saved_view: ["create", "read", "update", "delete"],
+  // The consent registry's own gate, and so the Privacy & audit ENTRY's: the
+  // server reads purposes under `person:read` (consent/store.go), not under a
+  // role. Read alone, because no spec exercises a person write from here and a
+  // grant this fixture does not need is a grant it should not claim.
+  person: ["read"],
 };
 
 // The coherent seed (mirrors design/seed-fixtures.md entities: Anna Weber,

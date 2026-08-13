@@ -289,7 +289,7 @@ export function OverlayLiveSection({
     <>
       <SyncStatusPanel query={sync} locale={locale} />
       <BudgetPanel query={budget} />
-      {(canReconcile || canDisconnect) && (
+      {canReconcile || canDisconnect ? (
         <div
           style={{
             display: "flex",
@@ -308,6 +308,15 @@ export function OverlayLiveSection({
             </Button>
           )}
         </div>
+      ) : (
+        // Neither grant, and this section renders ONLY on an installation that
+        // is already in overlay mode — so a rep/manager seat is looking at live
+        // sync freshness and a spending budget with nowhere to act. Dropping
+        // the row silently makes that read as a mirror nobody can steer;
+        // the sentence makes it read as a mirror that is not theirs to steer.
+        <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
+          {t("overlay.adminOnly")}
+        </p>
       )}
       {reconcileQueued && (
         <p className="t-small" style={{ marginTop: "var(--space-2)" }}>

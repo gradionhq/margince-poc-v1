@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanUpsert } from "../app/capability";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -27,6 +28,7 @@ import {
   problemMessageOf,
   QueryGate,
   throwProblem,
+  useMe,
 } from "./common";
 
 type Capabilities = components["schemas"]["CompanyContextCapabilities"];
@@ -252,6 +254,15 @@ export function CompanyContextCard() {
   const t = useT();
   const queryClient = useQueryClient();
   const capabilities = useCompanyContextCapabilities();
+  // Every seat reads this profile — it is the shared business context behind
+  // drafting and search — and the settings entry that leads here opens on the
+  // read grant. Writing it is an upsert: the company is one standing record
+  // that the first save MINTS, so the server demands `create` when no anchor
+  // exists and `update` when one does, deciding inside its own transaction. A
+  // client asking for either verb alone would hide the editor from a principal
+  // the server would have admitted.
+  const me = useMe();
+  const canEdit = useCanUpsert("organization");
   const company = useQuery({
     queryKey: ["company"],
     queryFn: async (): Promise<CompanyProfile> => {
@@ -427,6 +438,16 @@ export function CompanyContextCard() {
         </div>
         {capabilities.data && <Badge>{capabilities.data.rollout}</Badge>}
       </div>
+      {/* The surface keeps its place and states its posture ONCE; the write
+          controls below are then simply absent (design-system README, "Absent,
+          disabled, or withheld"). This is a PERMISSION, which is why it speaks
+          at all — the rollout flag above returns null instead, because a
+          capability this installation does not have is not a fact about the
+          reader. Gated on the probe having answered, so a reader who may edit
+          never sees this flash while /me is in flight. */}
+      {me.isSuccess && !canEdit && (
+        <p className="t-caption">{t("settings.companyReadOnly")}</p>
+      )}
       <QueryGate query={company}>
         {(profile) =>
           form && (
@@ -449,15 +470,21 @@ export function CompanyContextCard() {
                         setForm({ ...form, website: event.target.value })
                       }
                     />
-                    <Button
-                      variant="primary"
-                      disabled={
-                        startRefresh.isPending || !(form.website ?? "").trim()
-                      }
-                      onClick={() => startRefresh.mutate(form.website ?? "")}
-                    >
-                      <RefreshCw aria-hidden /> {t("settings.companyRefresh")}
-                    </Button>
+                    {/* Reading the website is a write of this profile: the
+                        server admits the read on the same create-or-update the
+                        save needs, because a read exists to change what the
+                        record says. */}
+                    {canEdit && (
+                      <Button
+                        variant="primary"
+                        disabled={
+                          startRefresh.isPending || !(form.website ?? "").trim()
+                        }
+                        onClick={() => startRefresh.mutate(form.website ?? "")}
+                      >
+                        <RefreshCw aria-hidden /> {t("settings.companyRefresh")}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {PROFILE_GROUPS.map((group) => (
@@ -489,13 +516,15 @@ export function CompanyContextCard() {
                       <Check aria-hidden /> {t("settings.companySaved")}
                     </span>
                   )}
-                  <Button
-                    variant="primary"
-                    disabled={save.isPending || !requiredComplete(form)}
-                    onClick={() => save.mutate(trimCompanyInput(form))}
-                  >
-                    {t("settings.companySave")}
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      variant="primary"
+                      disabled={save.isPending || !requiredComplete(form)}
+                      onClick={() => save.mutate(trimCompanyInput(form))}
+                    >
+                      {t("settings.companySave")}
+                    </Button>
+                  )}
                 </div>
               </div>
               {refreshFailure !== null && (
@@ -521,6 +550,7 @@ export function CompanyContextCard() {
                       resolutions,
                     })
                   }
+                  canApply={canEdit}
                   confirming={confirm.isPending}
                   error={
                     confirm.error
@@ -590,6 +620,11 @@ function RefreshReview(
     onToggle: (key: string) => void;
     onResolve: (resolution: Resolution) => void;
     onConfirm: () => void;
+    /** The same answer the save asks for: applying a read WRITES the profile.
+     *  Carried rather than re-derived so a grant revoked while a reviewer sits
+     *  on this screen takes the apply with it — the /me snapshot refreshes on
+     *  window focus, and the review outlives that. */
+    canApply: boolean;
     confirming: boolean;
     error?: string;
   }>,
@@ -657,13 +692,15 @@ function RefreshReview(
             <CircleAlert aria-hidden /> {t("settings.companyResolveAll")}
           </span>
         )}
-        <Button
-          variant="primary"
-          disabled={!ready || unresolved || props.confirming}
-          onClick={props.onConfirm}
-        >
-          {t("settings.companyApplyRefresh")} <ArrowRight aria-hidden />
-        </Button>
+        {props.canApply && (
+          <Button
+            variant="primary"
+            disabled={!ready || unresolved || props.confirming}
+            onClick={props.onConfirm}
+          >
+            {t("settings.companyApplyRefresh")} <ArrowRight aria-hidden />
+          </Button>
+        )}
       </div>
     </div>
   );

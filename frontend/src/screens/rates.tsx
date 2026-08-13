@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCanUpsert } from "../app/capability";
+import { useCan, useCanUpsert } from "../app/capability";
 import {
   Button,
   Card,
@@ -12,7 +12,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./rates.css";
 
 type FxRate = components["schemas"]["FxRate"];
@@ -77,10 +77,50 @@ function RefreshFromSources({
   );
 }
 
+// Withheld, not absent (design-system README, "Absent, disabled, or withheld"):
+// a PERMISSION is what denies a price sheet — fx_rate and ai_model_rate grants
+// exist only for admin and ops — so the card keeps its place and says so. Both
+// sheets sit on settings pages other roles open for their other cards (currency
+// rates on Organization, model prices on AI), and a sheet that vanished there
+// would read as "this installation has no rates" rather than "not yours to see".
+//
+// It asks the server for NOTHING: each caller keeps `enabled: canRead` on its
+// list query, because the answer is already known and fetching the 403 in order
+// to render it turns a settled denial into red error text with a Retry that can
+// only be refused again. Gated on the /me probe so the notice waits for the
+// grants instead of flashing at every reader while they are still in flight.
+function WithheldRateCard({
+  title,
+  reason,
+}: Readonly<{ title: string; reason: string }>) {
+  const me = useMe();
+  return (
+    <Card style={{ marginBottom: "var(--space-4)" }} title={title}>
+      <QueryGate query={me}>
+        {() => (
+          <EmptyState>
+            <p className="t-small">{reason}</p>
+          </EmptyState>
+        )}
+      </QueryGate>
+    </Card>
+  );
+}
+
 // ---- FX rates ----
 
 export function FxRatesCard() {
   const t = useT();
+  // Reading the sheet and authoring it are separate grants, so the card asks
+  // for each one where it needs it.
+  //
+  // `useCan` for the read and `useCanUpsert` for the write, which additionally
+  // folds the licensing seat — a difference that decides the read-seat case:
+  // an admin on a read seat still holds fx_rate:read, so they get the table and
+  // the read-only caption below, never the withheld body. Their denial is about
+  // WRITING, and saying "only an admin or ops can see this" to an admin who is
+  // looking at it would be a lie.
+  const canRead = useCan("fx_rate", "read");
   // Either write grant, because the endpoint is one upsert: setting a rate for
   // a (currency, day) inserts under fx_rate:create and replaces an existing one
   // under fx_rate:update, and which it will be is only known once the server
@@ -91,6 +131,7 @@ export function FxRatesCard() {
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["fx-rates"],
+    enabled: canRead,
     queryFn: async () => {
       const { data, error } = await api.GET("/fx-rates", {
         params: { query: {} },
@@ -101,6 +142,19 @@ export function FxRatesCard() {
       return data.data;
     },
   });
+
+  // After every hook, so the number of hooks a render runs stays the same. A
+  // principal holding a write verb but not the read lands here too: without the
+  // sheet there is nothing to author a new rate against, so the read decides
+  // whether this card exists at all.
+  if (!canRead) {
+    return (
+      <WithheldRateCard
+        title={t("settings.rates.fxTitle")}
+        reason={t("settings.rates.fxWithheld")}
+      />
+    );
+  }
 
   return (
     <Card
@@ -126,7 +180,12 @@ export function FxRatesCard() {
           affordances inside a readable surface may simply be absent — provided
           the surface has said what a reader is looking at. Without this the page
           was a rate table with no editor and no reason given, which reads as a
-          bug rather than as a permission. */}
+          bug rather than as a permission.
+          This is the READ-GRANTED case alone: the withheld branch has already
+          returned, so `!canManage` here means the reader may see the sheet and
+          not change it — no write verb on the object, or a read licensing seat.
+          On the withheld body these two lines would explain one denial twice,
+          in two different ways. */}
       {!canManage && (
         <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
           {t("settings.rates.readOnly")}
@@ -276,12 +335,17 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
 export function ModelCostsCard() {
   const t = useT();
+  // Read and write asked separately, for the same reasons as FxRatesCard above —
+  // including the read seat, which withholds the WRITE from an admin who plainly
+  // still reads the sheet.
+  const canRead = useCan("ai_model_rate", "read");
   // Either write grant, for the same reason as FxRatesCard above: one endpoint,
   // insert or replace, the specific verb resolved inside the transaction.
   const canManage = useCanUpsert("ai_model_rate");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["ai-model-rates"],
+    enabled: canRead,
     queryFn: async () => {
       const { data, error } = await api.GET("/ai-model-rates", {
         params: { query: {} },
@@ -292,6 +356,16 @@ export function ModelCostsCard() {
       return data.data;
     },
   });
+
+  // After every hook, as in FxRatesCard.
+  if (!canRead) {
+    return (
+      <WithheldRateCard
+        title={t("settings.rates.modelTitle")}
+        reason={t("settings.rates.modelWithheld")}
+      />
+    );
+  }
 
   return (
     <Card
@@ -317,7 +391,12 @@ export function ModelCostsCard() {
           affordances inside a readable surface may simply be absent — provided
           the surface has said what a reader is looking at. Without this the page
           was a rate table with no editor and no reason given, which reads as a
-          bug rather than as a permission. */}
+          bug rather than as a permission.
+          This is the READ-GRANTED case alone: the withheld branch has already
+          returned, so `!canManage` here means the reader may see the sheet and
+          not change it — no write verb on the object, or a read licensing seat.
+          On the withheld body these two lines would explain one denial twice,
+          in two different ways. */}
       {!canManage && (
         <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
           {t("settings.rates.readOnly")}

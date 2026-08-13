@@ -29,6 +29,10 @@ const PIPELINE_ADMIN: GrantSpec = { pipeline: ["read", "create", "update"] };
 const ORG_ADMIN: GrantSpec = {
   ...PIPELINE_ADMIN,
   custom_field: ["read", "create", "update"],
+  // The consent registry's own gate (consent/store.go demands person:read), which
+  // every seeded role holds — so a fixture standing in for a real principal has to
+  // carry it or Privacy & audit disappears for reasons the test is not about.
+  person: ["read"],
 };
 
 // The settings identity + passport surfaces through the RBAC primitives:
@@ -194,7 +198,7 @@ describe("SettingsScreen RBAC surfaces", () => {
   // so the principal here holds the model-price grants that open the AI entry and
   // nothing else: the read reaches the page, the write authors the price table on
   // it, and the two cards whose endpoints would 403 stay off it.
-  it("hides the AI usage & call-trace cards from a principal without the automation grant", async () => {
+  it("withholds the AI spend and call trace from a principal without the automation grant", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -218,10 +222,21 @@ describe("SettingsScreen RBAC surfaces", () => {
     await waitFor(() =>
       expect(screen.getByText("AI model costs")).toBeTruthy(),
     );
-    // ...but the two cards whose endpoints require the automation grant are
-    // absent, so a rep never hits a 403 error box (GET /ai/usage, /ai/calls).
-    expect(screen.queryByText("AI usage & budget")).toBeNull();
-    expect(screen.queryByText("AI call trace")).toBeNull();
+    // ...and the two cards whose endpoints require the automation grant KEEP
+    // their place and say they are withheld. Absent, they would claim the
+    // installation had spent nothing and made no model calls — a statement about
+    // the data, where the truth is only about who may read it. No request is made
+    // for either, so a rep never hits a 403 error box (GET /ai/usage, /ai/calls).
+    expect(await screen.findByText("AI usage & budget")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        /only an operator can see what the AI runtime spent/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("AI call trace")).toBeTruthy();
+    expect(
+      screen.getByText(/only an operator can read the per-call trace/i),
+    ).toBeTruthy();
   });
 });
 
@@ -839,20 +854,30 @@ const EVERY_TAB = [...PERSONAL_TABS, ...ORG_TABS];
 // admin role reaches.
 const EVERY_TAB_BUT_MAINTENANCE = EVERY_TAB.slice(0, -1);
 
-// What mere membership buys: the two Organization entries with no grant to ask
-// for. No RBAC object describes identity administration, and `consent_config` is
-// absent from the shipped vocabulary — the server admits any authenticated
-// member to both, so the nav does too, and every principal below sees them.
-const MEMBER_TABS = [...PERSONAL_TABS, "People & access", "Privacy & audit"];
+// What mere membership buys: the ONE Organization entry with no grant to ask for.
+// No RBAC object describes identity administration and none can, and `GET /users`
+// answers 200 to any authenticated principal — so the nav admits everybody, as
+// the server does.
+//
+// Privacy is deliberately NOT here. `consent_config` is absent from the shipped
+// vocabulary, but the registry's server gate is not a role either: ListPurposes
+// demands `person:read`, so that is what the entry asks for. Every seeded role
+// holds it; a principal holding nothing does not.
+const MEMBER_TABS = [...PERSONAL_TABS, "People & access"];
+const MEMBER_TABS_WITH_PRIVACY = [...MEMBER_TABS, "Privacy & audit"];
 
 // Membership's two entries plus Maintenance, which is what EITHER half of that
 // entry's predicate buys on its own — the admin role, or the reindex read an
 // edited role can hold without it. Both halves are asserted against this list.
-const MEMBER_TABS_WITH_MAINTENANCE = [...MEMBER_TABS, "Maintenance"];
+const MEMBER_TABS_WITH_MAINTENANCE = [
+  ...MEMBER_TABS_WITH_PRIVACY,
+  "Maintenance",
+];
 
 // Every entry open at once: the admin role for Maintenance, and one read apiece
 // for the five that follow an object.
 const EVERY_TAB_GRANTED: GrantSpec = {
+  person: ["read"],
   installation_settings: ["read"],
   webhook_subscription: ["read"],
   capture_settings: ["read"],
@@ -867,7 +892,11 @@ const EVERY_TAB_GRANTED: GrantSpec = {
 // not satisfy GrantSpec, and only fails in `tsc -b`, where test files are
 // typechecked, rather than under the app project alone.
 function readOn(object: RbacObject): GrantSpec {
-  const spec: GrantSpec = {};
+  // `person:read` rides along because Privacy asks for it, and every seeded role
+  // holds it — so a case about ONE object's entry is not also a case about losing
+  // the consent registry. Isolating the object under test means holding the floor
+  // steady, not stripping it.
+  const spec: GrantSpec = { person: ["read"] };
   spec[object] = ["read"];
   return spec;
 }
@@ -889,6 +918,7 @@ const DATA_MODEL_READS = [
 // writes, and a write is not what opens a page.
 const SEEDED_READS: GrantSpec = {
   automation: ["read"],
+  person: ["read"],
   capture_settings: ["read"],
   custom_field: ["read"],
   installation_settings: ["read"],
@@ -997,7 +1027,7 @@ describe("SettingsScreen Organization group", () => {
     // entry the whole-list assertion does not expect.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { capture_settings: ["read"] } }),
+      orgNavBackend({ roles: ["rep"], allow: readOn("capture_settings") }),
     );
     renderNav();
     await waitFor(() =>
@@ -1020,7 +1050,7 @@ describe("SettingsScreen Organization group", () => {
       "fetch",
       orgNavBackend({
         roles: ["rep"],
-        allow: { embedding_reindex: ["read"] },
+        allow: readOn("embedding_reindex"),
       }),
     );
     renderNav();
@@ -1035,7 +1065,7 @@ describe("SettingsScreen Organization group", () => {
     // open it, and the neighbouring entries have to stay shut.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { fx_rate: ["read"] } }),
+      orgNavBackend({ roles: ["rep"], allow: readOn("fx_rate") }),
     );
     renderNav();
     await waitFor(() =>
@@ -1054,7 +1084,7 @@ describe("SettingsScreen Organization group", () => {
     // union and not as one object with a decorative second term.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: { ai_model_rate: ["read"] } }),
+      orgNavBackend({ roles: ["rep"], allow: readOn("ai_model_rate") }),
     );
     renderNav();
     await waitFor(() =>
@@ -1115,14 +1145,19 @@ describe("SettingsScreen Organization group", () => {
     await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
   });
 
-  it("adds Maintenance for an admin holding no read at all", async () => {
-    // The role half of Maintenance's predicate, on its own: an admin whose
-    // grants were all revoked still administers the installation, and the danger
-    // zone inside asks for that same role.
+  it("adds Maintenance for an admin holding no read at all, and loses Privacy with it", async () => {
+    // The role half of Maintenance's predicate, on its own: an admin whose grants
+    // were all revoked still administers the installation, and the danger zone
+    // inside asks for that same role.
+    //
+    // Privacy goes, and that is the point of asking for a grant rather than
+    // assuming membership: the consent registry's server gate is `person:read`, so
+    // an admin stripped of it would reach a page of four refusals. The entry
+    // follows the grant, not the role.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["admin"] }));
     renderNav();
     await waitFor(() =>
-      expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE),
+      expect(navTabs()).toEqual([...MEMBER_TABS, "Maintenance"]),
     );
   });
 
@@ -1131,7 +1166,7 @@ describe("SettingsScreen Organization group", () => {
       "fetch",
       orgNavBackend({
         roles: ["admin"],
-        allow: { organization: ["read"] },
+        allow: readOn("organization"),
         companyReadEnabled: true,
       }),
     );
@@ -1153,7 +1188,7 @@ describe("SettingsScreen Organization group", () => {
     // union, not a claim that General is ever unreachable in practice.
     const { fetchMock, answerCapabilities } = orgNavBackendHoldingCapabilities({
       roles: ["admin"],
-      allow: { organization: ["read"] },
+      allow: readOn("organization"),
     });
     vi.stubGlobal("fetch", fetchMock);
     const { client } = renderNav();
@@ -1326,7 +1361,9 @@ describe("SettingsScreen connections and integrations tabs", () => {
       await screen.findByRole("heading", { name: "HubSpot mirror" }),
     ).toBeTruthy();
     expect(
-      await screen.findByText("You do not have permission to connect HubSpot."),
+      await screen.findByText(
+        "You do not have permission to change the HubSpot connection.",
+      ),
     ).toBeTruthy();
     expect(
       await screen.findByText(
@@ -2007,7 +2044,10 @@ describe("SettingsScreen restructured entries", () => {
   });
 
   it("renders the audit trail beside the consent registry on Privacy & audit", async () => {
-    vi.stubGlobal("fetch", mergedEntryBackend({ roles: ["admin"] }));
+    vi.stubGlobal(
+      "fetch",
+      mergedEntryBackend({ roles: ["admin"], allow: readOn("person") }),
+    );
     renderSettings("privacy");
     await waitFor(() =>
       expect(
@@ -2049,11 +2089,15 @@ describe("SettingsScreen restructured entries", () => {
     expect(
       await screen.findByRole("heading", { name: "Automations" }),
     ).toBeTruthy();
-    // And not the spend cards, which follow the automation WRITE grant: this
-    // seat reaches the page without being handed the operator's bill.
+    // The spend card follows the automation WRITE grant, so this seat is not
+    // handed the operator's bill — but it is told that, rather than left to read
+    // an absent card as "nothing was spent".
     expect(
-      screen.queryByRole("heading", { name: "AI usage & budget" }),
-    ).toBeNull();
+      screen.getByRole("heading", { name: "AI usage & budget" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/only an operator can see what the AI runtime spent/i),
+    ).toBeTruthy();
   });
 
   // The trail is the admin's alone, and this page opens for OPS — the consent
@@ -2061,7 +2105,10 @@ describe("SettingsScreen restructured entries", () => {
   // its own, gated on the admin role by the nav; merging it onto a page ops
   // reaches moved that gate's job into the card, and nothing was doing it.
   it("withholds the audit trail from an ops seat, and asks the server for nothing", async () => {
-    const backend = mergedEntryBackend({ roles: ["ops"] });
+    const backend = mergedEntryBackend({
+      roles: ["ops"],
+      allow: readOn("person"),
+    });
     vi.stubGlobal("fetch", backend);
     renderSettings("privacy");
     // Ops reaches the page for the registry, which renders.

@@ -117,7 +117,7 @@ export const PreviewDialogWithEstimate: Story = {
   },
 };
 
-// The status read is admin/ops-only server-side (migration 0114): a rep holds no
+// The status read is admin/ops-only server-side (migration 0115): a rep holds no
 // grant on embedding_reindex at all, so the card keeps its place and says the
 // status is withheld rather than disappearing off a page the rep reaches for its
 // other sections. The BANNER gates on the same predicate and is genuinely absent

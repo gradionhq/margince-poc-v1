@@ -424,7 +424,8 @@ export const en = {
   "overlay.loadFailed": "Couldn't load the incumbent connection.",
   "overlay.empty":
     "No incumbent is connected. Connect HubSpot to read records from its mirror.",
-  "overlay.adminOnly": "You do not have permission to connect HubSpot.",
+  "overlay.adminOnly":
+    "You do not have permission to change the HubSpot connection.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "United States",
@@ -1853,6 +1854,8 @@ export const en = {
   "settings.due": "due {date}",
 
   "privacy.addPurpose": "Add purpose",
+  "privacy.purposesReadOnly":
+    "Read-only view — only an admin or ops can add a purpose.",
   "privacy.purposeKey": "Key",
   "privacy.purposeLabel": "Label",
   "privacy.purposeDoi": "Requires double opt-in",
@@ -1944,6 +1947,8 @@ export const en = {
   "retention.scopeAiCallPayloadContent": "AI call payloads",
 
   "settings.pipelines": "Pipelines",
+  "settings.pipelinesReadOnly":
+    "Read-only view — you may not change pipelines or their stages.",
   "settings.pipelinesSub":
     "The stages a deal moves through, one ladder per pipeline.",
   "pipeline.new": "New pipeline",
@@ -2259,7 +2264,7 @@ export const en = {
   "ob.s4.connectLive": "Live and capturing",
   "ob.s4.connectConfirmFailed": "We couldn't confirm the connection.",
   "ob.s4.connectRetry":
-    "Head to Settings → Integrations to try connecting again.",
+    "Head to Settings → Connections to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
   "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
@@ -2332,7 +2337,7 @@ export const en = {
     "A wider window already ran for this mailbox; the import window can only be widened, not narrowed.",
   "backfill.staleUpdated": "Last updated {duration} ago — no recent progress.",
 
-  // Connected inboxes (Settings → Integrations): the "manage in Settings"
+  // Connected inboxes (Settings → Connections): the "manage in Settings"
   // surface the onboarding copy promises.
   "connectors.title": "Connected inboxes",
   "connectors.sub":
@@ -3501,6 +3506,10 @@ export const en = {
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":
     "Exchange rates that convert foreign-currency amounts to your base currency. New rates take effect today or later; past rates are never changed.",
+  "settings.rates.fxWithheld":
+    "Only an admin or ops can see the currency rates. They are the conversion every roll-up in the installation is built on, so they are not shown more widely.",
+  "settings.rates.modelWithheld":
+    "Only an admin or ops can see what each model costs. The prices are operator information, so they are not shown more widely.",
   "settings.rates.readOnly":
     "Read-only view — you do not have permission to change rates.",
   "settings.rates.fxAdd": "Set rate",
@@ -3712,6 +3721,8 @@ export const en = {
   "users.link.done": "Done",
   "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
+  "settings.companyReadOnly":
+    "Read-only view — changing the company profile needs an organization write.",
   "settings.companySub":
     "Keep the shared business context behind drafting, offers, search, and governed agents accurate. Every statement stays tied to who supplied it and where it came from.",
   "settings.companyTrust":
@@ -3755,6 +3766,7 @@ export const en = {
   "settings.companyCreateWorkspace": "Create company context",
   "product.title": "Products",
   "product.settingsSub": "Rate-card entries that offer lines snapshot from.",
+  "product.readOnly": "Read-only view — you may not change products.",
   "product.new": "New product",
   "product.edit": "Edit product",
   "product.archive": "Archive product",
@@ -3778,6 +3790,7 @@ export const en = {
 
   "template.title": "Offer templates",
   "template.settingsSub": "Branded DE/EN PDF layouts for offers.",
+  "template.readOnly": "Read-only view — you may not change offer templates.",
   "template.new": "New template",
   "template.edit": "Edit template",
   "template.archive": "Archive template",
@@ -3809,6 +3822,8 @@ export const en = {
   "tools.unreachable": "scope not granted",
 
   "aiusage.title": "AI usage & budget",
+  "aiusage.withheld":
+    "Only an operator can see what the AI runtime spent. The figures cover the whole installation, so they are not shown more widely.",
   "aiusage.sub":
     "Your own bill, made visible — per task and tier, token-denominated.",
   "aiusage.budget": "{spent} of {budget} tokens · {pct}%",
@@ -3838,6 +3853,8 @@ export const en = {
   "aibanner.dismiss": "Dismiss",
 
   "aicalls.title": "AI call trace",
+  "aicalls.withheld":
+    "Only an operator can read the per-call trace. It records every model call the installation made, so it is not shown more widely.",
   "aicalls.sub":
     "Every model call — routing identity, tokens, retries, captured payload.",
   "aicalls.col.detail": "Detail",
@@ -3997,6 +4014,8 @@ export const en = {
   "ownDomains.remove": "Remove {domain}",
 
   "webhooks.title": "Webhooks",
+  "webhooks.readOnly":
+    "Read-only view — only an admin or ops can change subscriptions.",
   "webhooks.sub":
     "Outbound subscriptions that receive signed HTTP POSTs for chosen events.",
   "webhooks.new": "New subscription",
@@ -4406,6 +4425,8 @@ export const en = {
   // vocabulary — the Settings card and the person page — so a state reads
   // the same wherever it appears.
   "provider.title": "Contact data",
+  "provider.readOnly":
+    "Read-only view — connecting a provider spends money, so it is an admin or ops action.",
   "provider.sub":
     "Buy verified contact details for the people in your CRM. You pay the provider in credits; what you spend here is shown below.",
   "provider.notConfigured":

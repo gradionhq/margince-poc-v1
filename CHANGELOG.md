@@ -192,10 +192,9 @@ numbers appear here when releases start.
 
 ### Changed
 
-- **Opening a settings page is a READ, and the eleven entries now ask like
-  it.** Each entry's predicate was a WRITE grant, because each was written to
+- **Opening a settings page is a READ, and every entry now asks like it.** Each entry's predicate was a WRITE grant, because each was written to
   answer "can you *use* this" — and measured against the live API a read-only
-  seat was hidden from eight of eleven entries the server answers 200 on,
+  seat was hidden from eight of the eleven entries the server answers 200 on,
   including three surfaces that were ungated routes of their own before the
   merge. One rule now covers all of them: the entry opens if the principal may
   read any part of it, and the write affordances inside say for themselves who
@@ -237,7 +236,6 @@ numbers appear here when releases start.
   Capture), "Your agents" dropped a possessive the group heading already carried,
   and "Voice" became "Writing voice" — in a product with mail capture, a bare
   "Voice" reads as call recording.
-- **Settings had 24 doors; it has 11 entries.**
 
 ### Fixed
 
@@ -256,11 +254,12 @@ numbers appear here when releases start.
 - **The scroll position survived a route change.** The document never scrolls
   here — the content column does, and it is the same element on every route, so
   it carried the last page's offset into the next one. Reading a scrolled AI
-  settings page and opening Connections landed the reader partway down Webhooks.
+  settings page and opening another entry landed the reader partway down whatever
+  the next page happened to hold at that offset.
 - **No skip link existed anywhere** (WCAG 2.4.1). Every page put the brand,
   search, up to twelve navigation rows, More, the settings door and the account
   menu ahead of the content, and a keyboard reader walked all of it again on
-  every page. It is a button rather than an `<a href="#content">` because the app
+  every page. It is a button rather than a fragment link because the app
   is hash-routed and a fragment link would navigate.
 - **Entering the settings level dropped focus to `<body>`.** The walk out of a
   section was pinned and the walk in was not — the guard that was supposed to arm
@@ -302,11 +301,13 @@ numbers appear here when releases start.
   Integrations and People are swept now.
 - **`#/settings/capture` told the reader to change company domains elsewhere
   and gave them no way there**, on a card whose whole point is that it cannot be
-  edited in place. Fifteen tabs plus nine
-  routes outside them collapsed into eleven, in two groups: Account,
-  Voice and Your agents under *You*; General, People & access,
-  Connections, Capture, Data model, AI, Privacy & audit and Maintenance
-  under *Organization*. What merged, merged because it was one subject
+  edited in place.
+
+- **Settings had 24 doors; it has 12 entries.** Fifteen tabs plus nine
+  routes outside them collapsed into eleven and then split back to twelve, in two
+  groups: Account, Writing voice, Agents and Connections under *You*; General,
+  People & access, Integrations, Capture, Data model, AI, Privacy & audit and
+  Maintenance under *Organization*. What merged, merged because it was one subject
   all along — the installation and the company profile describe the same
   organization, currency rates belong beside the base currency they
   convert to while model prices belong beside the runtime they price, and

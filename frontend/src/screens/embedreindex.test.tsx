@@ -292,7 +292,7 @@ it("says the search index is withheld, and asks the server for nothing", async (
     },
   );
 
-  // A rep holds no grant on embedding_reindex at all (migration 0114).
+  // A rep holds no grant on embedding_reindex at all (migration 0115).
   expect(
     await screen.findByText(/only an admin or ops can see the search index/i),
   ).toBeTruthy();

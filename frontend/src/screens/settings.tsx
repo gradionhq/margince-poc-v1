@@ -112,16 +112,20 @@ import "./settings.css";
 // than stubbed (STATE-5). The entry is selected by the route id
 // (#/settings/<id>), so it is linkable and the palette can deep-link one.
 //
-// Eleven, and it used to be fifteen tabs plus nine routes outside them. What
+// Twelve, and it used to be fifteen tabs plus nine routes outside them. What
 // collapsed and why: two surfaces both called "Capture" became one; the
 // installation and the company profile were always the same organization;
 // currency rates joined the base currency they convert to while model prices
 // joined the AI runtime they price; user administration and extension
-// permissions are one question about authority; connectors and the overlay are
-// both "what are we connected to"; the field editor, pipeline designer, product
-// list and offer templates all define the shape a record takes; and the
-// operational verbs that were hiding beside the field editor — a reindex, job
-// health, the danger zone — became a place of their own.
+// permissions are one question about authority; the field editor, pipeline
+// designer, product list and offer templates all define the shape a record
+// takes; and the operational verbs that were hiding beside the field editor — a
+// reindex, job health, the danger zone — became a place of their own.
+//
+// One of those merges was later UNDONE, which is why the count is twelve rather
+// than eleven: connectors and the overlay both answer "what are we connected to"
+// and were merged on that reading, but the question has two different owners —
+// see the split below.
 //
 // Two groups: "you" (per-user, every member) and "org" (organization config).
 // Every org entry carries its OWN predicate — the grant the cards on it actually
@@ -265,8 +269,8 @@ function ConnectionsTab() {
 }
 
 // What the INSTALLATION is wired to: one shared contact-data credential, the
-// outbound subscriptions, and the incumbent CRM it mirrors. All four are
-// workspace-wide — a key everybody spends from, a webhook everybody's writes
+// outbound subscriptions, the incumbent CRM it mirrors, and who each of its users
+// is over there. All four are workspace-wide — a key everybody spends from, a webhook everybody's writes
 // fire, a system-of-record flip that re-points every read — which is why they
 // sit under the organization heading and the personal connections do not.
 function IntegrationsTab() {
@@ -395,12 +399,15 @@ export function useSettingsEntryVisibility(
   const captureSettings = useCan("capture_settings", "read");
   const automation = useCan("automation", "read");
   const webhook = useCan("webhook_subscription", "read");
+  // The consent registry's server gate, which is not a role and not "any member":
+  // consent/store.go's ListPurposes calls auth.Require(ctx, "person", read).
+  const person = useCan("person", "read");
   const overlay = useCan("overlay_connection", "read");
-  // The member roster, the DSR queue, the audit trail and job health map to no
-  // RBAC object at all — the server gates them on the role, so the role is their
-  // own honest predicate rather than a stand-in for one. Every grant question
-  // above is `read` because opening a page is reading it; these two are the only
-  // places where no grant exists to ask.
+  // The one predicate below that is a ROLE rather than a grant. `GET /admin/reset-data`
+  // and the job-health read are gated on the literal admin role server-side and no
+  // RBAC object describes them — a `role` object would encode a constant, and an
+  // admin who revoked their own grant on it could never restore it (capability.ts).
+  // Everything else above is a `read`, because opening a page is reading it.
   const isAdmin = useHoldsAdminRole();
   return {
     // The organization, its profile and its currency table are one entry now, so
@@ -454,16 +461,20 @@ export function useSettingsEntryVisibility(
     // its own before this page absorbed it.
     ai: automation || aiModelRate,
     // The consent purpose registry, the retention ladder, the subject-request
-    // queue and the audit trail. `consent_config` is a governed object upstream
-    // but is absent from the shipped RBAC vocabulary, so there is no read grant to
-    // ask for and the registry's server gate is any authenticated member — which
-    // is why this reads like `people` and not like its neighbours. The three
-    // surfaces below the registry are narrower than the page and each says so.
-    privacy: true,
-    // The operational verbs, and the one entry that genuinely narrows: the reindex
-    // read and the danger zone are both admin/ops, so nobody else has anything to
-    // read here. The reindex is an ordinary grant an edited role can hold, so the
-    // entry opens on either and the cards inside decide.
+    // queue and the audit trail. `consent_config` is a governed object upstream and
+    // absent from the shipped RBAC vocabulary, so there is no grant NAMED for the
+    // registry — but the server does not gate it on a role either: ListPurposes
+    // demands `person:read`, so that is the grant to ask for, and asking it is what
+    // keeps this from being `true` standing in for a permission. Every seeded role
+    // holds it, and a role edited to drop it would otherwise reach a page of four
+    // refusals. The three surfaces below the registry are narrower and each says so.
+    privacy: person,
+    // The operational verbs, and the one entry that genuinely narrows. The reindex
+    // read is admin/ops; job health and the danger zone are admin-ONLY (the server
+    // spells both with RequireAdmin), so an ops seat reaches this page for the
+    // reindex and finds the other two withheld. Nobody below ops has anything to
+    // read here at all. The reindex is an ordinary grant an edited role can hold, so
+    // the entry opens on either and the cards inside decide.
     maintenance: isAdmin || embeddingReindex,
   };
 }
@@ -532,8 +543,8 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // card and settings pages are no longer stacks of cards: the merge left several
   // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
   // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
-  // it once is the difference between eleven pages that space correctly and
-  // eleven that each have to remember to.
+  // it once is the difference between twelve pages that space correctly and
+  // twelve that each have to remember to.
   return (
     <div className="wrap">
       <ResumeConnectBanner />
@@ -548,28 +559,29 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
 //
 // The old order was exactly backwards. It opened on spend and put the automations
 // that CAUSE the spend at the bottom, four screens down, past a price table with
-// one row per model; and for manager, rep and read_only the two spend cards are
-// withheld anyway, so the page opened on a price sheet and buried the one surface
-// they came to use.
+// one row per model; and for manager, rep and read_only the two spend cards say
+// only that they are withheld, so the page opened on a price sheet and buried the
+// one surface they came to use.
 //
 // Automations render here rather than in the rail: they are set-and-forget
 // configuration, and the product already offered a second door to them from
 // this very tab. They gate themselves per affordance on the automation grants.
 //
-// AiUsageCard (GET /ai/usage) and AiCallsCard (GET /ai/calls) are reads the server
-// gates on automation:update — the AI runtime's spend is treated as operator
-// information, so seeing it takes the automation write grant and not any AI-named
-// object. Binding these to something more intuitive would 403 the cards for
-// exactly the roles meant to read them. EconomyBanner gates the same seam the
-// same way.
+// Every card here gates ITSELF, which is why this composes four unconditionally.
+// The spend card and the call trace are reads the server gates on
+// automation:update — the AI runtime's spend is treated as operator information,
+// so seeing it takes the automation write grant and not any AI-named object — and
+// each keeps its place and says so rather than vanishing, because an absent spend
+// card claims nothing was spent. The gate belongs in the card for the same reason
+// the retention ladder's does: a caller composing a page cannot state a denial on
+// a surface's behalf.
 function AiSettingsTab() {
-  const canSeeRuntime = useCan("automation", "update");
   return (
     <>
       <AutomationsAdmin />
-      {canSeeRuntime && <AiUsageCard />}
+      <AiUsageCard />
       <ModelCostsCard />
-      {canSeeRuntime && <AiCallsCard />}
+      <AiCallsCard />
     </>
   );
 }
@@ -1098,9 +1110,9 @@ function AgentToolsCard() {
 // which is the unrelated password-reset link) — so the affordance is invisible
 // on a production install even to an admin; the server enforces both the
 // same way and 404s the endpoint outright in production regardless of what
-// this card renders. This is admin-ONLY, and narrower than the "data" tab that
-// hosts it — that tab opens on a custom_field or embedding_reindex write, so a
-// manager who authors fields reaches it and simply finds no reset control. The
+// this card renders. This is admin-ONLY, and narrower than the Maintenance entry
+// that hosts it — that entry opens on the embedding_reindex read, so an ops seat
+// reaches it for the search index and simply finds no reset control. The
 // server's auth.RequireAdmin on /admin/reset-data admits only the literal
 // "admin" role (mirrors users-admin.tsx's isAdmin check), so neither a manager
 // nor an ops user may see a button that can only 403. The organization's name
@@ -1533,8 +1545,11 @@ function PipelineRow({
 // key the deals screen's plural selector uses (an array shape, distinct
 // from DealScreen's single-pipeline ["pipelines"] cache entry) — any
 // mutation here invalidates the ["pipelines"] prefix, so both shapes stay
-// fresh. The list itself is readable by everyone; only the write affordances
-// are gated, and the server stays the RBAC authority.
+// fresh. The list itself is readable by everyone; only the write affordances are
+// gated, and the server stays the RBAC authority. Three of the five seeded roles
+// hold pipeline READ and no write verb at all, so for most readers this card is
+// the read-only case rather than an edge of it — which is why it states that
+// posture once instead of leaving a reader to infer it from absent buttons.
 export function PipelinesCard() {
   const t = useT();
   // Adding a pipeline is pipeline:create. Everything else here — renaming a
@@ -1557,6 +1572,14 @@ export function PipelinesCard() {
   });
   return (
     <Card title={t("settings.pipelines")} sub={t("settings.pipelinesSub")}>
+      {/* Said once, at the top, rather than annotating each absent control — the
+          rule in design-system/README.md. A reader holding one of the two verbs
+          can see for themselves which controls they got. */}
+      {!canCreate && !canEdit && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {t("settings.pipelinesReadOnly")}
+        </p>
+      )}
       {canCreate && (
         <div style={{ marginBottom: 10 }}>
           <CreateAction

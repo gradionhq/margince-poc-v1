@@ -111,6 +111,12 @@ Three consequences worth stating, because each was a real defect:
   provided the surface states its read-only posture once (`auto.readOnly`,
   `cf.noPermission` are the pattern). Withholding twelve buttons individually is
   noise; withholding the page's one explanation is the defect.
+- **A surface that is only an ACTION may be absent on a denial.** The rule above
+  is about not making a false claim, and a card holding no fact cannot make one —
+  there is nothing for a reader to misread as "zero" or "nothing happened". The
+  danger zone is the case: an absent Reset-data card says nothing about the
+  installation, while "you may not reset this installation" is noise on every
+  page that renders it. A surface that reports anything at all is not this.
 
 Two things carry this properly today and are worth copying: `Switch`'s `reason`
 prop, which renders the explanation **and** points the control at it with
@@ -123,6 +129,12 @@ the card body, which is the shape to match until a primitive earns its place.
 intent that something later submits, a `Switch` **is** the action. A control that
 writes when you flip it and announces itself as a checkbox has told the reader
 the wrong thing about what their next click does.
+
+That pairing is also the answer for a **stateful** control a permission denies —
+one that is the only place a reader can see the setting's current value. Absent
+would hide a granted read; withholding the surface would hide the fact. A
+disabled `Switch` carrying `reason` shows the state, refuses the change, and says
+why, with the explanation attached to the control rather than sitting beside it.
 
 ## Seeing them
 

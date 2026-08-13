@@ -216,6 +216,41 @@ describe("ConsentPurposesCard", () => {
     expect(await screen.findByText(/duplicate key/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/key/i)).toHaveValue("transactional");
   });
+
+  // Appending to the registry is admin/ops, so a rep's card carries no write
+  // control at all. Withheld, not absent: the card keeps its place and says
+  // which of the two it is, or the missing button reads as a broken one.
+  it("states its read-only posture to a seat that cannot add a purpose", async () => {
+    stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["rep"] })),
+    });
+    render(<ConsentPurposesCard />);
+    expect(
+      await screen.findByText(/only an admin or ops can add a purpose/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /add purpose/i }),
+    ).not.toBeInTheDocument();
+    // Withholding the write never withholds the read — the registry a rep
+    // consults when tagging a consent is still on screen.
+    expect(screen.getByText(/Marketing/)).toBeInTheDocument();
+  });
+
+  // The other direction, without which the assertion above passes on a card
+  // that shows the line to everybody: an ops seat holds the grant, so the
+  // posture is not its posture and the sentence would be a false statement.
+  it("withholds the read-only line from a seat that can add a purpose", async () => {
+    stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["ops"] })),
+    });
+    render(<ConsentPurposesCard />);
+    expect(
+      await screen.findByRole("button", { name: /add purpose/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/only an admin or ops can add a purpose/i),
+    ).not.toBeInTheDocument();
+  });
 });
 
 const DSRS = {
