@@ -63,6 +63,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	cfg, deployCfg, logger := boot.cfg, boot.deploy, boot.log
 
+	// Before a pool exists, because the license needs no database and an
+	// operator mistake must not leave a worker running on a license the api
+	// refuses to boot on. The RUNNING posture is the api's to watch: it is the
+	// role that serves it, and two roles re-resolving one calendar answer would
+	// report the same lapse twice.
+	if _, err := compose.EnsureLicense(ctx, logger, deployCfg); err != nil {
+		return err
+	}
+
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
 		return err

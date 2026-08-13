@@ -681,6 +681,43 @@ injects bounded context into declared AI tasks; `onboarding` additionally enable
 the five-step first-run flow. The default is `onboarding`. Moving backward is a
 reversible operational kill switch and never deletes confirmed company data.
 
+### License
+
+The `license:` block points at the installation's entitlement token. It is
+verified **offline**, in-process, against the license-validation WebAssembly
+module bundled at `backend/internal/platform/licensecheck/module/` — no callout
+of any kind, so an air-gapped installation proves its entitlement exactly the
+way a connected one does. `make license-module` is how that module is refreshed.
+
+| field | default | effect |
+|---|---|---|
+| `token_file` | *(none)* | Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
+
+Three postures, and what each one does at boot:
+
+| posture | boot | reported as |
+|---|---|---|
+| **no token configured** | boots, with a warning naming the bundled module | `margince_license_posture{state="absent"} 1` |
+| **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
+| **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+A refusal covers an untrusted signature, the wrong issuer, expiry past the grace
+period the module carries, and no grant for this product at this generation. A
+module that cannot **run** at all is refused the same way: a validation module
+the build cannot execute is a packaging fault, and reading it as an unlicensed
+installation would turn that into a silent downgrade. A configured `token_file`
+that cannot be read, or that is empty, is likewise a boot error rather than an
+unlicensed installation — those two are the same posture to everything
+downstream, so a mistyped path must not read as a deliberate choice.
+
+A license that lapses **while the process runs** does not stop it. The api
+re-checks daily and its `/metrics` posture degrades; nothing goes offline
+mid-month without a human in the loop. Enforcement of the granted seat count is
+not implemented yet (issue #1190).
+
+Every development and CI process in this repository runs unlicensed, which is
+why an absent license is a supported posture rather than a refusal.
+
 ### Rates
 
 The `rates:` block configures the admin **"Refresh from sources"** jobs (worker

@@ -91,6 +91,7 @@ root gates (each is a small script; all merge-blocking):
 | `test-v` / `test-cover` | Verbose unit tests / unit tests with a coverage summary |
 | `db-wait` / `infra-logs` / `infra-reset` | Block until Postgres answers / tail the dev-stack logs / wipe volumes and restart the stack |
 | `bench-perf` | The PERF benchmark harness on the mid-market tier (needs `db-up`; seeds 250k contacts) |
+| `license-module` (root) | Refresh the bundled license-validation wasm module (`backend/internal/platform/licensecheck/module/`) from the margince-constellation release it is pinned to, verifying the download against the digest GitHub reports for the stored asset and rewriting `VERSION` + the `.sha256` beside it. `make license-module TAG=sha-<commit>` moves the pin; a rolling tag is refused, since `latest` names a different build every day. Needs a `gh` login with access to that private repository — nothing else in the build does, because the module itself is committed. The refresh is reviewed as a diff of two text files; a blob that stops matching its recorded digest fails `make check` |
 | `tidy` | `go mod tidy` |
 
 ## Root-only (frontend lane)
