@@ -27,13 +27,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// OverlayRefetchArgs is the webhook-as-signal targeted re-fetch (OVA-WIRE-10):
-// a validly-signed, portal-bound webhook enqueues one of these to refresh the
-// named record through the same idempotent ingest the poller uses. The args
+// OverlayRefetchArgs is a targeted single-record re-fetch, enqueued by two
+// producers: a validly-signed, portal-bound webhook (webhook-as-signal,
+// OVA-WIRE-10) and the sweep's re-projection phase (jobs_overlay_sweep.go),
+// which names the rows an older mapping declaration projected. Both refresh
+// the named record through the same idempotent ingest the poller uses. The args
 // ARE the coalescing key — River's unique-by-args (OVA-PARAM-10, scheduled a
 // short window ahead) collapses a record edited rapidly in the incumbent to
-// ONE re-fetch rather than N. IncumbentClass is the HubSpot object class
-// (contacts/companies/deals/leads); ExternalID is the mirror external id.
+// ONE re-fetch rather than N. IncumbentClass is the HubSpot object class the
+// record is read back under — any of the four record classes
+// (contacts/companies/deals/leads) or the five engagement classes
+// (calls/meetings/emails/notes/tasks); ExternalID is the mirror external id,
+// which for an engagement carries its own class namespace ("calls:123",
+// OVA-MAP-7) and is bare otherwise.
 type OverlayRefetchArgs struct {
 	Workspace      ids.UUID `json:"workspace_id"`
 	IncumbentClass string   `json:"incumbent_class"`
@@ -46,7 +52,7 @@ func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
 // WorkspaceID binds this mirror re-fetch to its tenant (jobs.WorkspaceScoped).
 func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
-// overlayRefetchWorker executes one webhook-driven single-record re-fetch: it
+// overlayRefetchWorker executes one targeted single-record re-fetch: it
 // resolves the workspace's active connection, builds a live incumbent adapter
 // over its vaulted token, reads the one record, and ingests it through the
 // fenced, resolver-bound store — the SAME idempotent, owner-revalidating path
@@ -56,7 +62,7 @@ type overlayRefetchWorker struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
 	ms    *overlay.MirrorStore
-	// meter is the OVB budget. A webhook re-fetch is a live single-record REST
+	// meter is the OVB budget. A targeted re-fetch is a live single-record REST
 	// read-through — the same traffic category force-fresh meters, so it
 	// reserves against SourceForceFresh before the incumbent read and SHEDS to
 	// the poller when the budget is spent. A single-record GET is GATE-able
@@ -133,10 +139,15 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)
 	}
 	inc := w.newIncumbent(conn.Region, string(token))
-	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so the
-	// webhook lane's incumbent calls are accounted for like every other. On
-	// shed skip the re-fetch — the signal is an optimization, and the poller
-	// heals within its interval; never spend live quota we cannot account for.
+	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so this lane's
+	// incumbent calls are accounted for like every other. On shed skip the
+	// re-fetch: never spend live quota we cannot account for. Dropping it costs
+	// nothing durable either way, though for different reasons per producer — a
+	// webhook is an optimization the watermark poller heals within its interval,
+	// while a re-projection is NOT something the poller heals (it is
+	// watermark-driven and never re-reads a record the incumbent has not
+	// touched); the row simply stays in the stale set until a re-fetch lands, so
+	// the next re-projection pass names it again.
 	// A role wired without a configured meter gets the fail-closed placeholder
 	// (nil Redis client) here, which sheds every reservation — so an
 	// unaccountable read is skipped, never made. A meter error is transient —

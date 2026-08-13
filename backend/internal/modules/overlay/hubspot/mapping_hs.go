@@ -148,12 +148,14 @@ func ProjectionFingerprints() map[string]string {
 // The result is a SLICE because a canonical type can be backed by more than
 // one incumbent class: "activity" is the five v3 engagement classes
 // (calls/meetings/emails/notes/tasks) at once (OVA-MAP-1), so a completeness
-// question ("is activity fully backfilled?") means "are all five done", and
-// a single-record force-fresh of an activity is under-determined until the
-// mirror row records which class it came from (a tracked follow-up; no
-// force-fresh caller exists yet). Classes are returned in objectMappings
-// order. A canonical name with no declared mapping (ok=false) is an honest
-// gap, not a guessed answer.
+// question ("is activity fully backfilled?") means "are all five done". A
+// single-record read cannot pick one of the five from the canonical name alone,
+// so the FreshnessReader degrades such a read to the mirror rather than
+// guessing a class — but the class is not lost: an activity's mirror
+// external_id carries the class that produced it ("calls:123", OVA-MAP-7),
+// which is where a caller that needs it resolves it from, never from this
+// slice. Classes are returned in objectMappings order. A canonical name with no
+// declared mapping (ok=false) is an honest gap, not a guessed answer.
 func IncumbentClassesFor(canonical string) ([]string, bool) {
 	var classes []string
 	for _, m := range objectMappings {

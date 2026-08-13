@@ -220,11 +220,20 @@ func sweepDeletionPhase(ctx context.Context, deps sweepDeps, workspace ids.Works
 // re-projection by it would mean "unbounded" in exactly the deployment that
 // needs the bound.
 //
-// 200 is what the poller's own cadence makes of it: --overlay-reconcile-interval
-// defaults to 2 minutes (cmd/worker/config.go), so one class converges at up to
-// 6,000 rows an hour and an estate of 100,000 rows of that class inside a day —
-// fast enough that a mapping change is not a week-long flip freeze, slow enough
-// that the queue never holds more than a tick's worth of re-fetches.
+// 200 bounds the QUEUE, and is not a throughput promise: what governs how fast
+// a class converges is the incumbent's DAILY REST allocation. Every re-fetch
+// enqueued here reserves one REST unit against SourceForceFresh before its live
+// read (jobs_overlay_refetch.go), and the meter sheds on the whole UTC day's
+// REST total across every source — with the built-in HubSpot budget
+// (deployconfig/overlaybudget.go: a 90,000 cap, shed at 0.90 of it) that is
+// ~81,000 live reads a day, shared with the poller's own spend and with
+// interactive force-fresh. So a class holding more stale rows than the day's
+// remaining allocation cannot converge inside that day however often the sweep
+// ticks, and a mapping change is felt past the flip: it drives the shared daily
+// total toward the shed band, where interactive force-fresh degrades to
+// mirror-with-staleness (AC-OV-7) for the rest of the UTC day. What the bound
+// buys is that the spend arrives as a trickle the meter can arbitrate against
+// live reads, rather than as a queue the sweep has already committed to.
 const reprojectionEnqueueLimit = 200
 
 // sweepReprojectionPhase re-fetches the rows an OLDER mapping declaration
