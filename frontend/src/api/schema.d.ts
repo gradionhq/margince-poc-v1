@@ -835,6 +835,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/provider-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read licensed person-data connection state and effective policy.
+         * @description Returns non-secret installation product state for Settings → Integrations. All signed-in
+         *     users may read it; mutations below require Admin or Ops/Integrations. Credential material
+         *     and the vault reference never appear. An operator/deployment ceiling may make the effective
+         *     policy stricter than the saved policy and is named, never silently applied.
+         */
+        get: operations["listProviderConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provider-connections/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Validate, seal and connect a customer-owned person-data provider key.
+         * @description Admin/Ops only. `api_key` is write-only and is committed only after the provider credits
+         *     read succeeds. Omitted configuration resolves to automatic-on-create + Full enrichment.
+         *     The response exposes only `credential_present=true`. Idempotency covers the Margince
+         *     mutation; it does not make a provider enrichment POST replay-safe.
+         */
+        put: operations["connectProvider"];
+        post?: never;
+        /**
+         * Disconnect a provider and destroy its sealed credential.
+         * @description Stops new egress and cancels unsubmitted work. Existing dated provider snapshots remain;
+         *     deleting them is the separate data operation below. Idempotent when already disconnected.
+         */
+        delete: operations["disconnectProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change the future trigger, fetch scope, refresh, or budget policy.
+         * @description Admin/Ops only. Sparse update with optimistic concurrency. Saving increments the connection
+         *     version and affects new runs only; every queued/in-flight run retains its immutable effective
+         *     configuration snapshot. API-key rotation uses PUT, never this body.
+         */
+        patch: operations["updateProviderConnection"];
+        trace?: never;
+    };
+    "/provider-connections/{provider}/data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete retained provider claims and identifying run metadata.
+         * @description Admin/Ops-only data-lifecycle action, separate from disconnect and itself audited.
+         */
+        delete: operations["deleteProviderData"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/enrichment-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue an on-demand person-data enrichment run.
+         * @description Returns after the durable run is committed; no provider call occurs on this request path.
+         *     The run freezes the effective connection configuration. A second request for the same live
+         *     person/provider/input/configuration fingerprint returns that run rather than another paid
+         *     submission. This human operation does not re-tier the agent `enrich` verb (ADR-0099).
+         */
+        post: operations["createPersonEnrichmentRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/enrichment-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read one asynchronous enrichment run and its safe status. */
+        get: operations["getPersonEnrichmentRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations": {
         parameters: {
             query?: never;
@@ -7912,6 +8040,247 @@ export interface components {
             /** @description Count of qualifying outbound interactions in the trailing 90-day window. */
             outbound_90d?: number;
         };
+        /**
+         * @description Licensed provider adapter key; the domain/run contract remains provider-neutral.
+         * @enum {string}
+         */
+        Provider: "surfe";
+        /** @enum {string} */
+        ProviderConnectionStatus: "disconnected" | "validating" | "connected" | "invalid_credentials" | "insufficient_credits" | "rate_limited" | "provider_error";
+        /** @enum {string} */
+        ProviderConnectionMode: "automatic_on_create" | "on_demand";
+        /**
+         * @description A named shortcut the connected provider's descriptor declares (Surfe offers `full`,
+         *     `professional_only` and `custom` — PI-PARAM-7). Presentation convenience only: the resolved
+         *     per-category choices are authoritative, and the descriptor validates the value, so a second
+         *     provider may declare different presets without a contract change.
+         */
+        ProviderPreset: string;
+        /**
+         * @description Resolved per-category choices, keyed by the connected provider's declared category
+         *     vocabulary (its descriptor — for Surfe, PI-PARAM-7). A key the provider does not offer is
+         *     rejected; at least one selected category is required. Keys are not enumerated here because
+         *     they belong to the provider, not to the contract.
+         */
+        ProviderCategorySelection: {
+            [key: string]: boolean;
+        };
+        /**
+         * @description Ceilings for one of the provider's credit pools (Surfe meters `email` and `mobile`
+         *     separately). Reservation is atomic per connection per pool (PI-PARAM-6).
+         */
+        ProviderPoolBudget: {
+            monthly_ceiling?: number | null;
+            pause_below_balance?: number | null;
+        };
+        ProviderConfiguration: {
+            mode: components["schemas"]["ProviderConnectionMode"];
+            preset: components["schemas"]["ProviderPreset"];
+            /** @default true */
+            automatic_individual_create: boolean;
+            /**
+             * @description Still requires import preview, maximum-credit estimate and explicit confirmation.
+             * @default false
+             */
+            automatic_import: boolean;
+            categories: components["schemas"]["ProviderCategorySelection"];
+            refresh_after_days?: number | null;
+            daily_run_limit?: number | null;
+            /** @description Per-pool ceilings keyed by the provider's declared credit pools. */
+            budgets?: {
+                [key: string]: components["schemas"]["ProviderPoolBudget"];
+            };
+        };
+        ProviderConfigurationPatch: {
+            mode?: components["schemas"]["ProviderConnectionMode"];
+            preset?: components["schemas"]["ProviderPreset"];
+            automatic_individual_create?: boolean;
+            automatic_import?: boolean;
+            categories?: components["schemas"]["ProviderCategorySelection"];
+            refresh_after_days?: number | null;
+            daily_run_limit?: number | null;
+            budgets?: {
+                [key: string]: components["schemas"]["ProviderPoolBudget"];
+            };
+        };
+        /**
+         * @description Remaining provider-side balance per credit pool, keyed by the provider's declared pools.
+         *     Read from the provider, never authoritative for Margince ceilings.
+         */
+        ProviderCredits: {
+            pools: {
+                [key: string]: number | null;
+            };
+            /** Format: date-time */
+            read_at?: string | null;
+        };
+        ProviderConnection: {
+            provider: components["schemas"]["Provider"];
+            status: components["schemas"]["ProviderConnectionStatus"];
+            /** @description The only credential fact ever returned; no key prefix/suffix or vault reference. */
+            credential_present: boolean;
+            configuration: components["schemas"]["ProviderConfiguration"];
+            /** @description Named deployment/provider ceilings that make behavior stricter than the saved policy. */
+            effective_constraints?: string[];
+            credits: components["schemas"]["ProviderCredits"];
+            /** Format: date-time */
+            connected_at?: string | null;
+            /** Format: date-time */
+            last_verified_at?: string | null;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            safe_status_code?: string | null;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ConnectProviderRequest: {
+            /** @description Used in memory for verification then sealed; never serialized back. */
+            api_key: string;
+            /** @description Omit for automatic-on-create + Full enrichment defaults. */
+            configuration?: components["schemas"]["ProviderConfiguration"];
+        };
+        UpdateProviderConnectionRequest: {
+            configuration: components["schemas"]["ProviderConfigurationPatch"];
+        };
+        CreatePersonEnrichmentRunRequest: {
+            provider: components["schemas"]["Provider"];
+        };
+        ProviderRun: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The kind of record this run enriches, drawn from the canonical EntityType vocabulary
+             *     (DM-CONV-17). Only `person` is supported today; the matching typed id field below is
+             *     populated for that kind (PI-DDL-2).
+             * @enum {string}
+             */
+            subject_kind: "person";
+            /**
+             * Format: uuid
+             * @description Populated exactly when `subject_kind` is `person`, and null otherwise. Each supported
+             *     subject kind has its own typed id field; the pairing is enforced by the shape check on
+             *     `provider_run` (PI-DDL-2), not by this schema.
+             */
+            person_id?: string | null;
+            provider: components["schemas"]["Provider"];
+            /** @enum {string} */
+            trigger: "automatic_create" | "automatic_import" | "scheduled_refresh" | "manual";
+            /** @enum {string} */
+            state: "queued" | "submitting" | "in_progress" | "completed" | "no_match" | "skipped" | "submission_unknown" | "failed" | "cancelled";
+            /**
+             * @description Why a `skipped` run sent nothing. Null for every other state.
+             *     `duplicate_subject_candidate` means the subject looked like a duplicate of an
+             *     already-enriched record, so no provider call was made (PI-PARAM-9).
+             *     `rate_limited` means the connection's daily run ceiling was already reached
+             *     (PI-PARAM-13). `already_fresh` means a completed run for this subject is newer
+             *     than the connection's refresh window, so an automatic trigger declined to buy
+             *     the same data twice (PI-PARAM-14) — nothing failed and no budget was consumed.
+             * @enum {string|null}
+             */
+            skip_reason?: "budget_exhausted" | "low_balance" | "suppressed" | "not_eligible" | "duplicate_subject_candidate" | "rate_limited" | "already_fresh" | null;
+            /** Format: int64 */
+            connection_version: number;
+            configuration_snapshot: components["schemas"]["ProviderConfiguration"];
+            requested_categories: string[];
+            /** @description Maximum credits held per pool before submission, reconciled to actual spend on a terminal result (PI-FORM-1). */
+            reservations: {
+                pool: string;
+                reserved_credits: number;
+                actual_credits?: number | null;
+            }[];
+            /**
+             * @description True when a paid terminal result could not be handed to the owning domain within
+             *     the bounded retry (PI-PARAM-10). The spend is real and the claims are absent; an
+             *     operator sees the gap rather than discovering it as missing data (PI-AC-12).
+             * @default false
+             */
+            claims_unwritten: boolean;
+            /** Format: date-time */
+            submitted_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** @description Closed product reason only; never a provider body or person value. */
+            safe_status_code?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PersonProviderEmail: {
+            /** Format: email */
+            value: string;
+            /**
+             * @description May be classified from the frozen requested cascade when Surfe omits `emailType`.
+             * @enum {string|null}
+             */
+            email_type?: "professional" | "personal" | null;
+            /**
+             * @description Prevents a request-context label from masquerading as a provider-returned type.
+             * @enum {string|null}
+             */
+            email_type_source?: "provider" | "requested_cascade" | null;
+            /** @description Surfe's returned validation status, displayed without relabelling every value ‘verified’. */
+            validation_status?: string | null;
+        };
+        PersonProviderPhone: {
+            value: string;
+            confidence?: number | null;
+        };
+        PersonProviderEmployment: {
+            company_name?: string | null;
+            company_domain?: string | null;
+            job_title?: string | null;
+        };
+        PersonProviderJobHistory: {
+            company_name: string;
+            job_title?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            ended_at?: string | null;
+            /** Format: uri */
+            linkedin_url?: string | null;
+        };
+        /**
+         * @description Separate “Provided by Surfe” snapshot for the Person360 response. Provider provenance is
+         *     not an underlying webpage citation; these values never silently overwrite canonical fields.
+         */
+        PersonProviderProfile: {
+            /** @enum {string} */
+            state: "not_connected" | "not_eligible" | "never_run" | "queued" | "in_progress" | "completed" | "no_match" | "stale" | "invalid_credentials" | "insufficient_credits" | "rate_limited" | "provider_error" | "submission_unknown" | "completed_claims_unwritten";
+            provider?: components["schemas"]["Provider"];
+            /** Format: date-time */
+            retrieved_at?: string | null;
+            safe_status_code?: string | null;
+            categories_not_requested: string[];
+            emails: components["schemas"]["PersonProviderEmail"][];
+            mobile_phones: components["schemas"]["PersonProviderPhone"][];
+            /** Format: uri */
+            linkedin_url?: string | null;
+            current_employment?: components["schemas"]["PersonProviderEmployment"];
+            job_history: components["schemas"]["PersonProviderJobHistory"][];
+            location?: string | null;
+            city?: string | null;
+            /**
+             * @description Geographic state/province as the provider returned it. Named `region` because
+             *     `state` on this schema is the run lifecycle state above; a duplicate key here
+             *     silently dropped the lifecycle field until ADR-0101 Decision 6.
+             */
+            region?: string | null;
+            country?: string | null;
+            departments: string[];
+            seniorities: string[];
+            latest_run?: components["schemas"]["ProviderRun"];
+            /**
+             * @description Every retained completed run whose claims contribute to this snapshot. Normally the
+             *     single latest run; after a merge it spans both sides so purchased values stay visible
+             *     rather than merely stored (PI-AC-11).
+             */
+            contributing_runs?: components["schemas"]["ProviderRun"][];
+        };
         /** @description A contact. Mirrors the `person` table. */
         Person: {
             /** Format: uuid */
@@ -11751,7 +12120,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -15888,6 +16257,255 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RelationshipStrength"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listProviderConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Person-data connections (Surfe is the first provider). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderConnection"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    connectProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Verified and connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderConnection"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    disconnectProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected and credential destruction scheduled/completed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProviderConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated complete effective configuration. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderConnection"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteProviderData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider data deleted (or already absent). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createPersonEnrichmentRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonEnrichmentRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Durable run queued or existing live run returned. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonEnrichmentRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run state. Provider bodies, person values and credentials are never diagnostic fields. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderRun"];
                 };
             };
             401: components["responses"]["Unauthorized"];

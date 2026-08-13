@@ -193,22 +193,27 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		rec.OwnerExternalID = "owner-1"
 		fakeInc.Seed(incumbentClass, rec)
 	}
-	// Child fields are seeded NESTED, the shape overlaymod.Apply actually
-	// lands them in (mapping.go's TargetChild) — a flat "person_email.email"
-	// key is a shape the mapper never produces, and seeding one would let
-	// a writer that reads it flat pass while dropping every real email.
+	// Child fields are seeded as COLLECTIONS carrying the attributes the
+	// mapping declares, the shape overlaymod.Apply actually lands them in
+	// (mapping.go's TargetChild) — a flat "person_email.email" key, or a bare
+	// nested object, is a shape the mapper never produces, and seeding one
+	// would let a writer that reads that shape pass while dropping every real
+	// email.
 	seed(overlaymod.IncumbentClassCompanies, "organization", "org-1", map[string]any{
-		"display_name": "BÄR Pharma", "organization_domain": map[string]any{"domain": "baer-pharma.test"},
+		"display_name":        "BÄR Pharma",
+		"organization_domain": []map[string]any{{"domain": "baer-pharma.test", "is_primary": true, "position": 0}},
 	})
 	seed(overlaymod.IncumbentClassCompanies, "organization", "org-2", map[string]any{
-		"display_name": "Gitex", "organization_domain": map[string]any{"domain": "gitex.test"},
+		"display_name":        "Gitex",
+		"organization_domain": []map[string]any{{"domain": "gitex.test", "is_primary": true, "position": 0}},
 	})
 	seed(overlaymod.IncumbentClassContacts, "person", "p-1", map[string]any{
 		"full_name": "Mor Anders", "first_name": "Mor", "last_name": "Anders",
-		"person_email": map[string]any{"email": "mor@baer-pharma.test"},
+		"person_email": []map[string]any{{"email": "mor@baer-pharma.test", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	seed(overlaymod.IncumbentClassContacts, "person", "p-2", map[string]any{
-		"full_name": "Riya Patel", "person_email": map[string]any{"email": "riya@gitex.test"},
+		"full_name":    "Riya Patel",
+		"person_email": []map[string]any{{"email": "riya@gitex.test", "email_type": "work", "is_primary": true, "position": 0}},
 	})
 	// A contact the incumbent left unowned — the common case in a real
 	// portal, and the branch that must inherit the flip operator rather

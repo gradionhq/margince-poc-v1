@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -49,6 +50,13 @@ func setupRateStore(t *testing.T) *rateEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// Every test in this package seeds its own workspace into ONE database, and
+	// what used to keep their rows apart was deny-on-unset RLS. With tenant
+	// isolation retired (ADR-0091 §8 phase A) the separation has to be real:
+	// reset before seeding, the way compose/integration's harness already does.
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
@@ -485,68 +493,6 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 	}
 	if line.UnpricedCalls != 1 {
 		t.Errorf("unpriced_calls = %d, want 1 (only the model with no seed rate at all — bge-m3's zero rate is a REAL price, not unpriced)", line.UnpricedCalls)
-	}
-}
-
-func TestRateAndCallVisibilityIsScopedByWorkspaceRLS(t *testing.T) {
-	e := setupRateStore(t)
-	ctx := context.Background()
-	wsA, ctxA := e.seedWorkspace(ctx, t)
-	wsB, ctxB := e.seedWorkspace(ctx, t)
-
-	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	e.insertRate(ctx, t, wsB, ModelRate{
-		Provider: providerAnthropic, ModelID: "shared-model-name",
-		InputPerMTokMicroUSD: 9_000_000, OutputPerMTokMicroUSD: 9_000_000, EffectiveDate: day,
-	})
-	e.insertCall(ctx, t, wsB, callFixture{
-		task: TaskSummarize, provider: providerAnthropic, model: "shared-model-name",
-		tokensIn: 100, tokensOut: 50, occurredAt: day.Add(24 * time.Hour),
-	})
-
-	// Workspace A's context must never see workspace B's rate row — same
-	// provider/model, RLS is the only thing standing between them.
-	got, err := e.storeFor(wsA).RateFor(ctxA, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Fatalf("workspace A saw workspace B's rate: %+v", got)
-	}
-
-	// And workspace A's CostReport over the same window must not pick up
-	// workspace B's call.
-	report, err := e.storeFor(wsA).CostReport(ctxA, day, day.Add(48*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range report {
-		if tc.Task == TaskSummarize {
-			t.Fatalf("workspace A's cost report saw workspace B's call: %+v", tc)
-		}
-	}
-
-	// Sanity: workspace B's own context DOES see it (proves the isolation
-	// above is RLS working, not a fixture that silently inserted nothing).
-	gotB, err := e.storeFor(wsB).RateFor(ctxB, providerAnthropic, "shared-model-name", day.Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotB == nil {
-		t.Fatal("workspace B could not see its own rate row")
-	}
-	reportB, err := e.storeFor(wsB).CostReport(ctxB, day, day.Add(48*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, tc := range reportB {
-		if tc.Task == TaskSummarize {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("workspace B's own cost report did not see its own call")
 	}
 }
 

@@ -108,38 +108,6 @@ func TestActiveColumns_PerObject_DoesNotLeakAcrossObjects(t *testing.T) {
 	}
 }
 
-func TestActiveColumns_WorkspaceScoped_TenantBSeesNoneOfTenantAs(t *testing.T) {
-	e := integration.Setup(t)
-	owner := integration.OwnerConn(t)
-	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
-	ctxA := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
-
-	if _, err := svc.Create(ctxA, customfieldsmod.FieldSpec{
-		Object: "person", Label: "Tenant A field", Type: customfieldsmod.TypeText, Source: "ui",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	_, ctxB := integration.SeedSecondWorkspace(t, owner, integration.CustomFieldAdminPerms)
-	colsB, err := svc.ActiveColumns(ctxB, "person")
-	if err != nil {
-		t.Fatalf("ActiveColumns as tenant B: %v", err)
-	}
-	if len(colsB) != 0 {
-		t.Fatalf("tenant B's identical object query must carry none of tenant A's columns, got %v", columnNames(colsB))
-	}
-
-	// Sanity: tenant A still sees its own column — the empty result above
-	// is RLS scoping, not an empty catalog.
-	colsA, err := svc.ActiveColumns(ctxA, "person")
-	if err != nil {
-		t.Fatalf("ActiveColumns as tenant A: %v", err)
-	}
-	if len(colsA) != 1 {
-		t.Fatalf("tenant A must still see its own column, got %v", columnNames(colsA))
-	}
-}
-
 func TestActiveColumns_NoActiveFields_ReturnsEmptyNotError(t *testing.T) {
 	e := integration.Setup(t)
 	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))

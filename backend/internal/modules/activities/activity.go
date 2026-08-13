@@ -171,7 +171,9 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	}
 	var existing ids.ActivityID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
+		`SELECT id FROM activity
+		   WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		     AND source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

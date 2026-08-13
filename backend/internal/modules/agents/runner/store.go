@@ -264,11 +264,17 @@ func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, pas
 func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]QueuedJob, error) {
 	var jobs []QueuedJob
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The workspace predicate is the claim's own. Tenant isolation used to
+		// bound it, so this pass claimed only its own tenant's jobs without
+		// saying so; with RLS retired (ADR-0091 §8 phase A) an unscoped claim
+		// takes another tenant's due work and runs it under this pass's
+		// authority.
 		rows, err := tx.Query(ctx, `
 			UPDATE runner_job SET status = 'running', attempts = attempts + 1
 			WHERE id IN (
 			  SELECT id FROM runner_job
 			  WHERE status = 'queued' AND due_at <= now()
+			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  ORDER BY due_at
 			  LIMIT $1
 			  FOR UPDATE SKIP LOCKED)

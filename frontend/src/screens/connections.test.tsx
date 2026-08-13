@@ -618,3 +618,114 @@ describe("routes in to one contact", () => {
     expect(routesTo(graph, "p-3")).toEqual([]);
   });
 });
+
+// The warm-intro path had a complete drafted move on the server and nothing
+// that rendered it (#936). The graph named the route-in contact and stopped
+// there, so the one thing a rep would act on — what to actually say — was
+// reachable only by calling the API by hand.
+describe("the warm-intro move", () => {
+  const INTRO = {
+    signal_id: "s-1",
+    resolved_org_id: ROOT,
+    contact_id: "p-1",
+    contact_name: "Dana Buyer",
+    relationship: { contact_id: "p-1", strength_bucket: "strong" },
+    next_move: {
+      kind: "intro_request",
+      draft_subject: "Kurze Vorstellung zu Brandt?",
+      draft_body:
+        "Hallo Dana,\n\nkönntest du mich kurz vorstellen?\n\nKI-unterstützt erstellt.",
+      ai_disclosure: "KI-unterstützt erstellt.",
+    },
+    evidence: {
+      source_signal_id: "s-1",
+      resolved_org_id: ROOT,
+      contact_ids: ["p-1"],
+    },
+  };
+
+  // stubWithIntro answers the graph read and the intro-path read, and records
+  // both so a test can prove WHEN each was made.
+  function stubWithIntro(introStatus = 200) {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        fetched.push(pathname);
+        if (pathname.endsWith("/intro-path")) {
+          return jsonResponse(
+            introStatus === 200
+              ? INTRO
+              : {
+                  title: "There is no warm path to propose",
+                  detail: "PROBLEM-DETAIL: signal s-1 is cold",
+                },
+            introStatus,
+          );
+        }
+        if (pathname.endsWith("/graph")) {
+          return jsonResponse(
+            graph({ intro_path: { signal_id: "s-1", contact_id: "p-1" } }),
+          );
+        }
+        return jsonResponse({ data: [], page: { has_more: false } });
+      }),
+    );
+    return fetched;
+  }
+
+  it("shows the drafted move and its AI disclosure once expanded", async () => {
+    const fetched = stubWithIntro();
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const expand = await screen.findByRole("button", { name: "See it larger" });
+    // The draft is a second request, so it is not paid for by every rail card.
+    expect(fetched.some((p) => p.endsWith("/intro-path"))).toBe(false);
+    expand.click();
+
+    expect(
+      await screen.findByText("Kurze Vorstellung zu Brandt?"),
+    ).toBeTruthy();
+    expect(screen.getByText(/könntest du mich kurz vorstellen/)).toBeTruthy();
+    // Art. 50 travels with the draft, INSIDE the body, because the body is
+    // what a rep copies and sends — a disclosure rendered only beside it would
+    // be left behind by the copy. It is asserted here as part of the body's own
+    // text, and the panel deliberately does not print the payload's separate
+    // ai_disclosure field a second time.
+    expect(screen.getByText(/KI-unterstützt erstellt\./)).toBeTruthy();
+    expect(screen.queryAllByText("KI-unterstützt erstellt.")).toHaveLength(0);
+  });
+
+  // A cold or unresolved signal answers 422 and a reader without the grant
+  // answers 404. Neither is a broken card: the panel is absent, and the graph
+  // it sits under still renders.
+  // A cold signal answers 422 and a reader without the signal grant answers
+  // 403. Neither is a broken card: the panel is absent, the graph under it
+  // still renders, and — the part worth pinning — the server's problem text
+  // never reaches the reader.
+  it.each([
+    [422, "the signal is cold or unresolved"],
+    [403, "the reader lacks the signal grant"],
+  ])("stays silent on %i, when %s", async (status) => {
+    const fetched = stubWithIntro(status);
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const expand = await screen.findByRole("button", { name: "See it larger" });
+    expand.click();
+
+    // The request must actually have been made, or this test would pass just
+    // as happily against a panel that was deleted.
+    await waitFor(() => {
+      expect(fetched.some((p) => p.endsWith("/intro-path"))).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("Dana Buyer").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText("KI-unterstützt erstellt.")).toBeNull();
+    // The problem document is diagnostic text for an operator. None of it —
+    // title or detail — belongs on a card a rep is reading.
+    expect(screen.queryByText(/no warm path/i)).toBeNull();
+    expect(screen.queryByText(/PROBLEM-DETAIL/)).toBeNull();
+  });
+});

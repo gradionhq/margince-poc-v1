@@ -15,10 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -139,25 +136,6 @@ func TestModelRateWritesAuditRow(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type='ai_model_rate' AND action='create'`); n != 1 {
 		t.Fatalf("audit rows = %d, want 1", n)
-	}
-}
-
-func TestModelRateCrossWorkspaceIsolation(t *testing.T) {
-	e := Setup(t)
-	store := ai.NewRateStore(e.DB())
-	if _, err := store.SetModelRate(e.Admin(), ai.SetModelRateInput{Provider: "anthropic", ModelID: "m", InputUsd: "1", OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0", EffectiveDate: time.Now().UTC()}); err != nil {
-		t.Fatalf("set in workspace A: %v", err)
-	}
-	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
-	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
-	var n int
-	if err := database.WithWorkspaceTx(ctxB, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctxB, `SELECT count(*) FROM ai_model_rate WHERE provider='anthropic' AND model_id='m'`).Scan(&n)
-	}); err != nil {
-		t.Fatalf("count in workspace B: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("workspace B sees %d rows, want 0 (RLS leak)", n)
 	}
 }
 

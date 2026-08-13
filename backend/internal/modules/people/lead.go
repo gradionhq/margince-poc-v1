@@ -228,7 +228,9 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []f
 	}
 	var existing ids.LeadID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
+		`SELECT id FROM lead
+			  WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			    AND source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

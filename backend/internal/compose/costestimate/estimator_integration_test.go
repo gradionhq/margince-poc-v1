@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -65,6 +66,14 @@ func setupEstimator(t *testing.T) *estEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// Every test in this package seeds its own workspace into ONE database, and
+	// what used to keep their rows apart was deny-on-unset RLS. With tenant
+	// isolation retired (ADR-0091 §8 phase A) the separation has to be real:
+	// reset before seeding, as compose/integration's harness does.
+	if err := testdb.Reset(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+
 	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
@@ -501,35 +510,5 @@ func TestEstimatorConnectionScopedYields(t *testing.T) {
 	wantFloorClassifyTokens := int64(workShapeFloor(ai.TaskCaptureClassify).TokensIn) * 100
 	if imap.InputTokens < wantFloorClassifyTokens {
 		t.Fatalf("imap InputTokens = %d, want ≥ %d (classify floor units, no cross-connection blend)", imap.InputTokens, wantFloorClassifyTokens)
-	}
-}
-
-// TestEstimatorRLSCrossWorkspaceInvisibility: workspace A's estimate never reads
-// workspace B's ai_call / rates / backfill — RLS is the only gate.
-func TestEstimatorRLSCrossWorkspaceInvisibility(t *testing.T) {
-	e := setupEstimator(t)
-	wsA, ctxA := e.seedWorkspace(t)
-	userA := e.seedUser(t, wsA)
-	e.seedConnection(t, wsA, userA, "gmail")
-
-	wsB, _ := e.seedWorkspace(t)
-	userB := e.seedUser(t, wsB)
-	connB := e.seedConnection(t, wsB, userB, "gmail")
-	e.seedBackfill(t, wsB, connB, 6, 100, 100, 10, 0)
-	e.insertRate(t, wsB, "cloud-model", 9_000_000, 0)
-	e.insertCall(t, wsB, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 5_000_000, tokensOut: 0})
-	e.insertLabeledActivity(t, wsB)
-
-	// Workspace A (its own context, its own user) sees none of B's history — it
-	// falls to the floor, and its cost never reflects B's expensive slice.
-	got, err := e.newEstimator(wsA).EstimateBackfill(ctxA, "gmail", userA, 100)
-	if err != nil {
-		t.Fatalf("EstimateBackfill(A): %v", err)
-	}
-	if got.Quality != QualityHeuristic {
-		t.Fatalf("workspace A Quality = %s, want heuristic (A has no history of its own)", got.Quality)
-	}
-	if got.HasCost {
-		t.Fatalf("workspace A HasCost = true (CostMinor=%d) — it must not see B's rated slice", got.CostMinor)
 	}
 }

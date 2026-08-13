@@ -145,7 +145,11 @@ LEFT JOIN mirror_user_map m
        ON m.app_user_id = u.id AND m.incumbent = $1
 LEFT JOIN mirror_user_automap_block b
        ON b.app_user_id = u.id AND b.incumbent = $1
-WHERE u.id > $2
+-- Scoped like the target resolver beside it: this list is what an admin
+-- picks a mapping FROM, so an unscoped page discloses another workspace's
+-- colleagues by email and display name.
+WHERE u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+  AND u.id > $2
   AND NOT u.is_agent
   AND u.archived_at IS NULL
 ORDER BY u.id
@@ -208,10 +212,19 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 // it: listUserMapSQL (what the admin surface offers) and usersMatchingEmail
 // (usermapseed.go — what the automated sweep will seed). All three exclude an
 // agent seat and an archived seat; a change here belongs in all three.
+//
+// The workspace predicate is the query's own, not the database's. Tenant
+// isolation used to supply it — another workspace's seat was simply invisible,
+// so an id from one answered no rows and became ErrNotFound. With RLS retired
+// (ADR-0091 §8 phase A) an unscoped read resolves that seat happily and the
+// write behind it fails on the composite foreign key instead: a 500 carrying a
+// constraint name where a 404 belongs. The predicate reads the TRANSACTION's
+// binding, the same source the ledger writes take their tenant from.
 const selectUserMapTargetSQL = `
 SELECT NOT u.is_agent AND u.archived_at IS NULL
 FROM app_user u
-WHERE u.id = $1`
+WHERE u.id = $1
+  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 
 // resolveUserMapTarget resolves appUser inside tx, reporting whether the seat
 // is grantable — a live human. An agent seat is a passport identity with no

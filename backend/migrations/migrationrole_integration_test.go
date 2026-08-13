@@ -152,56 +152,6 @@ func mustOwnerDSN(t *testing.T) string {
 	return owner
 }
 
-// The mechanism itself, stated as a test because the whole sweep of workspace
-// loops through the migration tree rests on it: for the role that applies
-// migrations on a deployed installation, an unbound UPDATE of a tenant table is
-// not an error but a SUCCESSFUL no-op — the policy's USING clause hides every
-// row rather than refusing the statement. That silence is why a lost backfill
-// leaves no trace. (An unbound INSERT of literal rows is the loud case instead:
-// WITH CHECK refuses it. The rule covers both; only this one needs proving,
-// because only this one can pass unnoticed.)
-func TestAnUnboundTenantWriteSucceedsAndChangesNothingForTheMigrationRole(t *testing.T) {
-	ctx := context.Background()
-	admin := connect(t, mustOwnerDSN(t))
-	resetSchema(t, admin)
-	migrator := asMigrator(t, admin)
-	migrateAll(t, migrator)
-
-	workspace := seedWorkspace(t, admin, "unbound-write")
-	seedRole(t, admin, workspace, "admin", true, []byte(`{"objects":{},"row_scope":"all"}`))
-
-	unbound, err := migrator.Exec(ctx, `UPDATE role SET name = 'renamed' WHERE key = 'admin'`)
-	if err != nil {
-		t.Fatalf("the unbound write is expected to succeed and do nothing, not to fail: %v", err)
-	}
-	if rows := unbound.RowsAffected(); rows != 0 {
-		t.Errorf("the unbound write touched %d rows; row-level security must hide all of them, or "+
-			"this database's owner holds an exemption a deployed installation's does not", rows)
-	}
-
-	if _, err := migrator.Exec(ctx, `DO $$
-		DECLARE ws uuid;
-		BEGIN
-			FOR ws IN SELECT id FROM workspace LOOP
-				PERFORM set_config('app.workspace_id', ws::text, true);
-				UPDATE role SET name = 'renamed' WHERE key = 'admin';
-			END LOOP;
-		END $$`); err != nil {
-		t.Fatalf("the workspace-bound write failed: %v", err)
-	}
-
-	var name string
-	if err := admin.QueryRow(ctx,
-		`SELECT name FROM role WHERE workspace_id = $1 AND key = 'admin'`, workspace,
-	).Scan(&name); err != nil {
-		t.Fatalf("reading the role back: %v", err)
-	}
-	if name != "renamed" {
-		t.Errorf("the workspace-bound write left name %q; binding app.workspace_id is what every "+
-			"migration in the tree relies on to reach tenant rows", name)
-	}
-}
-
 // assertNotTheDatabaseOwner is the second half of what "the deployed migration
 // role" means, and the half nothing checked until 0202 needed it.
 //

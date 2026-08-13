@@ -15,10 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -126,26 +123,6 @@ func TestFxRateWritesAuditRow(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type='fx_rate' AND action='create'`); n != 1 {
 		t.Fatalf("audit rows = %d, want 1", n)
-	}
-}
-
-func TestFxRateCrossWorkspaceIsolation(t *testing.T) {
-	e := Setup(t)
-	e.Deals.WithClock(func() time.Time { return fxTestNow })
-	if _, err := e.Deals.SetFxRate(e.Admin(), deals.SetFxRateInput{FromCurrency: "USD", Rate: "0.9", EffectiveDate: fxTestNow}); err != nil {
-		t.Fatalf("set in workspace A: %v", err)
-	}
-	// A second tenant must not see workspace A's row (FORCE RLS on fx_rate).
-	wsB, _ := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
-	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
-	var n int
-	if err := database.WithWorkspaceTx(ctxB, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctxB, `SELECT count(*) FROM fx_rate WHERE from_currency='USD'`).Scan(&n)
-	}); err != nil {
-		t.Fatalf("count in workspace B: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("workspace B sees %d USD rows, want 0 (RLS leak)", n)
 	}
 }
 

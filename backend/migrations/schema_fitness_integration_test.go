@@ -20,78 +20,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
-// TestRLS_coversEveryTenantTable is the fitness function for the "RLS on
-// every tenant table" invariant: 0014 enrols tables from a hand-written
-// list, and a hand-written list rots — a future migration that adds a
-// workspace_id table but forgets the enrolment would ship without RLS,
-// silently. Here the DATABASE is the source of truth: every base table
-// carrying a workspace_id column must have ENABLE + FORCE row security
-// and at least one policy, or this test names the stragglers.
-// rlsExemptTables are the ratified non-RLS workspace_id tables. Every
-// entry carries its rationale inline — an entry without one is a
-// finding, and a stale entry (table gone or since enrolled) fails too.
-var rlsExemptTables = gatekit.Waive(map[string]string{
-	"booking_page":     "the slug→tenant RESOLVER (0036): it is read to discover which workspace to bind BEFORE any GUC exists, exactly like the workspace table itself (data-model §1.2); it carries no CRM record data — slug, workspace, host, revocation only",
-	"preference_token": "the token→tenant RESOLVER (0048): the no-login preference center / RFC 8058 unsubscribe reads it to discover which workspace to bind BEFORE any GUC exists, exactly like booking_page; it carries no CRM record data beyond the person link + revocation",
-})
-
-func TestRLS_coversEveryTenantTable(t *testing.T) {
-	defer rlsExemptTables.AssertAllMatched(t)
-
-	ownerDSN, _ := dsns(t)
-	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
-	ctx := context.Background()
-
-	rows, err := owner.Query(ctx, `
-		SELECT c.relname,
-		       c.relrowsecurity,
-		       c.relforcerowsecurity,
-		       EXISTS (SELECT 1 FROM pg_policies p
-		               WHERE p.schemaname = 'public' AND p.tablename = c.relname)
-		FROM pg_class c
-		WHERE c.relnamespace = 'public'::regnamespace
-		  AND c.relkind IN ('r','p')
-		  AND EXISTS (SELECT 1 FROM pg_attribute a
-		              WHERE a.attrelid = c.oid AND a.attname = 'workspace_id' AND NOT a.attisdropped)
-		ORDER BY c.relname`)
-	if err != nil {
-		t.Fatalf("querying tenant tables: %v", err)
-	}
-	defer rows.Close()
-
-	tenantTables := 0
-	for rows.Next() {
-		var name string
-		var enabled, forced, hasPolicy bool
-		if err := rows.Scan(&name, &enabled, &forced, &hasPolicy); err != nil {
-			t.Fatal(err)
-		}
-		tenantTables++
-		if rlsExemptTables.Waived(t, name) {
-			if enabled || forced {
-				t.Errorf("table %s is RLS-exempt by rationale but HAS row security — retire the stale exemption", name)
-			}
-			continue
-		}
-		if !enabled || !forced {
-			t.Errorf("table %s carries workspace_id but RLS is enable=%v force=%v — enrol it in the RLS migration", name, enabled, forced)
-		}
-		if !hasPolicy {
-			t.Errorf("table %s has RLS flags but NO policy — it would deny everything, or worse, a later DISABLE would open it", name)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	// Vacuous-pass guard: the schema has dozens of tenant tables; finding
-	// almost none means the detection query broke, not that the schema shrank.
-	if tenantTables < 30 {
-		t.Fatalf("found only %d workspace_id tables — the fitness query no longer sees the schema", tenantTables)
-	}
-}
-
 // TestFK_tenantLocalReferencesAreComposite is the fitness function for the
 // same-workspace-FK invariant (C4, data-model tenancy integrity): RLS
 // bounds row VISIBILITY, but a plain `owner_id -> app_user(id)` FK does not
@@ -297,6 +225,15 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"organization_domain_disposition.organization_id": "server-derived: set only by ResolveDomainTriage, to the organization that same transaction created or adopted through the gated dedupe chokepoint",
 	"person_email.person_id":                          "child row: written through the person's own gated paths",
 	"person_phone.person_id":                          "child row: written through the person's own gated paths",
+	// The licensed-data-provider platform (ADR-0101). A run names the subject
+	// it spends credits on, so admitting one IS a read of that person: QueueRun
+	// takes auth.EnsureVisible inside the queueing transaction, before any
+	// fence, price or reservation. Without it a rep could name any person id
+	// and buy data on a record outside their scope.
+	"provider_run.person_id": "gated: auth.EnsureVisible in QueueRun, inside the transaction that inserts the run — the object grant alone answers \"may this role read people\", never \"may this caller see THIS person\"",
+	// The claim is a child of the run: it is written only by the domain's
+	// claim sink, from the run's own person_id, and never from a request body.
+	"person_provider_claim.person_id": "child row: written by the claim hand-off from the run's own subject, which QueueRun already gated; the fence is re-run immediately before every write (PI-AC-7)",
 	// telegram-oa design §6.4: the channel-aware ensure contract creates the
 	// Person (owner_id NULL) and this identity satellite in the same
 	// transaction, from the inbound message's own channel principal —

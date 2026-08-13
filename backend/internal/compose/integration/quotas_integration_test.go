@@ -514,47 +514,6 @@ func TestQuotaRBAC_RepReadsButNeverMutates(t *testing.T) {
 	}
 }
 
-func TestQuotaRLS_TenantIsolation(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-	store := quotas.NewStore(e.DB(), identity.BaseCurrencyOf)
-	ctxA := e.As(e.Rep1, nil, quotaAdminPerms)
-
-	created, err := store.CreateQuota(ctxA, ownerQuotaInput(e.Rep1, 1000))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Tenant B, full quota authority — RLS, not RBAC, is what walls it off.
-	wsB := ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		wsB, "quota-b-"+wsB.String()[:8]); err != nil {
-		t.Fatal(err)
-	}
-	ctxB := principal.WithWorkspaceID(context.Background(), wsB)
-	ctxB = principal.WithCorrelationID(ctxB, ids.NewV7())
-	ctxB = principal.WithActor(ctxB, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(),
-		UserID: ids.NewV7(), Permissions: quotaAdminPerms,
-	})
-
-	// B's own store: the handle carries the tenant now, so reading A's row
-	// through A's handle would prove nothing about B.
-	storeB := quotas.NewStore(e.DBFor(wsB), identity.BaseCurrencyOf)
-	if _, err := storeB.GetQuota(ctxB, ids.UUID(created.Id), storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("tenant B must not resolve tenant A's quota, got %v", err)
-	}
-	listed, _, err := storeB.ListQuotas(ctxB, quotas.ListQuotasInput{IncludeArchived: true})
-	if err != nil || len(listed) != 0 {
-		t.Fatalf("tenant B's list = %d rows (%v), want empty", len(listed), err)
-	}
-	// Tenant A still resolves its own row.
-	if _, err := store.GetQuota(ctxA, ids.UUID(created.Id), storekit.LiveOnly); err != nil {
-		t.Fatalf("tenant A must keep seeing its quota, got %v", err)
-	}
-}
-
 // isOwnerXorTeam asserts the typed XOR refusal the transport will map to
 // the contract's 422 owner_xor_team_required shape.
 func isOwnerXorTeam(err error) bool {

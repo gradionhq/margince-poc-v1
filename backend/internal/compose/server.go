@@ -44,11 +44,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: every
@@ -111,6 +109,7 @@ type Server struct {
 	orgDossierHandlers
 	accountDraftHandlers
 	financeHandlers
+	integrationsHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token
@@ -373,12 +372,17 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		financeHandlers:    finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
-		signalsHandlers:    signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
-		privacyHandlers:    privacy.NewHandlers(InstallationDB(pool)),
-		automationHandlers: automation.NewHandlers(InstallationDB(pool)),
-		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
-		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
+		financeHandlers: finance.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
+		// No adapter is registered by default, which is the supported
+		// "no provider connected" configuration (PI-AC-9): every surface
+		// answers honestly and nothing can reach the network. WithProvider
+		// is what registers one.
+		integrationsHandlers: newIntegrationsHandlers(pool, nil),
+		signalsHandlers:      signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
+		privacyHandlers:      privacy.NewHandlers(InstallationDB(pool)),
+		automationHandlers:   automation.NewHandlers(InstallationDB(pool)),
+		voiceHandlers:        ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
+		reportHandlers:       reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))),
@@ -456,44 +460,4 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
 		s.retrievalEmbedder,
 		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
-}
-
-// signalStrength bridges people's §4 relationship-strength computation to
-// the slice the warm room consumes (signals.StrengthSource). It carries
-// only the score and its bucket across the seam — the full explainable
-// decomposition stays with its owner. This is the arch-legal edge: signals
-// declares its own seam type, and the cross-module dependency lives here in
-// compose, never as a signals→people import.
-type signalStrength struct{ people *people.Store }
-
-func (s signalStrength) PersonStrength(ctx context.Context, personID ids.PersonID, now time.Time) (signals.RelationshipStrength, error) {
-	rs, err := s.people.PersonStrength(ctx, personID, now)
-	if err != nil {
-		return signals.RelationshipStrength{}, err
-	}
-	return signals.RelationshipStrength{Strength: rs.Strength, Bucket: rs.Bucket}, nil
-}
-
-// paramParseError maps a generated request-parameter parse failure onto
-// the same 422 validation_error shape every other bad query input uses
-// (mirrors httperr's malformed-cursor path). It names only the offending
-// parameter — never the wrapped parser text, which can carry internal
-// detail — so a bad cursor/limit/sort/UUID answers problem+json, not a
-// text/plain leak.
-func paramParseError(w http.ResponseWriter, r *http.Request, err error) {
-	param := "request"
-	switch e := err.(type) {
-	case *crmcontracts.RequiredParamError:
-		param = e.ParamName
-	case *crmcontracts.InvalidParamFormatError:
-		param = e.ParamName
-	case *crmcontracts.TooManyValuesForParamError:
-		param = e.ParamName
-	case *crmcontracts.UnmarshalingParamError:
-		param = e.ParamName
-	case *crmcontracts.UnescapedCookieParamError:
-		param = e.ParamName
-	}
-	httperr.Write(w, r, httperr.Validation(param, "invalid_parameter",
-		"parameter is missing or malformed"))
 }

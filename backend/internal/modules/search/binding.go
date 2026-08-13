@@ -461,14 +461,21 @@ func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error
 func (s *Store) workspacePending(ctx context.Context, currentIdentity string) (count int, length int64, err error) {
 	txErr := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		for entityType, src := range pendingSources {
+			// The workspace predicates are the query's own, on the entity and
+			// on the embedding alike. Tenant isolation used to supply both, so
+			// this counted one tenant's backlog without saying so; with RLS
+			// retired (ADR-0091 §8 phase A) an unscoped count reports the whole
+			// installation's under every workspace it enumerates.
 			sql := fmt.Sprintf(`
 				SELECT count(*), coalesce(sum(octet_length(btrim(%s))), 0)
 				FROM %s t
 				WHERE t.archived_at IS NULL
 				  AND btrim(%s) <> ''
+				  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 				  AND NOT EXISTS (
 				        SELECT 1 FROM embedding e
-				        WHERE e.entity_type = '%s' AND e.entity_id = t.id AND e.model = $1)`,
+				        WHERE e.entity_type = '%s' AND e.entity_id = t.id AND e.model = $1
+				          AND e.workspace_id = t.workspace_id)`,
 				src.text, src.table, src.text, entityType)
 			var c int
 			var l int64

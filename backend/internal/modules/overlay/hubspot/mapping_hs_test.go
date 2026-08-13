@@ -5,7 +5,6 @@ package hubspot_test
 
 import (
 	"slices"
-	"sort"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -60,16 +59,25 @@ func TestHubSpotContactMapping(t *testing.T) {
 	if got := out["last_synced_at"]; got != "2026-05-13T06:44:38.727Z" {
 		t.Errorf("last_synced_at = %v, want the lastmodifieddate value", got)
 	}
+	if got := out["created_at"]; got != "2024-11-15T13:27:49.194Z" {
+		t.Errorf("created_at = %v, want the createdate value", got)
+	}
 	if got := out["owner_id"]; got != "1197833249" {
 		t.Errorf("owner_id = %v, want the raw hubspot_owner_id (resolved downstream)", got)
 	}
 
-	childRow, ok := out["person_email"].(map[string]any)
+	emails, ok := out["person_email"].([]map[string]any)
 	if !ok {
-		t.Fatalf("person_email = %#v, want a child row map", out["person_email"])
+		t.Fatalf("person_email = %#v, want a child collection", out["person_email"])
 	}
-	if got := childRow["email"]; got != "christian.mueller@example.de" {
-		t.Errorf("person_email.email = %v, want the lowercased address", got)
+	if len(emails) != 1 {
+		t.Fatalf("person_email has %d rows, want the one work address the contact carries", len(emails))
+	}
+	if got := emails[0]["email"]; got != "christian.mueller@example.de" {
+		t.Errorf("person_email[0].email = %v, want the lowercased address", got)
+	}
+	if emails[0]["email_type"] != "work" || emails[0]["is_primary"] != true {
+		t.Errorf("person_email[0] = %v, want the work/primary attributes the mapping declares", emails[0])
 	}
 
 	address, ok := out["address"].(map[string]any)
@@ -80,18 +88,31 @@ func TestHubSpotContactMapping(t *testing.T) {
 		t.Errorf("address.city = %v, want Munich", got)
 	}
 
-	// mobilephone, createdate, and the null phone property have no
-	// declared target in the contacts subset — the design's "unmapped:
-	// flag" policy (never silently dropped, UC-E18-01 F3).
-	sort.Strings(unmapped)
-	want := []string{"createdate", "mobilephone", "phone"}
-	if len(unmapped) != len(want) {
-		t.Fatalf("unmapped = %v, want %v", unmapped, want)
+	phones, ok := out["person_phone"].([]map[string]any)
+	if !ok {
+		t.Fatalf("person_phone = %#v, want a child collection", out["person_phone"])
 	}
-	for i, k := range want {
-		if unmapped[i] != k {
-			t.Errorf("unmapped[%d] = %q, want %q (full: %v)", i, unmapped[i], k, unmapped)
-		}
+	// Both declared rows land: the contact's `phone` property is null, so its
+	// work row carries no number (the wire skips a valueless row rather than
+	// publishing a blank one), while mobilephone lands as its own mobile,
+	// non-primary row.
+	if len(phones) != 2 {
+		t.Fatalf("person_phone has %d rows, want the declared work and mobile rows", len(phones))
+	}
+	if phones[0]["phone_type"] != "work" || phones[0]["is_primary"] != true {
+		t.Errorf("person_phone[0] = %v, want the work/primary attributes the mapping declares", phones[0])
+	}
+	if got := phones[1]["phone"]; got != "49 176 10042069" {
+		t.Errorf("person_phone[1].phone = %v, want the mobilephone value", got)
+	}
+	if phones[1]["phone_type"] != "mobile" || phones[1]["is_primary"] != false {
+		t.Errorf("person_phone[1] = %v, want the mobile/non-primary attributes the mapping declares", phones[1])
+	}
+
+	// Every property this contact carries has a declared target, so there is
+	// nothing left for the "unmapped: flag" policy (UC-E18-01 F3) to surface.
+	if len(unmapped) != 0 {
+		t.Errorf("unmapped = %v, want none (every rawContact property is declared)", unmapped)
 	}
 
 	if m.UnmappedPolicy != "flag" {
@@ -102,6 +123,50 @@ func TestHubSpotContactMapping(t *testing.T) {
 	// a required, always-present display field, never left empty.
 	if got := out["full_name"]; got != "Christian Muller" {
 		t.Errorf("full_name = %v, want %q (assembled firstname + lastname)", got, "Christian Muller")
+	}
+}
+
+// TestHubSpotContactAddressLandsOnContractMemberNames runs a live-shaped
+// contact through the declared contacts mapping — the same Mapping + Apply
+// pair ingest runs — and pins the address payload's KEYS. Every layer above
+// the mirror picks the address apart by the contract's Address member names,
+// so a payload still keyed by the incumbent's property names publishes a
+// street, region and postcode nobody can find. Only the mapping's own
+// declared From list decides what the transform sees, which is why this
+// asserts through the real mapping rather than a hand-built property set.
+func TestHubSpotContactAddressLandsOnContractMemberNames(t *testing.T) {
+	m, ok := hubspot.Mapping("contacts")
+	if !ok {
+		t.Fatal("Mapping(contacts): want a declared mapping")
+	}
+	raw := rawContact()
+	raw["state"] = "Bayern"
+
+	out, _, err := overlay.Apply(m, raw)
+	if err != nil {
+		t.Fatalf("Apply returned an error: %v", err)
+	}
+	address, ok := out["address"].(map[string]any)
+	if !ok {
+		t.Fatalf("address = %#v, want an assembled jsonb map", out["address"])
+	}
+	// VALUES, not presence: a rename that transposes two members would pass
+	// a presence check while shipping a postcode into the region slot.
+	for member, want := range map[string]string{
+		"line1":       "Hauptstrasse 1",
+		"city":        "Munich",
+		"region":      "Bayern",
+		"postal_code": "80331",
+		"country":     "Germany",
+	} {
+		if got := address[member]; got != want {
+			t.Errorf("address.%s = %#v, want %q", member, got, want)
+		}
+	}
+	for _, incumbent := range []string{"address", "state", "zip"} {
+		if got, present := address[incumbent]; present {
+			t.Errorf("address.%s = %#v, but the incumbent's own property names must not reach the mirror payload", incumbent, got)
+		}
 	}
 }
 
@@ -153,6 +218,7 @@ func rawCompany() map[string]any {
 	return map[string]any{
 		"hs_object_id":        "61655665850",
 		"hs_lastmodifieddate": "2026-05-13T06:44:38.727Z",
+		"createdate":          "2024-11-15T13:27:49.194Z",
 		"name":                "Muller GmbH",
 		"industry":            "HOSPITAL_HEALTH_CARE",
 		"numberofemployees":   "75",
@@ -191,6 +257,15 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 	if got := out["external_id"]; got != "61655665850" {
 		t.Errorf("external_id = %v, want 61655665850", got)
 	}
+	// The incumbent's own create instant, not the instant we mirrored the
+	// company: a company's createdate has to land on created_at the same way a
+	// contact's does, or a mirrored account reports the wrong age.
+	if got := out["created_at"]; got != "2024-11-15T13:27:49.194Z" {
+		t.Errorf("created_at = %v, want the createdate value", got)
+	}
+	if got := out["last_synced_at"]; got != "2026-05-13T06:44:38.727Z" {
+		t.Errorf("last_synced_at = %v, want the hs_lastmodifieddate value", got)
+	}
 	address, ok := out["address"].(map[string]any)
 	if !ok {
 		t.Fatalf("address = %#v, want an assembled jsonb map", out["address"])
@@ -202,12 +277,18 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 	// domain maps into the organization_domain child (the same 1:N child
 	// shape contacts' email → person_email uses), lowercased — so it is
 	// consumed, never left unmapped.
-	domainRow, ok := out["organization_domain"].(map[string]any)
+	domains, ok := out["organization_domain"].([]map[string]any)
 	if !ok {
-		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+		t.Fatalf("organization_domain = %#v, want a child collection", out["organization_domain"])
 	}
-	if got := domainRow["domain"]; got != "muller-gmbh.example" {
-		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
+	if len(domains) != 1 {
+		t.Fatalf("organization_domain has %d rows, want the one domain the company carries", len(domains))
+	}
+	if got := domains[0]["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain[0].domain = %v, want the lowercased domain", got)
+	}
+	if domains[0]["is_primary"] != true {
+		t.Errorf("organization_domain[0] = %v, want the primary attribute the mapping declares", domains[0])
 	}
 	if containsString(unmapped, "domain") {
 		t.Errorf("unmapped = %v, want it NOT to contain %q now that it maps to the child", unmapped, "domain")
@@ -226,12 +307,12 @@ func TestHubSpotCompanyDomainLowercases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	child, ok := out["organization_domain"].(map[string]any)
-	if !ok {
-		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+	rows, ok := out["organization_domain"].([]map[string]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("organization_domain = %#v, want a one-row child collection", out["organization_domain"])
 	}
-	if got := child["domain"]; got != "muller-gmbh.example" {
-		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
+	if got := rows[0]["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain[0].domain = %v, want the lowercased domain", got)
 	}
 }
 

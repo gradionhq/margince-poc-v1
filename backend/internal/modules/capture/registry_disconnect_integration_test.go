@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
@@ -63,8 +64,32 @@ func setupCaptureDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 	if captureDB.err != nil {
 		t.Fatal(captureDB.err)
 	}
+	// Every test in this package seeds its own workspace through ONE shared
+	// connection, and what used to keep their rows apart was deny-on-unset RLS.
+	// With tenant isolation retired (ADR-0091 §8 phase A) the separation has to
+	// be real: reset before seeding, as compose/integration's harness does.
+	// Once per TEST, not per call — a test that seeds a second workspace on
+	// purpose must not lose its first.
+	captureResetMu.Lock()
+	defer captureResetMu.Unlock()
+	if !captureResetFor[t.Name()] {
+		if err := testdb.Reset(context.Background(), captureDB.owner); err != nil {
+			t.Fatal(err)
+		}
+		captureResetFor[t.Name()] = true
+		t.Cleanup(func() {
+			captureResetMu.Lock()
+			defer captureResetMu.Unlock()
+			delete(captureResetFor, t.Name())
+		})
+	}
 	return captureDB.owner, captureDB.pool
 }
+
+var (
+	captureResetMu  sync.Mutex
+	captureResetFor = map[string]bool{}
+)
 
 // fixtureOwnerEmail is the mailbox fixtureConnector reports through
 // AccountLabeler — a fixed value, since the fixture's opaque auth bytes

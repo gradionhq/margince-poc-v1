@@ -187,9 +187,15 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 func extensionJobActor(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (ids.UUID, error) {
 	var actor ids.UUID
 	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, ws), pool, func(tx pgx.Tx) error {
+		// The workspace predicate is the lookup's own. Tenant isolation used to
+		// bound it, so a workspace with no agent seat read zero rows and was
+		// skipped; without it the FIRST installation's seat answers for every
+		// workspace, and a seatless tenant is dispatched work nothing can run
+		// (ADR-0091 §8 phase A).
 		return tx.QueryRow(ctx,
 			`SELECT id FROM app_user
 			  WHERE is_agent AND status = 'active' AND archived_at IS NULL
+			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  ORDER BY created_at LIMIT 1`).Scan(&actor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -22,7 +22,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance", "integrations"}
 
 // IsCoreObject reports whether an RBAC object is in the closed set a role
 // document may grant. Parse enforces it on stored documents; it is also the
@@ -114,11 +114,11 @@ var (
 // and migrate-in screens are admin surfaces.
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -175,27 +175,31 @@ var defaults = map[string]Document{
 			// channel_connection — everyone reads (a rep needs to know
 			// whether the channel is live), only admin/ops bind one.
 			readOnly,
-			grant{},   // import_run — admin/ops-only
-			readOnly,  // installation_settings — the base currency and zone
-			readOnly), // finance — a rep reads whether the customer pays on time
+			grant{},  // import_run — admin/ops-only
+			readOnly, // installation_settings — the base currency and zone
+			readOnly, // finance — a rep reads whether the customer pays on time
+			// integrations — a rep reads whether a provider is connected, so
+			// a dated value on a person record has an explanation; connecting
+			// one spends money and is admin/ops.
+			readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance, integrations grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -227,6 +231,14 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		// action: the mirror's read-only posture is the absence of the grant
 		// (FIN-DDL-N-1), not a runtime refusal.
 		"finance": finance,
+		// The licensed data-provider connections (ADR-0101/A152). READ is
+		// broad for the same reason finance's is: a rep looking at a person
+		// record needs to know whether a provider is connected and why a
+		// value is dated, and every state the card renders is a fact about
+		// the installation rather than about a customer. Connecting one
+		// spends the customer's money and sends their contacts' identifiers
+		// to a third party, so the writes are admin/ops only.
+		"integrations": integrations,
 	}
 }
 

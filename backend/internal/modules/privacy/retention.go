@@ -165,11 +165,13 @@ func (s *RetentionService) invalidateGraph(ctx context.Context, tx pgx.Tx, id id
 // activities, the holds of every linked record plus the statutory floor.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
-		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
 		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
 		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
 	"activity/": `SELECT a.id FROM activity a
-		WHERE a.archived_at IS NULL
+		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
 		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
@@ -180,7 +182,8 @@ var retentionSelectors = map[string]string{
 		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
 		LIMIT $2`,
 	"activity/transcript": `SELECT a.id FROM activity a
-		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
+		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
 		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
@@ -191,7 +194,8 @@ var retentionSelectors = map[string]string{
 		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
 		LIMIT $2`,
 	"person/no_consent_no_deal": `SELECT p.id FROM person p
-		WHERE p.archived_at IS NULL AND NOT p.legal_hold
+		WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND p.archived_at IS NULL AND NOT p.legal_hold
 		  AND p.full_name IS DISTINCT FROM 'Erased Subject'
 		  AND p.created_at < now() - make_interval(days => $1)
 		  AND NOT EXISTS (SELECT 1 FROM person_consent pc WHERE pc.person_id = p.id AND pc.state = 'granted')
@@ -199,10 +203,12 @@ var retentionSelectors = map[string]string{
 		        WHERE r.kind = 'deal_stakeholder' AND r.person_id = p.id AND r.archived_at IS NULL)
 		LIMIT $2`,
 	"deal/lost": `SELECT id FROM deal
-		WHERE status = 'lost' AND archived_at IS NULL AND NOT legal_hold
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND status = 'lost' AND archived_at IS NULL AND NOT legal_hold
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
 	"ai_call_payload/content": `SELECT id FROM ai_call_payload
-		WHERE occurred_at < now() - make_interval(days => $1) LIMIT $2`,
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND occurred_at < now() - make_interval(days => $1) LIMIT $2`,
 }
 
 type retentionPolicy struct {

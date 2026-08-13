@@ -68,14 +68,6 @@ func setupCFV(t *testing.T) cfvFixture {
 	}
 }
 
-// storeFor is the fixture's people store bound to ANOTHER workspace, for the
-// isolation arms: a write lands in the workspace its handle names, so tenant B
-// needs a store of its own. The field catalog is the same service — the physical
-// column is shared, which is the whole point of the arms below.
-func (f cfvFixture) storeFor(ws ids.UUID) *people.Store {
-	return people.NewStore(f.e.DBFor(ws)).WithFieldCatalog(f.svc)
-}
-
 // defineField creates one active custom field and returns its physical
 // column name.
 func (f cfvFixture) defineField(t *testing.T, spec customfields.FieldSpec) string {
@@ -420,54 +412,6 @@ func TestCustomFieldValues_RetiredFieldHiddenButPreserved(t *testing.T) {
 	if stored == nil || *stored != "gold" {
 		t.Fatalf("retired column value = %v, want preserved \"gold\"", stored)
 	}
-}
-
-// TestCustomFieldValues_WorkspaceIsolation: the physical cf_ column is
-// shared across tenants, but the catalog is workspace-scoped — a
-// workspace that never defined the field neither writes nor reads it.
-func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
-	f := setupCFV(t)
-	col := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Tier", Type: customfields.TypeText, Source: "ui"})
-
-	inA, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
-		FullName: "Tenant A Person", Source: "ui",
-		CustomFields: map[string]any{col: "gold"},
-	})
-	if err != nil {
-		t.Fatalf("CreatePerson (tenant A): %v", err)
-	}
-	assertCF(t, inA.AdditionalProperties, col, "gold")
-
-	wsB, ctxB := SeedSecondWorkspace(t, OwnerConn(t), CustomFieldAdminPerms)
-	inB, err := f.storeFor(wsB).CreatePerson(ctxB, people.CreatePersonInput{
-		FullName: "Tenant B Person", Source: "ui",
-		CustomFields: map[string]any{col: "gold"},
-	})
-	if err != nil {
-		t.Fatalf("CreatePerson (tenant B): %v", err)
-	}
-	assertNoCF(t, inB.AdditionalProperties, col)
-
-	// The dropped write really never landed: B's row holds NULL in the
-	// shared physical column.
-	var stored *string
-	err = database.WithWorkspaceTx(ctxB, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctxB,
-			`SELECT `+col+` FROM person WHERE id = $1`, ids.UUID(inB.Id)).Scan(&stored)
-	})
-	if err != nil {
-		t.Fatalf("reading tenant B's column directly: %v", err)
-	}
-	if stored != nil {
-		t.Fatalf("tenant B's %s = %q, want NULL (write must be dropped)", col, *stored)
-	}
-
-	// Tenant A still reads its value.
-	gotA, err := f.store.GetPerson(f.ctx, PersonIDOf(ids.UUID(inA.Id)), storekit.LiveOnly)
-	if err != nil {
-		t.Fatalf("GetPerson (tenant A): %v", err)
-	}
-	assertCF(t, gotA.AdditionalProperties, col, "gold")
 }
 
 // TestCustomFieldValues_UpdateAuditCarriesDiff: cf_ updates ride the
