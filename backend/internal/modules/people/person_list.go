@@ -76,18 +76,15 @@ var personListFields = map[string]string{
 //
 // EXISTS rather than a join: a person carries many tags, and a join would
 // return them once per matching link — rows the keyset cursor would then page
-// over as if they were distinct people. Both tables are workspace-qualified
-// against the person's own workspace, which RLS already guarantees and
-// `idx_taggable_entity` needs as its leading column.
+// over as if they were distinct people.
 func personTagClause(tag *string, arg func(any) int) string {
 	if tag == nil {
 		return ""
 	}
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM taggable tg
-		  JOIN tag t ON t.id = tg.tag_id AND t.workspace_id = tg.workspace_id
-		WHERE tg.workspace_id = person.workspace_id
-		  AND tg.entity_type = $%d AND tg.entity_id = person.id
+		  JOIN tag t ON t.id = tg.tag_id
+		WHERE tg.entity_type = $%d AND tg.entity_id = person.id
 		  AND lower(t.name) = $%d)`,
 		arg(personEntity), arg(foldTagName(*tag)))
 }

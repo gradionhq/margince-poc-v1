@@ -165,8 +165,8 @@ func TestQuotaWrite_NegativeTargetRefused(t *testing.T) {
 	// a write path that bypasses the store still cannot land a negative
 	// target.
 	_, err = OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO quota (workspace_id, owner_id, period_start, period_end, target_minor, currency)
-		 VALUES ($1, $2, $3, $4, -1, 'EUR')`, e.WS, e.Rep1, q1Start, q1End)
+		`INSERT INTO quota (owner_id, period_start, period_end, target_minor, currency)
+		 VALUES ($1, $2, $3, -1, 'EUR')`, e.Rep1, q1Start, q1End)
 	if constraint, ok := storekit.CheckViolation(err); !ok || constraint != "quota_target_nonneg" {
 		t.Fatalf("a direct negative-target insert must violate quota_target_nonneg, got %v", err)
 	}

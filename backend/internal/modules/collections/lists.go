@@ -69,7 +69,7 @@ var memberEntityVocabulary = func() string {
 	return strings.Join(names, "|")
 }()
 
-const listColumns = `id, workspace_id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
+const listColumns = `id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
 
 // catalogCap bounds the un-paginated catalog reads. Lists and tags are
 // workspace-curated vocabulary — tens of rows, not record data — which
@@ -80,22 +80,21 @@ const listColumns = `id, workspace_id, name, entity_type, list_type, definition,
 const catalogCap = 1000
 
 type listRow struct {
-	ID          ids.ListID
-	WorkspaceID ids.WorkspaceID
-	Name        string
-	EntityType  string
-	ListType    string
-	Definition  map[string]any
-	OwnerID     *ids.UserID
-	TeamID      *ids.TeamID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
+	ID         ids.ListID
+	Name       string
+	EntityType string
+	ListType   string
+	Definition map[string]any
+	OwnerID    *ids.UserID
+	TeamID     *ids.TeamID
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	ArchivedAt *time.Time
 }
 
 func scanList(r pgx.Row) (listRow, error) {
 	var l listRow
-	err := r.Scan(&l.ID, &l.WorkspaceID, &l.Name, &l.EntityType, &l.ListType,
+	err := r.Scan(&l.ID, &l.Name, &l.EntityType, &l.ListType,
 		&l.Definition, &l.OwnerID, &l.TeamID, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
 	return l, err
 }
@@ -189,8 +188,8 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	var out listRow
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO list (workspace_id, name, entity_type, list_type, definition, owner_id, team_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+			INSERT INTO list (name, entity_type, list_type, definition, owner_id, team_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			RETURNING `+listColumns,
 			in.Name, in.EntityType, in.ListType, in.Definition, in.OwnerID, in.TeamID)
 		var err error
