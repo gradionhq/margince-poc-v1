@@ -188,6 +188,13 @@ type callRuntime struct {
 	// per-runtime mechanism sees that, and this is the ordinary distance
 	// between a shape check and a proof rather than a claim of safety.
 	txDepth int
+
+	// ingesting counts the ingests in flight, and it is what makes the
+	// transaction refusal a guarantee rather than a check-then-use race: an
+	// ingest claims this slot under the same lock that admits a transaction,
+	// so a sibling goroutine cannot open one in the window between the check
+	// and capture's own acquire.
+	ingesting int
 }
 
 var _ extension.Runtime = (*callRuntime)(nil)

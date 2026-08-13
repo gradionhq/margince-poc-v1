@@ -41,8 +41,32 @@ func composedIngressFor(unit string) []extension.IngressSource {
 	return nil
 }
 
-// extensionMemberConsented reports whether the member currently holds any
-// user-scoped secret in this unit's namespace.
+// declaredUserSecretKeys are the user-scoped secret keys the named unit
+// declares in THIS boot's composition.
+//
+// The consent check reads them rather than accepting any row in the unit's
+// namespace, and the difference is a real one: extension_secret keeps a
+// mapping row after a unit stops declaring the key it was deposited under, so
+// a credential a member gave an earlier version of a unit would go on
+// authorizing a capability the current manifest does not describe. What an
+// operator can read has to be what the core acts on.
+func declaredUserSecretKeys(unit string) []string {
+	var keys []string
+	for _, ext := range ComposedExtensions() {
+		if string(ext.Name) != unit {
+			continue
+		}
+		for _, request := range ext.Secrets {
+			if request.Scope == extension.SecretScopeUser {
+				keys = append(keys, request.Key)
+			}
+		}
+	}
+	return keys
+}
+
+// extensionMemberConsented reports whether the member currently holds a
+// user-scoped secret under one of this unit's DECLARED keys.
 //
 // It also subsumes the refusal of the installation's own agent-runner seat,
 // which is why no separate check for it exists: that seat has no password and
@@ -66,13 +90,20 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 	if pool == nil {
 		return false, errExtensionRuntimeUnwired
 	}
+	declared := declaredUserSecretKeys(unit)
+	if len(declared) == 0 {
+		// A unit that declares no user-scoped secret has no way for a member to
+		// consent to it at all, so there is nothing to read and nobody it may
+		// act for.
+		return false, nil
+	}
 	var consented bool
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM extension_secret
-				WHERE extension_name = $1 AND user_id = $2
-			)`, unit, member).Scan(&consented)
+				WHERE extension_name = $1 AND user_id = $2 AND key = ANY($3)
+			)`, unit, member, declared).Scan(&consented)
 	})
 	if err != nil {
 		return false, fmt.Errorf("compose: reading whether a member has deposited a credential with %s: %w", unit, err)
@@ -89,6 +120,12 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 // all three rather than an empty-but-valid authority, so the grant dies with
 // them exactly as a connector's does.
 //
+// ONE snapshot for both ceilings. Read separately, a role change and a seat
+// change crossing between the two reads compose an authority the member never
+// held — permissions from before with a seat from after — and capture would
+// then admit a write against a pair that never existed. EffectiveAuthority
+// reads both inside identity's own live-user transaction.
+//
 // The resolver is built from the pool at the call. That is the tree's own idiom
 // for a dependency the pool fully determines, and it is why the runtime binding
 // needs no entry for it.
@@ -96,14 +133,5 @@ func liveMemberAuthority(ctx context.Context, pool *pgxpool.Pool, workspace, mem
 	if pool == nil {
 		return authz.RBAC{}, "", errExtensionRuntimeUnwired
 	}
-	resolver := identity.NewService(pool)
-	rbac, err := resolver.EffectiveRBAC(ctx, workspace, member)
-	if err != nil {
-		return authz.RBAC{}, "", err
-	}
-	seat, err := resolver.SeatType(ctx, workspace, member)
-	if err != nil {
-		return authz.RBAC{}, "", err
-	}
-	return rbac, seat, nil
+	return identity.NewService(pool).EffectiveAuthority(ctx, workspace, member)
 }

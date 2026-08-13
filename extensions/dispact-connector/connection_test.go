@@ -115,18 +115,41 @@ func TestReconnectingKeepsTheCursorAndRecordsAnUpdate(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	upsert, _ := rt.tx.statementMentioning(t, "ON CONFLICT")
-	// The SET clause alone: the projection this statement RETURNS names every
-	// column, so searching the whole statement would find the cursor in a
-	// clause that only reads it.
-	written, _, _ := strings.Cut(upsert, "RETURNING")
-	if strings.Contains(written, "high_water_mark") || strings.Contains(written, "backfill_before") {
-		t.Errorf("the upsert writes the cursor — rotating a token would then re-walk the member's whole feed:\n%s", written)
+	// The cursor is written CONDITIONALLY — kept when the deployment is the
+	// same, reset when it is not — so what this asserts is the condition, not
+	// the absence of the column. An unconditional write here would re-walk a
+	// member's whole feed on every token rotation; an unconditional KEEP would
+	// leave a member who moved deployments with a cursor from another id
+	// sequence, and their feed would stop dead while the row looked healthy.
+	if !strings.Contains(upsert, "CASE WHEN "+connectionTable+".base_url = EXCLUDED.base_url") {
+		t.Errorf("the upsert does not make the cursor conditional on the deployment:\n%s", upsert)
 	}
 	if !strings.Contains(upsert, "status = '"+statusConnected+"'") {
 		t.Error("reconnecting does not clear a parked status, so a member who pastes a working token stays parked")
 	}
 	if len(rt.tx.audited) != 1 || rt.tx.audited[0].Action != extension.AuditUpdate {
 		t.Fatalf("recorded %+v, want one update — a reconnect recorded as a create would read as a connection that appeared now", rt.tx.audited)
+	}
+}
+
+// The other half of the same rule, at the level a test can see it here: the
+// statement keeps the cursor for the SAME deployment and drops it for another.
+// The SQL is the only place this decision exists, so the test reads the SQL —
+// what it does against real rows is the integration lane's question.
+func TestReconnectingToAnotherDeploymentDropsTheCursor(t *testing.T) {
+	rt := newRuntime()
+	existing := connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, testBaseURL, statusConnected, 900, 0)
+	moved := connectionRow("11111111-1111-4111-8111-111111111111", callerUserID, "https://other.example.com", statusConnected, 0, 0)
+	rt.tx.singleRows = [][]any{existing, moved}
+
+	if _, err := connect(context.Background(), rt, connectArgs("https://other.example.com", "pat_abc")); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	upsert, _ := rt.tx.statementMentioning(t, "ON CONFLICT")
+	for _, column := range []string{"high_water_mark", "backfill_before", "pending_high_water_mark", "provider_workspace_id"} {
+		if !strings.Contains(upsert, column+" = CASE WHEN") {
+			t.Errorf("%s is not reset when the deployment changes — its ids belong to the deployment that issued them", column)
+		}
 	}
 }
 

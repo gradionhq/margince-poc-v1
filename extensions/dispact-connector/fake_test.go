@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -227,13 +228,15 @@ func (t *fakeTx) QueryRow(_ context.Context, sql string, args ...any) extension.
 	return fakeRow{values: values, err: t.failure()}
 }
 
-// errNoRows is the driver's empty-result answer as the published surface hands
-// it to a unit: a plain error whose text is all a unit has to read (isNoRows).
-var errNoRows = errNoRowsErr{}
-
-type errNoRowsErr struct{}
-
-func (errNoRowsErr) Error() string { return "no rows in result set" }
+// errNoRows is what the core hands a unit for a single-row read that matched
+// nothing: the PUBLISHED sentinel, not the driver's own wording.
+//
+// The distinction is not academic — it is the defect a UAT found. This fake
+// used to answer the driver's text, the handler matched on that text, and the
+// two agreed with each other while production answered a 500 for the ordinary
+// case of a member who has not connected yet. A fake that invents an error the
+// core never returns is a suite testing itself.
+var errNoRows = extension.ErrNoRows
 
 type fakeRow struct {
 	values []any
@@ -284,12 +287,17 @@ func scanInto(dest, values []any) error {
 			*target, _ = value.(int)
 		case *int64:
 			*target, _ = value.(int64)
-		case **string:
+		case **time.Time:
+			// A TIME, because the column is timestamptz and the driver refuses
+			// to scan one into a string. The fake takes the same type the
+			// handler asks for, so a projection that goes back to text fails
+			// here rather than in production — which is where the first
+			// version of it failed.
 			if value == nil {
 				*target = nil
 				continue
 			}
-			copied, _ := value.(string)
+			copied, _ := value.(time.Time)
 			*target = &copied
 		default:
 			return errWidth{want: len(dest), got: len(values)}
@@ -308,7 +316,7 @@ func (e errWidth) Error() string {
 // column added to the projection is ONE edit in the fixtures rather than one
 // per scripted row.
 func connectionRow(id, userID, baseURL, status string, mark, gap int64) []any {
-	return []any{id, userID, baseURL, status, "Tin Nguyen", "ws-1", mark, gap, nil, "", 1}
+	return []any{id, userID, baseURL, status, "Tin Nguyen", "ws-1", mark, gap, int64(0), nil, "", 1}
 }
 
 // jsonOf decodes a handler's answer, failing the test rather than the caller.

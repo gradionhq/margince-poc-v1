@@ -70,9 +70,13 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if !r.unattended {
 		return extension.Result{}, extension.ErrAttendedIngest
 	}
-	if r.insideTx() {
-		return extension.Result{}, extension.ErrNestedIngest
+	// Claimed rather than merely checked: capture opens its transaction after
+	// this returns, so a check that did not hold the slot would be true when
+	// it was made and false when it mattered.
+	if err := r.beginIngest(); err != nil {
+		return extension.Result{}, err
 	}
+	defer r.endIngest()
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}

@@ -33,13 +33,50 @@ import (
 // is not serving, which is the reason composedIngressFor reads this one.
 func composeIngressFor(t *testing.T, unit string, sources ...extension.IngressSource) {
 	t.Helper()
-	previous := ComposedExtensions()
-	setComposedExtensions([]extension.Extension{{
+	composeUnit(t, extension.Extension{
 		Name:    extension.Name(unit),
 		Version: "1.0.0",
 		Ingress: sources,
-	}})
+		// The user-scoped credential a member deposits, declared — because
+		// what the port reads as consent is a secret under a key this unit
+		// DECLARES, and a composed set without one describes a unit no member
+		// can consent to.
+		Secrets: []extension.SecretsRequest{
+			{Key: ingressTestSecretKey, Scope: extension.SecretScopeUser},
+		},
+	})
+}
+
+// ingressTestSecretKey is the declared key the probe unit's members deposit
+// their credential under.
+const ingressTestSecretKey = "api-token"
+
+// composeUnit publishes one composed unit and restores what was composed
+// before, rather than clearing: a test that cleared would leave a sibling
+// describing an installation that composes nothing.
+func composeUnit(t *testing.T, unit extension.Extension) {
+	t.Helper()
+	previous := ComposedExtensions()
+	setComposedExtensions([]extension.Extension{unit})
 	t.Cleanup(func() { setComposedExtensions(previous) })
+}
+
+// A unit that declares no user-scoped secret has no way for a member to consent
+// to it, so there is nobody it may act for — and the refusal is answered
+// without a query, because the composed declaration already settles it.
+func TestAUnitWithNoUserScopedSecretCanActForNobody(t *testing.T) {
+	composeUnit(t, extension.Extension{
+		Name:    "probe-unit",
+		Version: "1.0.0",
+		Ingress: []extension.IngressSource{{
+			System: "probe-system", Lands: []extension.RecordKind{extension.KindActivity},
+		}},
+	})
+	_, err := ingestingRuntime(t).Ingest(context.Background(),
+		extension.UserID(ids.NewV7().String()), aRecord())
+	if !errors.Is(err, extension.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden — consent is a credential under a DECLARED key, and this unit declares none", err)
+	}
 }
 
 // ingestingRuntime is a unit's Runtime as an unattended run holds it: live,
@@ -149,11 +186,11 @@ func TestAnIngestInsideTheUnitsOwnTransactionIsRefused(t *testing.T) {
 	rt := ingestingRuntime(t)
 	member := extension.UserID(ids.NewV7().String())
 
-	rt.enterTx()
+	mustEnterTx(t, rt)
 	if _, err := rt.Ingest(context.Background(), member, aRecord()); !errors.Is(err, extension.ErrNestedIngest) {
 		t.Fatalf("err = %v, want ErrNestedIngest while one transaction is open", err)
 	}
-	rt.enterTx()
+	mustEnterTx(t, rt)
 	rt.leaveTx()
 	if _, err := rt.Ingest(context.Background(), member, aRecord()); !errors.Is(err, extension.ErrNestedIngest) {
 		t.Fatalf("err = %v, want ErrNestedIngest while a SECOND transaction is still open — a flag would have been cleared by the first one returning", err)
@@ -168,6 +205,36 @@ func TestAnIngestInsideTheUnitsOwnTransactionIsRefused(t *testing.T) {
 	unkeyed.Key = ""
 	if _, err := rt.Ingest(context.Background(), member, unkeyed); !errors.Is(err, extension.ErrInvalid) {
 		t.Fatalf("err = %v, want the next refusal along — the nesting one outlived the transactions it is about", err)
+	}
+}
+
+// mustEnterTx claims a transaction slot, failing the test if the runtime
+// refuses — which it does while an ingest is in flight, and which no case here
+// is set up to meet.
+func mustEnterTx(t *testing.T, rt *callRuntime) {
+	t.Helper()
+	if err := rt.enterTx(); err != nil {
+		t.Fatalf("claiming a transaction slot: %v", err)
+	}
+}
+
+// The refusal in the OTHER direction, which is what makes the first one a
+// guarantee rather than a check-then-use race: while an ingest is in flight,
+// this Runtime admits no transaction. Without it, an ingest that had passed its
+// check could still have capture's own acquire land after a sibling goroutine
+// took the connection.
+func TestAUnitCannotOpenATransactionWhileItIsIngesting(t *testing.T) {
+	composeIngressFor(t, "probe-unit", extension.IngressSource{
+		System: "probe-system", Lands: []extension.RecordKind{extension.KindActivity},
+	})
+	rt := ingestingRuntime(t)
+	if err := rt.beginIngest(); err != nil {
+		t.Fatalf("claiming the ingest slot: %v", err)
+	}
+	defer rt.endIngest()
+
+	if err := rt.enterTx(); !errors.Is(err, extension.ErrNestedIngest) {
+		t.Fatalf("err = %v, want the transaction refused while an ingest is in flight", err)
 	}
 }
 

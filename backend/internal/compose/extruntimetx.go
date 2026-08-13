@@ -23,12 +23,25 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// enterTx and leaveTx bracket one open transaction. They take the write lock
-// the flag already uses, so the count and the liveness answer cannot disagree.
-func (r *callRuntime) enterTx() {
+// enterTx claims one open transaction, and REFUSES while an ingest is in
+// flight.
+//
+// The refusal is the other half of insideTx's, and without it the pair is a
+// check-then-use race rather than a guarantee: an ingest that read txDepth == 0
+// and then handed its record to capture would have capture's transaction opened
+// AFTER a sibling goroutine took the pool's connection through Tx, which is
+// exactly the wait the check exists to prevent. Claimed under one lock, in both
+// directions, the two are mutually exclusive per runtime — and a handler that
+// genuinely needs both does them one after the other, which is what the poll's
+// read-close-ingest-write shape already is.
+func (r *callRuntime) enterTx() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.ingesting > 0 {
+		return extension.ErrNestedIngest
+	}
 	r.txDepth++
+	return nil
 }
 
 func (r *callRuntime) leaveTx() {
@@ -37,7 +50,10 @@ func (r *callRuntime) leaveTx() {
 	r.txDepth--
 }
 
-// insideTx reports whether this Runtime is holding a transaction open.
+// beginIngest claims the ingest slot, refusing while this Runtime holds a
+// transaction. It is insideTx's check and the claim in ONE critical section,
+// which is what makes the answer still true when capture opens its own
+// transaction a moment later.
 //
 // A handler goroutine ingesting while an UNRELATED transaction of the same
 // runtime is open is refused too. That false positive is accepted rather than
@@ -45,10 +61,21 @@ func (r *callRuntime) leaveTx() {
 // — is evaded by a handler that ingests with the outer context from inside the
 // callback, which still hangs. Refusing a call that would have worked is a
 // better failure than hanging a worker.
-func (r *callRuntime) insideTx() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.txDepth > 0
+func (r *callRuntime) beginIngest() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.txDepth > 0 {
+		return extension.ErrNestedIngest
+	}
+	r.ingesting++
+	return nil
+}
+
+// endIngest releases the slot.
+func (r *callRuntime) endIngest() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ingesting--
 }
 
 // Tx opens ONE transaction, already pinned to the workspace the invocation
@@ -73,7 +100,9 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 	if err != nil {
 		return fmt.Errorf("compose: the invoking unit's name has no SQL namespace: %w", err)
 	}
-	r.enterTx()
+	if err := r.enterTx(); err != nil {
+		return err
+	}
 	defer r.leaveTx()
 	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
 		// Re-checked inside: opening a transaction is a round trip, and a

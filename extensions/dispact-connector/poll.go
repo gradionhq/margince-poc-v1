@@ -21,9 +21,11 @@ package dispact
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -41,14 +43,26 @@ func pollInbox(ctx context.Context, rt extension.Runtime) error {
 	}
 	var failures int
 	for _, conn := range connections {
-		if err := pollConnection(ctx, rt, conn); err != nil {
-			failures++
-			// The failure is recorded on the row rather than returned, so the
-			// screen shows which connection is broken and the tick's own
-			// outcome stays about the fleet.
-			if noted := noteFailure(ctx, rt, conn, err); noted != nil {
-				return noted
-			}
+		// One member's slow provider must not spend the whole tick: the
+		// deadline below is per CONNECTION, so what a stall costs is that
+		// member's turn rather than everybody after them in the list.
+		memberCtx, done := context.WithTimeout(ctx, perConnectionBudget)
+		pollErr := pollConnection(memberCtx, rt, conn)
+		done()
+		if pollErr == nil {
+			continue
+		}
+		failures++
+		// The failure is recorded on the row rather than returned, so the
+		// screen shows which connection is broken and the tick's own outcome
+		// stays about the fleet.
+		//
+		// On the TICK's context, not the member's: the member's is exactly
+		// what may have just expired, and a note written on a cancelled
+		// context is the one write that must not be lost — it is what stops
+		// the next tick starting at the same member with no record of why.
+		if noted := noteFailure(ctx, rt, conn, pollErr); noted != nil {
+			return noted
 		}
 	}
 	if failures > 0 && failures == len(connections) {
@@ -61,18 +75,30 @@ func pollInbox(ctx context.Context, rt extension.Runtime) error {
 	return nil
 }
 
+// perConnectionBudget bounds one member's turn. The job's own wall clock
+// (api/jobs.yaml) bounds the whole tick; this is what keeps the first slow
+// provider in the list from spending it.
+const perConnectionBudget = 60 * time.Second
+
 // connectedMembers reads this workspace's connections and CLOSES the
 // transaction before anything is ingested.
 //
 // The whole set is read at once rather than one row at a time: holding a cursor
 // open across the provider I/O below would be the nested-transaction defect
 // wearing a different hat, and a workspace's connected members are a handful.
+//
+// LEAST RECENTLY POLLED FIRST, which is fairness rather than tidiness: a fixed
+// order plus a bounded tick means the members at the end of a stable list are
+// the ones a busy installation never reaches, tick after tick. Ordering by when
+// each was last read rotates whoever waited longest to the front, and a
+// connection that has never polled sorts first.
 func connectedMembers(ctx context.Context, rt extension.Runtime) ([]connection, error) {
 	var found []connection
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+connectionColumns+` FROM `+connectionTable+`
-			  WHERE status = $1 ORDER BY created_at`, statusConnected)
+			  WHERE status = $1
+			  ORDER BY last_polled_at ASC NULLS FIRST, created_at`, statusConnected)
 		if err != nil {
 			return err
 		}
@@ -95,15 +121,15 @@ func pollConnection(ctx context.Context, rt extension.Runtime, conn connection) 
 	if err != nil {
 		return err
 	}
-	// A connection that has never polled takes ONE page and does not walk back:
-	// connecting an account brings the CRM what arrives from now on, not an
-	// import of the member's history. A history import is a decision with a
-	// scope and a cost, and it is not one a token paste should make silently.
-	budget, from := maxPagesPerPoll, conn.BackfillBefore
-	if conn.HighWaterMark == 0 && conn.BackfillBefore == 0 {
-		budget = 1
+	// THE NEWEST REGION FIRST, always. A member whose backlog is still being
+	// filled in should still see this morning's messages this morning, which
+	// is the whole reason the cursor carries a separate `top`.
+	at := conn.cursor()
+	budget := maxPagesPerPoll
+	if at.firstPoll() {
+		budget = firstPollPages
 	}
-	walked, err := walkInbox(ctx, api, conn.HighWaterMark, from, budget)
+	forward, err := walkInbox(ctx, api, at.forwardFrom(), 0, budget)
 	if err != nil {
 		return err
 	}
@@ -111,12 +137,37 @@ func pollConnection(ctx context.Context, rt extension.Runtime, conn connection) 
 	// advanced, the connection records the class, and the next tick walks the
 	// same region again — where every record that already landed is a
 	// deduplicated no-op on its natural key.
-	processedTo, err := landAll(ctx, rt, api, walked.items, conn, member)
+	processedTo, err := landAll(ctx, rt, api, forward.items, conn, member)
 	if err != nil {
 		return err
 	}
-	mark, gap := advanced(conn.HighWaterMark, conn.BackfillBefore, processedTo, walked)
-	return saveCursor(ctx, rt, conn, member, mark, gap)
+	at = afterForward(at, processedTo, forward)
+
+	// Whatever budget the forward walk left goes to the backlog. Nothing is
+	// spent on it when there is none, and a first poll never has one.
+	if spent := len(forward.items)/maxPageSize + 1; at.unread() && spent < budget {
+		at, err = fillGap(ctx, rt, api, conn, member, at, budget-spent)
+		if err != nil {
+			return err
+		}
+	}
+	return saveCursor(ctx, rt, conn, member, at)
+}
+
+// fillGap walks the unread region under the newest messages.
+//
+// It stops at the FLOOR — the id everything below which has been decided about
+// — rather than at the top, because the region it is filling is the one between
+// them. Reaching it collapses the two numbers back into one.
+func fillGap(ctx context.Context, rt extension.Runtime, api *client, conn connection, member providerUser, at cursor, budget int) (cursor, error) {
+	backfill, err := walkInbox(ctx, api, at.floor, at.gap, budget)
+	if err != nil {
+		return at, err
+	}
+	if _, err := landAll(ctx, rt, api, backfill.items, conn, member); err != nil {
+		return at, err
+	}
+	return afterBackfill(at, backfill), nil
 }
 
 // providerFor resolves the member's token and identifies the account it opens.
@@ -193,10 +244,12 @@ func landAll(ctx context.Context, rt extension.Runtime, api *client, items []inb
 func landOne(ctx context.Context, rt extension.Runtime, item inboxItem, sender providerUser, conn connection, member providerUser) error {
 	rec, err := recordFor(item, sender, member, member.WorkspaceID)
 	if err != nil {
-		// Unrepresentable, and named as such rather than returned: the sender
-		// resolved to no address, so there is no counterparty and no way this
-		// record ever becomes one.
-		return nil
+		// Unrepresentable — the sender resolved to no address, so there is no
+		// counterparty and no way this record ever becomes one. The cursor
+		// moves past it, and a ledger row says so: a provider format change
+		// that made EVERY record unrepresentable would otherwise present
+		// exactly like a quiet feed. The seam this deserves is filed (#1195).
+		return noteDrop(ctx, rt, conn, item, "unrepresentable")
 	}
 	// on is the CRM MEMBER whose credential produced this record — the
 	// connection's own user id, never the provider's account id. The core
@@ -205,11 +258,37 @@ func landOne(ctx context.Context, rt extension.Runtime, item inboxItem, sender p
 	// live authority rather than by anything this unit asserts.
 	if _, err := rt.Ingest(ctx, extension.UserID(conn.UserID), rec); err != nil {
 		if errors.Is(err, extension.ErrInvalid) {
-			return nil
+			return noteDrop(ctx, rt, conn, item, "refused_by_the_core")
 		}
 		return err
 	}
 	return nil
+}
+
+// noteDrop records that one notification will never land, and why.
+//
+// It writes the unit's own ledger row rather than a core one, because there is
+// no core record to hang a drop on — that is the point of a drop. What it buys
+// is that "this connector has been dropping every message since Tuesday" is a
+// question somebody can answer.
+func noteDrop(ctx context.Context, rt extension.Runtime, conn connection, item inboxItem, class string) error {
+	payload, err := json.Marshal(struct {
+		Notification int64  `json:"notification_id"`
+		Class        string `json:"class"`
+	}{Notification: item.ID, Class: class})
+	if err != nil {
+		return err
+	}
+	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
+		return tx.Record(ctx,
+			extension.Change{
+				Action: extension.AuditUpdate,
+				Entity: connectionEntity,
+				ID:     conn.ID,
+				Detail: payload,
+			},
+			extension.Event{Verb: eventRecordDropped, Payload: payload})
+	})
 }
 
 // resolveSenders looks up every distinct sender in ONE call.
@@ -237,32 +316,35 @@ func resolveSenders(ctx context.Context, api *client, items []inboxItem) (map[st
 // at connect, because they are what the provider says NOW: a member who renames
 // themselves in Dispact should not have the CRM screen showing what they were
 // called when they pasted a token.
-func saveCursor(ctx context.Context, rt extension.Runtime, conn connection, member providerUser, mark, gap int64) error {
+func saveCursor(ctx context.Context, rt extension.Runtime, conn connection, member providerUser, at cursor) error {
 	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		updated, err := scanConnection(tx.QueryRow(ctx,
 			`UPDATE `+connectionTable+`
 			    SET high_water_mark = $2,
 			        backfill_before = NULLIF($3::bigint, 0),
-			        account_label = $4,
-			        provider_workspace_id = $5,
+			        pending_high_water_mark = NULLIF($4::bigint, 0),
+			        account_label = $5,
+			        provider_workspace_id = $6,
 			        last_polled_at = now(),
 			        last_error_class = NULL,
 			        version = version + 1,
 			        updated_at = now()
-			  WHERE id = $1::uuid
+			  WHERE id = $1::uuid AND version = $7
 			 RETURNING `+connectionColumns,
-			conn.ID, mark, gap, member.name(), member.WorkspaceID).Scan)
+			conn.ID, at.floor, at.gap, at.top, member.name(), member.WorkspaceID, conn.Version).Scan)
 		if err != nil {
 			if isNoRows(err) {
-				// The member disconnected while this tick was reading their
-				// inbox. Their records landed and are theirs; there is no row
-				// left to move a cursor on, and inventing one would resurrect
-				// a connection somebody just withdrew.
+				// EITHER the member disconnected while this tick was reading
+				// their inbox, OR they reconnected and the row moved on
+				// without this poll. Both are the same answer: what this tick
+				// learned is about a connection that no longer exists in the
+				// state it was read in, and writing it would undo whatever the
+				// member just did. The records it landed are theirs and stay.
 				return nil
 			}
 			return err
 		}
-		if updated.HighWaterMark == conn.HighWaterMark && updated.BackfillBefore == conn.BackfillBefore {
+		if updated.cursor() == conn.cursor() {
 			// A tick that moved no cursor is a poll that found nothing, and
 			// recording it would write one ledger row per member per cadence
 			// forever to say that a schedule ran. The touched columns are the
@@ -286,12 +368,15 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 		status = statusReauth
 	}
 	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
+		// On the version this poll READ, so a failure from a poll that started
+		// before the member pasted a working token cannot park the connection
+		// they just repaired.
 		updated, err := scanConnection(tx.QueryRow(ctx,
 			`UPDATE `+connectionTable+`
 			    SET status = $2, last_error_class = $3, last_polled_at = now(),
 			        version = version + 1, updated_at = now()
-			  WHERE id = $1::uuid
-			 RETURNING `+connectionColumns, conn.ID, status, class).Scan)
+			  WHERE id = $1::uuid AND version = $4
+			 RETURNING `+connectionColumns, conn.ID, status, class, conn.Version).Scan)
 		if err != nil {
 			if isNoRows(err) {
 				return nil

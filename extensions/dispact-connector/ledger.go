@@ -36,6 +36,11 @@ const (
 	eventDisconnected = "disconnected"
 	eventPolled       = "polled"
 	eventReauth       = "reauth_required"
+	// eventRecordDropped is one notification this connector will never land —
+	// a sender with no address, a record the core's grammar refuses. It is
+	// published because the alternative is silence, and a connector dropping
+	// everything looks exactly like a quiet feed.
+	eventRecordDropped = "record_dropped"
 )
 
 // recordConnection writes the ledger row and the event for one connection

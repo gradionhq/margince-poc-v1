@@ -44,6 +44,9 @@ func DecodeArgs[T any](in json.RawMessage) (T, error) {
 	if err := checkArgumentObject[T](in); err != nil {
 		return out, err
 	}
+	if err := refuseRepeatedMembers(in); err != nil {
+		return out, err
+	}
 	dec := json.NewDecoder(strings.NewReader(string(in)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
@@ -113,6 +116,74 @@ func checkArgumentObject[T any](in json.RawMessage) error {
 			return nil //nolint:nilerr // the shape refusal belongs to the decoder, not to this pre-scan
 		}
 	}
+	return nil
+}
+
+// refuseRepeatedMembers walks the WHOLE document and refuses any object that
+// names a member twice, at any depth.
+//
+// The check above is type-driven and therefore top-level: it knows T's field
+// names, and a nested value is skipped as raw bytes. That leaves the same hole
+// one level down — `{"config":{"token":"reviewed","token":"attacker"}}` — where
+// encoding/json quietly keeps the last, which is exactly the shape that puts a
+// value past a reviewer who read the first.
+//
+// It is untyped on purpose: duplication is a property of the DOCUMENT, so this
+// needs no knowledge of the nested types and cannot fall behind them. What it
+// does not close is a nested CASE variant (`Token` where the schema says
+// `token`), which encoding/json matches case-insensitively and which only the
+// nested type could judge; that limit is stated on the type-driven check.
+func refuseRepeatedMembers(in json.RawMessage) error {
+	dec := json.NewDecoder(bytes.NewReader(in))
+	// A stack of the member sets of the objects currently open. An array
+	// pushes nothing: its elements are positional, and only an object can
+	// repeat a name — but its elements still stream through this loop, so a
+	// repetition inside one is caught.
+	var open []map[string]bool
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			// EOF, or a document the decoder describes better than a scan can.
+			// Either way this check is finished.
+			return nil //nolint:nilerr // the shape refusal belongs to the decoder, not to this pre-scan
+		}
+		if delim, ok := token.(json.Delim); ok {
+			open = trackContainer(open, delim)
+			continue
+		}
+		name, ok := token.(string)
+		if !ok || len(open) == 0 {
+			continue
+		}
+		// A string token is a member NAME when the innermost open container is
+		// an object and a value follows it, which is what dec.More() answers.
+		if err := claimMember(open[len(open)-1], name, dec.More()); err != nil {
+			return err
+		}
+	}
+}
+
+// trackContainer opens a member set for an object and closes it again, leaving
+// the stack unchanged for arrays.
+func trackContainer(open []map[string]bool, delim json.Delim) []map[string]bool {
+	switch {
+	case delim == '{':
+		return append(open, map[string]bool{})
+	case delim == '}' && len(open) > 0:
+		return open[:len(open)-1]
+	}
+	return open
+}
+
+// claimMember records one member name and refuses the second sighting of it.
+func claimMember(members map[string]bool, name string, isName bool) error {
+	if !isName {
+		return nil
+	}
+	if members[name] {
+		return fmt.Errorf("extension: the arguments are not the declared shape: field %q appears twice — which copy wins is a decoder's choice, not the contract's", name)
+	}
+	members[name] = true
 	return nil
 }
 

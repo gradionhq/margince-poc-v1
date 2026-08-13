@@ -70,8 +70,20 @@ CREATE TABLE ext.ext_dispact_connector_connection (
     -- because moving it would strand every id below the gap permanently — the
     -- next poll's newest page would already be above the mark and nothing
     -- would ever look under it again.
+    -- high_water_mark is the FLOOR: everything at or below it has been decided
+    -- about, and nothing looks under it again.
     high_water_mark bigint      NOT NULL DEFAULT 0 CHECK (high_water_mark >= 0),
+    -- backfill_before is where an unread region resumes, NULL for none. While
+    -- it is set the floor does not move — moving it would put the floor above
+    -- ids nothing has read, and no later walk would go under it.
     backfill_before bigint      CHECK (backfill_before IS NULL OR backfill_before > 0),
+    -- pending_high_water_mark is the highest id decided about ABOVE an unread
+    -- region, NULL when there is none. It is what lets each tick read the
+    -- newest messages first while a backlog is still being filled in, and it
+    -- becomes the floor the moment the gap closes. Without it a truncated walk
+    -- forgot everything it had just decided, and a busy account's cursor
+    -- crawled while its newest messages waited for the backlog.
+    pending_high_water_mark bigint CHECK (pending_high_water_mark IS NULL OR pending_high_water_mark > 0),
 
     -- What the last poll did, for the screen and for a human debugging one.
     -- last_error_class is a CLASS, never the provider's own message: it is

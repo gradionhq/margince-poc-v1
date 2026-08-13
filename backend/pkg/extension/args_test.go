@@ -15,8 +15,14 @@ import (
 )
 
 type args struct {
-	Body string `json:"body"`
-	Kind string `json:"kind"`
+	Body   string `json:"body"`
+	Kind   string `json:"kind"`
+	Nested nested `json:"nested"`
+}
+
+type nested struct {
+	Token string   `json:"token"`
+	Tags  []string `json:"tags"`
 }
 
 func TestDecodeArgsReadsTheDeclaredDocument(t *testing.T) {
@@ -57,6 +63,31 @@ func TestDecodeArgsRefusesARepeatedMemberRatherThanKeepingOne(t *testing.T) {
 	}
 	if got.Body != "" {
 		t.Errorf("the refusal still returned a value: %+v", got)
+	}
+}
+
+// The same hole one level down, which the type-driven scan cannot see: a
+// nested value is skipped as raw bytes, and encoding/json quietly keeps the
+// last copy. That is exactly how a value gets past a reviewer who read the
+// first one.
+func TestDecodeArgsRefusesARepeatedMemberAtAnyDepth(t *testing.T) {
+	for name, document := range map[string]string{
+		"nested twice":            `{"nested":{"token":"reviewed","token":"attacker"}}`,
+		"inside an array element": `{"nested":{"tags":["a"]},"body":"x","kind":"y"}`,
+		"deep inside an array":    `{"nested":{"token":"t"},"body":"x"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := extension.DecodeArgs[args](json.RawMessage(document))
+			// Only the first document is a repetition; the other two are
+			// well-formed and must still be accepted, or this check would be
+			// refusing ordinary nesting.
+			if name == "nested twice" && err == nil {
+				t.Fatal("a member repeated inside a nested object was accepted")
+			}
+			if name != "nested twice" && err != nil {
+				t.Fatalf("an ordinary nested document was refused: %v", err)
+			}
+		})
 	}
 }
 

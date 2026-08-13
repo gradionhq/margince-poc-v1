@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -37,8 +38,8 @@ const maxTokenBytes = 512
 // one place so a column added to the table is one edit rather than five.
 const connectionColumns = `id::text, user_id::text, base_url, status,
 	coalesce(account_label, ''), coalesce(provider_workspace_id, ''),
-	high_water_mark, coalesce(backfill_before, 0), last_polled_at,
-	coalesce(last_error_class, ''), version`
+	high_water_mark, coalesce(backfill_before, 0), coalesce(pending_high_water_mark, 0),
+	last_polled_at, coalesce(last_error_class, ''), version`
 
 // connection is one member's connection, as this unit reads and renders it.
 //
@@ -57,13 +58,15 @@ type connection struct {
 	// depositing a token and the first tick.
 	AccountLabel        string `json:"account_label"`
 	ProviderWorkspaceID string `json:"provider_workspace_id"`
-	// HighWaterMark and BackfillBefore are the cursor's two halves; poll.go
-	// owns what they mean. Zero backfill is "no gap", which is why the read
-	// coalesces the null away: the screen renders a number or nothing, and a
-	// pointer here would buy a distinction nobody displays.
-	HighWaterMark  int64  `json:"high_water_mark"`
-	BackfillBefore int64  `json:"backfill_before"`
-	LastPolledAt   string `json:"last_polled_at,omitempty"`
+	// HighWaterMark, BackfillBefore and PendingHighWaterMark are the cursor's
+	// three parts; walk.go owns what they mean. Zero means "none" for the
+	// latter two, which is why the read coalesces the nulls away: the screen
+	// renders a number or nothing, and a pointer here would buy a distinction
+	// nobody displays.
+	HighWaterMark        int64  `json:"high_water_mark"`
+	BackfillBefore       int64  `json:"backfill_before"`
+	PendingHighWaterMark int64  `json:"pending_high_water_mark"`
+	LastPolledAt         string `json:"last_polled_at,omitempty"`
 	// LastErrorClass is a class this unit chose, never a provider's own
 	// message: it is rendered, and a remote party's prose is not this
 	// installation's to display.
@@ -71,19 +74,32 @@ type connection struct {
 	Version        int    `json:"version"`
 }
 
+// cursor is where this connection has read to, as the walk reasons about it.
+func (c connection) cursor() cursor {
+	return cursor{floor: c.HighWaterMark, gap: c.BackfillBefore, top: c.PendingHighWaterMark}
+}
+
 // scanConnection reads connectionColumns off one row.
+//
+// last_polled_at is scanned as a TIME and rendered afterwards, not scanned as
+// text. The column is timestamptz, and the driver refuses to put one into a
+// string — which no unit test caught, because a fake hands back whatever the
+// fixture scripted while the driver decides by the column's real type. The
+// rendering is RFC 3339 because that is what the contract declares and what the
+// screen's formatter parses.
 func scanConnection(scan func(...any) error) (connection, error) {
 	var (
 		c            connection
-		lastPolledAt *string
+		lastPolledAt *time.Time
 	)
 	err := scan(&c.ID, &c.UserID, &c.BaseURL, &c.Status, &c.AccountLabel, &c.ProviderWorkspaceID,
-		&c.HighWaterMark, &c.BackfillBefore, &lastPolledAt, &c.LastErrorClass, &c.Version)
+		&c.HighWaterMark, &c.BackfillBefore, &c.PendingHighWaterMark, &lastPolledAt,
+		&c.LastErrorClass, &c.Version)
 	if err != nil {
 		return connection{}, err
 	}
 	if lastPolledAt != nil {
-		c.LastPolledAt = *lastPolledAt
+		c.LastPolledAt = lastPolledAt.UTC().Format(time.RFC3339)
 	}
 	return c, nil
 }
@@ -98,12 +114,16 @@ func scanConnection(scan func(...any) error) (connection, error) {
 // another would forge that consent through this unit's own front door. It is
 // the same rule as captured_by being stamped from the authenticated principal.
 //
-// Re-connecting REPLACES the token and the base URL and leaves the cursor where
-// it was. A member who rotates their token has not asked to re-read their
-// inbox, and resetting the mark would re-land every message they have received
-// since they first connected — deduplicated by the natural key, so not visible
-// as damage, but a pointless walk of the whole feed every time somebody pastes
-// a new token.
+// Re-connecting REPLACES the token and leaves the cursor where it was — unless
+// the deployment changed, and that exception is the load-bearing half.
+//
+// A member who rotates their token has not asked to re-read their inbox, and
+// resetting would re-walk the whole feed for nothing. But a notification id
+// belongs to ONE deployment: point the same row at another Dispact and the old
+// cursor is a number from a different sequence, almost certainly far above
+// anything the new deployment has issued — so every walk would stop on its
+// first item, the row would look healthy and freshly polled, and nothing would
+// ever land again. The cursor is therefore reset exactly when base_url changes.
 func connect(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
 	args, err := extension.DecodeArgs[struct {
 		BaseURL string `json:"base_url"`
@@ -148,6 +168,17 @@ func connect(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 			    SET base_url = EXCLUDED.base_url,
 			        status = '`+statusConnected+`',
 			        last_error_class = NULL,
+			        -- The cursor survives a token rotation and is reset by a
+			        -- DEPLOYMENT change: ids from the old one mean nothing
+			        -- against the new, and keeping them stops the feed dead.
+			        high_water_mark = CASE WHEN `+connectionTable+`.base_url = EXCLUDED.base_url
+			                               THEN `+connectionTable+`.high_water_mark ELSE 0 END,
+			        backfill_before = CASE WHEN `+connectionTable+`.base_url = EXCLUDED.base_url
+			                               THEN `+connectionTable+`.backfill_before ELSE NULL END,
+			        pending_high_water_mark = CASE WHEN `+connectionTable+`.base_url = EXCLUDED.base_url
+			                               THEN `+connectionTable+`.pending_high_water_mark ELSE NULL END,
+			        provider_workspace_id = CASE WHEN `+connectionTable+`.base_url = EXCLUDED.base_url
+			                               THEN `+connectionTable+`.provider_workspace_id ELSE NULL END,
 			        version = `+connectionTable+`.version + 1,
 			        updated_at = now()
 			 RETURNING `+connectionColumns, member, base).Scan)
@@ -267,15 +298,17 @@ func connectionOf(ctx context.Context, tx extension.Tx, member string) (*connect
 	return &found, nil
 }
 
-// isNoRows reports whether err is the driver's empty-result answer.
+// isNoRows reports whether a single-row read matched nothing.
 //
-// Matched on its TEXT because the published surface hands a unit no driver
-// types and no sentinel for it — the seam is deliberately narrow. The text is
-// pgx's and has been stable across its v5 line; a change would show up as a
-// read that reports an error instead of "no such row", which is the safe
-// direction to be wrong in. Filed with the tier's other published-surface gaps.
+// It is the PUBLISHED sentinel, and the distinction cost a UAT to find: an
+// earlier version matched the driver's own text ("no rows in result set"),
+// which the seam never hands a unit — the core translates it into
+// extension.ErrNoRows precisely so a unit does not match on a driver's
+// wording. Every read here then reported "no such connection" as a 500, and
+// the unit's own suite agreed with it, because the fake returned the text the
+// handler was looking for rather than what the core returns.
 func isNoRows(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "no rows in result set")
+	return errors.Is(err, extension.ErrNoRows)
 }
 
 // connectableBaseURL validates what a member typed, through the same parser the

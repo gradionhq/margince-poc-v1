@@ -144,7 +144,7 @@ func depositCredential(t *testing.T, e *extRuntimeEnv, member ids.UUID) {
 	t.Helper()
 	ctx := e.callCtx(e.WS)
 	store := extsecrets.For(ingressUnit, e.Pool, e.vault)
-	if err := store.PutUser(ctx, extension.UserID(member.String()), "api-token", []byte("pat_probe")); err != nil {
+	if err := store.PutUser(ctx, extension.UserID(member.String()), ingressTestSecretKey, []byte("pat_probe")); err != nil {
 		t.Fatalf("depositing the member's credential: %v", err)
 	}
 }
@@ -313,6 +313,81 @@ func TestAFreemailSenderMintsThePerson(t *testing.T) {
 	if got := e.countAsWorkspace(t,
 		`SELECT count(*) FROM person_email WHERE email = $1`, "someone@gmail.com"); got != 1 {
 		t.Errorf("person rows = %d, want the one the freemail arm creates", got)
+	}
+}
+
+// The SKIP arm, which the port calls load-bearing and which nothing exercised
+// end to end until this test: the core drops a wholly-internal message on
+// purpose, and the seam reports that as a SUCCESS carrying no reference.
+//
+// It matters because of what the unit does next. Mapped to an error, a
+// deliberate drop is a failure a connector retries on every poll, forever —
+// re-fetching the same message and re-committing capture's breadcrumb each
+// time — while the member's cursor never moves past it.
+//
+// The installation has to have registered its own domain for the gate to fire
+// at all: on a fresh install nothing is internal, which is a real arm of the
+// same gate and the reason this test seeds a verified domain rather than
+// assuming one.
+func TestAWhollyInternalMessageIsSkippedAsASuccess(t *testing.T) {
+	e := setupIngress(t)
+	registerOwnDomain(t, e.extRuntimeEnv, "authz.test")
+	rt := e.ingestingRuntime()
+
+	// Both ends on the installation's own domain: colleagues talking, which is
+	// not evidence of a customer relationship.
+	internal := aProviderRecord("ws-7:7001", "colleague@authz.test")
+	internal.Addresses = []string{"colleague@authz.test", "a@authz.test"}
+
+	result, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()), internal)
+	if err != nil {
+		t.Fatalf("Ingest: %v — a deliberate drop reported as a failure is one a connector retries forever", err)
+	}
+	if result.Disposition != extension.DispositionSkipped {
+		t.Fatalf("disposition = %q, want skipped", result.Disposition)
+	}
+	if result.Ref.ID != "" {
+		t.Errorf("ref = %+v, want none — nothing was kept", result.Ref)
+	}
+	if got := e.countAsWorkspace(t,
+		`SELECT count(*) FROM activity WHERE source = $1`, ingressProbeSource); got != 0 {
+		t.Errorf("activity rows = %d, want none — the message was dropped on purpose", got)
+	}
+}
+
+// registerOwnDomain gives the installation a verified mail domain, which is
+// what makes the internal-only gate have anything to compare against.
+func registerOwnDomain(t *testing.T, e *extRuntimeEnv, domain string) {
+	t.Helper()
+	owner := integration.OwnerConn(t)
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO workspace_email_domain (workspace_id, domain, verified)
+		 VALUES ($1, $2, true)`, e.WS, domain); err != nil {
+		t.Fatalf("registering %s as an own domain: %v", domain, err)
+	}
+}
+
+// A credential under a key the unit no longer declares is not consent to
+// anything the current manifest describes — extension_secret keeps the mapping
+// row after a declaration changes, and what an operator can read has to be what
+// the core acts on.
+func TestACredentialUnderAnUndeclaredKeyIsNotConsent(t *testing.T) {
+	e := setupIngress(t)
+	ctx := e.callCtx(e.WS)
+	store := extsecrets.For(ingressUnit, e.Pool, e.vault)
+	if err := store.DeleteUser(ctx, extension.UserID(e.member.String()), ingressTestSecretKey); err != nil {
+		t.Fatalf("removing the declared credential: %v", err)
+	}
+	// The member still holds a credential with this unit — under a key it does
+	// not declare, which is the state a removed or renamed declaration leaves.
+	if err := store.PutUser(ctx, extension.UserID(e.member.String()), "a-key-the-unit-no-longer-declares", []byte("pat_probe")); err != nil {
+		t.Fatalf("depositing the stale credential: %v", err)
+	}
+
+	_, err := e.ingestingRuntime().Ingest(context.Background(), extension.UserID(e.member.String()),
+		aProviderRecord("ws-7:8001", "outside@example.test"))
+	if !errors.Is(err, extension.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden — a key the manifest does not describe authorizes nothing", err)
 	}
 }
 

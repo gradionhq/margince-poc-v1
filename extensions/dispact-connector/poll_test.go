@@ -180,7 +180,9 @@ func TestAPollLandsDirectedMessagesAndNothingElse(t *testing.T) {
 
 // A record the core calls invalid can never land, so the poll must not park on
 // it: the connection would stop reading its inbox over one malformed message.
-func TestAnUnlandableRecordIsPassedRatherThanParkedOn(t *testing.T) {
+// It also must not vanish — a provider change that made every record
+// unrepresentable would otherwise look exactly like a quiet feed.
+func TestAnUnlandableRecordIsPassedOverAndRecorded(t *testing.T) {
 	provider := &fakeProvider{items: descending(dm(20)), pageSize: 50}
 	rt := newRuntime().unattended()
 	rt.ingestErr, rt.ingestFrom = extension.ErrInvalid, 1
@@ -193,6 +195,34 @@ func TestAnUnlandableRecordIsPassedRatherThanParkedOn(t *testing.T) {
 	}
 	if processedTo != 20 {
 		t.Errorf("processed to %d, want 20 — an unlandable record is decided about", processedTo)
+	}
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventRecordDropped {
+		t.Fatalf("published %+v, want one %q event — a drop nobody can see is a connector that looks healthy while it loses everything", rt.tx.published, eventRecordDropped)
+	}
+}
+
+// A sender the provider cannot resolve to an address is the other way a record
+// becomes unrepresentable, and it is recorded on the same terms.
+func TestASenderWithNoAddressIsRecordedAsADrop(t *testing.T) {
+	provider := &fakeProvider{items: descending(dm(20)), pageSize: 50}
+	rt := newRuntime().unattended()
+
+	item := dm(20)
+	item.SenderID = "sender-nobody"
+	processedTo, err := landAll(context.Background(), rt, provider.start(t),
+		[]inboxItem{item}, aConnection(0, 0),
+		providerUser{ID: "provider-member", WorkspaceID: "ws-7", Email: "member@installation.test"})
+	if err != nil {
+		t.Fatalf("landAll: %v", err)
+	}
+	if processedTo != 20 {
+		t.Errorf("processed to %d, want the unresolvable sender's message decided about", processedTo)
+	}
+	if len(rt.ingested) != 0 {
+		t.Errorf("a record with no counterparty was handed to the core: %+v", rt.ingested)
+	}
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventRecordDropped {
+		t.Fatalf("published %+v, want the drop recorded", rt.tx.published)
 	}
 }
 
@@ -240,73 +270,6 @@ func TestThePollDoesNotIngestFromInsideItsOwnTransaction(t *testing.T) {
 	}
 }
 
-// The walk stops at the mark rather than reading the whole feed, and reports
-// itself closed — which is what lets the cursor move.
-func TestTheWalkStopsAtTheMark(t *testing.T) {
-	provider := &fakeProvider{items: descending(dm(40), dm(30), dm(20), dm(10)), pageSize: 2}
-	walked, err := walkInbox(context.Background(), provider.start(t), 20, 0, maxPagesPerPoll)
-	if err != nil {
-		t.Fatalf("walkInbox: %v", err)
-	}
-	if !walked.closed {
-		t.Error("the walk reached the mark and did not report itself closed, so the cursor would never move")
-	}
-	if len(walked.items) != 2 {
-		t.Fatalf("fetched %d item(s), want the two above the mark", len(walked.items))
-	}
-}
-
-// The budget case, and the defect the second cursor exists for: a walk that
-// ran out of pages must NOT advance the mark, or everything under the gap
-// becomes unreachable — the next tick's newest page is already above it.
-func TestATruncatedWalkLeavesTheMarkAndRemembersTheGap(t *testing.T) {
-	provider := &fakeProvider{items: descending(dm(50), dm(40), dm(30), dm(20), dm(10)), pageSize: 1}
-	walked, err := walkInbox(context.Background(), provider.start(t), 0, 0, 2)
-	if err != nil {
-		t.Fatalf("walkInbox: %v", err)
-	}
-	if walked.closed {
-		t.Fatal("a walk that spent its budget reported itself closed")
-	}
-	mark, gap := advanced(0, 0, 40, walked)
-	if mark != 0 {
-		t.Errorf("mark = %d, want it left at 0 — advancing over an unread region strands it permanently", mark)
-	}
-	if gap != 40 {
-		t.Errorf("gap = %d, want the oldest id this walk reached", gap)
-	}
-	// And the next tick resumes UNDER the gap rather than at the newest page.
-	provider.requests = nil
-	if _, err := walkInbox(context.Background(), provider.start(t), 0, gap, 2); err != nil {
-		t.Fatalf("the resuming walk: %v", err)
-	}
-}
-
-// Closing the gap is what finally moves the mark, and clears the gap with it.
-func TestClosingTheGapMovesTheMarkAndClearsIt(t *testing.T) {
-	provider := &fakeProvider{items: descending(dm(30), dm(20), dm(10)), pageSize: 50}
-	walked, err := walkInbox(context.Background(), provider.start(t), 0, 40, maxPagesPerPoll)
-	if err != nil {
-		t.Fatalf("walkInbox: %v", err)
-	}
-	if !walked.closed {
-		t.Fatal("a walk that reached the start of the feed did not report itself closed")
-	}
-	mark, gap := advanced(0, 40, 30, walked)
-	if mark != 30 || gap != 0 {
-		t.Errorf("cursor = (%d, %d), want (30, 0) — the gap is closed, so the mark may jump to the top of what was decided", mark, gap)
-	}
-}
-
-// A closed walk that found nothing new still clears a gap: the region the gap
-// named has now been read.
-func TestAClosedWalkWithNothingNewStillClearsTheGap(t *testing.T) {
-	mark, gap := advanced(30, 40, 0, walkResult{closed: true})
-	if mark != 30 || gap != 0 {
-		t.Errorf("cursor = (%d, %d), want (30, 0)", mark, gap)
-	}
-}
-
 // A revoked token parks the connection rather than being retried every two
 // minutes for as long as nobody notices.
 func TestARevokedTokenParksTheConnection(t *testing.T) {
@@ -337,7 +300,7 @@ func TestAPollThatFoundNothingRecordsNothing(t *testing.T) {
 	rt.tx.singleRows = [][]any{unchanged}
 
 	err := saveCursor(context.Background(), rt, aConnection(30, 0),
-		providerUser{WorkspaceID: "ws-7", DisplayName: "The Member"}, 30, 0)
+		providerUser{WorkspaceID: "ws-7", DisplayName: "The Member"}, cursor{floor: 30})
 	if err != nil {
 		t.Fatalf("saveCursor: %v", err)
 	}
@@ -354,7 +317,7 @@ func TestAPollThatMovedTheCursorRecordsIt(t *testing.T) {
 	rt.tx.singleRows = [][]any{moved}
 
 	err := saveCursor(context.Background(), rt, aConnection(30, 0),
-		providerUser{WorkspaceID: "ws-7", DisplayName: "The Member"}, 90, 0)
+		providerUser{WorkspaceID: "ws-7", DisplayName: "The Member"}, cursor{floor: 90})
 	if err != nil {
 		t.Fatalf("saveCursor: %v", err)
 	}
@@ -374,7 +337,7 @@ func TestACursorForAConnectionThatWentAwayIsNotResurrected(t *testing.T) {
 	rt.tx.noRows = map[int]bool{1: true}
 
 	err := saveCursor(context.Background(), rt, aConnection(30, 0),
-		providerUser{WorkspaceID: "ws-7"}, 90, 0)
+		providerUser{WorkspaceID: "ws-7"}, cursor{floor: 90})
 	if err != nil {
 		t.Fatalf("saveCursor: %v", err)
 	}

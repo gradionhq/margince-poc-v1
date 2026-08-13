@@ -97,7 +97,7 @@ type client struct {
 // two side by side. What stands in for that is a table of addresses this
 // package refuses, kept in client_test.go and worth reading as the guard's real
 // definition. Publishing a guarded HTTP client on the tier's own surface is the
-// fix that removes the copy, and it is filed.
+// fix that removes the copy (#1194).
 func newClient(base, token string) (*client, error) {
 	parsed, err := parseBaseURL(base)
 	if err != nil {
