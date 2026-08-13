@@ -352,7 +352,7 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     render(<HomeScreen />);
     const line = await screen.findByText(/rejected our credentials/i);
     await userEvent.click(line);
-    expect(window.location.hash).toBe("#/settings/integrations");
+    expect(window.location.hash).toBe("#/settings/connections");
   });
 
   it("stays quiet when every digest connector is healthy — a green row is noise", async () => {

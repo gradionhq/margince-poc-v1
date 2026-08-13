@@ -3,13 +3,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   Database,
-  Layers,
+  KeyRound,
+  Mail,
   Mic,
-  ScrollText,
+  Plug,
   ShieldCheck,
   Sparkles,
+  UserRound,
   UsersRound,
-  Webhook,
+  Wrench,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
@@ -197,49 +199,58 @@ export const SidebarStates: Story = {
  * the section's own name — so the data is held still and the rendering is what
  * varies.
  *
- * `overlay` carries children no settings tab really has, which is the one part
+ * `privacy` carries children no settings entry really has, which is the one part
  * of the fixture that is not a copy of production: it is how the third level
  * (and the back control that names the level it leads to) can be seen at all.
  */
 const SETTINGS_SECTION: NavSection = {
   screen: "settings",
   titleKey: "nav.settings",
-  activeId: "audit",
+  activeId: "privacy",
   groups: [
     {
       headingKey: "settings.group.you",
       items: [
-        { id: "account", labelKey: "settings.tab.account", icon: Building2 },
+        { id: "account", labelKey: "settings.tab.account", icon: UserRound },
         { id: "voice", labelKey: "settings.tab.voice", icon: Mic },
-        { id: "ai", labelKey: "settings.tab.ai", icon: Sparkles },
-        {
-          id: "integrations",
-          labelKey: "settings.tab.integrations",
-          icon: Webhook,
-        },
+        { id: "agents", labelKey: "settings.tab.agents", icon: KeyRound },
       ],
     },
     {
       headingKey: "settings.group.org",
       items: [
-        { id: "users", labelKey: "settings.tab.users", icon: UsersRound },
-        { id: "data", labelKey: "settings.tab.data", icon: Database },
-        { id: "privacy", labelKey: "settings.tab.privacy", icon: ShieldCheck },
-        { id: "audit", labelKey: "settings.tab.audit", icon: ScrollText },
+        { id: "general", labelKey: "settings.tab.general", icon: Building2 },
+        { id: "people", labelKey: "settings.tab.people", icon: UsersRound },
+        { id: "connections", labelKey: "settings.tab.connections", icon: Plug },
+        { id: "capture", labelKey: "settings.tab.capture", icon: Mail },
         {
-          id: "overlay",
-          labelKey: "settings.tab.overlay",
-          icon: Layers,
+          id: "data-model",
+          labelKey: "settings.tab.data-model",
+          icon: Database,
+        },
+        { id: "ai", labelKey: "settings.tab.ai", icon: Sparkles },
+        {
+          id: "privacy",
+          labelKey: "settings.tab.privacy",
+          icon: ShieldCheck,
           children: [
-            { id: "users", labelKey: "settings.tab.users", icon: UsersRound },
-            { id: "data", labelKey: "settings.tab.data", icon: Database },
+            { id: "people", labelKey: "settings.tab.people", icon: UsersRound },
+            {
+              id: "data-model",
+              labelKey: "settings.tab.data-model",
+              icon: Database,
+            },
           ],
+        },
+        {
+          id: "maintenance",
+          labelKey: "settings.tab.maintenance",
+          icon: Wrench,
         },
       ],
     },
   ],
 };
-
 // The level shown is derived from the ADDRESS, and the way back up navigates —
 // so in a story holding a route still it moves the URL and leaves the panel
 // where the story put it. Each depth below is therefore a story of its own,
@@ -250,14 +261,15 @@ const SETTINGS_SECTION: NavSection = {
 // that opened nothing would misrepresent the one visible way to search.
 function LevelExample({
   initiallyCollapsed,
-  tab = "audit",
-}: Readonly<{ initiallyCollapsed: boolean; tab?: string }>) {
+  tab = "general",
+  sub,
+}: Readonly<{ initiallyCollapsed: boolean; tab?: string; sub?: string }>) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   const { openSearch, palette } = usePaletteSeam();
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
       <WorkspaceRail
-        route={{ screen: "settings", id: tab }}
+        route={{ screen: "settings", id: tab, id2: sub }}
         section={{ ...SETTINGS_SECTION, activeId: tab }}
         counts={{ inbox: 12, tasks: 4 }}
         collapsed={collapsed}
@@ -314,7 +326,9 @@ export const ThirdLevel: Story = {
   name: "third level — expanded",
   render: () => (
     <LevelStory>
-      <LevelExample initiallyCollapsed={false} tab="overlay" />
+      {/* The child segment too, or the third level renders with no row current
+          — a picture of a level nobody is standing in. */}
+      <LevelExample initiallyCollapsed={false} tab="privacy" sub="data-model" />
     </LevelStory>
   ),
 };
@@ -340,7 +354,7 @@ export const ThirdLevel: Story = {
  * one in Storybook itself, or by narrowing the browser.
  */
 function PhoneSectionExample() {
-  const route = { screen: "settings", id: "audit" };
+  const route = { screen: "settings", id: "privacy" };
   const { openSearch, palette } = usePaletteSeam();
   return (
     <div className="app railexpanded">

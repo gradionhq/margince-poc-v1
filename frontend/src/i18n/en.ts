@@ -76,7 +76,6 @@ export const en = {
   "nav.reports": "Reports",
   "nav.ai": "Ask Margince",
   "nav.settings": "Settings",
-  "nav.design": "Design system",
   "nav.automations": "Automations",
   "nav.group.records": "Records",
   "nav.group.work": "Work",
@@ -84,8 +83,6 @@ export const en = {
   "nav.group.units": "Units",
   "nav.units.entry": "Unit",
   "nav.dedupe": "Duplicates",
-  "nav.products": "Products",
-  "nav.offerTemplates": "Offer templates",
   "nav.offers": "Offer",
   "nav.share": "Sharing",
   "nav.search": "Search results",
@@ -407,7 +404,7 @@ export const en = {
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
   "overlay.chipAria":
-    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Overlay to manage the connection.",
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Connections to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
   "overlay.filterUnsupported":
@@ -1761,10 +1758,6 @@ export const en = {
   "settings.revoke": "Revoke",
   "settings.revokeConfirm":
     "This passport's credential is invalidated immediately — the agent loses access on its next call.",
-  "settings.automations": "Automations",
-  "settings.automationsSub":
-    "the bounded starter catalog — enable, parameterize, pause",
-  "settings.openAutomations": "Open the automations editor",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
     "non-production only — irreversible on this installation",
@@ -1780,15 +1773,58 @@ export const en = {
     "Cleared {tables} tables, {jobs} job rows, {streams} event streams, {keys} cache keys and {objects} stored files.",
   "settings.resetDataDrainWarning":
     "A background job was still running when the reset began. It will fail against the wiped data — harmless, but expect one error in the log.",
-  "settings.audit": "Audit log",
+
+  "settings.jobs": "Background jobs",
+  "settings.jobsSub": "what the queue is holding, and whose work failed",
+  "jobs.adminOnly":
+    "Only an admin can see background-job health. It reports work across the whole installation, so it is not shown more widely.",
+  "jobs.empty":
+    "Nothing in the background queue — no work waiting, running, retrying or dead.",
+  "jobs.workspaceKinds": "This workspace",
+  "jobs.workspaceEmpty": "No background work of any kind for this workspace.",
+  "jobs.dispatcherKinds": "Fleet dispatchers",
+  "jobs.dispatcherSub":
+    "Rows that carry no workspace: a dispatcher fans work out to every workspace and does none of its own. Their counts belong to the installation, not to you.",
+  "jobs.dispatcherEmpty":
+    "No dispatcher rows. The periodic ticks re-insert them, so an empty list means none is scheduled right now.",
+  "jobs.count.waiting": "{count} waiting",
+  "jobs.count.running": "{count} running",
+  "jobs.count.retrying": "{count} retrying",
+  "jobs.count.dead": "{count} dead",
+  "jobs.queue": "queue {queue}",
+  "jobs.waitedSeconds.one": "oldest has waited {count} second",
+  "jobs.waitedSeconds.other": "oldest has waited {count} seconds",
+  "jobs.waitedMinutes.one": "oldest has waited {count} minute",
+  "jobs.waitedMinutes.other": "oldest has waited {count} minutes",
+  "jobs.waitedHours.one": "oldest has waited {count} hour",
+  "jobs.waitedHours.other": "oldest has waited {count} hours",
+  "jobs.waitedDays.one": "oldest has waited {count} day",
+  "jobs.waitedDays.other": "oldest has waited {count} days",
+  "jobs.deadTitle": "Dead work needs a hand",
+  "jobs.deadBody":
+    "{count} jobs are discarded or cancelled: that work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately. Read the failures below before re-queueing anything.",
+  "jobs.failures": "Recent failures",
+  "jobs.failuresSub":
+    "Most recent first, capped at 50. A bounded list, not a log.",
+  "jobs.failuresEmpty": "No failures recorded.",
+  "jobs.state.retryable": "retrying",
+  "jobs.state.discarded": "discarded",
+  "jobs.state.cancelled": "cancelled",
+  "jobs.attempt": "attempt {attempt} of {max} · {when}",
+  "jobs.reasonVetted":
+    "Each reason is the job layer's own wording. The worker's raw cause is never sent here, so a failure it cannot phrase reports a fixed substitute instead.",
+  "jobs.generatedAt": "Read at {time}",
+
   "audit.you": "You",
   "audit.teammate": "A teammate",
   "audit.system": "System",
   "audit.onBehalfOfYou": "on behalf of you",
   "audit.onBehalfOfTeammate": "on behalf of a teammate",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
+  "settings.auditAdminOnly":
+    "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",
   "settings.auditFilters": "Filters",
-  "settings.auditEntries": "Entries",
+  "settings.auditEntries": "Audit log",
   "settings.auditActor": "Actor",
   "settings.auditEntity": "Entity type",
   "settings.auditEntityId": "Entity id",
@@ -2330,7 +2366,7 @@ export const en = {
     "Capture hit a problem we can't classify yet. We'll keep retrying.",
 
   // The OAuth return outcome (Task 2): the callback lands back on
-  // #/settings/integrations/{outcome} — a dismissible inline note driven by
+  // #/settings/connections/{outcome} — a dismissible inline note driven by
   // that route segment, never a claim the server hasn't confirmed.
   "connectors.oauthOk": "Connected. Your mailbox is now capturing.",
   "connectors.oauthDenied": "You declined access — nothing was connected.",
@@ -3422,22 +3458,20 @@ export const en = {
   "cf.propagate.list": "As a list / report column",
   "cf.propagate.export": "In CSV export",
   "cf.propagate.api": "On the public REST / MCP API",
-  "nav.customFields": "Custom fields",
-  "settings.customFields": "Custom fields",
-  "settings.customFieldsSub":
-    "Add a typed field to a core object — no code, no deploy.",
-  "settings.openCustomFields": "Open custom fields",
+  // The settings level, in the order the sidebar prints it. "General" rather
+  // than "Organization" for the first org entry: the group heading above it
+  // already says that word, and a row repeating its own heading names nothing.
   "settings.tab.account": "Account",
-  "settings.tab.company": "Company context",
-  "settings.tab.ai": "AI & autonomy",
-  "settings.tab.data": "Data model",
-  "settings.tab.catalog": "Catalog",
-  "settings.tab.rates": "Rates & costs",
-  "settings.tab.privacy": "Privacy & consent",
-  "settings.tab.audit": "Audit log",
-  "settings.tab.voice": "Voice DNA",
-  "settings.tab.integrations": "Integrations",
-  "settings.tab.overlay": "Overlay",
+  "settings.tab.voice": "Voice",
+  "settings.tab.agents": "Your agents",
+  "settings.tab.general": "General",
+  "settings.tab.people": "People & access",
+  "settings.tab.connections": "Connections",
+  "settings.tab.capture": "Capture",
+  "settings.tab.data-model": "Data model",
+  "settings.tab.ai": "AI",
+  "settings.tab.privacy": "Privacy & audit",
+  "settings.tab.maintenance": "Maintenance",
   "settings.group.you": "You",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",
@@ -3563,7 +3597,6 @@ export const en = {
     "Queued — it'll finish shortly and update automatically.",
   "settings.voice.buildStatus.pending":
     "Still building — this can take a moment; it'll update here when it's done.",
-  "settings.tab.extensions": "Extensions",
   "extAccess.title": "Extensions & access",
   "extAccess.sub":
     "What each composed extension unit brought into this installation, and which role may use it. Admin-only.",
@@ -3595,7 +3628,6 @@ export const en = {
   "extAccess.systemRole": "Built-in role",
   "extAccess.nobodyReads":
     "No role holds read on {object}, so every member sees an empty screen where this extension should be. Grant read to at least one role below.",
-  "settings.tab.users": "Users & roles",
   "users.title": "Users & roles",
   "users.sub": "Invite members, set roles, and deactivate access. Admin-only.",
   "users.empty": "No members yet.",
@@ -3688,6 +3720,7 @@ export const en = {
   "settings.companyClass.unchanged": "Unchanged",
   "settings.companyResolution.keep_current": "Keep current",
   "settings.companyResolution.accept_proposal": "Accept website",
+  "settings.companyResolution.useValueFor": "Value to keep for {field}",
   "settings.companyResolution.use_value": "Use my edited value",
   "settings.companyManualKicker": "Private, manual setup",
   "settings.companyManualTitle": "Tell Margince the essentials",
@@ -3696,7 +3729,6 @@ export const en = {
   "settings.companyCreateWorkspace": "Create company context",
   "product.title": "Products",
   "product.settingsSub": "Rate-card entries that offer lines snapshot from.",
-  "product.open": "Open products",
   "product.new": "New product",
   "product.edit": "Edit product",
   "product.archive": "Archive product",
@@ -3720,7 +3752,6 @@ export const en = {
 
   "template.title": "Offer templates",
   "template.settingsSub": "Branded DE/EN PDF layouts for offers.",
-  "template.open": "Open offer templates",
   "template.new": "New template",
   "template.edit": "Edit template",
   "template.archive": "Archive template",
@@ -3783,6 +3814,8 @@ export const en = {
   "aicalls.title": "AI call trace",
   "aicalls.sub":
     "Every model call — routing identity, tokens, retries, captured payload.",
+  "aicalls.col.detail": "Detail",
+  "aicalls.expandCall": "Show the attempt trail for {task} at {when}",
   "aicalls.col.when": "When",
   "aicalls.col.task": "Task",
   "aicalls.col.model": "Model",
@@ -3892,8 +3925,6 @@ export const en = {
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
 
-  "settings.tab.installation": "Installation",
-  "settings.tab.capture": "Capture",
   "installationSettings.orgTitle": "Organization",
   "installationSettings.orgSub":
     "What this installation is called, and the zone every reporting period is computed in.",

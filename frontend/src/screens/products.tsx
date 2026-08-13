@@ -1,7 +1,7 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Badge } from "../design-system/atoms";
+import { Badge, SectionHeader } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
@@ -84,7 +84,17 @@ function toMinor(major: string | undefined): number {
   return Math.round(Number(major ?? "0") * 100);
 }
 
-export function ProductsScreen() {
+/**
+ * The priced things an offer line can point at, as a section of Settings → Data
+ * model.
+ *
+ * Not a screen of its own: it was one, reached by a card that existed only to
+ * send you here, and a door is not a section. So it renders no `.wrap` — the
+ * settings page owns the reading column — and names itself with a section header
+ * rather than leaning on the shell's page title, which now belongs to the whole
+ * data-model page.
+ */
+export function ProductsAdmin() {
   const t = useT();
   const { locale } = useLocale();
   const list = useListQuery<Product>({
@@ -142,11 +152,14 @@ export function ProductsScreen() {
     };
 
   return (
-    <div className="wrap">
+    <>
+      <SectionHeader
+        title={t("product.title")}
+        sub={t("product.settingsSub")}
+      />
       <ListTable
         state={list}
         unit="unit.products"
-        caption="product.settingsSub"
         action={
           <CreateAction
             label={t("product.new")}
@@ -240,6 +253,6 @@ export function ProductsScreen() {
           },
         ]}
       />
-    </div>
+    </>
   );
 }

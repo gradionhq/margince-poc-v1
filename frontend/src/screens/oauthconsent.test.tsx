@@ -293,7 +293,7 @@ describe("OAuthConsent", () => {
     const stashed = readPendingAuthorize();
     expect(stashed?.url).toContain("/oauth/authorize?");
     expect(stashed?.clientName).toBe("Claude Code");
-    expect(globalThis.location.hash).toBe("#/settings/ai");
+    expect(globalThis.location.hash).toBe("#/settings/agents");
 
     // The nonce must NOT survive into the stash — it is single-use and
     // cookie-bound, and the mint trip navigates away from /oauth/authorize

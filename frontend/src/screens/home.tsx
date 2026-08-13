@@ -162,7 +162,7 @@ function DigestSection() {
                   className="digest-connector-health"
                   data-testid="digest-connector-health"
                   onClick={() =>
-                    navigate({ screen: "settings", id: "integrations" })
+                    navigate({ screen: "settings", id: "connections" })
                   }
                 >
                   {t(

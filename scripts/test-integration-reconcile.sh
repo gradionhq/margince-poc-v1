@@ -69,7 +69,11 @@ if [[ -n "$COVER_OUT" ]]; then
   unit_dir="$ARTIFACTS/integration-covdata-unit"
   [[ -d "$unit_dir" ]] || fail "unit coverage pods missing ($unit_dir) — SonarCloud would see unit-only packages at a false 0%"
   pods="$(find "$ARTIFACTS" -name 'covmeta.*' -exec dirname {} \; | LC_ALL=C sort -u)"
-  printf '%s\n' "$pods" | grep -qxF "$unit_dir" || fail "no covmeta pods in $unit_dir — the unit pass produced no coverage"
+  # A here-string rather than a pipe: `grep -q` exits on its first match, which
+  # sends SIGPIPE to a producer still writing, and `set -o pipefail` then reports
+  # the pipeline as failed. That turned a SUCCESSFUL match into this very
+  # `fail` — the more pods there are, the likelier printf blocks and gets it.
+  grep -qxF "$unit_dir" <<<"$pods" || fail "no covmeta pods in $unit_dir — the unit pass produced no coverage"
   dirs="$(printf '%s\n' "$pods" | paste -sd, -)"
   ( cd backend && go tool covdata textfmt -i="$dirs" -o="$COVER_OUT" )
   echo "coverage: merged $(printf '%s\n' "$pods" | grep -c .) pods (shards + unit) → $COVER_OUT"

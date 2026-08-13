@@ -544,11 +544,6 @@ function SettingsPageHead({
 // slug is never shown as a page title.
 const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   settings: "nav.settings",
-  design: "nav.design",
-  dedupe: "nav.dedupe",
-  products: "nav.products",
-  "offer-templates": "nav.offerTemplates",
-  "custom-fields": "nav.customFields",
   offers: "nav.offers",
   partners: "nav.partners",
   share: "nav.share",

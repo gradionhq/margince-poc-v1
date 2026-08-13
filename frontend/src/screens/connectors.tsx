@@ -63,7 +63,7 @@ const OAUTH_DISCONNECT_NOTE: Partial<Record<Provider, MessageKey>> = {
   graph: "connectors.disconnectBodyMicrosoftNote",
 };
 
-// The OAuth callback lands back on #/settings/integrations/{outcome} — the
+// The OAuth callback lands back on #/settings/connections/{outcome} — the
 // route parses to id2 = "ok" | "denied" | "rejected" | "misconfigured" |
 // "error". Only these are server-defined (contract-first); any other value is
 // silently ignored rather than rendering a raw route segment. "rejected" and
@@ -91,7 +91,7 @@ type ConnectorsResult = {
 };
 
 // The OAuth return outcome (Task 2): the callback lands back on
-// #/settings/integrations/{outcome} — id2 on that route only, never parsed
+// #/settings/connections/{outcome} — id2 on that route only, never parsed
 // from location.hash directly (the router already owns that). Split out of
 // ConnectorsCard so its dismissal state and branching stay off that
 // function's complexity budget. Dismissing (or navigating away, which
@@ -101,7 +101,7 @@ function OAuthOutcomeNote() {
   const t = useT();
   const route = useRoute();
   const oauthOutcome =
-    route.screen === "settings" && route.id === "integrations"
+    route.screen === "settings" && route.id === "connections"
       ? route.id2
       : undefined;
   const [dismissedOutcome, setDismissedOutcome] = useState<string | null>(null);

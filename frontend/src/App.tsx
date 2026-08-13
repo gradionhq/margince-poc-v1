@@ -28,27 +28,22 @@ import {
   AvailabilityScreen,
   RESET_ROUTE,
 } from "./screens/auth";
-import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
 import { AuthProbeError, consumeAuthExitNotice, useMe } from "./screens/common";
-import { CustomFieldsScreen } from "./screens/customfields";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DedupeScreen } from "./screens/dedupe";
-import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { OAuthConsent } from "./screens/oauthconsent";
 import { OfferScreen } from "./screens/offers";
-import { OfferTemplatesScreen } from "./screens/offertemplates";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen } from "./screens/people";
 import { isPersonTab, PersonPageV2 } from "./screens/personpage";
 import { PreferenceCenterScreen } from "./screens/preferences";
-import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
 import { SearchScreen } from "./screens/search";
 import { SettingsScreen } from "./screens/settings";
@@ -188,8 +183,6 @@ function ScreenView({
   id2,
 }: Readonly<{ screen: string; id?: string; id2?: string }>) {
   switch (screen) {
-    case "design":
-      return <DesignScreen />;
     case "contacts":
       // The tab rides the URL, so it survives a reload and can be linked to.
       // An unknown segment falls back to overview rather than rendering an
@@ -219,26 +212,14 @@ function ScreenView({
       return <AskAiScreen />;
     case "settings":
       return <SettingsScreen tab={id} />;
-    // reached from the digest/settings, not the rail (the 9-item rail is
-    // canonical): the dedupe review queue (M4).
     case "dedupe":
       return <DedupeScreen />;
-    // reached from Settings, not the rail — the 9-item rail is canonical
-    case "products":
-      return <ProductsScreen />;
     case "offers":
       return id ? <OfferScreen id={id} /> : <PendingScreen />;
-    case "offer-templates":
-      return <OfferTemplatesScreen />;
     // reached only via the server's redirect off GET /oauth/authorize
     // (#/oauth-consent?…&consent=<nonce>) — never a rail destination.
     case "oauth-consent":
       return <OAuthConsent />;
-    case "automations":
-      return <AutomationsScreen />;
-    // also reached from Settings, not the rail (AC-custom-fields admin door)
-    case "custom-fields":
-      return <CustomFieldsScreen />;
     case "onboarding":
       return <OnboardingScreen />;
     case "client":

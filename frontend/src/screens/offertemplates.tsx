@@ -1,7 +1,7 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Badge } from "../design-system/atoms";
+import { Badge, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -77,7 +77,15 @@ const TEMPLATE_FIELDS: CreateField[] = [
   { key: "footer", label: "template.footer" },
 ];
 
-export function OfferTemplatesScreen() {
+/**
+ * The offer shells an offer is built from, as a section of Settings → Data model.
+ *
+ * Not a screen of its own, for the same reason as {@link ProductsAdmin}: it was
+ * reached by a card that existed only to send you here. It renders no `.wrap` —
+ * the settings page owns the reading column — and names itself with a section
+ * header, since the shell's page title now belongs to the whole data-model page.
+ */
+export function OfferTemplatesAdmin() {
   const t = useT();
   const list = useListQuery<OfferTemplate>({
     key: "offer-templates",
@@ -126,12 +134,15 @@ export function OfferTemplatesScreen() {
     };
 
   return (
-    <div className="wrap">
+    <>
+      <SectionHeader
+        title={t("template.title")}
+        sub={t("template.settingsSub")}
+      />
       <ListTable
         state={list}
         unit="unit.offerTemplates"
         searchable={false}
-        caption="template.settingsSub"
         action={
           <CreateAction
             label={t("template.new")}
@@ -216,6 +227,6 @@ export function OfferTemplatesScreen() {
           },
         ]}
       />
-    </div>
+    </>
   );
 }

@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { useSettingsEntryVisibility } from "../screens/settings";
 import { ENTITY, ENTITY_KINDS, type EntityKind } from "./entity";
 import { NAV } from "./nav";
 import { navigate, type Route } from "./router";
@@ -26,8 +27,16 @@ export type Command = {
   route: Route;
 };
 
+// The settings entries this palette offers a shortcut to. Narrower than the full
+// entry set on purpose — only these two lost an address of their own.
+type OrgEntry = "data-model" | "ai";
+
 export function useBuiltinCommands(): Command[] {
   const t = useT();
+  // Without the company rollout probe: the palette offers no shortcut to General,
+  // and that probe is a network read this hook would otherwise fire on every
+  // screen (see useSettingsEntryVisibility).
+  const visible = useSettingsEntryVisibility(false);
   return useMemo(() => {
     const screens: Command[] = NAV.map((item) => ({
       id: `screen:${item.screen}`,
@@ -59,18 +68,42 @@ export function useBuiltinCommands(): Command[] {
         route: { screen: "book" },
       },
     ];
-    // Settings-reached screens (not in NAV), added to the command surface
-    // explicitly so ⌘K still reaches them.
-    const settingsScreens: Command[] = [
+    // Settings surfaces that are not rail destinations, added explicitly so ⌘K
+    // still reaches them. Each carries the words it USED to be addressed by:
+    // three screens of their own collapsed into the data-model page and the
+    // automations editor into the AI page, and somebody who learned "custom
+    // fields" or "automations" must not be told the product no longer has one.
+    //
+    // Gated on the SAME predicates the settings level uses, because the settings
+    // screen falls back to Account for an entry the principal may not open — so an
+    // ungated command here would be a shortcut that silently goes somewhere else.
+    // Deliberately still not the whole level: only these two lost their own
+    // address, and the rest are reachable by the rail door beside them.
+    // Each carries the entry it opens, so the gate below reads the same answer the
+    // settings level does rather than a second copy of the predicate.
+    const settingsShortcuts: readonly (Command & { entry: OrgEntry })[] = [
       {
-        id: "screen:custom-fields",
-        label: t("nav.customFields"),
+        entry: "data-model",
+        id: "screen:settings-data-model",
+        label: t("settings.tab.data-model"),
+        keywords: ["custom-fields", "products", "offer-templates", "pipelines"],
         type: "screen",
-        route: { screen: "custom-fields" },
+        route: { screen: "settings", id: "data-model" },
+      },
+      {
+        entry: "ai",
+        id: "screen:settings-ai",
+        label: t("settings.tab.ai"),
+        keywords: ["automations"],
+        type: "screen",
+        route: { screen: "settings", id: "ai" },
       },
     ];
+    const settingsScreens: Command[] = settingsShortcuts.filter(
+      (shortcut) => visible[shortcut.entry],
+    );
     return [...screens, ...actions, ...settingsScreens];
-  }, [t]);
+  }, [t, visible]);
 }
 
 // The record kinds a search hit can route to (activity is a valid

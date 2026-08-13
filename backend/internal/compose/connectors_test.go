@@ -251,7 +251,7 @@ func TestLandingURLMapsReturnToThroughAClosedSet(t *testing.T) {
 		returnTo string
 		want     string
 	}{
-		{"settings", "settings", "https://crm.example.com/#/settings/integrations/ok/graph"},
+		{"settings", "settings", "https://crm.example.com/#/settings/connections/ok/graph"},
 		{"onboarding", "onboarding", "https://crm.example.com/#/onboarding/connect/ok/graph"},
 		{"absent falls back to onboarding", "", "https://crm.example.com/#/onboarding/connect/ok/graph"},
 		{"unknown falls back to onboarding", "elsewhere", "https://crm.example.com/#/onboarding/connect/ok/graph"},
@@ -351,7 +351,7 @@ func TestCallbackDenialReturnsToTheSurfaceItStartedFrom(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/settings/integrations/denied/gmail" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/settings/connections/denied/gmail" {
 		t.Errorf("Location = %q, want the denial to land back in Settings", loc)
 	}
 }

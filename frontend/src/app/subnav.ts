@@ -18,8 +18,8 @@ import { type Route, routeHash } from "./router";
 // shell stays ignorant of grants and this module stays free of any screen.
 
 export type NavLevelEntry = {
-  // The route segment this entry addresses at its own depth: `#/settings/audit`
-  // is the `audit` entry of the section the `settings` screen publishes.
+  // The route segment this entry addresses at its own depth: `#/settings/privacy`
+  // is the `privacy` entry of the section the `settings` screen publishes.
   id: string;
   labelKey: MessageKey;
   // label is what an entry the PRODUCT did not name is called: a composed

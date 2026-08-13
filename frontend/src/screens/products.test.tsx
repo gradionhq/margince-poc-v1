@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ProductsScreen } from "./products";
+import { ProductsAdmin } from "./products";
 
 afterEach(() => {
   cleanup();
@@ -45,7 +45,7 @@ const product = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
-describe("ProductsScreen", () => {
+describe("ProductsAdmin", () => {
   it("renders products with money formatted from minor units", async () => {
     vi.stubGlobal(
       "fetch",
@@ -56,7 +56,7 @@ describe("ProductsScreen", () => {
         }),
       ),
     );
-    render(<ProductsScreen />);
+    render(<ProductsAdmin />);
     expect(await screen.findByText("Consulting Day")).toBeTruthy();
     expect(screen.getByText("CONS-DAY")).toBeTruthy();
     // 150000 minor EUR -> "€1,500.00" (en locale)
@@ -85,7 +85,7 @@ describe("ProductsScreen", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<ProductsScreen />);
+    render(<ProductsAdmin />);
     await userEvent.click(await screen.findByTestId("new-record"));
     // Each column header is a sort button carrying its own column's name, so
     // every form field is asked for by role rather than by a loose text match.
