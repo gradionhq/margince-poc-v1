@@ -142,6 +142,7 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 		displayName = overlayUnnamed
 	}
 	orgID := openapi_types.UUID(rec.Ref.ID)
+	domains := overlayOrganizationDomains(orgID, fields)
 	org := crmcontracts.Organization{
 		Id:          orgID,
 		Source:      overlaySource,
@@ -149,7 +150,8 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 		DisplayName: displayName,
 		Industry:    fieldStringPtr(fields, "industry"),
 		Address:     overlayAddress(fields),
-		Domains:     overlayOrganizationDomains(orgID, fields),
+		Domains:     domains,
+		WebsiteUrl:  overlayWebsiteURL(domains),
 		CreatedAt:   overlayTimeOr(fields, "created_at", syncedAt),
 		UpdatedAt:   overlayTimeOr(fields, overlayCanonicalLastModified, syncedAt),
 		Raw:         &fields,

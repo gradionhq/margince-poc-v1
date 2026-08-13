@@ -173,13 +173,12 @@ var personBindings = EntityBinding{
 // organizationBindings disposition every contract Organization field. Armed,
 // on the same terms personBindings is.
 //
-// Seven fields the incumbent could fill are deferred rather than mapped, and
+// Six fields the incumbent could fill are deferred rather than mapped, and
 // each names the reason it is not a one-line addition: one needs a projection
 // that does not exist yet (an association sweep for the parent), four need a
 // decision the mapping cannot make on its own (a length rule, a URL
 // normalization, two remaps onto vocabularies this product defines on its own
-// axes), and two need a read the adapter does not perform (the archive flag,
-// the primary-domain derivation).
+// axes), and one needs a read the adapter does not perform (the archive flag).
 //
 //nolint:goconst // the rows are read as data, and each column is its own vocabulary: a wire slot, the mirror's jsonb key and an incumbent property spell "address" and "industry" alike here by coincidence, so hiding any of them behind one shared name would assert a correspondence the table exists to keep separate
 var organizationBindings = EntityBinding{
@@ -194,9 +193,10 @@ var organizationBindings = EntityBinding{
 		{WireSlot: "created_at", CanonicalKey: "created_at", Incumbent: []string{"createdate"}, Disposition: DispositionMapped},
 		{WireSlot: "updated_at", CanonicalKey: "last_synced_at", Incumbent: []string{"hs_lastmodifieddate"}, Disposition: DispositionMapped},
 
+		{WireSlot: "website_url", Disposition: DispositionDerived, DerivedFrom: []string{"domains"}},
+
 		{WireSlot: "parent_org_id", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1023"},
 		{WireSlot: "archived_at", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1024"},
-		{WireSlot: "website_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1025"},
 		{WireSlot: "description", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1026"},
 		{WireSlot: "linkedin_url", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1027"},
 		{WireSlot: "lifecycle", Disposition: DispositionDeferred, IssueURL: "https://github.com/gradionhq/margince-poc-v1/issues/1028"},
