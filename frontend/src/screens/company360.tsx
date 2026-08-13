@@ -1956,6 +1956,7 @@ function BriefSections({
           <SentenceList
             sentences={section.sentences}
             onOpenRecord={onOpenRecord}
+            citations="collected"
           />
         </div>
       ))}
@@ -2045,13 +2046,8 @@ export function AccountBrief({
   // own sourcing, so it sits in the footer band rather than inside the prose
   // it is sourcing.
   const footer = readable && (
-    <>
+    <div className="co-brief-foot">
       <WrittenBy by={readable.generated_by} />
-      <span className="t-small">
-        {t("co.brief.generatedAt", {
-          when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
-        })}
-      </span>
       <Button
         small
         onClick={() => rewrite.mutate()}
@@ -2059,10 +2055,23 @@ export function AccountBrief({
       >
         {rewrite.isPending ? t("co.brief.rewriting") : t("co.brief.rewrite")}
       </Button>
-    </>
+    </div>
+  );
+  // The "as of" timestamp reads as the header's own fact — when this record
+  // was last assembled — rather than a footnote under the rewrite control.
+  const titleAction = readable && (
+    <span className="t-small">
+      {t("co.brief.generatedAt", {
+        when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+      })}
+    </span>
   );
   return (
-    <Panel title={t("co.brief.title")} footer={footer}>
+    <Panel
+      title={t("co.brief.title")}
+      titleAction={titleAction}
+      footer={footer}
+    >
       <PanelBody className="co-brief-body">
         {brief.isPending && <Skeleton width="100%" height={64} />}
         {/* Errored, or answered with a payload this build cannot read: both are
@@ -2546,16 +2555,18 @@ function FinanceStat({
     <StatCard
       label={t(`co.strip.${reading}`)}
       value={formatMoneyCompact(amount.amount_minor, amount.currency, locale)}
-      source={
-        namesSource && data?.provider ? (
-          <Badge>{data.provider}</Badge>
-        ) : undefined
-      }
       // The source is named ONCE, on the trailing-year slot — the row's
       // primary money reading, and the one a connected account always has. Which
       // accounting system a figure came from is a fact about the CONNECTION,
       // not about each figure, and five slots reading one query would repeat
       // it five times across a strip that has to stay one line.
+      //
+      // As the detail line, not a badge: a strip slot is narrower than a
+      // free-standing stat card, and a badge beside the label wraps onto its
+      // own row underneath it — the one slot naming its source then stood
+      // taller than every sibling in the row. The detail line already exists
+      // for exactly this (a caveat on the figure above it), so the provider
+      // name takes it when there is no caveat to show instead.
       //
       // A figure that is not current is shown WITH its caveat rather than
       // withheld: the last known number is usually the right one, and hiding
@@ -2566,7 +2577,7 @@ function FinanceStat({
       // the date matters. `error` is the last good answer after an attempt
       // that failed. Calling either one the other is a wrong claim about
       // whether anything is broken.
-      detail={caveat && t(caveat)}
+      detail={caveat ? t(caveat) : (namesSource && data?.provider) || undefined}
     />
   );
 }
