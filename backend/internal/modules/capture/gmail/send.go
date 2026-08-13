@@ -6,7 +6,9 @@ package gmail
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -201,10 +203,58 @@ func buildRFC822(from string, msg connector.EmailMessage) string {
 		writeHeader(&b, "List-Unsubscribe-Post", msg.ListUnsubscribePost)
 	}
 	writeHeader(&b, "MIME-Version", "1.0")
-	writeHeader(&b, "Content-Type", `text/plain; charset="utf-8"`)
-	b.WriteString("\r\n")
-	b.WriteString(msg.Body)
+	writeBody(&b, msg)
 	return b.String()
+}
+
+// writeBody renders the content headers and the body itself.
+//
+// A plain-text-only message keeps the single-part shape it has always had:
+// wrapping one part in a multipart envelope buys nothing and costs every reader
+// a boundary to parse.
+//
+// With markup it becomes multipart/alternative, PLAIN PART FIRST. The order is
+// the contract, not a preference — RFC 2046 §5.1.4 puts the least-faithful
+// alternative first and a client renders the LAST part it understands, so a
+// reversed order shows the plain text to everybody.
+func writeBody(b *strings.Builder, msg connector.EmailMessage) {
+	if msg.HTMLBody == "" {
+		writeHeader(b, "Content-Type", `text/plain; charset="utf-8"`)
+		b.WriteString("\r\n")
+		b.WriteString(msg.Body)
+		return
+	}
+	boundary := mimeBoundary(msg.MessageID)
+	writeHeader(b, "Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
+	b.WriteString("\r\n")
+	writePart(b, boundary, `text/plain; charset="utf-8"`, msg.Body)
+	writePart(b, boundary, `text/html; charset="utf-8"`, msg.HTMLBody)
+	b.WriteString("--" + boundary + "--\r\n")
+}
+
+// writePart writes one MIME part: its boundary, its type, and its content.
+func writePart(b *strings.Builder, boundary, contentType, content string) {
+	b.WriteString("--" + boundary + "\r\n")
+	writeHeader(b, "Content-Type", contentType)
+	b.WriteString("\r\n")
+	b.WriteString(content)
+	b.WriteString("\r\n")
+}
+
+// mimeBoundary derives the part separator from the message identity.
+//
+// Derived rather than random so the same message renders byte-identically on a
+// retry: a connector that re-sends compares what it is about to transmit with
+// what it already did, and a fresh boundary each time would make every retry
+// look like a different message.
+//
+// The prefix guarantees the boundary cannot occur in the body it separates:
+// a boundary is only safe if no line of any part begins with it, and no mail
+// body contains this token unless somebody set out to forge one — which the
+// hyphens make impossible to do accidentally.
+func mimeBoundary(messageID string) string {
+	sum := sha256.Sum256([]byte(messageID))
+	return "--=_margince_" + hex.EncodeToString(sum[:12])
 }
 
 // addressList renders one address header value: each address trimmed, empties

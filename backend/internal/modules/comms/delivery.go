@@ -31,6 +31,8 @@ type Delivery struct {
 	Cc         []string
 	Subject    string
 	Body       string
+	// HTMLBody is the markup alternative, empty for a plain-text send.
+	HTMLBody string
 	// Attachments is what this message was staged to carry. Empty for the
 	// overwhelming majority of deliveries; non-empty is what the carriage gate
 	// asks the channel about before anything reaches the wire.

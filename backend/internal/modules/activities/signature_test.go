@@ -139,3 +139,72 @@ func TestAFailedSignatureReadRefusesTheSend(t *testing.T) {
 		t.Fatalf("expected the read error to surface, got %v", err)
 	}
 }
+
+// The markup alternative carries the SAME sign-off as the plain one. Two parts
+// of a message that disagreed would be two messages, and which one a recipient
+// reads is their client's decision rather than ours.
+func TestTheMarkupAlternativeCarriesTheSameSignOff(t *testing.T) {
+	store := (&Store{}).WithSignature(&stubSignature{body: "Marek Janetzke\nGradion"})
+
+	got, err := store.signedHTML(humanCtx(ids.NewV7()), "<p>Shall we say Tuesday?</p>", sendDeliverability{})
+	if err != nil {
+		t.Fatalf("signing the markup failed: %v", err)
+	}
+	if !strings.Contains(got, "Marek Janetzke<br>Gradion") {
+		t.Fatalf("the markup lost the sign-off or its line break: %q", got)
+	}
+}
+
+// The signature is stored as plain text and reaches a markup document, so it is
+// escaped. A member whose sign-off contains "Weiß & Konrad <Recht>" must not
+// have it become a broken tag, and one who typed a script tag must not have it
+// run in the recipient's client.
+func TestASignatureCannotInjectMarkup(t *testing.T) {
+	store := (&Store{}).WithSignature(&stubSignature{
+		body: `Weiß & Konrad <Recht><script>alert(1)</script>`,
+	})
+
+	got, err := store.signedHTML(humanCtx(ids.NewV7()), "<p>Body</p>", sendDeliverability{})
+	if err != nil {
+		t.Fatalf("signing the markup failed: %v", err)
+	}
+	if strings.Contains(got, "<script>") {
+		t.Fatalf("a signature injected live markup: %q", got)
+	}
+	if !strings.Contains(got, "Wei&#223; &amp; Konrad") && !strings.Contains(got, "Weiß &amp; Konrad") {
+		t.Fatalf("the signature was not escaped as text: %q", got)
+	}
+}
+
+// A message with no markup stays single-part. Manufacturing an HTML alternative
+// would make every plain send multipart for no reader's benefit.
+func TestNoMarkupBodyProducesNoMarkupAlternative(t *testing.T) {
+	store := (&Store{}).WithSignature(&stubSignature{body: "Marek"})
+
+	got, err := store.signedHTML(humanCtx(ids.NewV7()), "", sendDeliverability{})
+	if err != nil {
+		t.Fatalf("signing the markup failed: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("a plain-text send gained a markup part: %q", got)
+	}
+}
+
+// Both parts must offer the unsubscribe link, from the SAME token: whether a
+// recipient can unsubscribe must not depend on which alternative their client
+// chose to render.
+func TestBothPartsCarryTheUnsubscribeSurface(t *testing.T) {
+	derived := sendDeliverability{
+		unsubURL:  "https://app.test/v1/public/unsubscribe/tok",
+		manageURL: "https://app.test/v1/public/preferences/tok",
+	}
+	store := (&Store{}).WithSignature(&stubSignature{})
+
+	got, err := store.signedHTML(humanCtx(ids.NewV7()), "<p>Body</p>", derived)
+	if err != nil {
+		t.Fatalf("signing the markup failed: %v", err)
+	}
+	if !strings.Contains(got, derived.unsubURL) || !strings.Contains(got, derived.manageURL) {
+		t.Fatalf("the markup part carries no unsubscribe surface: %q", got)
+	}
+}

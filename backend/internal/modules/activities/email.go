@@ -65,10 +65,15 @@ type SendEmailInput struct {
 	// they were addressed. Cc below is a SUBSET of it, by design and not by
 	// accident: the delivery's To: line is what remains once the Cc
 	// addresses come out.
-	Recipients     []string
-	Cc             []string
-	Subject        string
-	Body           string
+	Recipients []string
+	Cc         []string
+	Subject    string
+	Body       string
+	// HTMLBody is the same message as markup, empty for a plain-text send.
+	// It never replaces Body: both travel, and the wire renders them as
+	// multipart/alternative so a client that cannot show markup still receives
+	// the words.
+	HTMLBody       string
 	ConsentPurpose string
 	// DraftRef names the voice draft this message came from, so the send can
 	// close the learning signal that draft opened. Empty is the ordinary case:
@@ -103,6 +108,7 @@ type DeliveryRequest struct {
 	Cc             []string
 	Subject        string
 	Body           string // the unsubscribe footer, when there is one, is already applied
+	HTMLBody       string // the markup alternative, empty for a plain-text send
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a conversation
 	References     []string // unbracketed ancestry, oldest first
@@ -219,11 +225,21 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
+	// The markup alternative gets the SAME sign-off and the same unsubscribe
+	// footer, in its own syntax. Two alternatives of one message that disagreed
+	// would be two messages, and which one the recipient reads is their client's
+	// decision rather than ours — including whether they can unsubscribe.
+	htmlBody, err := s.signedHTML(ctx, in.HTMLBody, derived)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
 		body:            derived.transmitted,
 		recordedBody:    derived.recorded,
+		htmlBody:        htmlBody,
 		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
 		links:           links,
@@ -280,8 +296,13 @@ type outboundMessage struct {
 	// served back to any seat holding activity:read, and that token is a
 	// bearer credential over the recipient's consent record (see
 	// redactedToken). Only the delivery may read body.
-	body            string
-	recordedBody    string
+	body         string
+	recordedBody string
+	// htmlBody is the markup alternative, empty for a plain-text send. It
+	// carries the SAME sign-off and the same unsubscribe footer as body: two
+	// alternatives of one message that disagreed would be two messages, and the
+	// recipient's client decides which one they read.
+	htmlBody        string
 	listUnsubscribe string
 	to              []string
 	links           []ActivityLinkInput
@@ -321,6 +342,7 @@ func (m outboundMessage) delivery(activityID ids.UUID, chain threading) Delivery
 		Cc:              m.in.Cc,
 		Subject:         m.in.Subject,
 		Body:            m.body,
+		HTMLBody:        m.htmlBody,
 		ConsentPurpose:  m.in.ConsentPurpose,
 		InReplyTo:       chain.inReplyTo,
 		References:      chain.references,
