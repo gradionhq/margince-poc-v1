@@ -295,9 +295,9 @@ func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonI
 		    AND a.state = 'withdrawn' AND b.state <> 'withdrawn'
 		  RETURNING b.purpose_id
 		)
-		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, source,
+		INSERT INTO consent_event (person_id, purpose_id, new_state, source,
 		                           policy_text, policy_version, captured_at, captured_by)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, purpose_id, 'withdrawn', 'merge',
+		SELECT $2, purpose_id, 'withdrawn', 'merge',
 		       'withdrawal carried over from a merged duplicate record', 'merge', $3, $4
 		FROM flipped`,
 		sourceID, targetID, time.Now().UTC(), by); err != nil {

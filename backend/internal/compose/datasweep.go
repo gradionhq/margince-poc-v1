@@ -21,32 +21,40 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
-// preservedResetTables are the workspace_id tables a reset must NOT delete:
-// the identity/auth layer (so every user, including the admin, stays logged in
-// and the org survives) and the append-only ledgers (their immutability trigger
-// forbids DELETE, and operational history should outlive a data reset). Every
-// other workspace_id table is domain/config data and is swept, then re-seeded.
+// preservedResetTables are the tables a reset must NOT delete. Everything else
+// in the public schema is domain/config data: swept, then re-seeded.
+//
+// This list is the whole definition, and it did not used to be. The sweep
+// derived its targets from the presence of a workspace_id column, which was a
+// proxy for "holds this tenant's data" — a proxy ADR-0091 §8 phase D is
+// removing table by table. Under it, a module that dropped the column silently
+// stopped being reset: consent_purpose was the first, and the reset then failed
+// re-seeding purposes it had not deleted. So the derivation is inverted. What a
+// reset must keep is a decision someone has to make; what it deletes follows.
+//
+// Four kinds are kept:
+//
+//   - identity and auth, so every user (the admin above all) stays logged in
+//     and the installation survives its own reset;
+//   - the append-only ledgers, whose immutability trigger forbids DELETE and
+//     whose operational history should outlive a data reset;
+//   - installation configuration and secrets, which are not this workspace's
+//     records — a reset that cleared them would leave an installation unable
+//     to reach the providers and mailboxes it is still configured for;
+//   - the job runtime, which is River's to manage and not ours to truncate
+//     underneath a running worker.
 var preservedResetTables = map[string]bool{
-	"app_user": true, "role": true, "role_assignment": true,
+	// identity and auth
+	objectWorkspace: true, "app_user": true, "role": true, "role_assignment": true,
 	"team": true, "team_membership": true,
 	"session": true, "passport": true, "auth_token": true,
+	// append-only ledgers
 	"audit_log": true, "system_log": true,
-}
-
-// providerResetTables are the licensed-data-provider tables, deleted in
-// FK-safe order (children first, the same order migration 0219's down takes).
-//
-// They need naming because the catalog sweep below cannot see them: every one
-// deliberately carries NO workspace_id column — the platform is
-// installation-scoped configuration (ADR-0061/A107), so a reset that only
-// swept workspace_id tables left provider_run and person_provider_claim
-// holding purchased personal data about the very people it had just deleted.
-var providerResetTables = []string{
-	"person_provider_claim",
-	"provider_run_reservation",
-	"provider_run",
-	"provider_connection_budget",
-	"provider_connection",
+	// installation configuration and secrets
+	"setting": true, "vault_secret": true, "ai_call_config": true,
+	"embed_store_binding": true,
+	// in-flight delivery: drained by the outbox pass, not deleted under it
+	"event_outbox": true,
 }
 
 // providerCredentialRefs collects the sealed API keys the provider
@@ -75,48 +83,60 @@ func providerCredentialRefs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	return refs, nil
 }
 
-// sweepProviderTables clears the provider platform. Ordinary DELETEs rather
-// than the catalog sweep's per-workspace predicate, because these tables have
-// no workspace to predicate on: one installation, one provider platform.
-func sweepProviderTables(ctx context.Context, tx pgx.Tx) error {
-	for _, table := range providerResetTables {
-		if _, err := tx.Exec(ctx, `DELETE FROM `+pgx.Identifier{table}.Sanitize()); err != nil {
-			return fmt.Errorf("data reset: clearing %s: %w", table, err)
-		}
-	}
-	return nil
-}
-
-// resetTargetTables lists every public base table carrying a workspace_id
-// column that is not preserved — derived from the catalog so a newly added
-// tenant table is swept automatically rather than escaping a hand-kept list.
-func resetTargetTables(ctx context.Context, tx pgx.Tx) ([]string, error) {
+// resetTargetTables lists every public base table a reset sweeps: all of them,
+// less the preserved set above, the migration ledgers, and River's own schema.
+// Derived from the catalog so a newly added table is swept automatically rather
+// than escaping a hand-kept list — the burden of naming falls on what must be
+// KEPT, where forgetting an entry fails loudly (the admin loses their session,
+// the installation loses its config) instead of quietly leaving a tenant's rows
+// behind after a reset that reported success.
+func resetTargetTables(ctx context.Context, tx pgx.Tx) ([]resetTarget, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT c.relname
+		SELECT c.relname,
+		       EXISTS (SELECT 1 FROM pg_attribute a
+		                WHERE a.attrelid = c.oid AND a.attname = 'workspace_id'
+		                  AND a.attnum > 0 AND NOT a.attisdropped) AS tenant_scoped
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		JOIN pg_attribute a ON a.attrelid = c.oid
 		WHERE n.nspname = 'public'
 		  AND c.relkind = 'r'
-		  AND c.relname NOT LIKE 'schema_migrations_%'
-		  AND a.attname = 'workspace_id'
-		  AND a.attnum > 0 AND NOT a.attisdropped
+		  AND c.relname NOT LIKE 'schema_migrations%'
+		  AND c.relname NOT LIKE 'river_%'
 		ORDER BY c.relname`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []resetTarget
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var t resetTarget
+		if err := rows.Scan(&t.name, &t.tenantScoped); err != nil {
 			return nil, err
 		}
-		if !preservedResetTables[name] {
-			out = append(out, name)
+		if !preservedResetTables[t.name] {
+			out = append(out, t)
 		}
 	}
 	return out, rows.Err()
+}
+
+// resetTarget is one table to sweep and whether it still carries the tenant
+// column. A table that has one keeps its predicate: phase D is mid-flight, and
+// the two spellings agree on every row an installation with one live workspace
+// holds (ADR-0061 §3), so the narrower one costs nothing and keeps a reset from
+// widening ahead of the schema. The predicate goes when the last column does.
+type resetTarget struct {
+	name         string
+	tenantScoped bool
+}
+
+// deleteStatement is the sweep's DELETE for one target.
+func (t resetTarget) deleteStatement() string {
+	stmt := `DELETE FROM ` + pgx.Identifier{t.name}.Sanitize()
+	if t.tenantScoped {
+		stmt += ` WHERE workspace_id = current_setting('app.workspace_id')::uuid`
+	}
+	return stmt
 }
 
 // sweepWorkspaceData deletes every row of the target tables for the bound
@@ -125,18 +145,16 @@ func resetTargetTables(ctx context.Context, tx pgx.Tx) ([]string, error) {
 // still-populated table behind a savepoint and defers the ones a child FK still
 // blocks to the next pass, until all are clear. A pass with no progress means an
 // unbreakable FK cycle — surfaced explicitly, never silently skipped.
-func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []string) error {
-	remaining := append([]string(nil), tables...)
+func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []resetTarget) error {
+	remaining := append([]resetTarget(nil), tables...)
 	for len(remaining) > 0 {
-		var stuck []string
+		var stuck []resetTarget
 		progressed := false
 		for _, t := range remaining {
 			if _, err := tx.Exec(ctx, "SAVEPOINT reset_sp"); err != nil {
 				return err
 			}
-			_, delErr := tx.Exec(ctx,
-				`DELETE FROM `+pgx.Identifier{t}.Sanitize()+
-					` WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			_, delErr := tx.Exec(ctx, t.deleteStatement())
 			if delErr == nil {
 				if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT reset_sp"); err != nil {
 					return err

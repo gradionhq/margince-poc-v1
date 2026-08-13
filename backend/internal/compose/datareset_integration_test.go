@@ -65,24 +65,25 @@ func TestSweepWorkspaceDataClearsDomainKeepsIdentity(t *testing.T) {
 	}
 }
 
-// TestPreserveSetIntegrity is the fitness rail for the mass delete: every
-// preserved table must still exist as a real workspace_id base table (a rename
-// or drop that left preservedResetTables stale would silently sweep it), and no
-// preserved table may appear in the sweep target set. Derived from
-// information_schema — independent of resetTargetTables' pg_catalog query — so
-// it genuinely fails on schema drift.
+// TestPreserveSetIntegrity is the fitness rail for the mass delete, and it
+// carries more weight than it used to. The sweep no longer derives its targets
+// from the presence of a workspace_id column — it deletes everything the
+// preserve set does not name — so a stale entry there is not a table that keeps
+// an extra column, it is a table that gets emptied.
+//
+// Both halves matter: every preserved name must still be a real base table (a
+// rename or drop leaves the list pointing at nothing while the table it meant
+// to protect is swept), and no preserved table may appear among the targets.
+// Derived from information_schema, independent of resetTargetTables' own
+// pg_catalog query, so it genuinely fails on drift rather than agreeing with
+// the code under test.
 func TestPreserveSetIntegrity(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.Admin()
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT c.table_name
-			FROM information_schema.columns c
-			JOIN information_schema.tables t
-			  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-			WHERE c.table_schema = 'public'
-			  AND c.column_name = 'workspace_id'
-			  AND t.table_type = 'BASE TABLE'`)
+			SELECT table_name FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`)
 		if err != nil {
 			return err
 		}
@@ -101,7 +102,7 @@ func TestPreserveSetIntegrity(t *testing.T) {
 		}
 		for name := range preservedResetTables {
 			if !existing[name] {
-				t.Errorf("preserved table %q is not a current workspace_id base table (renamed/dropped?) — it would be swept", name)
+				t.Errorf("preserved table %q is not a current base table (renamed/dropped?) — the list protects nothing and the table it named is swept", name)
 			}
 		}
 		targets, err := resetTargetTables(ctx, tx)
@@ -109,8 +110,8 @@ func TestPreserveSetIntegrity(t *testing.T) {
 			return err
 		}
 		for _, tgt := range targets {
-			if preservedResetTables[tgt] {
-				t.Errorf("preserved table %q appears in the sweep target set", tgt)
+			if preservedResetTables[tgt.name] {
+				t.Errorf("preserved table %q appears in the sweep target set", tgt.name)
 			}
 		}
 		return nil
@@ -297,8 +298,8 @@ func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
 			return err
 		}
 		targetSet := make(map[string]bool, len(targets))
-		for _, name := range targets {
-			targetSet[name] = true
+		for _, target := range targets {
+			targetSet[target.name] = true
 		}
 		// tgtype bit 0x08 marks a trigger that fires on DELETE; tgisinternal
 		// excludes FK-enforcement triggers so only real guards remain.

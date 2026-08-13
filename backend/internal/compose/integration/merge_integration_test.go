@@ -103,9 +103,9 @@ func TestMergePerson_consentMergesRestrictively(t *testing.T) {
 	// may do: A's withdrawal propagates to B, so the survivor ends up
 	// withdrawn — never the other way round.
 	purpose := ids.NewV7()
-	e.WsExec(t, `INSERT INTO consent_purpose (id, workspace_id, key, label) VALUES ($1, $2, 'marketing', 'Marketing')`, purpose, e.WS)
-	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'withdrawn')`, e.WS, source, purpose)
-	e.WsExec(t, `INSERT INTO person_consent (workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'granted')`, e.WS, target, purpose)
+	e.WsExec(t, `INSERT INTO consent_purpose (id, key, label) VALUES ($1, 'marketing', 'Marketing')`, purpose)
+	e.WsExec(t, `INSERT INTO person_consent (person_id, purpose_id, state) VALUES ($1, $2, 'withdrawn')`, source, purpose)
+	e.WsExec(t, `INSERT INTO person_consent (person_id, purpose_id, state) VALUES ($1, $2, 'granted')`, target, purpose)
 
 	if _, err := e.People.MergePerson(admin, PersonIDOf(source), PersonIDOf(target)); err != nil {
 		t.Fatalf("merge: %v", err)

@@ -198,8 +198,8 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 	var out dsrRow
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO data_subject_request (workspace_id, kind, subject_ref, assignee_id, due_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO data_subject_request (kind, subject_ref, assignee_id, due_at)
+			VALUES ($1, $2, $3, $4)
 			RETURNING `+dsrColumns,
 			in.Kind, strings.TrimSpace(in.SubjectRef), in.AssigneeID, in.DueAt)
 		var err error

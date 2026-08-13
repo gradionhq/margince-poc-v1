@@ -234,7 +234,7 @@ func auditExport(ctx context.Context, pool *pgxpool.Pool, incumbent string, summ
 		return errors.New("compose: no workspace bound to export context")
 	}
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		_, err := storekit.Audit(ctx, tx, "export", "workspace", wsID, nil, map[string]any{
+		_, err := storekit.Audit(ctx, tx, "export", objectWorkspace, wsID, nil, map[string]any{
 			auditFieldFormat: exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
 			"canonical_data_resides_in": incumbent,
 		})
