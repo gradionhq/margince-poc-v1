@@ -218,6 +218,27 @@ the 103-byte unix socket limit. Copy it somewhere shorter first. How-to:
 [build-the-desktop-app.md](../how-to/build-the-desktop-app.md); the why:
 [desktop-distribution.md](../explanation/desktop-distribution.md).
 
+## Root-only (desktop build, Windows x64)
+
+The same folder for Windows, at `build/desktop/margince-windows/`. **These
+targets must run ON Windows** and shell out to `desktop/build/*.ps1` through
+`pwsh`: pgvector has no build system other than `nmake` against MSVC, and the
+event bus needs the MSYS2 toolchain, so neither half cross-builds from macOS.
+A Windows host is not required to have GNU make, which is why
+`desktop/build/build-windows.ps1` is the primary entry point and these are the
+convenience wrapper.
+
+| Target | What it does |
+|---|---|
+| `desktop-win` | **The whole folder.** Stages Postgres and the bus only when they are missing, so a routine app rebuild does not re-download a 310 MB archive or recompile Redis |
+| `desktop-win-rebuild` | Force everything, Postgres and the bus included |
+| `desktop-win-postgres` | Pin, verify and unpack the upstream PostgreSQL 16 zip, then compile pgvector against it with MSVC and prune to the server tree. Windows resolves DLLs from the loading executable's own directory, so unlike macOS there is nothing to relocate — the compile is only pgvector, which no prebuilt Windows binary provides. **Needs the Visual Studio C++ workload** |
+| `desktop-win-bus` | The event bus — Redis 7.2, the last BSD-3 line before the RSALv2/SSPL relicense and the lineage Valkey forked from, since Valkey has no Windows build. Compiled from pinned source under MSYS2, whose runtime DLL travels beside it with its licence. **Needs MSYS2 + `base-devel gcc`** |
+| `desktop-win-app` | `api`, `worker`, `migrate` (through `build/composition/`, so the enabled `extensions/` units are linked), the frontend, and the launcher. No signing step: Authenticode needs a purchased certificate, so the first launch warns through SmartScreen |
+| `desktop-win-dist` | Assemble the folder and **run each third-party binary out of it** — the Windows equivalent of the macOS signature check, and the only way a missing DLL is caught here rather than on the user's machine |
+
+`desktop-clean` removes `build/desktop/` for both platforms.
+
 ## Variables
 
 `GO`, `PG_PORT` (15432), `REDIS_PORT` (16379), `DB_NAME` (margince),

@@ -46,8 +46,10 @@ coverage.out
 
 # The desktop launcher compiled in place: `go build ./...` in its module dir
 # names the output after the directory, so it lands beside its own sources.
-# The real build (desktop/build/build-app.sh) writes to build/desktop/.
+# The real build (desktop/build/build-app.sh, build-app.ps1) writes to
+# build/desktop/.
 /desktop/launcher/launcher
+/desktop/launcher/launcher.exe
 
 # Compiled cmd binaries left in the module dir by `go build ./cmd/<role>`
 # (anchored so they never match the cmd/<role> source directories; the api

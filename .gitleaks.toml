@@ -77,13 +77,17 @@ regexes = ['''OpenAPIOp:\s''']
 #
 # Scoped to the assignment, not to the scripts: they also hold URLs and build
 # flags, and a real credential pasted into one must still fail the gate.
+#
+# Both spellings, because the lane is two languages: bash writes
+# PG_SHA256="..." and PowerShell $PG_SHA256 = '...'. The quote and the spacing
+# are the only thing that varies — the suffix is what identifies the value.
 [[allowlists]]
 description = "Pinned upstream tarball checksums in the desktop build"
 targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "line"
 paths = ['''desktop/build/''']
-regexes = ['''_SHA256="[a-f0-9]{64}"''']
+regexes = ['''_SHA256\s*=\s*["'][a-f0-9]{64}["']''']
 
 # `linkedinStatus: LinkedinStatus` — a TypeScript prop and its type. The
 # linkedin-client-id rule matches the type name, not a client id.

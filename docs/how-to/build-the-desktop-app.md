@@ -1,16 +1,23 @@
 # Build the desktop app
 
-Build the self-contained folder a non-technical user runs on macOS with no
-Docker and no prerequisites: Postgres, the event bus, the api, the worker and
-the SPA, started by one launcher and used in a browser.
+Build the self-contained folder a non-technical user runs on macOS or Windows
+with no Docker and no prerequisites: Postgres, the event bus, the api, the
+worker and the SPA, started by one launcher and used in a browser.
 
-Why it is shaped this way — the custom Postgres, the update contract, the
-known limits — is [explanation/desktop-distribution.md](../explanation/desktop-distribution.md).
+Why it is shaped this way — the custom Postgres, the update contract, why the
+two platforms differ where they do, the known limits — is
+[explanation/desktop-distribution.md](../explanation/desktop-distribution.md).
 
-**Requires macOS on Apple silicon**, the Xcode Command Line Tools
-(`xcode-select --install`), Go, and node+pnpm for the frontend.
+**Each platform builds on itself.** Neither half cross-builds: the macOS lane
+compiles Postgres and Valkey with the Xcode tools, and pgvector on Windows has
+no build system other than `nmake` against MSVC.
 
-## Build it
+| | Build host | Also needs |
+|---|---|---|
+| macOS | Apple silicon | Xcode Command Line Tools (`xcode-select --install`), Go, node+pnpm |
+| Windows | x64 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) with the "Desktop development with C++" workload (for pgvector), [MSYS2](https://www.msys2.org/) with `base-devel gcc` (for the event bus), Go, node+pnpm |
+
+## Build it — macOS
 
 ```
 make desktop
@@ -35,7 +42,38 @@ Rerun `make desktop-postgres` after bumping the pinned Postgres or pgvector
 version in `desktop/build/build-postgres.sh`; the checksums are pinned there
 and a mismatch fails the build rather than silently using a cached tarball.
 
+## Build it — Windows
+
+Run this **on Windows**. PowerShell is the entry point because a Windows build
+host is not required to have GNU make:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build\build-windows.ps1
+```
+
+The result is `build\desktop\margince-windows\`. The first run downloads a
+310 MB PostgreSQL archive and compiles pgvector and Redis; later runs reuse
+both and finish in the time the Go and frontend builds take. Add `-Force` to
+rebuild them anyway.
+
+If `make` and `pwsh` are available, the same lane has wrapper targets:
+
+| Target | Script | What it does |
+|---|---|---|
+| `make desktop-win` | `build-windows.ps1` | The whole folder. Reuses a staged Postgres and bus |
+| `make desktop-win-rebuild` | `build-windows.ps1 -Force` | Force everything |
+| `make desktop-win-postgres` | `build-postgres.ps1` | Stage PostgreSQL 16, compile pgvector against it (needs MSVC) |
+| `make desktop-win-bus` | `build-bus.ps1` | The event bus: Redis 7.2 built under MSYS2 |
+| `make desktop-win-app` | `build-app.ps1` | api/worker/migrate + frontend + launcher |
+| `make desktop-win-dist` | `build-dist.ps1` | Assemble the folder and verify it runs standalone |
+| `make desktop-clean` | — | Remove `build/desktop/` entirely, both platforms |
+
+The pinned versions and checksums live at the top of each script. A mismatch
+fails the build rather than silently using a cached download.
+
 ## Run it
+
+### macOS
 
 **Copy the folder somewhere short first.** The database uses a unix socket
 inside the folder, and the path has a 103-byte system limit — the repo's own
@@ -50,8 +88,23 @@ cd ~/Margince && ./margince
 Or double-click **Start Margince.command** in Finder, which is what a
 non-technical user does.
 
-Either way it prints the address, opens the browser and runs until Ctrl-C.
-The first launch generates the configuration, runs `initdb` and applies the
+### Windows
+
+There is no socket and so no path limit; copy the folder anywhere:
+
+```powershell
+Copy-Item -Recurse build\desktop\margince-windows $HOME\Margince
+& $HOME\Margince\margince.exe
+```
+
+Or double-click **Start Margince.cmd**, which opens it in its own window.
+**The first launch shows a SmartScreen warning** — the build is unsigned, and
+Authenticode signing needs a purchased certificate. "More info" → "Run anyway".
+
+### Either way
+
+It prints the address, opens the browser and runs until Ctrl-C. The first
+launch generates the configuration, initialises the database and applies the
 whole migration history, so it takes a few seconds longer than later ones.
 
 It prints the sign-in email and, **on the first launch only**, the generated
@@ -79,7 +132,9 @@ line rather than being skipped. Field reference:
 
 Company name, currency and timezone live in `margince.yaml`. Both files are
 created once and never overwritten, so your edits survive a restart and an
-update.
+update. **On Windows, check the timezone**: Windows records its own zone
+identifier rather than the IANA name this field takes, so a Windows
+installation is created as `UTC` and the value is yours to correct once.
 
 For a real model, also add `ai-routing.yaml` next to them — the launcher
 detects it and stops using the offline fake. See
@@ -87,13 +142,20 @@ detects it and stops using the offline fake. See
 
 ## Update an installation
 
-Replace **the launcher, `Start Margince.command`, and `runtime/`**. Leave
+Replace **the launcher, the starter script, and `runtime/`**. Leave
 `margince.yaml`, `margince.env` and `data/` alone — they are the user's, and
 `data/` is the database.
 
 ```
+# macOS
 cp -R build/desktop/margince/runtime ~/Margince/
 cp build/desktop/margince/margince ~/Margince/
+```
+
+```powershell
+# Windows
+Copy-Item -Recurse -Force build\desktop\margince-windows\runtime $HOME\Margince\
+Copy-Item -Force build\desktop\margince-windows\margince.exe $HOME\Margince\
 ```
 
 Replacing the whole folder would destroy the records.
@@ -104,26 +166,40 @@ Replacing the whole folder would destroy the records.
 rm -rf ~/Margince/data ~/Margince/margince.yaml ~/Margince/margince.env
 ```
 
+```powershell
+Remove-Item -Recurse -Force $HOME\Margince\data, $HOME\Margince\margince.yaml, $HOME\Margince\margince.env
+```
+
 The next launch bootstraps a fresh installation with a new password. To
 remove everything, delete the folder — nothing is stored outside it.
 
 ## When something goes wrong
 
-Logs are in `data/logs/`: `api.log`, `worker.log`, `postgres.log`,
-`valkey.log`. The launcher's own output covers startup and shutdown only;
-each service writes its own file.
+Logs are in `data/logs/`: `api.log`, `worker.log`, `postgres.log`, `bus.log`.
+The launcher's own output covers startup and shutdown only; each service
+writes its own file.
 
 | Symptom | Cause |
 |---|---|
-| "the installation folder is too deeply nested" | The socket path exceeds 103 bytes. Move the folder closer to your home directory |
+| "the installation folder is too deeply nested" | macOS only: the socket path exceeds 103 bytes. Move the folder closer to your home directory |
 | "address already in use" | Another program holds the port, or a previous instance is still running. Quit it, or set `MARGINCE_PORT` |
 | "expected KEY=value" | A malformed line in `margince.env`, named with its line number |
+| "a database from a previous session is still running" | Windows: a launcher was killed without stopping Postgres and the stray could not be stopped. Sign out and back in |
+| Windows SmartScreen blocks the first launch | The build is unsigned. "More info" → "Run anyway" |
+| Windows: "VCRUNTIME140.dll was not found" | The [Microsoft Visual C++ redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) is not installed. It is not bundled |
 | Attachments or logos fail | No object storage. Set `MARGINCE_BLOBSTORE_*` |
 | AI answers look canned | No key or routing file, so the offline fake is driving the AI surfaces |
+| Dates and times look wrong on Windows | The first run defaulted to `UTC`. Set `timezone` in `margince.yaml` |
 
-To stop a stuck instance, kill it by PID rather than by name — it is started
-as `./margince`, so a `pkill -f` on the full path will not match it:
+To stop a stuck instance on macOS, kill it by PID rather than by name — it is
+started as `./margince`, so a `pkill -f` on the full path will not match it:
 
 ```
 kill -INT "$(lsof -nP -iTCP:8800 -sTCP:LISTEN -t)"
+```
+
+On Windows, find the same listener and end it:
+
+```powershell
+Stop-Process -Id (Get-NetTCPConnection -LocalPort 8800 -State Listen).OwningProcess
 ```

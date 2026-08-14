@@ -745,6 +745,46 @@ desktop-clean:
 	@rm -rf build/desktop
 	@echo "desktop-clean: removed build/desktop"
 
+# --- Desktop build (Windows x64) ---
+# The same folder for Windows, built by desktop/build/*.ps1. These targets MUST
+# RUN ON WINDOWS: pgvector has no build system other than nmake against MSVC,
+# and Redis needs the MSYS2 toolchain, so neither half cross-builds from macOS.
+# A Windows host is not required to have GNU make either, which is why
+# desktop/build/build-windows.ps1 is the primary entry point and these are the
+# convenience wrapper. Output lands in build/desktop/margince-windows/.
+#
+# Declared here for the same reason the macOS block declares its own: make
+# accumulates .PHONY, and a section that owns its targets cannot conflict with
+# every other branch appending to one shared line.
+.PHONY: desktop-win desktop-win-rebuild desktop-win-postgres desktop-win-bus desktop-win-app desktop-win-dist
+PWSH := pwsh
+DESKTOP_WIN := desktop/build
+
+## desktop-win — build the whole Windows folder (build/desktop/margince-windows/).
+## Reuses an already-staged Postgres and bus; use desktop-win-rebuild to force them.
+desktop-win:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-windows.ps1
+
+## desktop-win-rebuild — force a full rebuild including Postgres and the bus.
+desktop-win-rebuild:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-windows.ps1 -Force
+
+## desktop-win-postgres — stage PostgreSQL 16 + build pgvector against it (needs MSVC).
+desktop-win-postgres:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-postgres.ps1
+
+## desktop-win-bus — build the event bus (Redis 7.2, the last BSD-3 line; needs MSYS2).
+desktop-win-bus:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-bus.ps1
+
+## desktop-win-app — build api/worker/migrate + frontend + launcher for Windows.
+desktop-win-app:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-app.ps1
+
+## desktop-win-dist — assemble build/desktop/margince-windows/ and verify it runs standalone.
+desktop-win-dist:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-dist.ps1
+
 # --- SBOM (software bill of materials, issue #331) ---
 # Repo-wide (backend + frontend + extensions), so it lives at the root, not
 # delegated to backend/. syft / grant / cosign run through digest-pinned Docker
