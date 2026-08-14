@@ -22,6 +22,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
@@ -70,7 +73,12 @@ func everyDeclaredDependencySupplied(cfg JobRunnerConfig) error {
 func censusJobConfig() JobRunnerConfig {
 	seam := censusSeam{}
 	return JobRunnerConfig{
-		SendRegistry:  &capture.Registry{},
+		SendRegistry: &capture.Registry{},
+		// Present so the scheduled-send alarm counts as wired. Firing one
+		// stages a delivery, so the kind is gated on this machinery existing;
+		// the census supplies every declared dependency so a kind can never be
+		// declared and silently unregistered.
+		SendDelivery:  censusDeliveryMachinery{},
 		GmailRegistry: &capture.Registry{},
 		// The watch pass is the one conjunction in the file: a registry alone
 		// does not wire it, so the topic has to be here too.
@@ -92,6 +100,19 @@ func censusJobConfig() JobRunnerConfig {
 		TimeScanInterval:  censusInterval,
 		OverlayInterval:   censusInterval,
 	}
+}
+
+// censusDeliveryMachinery is present and inert: the census asks which kinds a
+// fully-configured build registers, and never works a job, so a stager that
+// stages nothing answers that question exactly.
+type censusDeliveryMachinery struct{}
+
+func (censusDeliveryMachinery) StageTx(context.Context, pgx.Tx, activities.DeliveryRequest) error {
+	return nil
+}
+
+func (censusDeliveryMachinery) StageChannelTx(context.Context, pgx.Tx, activities.ChannelDeliveryRequest) error {
+	return nil
 }
 
 // censusProviderRegistry is an empty adapter registry: present, so the

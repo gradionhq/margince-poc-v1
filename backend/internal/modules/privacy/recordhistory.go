@@ -78,6 +78,14 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	// and stops all egress.
 	"connect":    "connected",
 	"disconnect": "disconnected",
+	// A message the sender chose to send later, through its four acts
+	// (ADR-0104/A155). "released" rather than "sent": the provider has not been
+	// called when this is written.
+	"schedule":   "scheduled",
+	"reschedule": "rescheduled",
+	"cancel":     "cancelled",
+	"release":    "released for sending",
+	"hold":       "held for review",
 }
 
 // RecordHistoryFilter carries the validated query surface of

@@ -288,7 +288,14 @@ func workerHandoffOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *co
 	if err != nil {
 		return nil, err
 	}
-	opts := []compose.Option{compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter))}
+	opts := []compose.Option{
+		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
+		// The alarm a deferred send is accepted against. On the same inserter
+		// as the delivery: a role that can promise a send can promise a later
+		// one, and one that cannot refuses both rather than accepting a moment
+		// nothing will wake at.
+		compose.WithScheduleTimer(compose.NewScheduleTimer(sendInserter)),
+	}
 
 	enqueueOpts, err := jobEnqueueOptions(pool, logger, modelPath)
 	if err != nil {

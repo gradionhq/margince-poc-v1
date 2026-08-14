@@ -1243,6 +1243,22 @@ func (stubs) SetRoleObjectGrant(w nethttp.ResponseWriter, r *nethttp.Request, ke
 	httperr.NotImplemented(w, r, "SetRoleObjectGrant")
 }
 
+func (stubs) ListScheduledSends(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListScheduledSendsParams) {
+	httperr.NotImplemented(w, r, "ListScheduledSends")
+}
+
+func (stubs) GetScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetScheduledSend")
+}
+
+func (stubs) RescheduleScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RescheduleScheduledSendParams) {
+	httperr.NotImplemented(w, r, "RescheduleScheduledSend")
+}
+
+func (stubs) CancelScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "CancelScheduledSend")
+}
+
 func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SearchParams) {
 	httperr.NotImplemented(w, r, "Search")
 }

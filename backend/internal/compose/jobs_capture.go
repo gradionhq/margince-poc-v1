@@ -92,6 +92,13 @@ func addCapturePipelineJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerC
 	// the worker registered.
 	if cfg.SendRegistry != nil {
 		addDeclaredWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing, cfg.SendBlob))
+		// The alarm for a message a rep chose to send later. Firing one creates
+		// its delivery and its dispatch job, so it registers only where that
+		// machinery exists — a role that cannot send cannot fire either.
+		if cfg.SendDelivery != nil {
+			addDeclaredWorker[ScheduledSendArgs](reg,
+				newScheduledSendWorker(pool, cfg.SendDelivery, cfg.SendBlob, cfg.SendPacing))
+		}
 	}
 
 	if cfg.ClassifyBrain != nil {
