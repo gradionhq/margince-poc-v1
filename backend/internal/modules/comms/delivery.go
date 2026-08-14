@@ -31,6 +31,8 @@ type Delivery struct {
 	Cc         []string
 	Subject    string
 	Body       string
+	// Bcc receives the message and appears in no header.
+	Bcc []string
 	// HTMLBody is the markup alternative, empty for a plain-text send.
 	HTMLBody string
 	// FromName is the sender's display name; empty sends a bare address.

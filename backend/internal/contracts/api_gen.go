@@ -17628,6 +17628,18 @@ type SendAccountEmailRequest struct {
 	// than the record claims is a wrong record nobody is told about.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
 
+	// Bcc Blind copies. They receive the message and are therefore owed consent
+	// exactly as To and Cc are — the gate answers on every addressee, however
+	// they were addressed — and they are absent from the headers the recipients
+	// see, which is the whole of what "blind" means.
+	//
+	// A message with a tokenized unsubscribe link may still have only ONE
+	// addressee in total: that token is a bearer credential over one person's
+	// consent record, so a bcc'd copy of a marketing send is refused 422
+	// `shared_unsubscribe_token` rather than handing a stranger somebody else's
+	// preference link.
+	Bcc *[]openapi_types.Email `json:"bcc,omitempty"`
+
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`
 	Cc   *[]openapi_types.Email `json:"cc,omitempty"`
@@ -17675,6 +17687,18 @@ type SendEmailRequest struct {
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
+	// Bcc Blind copies. They receive the message and are therefore owed consent
+	// exactly as To and Cc are — the gate answers on every addressee, however
+	// they were addressed — and they are absent from the headers the recipients
+	// see, which is the whole of what "blind" means.
+	//
+	// A message with a tokenized unsubscribe link may still have only ONE
+	// addressee in total: that token is a bearer credential over one person's
+	// consent record, so a bcc'd copy of a marketing send is refused 422
+	// `shared_unsubscribe_token` rather than handing a stranger somebody else's
+	// preference link.
+	Bcc *[]openapi_types.Email `json:"bcc,omitempty"`
 
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`

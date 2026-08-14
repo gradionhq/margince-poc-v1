@@ -119,7 +119,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 			// message, and a field dropped here is a header silently missing
 			// from real mail.
 			return sender.SendEmail(ctx, auth, connector.EmailMessage{
-				To: del.Recipients, Cc: del.Cc,
+				To: del.Recipients, Cc: del.Cc, Bcc: del.Bcc,
 				Subject: del.Subject, Body: del.Body, HTMLBody: del.HTMLBody,
 				FromName:            del.FromName,
 				MessageID:           del.MessageID,
