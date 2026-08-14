@@ -5,7 +5,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The three verbs the company page hands the rep directly, so none of them
 // is a click-through to another screen: open a deal on this account, tag it,
@@ -15,6 +20,13 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // these controls reads a capability (no useCan anywhere in companyactions.tsx
 // or create.tsx) — there is no read-only or permission-denied variant to
 // cover, unlike companyraildetails' Archived story.
+//
+// The session still has to be stated, for a reason that is not object RBAC:
+// CreateAction reads the workspace's system-of-record mode off /me and renders
+// NOTHING on a mirrored screen in overlay mode (companies, deals — all three
+// controls here). Every story below is a NATIVE workspace, which is what
+// meFixture answers by default. The grants each one names are the ones its
+// flow actually spends, so the session reads as the rep the story is about.
 
 type Pipeline = components["schemas"]["Pipeline"];
 type Tag = components["schemas"]["Tag"];
@@ -93,6 +105,8 @@ function NewDeal({
   submit?: (body: unknown) => Response | Promise<Response>;
 }>) {
   installFetchStub({
+    // Where the deal may land, and the write that puts it there.
+    "GET /me": meRoute({ pipeline: ["read"], deal: ["create"] }),
     "GET /pipelines": () => jsonResponse({ data: [pipeline], page }),
     ...(submit ? { "POST /deals": submit } : {}),
   });
@@ -194,6 +208,11 @@ export const NewDealFailed: Story = {
   },
 };
 
+// The id the workspace mints for a name its catalog has never carried. The
+// apply call is addressed to a RESOLVED tag, so a story that wants to answer
+// it has to route the id the create handed back, not the contract's template.
+const mintedTagId = "t-9";
+
 function TagCompany({
   tags,
   apply,
@@ -202,8 +221,12 @@ function TagCompany({
   apply?: (body: unknown) => Response | Promise<Response>;
 }>) {
   installFetchStub({
+    // Read the catalog, mint the tag a typed name has no match for, put it on
+    // the company: three grants on the one object, all three spent per submit.
+    "GET /me": meRoute({ tag: ["read", "create", "update"] }),
     "GET /tags": () => jsonResponse({ data: tags, page }),
-    ...(apply ? { "POST /tags/{id}/apply": apply } : {}),
+    "POST /tags": () => jsonResponse({ id: mintedTagId }, 201),
+    ...(apply ? { [`POST /tags/${mintedTagId}/apply`]: apply } : {}),
   });
   return (
     <StoryProviders>
@@ -261,7 +284,9 @@ export const TagPending: Story = {
 
 // Failed: the apply call refuses for a reason that is not "already applied"
 // (that case is folded into success — see resolveTagId's own docblock), so
-// the server's refusal is the one thing left to show.
+// the server's refusal is the one thing left to show. The session holds
+// tag:update, and it is meant to: the refusal is about THIS account, which is
+// row scope, and no grant a client can read predicts it.
 export const TagFailed: Story = {
   render: () => (
     <TagCompany
@@ -293,6 +318,10 @@ export const TagFailed: Story = {
   },
 };
 
+// The list a name with no static match is made as — same reason as
+// mintedTagId: membership is written against a resolved list.
+const mintedListId = "l-9";
+
 function ListCompany({
   lists,
   addMember,
@@ -301,8 +330,14 @@ function ListCompany({
   addMember?: (body: unknown) => Response | Promise<Response>;
 }>) {
   installFetchStub({
+    // Match an existing static list, make one when nothing matches, add the
+    // company to it — membership is an update on the list itself.
+    "GET /me": meRoute({ list: ["read", "create", "update"] }),
     "GET /lists": () => jsonResponse({ data: lists, page }),
-    ...(addMember ? { "POST /lists/{id}/members": addMember } : {}),
+    "POST /lists": () => jsonResponse({ id: mintedListId }, 201),
+    ...(addMember
+      ? { [`POST /lists/${mintedListId}/members`]: addMember }
+      : {}),
   });
   return (
     <StoryProviders>
@@ -363,6 +398,8 @@ export const ListPending: Story = {
 
 // Failed: the membership write refuses for a reason other than "already a
 // member" (that case is folded into success — see ListAction's own comment).
+// The session holds list:update for the same reason TagFailed holds
+// tag:update — the account is what the server refuses, not the verb.
 export const ListFailed: Story = {
   render: () => (
     <ListCompany

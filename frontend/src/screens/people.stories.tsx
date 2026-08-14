@@ -60,12 +60,21 @@ export const ContactsList: Story = {
   },
 };
 
+// The list stories below are all about what the TABLE shows, so they share one
+// session and it is the smallest one that makes the read legitimate: a contact
+// reader. ContactsScreen gates no affordance on a grant — the create button is
+// hidden by overlay mode alone, and the archived badge paints off the row's own
+// archived_at rather than off a delete verb — so a wider grant would claim
+// affordances none of these stories draw.
+const contactsReader = meRoute({ person: ["read"] });
+
 // The empty list: no rows, the "unit.contacts" copy from ListSurface's
 // generic empty branch (table.none), nothing else on the page to distract
 // from it.
 export const ContactsListEmpty: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": contactsReader,
       "GET /people": () =>
         jsonResponse({
           data: [],
@@ -86,6 +95,7 @@ export const ContactsListEmpty: Story = {
 export const ContactsListLoading: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": contactsReader,
       "GET /people": () => new Promise<Response>(() => undefined),
     });
     return (
@@ -99,9 +109,14 @@ export const ContactsListLoading: Story = {
 // A non-2xx body is what useListQuery's isError branch renders: the problem
 // detail plus the retry button (listquery.tsx's `problem` slot), never a
 // thrown exception the story would surface as a broken render instead.
+//
+// The session holds no person grant, which is the same fact the 403 detail
+// states — a fixture carrying person:read here would have the seat and the
+// server disagreeing about the very scope the story is showing refused.
 export const ContactsListFailed: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}, { roles: ["rep"] }),
       "GET /people": () =>
         jsonResponse(
           { title: "Forbidden", detail: "missing scope people:read" },
@@ -123,6 +138,7 @@ export const ContactsListFailed: Story = {
 export const ContactsListMorePages: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": contactsReader,
       "GET /people": () =>
         jsonResponse({
           data: [anna],
@@ -174,6 +190,7 @@ const archivedContact: Person = {
 export const ContactsListArchivedRow: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": contactsReader,
       "GET /people": () =>
         jsonResponse({
           data: [anna, archivedContact],
