@@ -692,8 +692,10 @@ export const en = {
   "co.health.payment.onTime": "Pays on time.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
-  "co.health.activeContacts": "{count} people here have ever interacted",
-  "co.health.openCommitments": "{count} open commitment(s)",
+  "co.health.activeContacts.one": "{count} person here has ever interacted",
+  "co.health.activeContacts.other": "{count} people here have ever interacted",
+  "co.health.openCommitments.one": "{count} open commitment",
+  "co.health.openCommitments.other": "{count} open commitments",
   "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;

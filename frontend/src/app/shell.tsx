@@ -598,10 +598,14 @@ const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
 function RecordName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
   const name = useEntityName(kind, id);
   if (name) {
-    return <span>{name}</span>;
+    return (
+      <span className="pagecrumb-name" title={name}>
+        {name}
+      </span>
+    );
   }
   return (
-    <span className="t-mono" title={id}>
+    <span className="pagecrumb-name t-mono" title={id}>
       {id}
     </span>
   );

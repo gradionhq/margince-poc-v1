@@ -676,8 +676,10 @@ export const vi = {
   "co.health.payment.onTime": "Thanh toán đúng hạn.",
   "co.health.sinceInbound": "Họ viết lần cuối cách đây {days} ngày",
   "co.health.replyBalance": "{percent}% lượt trao đổi đến từ họ",
-  "co.health.activeContacts": "{count} người ở đây đã từng tương tác",
-  "co.health.openCommitments": "{count} cam kết đang mở",
+  "co.health.activeContacts.one": "{count} người ở đây đã từng tương tác",
+  "co.health.activeContacts.other": "{count} người ở đây đã từng tương tác",
+  "co.health.openCommitments.one": "{count} cam kết đang mở",
+  "co.health.openCommitments.other": "{count} cam kết đang mở",
   "co.health.singleThreaded": "Cả tài khoản này chỉ dựa vào một contact",
   "org.partnerSetUp": "Thiết lập chương trình đối tác",
   // The classification values a reader sees. The column stores the enum;

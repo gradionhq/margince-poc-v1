@@ -420,7 +420,10 @@ function RecordHead({
           {/* The shell's page head yields to it on a record route — it
               prints the trail that leads here and nothing at heading
               level, so this stays the page's one h1. */}
-          <h1>{name}</h1>
+          {/* A record's name is user data of unbounded length. It is drawn on
+              one line and truncated rather than allowed to grow the header,
+              so the title attribute is what carries the whole of it. */}
+          <h1 title={name}>{name}</h1>
           {nameBadge}
         </div>
         {/* A div, not a p: a caller passing structure — the company page's

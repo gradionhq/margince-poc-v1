@@ -155,12 +155,22 @@ function HealthSection({
   }
   if (health?.active_contacts != null) {
     lines.push(
-      t("co.health.activeContacts", { count: health.active_contacts }),
+      t(
+        health.active_contacts === 1
+          ? "co.health.activeContacts.one"
+          : "co.health.activeContacts.other",
+        { count: health.active_contacts },
+      ),
     );
   }
   if (health?.open_commitments != null && health.open_commitments > 0) {
     lines.push(
-      t("co.health.openCommitments", { count: health.open_commitments }),
+      t(
+        health.open_commitments === 1
+          ? "co.health.openCommitments.one"
+          : "co.health.openCommitments.other",
+        { count: health.open_commitments },
+      ),
     );
   }
   const state = sectionState(
@@ -199,7 +209,10 @@ function HealthSection({
                   <span className="t-caption">
                     {t(HEALTH_DIMENSION_LABEL[name])}
                   </span>
-                  <span className="co-health-meter-reason">
+                  <span
+                    className="co-health-meter-reason"
+                    title={dimension.reason}
+                  >
                     {dimension.reason}
                   </span>
                 </span>

@@ -682,8 +682,10 @@ export const de = {
   "co.health.payment.onTime": "Zahlt pünktlich.",
   "co.health.sinceInbound": "Sie schrieben zuletzt vor {days} Tagen",
   "co.health.replyBalance": "{percent}% des Austauschs kam von ihnen",
-  "co.health.activeContacts": "{count} Personen hier hatten je Kontakt",
-  "co.health.openCommitments": "{count} offene Zusage(n)",
+  "co.health.activeContacts.one": "{count} Person hier hatte je Kontakt",
+  "co.health.activeContacts.other": "{count} Personen hier hatten je Kontakt",
+  "co.health.openCommitments.one": "{count} offene Zusage",
+  "co.health.openCommitments.other": "{count} offene Zusagen",
   "co.health.singleThreaded": "Ein Kontakt trägt diesen Account",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
