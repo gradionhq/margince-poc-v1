@@ -69,7 +69,7 @@ type sendSeam struct {
 // delivery cannot be rendered as mail even if a provider were mis-registered.
 func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, error) {
 	if del.IsChannel() {
-		sender, auth, err := d.resolver.ResolveChannel(ctx, del.Provider)
+		sender, auth, err := d.resolver.ResolveChannel(ctx, del.UserID, del.Provider)
 		if err != nil {
 			return sendSeam{}, err
 		}

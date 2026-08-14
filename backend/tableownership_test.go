@@ -280,8 +280,14 @@ var tableOwners = map[string]string{
 	// reason: it is transport-owned operational state, not a domain record, and
 	// modules/agents declares the seam while owning no SQL.
 	"agent_task": "internal/compose",
-	"brief_run":  "internal/compose/briefs",
-	"brief_item": "internal/compose/briefs",
+	// The activity-kind and channel-provider registries (DESIGN-SP4 §4):
+	// derived from the composed connector/extension set at boot, so no domain
+	// module decides "which providers exist" — compose observes it, the same
+	// way it owns idempotency_key and agent_task.
+	"activity_kind":    "internal/compose",
+	"channel_provider": "internal/compose",
+	"brief_run":        "internal/compose/briefs",
+	"brief_item":       "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	// The person view acknowledges visits into the SAME table (one baseline

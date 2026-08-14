@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
@@ -40,18 +41,36 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// channelKinds names the activity kinds that ARE a messaging-channel
-// conversation, and for such an activity the kind IS the provider: capture files
-// a Telegram update under kind='telegram', and the reply transmits through the
-// provider of that same name.
+// channelProviders is the derived channel-kind vocabulary (DESIGN-SP4 §4):
+// which activity kinds are messaging-channel conversations this installation
+// can actually reply on. Set once at boot by compose's registry reconcile
+// (internal/compose), from the composed core-connector and unit set — this
+// module must not import either to compute it itself.
 //
-// The vocabulary is spelled here for the reason messageIdentity spells mail's
-// half of it — this module must not import a capture provider, and the one fact
-// it needs is which kinds are channels. It lists only what this installation can
-// actually transmit through: `whatsapp` is a kind the contract reserves with no
-// connector behind it, and admitting it here would accept a reply that could
-// only park.
-var channelKinds = map[string]bool{"telegram": true}
+// A plain mutex-guarded package var, not a "register once, panic on
+// duplicate" idiom: compose's own registry construction can legitimately run
+// more than once in a process (a role-specific alternate wiring path, a
+// one-shot backfill helper), and every one of those calls must be able to
+// call SetChannelProviders again with the same or a narrower set — the last
+// call in a boot sequence is authoritative, not the first.
+var (
+	channelProvidersMu sync.RWMutex
+	channelProviders   = map[string]bool{"telegram": true} // the pre-registry default, replaced at first boot
+)
+
+// SetChannelProviders replaces the derived channel-kind vocabulary wholesale.
+// Exported so compose — which knows the composed connector/unit set this
+// module must not reach across to enumerate — can set it; nothing in this
+// module calls it.
+func SetChannelProviders(providers []string) {
+	next := make(map[string]bool, len(providers))
+	for _, p := range providers {
+		next[p] = true
+	}
+	channelProvidersMu.Lock()
+	channelProviders = next
+	channelProvidersMu.Unlock()
+}
 
 // IsChannelKind reports whether an activity kind names a messaging-channel
 // conversation this module can answer.
@@ -60,7 +79,11 @@ var channelKinds = map[string]bool{"telegram": true}
 // capture providers — can hold the two spellings of a provider name against each
 // other. Drift here is silent: a kind this set does not carry reads as "not a
 // channel conversation" and refuses every reply on it.
-func IsChannelKind(kind string) bool { return channelKinds[kind] }
+func IsChannelKind(kind string) bool {
+	channelProvidersMu.RLock()
+	defer channelProvidersMu.RUnlock()
+	return channelProviders[kind]
+}
 
 // SendMessageInput is one consented channel reply. There is no recipient field
 // and no subject: see the file comment.

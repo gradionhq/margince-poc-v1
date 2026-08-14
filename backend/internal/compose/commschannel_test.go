@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -57,7 +58,7 @@ func TestChannelResolverTranslatesOnlyTheDeploymentFacts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := commsResolver{channels: stubChannelSenders{err: tc.from}}
 
-			_, _, err := r.ResolveChannel(context.Background(), capture.ProviderTelegram)
+			_, _, err := r.ResolveChannel(context.Background(), ids.New[ids.UserKind](), capture.ProviderTelegram)
 
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("ResolveChannel on %v → %v, want it to match %v", tc.from, err, tc.want)
@@ -81,7 +82,7 @@ func TestChannelResolverTranslatesOnlyTheDeploymentFacts(t *testing.T) {
 func TestChannelResolverPassesAResolvedBindingThrough(t *testing.T) {
 	r := commsResolver{channels: stubChannelSenders{sender: stubChannelSender{}}}
 
-	sender, auth, err := r.ResolveChannel(context.Background(), capture.ProviderTelegram)
+	sender, auth, err := r.ResolveChannel(context.Background(), ids.New[ids.UserKind](), capture.ProviderTelegram)
 	if err != nil {
 		t.Fatalf("ResolveChannel: %v", err)
 	}

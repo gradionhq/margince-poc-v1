@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
@@ -185,15 +186,16 @@ var ErrProviderNotConfigured = errors.New("comms: no integration for this provid
 type ConnectionResolver interface {
 	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
 
-	// ResolveChannel resolves the WORKSPACE's transmitting channel binding: the
-	// connector's message seam and its unsealed credential.
-	//
-	// It takes no user id because there is none to take. A channel is bound once
-	// for the whole workspace by an admin, not granted per seat, so the
-	// credential lookup is keyed on the workspace RLS already binds. What does
-	// NOT move is the seat check: the human who staged the message is still
-	// re-read at transmit time (gateSeat), so a rep who lost their seat between
-	// staging and transmission is refused on either transport.
+	// ResolveChannel resolves the transmitting channel binding for provider,
+	// AS userID. For a workspace-wide core connector (telegram today) userID is
+	// ignored — the binding is the workspace's, bound once by an admin, not
+	// granted per seat, so the credential lookup is keyed on the workspace RLS
+	// already binds. It is threaded through now so a PER-MEMBER credential (a
+	// unit's own) has somewhere to resolve against without a second signature
+	// change later. What does NOT move is the seat check: the human who staged
+	// the message is still re-read at transmit time (gateSeat), so a rep who
+	// lost their seat between staging and transmission is refused on either
+	// transport.
 	//
 	// There is no scope list, for the reason SendsWithoutScope names: a bot token
 	// carries no OAuth grant, so there is nothing for the authority gate to
@@ -203,7 +205,7 @@ type ConnectionResolver interface {
 	// error is transient for the same reason — including a workspace holding more
 	// than one live binding, which is a fault an operator repairs, not a fact
 	// about the deployment.
-	ResolveChannel(ctx context.Context, provider string) (connector.MessageSender, connector.Auth, error)
+	ResolveChannel(ctx context.Context, userID ids.UserID, provider string) (connector.MessageSender, connector.Auth, error)
 }
 
 // consentRecipients is every subject this delivery reaches, in the vocabulary
@@ -289,33 +291,65 @@ const (
 	SendsWithoutScope
 )
 
+// channelProviders mirrors activities.SetChannelProviders/channelProviders —
+// a SEPARATE package-level set, because comms and activities are siblings
+// under internal/modules and neither may import the other. Both are set from
+// the SAME boot-time reconcile in internal/compose (DESIGN-SP4 §4), which is
+// what keeps the two from drifting apart independently, even though each
+// package still holds its own copy.
+var (
+	channelProvidersMu sync.RWMutex
+	channelProviders   = map[string]bool{"telegram": true}
+)
+
+// SetChannelProviders replaces the derived channel-provider set wholesale.
+// Last-write-wins, not once-only: see activities.SetChannelProviders's doc for
+// why a plain settable var is the right shape here, not a register-and-panic
+// one.
+func SetChannelProviders(providers []string) {
+	next := make(map[string]bool, len(providers))
+	for _, p := range providers {
+		next[p] = true
+	}
+	channelProvidersMu.Lock()
+	channelProviders = next
+	channelProvidersMu.Unlock()
+}
+
 // SendScopeFor answers whether a provider can transmit and, when its grant must
-// carry an OAuth scope to do so, which scope. A switch rather than a registry:
-// two providers is not a registry, and one with two entries is an abstraction
-// with no third caller.
+// carry an OAuth scope to do so, which scope.
 //
 // It is exported so the request-time pre-flight — which refuses a send this
 // installation already knows cannot leave — asks the SAME question as the
 // authority gate. Two spellings of "may this grant send" could disagree, and a
 // pre-flight that accepted what the gate then parks is worse than none.
 //
-// Both literals below are SECOND spellings of strings a capture provider
-// already declares — Gmail's OAuth consent requests that same scope constant
-// rather than a copy, and capture.ProviderTelegram names that provider once —
-// and they have to be: this module must not import a capture provider. compose
-// imports both sides and holds them against each other
-// (compose/sendscope_test.go), because drift here is silent: a misspelled scope
-// parks every send as ungranted, which reads as a user who declined consent,
-// and a misspelled provider reads a live channel as capture-only.
+// The MAIL arm is a literal, unchanged: gmail is not, and never will be, an
+// activity_kind (DESIGN-SP4 §4 — the channel_provider table FKs into
+// activity_kind, and gmail names no activity kind), so there is no registry
+// for it to derive from. The scope string is a SECOND spelling of one a
+// capture provider already declares — Gmail's OAuth consent requests that
+// same scope constant rather than a copy — and it has to be: this module must
+// not import a capture provider. compose imports both sides and holds them
+// against each other (compose/sendscope_test.go), because drift here is
+// silent: a misspelled scope parks every send as ungranted, which reads as a
+// user who declined consent.
+//
+// The CHANNEL arm derives from channelProviders — the same registry
+// activities.IsChannelKind reads — so a provider clearing it is answerable
+// for both "is this a channel conversation" and "can this installation send
+// on it" in one boot-time act.
 func SendScopeFor(provider string) (string, SendCapability) {
-	switch provider {
-	case "gmail":
+	if provider == "gmail" {
 		return "https://www.googleapis.com/auth/gmail.send", SendsWithScope
-	case "telegram":
-		return "", SendsWithoutScope
-	default:
-		return "", CannotSend
 	}
+	channelProvidersMu.RLock()
+	isChannel := channelProviders[provider]
+	channelProvidersMu.RUnlock()
+	if isChannel {
+		return "", SendsWithoutScope
+	}
+	return "", CannotSend
 }
 
 // rfc8058Post derives the List-Unsubscribe-Post header from its partner. RFC

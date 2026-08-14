@@ -52,7 +52,7 @@ func (m refusingMailbox) Resolve(context.Context, ids.UserID, string) (connector
 	return m, connector.Auth{}, nil, nil
 }
 
-func (m refusingMailbox) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+func (m refusingMailbox) ResolveChannel(context.Context, ids.UserID, string) (connector.MessageSender, connector.Auth, error) {
 	m.t.Fatal("the queued send resolved a channel mailbox after erasure")
 	return nil, connector.Auth{}, nil
 }
@@ -94,7 +94,8 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	// its args' role declaration and refuses a zero one — is proven without a
 	// database in compose's workspace-guard suite, so it is not restated here.
 	outcome, _, err := dispatcher.DispatchWithWait(
-		compose.SendWorkerContext(context.Background(), e.WS), queued.delivery)
+		compose.SendWorkerContext(context.Background(), e.WS), queued.delivery,
+	)
 	if err != nil {
 		t.Fatalf("the woken job failed with %v; a closed row is not a fault to retry, it is nothing left to do", err)
 	}

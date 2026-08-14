@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -130,7 +131,8 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 // the deployment's suppression-list additions and the logger; the zero value is
 // the baselines and the default logger.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
-	r := capture.NewRegistry(InstallationDB(pool), newCaptureSink(pool, cfg), identity.NewService(pool), vault)
+	db := InstallationDB(pool)
+	r := capture.NewRegistry(db, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
 	// The standing IMAP connector needs no deployment config — credentials
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
@@ -143,6 +145,20 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// reads as "this installation has no Telegram integration" and parks every
 	// reply a rep writes.
 	r.Register(telegram.New(telegram.NewAPI(nil, "")))
+	// Reconcile the derived channel vocabulary against exactly what this call
+	// just registered (DESIGN-SP4 §4). A nil pool is a wiring-only construction
+	// (a unit test proving connector registration, never a real deployment —
+	// every other dependency here already tolerates it the same way, e.g.
+	// vault), so it skips the reconcile rather than dialing a pool that does
+	// not exist. A construction failure with a REAL pool is a boot failure, not
+	// a degraded mode: an installation that cannot confirm its own channel
+	// registry has no business answering "can I send" for anything.
+	if pool != nil {
+		if err := reconcileChannelProviders(context.Background(), pool, r.ChannelProviders()); err != nil {
+			//craft:ignore panic-in-domain composition-time boot failure, mirrors capture.Registry.Register's own panic posture for a wiring defect the process cannot recover from
+			panic(fmt.Sprintf("compose: reconciling the channel-provider registry: %v", err))
+		}
+	}
 	return r
 }
 
