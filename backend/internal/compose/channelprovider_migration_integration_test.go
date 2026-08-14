@@ -5,7 +5,7 @@
 
 package compose
 
-// Migration 0240 replaces activity.kind's and person_channel_identity.provider's
+// Migration 0242 replaces activity.kind's and person_channel_identity.provider's
 // inline CHECKs with FKs into two new derived tables (DESIGN-SP4 §4). These
 // tests prove the migration itself: the seed rows land, and the FK — not an
 // application-side list — is what refuses an unregistered kind.

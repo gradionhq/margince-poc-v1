@@ -96,7 +96,7 @@ func TestResetScopeCoversEveryDataRelation(t *testing.T) {
 	// Derived independently and deliberately wider: any relation in a schema the
 	// migration lane owns that stores rows, whatever its relkind, minus the ledger
 	// and the boot-seeded reference-data tables the reset preserves on purpose
-	// (activity_kind, channel_provider — DESIGN-SP4 §4: migration 0240 seeds rows
+	// (activity_kind, channel_provider — DESIGN-SP4 §4: migration 0242 seeds rows
 	// a test depends on, breaking this package's former "no migration seeds
 	// reference data" invariant, so both are excluded the same way the ledger
 	// is). Partitioned parents ('p') count — their leaves are emptied, but a

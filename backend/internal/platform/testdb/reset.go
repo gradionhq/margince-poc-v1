@@ -64,7 +64,7 @@ var (
 // boot-seeded reference-data tables. Both are preserved for the same reason:
 // EnsureSchema's once-per-process contract assumes what its own package doc
 // once stated as an invariant — "no migration seeds reference data a test
-// depends on" — and migration 0240 was the first to break that assumption
+// depends on" — and migration 0242 was the first to break that assumption
 // (activity_kind, channel_provider: DESIGN-SP4 §4). A reset that DELETEd them
 // would silently un-seed every test's fixed activity kinds and telegram's
 // channel-provider row, and the failure would surface somewhere else entirely
