@@ -700,15 +700,38 @@ workspace GUC; the agent scheduler's suite injects its fault through a trigger
 keyed on `NEW.workspace_id`. Privacy's retention sweep and search's re-embed
 fan-out are the same shape. Their tables go with the fleet loops (§5).
 
-**Read this before starting that collapse — it is bigger than it looks.**
-`api/jobs.yaml` declares 62 jobs and every one is either `role: dispatcher`
-(27) or `role: workspace` (35). There is no third role, so collapsing the
-fan-out is not four edits: it is a change to the job vocabulary itself, plus
-the generator that turns those declarations into `platform/jobs/specs_gen.go`,
-plus the census and kind gates that hold the two in agreement, plus ~85 call
-sites of `dispatchPerWorkspace` / `FleetWide()` / `WorkspaceID()`. The first
-decision is what a collapsed job's role IS — and since `api/jobs.yaml` is a
-declared surface, that decision may belong upstream (P3) before any code moves.
+**The target shape is decided upstream — build against it, do not re-derive
+it.** ADR-0103 / DECISIONS **A154** (margince-foundation, PROPOSED 2026-08-14,
+awaiting founder ratification) settles what ADR-0091 §5 left open. The short
+form, because the distinction is what makes the work tractable:
+
+- **A pass over the installation is ONE job.** The 23 dispatchers that fan out
+  over `workspace` merge with the child they exist to enqueue. The survivor
+  takes the dispatcher's KIND and CADENCE and the child's QUEUE, TIMEOUT, RETRY
+  and registration condition. Getting that split backwards is the one way this
+  breaks production quietly: the long passes sit off the default queue for
+  reasons about DURATION, not tenancy.
+- **A fan-out over a real work unit STAYS.** Four dispatchers enumerate a
+  connector `connection` (3) or a voice `build` (1), and an installation has
+  many of those. They keep their per-unit failure isolation — one hung mailbox
+  must not delay the next.
+- `role` becomes `dispatcher` + `worker`; `role: workspace` retires; `Workspace`
+  leaves all 35 argument lists (13 of which already carry the real subject).
+
+Cost, so nobody is surprised: 23 job kinds disappear from the job table, the
+health screen and the per-kind metrics, and a release note owes operators that
+list. A failed pass reports once rather than twice.
+
+The work is still not four edits — the vocabulary change reaches the generator
+behind `platform/jobs/specs_gen.go`, the census and kind gates that hold the two
+in agreement, and ~85 call sites of `dispatchPerWorkspace` / `FleetWide()` /
+`WorkspaceID()` — but the design question is answered, and the columns for
+webhooks, agents, privacy and search move with the loop that held them.
+
+A154 also swept two contract schemas ADR-0091 §6 missed: `EmbedReindexStatus`
+and `EmbedReindexPreview` lose their `per_workspace` arrays. This repo had
+already made that change, which under P3 it should not have done first; the
+spec has reconciled it, and `utilization_impact` stays hoisted.
 
 One table has already been renamed as well as narrowed: `workspace_signing_key`
 is `signing_key` (#1171). ADR-0091 §1 asks for it, and the reason is worth
