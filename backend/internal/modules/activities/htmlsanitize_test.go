@@ -210,3 +210,29 @@ func TestTheFilterRunsBeforeAnythingOfOursIsAdded(t *testing.T) {
 		t.Fatalf("the message was lost: %q", got)
 	}
 }
+
+// Metadata is not message text. A <title> unwrapped would move a document's
+// title into the body as a sentence nobody wrote there.
+func TestMetadataContentIsNotUnwrappedIntoTheMessage(t *testing.T) {
+	got, err := SanitizeOutboundHTML(`<title>Secret subject</title><p>Visible</p>`)
+	if err != nil {
+		t.Fatalf("sanitizing failed: %v", err)
+	}
+	if got != "<p>Visible</p>" {
+		t.Fatalf("metadata reached the message: %q", got)
+	}
+}
+
+// Text a sender HID becomes visible, because the attribute that concealed it is
+// not one that survives. Pinned rather than fixed: the alternative is deleting
+// prose whenever an element is unfamiliar, which loses more than it protects.
+// What this asserts is that the behaviour is known, not that it is desirable.
+func TestHiddenTextBecomesVisibleAndThatIsTheKnownTrade(t *testing.T) {
+	got, err := SanitizeOutboundHTML(`<div hidden>Hidden note</div><p>Visible</p>`)
+	if err != nil {
+		t.Fatalf("sanitizing failed: %v", err)
+	}
+	if got != "Hidden note<p>Visible</p>" {
+		t.Fatalf("the unwrap rule changed: %q", got)
+	}
+}

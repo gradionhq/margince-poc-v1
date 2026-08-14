@@ -24,6 +24,14 @@ package activities
 // is what a business email needs — emphasis, structure, links, line breaks —
 // and everything else is reduced to the text it contained rather than dropped,
 // because a sender whose markup vanished still meant the words inside it.
+//
+// Unwrapping has a consequence worth stating rather than discovering: text a
+// sender HID becomes visible. A `hidden` div or a display:none paragraph loses
+// the attribute that concealed it and keeps its words, so a message can arrive
+// saying more than its author saw in their own composer. That is the honest
+// trade — the alternative is silently deleting prose whenever an element is
+// unfamiliar — and it is why the drop list holds the elements whose content was
+// never message text at all rather than merely being styled out of sight.
 
 import (
 	"fmt"
@@ -48,6 +56,10 @@ var allowedElements = map[atom.Atom]bool{
 // not allowed — a <div> of prose must not lose the prose.
 var droppedWholesale = map[atom.Atom]bool{
 	atom.Script: true, atom.Style: true, atom.Head: true,
+	// Metadata, not message. A <title> is never text a recipient was meant to
+	// read, and unwrapping it would move a document's title into the body as a
+	// sentence nobody wrote there.
+	atom.Title:  true,
 	atom.Iframe: true, atom.Object: true, atom.Embed: true,
 	atom.Form: true, atom.Input: true, atom.Button: true, atom.Select: true,
 	atom.Textarea: true, atom.Template: true, atom.Noscript: true,
