@@ -53,7 +53,10 @@ func TestADynamicListOverHTTPAcceptsAndEvaluatesACustomFieldFilter(t *testing.T)
 	}, nil, &matching); status != http.StatusCreated {
 		t.Fatalf("create matching person: status=%d body=%v", status, matching)
 	}
-	matchID, _ := matching["id"].(string)
+	matchID, ok := matching["id"].(string)
+	if !ok || matchID == "" {
+		t.Fatalf("created matching person carries no id: %v", matching)
+	}
 
 	var other apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
@@ -78,7 +81,10 @@ func TestADynamicListOverHTTPAcceptsAndEvaluatesACustomFieldFilter(t *testing.T)
 	}, nil, &list); status != http.StatusCreated {
 		t.Fatalf("a dynamic list on a custom field was refused over HTTP: status=%d body=%v", status, list)
 	}
-	listID, _ := list["id"].(string)
+	listID, ok := list["id"].(string)
+	if !ok || listID == "" {
+		t.Fatalf("created list carries no id: %v", list)
+	}
 
 	var members struct {
 		Data []apptest.AnyMap `json:"data"`

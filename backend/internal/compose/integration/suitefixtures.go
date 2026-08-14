@@ -51,24 +51,6 @@ func CraftCursor(t *testing.T, c storekit.Cursor) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// CollectionsPerms extends the rep fixture with the list + saved_view object
-// grants the segmentation surface needs, without mutating the shared RepPerms
-// map. A func, not a var initialized once: RepPerms' Objects map is shared
-// package state, and this copies it fresh so no caller's later grant leaks
-// into another's.
-func CollectionsPerms() principal.Permissions {
-	p := RepPerms
-	obj := map[string]principal.ObjectGrant{}
-	for k, v := range RepPerms.Objects {
-		obj[k] = v
-	}
-	full := principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
-	obj["list"] = full
-	obj["saved_view"] = full
-	p.Objects = obj
-	return p
-}
-
 // CustomFieldAdminPerms is full custom_field config authority plus the person
 // grants the value-preservation assertions need.
 //

@@ -18,6 +18,7 @@ package collections
 import (
 	"context"
 	"errors"
+	"maps"
 	"regexp"
 	"testing"
 
@@ -273,18 +274,6 @@ func TestFilteredExportOfASegmentMatchesItsMembership(t *testing.T) {
 // column or type name never matches, only the single-quoted values do.
 var checkLiteralRe = regexp.MustCompile(`'([a-z_]+)'`)
 
-func mapsEqual(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if !b[k] {
-			return false
-		}
-	}
-	return true
-}
-
 // TestTheTaggableVocabularyMatchesTheCheckConstraint proves the Go-side
 // taggable set is not just consistent with itself (the unit lane's job)
 // but COMPLETE against the schema's own CHECK (LVS-DDL-2) — the authority
@@ -311,7 +300,7 @@ func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
 		got[m[1]] = true
 	}
 	want := map[string]bool{"person": true, "organization": true, "deal": true, "lead": true, "project": true}
-	if !mapsEqual(got, want) {
+	if !maps.Equal(got, want) {
 		t.Fatalf("taggable's CHECK admits %v, want %v", got, want)
 	}
 
@@ -419,14 +408,18 @@ func TestATagFilterSelectsTaggedRecordsPerEntityType(t *testing.T) {
 	}
 }
 
-// TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake pins the
-// obligation the handler's own writeErr documents: a failed catalogue
-// read must never surface as a *storekit.PredicateError, which is the one
-// shape the transport maps to 422-blame-the-caller's-filter. A context
-// already canceled before the engine reaches for the workspace's cf_*
-// columns is a genuine failure over the real service and the real pool —
-// no hand-built adapter, no simulated error — that has nothing at all to
-// do with what the caller's filter named.
+// TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake proves the
+// store-level precondition the handler's error routing depends on: a
+// failed catalogue read never surfaces as a *storekit.PredicateError,
+// which is the one shape the transport maps to 422-blame-the-caller's-
+// filter. It does not drive an HTTP call or observe the status code a
+// client would see — that a canceled context reaching SegmentEngine
+// answers 500 rather than 422 is the handler's own doing, resting on
+// this invariant rather than proving it directly. A context already
+// canceled before the engine reaches for the workspace's cf_* columns is
+// a genuine failure over the real service and the real pool — no
+// hand-built adapter, no simulated error — that has nothing at all to do
+// with what the caller's filter named.
 func TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake(t *testing.T) {
 	f := setupFixture(t)
 	dead, cancel := context.WithCancel(f.ctx)
