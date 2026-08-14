@@ -7,6 +7,7 @@ package comms
 // and what reaches the connector once it has been cleared.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -42,7 +43,11 @@ func TestOutboundFilesTravelWholeAndCarryTheirIdentity(t *testing.T) {
 		},
 		{AttachmentID: ids.NewV7(), Filename: "annex.pdf"},
 	}
-	got := outboundFiles(staged)
+	d := &Dispatcher{attachments: &stubAttachments{ok: true}}
+	got, err := d.attachedFiles(context.Background(), Delivery{Attachments: staged})
+	if err != nil {
+		t.Fatalf("pairing the snapshot with its bytes failed: %v", err)
+	}
 	if len(got) != len(staged) {
 		t.Fatalf("handed the connector %d files, staged %d — an adapter may never transmit a set that differs from the one it was handed",
 			len(got), len(staged))
@@ -56,7 +61,19 @@ func TestOutboundFilesTravelWholeAndCarryTheirIdentity(t *testing.T) {
 			t.Errorf("the snapshot dropped the %s, so a later change to the document would rewrite what the timeline says was sent", name)
 		}
 	}
-	if outboundFiles(nil) != nil {
+	// The bytes travel too. A snapshot handed over without them is a part with
+	// no content, which is the shape a recipient sees as an empty attachment.
+	for i, file := range got {
+		if len(file.Body) == 0 {
+			t.Errorf("file %d reached the connector with no bytes", i)
+		}
+	}
+
+	empty, err := d.attachedFiles(context.Background(), Delivery{})
+	if err != nil {
+		t.Fatalf("a message with no files failed: %v", err)
+	}
+	if empty != nil {
 		t.Error("an empty staged set became a non-nil file list the adapter has to tell from 'no files'")
 	}
 }

@@ -73,7 +73,12 @@ type SendEmailInput struct {
 	// It never replaces Body: both travel, and the wire renders them as
 	// multipart/alternative so a client that cannot show markup still receives
 	// the words.
-	HTMLBody       string
+	HTMLBody string
+	// AttachmentIDs names files already in the record library. The send resolves
+	// each to a SNAPSHOT of its metadata rather than keeping the id, so
+	// superseding the document later cannot rewrite what the timeline says this
+	// message carried (ADR-0086/A131 §4).
+	AttachmentIDs  []ids.UUID
 	ConsentPurpose string
 	// DraftRef names the voice draft this message came from, so the send can
 	// close the learning signal that draft opened. Empty is the ordinary case:
@@ -111,7 +116,9 @@ type DeliveryRequest struct {
 	HTMLBody   string // the markup alternative, empty for a plain-text send
 	// FromName is the sender's display name, snapshotted so a retry renders the
 	// same From header the first attempt did.
-	FromName       string
+	FromName string
+	// Attachments is what this message carries, snapshotted at staging.
+	Attachments    []OutboundFile
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a conversation
 	References     []string // unbracketed ancestry, oldest first
@@ -228,6 +235,16 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
+	// The files, resolved to snapshots while the sender's own read gate still
+	// applies. It runs before the transaction for the same reason the body work
+	// does — the transaction holds writes only — and it refuses the whole send
+	// when one file cannot be resolved, because a message carrying fewer files
+	// than the sender attached is one nobody is told is wrong.
+	files, err := s.resolveAttachments(ctx, in.AttachmentIDs)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	// Caller markup is filtered BEFORE anything of ours is added to it, so the
 	// signature and the unsubscribe footer below are not themselves subject to
 	// a filter they would only ever pass — and so what the allowlist judges is
@@ -262,6 +279,7 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 		body:            derived.transmitted,
 		recordedBody:    derived.recorded,
 		htmlBody:        htmlBody,
+		files:           files,
 		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
 		links:           links,

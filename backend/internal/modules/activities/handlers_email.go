@@ -257,7 +257,8 @@ func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crm
 	}
 
 	sent, err := h.store.SendEmail(r.Context(), FromAccount(links), sendInputFrom(
-		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.ConsentPurpose, req.DraftRef,
+		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.AttachmentIds,
+		req.ConsentPurpose, req.DraftRef,
 	), h.consent, h.delivery)
 	if err != nil {
 		writeStoreErr(w, r, err)
@@ -271,7 +272,7 @@ func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crm
 // a convenience: consent is owed to every addressee, so Recipients is To+Cc
 // and Cc is a subset of it. A second hand-rolled copy would eventually merge
 // one of them differently and mail somebody the gate never asked about.
-func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject, body string, htmlBody *string, purpose string, draftRef *string) SendEmailInput {
+func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject, body string, htmlBody *string, attachments *[]openapi_types.UUID, purpose string, draftRef *string) SendEmailInput {
 	var ccAddresses []string
 	if cc != nil {
 		ccAddresses = make([]string, 0, len(*cc))
@@ -293,12 +294,20 @@ func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject,
 	if htmlBody != nil {
 		html = *htmlBody
 	}
+	var files []ids.UUID
+	if attachments != nil {
+		files = make([]ids.UUID, 0, len(*attachments))
+		for _, id := range *attachments {
+			files = append(files, ids.UUID(id))
+		}
+	}
 	return SendEmailInput{
 		Recipients:     recipients,
 		Cc:             ccAddresses,
 		Subject:        subject,
 		Body:           body,
 		HTMLBody:       html,
+		AttachmentIDs:  files,
 		ConsentPurpose: purpose,
 		DraftRef:       ref,
 	}
@@ -317,7 +326,8 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	// it too. It belongs on the mail, not on this response to the API
 	// caller, who is not the recipient and has nothing to unsubscribe from.
 	sent, err := h.store.SendEmail(r.Context(), FromActivity(pathID[ids.ActivityKind](id)), sendInputFrom(
-		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.ConsentPurpose, req.DraftRef,
+		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.AttachmentIds,
+		req.ConsentPurpose, req.DraftRef,
 	), h.consent, h.delivery)
 	if err != nil {
 		writeStoreErr(w, r, err)

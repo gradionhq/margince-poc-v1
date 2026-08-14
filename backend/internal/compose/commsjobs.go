@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -348,6 +349,7 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		Body:            in.Body,
 		HTMLBody:        in.HTMLBody,
 		FromName:        in.FromName,
+		Attachments:     commsFiles(in.Attachments),
 		ConsentPurpose:  in.ConsentPurpose,
 		InReplyTo:       in.InReplyTo,
 		References:      in.References,
@@ -430,7 +432,7 @@ func (p SendPacing) withDefaults() SendPacing {
 // store, the mailbox resolver over the capture registry, the consent gate, and
 // the policy chain. Every one of those edges crosses a module boundary, which
 // is why the assembly lives here and not in comms.
-func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPacing) *commsSendWorker {
+func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPacing, blob blobstore.Store) *commsSendWorker {
 	p := pacing.withDefaults()
 	return &commsSendWorker{dispatcher: comms.NewDispatcher(
 		// The reconcile seam is the cross-module edge comms must not hold
@@ -439,7 +441,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		comms.NewStore(InstallationDB(pool), time.Now, activities.NewStore(InstallationDB(pool))),
 		commsResolver{registry: registry, channels: registry},
 		NewSendSeatAuthority(pool),
-		NewSendAttachmentAuthority(pool),
+		NewSendAttachmentAuthority(pool, blob),
 		consent.NewGate(consent.NewStore(InstallationDB(pool))),
 		[]comms.SendPolicy{comms.NewMailboxRatePolicy(p.Limit, p.Window, time.Now)},
 		time.Now,
@@ -451,4 +453,25 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		// apart: there is exactly one place the ladder length is declared.
 		sendInsertOpts().MaxAttempts,
 	)}
+}
+
+// commsFiles carries the send's attachment snapshot across the module boundary.
+// The two types are deliberately separate — activities owns what a message
+// carries, comms owns what a delivery holds — and this is the one place they
+// meet.
+func commsFiles(files []activities.OutboundFile) []comms.OutboundFile {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]comms.OutboundFile, 0, len(files))
+	for _, file := range files {
+		out = append(out, comms.OutboundFile{
+			AttachmentID: file.AttachmentID,
+			Filename:     file.Filename,
+			ContentType:  file.ContentType,
+			ByteSize:     file.ByteSize,
+			Checksum:     file.Checksum,
+		})
+	}
+	return out
 }

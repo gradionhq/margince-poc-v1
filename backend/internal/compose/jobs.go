@@ -69,6 +69,11 @@ type JobRunnerConfig struct {
 	// delivery may be deferred before it parks; the zero value takes the
 	// documented defaults (SendPacing.withDefaults).
 	SendPacing SendPacing
+	// SendBlob is the object store the send lane reads attachment bytes from.
+	// Nil is a role that sends no files: the integrity gate still runs (it
+	// reads rows), and a message carrying attachments then fails at the read
+	// rather than going out without them.
+	SendBlob blobstore.Store
 	// SendRegistry resolves the transmitting mailbox for a staged delivery.
 	// Nil means this role registers no send worker at all: a delivery it
 	// picked up could only fail on every attempt, and a queued send is better

@@ -11971,6 +11971,19 @@ export interface components {
              *     appended to BOTH parts by the server, in each part's own syntax.
              */
             html_body?: string | null;
+            /**
+             * @description Files already in the record library to send with this message, named by id
+             *     — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+             *     archiving or superseding one later cannot rewrite what the timeline says a
+             *     sent message carried.
+             *
+             *     A message is transmitted with ALL its files or not at all. A connector whose
+             *     provider cannot carry them parks the delivery rather than sending the text
+             *     alone, and a file the scanner has since quarantined — or one the sender has
+             *     since lost the right to read — parks it too: a recipient seeing fewer files
+             *     than the record claims is a wrong record nobody is told about.
+             */
+            attachment_ids?: string[];
             to: string[];
             cc?: string[];
             /**
@@ -12004,6 +12017,19 @@ export interface components {
              *     appended to BOTH parts by the server, in each part's own syntax.
              */
             html_body?: string | null;
+            /**
+             * @description Files already in the record library to send with this message, named by id
+             *     — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+             *     archiving or superseding one later cannot rewrite what the timeline says a
+             *     sent message carried.
+             *
+             *     A message is transmitted with ALL its files or not at all. A connector whose
+             *     provider cannot carry them parks the delivery rather than sending the text
+             *     alone, and a file the scanner has since quarantined — or one the sender has
+             *     since lost the right to read — parks it too: a recipient seeing fewer files
+             *     than the record claims is a wrong record nobody is told about.
+             */
+            attachment_ids?: string[];
             /**
              * @description At least one addressee. A send whose To: line is empty is refused 422 before
              *     anything is staged — `cc` alone does not make a message addressed to anyone.

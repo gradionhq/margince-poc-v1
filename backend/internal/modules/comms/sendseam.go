@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -102,6 +103,18 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		detectsPriorSend:   true,
 		carriesAttachments: carriesAttachments(sender),
 		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+			// The bytes, read HERE rather than carried in the delivery row: a
+			// message on a retry ladder would otherwise hold every attachment
+			// it might ever send in the database, duplicated per delivery, for
+			// as long as the maximum age allows.
+			//
+			// It is the last thing before the wire and it fails the whole
+			// transmit rather than sending a subset, which is the obligation
+			// the file set below already carries (ADR-0086/A131).
+			files, err := d.attachedFiles(ctx, del)
+			if err != nil {
+				return connector.SendReceipt{}, err
+			}
 			// Every staged field travels: a retry must rebuild an identical
 			// message, and a field dropped here is a header silently missing
 			// from real mail.
@@ -119,7 +132,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 				// files means the connector declared it carries them, so the
 				// adapter's obligation is to transmit ALL of them or fail —
 				// never a subset, never as links (ADR-0086/A131).
-				Files: outboundFiles(del.Attachments),
+				Files: files,
 			})
 		},
 	}, nil
@@ -199,19 +212,47 @@ func carriesAttachments(sender any) bool {
 // snapshot is the record of what was attached and not a copy of the files
 // themselves: keeping megabytes on a delivery row would make every retry
 // re-read them and every audit carry them.
-func outboundFiles(files []OutboundFile) []connector.OutboundFile {
-	if len(files) == 0 {
-		return nil
+// attachedFiles pairs the staged snapshot with the bytes the object store
+// holds, which is what the connector needs to build a part.
+//
+// The snapshot supplies the filename and the content type — what the message
+// SAID it carried at the moment a human sent it — and the store supplies what
+// is actually in the file. Reading the metadata again here instead would let a
+// rename between staging and transmit change the name on a message already
+// approved.
+func (d *Dispatcher) attachedFiles(ctx context.Context, del Delivery) ([]connector.OutboundFile, error) {
+	if len(del.Attachments) == 0 {
+		return nil, nil
 	}
-	out := make([]connector.OutboundFile, 0, len(files))
-	for _, file := range files {
+	if d.attachments == nil {
+		// The integrity gate has already parked a delivery with files and no
+		// authority, so this is unreachable rather than tolerated — and saying
+		// so is better than a nil-deref if that ordering ever changes.
+		return nil, errors.New("comms: no attachment authority is configured on this send path")
+	}
+	attachmentIDs := make([]ids.UUID, 0, len(del.Attachments))
+	for _, file := range del.Attachments {
+		attachmentIDs = append(attachmentIDs, file.AttachmentID)
+	}
+	bodies, err := d.attachments.ReadForSend(ctx, del.UserID, attachmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(bodies) != len(del.Attachments) {
+		return nil, fmt.Errorf(
+			"comms: the store returned %d files for a message carrying %d",
+			len(bodies), len(del.Attachments))
+	}
+	out := make([]connector.OutboundFile, 0, len(del.Attachments))
+	for i, file := range del.Attachments {
 		out = append(out, connector.OutboundFile{
 			AttachmentID: file.AttachmentID.String(),
 			Filename:     file.Filename,
 			ContentType:  file.ContentType,
 			ByteSize:     file.ByteSize,
 			Checksum:     file.Checksum,
+			Body:         bodies[i],
 		})
 	}
-	return out
+	return out, nil
 }

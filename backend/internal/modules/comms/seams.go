@@ -137,6 +137,19 @@ type AttachmentAuthority interface {
 	// reading "an attachment cannot be sent" leaves the sender guessing which
 	// of several to fix.
 	EnsureTransmittable(ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID) (ok bool, reason string, err error)
+
+	// ReadForSend returns the bytes of each attachment, in the order asked.
+	//
+	// Separate from EnsureTransmittable because they answer different
+	// questions at different costs: may this still be sent, and what is in it.
+	// The gate runs first and refuses for free; only a delivery that survives
+	// it pays to read the objects.
+	//
+	// It is called at TRANSMIT, not at staging. A delivery sits on a retry
+	// ladder for as long as the maximum age allows, and holding every
+	// attachment's bytes in the database for that long — duplicated per
+	// delivery — is a cost with no reader.
+	ReadForSend(ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID) ([][]byte, error)
 }
 
 // ErrNoMailbox marks a user with no connection to the provider a delivery is
