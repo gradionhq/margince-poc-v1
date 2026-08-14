@@ -154,20 +154,6 @@ var segmentEngines = map[string]storekit.Query{
 	},
 }
 
-// catalogObjectFor maps a segment resource onto the custom_field.object it
-// carries columns under. The two vocabularies are not identical: an activity has
-// custom fields and no segment engine, a project has an engine and no custom
-// fields, so an absent entry means "this resource has no custom columns" rather
-// than an error.
-func catalogObjectFor(resource string) (string, bool) {
-	switch resource {
-	case "person", "organization", "deal", "lead":
-		return resource, true
-	default:
-		return "", false
-	}
-}
-
 // SegmentEngine returns the ONE predicate engine for a filterable resource: the
 // closed core vocabulary, widened with this workspace's active and retired cf_*
 // columns, plus the fixed base clause and the scope-forcing executor. Dynamic-list
@@ -191,11 +177,14 @@ func (s *Store) SegmentEngine(ctx context.Context, resource string) (storekit.Qu
 	for name, field := range core.Fields {
 		merged.Fields[name] = field
 	}
-	object, hasCustom := catalogObjectFor(resource)
-	if s.catalog == nil || !hasCustom {
+	if s.catalog == nil {
 		return merged, true, nil
 	}
-	columns, err := s.catalog.FilterableColumns(ctx, object)
+	// Every resource that reaches this point owns a segment engine, and
+	// customfields.FieldObjects admits exactly that same set — person,
+	// organization, deal, lead, project — so resource IS the catalog's
+	// object key; no separate mapping to maintain or drift out of sync.
+	columns, err := s.catalog.FilterableColumns(ctx, resource)
 	if err != nil {
 		return storekit.Query{}, false, fmt.Errorf("read the custom-field vocabulary for %s: %w", resource, err)
 	}

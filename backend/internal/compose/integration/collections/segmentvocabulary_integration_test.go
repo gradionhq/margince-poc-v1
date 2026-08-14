@@ -25,9 +25,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	collectionsmod "github.com/gradionhq/margince/backend/internal/modules/collections"
 	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
+	dealsmod "github.com/gradionhq/margince/backend/internal/modules/deals"
 	peoplemod "github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -52,6 +54,7 @@ var testPerms = principal.Permissions{
 		"organization": fullGrant,
 		"deal":         fullGrant,
 		"lead":         fullGrant,
+		"project":      fullGrant,
 		"list":         fullGrant,
 		"tag":          fullGrant,
 	},
@@ -64,11 +67,12 @@ var testPerms = principal.Permissions{
 // writes a value through one and filters through the other is exercising
 // the real cross-module seam, not a hand-built stand-in for it.
 type fixture struct {
-	e      *integration.Env
-	ctx    context.Context
-	svc    *customfieldsmod.Service
-	people *peoplemod.Store
-	lists  *collectionsmod.Store
+	e        *integration.Env
+	ctx      context.Context
+	svc      *customfieldsmod.Service
+	people   *peoplemod.Store
+	projects *dealsmod.Store
+	lists    *collectionsmod.Store
 }
 
 func setupFixture(t *testing.T) fixture {
@@ -79,10 +83,11 @@ func setupFixture(t *testing.T) fixture {
 		e: e,
 		// A real seeded user, not a synthetic id: custom_field.created_by is
 		// foreign-keyed to app_user, and the harness seeds only Rep1/2/3.
-		ctx:    e.As(e.Rep1, nil, testPerms),
-		svc:    svc,
-		people: peoplemod.NewStore(e.DB()).WithFieldCatalog(svc),
-		lists:  collectionsmod.NewStore(e.DB()).WithFieldCatalog(svc),
+		ctx:      e.As(e.Rep1, nil, testPerms),
+		svc:      svc,
+		people:   peoplemod.NewStore(e.DB()).WithFieldCatalog(svc),
+		projects: dealsmod.NewStore(e.DB(), installseam.Deals()).WithFieldCatalog(svc),
+		lists:    collectionsmod.NewStore(e.DB()).WithFieldCatalog(svc),
 	}
 }
 
@@ -151,6 +156,60 @@ func TestADynamicListFiltersOnACustomFieldValue(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("a dynamic list on a custom field was refused: %v", err)
+	}
+	assertSoleMember(t, f, created.ID, ids.UUID(matching.Id))
+}
+
+// TestAProjectCustomFieldIsFilterable proves the segment vocabulary widens
+// from the catalogue for "project" exactly as it does for the other four
+// resources: project is a customfields.FieldObjects member with real cf_*
+// columns (project.go's own insert/update paths carry them), so refusing to
+// consult the catalogue for it would leave a customer's project field
+// definable and unfilterable at once.
+func TestAProjectCustomFieldIsFilterable(t *testing.T) {
+	f := setupFixture(t)
+	field, err := f.svc.Create(f.ctx, customfieldsmod.FieldSpec{
+		Object: "project", Label: "Engagement Model", Type: customfieldsmod.TypeText, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("defining the project field: %v", err)
+	}
+	if field.ColumnName == nil {
+		t.Fatal("defined field carries no column_name")
+	}
+	column := *field.ColumnName
+
+	org, err := f.people.CreateOrganization(f.ctx, peoplemod.CreateOrganizationInput{DisplayName: "Baer Pharma", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create organization: %v", err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	matching, err := f.projects.CreateProject(f.ctx, dealsmod.CreateProjectInput{
+		Name: "Match", OrganizationID: orgID, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create matching project: %v", err)
+	}
+	if _, err := f.projects.CreateProject(f.ctx, dealsmod.CreateProjectInput{
+		Name: "Other", OrganizationID: orgID, Source: "manual",
+	}); err != nil {
+		t.Fatalf("create non-matching project: %v", err)
+	}
+	// Set through the update path, not at create: a field a customer fills
+	// in later must filter exactly as one set at creation would.
+	if _, err := f.projects.UpdateProject(f.ctx, ids.From[ids.ProjectKind](ids.UUID(matching.Id)), dealsmod.UpdateProjectInput{
+		CustomFields: map[string]any{column: "retainer"},
+	}); err != nil {
+		t.Fatalf("setting the custom field through the update path: %v", err)
+	}
+
+	created, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "Retainer projects", EntityType: "project", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": "retainer"},
+	})
+	if err != nil {
+		t.Fatalf("a dynamic list on a project custom field was refused: %v", err)
 	}
 	assertSoleMember(t, f, created.ID, ids.UUID(matching.Id))
 }
