@@ -6,6 +6,7 @@ package collections
 import (
 	"encoding/json"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
@@ -31,12 +32,47 @@ const (
 // once so the engine key, the table and the column prefix cannot drift.
 const projectEntity = "project"
 
+// The record types taggable.entity_type admits (LVS-DDL-2), named through the
+// contract's own enum rather than as strings: a renamed member fails to compile
+// here instead of silently dropping a tag filter. The tag vocabulary below is
+// built from this set and the fitness test reads the same one, so a type that
+// becomes taggable cannot quietly ship without a filter. A project is absent
+// because the CHECK omits it — a project cannot be tagged.
+//
+// Completeness against the DDL is NOT provable here: the generated enum offers
+// named constants and Valid(), with no enumeration to compare against. The
+// integration lane closes that half by reading taggable's own CHECK constraint.
+func taggableEntityTypes() []string {
+	return []string{
+		string(crmcontracts.TaggableEntityTypePerson),
+		string(crmcontracts.TaggableEntityTypeOrganization),
+		string(crmcontracts.TaggableEntityTypeDeal),
+		string(crmcontracts.TaggableEntityTypeLead),
+	}
+}
+
+// tagLinkFor builds the tag field for one entity type: an id reference whose
+// column lives in the taggable join, so it compiles as a correlated EXISTS
+// (storekit.Field.Link) rather than against the base table. The entity_type is
+// baked in per resource because that is what makes the polymorphic join answer
+// for THIS record type and no other. taggable carries no workspace_id (dropped
+// by 0228); the surrounding transaction is what binds the tenant.
+func tagLinkFor(entity string) storekit.Field {
+	return storekit.Field{
+		Expr: "tg.tag_id",
+		Type: storekit.FieldID,
+		Link: "EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = '" + entity +
+			"' AND tg.entity_id = t.id AND %s)",
+	}
+}
+
 var segmentEngines = map[string]storekit.Query{
 	"person": {
 		Table:     "person",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"owner_id": {Expr: colOwnerID, Type: storekit.FieldID},
+			"tag":      tagLinkFor("person"),
 		},
 	},
 	"organization": {
@@ -58,6 +94,7 @@ var segmentEngines = map[string]storekit.Query{
 			// field would turn every such list into an error at read time, which
 			// is a worse answer than a stale one.
 			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
+			"tag":            tagLinkFor("organization"),
 		},
 	},
 	"deal": {
@@ -72,6 +109,7 @@ var segmentEngines = map[string]storekit.Query{
 			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID},
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
+			"tag":               tagLinkFor("deal"),
 		},
 	},
 	"lead": {
@@ -81,6 +119,7 @@ var segmentEngines = map[string]storekit.Query{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
+			"tag":               tagLinkFor("lead"),
 		},
 	},
 	projectEntity: {
