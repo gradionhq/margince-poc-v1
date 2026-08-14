@@ -1,5 +1,26 @@
 /* Base controls (foundation v0 vocabulary) — grows as tickets need atoms. */
 
+/* Which palette the BROWSER draws its own widgets from.
+ *
+ * Every colour in this product is a token, and every token re-resolves when the
+ * shell stamps `data-theme` — but a handful of elements are painted by the
+ * engine rather than by us, and those read `color-scheme` and nothing else. The
+ * `<progress>` bar on the writing-voice card was the tell: on a dark panel it
+ * kept its light-mode widget colours, so the UNFINISHED part of the bar was the
+ * brightest thing on the surface and the meter read inverted. Form-control
+ * chrome, scrollbars and the caret have the same problem in miniature.
+ *
+ * Declared here rather than in tokens.css because tokens.css mirrors the design
+ * canon value for value and its test pins that; this is a rendering instruction,
+ * not a colour. */
+:root {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 /* Text for assistive technology only: in the accessibility tree, off the
    screen. Clipped to 1px rather than `display: none` or `visibility: hidden` —
    both of those remove it from the tree as well, which is the opposite of what

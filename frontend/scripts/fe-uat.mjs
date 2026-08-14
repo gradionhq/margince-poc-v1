@@ -167,8 +167,22 @@ for (const f of changed) {
 }
 
 // Map story files (frontend/src/…) to Storybook importPaths (./src/…).
-// The one tag fe-uat honours: see the console listener below.
+// The tags fe-uat honours.
+//
+// EXPECTED_ERROR_TAG: see the console listener below.
+//
+// PHONE_TAG exists because of a mechanism that made every narrow story a lie.
+// `globals: { viewport: … }` is applied by the Storybook MANAGER, which styles
+// the preview iframe from outside it — and this harness loads `iframe.html`
+// DIRECTLY, so the manager never runs and the story renders at whatever width
+// the browser was given. Every story named `…Phone` was captured at 1024px,
+// including the shell's, which had been claiming to show the phone layout since
+// it was written. A story about a 390px layout has to be driven at 390px, so the
+// tag moves the browser instead of asking the manager to.
 const EXPECTED_ERROR_TAG = "uat-expected-console-error";
+const PHONE_TAG = "uat-phone";
+const DESKTOP = { width: 1024, height: 720 };
+const PHONE = { width: 390, height: 844 };
 
 const wantImportPaths = new Set([...storyFiles].map((p) => `./${p.replace(/^frontend\//, "")}`));
 
@@ -209,7 +223,7 @@ if (storyFiles.size > 0) {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch();
   const page = await browser.newPage({
-    viewport: { width: 1024, height: 720 },
+    viewport: DESKTOP,
     deviceScaleFactor: 2,
   });
 
@@ -225,7 +239,11 @@ if (storyFiles.size > 0) {
     // story for the boundary at all. The opt-out is a tag on that one story
     // rather than a flag on the run, so it names the story it excuses and shows
     // up in the index beside it.
-    const expectsConsoleError = (story.tags ?? []).includes(EXPECTED_ERROR_TAG);
+    const tags = story.tags ?? [];
+    const expectsConsoleError = tags.includes(EXPECTED_ERROR_TAG);
+    // Set before navigating: a resize after first paint measures a reflow rather
+    // than the layout the story is about.
+    await page.setViewportSize(tags.includes(PHONE_TAG) ? PHONE : DESKTOP);
     page.on("console", (m) => {
       if (m.type() === "error" && !expectsConsoleError) errors.push(m.text());
     });
@@ -241,7 +259,16 @@ if (storyFiles.size > 0) {
       errors.push("#storybook-root stayed empty (component did not render)");
     }
     // Let any play() interaction settle before the frame.
-    await page.waitForTimeout(250);
+    //
+    // Longer for a story that HAS one, and the reason is a defect this gate used
+    // to wave through: a play() whose query rejects — a canvas-scoped lookup for
+    // a node that portalled to document.body, say — reports about a second after
+    // the root fills, so at 250ms the screenshot and the verdict both landed
+    // first and a broken interaction passed. Two stories sat in that state, and
+    // one of them was capturing an un-armed confirm dialog under the name of an
+    // armed one. `play-fn` is Storybook's own automatic tag, so only the stories
+    // that can hit this pay for the wait.
+    await page.waitForTimeout(tags.includes("play-fn") ? 1_500 : 250);
     const png = join(outDir, `${story.id}.png`);
     await page.screenshot({ path: png });
     const pass = rendered && errors.length === 0;
