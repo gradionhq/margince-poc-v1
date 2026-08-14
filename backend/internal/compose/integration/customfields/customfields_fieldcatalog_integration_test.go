@@ -30,6 +30,12 @@ import (
 // two drifted apart).
 var _ fieldcatalog.Reader = (*customfieldsmod.Service)(nil)
 
+// var _ fieldcatalog.FilterableReader documents the same seam for the FILTER
+// vocabulary. No consumer is wired to this port yet, which makes this line
+// the only thing in the tree that would catch the two drifting apart until
+// one is.
+var _ fieldcatalog.FilterableReader = (*customfieldsmod.Service)(nil)
+
 func columnNames(cols []fieldcatalog.Column) []string {
 	names := make([]string, len(cols))
 	for i, c := range cols {

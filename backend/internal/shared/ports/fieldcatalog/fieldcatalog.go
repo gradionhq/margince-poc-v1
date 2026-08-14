@@ -36,9 +36,11 @@ const (
 	TypeBoolean  = "boolean"
 )
 
-// Column is one active custom-field column for a (workspace, object)
-// pair, as a record store needs to see it: its physical column name and
-// its closed field type (one of the Type* constants above).
+// Column is one custom-field column for a (workspace, object) pair,
+// identified by its physical column name and its closed field type (one
+// of the Type* constants above). Whether a given Column is active,
+// retired, or both is a question of which method returned it — Reader
+// and FilterableReader below — not of the type itself.
 type Column struct {
 	Name string
 	Type string

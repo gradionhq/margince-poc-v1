@@ -12,6 +12,7 @@ package customfields
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -38,25 +39,7 @@ import (
 // calling store enforces is what actually protects the values stored in
 // those columns.
 func (s *Service) ActiveColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
-	var cols []fieldcatalog.Column
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT column_name, type FROM custom_field WHERE object = $1 AND status = $2 ORDER BY column_name`,
-			object, statusActive)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var c fieldcatalog.Column
-			if err := rows.Scan(&c.Name, &c.Type); err != nil {
-				return err
-			}
-			cols = append(cols, c)
-		}
-		return rows.Err()
-	})
-	return cols, err
+	return s.queryColumns(ctx, "AND status = $2 ORDER BY column_name", object, statusActive)
 }
 
 // FilterableColumns answers every cf_* column that physically exists for one
@@ -72,11 +55,21 @@ func (s *Service) ActiveColumns(ctx context.Context, object string) ([]fieldcata
 // is schema, and the calling engine's own row-scope clause is what protects the
 // values in them.
 func (s *Service) FilterableColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
+	return s.queryColumns(ctx, "ORDER BY column_name", object)
+}
+
+// queryColumns runs the custom_field scan both ActiveColumns and
+// FilterableColumns need, varying only in the WHERE-clause fragment
+// (appended after "WHERE object = $1") and its bind args ($2, $3, …
+// following object). Kept private: the two questions it answers —
+// active-only vs. active-and-retired — belong on the methods above, not
+// on this shared plumbing.
+func (s *Service) queryColumns(ctx context.Context, whereTail string, args ...any) ([]fieldcatalog.Column, error) {
 	var cols []fieldcatalog.Column
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT column_name, type FROM custom_field WHERE object = $1 ORDER BY column_name`,
-			object)
+			fmt.Sprintf(`SELECT column_name, type FROM custom_field WHERE object = $1 %s`, whereTail),
+			args...)
 		if err != nil {
 			return err
 		}
