@@ -3,11 +3,15 @@
 
 package compose
 
-// newCollectionsHandlers is the ONE place collections.NewHandlers is built
-// for the lists/tags/saved-views surface — server.go calls only this. A test
-// that re-derived "what the wiring should look like" from its own copy of
-// customfields.NewService would prove nothing about production (rule 6): it
-// has to run the actual function and read what came out.
+// NewCollectionsStore is the ONE place a catalogue-wired collections store
+// is built — every surface that needs one (the lists/tags/saved-views
+// transport, filtered export) calls this constructor rather than building
+// its own, so gating this one function covers every caller; a store built
+// any other way is a bug at the call site, not a second wiring path this
+// test would need to separately catch. A test that re-derived "what the
+// wiring should look like" from its own copy of customfields.NewService
+// would prove nothing about production (rule 6): it has to run the actual
+// function and read what came out.
 //
 // What it reads is the seam itself, not a request outcome: collections.Store
 // keeps its catalog field unexported (no production code ever needs to ask a
@@ -24,23 +28,17 @@ import (
 	"testing"
 )
 
-// TestNewCollectionsHandlersCarriesTheFieldCatalogSeam proves the store
-// behind dynamic-list create validation and the members endpoint carries a
-// non-nil custom-field catalog — the same seam wireExportSurface wires for
-// filtered export. Without it, a cf_* filter a filtered export of a list
-// accepts is refused as an unknown field by the create and members
-// endpoints for that very list, which is exactly the divergence this
-// resolver's own SegmentEngine doc promises cannot happen.
-func TestNewCollectionsHandlersCarriesTheFieldCatalogSeam(t *testing.T) {
-	h := newCollectionsHandlers(nil)
-	store := reflect.ValueOf(h).FieldByName("store")
-	if store.IsNil() {
-		t.Fatal("newCollectionsHandlers built a store with no field catalog seam at all")
-	}
-	catalog := store.Elem().FieldByName("catalog")
+// TestNewCollectionsStoreCarriesTheFieldCatalogSeam proves the store behind
+// every collections-store caller — dynamic-list create validation, the
+// members endpoint, and filtered export alike — carries a non-nil
+// custom-field catalog. Without it, a cf_* filter one of those surfaces
+// accepts is refused as an unknown field by another, which is exactly the
+// divergence this resolver's own SegmentEngine doc promises cannot happen.
+func TestNewCollectionsStoreCarriesTheFieldCatalogSeam(t *testing.T) {
+	store := NewCollectionsStore(nil)
+	catalog := reflect.ValueOf(store).Elem().FieldByName("catalog")
 	if catalog.IsNil() {
-		t.Fatal("newCollectionsHandlers did not wire a field catalog into the collections store — " +
-			"dynamic-list create validation and the members endpoint would refuse every cf_* " +
-			"filter a filtered export of the same list accepts")
+		t.Fatal("NewCollectionsStore built a store with no field catalog seam at all — " +
+			"every caller of this constructor would refuse a cf_* filter another accepts")
 	}
 }

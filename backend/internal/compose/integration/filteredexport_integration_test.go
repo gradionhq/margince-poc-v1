@@ -24,7 +24,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
-	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -32,10 +31,13 @@ import (
 // dealEngine resolves the deal vocabulary the same way the export handler
 // does — WriteFiltered now takes the resolved engine rather than looking a
 // resource string up itself, so a caller that drives the writer directly
-// (this suite, bypassing the HTTP handler) resolves it the same way.
+// (this suite, bypassing the HTTP handler) resolves it through the same
+// production constructor (compose.NewCollectionsStore) wireExportSurface
+// wires the handler with, rather than a hand-built, catalogue-less store
+// that would leave this lane never exercising the real wiring at all.
 func dealEngine(ctx context.Context, t *testing.T, e *SearchEnv) storekit.Query {
 	t.Helper()
-	engine, ok, err := collections.NewStore(e.DB()).SegmentEngine(ctx, "deal")
+	engine, ok, err := compose.NewCollectionsStore(e.Pool).SegmentEngine(ctx, "deal")
 	if err != nil {
 		t.Fatalf("resolve deal engine: %v", err)
 	}

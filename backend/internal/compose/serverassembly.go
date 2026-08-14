@@ -71,15 +71,24 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		WithSenderName(identity.NewServiceFor(InstallationDB(pool)))
 }
 
-// newCollectionsHandlers builds the lists/tags/saved-views transport with the
-// same fieldcatalog seam wireExportSurface widens the export handler's
-// collections store with: dynamic-list create validation and the members
+// NewCollectionsStore is the ONE spelling of "the collections store with
+// its catalogue": every site that needs a lists/tags/saved-views/export
+// store resolving cf_* columns through this workspace's custom-field
+// vocabulary calls this, never collections.NewStore directly — so a
+// wiring gate on this one constructor covers every caller, rather than
+// needing one gate per independently-built store.
+func NewCollectionsStore(pool *pgxpool.Pool) *collections.Store {
+	return collections.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+}
+
+// newCollectionsHandlers builds the lists/tags/saved-views transport over
+// NewCollectionsStore, so dynamic-list create validation and the members
 // endpoint resolve a definition's vocabulary through collections.Store.
-// SegmentEngine exactly as export does, so a cf_* filter a saved list or a
-// membership check names cannot be refused here while an export of the same
-// list accepts it.
+// SegmentEngine exactly as export does (wireExportSurface builds its store
+// the same way) — a cf_* filter a saved list or a membership check names
+// cannot be refused here while an export of the same list accepts it.
 func newCollectionsHandlers(pool *pgxpool.Pool) collectionsHandlers {
-	return collections.NewHandlers(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+	return collections.NewHandlersFromStore(NewCollectionsStore(pool))
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture
@@ -112,7 +121,7 @@ func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// seam newPeopleHandlers wires for the record stores.
 	s.filteredExportHandlers = filteredExportHandlers{
 		writer:      NewFilteredExportWriter(pool),
-		collections: collections.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil)),
+		collections: NewCollectionsStore(pool),
 	}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }

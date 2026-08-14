@@ -45,6 +45,14 @@ func NewHandlers(db *database.DB) Handlers {
 	return Handlers{store: NewStore(db)}
 }
 
+// NewHandlersFromStore wires the transport over a store the caller already
+// built — compose's one path for a store pre-widened with WithFieldCatalog,
+// so the transport carries whatever seams the caller wired without a second
+// WithFieldCatalog call that could drift from the first.
+func NewHandlersFromStore(store *Store) Handlers {
+	return Handlers{store: store}
+}
+
 // WithFieldCatalog wires the workspace custom-field vocabulary into the
 // transport's store (see Store.WithFieldCatalog): dynamic-list create
 // validation and the members endpoint then compile a filter naming a cf_*
