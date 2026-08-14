@@ -74,6 +74,38 @@ func TestNoKindIsBothContextOnlyAndUnpinned(t *testing.T) {
 	}
 }
 
+// A kind registered in both lists would run whichever registration happened
+// last — construction time or applySendPath — and nothing anywhere observes
+// that order. The two lists are the only places a kind can be registered, so
+// comparing them is the whole check.
+func TestNoKindIsRegisteredTwice(t *testing.T) {
+	early := map[string]bool{}
+	for _, kind := range approvalsServiceWithEffects(nil).EffectKinds() {
+		early[kind] = true
+	}
+	for kind := range lateApprovalEffects {
+		if early[kind] {
+			t.Errorf("%s is registered both at construction and in applySendPath — approving it "+
+				"runs whichever was wired last, and the two bind different stores", kind)
+		}
+	}
+}
+
+// Every late-registered kind carries BOTH halves. An executor without its
+// preflight refuses only after the decision has committed, which for a send is
+// the difference between a draft a human can release later and one that is gone.
+func TestEveryLateEffectHasAPrecheck(t *testing.T) {
+	for kind, late := range lateApprovalEffects {
+		if late.effect == nil {
+			t.Errorf("%s registers no effect", kind)
+		}
+		if late.precheck == nil {
+			t.Errorf("%s registers no precheck — its refusals would land after the decision, "+
+				"where the human who approved can no longer act on them", kind)
+		}
+	}
+}
+
 func registeredEffectKinds() map[string]bool {
 	registered := map[string]bool{}
 	for _, kind := range approvalsServiceWithEffects(nil).EffectKinds() {

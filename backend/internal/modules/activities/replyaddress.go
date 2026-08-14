@@ -104,6 +104,14 @@ func (s *Store) ReplyAddressFor(ctx context.Context, id ids.ActivityID) (string,
 		// The person row-scope applies only to the arm that reads a person. A
 		// bare participant address is on the activity the caller already
 		// reached and names no person row to be scoped against.
+		// The tiebreak columns carry BOTH levels, and they have to. The
+		// participant arm ranks by which participant; the person-email arm can
+		// return several rows for ONE participant, and those are separated by
+		// is_primary and position — the record's own ordering. Ranking the
+		// second arm on the participant's created_at/id alone leaves every one
+		// of a contact's addresses tied, so "the primary email" becomes whichever
+		// row the planner happened to emit: a personal or long-retired address on
+		// a business thread, chosen by nothing.
 		q := `
 			WITH counterparty AS (
 			     SELECT person_id, address,
@@ -114,11 +122,13 @@ func (s *Store) ReplyAddressFor(ctx context.Context, id ids.ActivityID) (string,
 			        AND user_id IS NULL
 			)
 			SELECT addr FROM (
-			     SELECT c.address AS addr, c.rank, 1 AS source, c.created_at, c.id
+			     SELECT c.address AS addr, c.rank, 1 AS source,
+			            true AS primary_first, 0 AS position, c.created_at, c.id
 			       FROM counterparty c
 			      WHERE c.address IS NOT NULL AND c.address <> ''
 			     UNION ALL
-			     SELECT e.email AS addr, c.rank, 2 AS source, c.created_at, c.id
+			     SELECT e.email AS addr, c.rank, 2 AS source,
+			            e.is_primary AS primary_first, e.position, c.created_at, c.id
 			       FROM counterparty c
 			       JOIN person p ON p.id = c.person_id
 			       JOIN person_email e ON e.person_id = p.id AND e.archived_at IS NULL
@@ -129,7 +139,7 @@ func (s *Store) ReplyAddressFor(ctx context.Context, id ids.ActivityID) (string,
 		}
 		q += `
 			) ranked
-			 ORDER BY rank, source, created_at, id
+			 ORDER BY rank, source, primary_first DESC, position, created_at, id, addr
 			 LIMIT 1`
 
 		err = tx.QueryRow(ctx, q, args...).Scan(&address)

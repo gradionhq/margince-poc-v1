@@ -90,6 +90,35 @@ func TestAReplyToOurOwnOutboundGoesToTheAddresseeNotOurselves(t *testing.T) {
 	}
 }
 
+// A participant recorded by identity alone falls back to the person's PRIMARY
+// email, and "primary" has to mean the flag rather than whichever row the
+// planner emitted first. A contact with a personal address on file and a work
+// one marked primary must be answered at work.
+func TestAParticipantWithNoAddressFallsBackToThePrimaryEmail(t *testing.T) {
+	e := Setup(t)
+	person := e.SeedPerson(t, "Anna Weber", nil)
+	// Inserted with the NON-primary first, so a query that ignores the flag
+	// returns this one on insertion order and the test fails loudly.
+	e.WsExec(t, `
+		INSERT INTO person_email (workspace_id, person_id, email, is_primary, position, source, captured_by)
+		VALUES ($1, $2, 'anna.private@example.com', false, 0, 'test', 'human:seed')`, e.WS, person)
+	e.WsExec(t, `
+		INSERT INTO person_email (workspace_id, person_id, email, is_primary, position, source, captured_by)
+		VALUES ($1, $2, 'anna@work.example.com', true, 1, 'test', 'human:seed')`, e.WS, person)
+
+	anchor := seedReplyThread(t, e, "inbound",
+		replyParty{role: "from", person: &person},
+	)
+
+	got, err := e.Activities.ReplyAddressFor(e.Admin(), anchor)
+	if err != nil {
+		t.Fatalf("ReplyAddressFor → %v, want the primary email", err)
+	}
+	if got != "anna@work.example.com" {
+		t.Errorf("reply address = %q, want the primary %q — an unordered pick sends business mail to whichever address sorted first", got, "anna@work.example.com")
+	}
+}
+
 // A thread with nobody on it but us has no counterparty, and the honest answer
 // is a refusal an operator can act on — not an empty string that reaches the
 // send and arrives there as "no recipients", which reads as a different bug.

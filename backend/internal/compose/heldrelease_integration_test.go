@@ -26,9 +26,12 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -40,6 +43,10 @@ import (
 // approval.decided_by is a foreign key, so a made-up principal id is refused by
 // the database rather than by the code under test — and the refusal arrives
 // looking like a bug in the release.
+// draftRecipient is the one counterparty every fixture here answers, named once
+// so an assertion and the seed cannot disagree about who the mail went to.
+const draftRecipient = "anna@example.com"
+
 func decider(e *integration.Env) context.Context {
 	return e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 }
@@ -59,7 +66,8 @@ type heldDraftFixture struct {
 	handler  string
 }
 
-func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service, to string) heldDraftFixture {
+func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) heldDraftFixture {
+	const to = draftRecipient
 	t.Helper()
 	owner := integration.OwnerConn(t)
 	person := e.SeedPerson(t, "Anna Weber", nil)
@@ -160,16 +168,22 @@ func releaseService(t *testing.T, e *integration.Env) *approvals.Service {
 		Delivery:      NewDeliveryStager(e.Pool, inserter),
 		PublicBaseURL: "https://crm.example.test",
 	}
+	store, gate := sendStore(e.Pool, send), consentGateFor(e.Pool)
 	svc := approvals.NewService(e.DB())
-	svc.WithEffect(automation.HeldDraftKind, heldDraftReleaseEffect(
-		svc, sendStore(e.Pool, send), consentGateFor(e.Pool), send.Delivery))
+	// BOTH halves, because production registers both and they are two readings
+	// of one question. An executor without its preflight answers "can this be
+	// released" only after the decision it should have been able to prevent.
+	svc.WithEffect(automation.HeldDraftKind,
+		heldDraftReleaseEffect(svc, store, gate, send.Delivery))
+	svc.WithPrecheck(automation.HeldDraftKind,
+		heldDraftPrecheck(store, gate, send.Delivery))
 	return svc
 }
 
 func TestReleasingAHeldDraftSendsItAndCompletesTheParkedRun(t *testing.T) {
 	e := integration.Setup(t)
 	svc := releaseService(t, e)
-	f := seedHeldDraft(t, e, svc, "anna@example.com")
+	f := seedHeldDraft(t, e, svc)
 
 	if _, err := svc.Decide(decider(e), f.approval, true, nil); err != nil {
 		t.Fatalf("approving a held draft → %v, want the release to succeed", err)
@@ -207,7 +221,7 @@ func TestReleasingAHeldDraftSendsItAndCompletesTheParkedRun(t *testing.T) {
 func TestAHeldDraftCannotBeReleasedTwice(t *testing.T) {
 	e := integration.Setup(t)
 	svc := releaseService(t, e)
-	f := seedHeldDraft(t, e, svc, "anna@example.com")
+	f := seedHeldDraft(t, e, svc)
 
 	if _, err := svc.Decide(decider(e), f.approval, true, nil); err != nil {
 		t.Fatalf("first release → %v, want ok", err)
@@ -224,19 +238,24 @@ func TestAHeldDraftCannotBeReleasedTwice(t *testing.T) {
 	}
 }
 
-// A refusal inside the release must roll the redemption back with it. The
-// anchor is archived between staging and approval — ordinary work on a thread
-// somebody is still holding a draft against — and the send re-reads it under a
-// lock, so the whole transaction fails.
+// A refusal must leave the draft RELEASABLE, and that is a stronger claim than
+// "nothing was sent".
 //
-// What matters is the STATE afterwards: nothing sent, and the approval left
-// unconsumed so the message can be released once the cause is fixed. Redeeming
-// before the gates would leave it spent on a send that never happened.
-func TestAReleaseThatRefusesLeavesTheApprovalUnconsumedAndSendsNothing(t *testing.T) {
+// The approvals engine commits a decision and only then runs the effect, so an
+// effect that refuses leaves an approved row decideInTx will not decide again
+// and no surface can re-drive — for a send, the message is simply gone. The
+// preflight exists to move that refusal one step earlier, where it lands on a
+// still-pending approval a human can act on.
+//
+// So this asserts the state a human can actually recover from: nothing sent,
+// nothing consumed, and the approval still PENDING — then fixes the cause and
+// approves the same row, which must go out.
+func TestAReleaseThatRefusesLeavesTheDraftPendingAndReleasableLater(t *testing.T) {
 	e := integration.Setup(t)
 	svc := releaseService(t, e)
-	f := seedHeldDraft(t, e, svc, "anna@example.com")
+	f := seedHeldDraft(t, e, svc)
 
+	// Ordinary work on the thread the draft answers, done while it waits.
 	e.WsExec(t, `UPDATE activity SET archived_at = now() WHERE id = $1`, f.anchor)
 
 	if _, err := svc.Decide(decider(e), f.approval, true, nil); err == nil {
@@ -250,8 +269,68 @@ func TestAReleaseThatRefusesLeavesTheApprovalUnconsumedAndSendsNothing(t *testin
 	if n := e.WsCount(t, `SELECT count(*) FROM comms_outbound`); n != 0 {
 		t.Errorf("comms_outbound rows = %d, want 0", n)
 	}
+	// Still PENDING, not "approved but unconsumed". The difference is the whole
+	// point: an approved row is a dead end, a pending one is a decision waiting.
 	if n := e.WsCount(t, `SELECT count(*) FROM approval
-		WHERE id = $1 AND consumed_at IS NULL`, f.approval); n != 1 {
-		t.Error("the approval was consumed by a send that never happened — the authority is now spent and the message can never be released")
+		WHERE id = $1 AND status = 'pending' AND consumed_at IS NULL`, f.approval); n != 1 {
+		t.Fatal("the approval is no longer pending — a refused release that decides the row anyway strands the message with nothing able to re-drive it")
+	}
+
+	// The human fixes the cause and approves the same row again.
+	e.WsExec(t, `UPDATE activity SET archived_at = NULL WHERE id = $1`, f.anchor)
+	if _, err := svc.Decide(decider(e), f.approval, true, nil); err != nil {
+		t.Fatalf("re-approving after fixing the cause → %v, want the send to go", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity
+		WHERE direction = 'outbound' AND kind = 'email'`); n != 1 {
+		t.Errorf("outbound activities after the retry = %d, want exactly 1", n)
+	}
+}
+
+// The production wiring, not a hand-assembled copy of it.
+//
+// releaseService above registers the effect by calling WithEffect directly,
+// which proves the executor and leaves the REGISTRATION unproven — and the
+// registration is the part with a subtle ordering requirement, since the send
+// path is only configured after server options run. If applySendPath stopped
+// registering, or bound a different service instance, every other test here
+// would stay green.
+func TestApplySendPathRegistersTheHeldDraftRelease(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	inserter, err := jobs.NewInserter(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("jobs.NewInserter: %v", err)
+	}
+
+	// The approvals surface built the way New builds it — before any send
+	// configuration exists — and then the send path applied over it. That
+	// ordering IS the thing under test.
+	srv := Server{
+		approvalsHandlers:  approvalsHandlersWithEffects(e.Pool, nil, slog.New(slog.NewTextHandler(io.Discard, nil))),
+		activitiesHandlers: newActivitiesHandlers(e.Pool),
+		send: SendPath{
+			Delivery:      NewDeliveryStager(e.Pool, inserter),
+			PublicBaseURL: "https://crm.example.test",
+		},
+	}
+	srv.applySendPath(e.Pool)
+
+	f := seedHeldDraft(t, e, approvals.NewService(e.DB()))
+
+	// Through the SERVED handler, the same entry point the router calls — no
+	// reaching past it into a service this test assembled itself.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/approvals/"+f.approval.String()+"/approve", nil).WithContext(decider(e))
+	srv.ApproveApproval(rec, req,
+		crmcontracts.Id(f.approval.UUID), crmcontracts.ApproveApprovalParams{})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve through the served surface → %d %s", rec.Code, rec.Body.String())
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity
+		WHERE direction = 'outbound' AND kind = 'email'`); n != 1 {
+		t.Error("the served approvals surface decided a held draft and sent nothing — applySendPath is not registering the release")
 	}
 }

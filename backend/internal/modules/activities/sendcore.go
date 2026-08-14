@@ -29,13 +29,13 @@ import (
 // the resolution — the authorization order, the consent gate, deliverability,
 // identity minting, single-transaction staging — is reached by both.
 func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
-	prepared, err := s.prepareSend(ctx, origin, in, gate, stager)
+	prepared, err := s.PrepareSend(ctx, origin, in, gate, stager)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	var sent crmcontracts.Activity
 	if err := s.tx(ctx, func(tx pgx.Tx) error {
-		sent, err = s.sendPreparedTx(ctx, tx, origin, prepared, stager)
+		sent, err = s.SendPreparedTx(ctx, tx, origin, prepared, stager)
 		return err
 	}); err != nil {
 		return crmcontracts.Activity{}, err
@@ -43,63 +43,48 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	return sent, nil
 }
 
-// SendEmailInTx runs the same governed send inside a transaction the CALLER
-// owns, for a releaser that must commit the send together with the record that
-// authorized it.
-//
-// The approval release is that releaser: approvals.RedeemAndApply owns a
-// transaction, spends the single-use redemption in it, and hands this the same
-// tx — so a released draft either burns its authority AND sends, or does
-// neither. Calling SendEmail there would open a second, independent commit
-// inside that one, and a crash between the two produces exactly the pair this
-// codebase has already paid for once: a consumed approval whose effect never
-// ran, or a sent message no approval records releasing.
-//
-// Preparation runs inside the transaction here, unlike SendEmail, and that is
-// deliberate rather than incidental: a gate that refuses — withdrawn consent, a
-// sender who lost their mailbox, an archived anchor — must roll the redemption
-// back with it, leaving the approval unconsumed and still releasable once the
-// cause is fixed. Ordering the gates before the redeem would get the same answer
-// on the happy path and the wrong one on every crash. FireScheduledSend prepares
-// inside its own transaction for the same reason (ADR-0104 §3), and every guard
-// prepareSend runs is a database or in-process read — no network call is held
-// open across this.
-func (s *Store) SendEmailInTx(ctx context.Context, tx pgx.Tx, origin SendOrigin, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
-	prepared, err := s.prepareSend(ctx, origin, in, gate, stager)
-	if err != nil {
-		return crmcontracts.Activity{}, err
-	}
-	return s.sendPreparedTx(ctx, tx, origin, prepared, stager)
-}
-
-// preparedSend is one message with every live read already done and every gate
+// PreparedSend is one message with every live read already done and every gate
 // already passed — rendered, snapshotted, and ready to be written.
 //
 // It exists because a scheduled send fires from a worker rather than a request,
 // and the fire must hold the scheduled row's lock across the same writes an
 // immediate send performs (ADR-0104 §3). Splitting preparation from the write
 // lets both callers share this one transaction body instead of growing a second
-// copy of it that would drift.
-type preparedSend struct {
+// copy of it that would drift. The approval release is the third such caller:
+// approvals.RedeemAndApply owns a transaction, spends the single-use redemption
+// in it, and hands the effect that same tx — so a released draft either burns
+// its authority AND writes, or does neither.
+//
+// The two halves are EXPORTED for that third caller, and the boundary between
+// them is load-bearing rather than stylistic. PrepareSend reads through the
+// STORE, not through a caller's transaction — GetActivity opens its own
+// (activity.go) — so running it inside somebody else's transaction acquires a
+// SECOND pool connection while the first is held. Under load that is not slow,
+// it is stuck: every connection held by a transaction waiting for another.
+//
+// Its fields stay unexported: a caller outside this package may carry one from
+// PrepareSend to SendPreparedTx and may not forge one, so there is no way to
+// reach the write half with a message no gate ever saw.
+type PreparedSend struct {
 	in        SendEmailInput
 	message   outboundMessage
 	messageID string
 }
 
-// prepareSend runs everything an outbound send needs BEFORE it writes: origin
+// PrepareSend runs everything an outbound send needs BEFORE it writes: origin
 // resolution, the guard sequence, the sign-off, deliverability, attachment
 // snapshots, markup sanitizing and the sender's display name.
 //
 // Every one of these is a live read of state that may have changed since a
 // scheduled message was composed, which is exactly why a scheduled send runs
 // them again at fire rather than trusting what it froze (ADR-0104 §2).
-func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (preparedSend, error) {
+func (s *Store) PrepareSend(ctx context.Context, origin SendOrigin, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (PreparedSend, error) {
 	links, err := origin.resolve(ctx, s)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 	if err := s.refuseUnsendable(ctx, in, gate, stager); err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
 	// The sender's own sign-off, appended by the SERVER rather than written by
@@ -116,14 +101,14 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	// quoted text" setting exists to avoid.
 	signed, err := s.signedBody(ctx, in.Body)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
 	// Deliverability is derived here, after the gates, so both transports
 	// get it and neither can send marketing mail without it.
 	derived, err := s.deliverability(ctx, signed, in.Recipients, in.ConsentPurpose)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
@@ -134,7 +119,7 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	// than the sender attached is one nobody is told is wrong.
 	files, err := s.resolveAttachments(ctx, in.AttachmentIDs)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
 	// Caller markup is filtered BEFORE anything of ours is added to it, so the
@@ -143,7 +128,7 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	// exactly what the caller sent.
 	safeHTML, err := SanitizeOutboundHTML(in.HTMLBody)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
 	// The markup alternative gets the SAME sign-off and the same unsubscribe
@@ -152,7 +137,7 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	// decision rather than ours — including whether they can unsubscribe.
 	htmlBody, err := s.signedHTML(ctx, safeHTML, derived)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
 	// Who the recipient sees this is from. Resolved here, beside the signature
@@ -161,10 +146,10 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	// message telling two stories.
 	fromName, err := s.senderDisplayName(ctx)
 	if err != nil {
-		return preparedSend{}, err
+		return PreparedSend{}, err
 	}
 
-	return preparedSend{
+	return PreparedSend{
 		in:        in,
 		messageID: messageID,
 		message: outboundMessage{
@@ -182,7 +167,7 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 	}, nil
 }
 
-// sendPreparedTx writes one prepared send: the outbound activity, its delivery,
+// SendPreparedTx writes one prepared send: the outbound activity, its delivery,
 // and the draft outcome, in the CALLER's transaction.
 //
 // It takes the transaction rather than opening one so a scheduled send can hold
@@ -190,7 +175,7 @@ func (s *Store) prepareSend(ctx context.Context, origin SendOrigin, in SendEmail
 // (ADR-0104 §3). An immediate send passes a transaction it opened itself, so
 // both paths produce byte-identical writes and DRAFT-AC-N-7's invariant — one
 // activity, one delivery, one job, or none of them — holds for both.
-func (s *Store) sendPreparedTx(ctx context.Context, tx pgx.Tx, origin SendOrigin, p preparedSend, stager DeliveryStager) (crmcontracts.Activity, error) {
+func (s *Store) SendPreparedTx(ctx context.Context, tx pgx.Tx, origin SendOrigin, p PreparedSend, stager DeliveryStager) (crmcontracts.Activity, error) {
 	// A reply's anchor is re-read under a lock FIRST, because everything below
 	// derives from it: threading() does not filter archived rows, so an anchor
 	// archived since preparation would otherwise be threaded onto silently.

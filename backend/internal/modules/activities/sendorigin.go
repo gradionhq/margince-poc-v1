@@ -117,9 +117,15 @@ func (o SendOrigin) lockAnchorLive(ctx context.Context, tx pgx.Tx) error {
 	if !o.isReply() {
 		return nil
 	}
+	// FOR SHARE, not FOR UPDATE. All this needs is that the anchor cannot be
+	// archived — an UPDATE — while the reply is being written, and a share lock
+	// refuses exactly that. FOR UPDATE would additionally serialize two people
+	// replying to the same thread and block ordinary edits to it (a relink, a
+	// subject fix) for the length of the write, which is a cost this check has
+	// no reason to impose.
 	var id ids.UUID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM activity WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
+		`SELECT id FROM activity WHERE id = $1 AND archived_at IS NULL FOR SHARE`,
 		o.anchor.UUID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("the message this replies to is no longer available: %w", apperrors.ErrNotFound)

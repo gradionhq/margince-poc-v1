@@ -126,46 +126,60 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
 	decisions := s.approvalsHandlers
-	for kind, build := range lateApprovalEffects {
+	for kind, late := range lateApprovalEffects {
+		store, gate := sendStore(pool, send), consentGateFor(pool)
 		decisions = decisions.WithLateEffect(kind,
 			func(svc *approvals.Service) approvals.ApprovedEffect {
-				return build(svc, sendStore(pool, send), consentGateFor(pool), send.Delivery)
-			})
+				return late.effect(svc, store, gate, send.Delivery)
+			},
+			late.precheck(store, gate, send.Delivery))
 	}
 	s.approvalsHandlers = decisions
 }
 
-// lateApprovalEffects are the approve-side executors that cannot be registered
-// with the others, because they send.
-//
-// The list beside the rest (approvalsServiceWithEffects) runs when the
-// approvals surface is built, which is BEFORE server options assemble the send
-// path — so an executor registered there would send through a store with no
-// signature, no unsubscribe linker and no send authority. It would work, and
-// put out mail visibly worse than the same human's own send, with nothing
-// failing to say so.
-//
-// A table rather than a call, so the two things that must agree cannot drift:
-// applySendPath registers exactly these kinds, and the version-pin census gate
-// enumerates exactly these keys. A waiver for a late-registered kind would
-// otherwise read as a waiver for a kind nothing stages.
 // consentGateFor is the ONE spelling of the send path's consent authority.
 //
 // Every send in this process must ask the same gate the same way: a second
 // construction that differed — a different store, a different db handle — would
 // be a second answer to "may this person be written to", and the surface that
-// got the wrong one would look identical to the surface that got the right one.
-// The concrete gate, not the activities.ConsentGate seam it satisfies: this is
-// composition naming a dependency, and every caller assigns it into the seam
-// itself. Widening here would only hide which gate was built.
+// got the wrong one would look identical to the one that got the right one.
+//
+// The concrete gate rather than the activities.ConsentGate seam it satisfies:
+// this is composition naming a dependency, every caller assigns it into the
+// seam itself, and widening here would only hide which gate was built.
 func consentGateFor(pool *pgxpool.Pool) *consent.Gate {
 	return consent.NewGate(consent.NewStore(InstallationDB(pool)))
 }
 
-var lateApprovalEffects = map[string]func(
-	*approvals.Service, *activities.Store, activities.ConsentGate, activities.DeliveryStager,
-) approvals.ApprovedEffect{
-	automation.HeldDraftKind: heldDraftReleaseEffect,
+// lateApprovalEffect is one kind's approve-side pair: the executor that runs
+// after the decision commits, and the preflight that runs before it does.
+//
+// They travel together because they are two readings of ONE question — can this
+// be released — and a kind that registered the executor without the preflight
+// would answer it only where the answer is too late to act on.
+type lateApprovalEffect struct {
+	effect   func(*approvals.Service, *activities.Store, activities.ConsentGate, activities.DeliveryStager) approvals.ApprovedEffect
+	precheck func(*activities.Store, activities.ConsentGate, activities.DeliveryStager) approvals.ReleasePrecheck
+}
+
+// lateApprovalEffects are the approve-side pairs that cannot be registered with
+// the others, because they send.
+//
+// The list beside the rest (approvalsServiceWithEffects) runs when the approvals
+// surface is built, which is BEFORE server options assemble the send path — so
+// an executor registered there would send through a store with no signature, no
+// unsubscribe linker and no send authority. It would work, and put out mail
+// visibly worse than the same human's own send, with nothing failing to say so.
+//
+// A table rather than a call, so the things that must agree cannot drift:
+// applySendPath registers exactly these kinds and the version-pin census gate
+// enumerates exactly these keys. A waiver for a late-registered kind would
+// otherwise read as a waiver for a kind nothing stages.
+var lateApprovalEffects = map[string]lateApprovalEffect{
+	automation.HeldDraftKind: {
+		effect:   heldDraftReleaseEffect,
+		precheck: heldDraftPrecheck,
+	},
 }
 
 // sendStore builds the activities store the tool surface sends through — one

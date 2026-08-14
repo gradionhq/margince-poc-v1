@@ -239,7 +239,7 @@ func (s *Store) scheduleSend(
 	if err := validateSchedule(sched, s.now()); err != nil {
 		return ScheduledSend{}, err
 	}
-	if _, err := s.prepareSend(ctx, origin, in, gate, stager); err != nil {
+	if _, err := s.PrepareSend(ctx, origin, in, gate, stager); err != nil {
 		return ScheduledSend{}, err
 	}
 

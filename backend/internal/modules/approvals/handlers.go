@@ -38,8 +38,9 @@ func NewHandlers(svc *Service) Handlers { return Handlers{svc: svc} }
 // Effects whose dependencies ARE available at construction time keep using
 // Service.WithEffect at the registration list; this is not a second way to do
 // the same thing.
-func (h Handlers) WithLateEffect(kind string, build func(*Service) ApprovedEffect) Handlers {
+func (h Handlers) WithLateEffect(kind string, build func(*Service) ApprovedEffect, check ReleasePrecheck) Handlers {
 	h.svc.WithEffect(kind, build(h.svc))
+	h.svc.WithPrecheck(kind, check)
 	return h
 }
 

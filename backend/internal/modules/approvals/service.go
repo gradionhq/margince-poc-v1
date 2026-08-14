@@ -42,6 +42,23 @@ type Service struct {
 	// commits, only on approve; exactly-once is the effect's own duty
 	// (the redeem-then-execute discipline every 🟡 executor follows).
 	effects map[string]ApprovedEffect
+	// prechecks are the per-kind preflights that run BEFORE the decision
+	// transaction opens, so a kind whose effect can refuse for an ordinary
+	// reason answers while the approval is still pending and re-approvable.
+	//
+	// They exist because the post-commit effect above is deliberately
+	// un-undoable: once the decision commits, a failing effect leaves an
+	// approved row decideInTx will refuse to decide again. For an effect that
+	// fails only on infrastructure, "approved, but …" is the honest report. For
+	// one that refuses on a live answer about the WORLD — consent withdrawn, a
+	// mailbox lost, a thread archived since staging — that same report strands
+	// work the human could have released after fixing the cause.
+	//
+	// A precheck must be a pure READ. It runs outside any transaction, so it
+	// may use the pool freely, and it runs on a decision that can still fail
+	// after it, so anything it wrote would be a write for a decision that never
+	// happened.
+	prechecks map[string]ReleasePrecheck
 	// quota is the volume meter an approved step-up widens (quotarelease.go).
 	// Nil in a composition that serves no agents, where a step-up can never be
 	// staged in the first place.
@@ -64,16 +81,51 @@ const (
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
+// ReleasePrecheck answers whether this kind's effect could run right now,
+// against the payload the decision is about to approve.
+//
+// Returning an error refuses the DECISION, so the approval is never decided and
+// the human can act on the reason and approve again. Returning nil promises
+// nothing: the effect still runs afterwards and may still fail on the state
+// that moved in between — which is what the effect's own transaction is for.
+type ReleasePrecheck func(ctx context.Context, proposedChange json.RawMessage) error
+
 // NewService builds the approvals engine over a workspace-bound handle,
 // with no effects registered until compose wires them.
 func NewService(db *database.DB) *Service {
-	return &Service{db: db, now: time.Now, effects: map[string]ApprovedEffect{}}
+	return &Service{
+		db: db, now: time.Now,
+		effects:   map[string]ApprovedEffect{},
+		prechecks: map[string]ReleasePrecheck{},
+	}
 }
 
 // WithEffect registers the follow-on executor for one staging kind.
+//
+// Registering a kind twice would resolve to whichever call ran last, which is a
+// wiring order nothing observes. Composition is where that can happen and where
+// the whole registry is visible at once, so it is checked there
+// (TestNoKindIsRegisteredTwice) rather than defended here with a panic a domain
+// module has no business raising.
 func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
 	s.effects[kind] = effect
 	return s
+}
+
+// WithPrecheck registers the preflight that runs before a decision on one kind.
+func (s *Service) WithPrecheck(kind string, check ReleasePrecheck) *Service {
+	s.prechecks[kind] = check
+	return s
+}
+
+// PrecheckKinds names the kinds carrying a preflight, so a composition test can
+// hold the registry to its own rules.
+func (s *Service) PrecheckKinds() []string {
+	kinds := make([]string, 0, len(s.prechecks))
+	for kind := range s.prechecks {
+		kinds = append(kinds, kind)
+	}
+	return kinds
 }
 
 // WithLogger installs the mounting process's logger.
