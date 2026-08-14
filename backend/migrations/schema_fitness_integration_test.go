@@ -267,6 +267,15 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// client-named company — the connector writes them, and it resolves the
 	// organization by reading the link that human already made, so a mirrored
 	// row can only land on a company somebody deliberately mapped.
+	// The transcript a reading was made of. Client-supplied — it is the routed
+	// id of the activity the rep pressed "read for next steps" on — and gated
+	// on the way in: StartTranscriptReadQueued resolves it through the module's
+	// own readActivity, which composes auth.ActivityScopeClause, so a
+	// transcript the caller cannot see answers ErrNotFound before any row is
+	// written. Every later read of the run record (GetTranscriptRead,
+	// LatestTranscriptRead, ReadTranscript) re-probes the same way rather than
+	// trusting the stored pointer.
+	"transcript_read.activity_id":           "client-supplied and gated: every path resolves the activity through readActivity's ActivityScopeClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
 	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
 	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",

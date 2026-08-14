@@ -73,7 +73,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "fadde9d67a62d8300a962a3ff4743239952ece4531d24a4b1639c1573a6619ec"
+const TaskContractHash = "6691ff9dee04061096a23395cbea05853528984f3c777556d61314402ce5acb9"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -356,9 +356,8 @@ func CompanyContextFor(t Task) (CompanyContextPolicy, bool) {
 // behaviour and lives in the estimator; naming the rule here is what
 // lets the build prove the mapping is total.
 var taskCostUnit = map[Task]string{
-	TaskCaptureClassify:   "per_message",
-	TaskEnrich:            "per_person",
-	TaskTranscriptPropose: "per_activity",
+	TaskCaptureClassify: "per_message",
+	TaskEnrich:          "per_person",
 }
 
 // CostUnitFor returns the task's unit-rule name, or "" when unpriced.

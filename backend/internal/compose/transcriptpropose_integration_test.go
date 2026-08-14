@@ -89,7 +89,7 @@ type transcriptEnv struct {
 	activity ids.ActivityID
 }
 
-func setupTranscript(t *testing.T, body string) *transcriptEnv {
+func setupTranscript(t *testing.T) *transcriptEnv {
 	t.Helper()
 	e := &transcriptEnv{Env: integration.Setup(t), owner: integration.OwnerConn(t)}
 	e.ctx = e.As(e.Rep1, []ids.UUID{e.Team1}, transcriptPerms)
@@ -98,6 +98,7 @@ func setupTranscript(t *testing.T, body string) *transcriptEnv {
 
 	subject := "Rollout call"
 	sourceSystem := "transcript"
+	body := transcriptBody
 	activity, _, err := e.Activities.LogActivity(e.ctx, activities.LogActivityInput{
 		Kind: "meeting", Subject: &subject, Body: &body,
 		SourceSystem: &sourceSystem, Source: "ui",
@@ -134,7 +135,7 @@ func (e *transcriptEnv) taskCount(t *testing.T) int {
 }
 
 func TestATranscriptReadingStagesACitedProposalAndWritesNothingYet(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 	before := e.taskCount(t)
 
 	read := e.read(t, cannedBrain{reply: groundedReply(t, 3, 0.9)})
@@ -199,7 +200,7 @@ func storedEvidence(t *testing.T, raw json.RawMessage) []struct {
 }
 
 func TestConfirmingATranscriptProposalCreatesTheTaskExactlyOnce(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 	read := e.read(t, cannedBrain{reply: groundedReply(t, 3, 0.9)})
 	approvalID := ids.From[ids.ApprovalKind](read.ProposalIDs[0])
 	before := e.taskCount(t)
@@ -232,7 +233,7 @@ func TestConfirmingATranscriptProposalCreatesTheTaskExactlyOnce(t *testing.T) {
 
 func TestRejectingATranscriptProposalCreatesNothing(t *testing.T) {
 	rejectReason := "not a commitment"
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 	read := e.read(t, cannedBrain{reply: groundedReply(t, 3, 0.9)})
 	before := e.taskCount(t)
 
@@ -245,7 +246,7 @@ func TestRejectingATranscriptProposalCreatesNothing(t *testing.T) {
 }
 
 func TestATranscriptStatingNothingProducesNoProposalAndSaysSo(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 
 	read := e.read(t, cannedBrain{reply: `{"proposals":[]}`})
 
@@ -261,7 +262,7 @@ func TestATranscriptStatingNothingProducesNoProposalAndSaysSo(t *testing.T) {
 }
 
 func TestAReadingThatCitesALineThatDoesNotExistStagesNothing(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 
 	// Line 99 of a four-line transcript: the citation cannot be checked, so
 	// the whole reading is refused rather than staged with a false pointer.
@@ -279,7 +280,7 @@ func TestAReadingThatCitesALineThatDoesNotExistStagesNothing(t *testing.T) {
 }
 
 func TestAnUnsureReadingIsDroppedRatherThanPutInFrontOfAHuman(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 
 	read := e.read(t, cannedBrain{reply: groundedReply(t, 3, transcriptConfidenceFloor-0.2)})
 
@@ -293,7 +294,7 @@ func TestAnUnsureReadingIsDroppedRatherThanPutInFrontOfAHuman(t *testing.T) {
 }
 
 func TestPressingReadTwiceJoinsTheReadingAlreadyInFlight(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 
 	first, joinedFirst, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(), nil)
 	if err != nil {
@@ -313,7 +314,7 @@ func TestPressingReadTwiceJoinsTheReadingAlreadyInFlight(t *testing.T) {
 }
 
 func TestAnActivityThatCarriesNoTranscriptCannotBeRead(t *testing.T) {
-	e := setupTranscript(t, transcriptBody)
+	e := setupTranscript(t)
 	subject := "An ordinary note"
 	body := "No transcript here."
 	note, _, err := e.Activities.LogActivity(e.ctx, activities.LogActivityInput{
