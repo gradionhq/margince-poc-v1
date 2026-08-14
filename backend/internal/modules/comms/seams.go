@@ -186,15 +186,16 @@ var ErrProviderNotConfigured = errors.New("comms: no integration for this provid
 type ConnectionResolver interface {
 	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
 
-	// ResolveChannel resolves the WORKSPACE's transmitting channel binding: the
-	// connector's message seam and its unsealed credential.
-	//
-	// It takes no user id because there is none to take. A channel is bound once
-	// for the whole workspace by an admin, not granted per seat, so the
-	// credential lookup is keyed on the workspace RLS already binds. What does
-	// NOT move is the seat check: the human who staged the message is still
-	// re-read at transmit time (gateSeat), so a rep who lost their seat between
-	// staging and transmission is refused on either transport.
+	// ResolveChannel resolves the transmitting channel binding for provider,
+	// AS userID. For a workspace-wide core connector (telegram today) userID is
+	// ignored — the binding is the workspace's, bound once by an admin, not
+	// granted per seat, so the credential lookup is keyed on the workspace RLS
+	// already binds. It is threaded through now so a PER-MEMBER credential (a
+	// unit's own) has somewhere to resolve against without a second signature
+	// change later. What does NOT move is the seat check: the human who staged
+	// the message is still re-read at transmit time (gateSeat), so a rep who
+	// lost their seat between staging and transmission is refused on either
+	// transport.
 	//
 	// There is no scope list, for the reason SendsWithoutScope names: a bot token
 	// carries no OAuth grant, so there is nothing for the authority gate to
@@ -204,7 +205,7 @@ type ConnectionResolver interface {
 	// error is transient for the same reason — including a workspace holding more
 	// than one live binding, which is a fault an operator repairs, not a fact
 	// about the deployment.
-	ResolveChannel(ctx context.Context, provider string) (connector.MessageSender, connector.Auth, error)
+	ResolveChannel(ctx context.Context, userID ids.UserID, provider string) (connector.MessageSender, connector.Auth, error)
 }
 
 // consentRecipients is every subject this delivery reaches, in the vocabulary

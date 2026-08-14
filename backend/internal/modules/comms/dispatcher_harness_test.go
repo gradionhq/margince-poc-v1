@@ -177,7 +177,7 @@ func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Em
 // ResolveChannel answers with the bot token itself as the credential, which is
 // what the real resolver hands back: a channel binding has no OAuth bundle and
 // therefore no scope list either.
-func (f fakeResolver) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+func (f fakeResolver) ResolveChannel(context.Context, ids.UserID, string) (connector.MessageSender, connector.Auth, error) {
 	return f.channel, connector.Auth("bot-token"), f.err
 }
 
