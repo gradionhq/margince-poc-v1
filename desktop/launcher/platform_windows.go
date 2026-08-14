@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 // busBinary is the event bus this platform ships.
@@ -58,8 +59,26 @@ func holdConsole() {
 //
 // rundll32 rather than `cmd /c start`: it takes the URL as a plain argument
 // instead of handing it to a shell that would need it quoted correctly.
+//
+// It is addressed by absolute path, resolved from SystemRoot. Letting PATH
+// decide would hand any writable directory ahead of System32 the choice of
+// what this launches, and it launches with the user's own privileges at the
+// end of a successful start.
 func openBrowser(url string) {
-	if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start(); err != nil {
+	if err := exec.Command(systemBin("rundll32.exe"), "url.dll,FileProtocolHandler", url).Start(); err != nil {
 		fmt.Printf("  (could not open your browser automatically — visit %s)\n\n", url)
 	}
+}
+
+// systemBin is the absolute path to one of Windows' own executables.
+//
+// SystemRoot is set on every Windows installation; the literal fallback is for
+// the case where something has stripped the environment, and is the path that
+// variable holds on effectively every machine anyway.
+func systemBin(name string) string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	return filepath.Join(root, "System32", name)
 }

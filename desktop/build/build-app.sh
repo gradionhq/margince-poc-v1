@@ -71,8 +71,12 @@ build_frontend() {
     exit 1
   fi
 
+  # --ignore-scripts matches every other frontend install in this repo (the
+  # Dockerfile, scripts/verify-boot.sh, the CI lane): a lockfile pins WHAT is
+  # installed, and this stops a dependency's lifecycle script from running
+  # arbitrary code on the build machine on the way in.
   (cd "$ROOT/frontend" &&
-    pnpm install --frozen-lockfile &&
+    pnpm install --frozen-lockfile --ignore-scripts &&
     MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm gen:composed-types &&
     MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm build:composed)
   rm -rf "$OUT/web"

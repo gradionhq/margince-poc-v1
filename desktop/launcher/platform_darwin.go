@@ -45,8 +45,12 @@ func holdConsole() {}
 // openBrowser is a convenience, never a requirement: the URL is printed by the
 // caller, so a failure to launch a browser is not worth interrupting a working
 // start for.
+//
+// The absolute path is deliberate. Resolving "open" through PATH would let any
+// writable directory ahead of /usr/bin decide what this launches, and it
+// launches with the user's own privileges at the end of a successful start.
 func openBrowser(url string) {
-	if err := exec.Command("open", url).Start(); err != nil {
+	if err := exec.Command("/usr/bin/open", url).Start(); err != nil {
 		fmt.Printf("  (could not open your browser automatically — visit %s)\n\n", url)
 	}
 }

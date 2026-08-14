@@ -82,7 +82,10 @@ function Build-Frontend {
     $previous = $env:MARGINCE_COMPOSITION_FRONTEND
     Push-Location $frontend
     try {
-        Invoke-Native 'pnpm install' 'pnpm' 'install' '--frozen-lockfile'
+        # --ignore-scripts matches every other frontend install in this repo:
+        # the lockfile pins what is installed, and this stops a dependency's
+        # lifecycle script from running arbitrary code on the build machine.
+        Invoke-Native 'pnpm install' 'pnpm' 'install' '--frozen-lockfile' '--ignore-scripts'
         $env:MARGINCE_COMPOSITION_FRONTEND = $registry
         Invoke-Native 'pnpm gen:composed-types' 'pnpm' 'gen:composed-types'
         Invoke-Native 'pnpm build:composed' 'pnpm' 'build:composed'
