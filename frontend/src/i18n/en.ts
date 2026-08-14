@@ -1203,7 +1203,8 @@ export const en = {
   "lead.scoreNoFactors": "Nothing counted toward this score yet.",
   "lead.scoreFactorsExplainMachine":
     "You set this score by hand. The factors below explain what the model says: {score}.",
-  "lead.scoreDecayed": "from {base}, faded with age",
+  "lead.scoreDecayed": "{base} halving every 14 days",
+  "lead.scoreSources": "{count} activities",
   "lead.scoreReconciles": "{raw} adds up, rounds to {rounded}, scored {score}",
   "lead.factor.decision_maker_title": "Decision-maker title",
   "lead.factor.high_intent_source": "Came from a high-intent source",

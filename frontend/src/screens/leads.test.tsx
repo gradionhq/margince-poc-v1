@@ -936,7 +936,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     );
     expect(screen.getByText("They replied")).toBeTruthy();
     // The decay is shown as arithmetic a reader can check, not asserted.
-    expect(screen.getByText("from 25, faded with age")).toBeTruthy();
+    expect(screen.getByText("25 halving every 14 days")).toBeTruthy();
     expect(
       screen.getByText("45.60 adds up, rounds to 46, scored 46"),
     ).toBeTruthy();

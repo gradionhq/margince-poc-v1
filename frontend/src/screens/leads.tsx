@@ -403,12 +403,23 @@ function ScoreBreakdown({ id }: Readonly<{ id: string }>) {
               <span>{scoreFactorLabel(factor.factor, t)}</span>
               <span className="t-mono">{factor.points.toFixed(1)}</span>
               {factor.base_points != null && (
-                // The decay, stated as the arithmetic it is: a reader who
-                // can see 25 become 12.5 can check the claim.
+                // The decay as arithmetic a reader can check: 25 halving
+                // every 14 days is why this row reads 12.5 today.
                 <span className="t-caption t-mono">
                   {t("lead.scoreDecayed", { base: factor.base_points })}
                 </span>
               )}
+              {factor.source_activity_ids != null &&
+                factor.source_activity_ids.length > 0 && (
+                  // How many records fed the factor. The ids themselves are
+                  // already filtered to what this reader may open, so the
+                  // count never claims more than they can see.
+                  <span className="t-caption">
+                    {t("lead.scoreSources", {
+                      count: factor.source_activity_ids.length,
+                    })}
+                  </span>
+                )}
             </li>
           ))}
         </ul>

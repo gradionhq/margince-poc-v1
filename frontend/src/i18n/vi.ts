@@ -1193,7 +1193,8 @@ export const vi = {
   "lead.scoreNoFactors": "Chưa có gì cộng vào điểm này.",
   "lead.scoreFactorsExplainMachine":
     "Bạn đã tự đặt điểm này. Các yếu tố bên dưới giải thích giá trị của mô hình: {score}.",
-  "lead.scoreDecayed": "từ {base}, giảm dần theo thời gian",
+  "lead.scoreDecayed": "{base}, giảm một nửa sau mỗi 14 ngày",
+  "lead.scoreSources": "{count} hoạt động",
   "lead.scoreReconciles": "tổng {raw}, làm tròn {rounded}, điểm {score}",
   "lead.factor.decision_maker_title": "Chức danh có quyền quyết định",
   "lead.factor.high_intent_source": "Từ nguồn có ý định cao",

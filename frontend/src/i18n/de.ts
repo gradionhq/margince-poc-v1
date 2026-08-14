@@ -1195,7 +1195,8 @@ export const de = {
   "lead.scoreNoFactors": "Bisher zahlt nichts auf diesen Score ein.",
   "lead.scoreFactorsExplainMachine":
     "Sie haben diesen Score selbst gesetzt. Die Faktoren unten erklären den Wert des Modells: {score}.",
-  "lead.scoreDecayed": "aus {base}, mit der Zeit abgeklungen",
+  "lead.scoreDecayed": "{base}, halbiert sich alle 14 Tage",
+  "lead.scoreSources": "{count} Aktivitäten",
   "lead.scoreReconciles": "{raw} in Summe, gerundet {rounded}, Score {score}",
   "lead.factor.decision_maker_title": "Position mit Entscheidungsbefugnis",
   "lead.factor.high_intent_source": "Aus einer Quelle mit hohem Interesse",
