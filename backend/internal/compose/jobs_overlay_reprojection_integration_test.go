@@ -45,6 +45,13 @@ import (
 // today, which is the whole condition the phase selects on.
 const staleDeclarationFingerprint = "a-declaration-that-has-since-changed"
 
+// The two contacts records setupReprojection mirrors, named by what produced
+// them: one a declaration that has since changed, one today's.
+const (
+	staleRowExternalID   = "c-old-declaration"
+	currentRowExternalID = "c-current-declaration"
+)
+
 // errUnexpectedJobKind is what the recorder answers when the phase hands it
 // anything other than a re-fetch: an unchecked assertion would let a wrong job
 // kind read as an enqueue of the right one.
@@ -158,8 +165,8 @@ func setupReprojection(t *testing.T) *reprojectionEnv {
 	// which is exactly the production condition (a record the incumbent has
 	// not touched since the mapping changed).
 	for fingerprint, externalID := range map[string]string{
-		staleDeclarationFingerprint: "c-old-declaration",
-		current:                     "c-current-declaration",
+		staleDeclarationFingerprint: staleRowExternalID,
+		current:                     currentRowExternalID,
 	} {
 		rec := fake.Rec(externalID, map[string]any{"firstname": "Ada"})
 		rec.ObjectClass, rec.OwnerExternalID = "person", "owner-1"
@@ -230,7 +237,7 @@ func TestSweepReprojectionEnqueuesOnlyTheRowsAnOlderDeclarationProjected(t *test
 	want := []OverlayRefetchArgs{{
 		Workspace:      r.env.WS,
 		IncumbentClass: overlay.IncumbentClassContacts,
-		ExternalID:     "c-old-declaration",
+		ExternalID:     staleRowExternalID,
 	}}
 	if !slices.Equal(r.inc.enqueued, want) {
 		t.Fatalf("the sweep enqueued %v, want %v — a row already carrying today's declaration must cost no incumbent read, "+
@@ -263,7 +270,7 @@ func TestSweepReprojectionConvergesOnceTheRefetchLands(t *testing.T) {
 	if err := worker.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: r.inc.enqueued[0]}); err != nil {
 		t.Fatalf("refetch Work: %v", err)
 	}
-	row, err := r.ms.Get(overlayReaderCtx(r.env.WS, r.env.Rep1), "person", "c-old-declaration")
+	row, err := r.ms.Get(overlayReaderCtx(r.env.WS, r.env.Rep1), "person", staleRowExternalID)
 	if err != nil {
 		t.Fatalf("reading the re-projected row: %v", err)
 	}
@@ -340,6 +347,100 @@ func TestStaleProjectionsSurviveADeclarationConstantChange(t *testing.T) {
 		t.Fatalf("the renamed declaration reports %v stale, want [%s] — every row it projected went stale with the rename, "+
 			"so a sweep that names none of them leaves the flip blocked forever, and one that names %q re-reads a meeting as a call",
 			stale, callID, meetingID)
+	}
+}
+
+// contactsMapping is the declaration under test wherever a pass judges the two
+// contacts rows setupReprojection mirrors — read from the registry, so the
+// fingerprint the assertions turn on is the one this build actually stamps.
+func contactsMapping(t *testing.T) overlay.ObjectMapping {
+	t.Helper()
+	m, ok := hubspot.Mapping(overlay.IncumbentClassContacts)
+	if !ok {
+		t.Fatalf("Mapping(%q): the registry declares no contacts mapping", overlay.IncumbentClassContacts)
+	}
+	return m
+}
+
+// mirroredContacts runs the sweep that mirrors setupReprojection's two contacts
+// records through the real ingest, and answers the declaration they are judged
+// against — the starting state every re-projection-selection case below shares.
+func (r *reprojectionEnv) mirroredContacts(t *testing.T) overlay.ObjectMapping {
+	t.Helper()
+	r.sweep(t, overlay.IncumbentClassContacts)
+	return contactsMapping(t)
+}
+
+// staleProjections is StaleProjections under the sweep's own principal, failing
+// the test rather than returning an error nobody would act on.
+func (r *reprojectionEnv) staleProjections(t *testing.T, m overlay.ObjectMapping) []string {
+	t.Helper()
+	stale, err := r.ms.StaleProjections(r.sweepCtx, m, reprojectionEnqueueLimit)
+	if err != nil {
+		t.Fatalf("StaleProjections(%s): %v", m.Source, err)
+	}
+	return stale
+}
+
+// A row that has already failed against the CURRENT declaration is not
+// re-fetched: the incumbent still holds a record this build cannot map, so the
+// same read returns the same answer, and every attempt spends one call from a
+// budget interactive force-fresh shares.
+func TestStaleProjectionsSkipARowThatFailedAgainstTheCurrentDeclaration(t *testing.T) {
+	r := setupReprojection(t)
+	m := r.mirroredContacts(t)
+
+	if stale := r.staleProjections(t, m); !slices.Equal(stale, []string{staleRowExternalID}) {
+		t.Fatalf("before the failure is recorded StaleProjections reports %v, want [%s] — "+
+			"the skip below would prove nothing about a row the sweep never named", stale, staleRowExternalID)
+	}
+	if err := r.ms.RecordReprojectionFailure(r.sweepCtx, m.Target, staleRowExternalID, overlay.Fingerprint(m)); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+
+	if stale := r.staleProjections(t, m); len(stale) != 0 {
+		t.Fatalf("StaleProjections still reports %v after the row failed against this very declaration, want none — "+
+			"re-reading it cannot change the answer, and the sweep would spend one incumbent call on it every tick, forever", stale)
+	}
+}
+
+// The record names ONE declaration. A repaired declaration has a different
+// fingerprint, so the record stops applying and the row is retried — the exit
+// that fixes the data rather than discarding it, with no operator action.
+func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
+	r := setupReprojection(t)
+	m := r.mirroredContacts(t)
+
+	if err := r.ms.RecordReprojectionFailure(r.sweepCtx, m.Target, staleRowExternalID, overlay.Fingerprint(m)); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+	if stale := r.staleProjections(t, m); len(stale) != 0 {
+		t.Fatalf("StaleProjections reports %v under the declaration the row failed against, want none — "+
+			"the retry below would prove nothing if the row had never left the set", stale)
+	}
+
+	// The repair: an edit to the declaration, which is what an operator who
+	// fixes an unmappable record's mapping actually does. It re-fingerprints
+	// every row the old declaration projected, the recorded failure among them.
+	m.Const = map[string]any{"lifecycle_source": "repaired"}
+	want := []string{currentRowExternalID, staleRowExternalID}
+	if stale := r.staleProjections(t, m); !slices.Equal(stale, want) {
+		t.Fatalf("the repaired declaration reports %v stale, want %v — a record that outlived the declaration it names "+
+			"would strand the row against a mapping nobody can retry it under", stale, want)
+	}
+}
+
+// Almost every row records no failure at all. The selection compares with IS
+// DISTINCT FROM because `NULL <> 'x'` is NULL, not true: a `<>` spelling would
+// drop every never-failed row from the set, stop re-projection across the whole
+// estate, and read as convergence while doing it.
+func TestStaleProjectionsStillNameARowThatNeverFailed(t *testing.T) {
+	r := setupReprojection(t)
+	m := r.mirroredContacts(t)
+
+	if stale := r.staleProjections(t, m); !slices.Equal(stale, []string{staleRowExternalID}) {
+		t.Fatalf("StaleProjections reports %v, want [%s] — a row that has never failed records NULL, "+
+			"and dropping those rows would silently halt re-projection for every row in the estate", stale, staleRowExternalID)
 	}
 }
 

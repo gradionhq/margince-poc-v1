@@ -14,6 +14,12 @@ package overlay
 // converges those rows (StaleProjections, below) so the three can never
 // disagree about which rows are out of date — the flip must block on exactly
 // the rows the sweep re-fetches, or it blocks on rows nothing will ever clear.
+//
+// The one asymmetry is deliberate and runs the safe way: the sweep additionally
+// skips a row it has already failed to re-project under today's declaration,
+// because that read cannot come back different. The flip still blocks on it —
+// the payload is no more current for having been recorded — so the skip drops
+// the wasted incumbent call, never the guard.
 
 import (
 	"context"
@@ -122,11 +128,25 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 // would spend an incumbent read on a write that cannot land. Such a row blocks
 // the flip on its own pending state anyway, and it re-enters this set as soon
 // as the write drains.
+//
+// A row that already failed against THIS declaration ($6) is left out for the
+// same reason: the incumbent holds a record this build cannot map, so a re-read
+// spends an incumbent call on an answer that cannot change. Only the failure
+// record is spared, never the staleness — the row still counts stale for the
+// flip preflight, which is the one thing this must not relax. The comparison is
+// IS DISTINCT FROM, matching ingestSQL's fingerprint guard for the identical
+// reason: almost every row records NULL here, and `NULL <> $6` is NULL rather
+// than true, so `<>` would drop every never-failed row from this set and halt
+// re-projection across the estate while reading as convergence.
+//
+// The record names the declaration, so a repaired one — a different fingerprint
+// — orphans it and the row returns to this set with no operator action.
 const staleProjectionIDsSQL = `
 SELECT external_id FROM overlay_mirror
 WHERE object_class = $1
   AND starts_with(external_id, $2)
   AND sync_state <> $4
+  AND reprojection_failed_for IS DISTINCT FROM $6
   AND ` + staleProjectionSQL + `
 ORDER BY external_id
 LIMIT $5`
@@ -135,7 +155,10 @@ LIMIT $5`
 // governs whose payload m's CURRENT declaration did not produce — the set the
 // reconcile sweep re-fetches so they converge on today's mapping. It embeds
 // the same predicate the flip preflight and the sync status count with, so the
-// rows the sweep clears are exactly the rows the flip blocks on.
+// rows the sweep clears are exactly the rows the flip blocks on, minus the two
+// kinds of row a re-fetch provably cannot move (staleProjectionIDsSQL: an
+// un-drained local write, and a re-projection that already failed under this
+// same declaration).
 //
 // The ids are the INCUMBENT's own (external_id), which is what a re-fetch
 // names, and the caller re-reads them under m.Source.
@@ -144,13 +167,15 @@ func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, lim
 	// m.Target: the namespace filter has already narrowed the rows to the
 	// ones m produced, so a sibling declaration's fingerprint cannot appear
 	// among them — and admitting one would spare a row nothing re-projects.
-	current, err := encodeFingerprintSets(map[string][]string{m.Target: {Fingerprint(m)}})
+	fingerprint := Fingerprint(m)
+	current, err := encodeFingerprintSets(map[string][]string{m.Target: {fingerprint}})
 	if err != nil {
 		return nil, err
 	}
 	var externalIDs []string
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, staleProjectionIDsSQL, m.Target, mirrorIDNamespace(m.Source), current, syncStatePendingSync, limit)
+		rows, err := tx.Query(ctx, staleProjectionIDsSQL,
+			m.Target, mirrorIDNamespace(m.Source), current, syncStatePendingSync, limit, fingerprint)
 		if err != nil {
 			return fmt.Errorf("overlay: listing the %s rows an older declaration projected: %w", m.Source, err)
 		}
@@ -184,6 +209,20 @@ WHERE object_class = $1 AND external_id = $2`
 //
 // The row keeps counting stale for the flip: this stops the waste, never the
 // guard.
+//
+// It matches no row when the row is gone — purged, or a class a future caller
+// mistyped — and that is not an error to raise: the fact being recorded is
+// about a row the sweep just read, and a row that no longer exists is one
+// nothing will re-fetch either.
+//
+// Unlike every other sweep write here (Ingest, RecordSweepFailure,
+// RecordSweepSuccess, PurgeRecord) it takes no connection fence, because there
+// is no reconnect race for it to lose: teardown DELETEs the mirror rows, so
+// this UPDATE resurrects nothing and no-ops against a purged row. A row a
+// later connection re-backfilled carries the CURRENT fingerprint, and a
+// declaration belongs to the build rather than the connection, so the only
+// fingerprint a straggler could stamp on it is one that row is already not
+// stale against — the skip it buys costs nothing that was going to be re-read.
 func (s *MirrorStore) RecordReprojectionFailure(ctx context.Context, objectClass, externalID, fingerprint string) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, recordReprojectionFailureSQL, objectClass, externalID, fingerprint); err != nil {

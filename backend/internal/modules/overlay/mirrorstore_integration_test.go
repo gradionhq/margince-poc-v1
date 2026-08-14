@@ -264,6 +264,16 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 		t.Fatalf("newer ingest: %v", err)
 	}
 
+	// The failure record the sweep leaves on a row it could not re-project. It
+	// is cleared in the DO UPDATE's SET list, which a refused write never
+	// reaches — the assertion below pins that, because moving the clear into
+	// the INSERT column list or a statement of its own would un-record the
+	// failure on every refused write with every other test still green, and the
+	// sweep would silently resume re-reading the row.
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "fingerprint-two"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+
 	if err := store.Ingest(ctx, Record{
 		ObjectClass: objectClass, ExternalID: externalID,
 		Fields:                map[string]any{"first_name": "Stale"},
@@ -282,6 +292,18 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 	}
 	if row.ProjectionFingerprint != "fingerprint-one" {
 		t.Errorf("fingerprint = %q, want the fresher row's — a refused write must leave the column alone", row.ProjectionFingerprint)
+	}
+
+	var failedFor *string
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
+			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&failedFor)
+	}); err != nil {
+		t.Fatalf("reading the failure record back: %v", err)
+	}
+	if failedFor == nil || *failedFor != "fingerprint-two" {
+		t.Errorf("reprojection_failed_for = %v, want the recorded fingerprint — a refused write lands nothing, "+
+			"so it must not clear the record either, or the sweep starts re-reading a row it still cannot map", failedFor)
 	}
 }
 
