@@ -208,3 +208,48 @@ func TestBothPartsCarryTheUnsubscribeSurface(t *testing.T) {
 		t.Fatalf("the markup part carries no unsubscribe surface: %q", got)
 	}
 }
+
+type stubSenderName struct {
+	name string
+	err  error
+}
+
+func (s *stubSenderName) ActorIdentity(context.Context) (string, string, error) {
+	return s.name, "", s.err
+}
+
+// The name reaches the send when identity knows it.
+func TestTheSenderNameIsResolvedForTheSend(t *testing.T) {
+	store := (&Store{}).WithSenderName(&stubSenderName{name: "Lars Jankowfsky"})
+
+	got, err := store.senderDisplayName(humanCtx(ids.NewV7()))
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "Lars Jankowfsky" {
+		t.Fatalf("expected the sender's name, got %q", got)
+	}
+}
+
+// A role wired without the seam sends a bare address rather than refusing.
+func TestNoSenderNameReaderSendsUnnamed(t *testing.T) {
+	got, err := (&Store{}).senderDisplayName(humanCtx(ids.NewV7()))
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("a store with no reader produced a name: %q", got)
+	}
+}
+
+// A name that cannot be read is not a reason to refuse a send: the message is
+// correct without it, and trading a cosmetic gap for a delivery failure is the
+// worse answer. The error still surfaces rather than being swallowed.
+func TestAFailedSenderNameReadSurfaces(t *testing.T) {
+	boom := errors.New("identity is unreachable")
+	store := (&Store{}).WithSenderName(&stubSenderName{err: boom})
+
+	if _, err := store.senderDisplayName(humanCtx(ids.NewV7())); !errors.Is(err, boom) {
+		t.Fatalf("expected the read error to surface, got %v", err)
+	}
+}

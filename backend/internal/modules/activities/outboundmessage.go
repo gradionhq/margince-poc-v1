@@ -34,7 +34,11 @@ type outboundMessage struct {
 	// carries the SAME sign-off and the same unsubscribe footer as body: two
 	// alternatives of one message that disagreed would be two messages, and the
 	// recipient's client decides which one they read.
-	htmlBody        string
+	htmlBody string
+	// fromName is who the recipient sees this is from. Resolved at send time
+	// from the authenticated sender rather than at transmit, so a rename
+	// between attempts cannot change a message already in flight.
+	fromName        string
 	listUnsubscribe string
 	to              []string
 	links           []ActivityLinkInput
@@ -94,6 +98,7 @@ func (m outboundMessage) delivery(activityID ids.UUID, chain threading) Delivery
 		Subject:         m.in.Subject,
 		Body:            m.body,
 		HTMLBody:        m.htmlBody,
+		FromName:        m.fromName,
 		ConsentPurpose:  m.in.ConsentPurpose,
 		InReplyTo:       chain.inReplyTo,
 		References:      chain.references,

@@ -63,7 +63,12 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		// it owns the person the seat belongs to; activities appends it because
 		// it owns the one send. The edge is injected here rather than imported,
 		// like every other cross-module edge on this path.
-		WithSignature(people.NewStore(InstallationDB(pool)))
+		WithSignature(people.NewStore(InstallationDB(pool))).
+		// The name on the envelope. identity owns who the acting human is —
+		// including the human an agent acts on behalf of — and that resolution
+		// must be the same one the audit log records, so it is injected rather
+		// than re-derived here.
+		WithSenderName(identity.NewServiceFor(InstallationDB(pool)))
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture

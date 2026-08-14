@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"slices"
 	"strings"
@@ -180,7 +181,7 @@ func bracket(id string) string {
 // text/plain UTF-8.
 func buildRFC822(from string, msg connector.EmailMessage) string {
 	var b strings.Builder
-	writeHeader(&b, "From", from)
+	writeHeader(&b, "From", fromHeader(from, msg.FromName))
 	writeHeader(&b, "To", addressList(msg.To))
 	if cc := addressList(msg.Cc); cc != "" {
 		writeHeader(&b, "Cc", cc)
@@ -294,6 +295,29 @@ func safeBoundary(msg connector.EmailMessage) string {
 func mimeBoundary(messageID string) string {
 	sum := sha256.Sum256([]byte(messageID))
 	return "--=_margince_" + hex.EncodeToString(sum[:12])
+}
+
+// fromHeader renders the sender, with their name when the CRM knows it.
+//
+// A bare address shows its LOCAL PART in every mail client — a message from
+// lars@gradion.com arrives from "lars" — which is what the recipient reads
+// first, before the signature at the bottom of the body says who actually
+// wrote it.
+//
+// mail.Address does the rendering rather than string concatenation, and that is
+// the whole reason this function exists: a name carrying a non-ASCII character
+// needs RFC 2047 encoding, and one carrying a comma or a quote needs quoting or
+// the header parses as TWO addresses. Both are easy to get wrong by hand and
+// impossible to get wrong this way.
+//
+// An empty name renders the bare address, which is what every message did
+// before the name was available. `"" <addr>` would be worse than nothing.
+func fromHeader(address, name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return address
+	}
+	return (&mail.Address{Name: trimmed, Address: address}).String()
 }
 
 // addressList renders one address header value: each address trimmed, empties

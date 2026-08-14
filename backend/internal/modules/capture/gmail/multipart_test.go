@@ -227,3 +227,75 @@ func TestABodyHoldingTheBoundaryForcesADifferentOne(t *testing.T) {
 		t.Fatalf("the chosen boundary still occurs in a part: %q", chosen)
 	}
 }
+
+// A bare From header shows the address's LOCAL PART in every mail client, so a
+// message from lars@gradion.com arrives from "lars" — which is what a recipient
+// reads first, before the signature at the bottom says who wrote it.
+func TestTheSenderIsNamedWhenTheNameIsKnown(t *testing.T) {
+	msg := plainMessage()
+	msg.FromName = "Lars Jankowfsky"
+
+	parsed := parseMail(t, buildRFC822("lars@gradion.test", msg))
+	addr, err := mail.ParseAddress(parsed.Header.Get("From"))
+	if err != nil {
+		t.Fatalf("the From header does not parse as an address: %v", err)
+	}
+	if addr.Name != "Lars Jankowfsky" {
+		t.Fatalf("the sender's name is %q", addr.Name)
+	}
+	if addr.Address != "lars@gradion.test" {
+		t.Fatalf("the sender's address changed: %q", addr.Address)
+	}
+}
+
+// A name with no ASCII spelling needs RFC 2047 encoding, exactly as the Subject
+// gets. Concatenated raw it is either mangled or rejected.
+func TestANonASCIISenderNameSurvivesTheWire(t *testing.T) {
+	msg := plainMessage()
+	msg.FromName = "Weiß Konrad"
+
+	raw := buildRFC822("weiss@gradion.test", msg)
+	if strings.Contains(raw, "From: Weiß") {
+		t.Fatalf("a non-ASCII name went out unencoded:\n%s", raw)
+	}
+	addr, err := mail.ParseAddress(parseMail(t, raw).Header.Get("From"))
+	if err != nil {
+		t.Fatalf("the From header does not parse: %v", err)
+	}
+	if addr.Name != "Weiß Konrad" {
+		t.Fatalf("the name did not survive the round trip: %q", addr.Name)
+	}
+}
+
+// A comma in a display name splits an unquoted header into TWO addresses, which
+// is a message from somebody the sender never named.
+func TestASenderNameWithACommaStaysOneAddress(t *testing.T) {
+	msg := plainMessage()
+	msg.FromName = "Jankowfsky, Lars"
+
+	header := parseMail(t, buildRFC822("lars@gradion.test", msg)).Header.Get("From")
+	list, err := mail.ParseAddressList(header)
+	if err != nil {
+		t.Fatalf("the From header does not parse: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("a comma in the name produced %d addresses: %q", len(list), header)
+	}
+	if list[0].Name != "Jankowfsky, Lars" {
+		t.Fatalf("the name changed: %q", list[0].Name)
+	}
+}
+
+// No name on file sends a bare address, which is what every message did before
+// the name was available. `"" <addr>` would be worse than nothing.
+func TestNoSenderNameSendsABareAddress(t *testing.T) {
+	for name, given := range map[string]string{"unset": "", "only spaces": "   "} {
+		t.Run(name, func(t *testing.T) {
+			msg := plainMessage()
+			msg.FromName = given
+			if got := parseMail(t, buildRFC822("lars@gradion.test", msg)).Header.Get("From"); got != "lars@gradion.test" {
+				t.Fatalf("expected a bare address, got %q", got)
+			}
+		})
+	}
+}

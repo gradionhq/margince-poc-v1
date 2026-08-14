@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
@@ -135,6 +136,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 		// because the request arrived on the tool surface. An agent principal
 		// still signs nothing — signedBody decides that, not this wiring.
 		WithSignature(people.NewStore(InstallationDB(pool))).
+		WithSenderName(identity.NewServiceFor(InstallationDB(pool))).
 		WithDraftOutcome(send.DraftOutcome)
 }
 
