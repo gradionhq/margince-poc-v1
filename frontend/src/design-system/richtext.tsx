@@ -73,9 +73,15 @@ export function RichText({
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   const editor = useRef<HTMLDivElement>(null);
-  // What we last handed the caller. Comparing against it is what tells an
-  // outside change (a draft arriving) from the echo of our own keystroke.
-  const [ours, setOurs] = useState(value);
+  // What we last handed the caller, or last wrote into the node. Comparing
+  // against it tells an outside change (a draft arriving) from the echo of our
+  // own keystroke.
+  //
+  // It starts EMPTY rather than at `value`, and that is the whole point: seeded
+  // with `value`, the effect below saw no difference on mount and never wrote
+  // the node — so a composer reopened with a message in state rendered blank
+  // while Send still carried the invisible text.
+  const [ours, setOurs] = useState("");
 
   useEffect(() => {
     const node = editor.current;
@@ -218,30 +224,42 @@ export function plainTextOf(node: HTMLElement): string {
     }
     current = "";
   };
+  const walkListItem = (element: HTMLElement, prefix: string) => {
+    flush();
+    // An ordered list numbers its items and an unordered one bullets them.
+    // Emitting neither leaves the plain reader a list that is not a list.
+    const ordered = element.parentElement?.tagName.toLowerCase() === "ol";
+    current = `${prefix}${ordered ? `${itemNumber(element)}. ` : "- "}`;
+    walk(element, `${prefix}  `);
+    flush();
+  };
+  const walkLink = (element: HTMLElement, prefix: string) => {
+    // The destination is the point of a link, and a text client shows no href —
+    // so the URL rides beside the label rather than being lost.
+    walk(element, prefix);
+    const href = element.getAttribute("href") ?? "";
+    if (href !== "" && !current.includes(href)) {
+      current += ` <${href}>`;
+    }
+  };
   const walkElement = (element: HTMLElement, prefix: string) => {
     const tag = element.tagName.toLowerCase();
     if (tag === "br") {
       flush();
-      return;
-    }
-    if (tag === "li") {
+    } else if (tag === "li") {
+      walkListItem(element, prefix);
+    } else if (tag === "a") {
+      walkLink(element, prefix);
+    } else if (isBlock(tag)) {
       flush();
-      current =
-        element.parentElement?.tagName.toLowerCase() === "ol" ? "" : "- ";
       walk(element, prefix);
       flush();
-      return;
-    }
-    if (!isBlock(tag)) {
-      // Inline: the line continues, which is what keeps a formatted sentence
-      // one sentence.
+      lines.push("");
+    } else {
+      // Inline: the line continues, which keeps a formatted sentence one
+      // sentence.
       walk(element, prefix);
-      return;
     }
-    flush();
-    walk(element, prefix);
-    flush();
-    lines.push("");
   };
   const walk = (parent: Node, prefix: string) => {
     for (const child of Array.from(parent.childNodes)) {
@@ -339,6 +357,22 @@ export function safeEditorHTML(markup: string): string {
     return out;
   };
   return clean(parsed.body);
+}
+
+// Which item this is within its own list, counting only siblings — so a nested
+// list restarts rather than continuing its parent's numbering.
+function itemNumber(item: HTMLElement): number {
+  let n = 1;
+  for (
+    let prev = item.previousElementSibling;
+    prev !== null;
+    prev = prev.previousElementSibling
+  ) {
+    if (prev.tagName.toLowerCase() === "li") {
+      n += 1;
+    }
+  }
+  return n;
 }
 
 // A block element ends the line it was on; an inline one continues it.
