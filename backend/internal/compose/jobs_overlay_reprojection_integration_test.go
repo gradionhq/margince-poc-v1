@@ -16,8 +16,9 @@ package compose
 // The assertions are on the ENQUEUED job, not on a completed re-fetch: what
 // the job then does is overlay_refetch's own tested behaviour, and asserting
 // it here would make an unrelated change to that worker fail this suite for
-// the wrong reason. The one place this suite does run the worker is the
-// convergence check, where the point is precisely that the two fit together.
+// the wrong reason. The suite runs the worker only where the point is precisely
+// that the two halves fit together: a re-fetch that lands and converges the
+// row, and one that can never land and records why.
 
 import (
 	"context"
@@ -27,12 +28,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -350,25 +353,19 @@ func TestStaleProjectionsSurviveADeclarationConstantChange(t *testing.T) {
 	}
 }
 
-// contactsMapping is the declaration under test wherever a pass judges the two
-// contacts rows setupReprojection mirrors — read from the registry, so the
-// fingerprint the assertions turn on is the one this build actually stamps.
-func contactsMapping(t *testing.T) overlay.ObjectMapping {
+// mirrorContactsAndDeclaration runs the sweep that mirrors setupReprojection's
+// two contacts records through the real ingest, and answers the declaration
+// they are judged against — read from the registry, so the fingerprint the
+// assertions turn on is the one this build actually stamps. That pair is the
+// starting state every case below shares.
+func (r *reprojectionEnv) mirrorContactsAndDeclaration(t *testing.T) overlay.ObjectMapping {
 	t.Helper()
+	r.sweep(t, overlay.IncumbentClassContacts)
 	m, ok := hubspot.Mapping(overlay.IncumbentClassContacts)
 	if !ok {
 		t.Fatalf("Mapping(%q): the registry declares no contacts mapping", overlay.IncumbentClassContacts)
 	}
 	return m
-}
-
-// mirroredContacts runs the sweep that mirrors setupReprojection's two contacts
-// records through the real ingest, and answers the declaration they are judged
-// against — the starting state every re-projection-selection case below shares.
-func (r *reprojectionEnv) mirroredContacts(t *testing.T) overlay.ObjectMapping {
-	t.Helper()
-	r.sweep(t, overlay.IncumbentClassContacts)
-	return contactsMapping(t)
 }
 
 // staleProjections is StaleProjections under the sweep's own principal, failing
@@ -388,7 +385,7 @@ func (r *reprojectionEnv) staleProjections(t *testing.T, m overlay.ObjectMapping
 // budget interactive force-fresh shares.
 func TestStaleProjectionsSkipARowThatFailedAgainstTheCurrentDeclaration(t *testing.T) {
 	r := setupReprojection(t)
-	m := r.mirroredContacts(t)
+	m := r.mirrorContactsAndDeclaration(t)
 
 	if stale := r.staleProjections(t, m); !slices.Equal(stale, []string{staleRowExternalID}) {
 		t.Fatalf("before the failure is recorded StaleProjections reports %v, want [%s] — "+
@@ -409,7 +406,7 @@ func TestStaleProjectionsSkipARowThatFailedAgainstTheCurrentDeclaration(t *testi
 // that fixes the data rather than discarding it, with no operator action.
 func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
 	r := setupReprojection(t)
-	m := r.mirroredContacts(t)
+	m := r.mirrorContactsAndDeclaration(t)
 
 	if err := r.ms.RecordReprojectionFailure(r.sweepCtx, m.Target, staleRowExternalID, overlay.Fingerprint(m)); err != nil {
 		t.Fatalf("RecordReprojectionFailure: %v", err)
@@ -436,11 +433,83 @@ func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
 // estate, and read as convergence while doing it.
 func TestStaleProjectionsStillNameARowThatNeverFailed(t *testing.T) {
 	r := setupReprojection(t)
-	m := r.mirroredContacts(t)
+	m := r.mirrorContactsAndDeclaration(t)
 
 	if stale := r.staleProjections(t, m); !slices.Equal(stale, []string{staleRowExternalID}) {
 		t.Fatalf("StaleProjections reports %v, want [%s] — a row that has never failed records NULL, "+
 			"and dropping those rows would silently halt re-projection for every row in the estate", stale, staleRowExternalID)
+	}
+}
+
+// errRecordThisBuildCannotMap is what an incumbent answers for a record it
+// still holds but no declaration in this build can project. It is deliberately
+// not one of the connection-level sentinels: those are retried, and a read that
+// returns the same answer however many attempts it is given is the only failure
+// worth recording.
+var errRecordThisBuildCannotMap = errors.New("compose: the incumbent holds a record this build cannot map")
+
+// reprojectionFailureRecord answers the declaration a row records it could not
+// reach, read straight from the column. That is the direct evidence and the
+// only kind there is here: a record written under the wrong object class
+// updates zero rows, returns no error, and leaves the mirror looking exactly as
+// it does when nothing was recorded at all.
+func (r *reprojectionEnv) reprojectionFailureRecord(t *testing.T, canonicalClass, externalID string) string {
+	t.Helper()
+	var recorded *string
+	if err := database.WithWorkspaceTx(r.sweepCtx, r.env.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(r.sweepCtx, `SELECT reprojection_failed_for FROM overlay_mirror
+			WHERE object_class = $1 AND external_id = $2`, canonicalClass, externalID).Scan(&recorded)
+	}); err != nil {
+		t.Fatalf("reading %s/%s's re-projection failure record: %v", canonicalClass, externalID, err)
+	}
+	if recorded == nil {
+		return ""
+	}
+	return *recorded
+}
+
+// The re-fetch the phase enqueues can fail for good: the incumbent still holds
+// the record but this build cannot map it, so the read returns the same answer
+// every time. The worker records the declaration it failed to reach, and that
+// record is what takes the row out of the stale set — without it the sweep
+// names the row again every tick, spending one reserved incumbent call from the
+// budget interactive force-fresh shares, forever, while the flip stays blocked.
+func TestSweepReprojectionRecordsARefetchThatCannotLand(t *testing.T) {
+	r := setupReprojection(t)
+	m := r.mirrorContactsAndDeclaration(t)
+	want := []OverlayRefetchArgs{{
+		Workspace:      r.env.WS,
+		IncumbentClass: overlay.IncumbentClassContacts,
+		ExternalID:     staleRowExternalID,
+	}}
+	if !slices.Equal(r.inc.enqueued, want) {
+		t.Fatalf("the first sweep enqueued %v, want %v — there is no doomed re-fetch to work otherwise", r.inc.enqueued, want)
+	}
+
+	// The worker THIS build registers, pointed at an incumbent that will not
+	// serve the record: the failure happens inside the worker under test rather
+	// than being staged against the mirror by this file.
+	worker := registeredRefetchWorker(t, r.env.Pool, r.vault,
+		budgettest.Meter(t, budgettest.SmallConfig("hubspot")),
+		getFailingIncumbent{Adapter: fake.New(), err: errRecordThisBuildCannotMap})
+	if err := worker.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: r.inc.enqueued[0]}); err != nil {
+		t.Fatalf("a read no retry can change must not fail the job: %v", err)
+	}
+
+	// The mirror keys on the CANONICAL class a declaration projects onto
+	// ("person"), never the incumbent's own name for it ("contacts"), and the
+	// fingerprint is the one StaleProjections compares against.
+	if recorded := r.reprojectionFailureRecord(t, m.Target, staleRowExternalID); recorded != overlay.Fingerprint(m) {
+		t.Fatalf("%s/%s records %q, want %q — the declaration the re-fetch failed to reach, keyed the way the mirror is keyed; "+
+			"a record the row never receives is silent, and the skip below is the only thing that would ever notice",
+			m.Target, staleRowExternalID, recorded, overlay.Fingerprint(m))
+	}
+
+	r.inc.enqueued = nil
+	r.sweep(t, overlay.IncumbentClassContacts)
+	if len(r.inc.enqueued) != 0 {
+		t.Fatalf("the second sweep enqueued %v, want none — re-reading a row that just failed against this very declaration "+
+			"buys the same answer for one more live incumbent call", r.inc.enqueued)
 	}
 }
 

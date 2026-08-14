@@ -20,6 +20,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -162,6 +163,10 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
 		return nil
 	}
+	// Built for the workspace THIS re-fetch names: the mirror store writes
+	// tenant rows over a workspace-bound handle, so one instance cannot serve
+	// the workspaces a role re-fetches for (ADR-0091 §9 step 3).
+	ms := overlay.NewMirrorStore(database.BindTo(w.pool, conn.Workspace), unresolvedOwnerEmails{})
 	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
 	if err != nil {
 		// A connection-level failure (rate-limit/auth/unreachable) is retryable
@@ -170,21 +175,33 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 		// however many attempts it is given. What the mirror is left holding
 		// depends on why: an archived record is retired by the deletion feed,
 		// while a record the incumbent still holds but this build cannot map
-		// keeps its current payload and stays in the stale set, so every
-		// re-projection pass names it again — one reserved REST unit and one
-		// live read per tick, with force_fresh_incomplete holding the flip shut
-		// meanwhile (issue #1187).
+		// keeps its current payload and stays in the stale set — which is why
+		// the row records the declaration it could not reach, so the next
+		// re-projection pass does not spend one reserved REST unit and one live
+		// read on it every tick while force_fresh_incomplete holds the flip
+		// shut.
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay refetch: reading %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
 		}
 		w.log.WarnContext(wsCtx, "overlay refetch: reading the record failed in a way a retry cannot change; the mirror keeps what it holds",
 			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", err)
+		// The mirror is keyed by the CANONICAL class the declaration projects
+		// onto, never the incumbent's own name for it, and the fingerprint
+		// recorded is the one StaleProjections derives its comparison from — so
+		// the record and the skip agree by construction. A class this build
+		// declares no mapping for has no declaration to have failed.
+		if m, declared := hubspot.Mapping(job.Args.IncumbentClass); declared {
+			// Bookkeeping, not the job's purpose: this read has already failed
+			// in a way no retry changes, and failing the job to report that the
+			// note could not be written would turn a bounded waste into a
+			// retried one.
+			if recErr := ms.RecordReprojectionFailure(wsCtx, m.Target, job.Args.ExternalID, overlay.Fingerprint(m)); recErr != nil {
+				w.log.WarnContext(wsCtx, "overlay refetch: recording the re-projection failure failed; the row stays in the stale set and the next pass names it again",
+					"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", recErr)
+			}
+		}
 		return nil
 	}
-	// Built for the workspace THIS re-fetch names: the mirror store writes
-	// tenant rows over a workspace-bound handle, so one instance cannot serve
-	// the workspaces a role re-fetches for (ADR-0091 §9 step 3).
-	ms := overlay.NewMirrorStore(database.BindTo(w.pool, conn.Workspace), unresolvedOwnerEmails{})
 	// WithFenceIdentity on conn's OWN connected_at: a signal that outlives a
 	// disconnect+reconnect (coalesced 5s ahead, OVA-PARAM-10) must not ingest
 	// under the connection it was enqueued for once a NEW one is live.

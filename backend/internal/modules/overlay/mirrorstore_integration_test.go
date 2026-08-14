@@ -270,7 +270,11 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 	// the INSERT column list or a statement of its own would un-record the
 	// failure on every refused write with every other test still green, and the
 	// sweep would silently resume re-reading the row.
-	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "fingerprint-two"); err != nil {
+	//
+	// The fingerprint recorded here is a third value, distinct from the one the
+	// refused write carries, so the assertion below reads the record itself
+	// rather than a value the refused ingest could equally have written.
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "fingerprint-three"); err != nil {
 		t.Fatalf("RecordReprojectionFailure: %v", err)
 	}
 
@@ -301,9 +305,12 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("reading the failure record back: %v", err)
 	}
-	if failedFor == nil || *failedFor != "fingerprint-two" {
-		t.Errorf("reprojection_failed_for = %v, want the recorded fingerprint — a refused write lands nothing, "+
-			"so it must not clear the record either, or the sweep starts re-reading a row it still cannot map", failedFor)
+	if failedFor == nil {
+		t.Error("reprojection_failed_for is NULL, want the recorded fingerprint — a refused write lands nothing, " +
+			"so it must not clear the record either, or the sweep starts re-reading a row it still cannot map")
+	} else if *failedFor != "fingerprint-three" {
+		t.Errorf("reprojection_failed_for = %q, want the recorded fingerprint — a refused write lands nothing, "+
+			"so it must not overwrite the record either, or the sweep starts re-reading a row it still cannot map", *failedFor)
 	}
 }
 
@@ -335,8 +342,10 @@ func TestRecordReprojectionFailureStoresTheFingerprintItFailedToReach(t *testing
 	}); err != nil {
 		t.Fatalf("reading the record back: %v", err)
 	}
-	if recorded == nil || *recorded != "current-declaration" {
-		t.Errorf("reprojection_failed_for = %v, want the fingerprint the re-projection was reaching for", recorded)
+	if recorded == nil {
+		t.Error("reprojection_failed_for is NULL, want the fingerprint the re-projection was reaching for")
+	} else if *recorded != "current-declaration" {
+		t.Errorf("reprojection_failed_for = %q, want the fingerprint the re-projection was reaching for", *recorded)
 	}
 }
 
