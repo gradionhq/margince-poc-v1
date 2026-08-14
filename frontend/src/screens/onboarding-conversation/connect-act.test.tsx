@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../i18n";
 import { en } from "../../i18n/en";
-import { installFetchStub, jsonResponse } from "../story-utils";
+import { installFetchStub, jsonResponse, meRoute } from "../story-utils";
 import { ConnectAct } from "./connect-act";
 import type { ConversationState } from "./conversation-machine";
 import { initialConversationState } from "./conversation-machine";
@@ -19,6 +19,15 @@ import { initialConversationState } from "./conversation-machine";
 // connection can be left running or declined, and either way the step
 // completes exactly once — CONNECT_DONE is the only event this act dispatches
 // and a second one would move the machine out from under the wizard.
+
+// Every stub in this file routes the session probe, because ConnectAct mounts
+// capability-aware chrome and story-utils refuses to guess a session: an
+// unrouted GET /me answers 501, every grant fails closed, and the provider
+// cards stay disabled for a reason no assertion here is about. The grants are
+// empty on purpose — this act is onboarding, before any of them are held.
+function stubWithSession(routes: Parameters<typeof installFetchStub>[0]) {
+  installFetchStub({ "GET /me": meRoute({}), ...routes });
+}
 
 function renderConnectAct(
   outcome?: string,
@@ -83,7 +92,7 @@ afterEach(() => {
 });
 
 it("offers Microsoft as a live card and opens its dialog", async () => {
-  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
   renderConnectAct();
   // The card names the provider AND what connecting it grants, so the
   // accessible name is the whole card, not the brand alone.
@@ -111,7 +120,7 @@ it("withholds every mail provider card until the roster load settles", async () 
   const deferred: { resolve: ((r: Response) => void) | null } = {
     resolve: null,
   };
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () =>
       new Promise((resolve) => {
         deferred.resolve = resolve;
@@ -133,7 +142,7 @@ it("withholds every mail provider card until the roster load settles", async () 
 // one still loading — actionable cards here would offer to connect a second
 // mailbox the failed read simply never got to report.
 it("withholds every mail provider card when the roster fetch fails", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () => jsonResponse({ code: "internal" }, 500),
   });
   renderConnectAct();
@@ -149,7 +158,7 @@ it("withholds every mail provider card when the roster fetch fails", async () =>
 // outcome URL (see `attemptedProvider` in connect-act.tsx) — it has to be
 // written before the redirect actually leaves, not after.
 it("marks this tab's own attempt before the real redirect fires", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () => jsonResponse({ data: [] }),
     "POST /connectors/graph/connect": () =>
       jsonResponse({ authorize_url: "https://login.microsoftonline/x" }),
@@ -168,7 +177,7 @@ it("marks this tab's own attempt before the real redirect fires", async () => {
 describe("returning to the dialog a proven attempt left from", () => {
   it("reopens the same dialog, showing the result rather than a fresh ask", async () => {
     sessionStorage.setItem("ob.connect.oauthAttempt", "graph");
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () =>
         jsonResponse({
           data: [
@@ -198,7 +207,7 @@ describe("returning to the dialog a proven attempt left from", () => {
 
   it("falls back to the plain inline result when the URL's provider does not match this tab's own attempt", async () => {
     sessionStorage.setItem("ob.connect.oauthAttempt", "gmail");
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () =>
         jsonResponse({
           data: [
@@ -219,7 +228,7 @@ describe("returning to the dialog a proven attempt left from", () => {
   });
 
   it("falls back to the plain inline result when no mark is recorded at all — a stale or bookmarked link", async () => {
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () =>
         jsonResponse({
           data: [
@@ -241,7 +250,7 @@ describe("returning to the dialog a proven attempt left from", () => {
 });
 
 it("renders the provider-agnostic return view on OAuth return", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () =>
       jsonResponse({
         data: [
@@ -260,7 +269,7 @@ it("renders the provider-agnostic return view on OAuth return", async () => {
 });
 
 it("asks how far back to read once the mailbox is confirmed", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": rosterWith({ state: "none" }),
     "POST /connectors/gmail/backfill/preview": () =>
       jsonResponse({
@@ -284,7 +293,7 @@ it("asks how far back to read once the mailbox is confirmed", async () => {
 });
 
 it("finishes the step once, leaving a running backread to the server", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": rosterWith({
       state: "running",
       counts: { messages_scanned: 12 },
@@ -306,7 +315,7 @@ it("finishes the step once, leaving a running backread to the server", async () 
 
 it("finishes the step once when the history read is declined", async () => {
   const starts: unknown[] = [];
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": rosterWith({ state: "none" }),
     "POST /connectors/gmail/backfill/preview": () =>
       jsonResponse({
@@ -332,7 +341,7 @@ it("finishes the step once when the history read is declined", async () => {
 
 // "Skip connecting" is offered while connecting is still the open question.
 it("offers to skip connecting before any consent round trip", () => {
-  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
   renderConnectAct();
   expect(
     screen.getByRole("button", { name: "Skip connecting for now" }),
@@ -342,7 +351,7 @@ it("offers to skip connecting before any consent round trip", () => {
 // After a successful consent it is no longer true, and recording the step as
 // skipped would persist a fact contradicted by the roster.
 it("stops offering to skip connecting once consent has returned", async () => {
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": rosterWith({ state: "done" }),
   });
   renderConnectAct("ok");
@@ -358,7 +367,7 @@ it("stops offering to skip connecting once consent has returned", async () => {
 // The honest exit (skip, recorded truthfully) has to stay reachable until a
 // live mailbox is confirmed.
 it("keeps the skip exit open when consent returned but no mailbox could be confirmed", async () => {
-  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
   renderConnectAct("ok");
   await screen.findByText("We couldn't confirm the connection.");
   expect(
@@ -371,7 +380,7 @@ it("keeps the skip exit open when consent returned but no mailbox could be confi
 // or a wizard-state write — the mail gate owns those exclusively.
 describe("the LinkedIn card", () => {
   beforeEach(() => {
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () => jsonResponse({ data: [] }),
       "PUT /me/linkedin-account": () =>
         jsonResponse({ connected: true, connections: 0 }),
@@ -467,7 +476,7 @@ describe("the LinkedIn card", () => {
   // A failed authorization must stay visible and retryable, not vanish
   // behind a dialog that already closed on the click that failed.
   it("keeps the dialog open and shows the failure when authorization fails", async () => {
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () => jsonResponse({ data: [] }),
       "PUT /me/linkedin-account": () =>
         jsonResponse({ detail: "LinkedIn refused the profile." }, 422),
@@ -496,7 +505,7 @@ describe("the LinkedIn card", () => {
 // the reader has been looking at, not a chip surfaced beside the transcript.
 describe("the cn.done finish action", () => {
   it("renders on the connect surface, in its own pinned foot — never as a thread chip", () => {
-    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct(undefined, "pending", "cn.done");
     const enter = screen.getByRole("button", { name: "Enter Margince" });
     expect(enter.closest(".ob-triage-continue")).toBeTruthy();
@@ -512,7 +521,7 @@ describe("the cn.done finish action", () => {
 // than from inside a provider's dialog.
 describe("the consent guarantees", () => {
   it("sit on the surface behind a named fold, not in the rail", async () => {
-    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct();
 
     const toggle = screen.getByText(en["ob.conv.connect.guaranteesToggle"]);
@@ -536,7 +545,7 @@ describe("the consent guarantees", () => {
 
 describe("the IMAP dialog", () => {
   it("carries only the real contract's fields — no invented SMTP host, port or TLS toggle", async () => {
-    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
 
@@ -554,7 +563,7 @@ describe("the IMAP dialog", () => {
   });
 
   it("closes on 'Not now' without touching the required-step skip", async () => {
-    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    stubWithSession({ "GET /connectors": () => jsonResponse({ data: [] }) });
     const { dispatch, persist } = renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
     await userEvent.click(screen.getByRole("button", { name: "Not now" }));
@@ -581,7 +590,7 @@ describe("dismissal during an in-flight connect request", () => {
     const deferred: { resolve: ((r: Response) => void) | null } = {
       resolve: null,
     };
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () => jsonResponse({ data: [] }),
       "POST /connectors/graph/connect": () =>
         new Promise((resolve) => {
@@ -609,7 +618,7 @@ describe("dismissal during an in-flight connect request", () => {
     const deferred: { resolve: ((r: Response) => void) | null } = {
       resolve: null,
     };
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () => jsonResponse({ data: [] }),
       "POST /connectors/imap/connect": () =>
         new Promise((resolve) => {
@@ -652,7 +661,7 @@ describe("dismissal during an in-flight connect request", () => {
     const deferred: { resolve: ((r: Response) => void) | null } = {
       resolve: null,
     };
-    installFetchStub({
+    stubWithSession({
       "GET /connectors": () => jsonResponse({ data: [] }),
       "PUT /me/linkedin-account": () =>
         new Promise((resolve) => {
@@ -697,7 +706,7 @@ it("keeps mail provider cards disabled during a roster refetch, not just its fir
     resolve: null,
   };
   let rosterCalls = 0;
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () => {
       rosterCalls += 1;
       if (rosterCalls === 1) {
@@ -761,7 +770,7 @@ it("keeps mail provider cards disabled during a roster refetch, not just its fir
 // from an ordinary still-loading moment.
 it("says why every mail card is disabled when the roster read fails, and offers a retry", async () => {
   let rosterCalls = 0;
-  installFetchStub({
+  stubWithSession({
     "GET /connectors": () => {
       rosterCalls += 1;
       if (rosterCalls === 1) {

@@ -15,6 +15,7 @@ import {
   Modal,
   OverflowMenu,
   Radio,
+  SearchField,
   SectionHeader,
   SegmentedControl,
   Skeleton,
@@ -504,4 +505,74 @@ function OverflowMenuDemo() {
 
 export const Overflow: Story = {
   render: () => <OverflowMenuDemo />,
+};
+
+// placement="right" is the drawer form of the SAME Modal — full height on the
+// right edge, with the record behind it still legible. Catalogued because the
+// centred dialog above is what everyone pictures when they read "Modal", and
+// the two are one component with one prop between them.
+function DrawerDemo() {
+  const [open, setOpen] = useState(true);
+  const titleId = useId();
+  return (
+    <>
+      {/* Something behind the drawer, because "the record stays legible" is
+          the whole claim the placement makes and an empty canvas cannot show
+          it being kept. */}
+      <SectionHeader title="Globex GmbH" sub="Enterprise · Munich" />
+      <p className="t-body">
+        Anna Brandt replied on Tuesday and is waiting on pricing. Nobody has
+        written since.
+      </p>
+      <Button variant="primary" onClick={() => setOpen(true)}>
+        Open the drawer
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy={titleId}
+        placement="right"
+      >
+        <h2
+          id={titleId}
+          className="t-h2"
+          style={{ marginBottom: "var(--space-3)" }}
+        >
+          Write to Anna Brandt
+        </h2>
+        <p className="t-small">
+          The draft sits beside the record it is about, so a rep can read the
+          history while writing rather than remembering it.
+        </p>
+        <div className="actions">
+          <Button onClick={() => setOpen(false)}>Discard</Button>
+          <Button variant="primary" onClick={() => setOpen(false)}>
+            Send
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+export const Drawer: Story = {
+  render: () => <DrawerDemo />,
+};
+
+// SearchField had no node of its own: it appeared only inside RecordPicker's
+// story, where it reads as part of that composite rather than as the one
+// spelling of a search input. Both states are here because the affordance is
+// the icon and the type="search" clear control, and a filled field is the only
+// way to see the second.
+export const Search: Story = {
+  render: () => (
+    <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: "22rem" }}>
+      <Field label="Find a company">
+        {(control) => <SearchField {...control} placeholder="Search…" />}
+      </Field>
+      <Field label="Find a person">
+        {(control) => <SearchField {...control} defaultValue="Anna Brandt" />}
+      </Field>
+    </div>
+  ),
 };

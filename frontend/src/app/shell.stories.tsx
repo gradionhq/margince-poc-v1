@@ -27,7 +27,7 @@ import { PageHead, Shell, WorkspaceRail } from "./shell";
 // canvas padding would clip the sidebar foot and misrepresent the layout — and
 // the foot is where the account block now lives.
 const meta: Meta<typeof Shell> = {
-  title: "App/Shell",
+  title: "Shell/Navigation shell",
   component: Shell,
   parameters: {
     layout: "fullscreen",

@@ -3,14 +3,19 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DealCoverageCard, PersonNetworkCard } from "./network";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The two relationship-graph cards (ADR-0078). Both fetch their own data, so
 // the shared fetch stub carries the fixtures — chosen to show the readings that
 // are easy to get wrong: a never-spoken colleague, a clean deal, and a deal
 // carrying two findings of different severity.
 const meta: Meta = {
-  title: "Screens/Network",
+  title: "Records/Network",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -53,6 +58,7 @@ const network = {
 export const WhoKnowsThem: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /people/p-1/network": () => jsonResponse(network),
     });
     return (
@@ -66,6 +72,7 @@ export const WhoKnowsThem: Story = {
 export const NobodyKnowsThem: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /people/p-1/network": () =>
         jsonResponse({ person_id: "p-1", colleagues: [] }),
     });
@@ -83,6 +90,7 @@ export const NobodyKnowsThem: Story = {
 export const DealAtRisk: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /deals/d-1/coverage": () =>
         jsonResponse({
           deal_id: "d-1",
@@ -117,6 +125,7 @@ export const DealAtRisk: Story = {
 export const DealClear: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /deals/d-1/coverage": () =>
         jsonResponse({
           deal_id: "d-1",

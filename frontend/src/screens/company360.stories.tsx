@@ -12,7 +12,12 @@ import {
   RecentActivityPanel,
   StateStrip,
 } from "./company360";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The company view's Panel-shaped cards, rendered straight from a payload
 // rather than through the screen — so the three answers a card can give are
@@ -26,7 +31,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // see — and this is the only place it can be looked at.
 
 const meta: Meta = {
-  title: "Screens/Company 360 cards",
+  title: "Records/Company 360/Cards",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -242,6 +247,7 @@ const empty = {
 
 function Cards({ view }: Readonly<{ view: View }>) {
   installFetchStub({
+    "GET /me": meRoute({ organization: ["read", "update"] }),
     "GET /signals": () => jsonResponse({ data: [], page }),
     // The brief is the card the stories exist to show. Unstubbed it fell
     // through to the empty fallback, and all three stories rendered the same
@@ -312,7 +318,7 @@ export const NothingYet: Story = { render: () => <Cards view={empty} /> };
 // this story is the only place it renders.
 function Strip({ view }: Readonly<{ view?: View }>) {
   installFetchStub({
-    // The customer branch's money slots read this directly (FinanceStat) —
+    "GET /me": meRoute({ organization: ["read", "update"] }), // The customer branch's money slots read this directly (FinanceStat) —
     // the same query the finance card runs — so a customer story with
     // nothing stubbed here fires a real request the static build has
     // nowhere to send.

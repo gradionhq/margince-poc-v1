@@ -9,7 +9,7 @@ import { ForecastTile } from "./reports";
 // screen maps forecast-category rows onto it. Shown here for the commit and
 // best-case categories.
 const meta: Meta = {
-  title: "Screens/Reports",
+  title: "Records/Reports",
   parameters: { layout: "padded" },
   decorators: [
     (Story) => (

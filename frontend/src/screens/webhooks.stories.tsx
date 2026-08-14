@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { Badge } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
@@ -77,20 +77,24 @@ function baseRoutes(
   };
 }
 
-// Drives a sequence of testid clicks against one render, returning the
-// `within` handle so a play function can chain a further assertion or a
-// non-testid interaction (a role-named Confirm button, a label lookup) off
-// the same canvas.
+// Drives a sequence of testid clicks against one render, returning a query
+// handle so a play function can chain a further assertion or a non-testid
+// interaction (a role-named Confirm button, a label lookup).
+//
+// The clicks are canvas-scoped — the testids are all on the card — but the
+// handle returned is `screen`, because what those clicks OPEN is a ConfirmModal
+// portalled to document.body. Handing back the canvas is why the rotate-secret
+// story could never find its own Confirm button.
 async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
   const canvas = within(canvasElement);
   for (const testId of testIds) {
     await userEvent.click(await canvas.findByTestId(testId));
   }
-  return canvas;
+  return screen;
 }
 
 const meta: Meta<typeof WebhooksCard> = {
-  title: "Screens/webhooks",
+  title: "Settings/Organization/Integrations/Webhooks",
   component: WebhooksCard,
 };
 export default meta;

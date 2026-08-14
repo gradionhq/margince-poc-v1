@@ -1,97 +1,80 @@
-/* The contact-data provider card.
+/* The contact-data provider, drawn inside the Integrations panel.
  *
- * The card answers four questions in a fixed order, and the layout has to keep
+ * The block answers four questions in a fixed order, and the layout has to keep
  * them apart: who this provider is, what credit is left with THEM, what WE
  * spent, and how the key is managed. Run together as one column of prose — the
  * first version — a reader could not tell the provider's balance from our own
- * accounting, which is the one confusion this card exists to prevent.
+ * accounting, which is the one confusion this block exists to prevent.
+ *
+ * The separation is now the panel's own device rather than a border this sheet
+ * draws: the two READINGS sit on the recessed PanelPlate, the two MOVES sit on
+ * the panel's own ground. A second bordered card nested inside the card was
+ * what this used to be, and it read as one card too many.
  */
 
-.provider-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  padding: var(--space-5);
-  border: 1px solid var(--borderSubtle);
-  border-radius: 10px;
+/* The panel's opening body — the card's own sentence and its posture line. The
+ * gate under it renders into its own padded body, so this one stops at the text
+ * rather than paying for the interval twice. */
+.provider-intro {
+  padding-bottom: 0;
 }
 
-.provider-card + .provider-card {
-  margin-top: var(--space-4);
-}
-
-/* Header: the mark, the name, the state. */
-.provider-card-head {
+/* Identity: the mark, the name, the state. Wraps rather than overflowing —
+ * a provider key and a status pill outgrow a 390px row on their own. */
+.provider-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
+  min-width: 0;
 }
 
-.provider-card-mark {
+.provider-mark {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   flex: none;
 }
 
-/* The card's own name, and an h3 — so the rule states the whole box model
- * rather than inheriting a heading's. The header is a flex row whose rhythm is
- * its own gap; a heading margin would break the name's baseline away from the
- * mark and the badge it sits between. */
-.provider-card-name {
+/* The provider NAMES the block it heads, so it reads at content size — the
+ * panel's own header band is a quiet label for the card, not the subject. The
+ * header is a flex row whose rhythm is its own gap; a heading margin would
+ * break the name's baseline away from the mark and the badge it sits between.
+ * A registry key has no spaces to break on, so it wraps anywhere rather than
+ * pushing the badge off the row. */
+.provider-name {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
   /* The provider's own capitalization, not the lowercase registry key. */
   text-transform: capitalize;
 }
 
-/* Every block below the header carries its own heading — h4, one step under
- * the provider's name — so the eye can land on one question at a time. The
- * only space it owns is the one down to its own block; the space BETWEEN
- * blocks belongs to .provider-card's gap, so a heading's top margin would
- * double it. */
-.provider-block-title {
-  margin: 0 0 var(--space-2);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--textSecondary);
+/* Every block below the identity row carries its own Eyebrow heading, one
+ * step under the provider's name, so the eye can land on one question at a
+ * time. The space BETWEEN blocks rides here rather than on a heading's top
+ * margin, which would double it against the plate's own padding. */
+.provider-block + .provider-block {
+  margin-top: var(--space-4);
 }
 
 .provider-block-hint {
-  font-size: 13px;
-  color: var(--textSecondary);
   margin-top: var(--space-2);
-}
-
-/* Balances: one row per pool, the number reading as the figure it is rather
- * than as body text. */
-.provider-pools {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.provider-pool {
-  display: grid;
-  grid-template-columns: 6rem 1fr auto;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.provider-pool-name {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--textSecondary);
-  text-transform: capitalize;
 }
 
-.provider-pool-value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  min-width: 3ch;
-  text-align: right;
+/* One row per credit pool. The grid's term/value split is proportional, so on a
+ * wide panel a five-letter pool name would sit at one end of a 400px column and
+ * its balance at the other, with the reader's eye asked to bridge the gap. The
+ * pair is a READING and reads as one thing, so the list stops at the measure
+ * where it still does. */
+.provider-pools {
+  max-width: 34rem;
 }
 
 /* Spend: a small table, because it is a series of figures and reads as one.
@@ -99,15 +82,23 @@
 .provider-spend-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .provider-spend-table th {
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--textSecondary);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--borderSubtle);
+}
+
+/* Five columns squeezed onto a phone run their headings together — "Credits"
+ * "Held" "Lookups" read as one word — so every cell but the last keeps a gutter
+ * of its own. */
+.provider-spend-table th:not(:last-child),
+.provider-spend-table td:not(:last-child) {
+  padding-right: var(--space-3);
 }
 
 /* Month and pool are labels and read left; the three figure columns read right,
@@ -138,20 +129,24 @@
   color: var(--textSecondary);
 }
 
-/* The key form and its actions, fenced off from the numbers above. */
+/* The key form and its actions. `min-width: 0` so a wide field inside cannot
+ * set the panel's width from the inside out. */
 .provider-credential {
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--borderSubtle);
+  min-width: 0;
 }
 
+/* The submit and the overflow that holds the two destructive verbs. Wraps, and
+ * centres the trigger against the button beside it. */
 .provider-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-3);
+  min-width: 0;
 }
 
 .provider-empty {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--textSecondary);
 }

@@ -2,14 +2,19 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 import { StrengthCard } from "./strength";
 
 // StrengthCard fetches its own data (GET /people/{id}/strength or
 // /organizations/{id}/strength) — the shared fetch stub (story-utils.tsx)
 // mirrors the strength fixtures already exercised in people.test.tsx.
 const meta: Meta = {
-  title: "Screens/Strength",
+  title: "Records/Relationship strength",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -36,6 +41,7 @@ const dormantStrength = {
 export const Strong: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /people/p-1/strength": () => jsonResponse(strongStrength),
     });
     return (
@@ -52,6 +58,7 @@ export const Strong: Story = {
 export const Dormant: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /people/p-1/strength": () => jsonResponse(dormantStrength),
     });
     return (

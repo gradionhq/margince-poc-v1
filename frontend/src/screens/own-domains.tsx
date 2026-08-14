@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
-import { Button, Card, TextInput } from "../design-system/atoms";
+import { Button, TextInput } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
@@ -83,41 +84,44 @@ export function OwnDomainsCard() {
   // read is in flight, and nothing at all when the company claims no domain.
   const anchors = query.data?.anchor_domains ?? [];
   return (
+    // Panel rather than Card, and no per-card bottom margin: the settings page
+    // owns the gap between its surfaces in one place, so a card cannot space
+    // itself differently from the one beside it.
     <>
       {anchors.length > 0 && (
-        <Card
-          className="card-stack"
-          title={t("ownDomains.companyTitle")}
-          sub={t("ownDomains.fromCompany")}
-        >
-          <ul
-            className="t-small"
-            data-testid="own-domains-from-company"
-            style={{ margin: 0, paddingLeft: "var(--space-4)" }}
-          >
-            {anchors.map((domain) => (
-              <li key={domain}>{domain}</li>
-            ))}
-          </ul>
-          {/* Copy that sends the reader somewhere has to take them there. The sub
-              above says these are changed on the company profile, which is a
-              different settings entry — so without this the instruction was a
-              destination the reader had to go and find, on a page whose whole
-              point is that it cannot be edited here. */}
-          <p className="t-small" style={{ margin: "var(--space-3) 0 0" }}>
-            <a href="#/settings/general">{t("ownDomains.openCompany")}</a>
-          </p>
-        </Card>
+        <Panel title={t("ownDomains.companyTitle")}>
+          <PanelBody className="form-stack">
+            <p className="t-caption">{t("ownDomains.fromCompany")}</p>
+            <ul
+              className="t-small"
+              data-testid="own-domains-from-company"
+              style={{ margin: 0, paddingLeft: "var(--space-4)" }}
+            >
+              {anchors.map((domain) => (
+                <li key={domain}>{domain}</li>
+              ))}
+            </ul>
+            {/* Copy that sends the reader somewhere has to take them there. The
+                line above says these are changed on the company profile, which
+                is a different settings entry — so without this the instruction
+                was a destination the reader had to go and find, on a page whose
+                whole point is that it cannot be edited here. */}
+            <p className="t-small">
+              <a href="#/settings/general">{t("ownDomains.openCompany")}</a>
+            </p>
+          </PanelBody>
+        </Panel>
       )}
-      <Card
-        className="card-stack"
-        title={t("ownDomains.title")}
-        sub={t("ownDomains.sub")}
-      >
-        <QueryGate query={query}>
-          {(list) => <CuratedDomains list={list.data} canManage={canManage} />}
-        </QueryGate>
-      </Card>
+      <Panel title={t("ownDomains.title")}>
+        <PanelBody className="form-stack">
+          <p className="t-caption">{t("ownDomains.sub")}</p>
+          <QueryGate query={query}>
+            {(list) => (
+              <CuratedDomains list={list.data} canManage={canManage} />
+            )}
+          </QueryGate>
+        </PanelBody>
+      </Panel>
     </>
   );
 }
@@ -134,6 +138,18 @@ function CuratedDomains({
   const add = useAddOwnDomain();
   const remove = useRemoveOwnDomain();
   const [draft, setDraft] = useState("");
+  // The denial, said once and POINTED AT. A control that is disabled with its
+  // reason floating somewhere further down the card has told a screen reader
+  // nothing: the reason is read only if the reader happens to arrive at that
+  // paragraph, which is not where the disabled control left them. `Switch`'s
+  // `reason` prop is the pattern this copies (design-system README) — it
+  // renders the explanation AND names it on the control — and an id plus
+  // `aria-describedby` is that same wiring for the controls that are not
+  // switches. The id is minted unconditionally, because a hook may not depend
+  // on a permission, and named only where the paragraph is really rendered.
+  const denialId = useId();
+  const denied = !canManage;
+  const describedBy = denied ? denialId : undefined;
 
   return (
     <div className="form-stack">
@@ -153,6 +169,7 @@ function CuratedDomains({
               key={domain.domain}
               domain={domain}
               disabled={!canManage || remove.isPending}
+              describedBy={describedBy}
               onRemove={() => remove.mutate(domain.domain)}
             />
           ))}
@@ -175,19 +192,23 @@ function CuratedDomains({
           aria-label={t("ownDomains.addLabel")}
           placeholder={t("ownDomains.placeholder")}
           disabled={!canManage || add.isPending}
+          aria-describedby={describedBy}
           onChange={(event) => setDraft(event.target.value)}
         />
         <Button
           type="submit"
           variant="primary"
           disabled={!canManage || add.isPending || draft.trim() === ""}
+          aria-describedby={describedBy}
         >
           {t("ownDomains.add")}
         </Button>
       </form>
 
-      {!canManage && (
-        <span className="t-small">{t("captureSettings.adminOnly")}</span>
+      {denied && (
+        <p className="t-small" id={denialId}>
+          {t("captureSettings.adminOnly")}
+        </p>
       )}
       {(add.isError || remove.isError) && (
         <span role="alert" className="form-error">
@@ -201,10 +222,13 @@ function CuratedDomains({
 function DomainRow({
   domain,
   disabled,
+  describedBy,
   onRemove,
 }: Readonly<{
   domain: WorkspaceEmailDomain;
   disabled: boolean;
+  /** The id of the one paragraph saying why removal is refused, when it is. */
+  describedBy?: string;
   onRemove: () => void;
 }>) {
   const t = useT();
@@ -230,6 +254,7 @@ function DomainRow({
         variant="ghost"
         aria-label={t("ownDomains.remove", { domain: domain.domain })}
         disabled={disabled}
+        aria-describedby={describedBy}
         onClick={onRemove}
       >
         <Trash2 aria-hidden size={16} />

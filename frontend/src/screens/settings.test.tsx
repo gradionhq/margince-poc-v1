@@ -593,7 +593,7 @@ describe("PassportCard revoke (AS-2)", () => {
         within(scopedRow as HTMLElement).getByText("scope not granted"),
     ).toBeTruthy();
 
-    const scoutRow = screen.getByText("Scout").closest("li");
+    const scoutRow = screen.getByText("Scout").closest("[data-passport]");
     const revokeButton = scoutRow?.querySelector("button");
     if (!(revokeButton instanceof HTMLButtonElement)) {
       throw new Error("the live passport row offers no revoke control");
@@ -627,13 +627,13 @@ describe("PassportCard revoke (AS-2)", () => {
     await screen.findByText("Scout");
 
     // The already-revoked row shows no Revoke control at all.
-    const retiredRow = screen.getByText("Retired").closest("li");
+    const retiredRow = screen.getByText("Retired").closest("[data-passport]");
     expect(retiredRow).toBeTruthy();
     expect(
       retiredRow && Array.from(retiredRow.querySelectorAll("button")).length,
     ).toBe(0);
 
-    const scoutRow = screen.getByText("Scout").closest("li");
+    const scoutRow = screen.getByText("Scout").closest("[data-passport]");
     expect(scoutRow).toBeTruthy();
     const revokeButton = scoutRow?.querySelector("button");
     expect(revokeButton).toBeTruthy();
@@ -2178,28 +2178,28 @@ function auditLogUrls(backend: ReturnType<typeof auditLogBackend>) {
 }
 
 describe("AuditLogCard", () => {
-  it("puts the filters and the entries in two separate cards", async () => {
+  // The dials and the list they narrow are ONE surface, the way every other
+  // filtered list in this product draws them. Two cards made the filter row a
+  // subject in the page outline, level with the trail it narrows, and left a
+  // reader scanning two boxes to answer one question.
+  it("puts the filters inside the log's own card, under the log's own name", async () => {
     vi.stubGlobal("fetch", auditLogBackend());
     render(<AuditLogCard />);
     await screen.findByText("update");
 
     const actorFilter = screen.getByLabelText("Actor");
     const entryAction = screen.getByText("update");
-    const filterCard = actorFilter.closest("section");
-    const entryCard = entryAction.closest("section");
-    expect(filterCard).not.toBeNull();
-    expect(entryCard).not.toBeNull();
-    expect(entryCard).not.toBe(filterCard);
-    // Each card carries its own heading, and neither reaches into the other:
-    // the six controls stay put while the entries below them scroll.
-    expect(filterCard).toContainElement(
-      screen.getByRole("heading", { name: "Filters" }),
+    const card = actorFilter.closest("section");
+    expect(card).not.toBeNull();
+    expect(entryAction.closest("section")).toBe(card);
+    // One card, named for the log. The filters are labelled INSIDE it, at a
+    // level that says they belong to it rather than stand beside it.
+    expect(card).toContainElement(
+      screen.getByRole("heading", { level: 2, name: "Audit log" }),
     );
-    expect(entryCard).toContainElement(
-      screen.getByRole("heading", { name: "Audit log" }),
+    expect(card).toContainElement(
+      screen.getByRole("heading", { level: 3, name: "Filters" }),
     );
-    expect(filterCard).not.toContainElement(entryAction);
-    expect(entryCard).not.toContainElement(actorFilter);
   });
 
   it("narrows the request to the filters, keeping the page size and dropping the cursor", async () => {

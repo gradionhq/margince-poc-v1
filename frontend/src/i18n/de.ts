@@ -466,6 +466,8 @@ export const de = {
   "overlay.budgetLoading": "Lade das Budget-Fenster…",
   "overlay.budgetLoadFailed": "Das Budget-Fenster konnte nicht geladen werden.",
   "overlay.budgetHeadroom": "Spielraum: {headroom}",
+  "overlay.budgetEmpty":
+    "Das Altsystem hat für diesen Zeitraum kein Budgetfenster gemeldet.",
   "overlay.budgetSources":
     "Force-Fresh {forceFresh} · Poller {poller} · Capture {capture}",
   "overlay.budgetSearch": "Such-API: {consumed} / {limit} pro Sekunde",
@@ -3398,6 +3400,13 @@ export const de = {
   "auto.dateField.empty": "Dieses Objekt hat noch keine aktiven Datumsfelder.",
   "auto.dateField.loadError":
     "Die Datumsfelder dieses Objekts konnten nicht geladen werden. Erneut versuchen.",
+  "auto.enabledLabel": "Aktiv",
+  "auto.rowActions": "Aktionen für {name}",
+  "auto.withheld":
+    "Die eingerichteten Automatisierungen sind ausgeblendet — deine Rolle darf sie nicht lesen.",
+  "auto.deleteTitle": "Diese Automatisierung löschen?",
+  "auto.deleteBody":
+    "„{name}“ wird mitsamt den Einstellungen endgültig entfernt. Wenn sie nur nicht mehr auslösen soll, schalte sie stattdessen aus.",
 
   "auto.runs.open": "Läufe",
   "auto.runs.title": "Laufverlauf",
@@ -3609,6 +3618,8 @@ export const de = {
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Deine persönliche Schreibstimme. Sie prägt Entwürfe, die für dich gemacht werden, bleibt privat und lernt nur aus Quellen, die du hinzufügst.",
+  "settings.voice.readOnly":
+    "Nur-Lese-Ansicht — du hast keine Berechtigung, deine Voice DNA zu ändern.",
   "settings.voice.emptyTitle": "Noch keine Voice DNA",
   "settings.voice.emptyBody":
     "Füg unten ein paar Schreibproben hinzu und bau deine Voice DNA — oder mach es beim Onboarding.",
@@ -4154,6 +4165,8 @@ export const de = {
   "webhooks.secret.copyFailed":
     "Automatisches Kopieren fehlgeschlagen — bitte den Schlüssel manuell auswählen und kopieren.",
   "webhooks.secret.done": "Fertig",
+  "webhooks.secret.leaveWarning":
+    "Beim Verlassen wird die einzige Kopie dieses Secrets vernichtet. Kopieren Sie es zuerst.",
 
   "webhooks.deliveries.show": "Zustellungen anzeigen",
   "webhooks.deliveries.hide": "Zustellungen ausblenden",

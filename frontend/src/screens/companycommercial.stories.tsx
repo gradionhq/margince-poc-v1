@@ -14,7 +14,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // account ever sees that state.
 
 const meta: Meta = {
-  title: "Screens/Company commercial",
+  title: "Records/Company 360/Last offer",
   parameters: { layout: "padded" },
 };
 export default meta;

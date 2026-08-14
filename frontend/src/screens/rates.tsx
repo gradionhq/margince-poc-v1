@@ -5,12 +5,13 @@ import type { components } from "../api/schema";
 import { useCan, useCanUpsert } from "../app/capability";
 import {
   Button,
-  Card,
   DataTable,
   EmptyState,
   Modal,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./rates.css";
@@ -64,12 +65,11 @@ function RefreshFromSources({
           {t("settings.rates.refreshEnqueued")}
         </span>
       ) : null}
+      {/* The failure is spoken, and the retry is the button it sits beside —
+          which stays enabled, so the reader does not need a second control that
+          would do the same thing. */}
       {refresh.isError ? (
-        <span
-          className="t-small"
-          role="alert"
-          style={{ color: "var(--danger)" }}
-        >
+        <span className="rates-error" role="alert">
           {problemMessageOf(refresh.error, t)}
         </span>
       ) : null}
@@ -95,15 +95,17 @@ function WithheldRateCard({
 }: Readonly<{ title: string; reason: string }>) {
   const me = useMe();
   return (
-    <Card style={{ marginBottom: "var(--space-4)" }} title={title}>
-      <QueryGate query={me}>
-        {() => (
-          <EmptyState>
-            <p className="t-small">{reason}</p>
-          </EmptyState>
-        )}
-      </QueryGate>
-    </Card>
+    <Panel title={title}>
+      <PanelBody>
+        <QueryGate query={me}>
+          {() => (
+            <EmptyState>
+              <p className="t-small">{reason}</p>
+            </EmptyState>
+          )}
+        </QueryGate>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -157,75 +159,78 @@ export function FxRatesCard() {
   }
 
   return (
-    <Card
-      style={{ marginBottom: "var(--space-4)" }}
+    // The two verbs ride in the panel's own action band under the sheet they
+    // change, not beside the title. Beside the title they were one unwrappable
+    // row sized to its max content: at 390px the pair measured 353px inside a
+    // 324px card, pushed the page 12px past the viewport and squeezed the
+    // title to nothing. The band wraps, so the same two controls cannot widen
+    // the card at any viewport.
+    <Panel
       title={t("settings.rates.fxTitle")}
       actions={
         canManage ? (
-          <div className="rates-actions">
+          <>
             <RefreshFromSources path="/fx-rates/propose-refresh" />
             <Button variant="primary" small onClick={() => setOpen(true)}>
               {t("settings.rates.fxAdd")}
             </Button>
-          </div>
+          </>
         ) : null
       }
     >
-      <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
-        {t("settings.rates.fxIntro")}
-      </p>
-      {/* A sheet whose write affordances are all withheld says so ONCE, here,
-          rather than annotating each absent control. The rule (design-system
-          README): a permission-withheld SURFACE states it, while individual write
-          affordances inside a readable surface may simply be absent — provided
-          the surface has said what a reader is looking at. Without this the page
-          was a rate table with no editor and no reason given, which reads as a
-          bug rather than as a permission.
-          This is the READ-GRANTED case alone: the withheld branch has already
-          returned, so `!canManage` here means the reader may see the sheet and
-          not change it — no write verb on the object, or a read licensing seat.
-          On the withheld body these two lines would explain one denial twice,
-          in two different ways. */}
-      {!canManage && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("settings.rates.readOnly")}
-        </p>
-      )}
-      <QueryGate query={query}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <EmptyState>
-              <b>{t("settings.rates.fxEmpty")}</b>
-            </EmptyState>
-          ) : (
-            <DataTable<FxRate>
-              rows={rows}
-              rowKey={(row) => row.from_currency}
-              columns={[
-                {
-                  key: "from",
-                  header: t("settings.rates.colFrom"),
-                  render: (row) => row.from_currency,
-                },
-                {
-                  key: "rate",
-                  header: t("settings.rates.colRate", {
-                    base: rows[0]?.to_currency ?? "",
-                  }),
-                  render: (row) => trimDecimal(row.rate),
-                },
-                {
-                  key: "effective",
-                  header: t("settings.rates.colEffective"),
-                  render: (row) => row.effective_date,
-                },
-              ]}
-            />
-          )
-        }
-      </QueryGate>
-      {open ? <FxRateModal onClose={() => setOpen(false)} /> : null}
-    </Card>
+      <PanelBody className="form-stack">
+        <p className="t-small">{t("settings.rates.fxIntro")}</p>
+        {/* A sheet whose write affordances are all withheld says so ONCE, here,
+            rather than annotating each absent control. The rule (design-system
+            README): a permission-withheld SURFACE states it, while individual
+            write affordances inside a readable surface may simply be absent —
+            provided the surface has said what a reader is looking at. Without
+            this the page was a rate table with no editor and no reason given,
+            which reads as a bug rather than as a permission.
+            This is the READ-GRANTED case alone: the withheld branch has already
+            returned, so `!canManage` here means the reader may see the sheet and
+            not change it — no write verb on the object, or a read licensing seat.
+            On the withheld body these two lines would explain one denial twice,
+            in two different ways. */}
+        {!canManage && (
+          <p className="t-caption">{t("settings.rates.readOnly")}</p>
+        )}
+        <QueryGate query={query}>
+          {(rows) =>
+            rows.length === 0 ? (
+              <EmptyState>
+                <b>{t("settings.rates.fxEmpty")}</b>
+              </EmptyState>
+            ) : (
+              <DataTable<FxRate>
+                rows={rows}
+                rowKey={(row) => row.from_currency}
+                columns={[
+                  {
+                    key: "from",
+                    header: t("settings.rates.colFrom"),
+                    render: (row) => row.from_currency,
+                  },
+                  {
+                    key: "rate",
+                    header: t("settings.rates.colRate", {
+                      base: rows[0]?.to_currency ?? "",
+                    }),
+                    render: (row) => trimDecimal(row.rate),
+                  },
+                  {
+                    key: "effective",
+                    header: t("settings.rates.colEffective"),
+                    render: (row) => row.effective_date,
+                  },
+                ]}
+              />
+            )
+          }
+        </QueryGate>
+        {open ? <FxRateModal onClose={() => setOpen(false)} /> : null}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -300,10 +305,13 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
         value={effectiveDate}
         onChange={(e) => setEffectiveDate(e.target.value)}
       />
+      {/* The failure is a live region, not tinted text: a message that appears
+          after the reader has pressed Save is one they are not looking at. The
+          dialog stays open behind it, so the retry is the same button. */}
       {error ? (
-        <p className="t-small" style={{ color: "var(--danger)" }}>
+        <Callout tone="danger" live="alert">
           {error}
-        </p>
+        </Callout>
       ) : null}
       <div
         style={{
@@ -368,93 +376,93 @@ export function ModelCostsCard() {
   }
 
   return (
-    <Card
-      style={{ marginBottom: "var(--space-4)" }}
+    // The verbs in the action band, for the reason spelled out on FxRatesCard:
+    // beside the title they were an unwrappable row that widened the card past
+    // a 390px viewport.
+    <Panel
       title={t("settings.rates.modelTitle")}
       actions={
         canManage ? (
-          <div className="rates-actions">
+          <>
             <RefreshFromSources path="/ai-model-rates/propose-refresh" />
             <Button variant="primary" small onClick={() => setOpen(true)}>
               {t("settings.rates.modelAdd")}
             </Button>
-          </div>
+          </>
         ) : null
       }
     >
-      <p className="t-small" style={{ marginBottom: "var(--space-3)" }}>
-        {t("settings.rates.modelIntro")}
-      </p>
-      {/* A sheet whose write affordances are all withheld says so ONCE, here,
-          rather than annotating each absent control. The rule (design-system
-          README): a permission-withheld SURFACE states it, while individual write
-          affordances inside a readable surface may simply be absent — provided
-          the surface has said what a reader is looking at. Without this the page
-          was a rate table with no editor and no reason given, which reads as a
-          bug rather than as a permission.
-          This is the READ-GRANTED case alone: the withheld branch has already
-          returned, so `!canManage` here means the reader may see the sheet and
-          not change it — no write verb on the object, or a read licensing seat.
-          On the withheld body these two lines would explain one denial twice,
-          in two different ways. */}
-      {!canManage && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("settings.rates.readOnly")}
-        </p>
-      )}
-      <QueryGate query={query}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <EmptyState>
-              <b>{t("settings.rates.modelEmpty")}</b>
-            </EmptyState>
-          ) : (
-            <DataTable<AiModelRate>
-              rows={rows}
-              rowKey={(row) => `${row.provider}/${row.model_id}`}
-              columns={[
-                {
-                  key: "provider",
-                  header: t("settings.rates.colProvider"),
-                  render: (row) => row.provider,
-                },
-                {
-                  key: "model",
-                  header: t("settings.rates.colModel"),
-                  render: (row) => row.model_id,
-                },
-                {
-                  key: "in",
-                  header: t("settings.rates.colInput"),
-                  render: (row) => row.input_per_mtok,
-                },
-                {
-                  key: "out",
-                  header: t("settings.rates.colOutput"),
-                  render: (row) => row.output_per_mtok,
-                },
-                {
-                  key: "cr",
-                  header: t("settings.rates.colCacheRead"),
-                  render: (row) => row.cache_read_per_mtok,
-                },
-                {
-                  key: "cw",
-                  header: t("settings.rates.colCacheWrite"),
-                  render: (row) => row.cache_write_per_mtok,
-                },
-                {
-                  key: "effective",
-                  header: t("settings.rates.colEffective"),
-                  render: (row) => row.effective_date,
-                },
-              ]}
-            />
-          )
-        }
-      </QueryGate>
-      {open ? <ModelCostModal onClose={() => setOpen(false)} /> : null}
-    </Card>
+      <PanelBody className="form-stack">
+        <p className="t-small">{t("settings.rates.modelIntro")}</p>
+        {/* A sheet whose write affordances are all withheld says so ONCE, here,
+            rather than annotating each absent control. The rule (design-system
+            README): a permission-withheld SURFACE states it, while individual
+            write affordances inside a readable surface may simply be absent —
+            provided the surface has said what a reader is looking at. Without
+            this the page was a rate table with no editor and no reason given,
+            which reads as a bug rather than as a permission.
+            This is the READ-GRANTED case alone: the withheld branch has already
+            returned, so `!canManage` here means the reader may see the sheet and
+            not change it — no write verb on the object, or a read licensing seat.
+            On the withheld body these two lines would explain one denial twice,
+            in two different ways. */}
+        {!canManage && (
+          <p className="t-caption">{t("settings.rates.readOnly")}</p>
+        )}
+        <QueryGate query={query}>
+          {(rows) =>
+            rows.length === 0 ? (
+              <EmptyState>
+                <b>{t("settings.rates.modelEmpty")}</b>
+              </EmptyState>
+            ) : (
+              <DataTable<AiModelRate>
+                rows={rows}
+                rowKey={(row) => `${row.provider}/${row.model_id}`}
+                columns={[
+                  {
+                    key: "provider",
+                    header: t("settings.rates.colProvider"),
+                    render: (row) => row.provider,
+                  },
+                  {
+                    key: "model",
+                    header: t("settings.rates.colModel"),
+                    render: (row) => row.model_id,
+                  },
+                  {
+                    key: "in",
+                    header: t("settings.rates.colInput"),
+                    render: (row) => row.input_per_mtok,
+                  },
+                  {
+                    key: "out",
+                    header: t("settings.rates.colOutput"),
+                    render: (row) => row.output_per_mtok,
+                  },
+                  {
+                    key: "cr",
+                    header: t("settings.rates.colCacheRead"),
+                    render: (row) => row.cache_read_per_mtok,
+                  },
+                  {
+                    key: "cw",
+                    header: t("settings.rates.colCacheWrite"),
+                    render: (row) => row.cache_write_per_mtok,
+                  },
+                  {
+                    key: "effective",
+                    header: t("settings.rates.colEffective"),
+                    render: (row) => row.effective_date,
+                  },
+                ]}
+              />
+            )
+          }
+        </QueryGate>
+        {open ? <ModelCostModal onClose={() => setOpen(false)} /> : null}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -551,10 +559,13 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
         value={effectiveDate}
         onChange={(e) => setEffectiveDate(e.target.value)}
       />
+      {/* The failure is a live region, not tinted text: a message that appears
+          after the reader has pressed Save is one they are not looking at. The
+          dialog stays open behind it, so the retry is the same button. */}
       {error ? (
-        <p className="t-small" style={{ color: "var(--danger)" }}>
+        <Callout tone="danger" live="alert">
           {error}
-        </p>
+        </Callout>
       ) : null}
       <div
         style={{

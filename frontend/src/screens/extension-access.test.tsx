@@ -223,14 +223,23 @@ function matrixFor(object: string): HTMLElement {
   return table;
 }
 
+// One cell of the matrix. `role: "switch"` is load-bearing rather than
+// incidental: flipping a cell WRITES the grant, and a control that announced
+// itself as a checkbox would be telling a reader their next click is only an
+// intent something later submits. There is no later here.
 function cell(object: string, role: string, action: string) {
-  const box = within(matrixFor(object)).getByRole("checkbox", {
+  const control = within(matrixFor(object)).getByRole("switch", {
     name: `Allow ${role} to ${action} ${object}`,
   });
-  if (!(box instanceof HTMLInputElement)) {
-    throw new Error(`the ${action} cell for ${role} is not a checkbox`);
+  if (!(control instanceof HTMLButtonElement)) {
+    throw new Error(`the ${action} cell for ${role} is not a switch`);
   }
-  return box;
+  return {
+    control,
+    on: control.getAttribute("aria-checked") === "true",
+    disabled: control.disabled,
+    describedBy: control.getAttribute("aria-describedby"),
+  };
 }
 
 afterEach(() => {
@@ -251,12 +260,12 @@ describe("ExtensionAccessCard", () => {
 
     // The grants, read straight off the fixture: admin reads and creates the
     // note object and does neither of the other two verbs.
-    expect(cell("ext_notes_note", "Admin", "Read").checked).toBe(true);
-    expect(cell("ext_notes_note", "Admin", "Create").checked).toBe(true);
-    expect(cell("ext_notes_note", "Admin", "Update").checked).toBe(false);
+    expect(cell("ext_notes_note", "Admin", "Read").on).toBe(true);
+    expect(cell("ext_notes_note", "Admin", "Create").on).toBe(true);
+    expect(cell("ext_notes_note", "Admin", "Update").on).toBe(false);
     // An object absent from a role's map denies — never an unticked box that
     // silently means "unknown".
-    expect(cell("ext_notes_note", "Rep", "Read").checked).toBe(false);
+    expect(cell("ext_notes_note", "Rep", "Read").on).toBe(false);
 
     // A unit that registers nothing says so instead of rendering an empty grid.
     expect(screen.getByText(/registers no permission objects/i)).toBeTruthy();
@@ -275,7 +284,7 @@ describe("ExtensionAccessCard", () => {
 
     const unit = screen
       .getByRole("heading", { name: "notes" })
-      .closest("article");
+      .closest("section.panel");
     if (!(unit instanceof HTMLElement)) {
       throw new Error("the notes unit is not a card of its own");
     }
@@ -320,7 +329,7 @@ describe("ExtensionAccessCard", () => {
     expect(screen.queryByRole("link", { name: /quiet/ })).toBeNull();
     // … and the reason is SAID, so "this unit has no page" cannot be confused
     // with "the page is missing because the bundle is stale".
-    const unit = screen.getByText("quiet").closest("article");
+    const unit = screen.getByText("quiet").closest("section.panel");
     if (!(unit instanceof HTMLElement)) {
       throw new Error("no unit block rendered for quiet");
     }
@@ -337,7 +346,7 @@ describe("ExtensionAccessCard", () => {
     await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
 
     // Scoped to the unit: every unit block carries its own Routes row.
-    const unit = screen.getByText("notes").closest("article");
+    const unit = screen.getByText("notes").closest("section.panel");
     if (!(unit instanceof HTMLElement)) {
       throw new Error("no unit block rendered for notes");
     }
@@ -363,7 +372,7 @@ describe("ExtensionAccessCard", () => {
     render(<ExtensionAccessCard />);
     await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
 
-    await userEvent.click(cell("ext_notes_note", "Rep", "Read"));
+    await userEvent.click(cell("ext_notes_note", "Rep", "Read").control);
 
     await waitFor(() => {
       const patch = calls.find((call) => call.method === "PATCH");
@@ -387,7 +396,7 @@ describe("ExtensionAccessCard", () => {
     // The server's answer repaints the row — no refetch, no locally invented
     // grant.
     await waitFor(() =>
-      expect(cell("ext_notes_note", "Rep", "Read").checked).toBe(true),
+      expect(cell("ext_notes_note", "Rep", "Read").on).toBe(true),
     );
   });
 
@@ -433,7 +442,7 @@ describe("ExtensionAccessCard", () => {
     await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
 
     skewed = true;
-    await userEvent.click(cell("ext_notes_note", "Rep", "Delete"));
+    await userEvent.click(cell("ext_notes_note", "Rep", "Delete").control);
 
     // The message names the concurrent change rather than reading as a generic
     // save failure — the point is that the operator's change did not happen.
@@ -444,10 +453,10 @@ describe("ExtensionAccessCard", () => {
 
     // The matrix was re-read, so it now shows the OTHER admin's grant …
     await waitFor(() =>
-      expect(cell("ext_notes_note", "Rep", "Read").checked).toBe(true),
+      expect(cell("ext_notes_note", "Rep", "Read").on).toBe(true),
     );
     // … and never the tick this operator made, which the server refused.
-    expect(cell("ext_notes_note", "Rep", "Delete").checked).toBe(false);
+    expect(cell("ext_notes_note", "Rep", "Delete").on).toBe(false);
 
     // Exactly one write: a silent replay against the fresh version would apply
     // an intent formed against grants the operator had not seen.
@@ -470,7 +479,7 @@ describe("ExtensionAccessCard", () => {
     ).toBeNull();
 
     // Granting read to a role clears the warning for that object.
-    await userEvent.click(cell("ext_notes_signing_key", "Rep", "Read"));
+    await userEvent.click(cell("ext_notes_signing_key", "Rep", "Read").control);
     await waitFor(() =>
       expect(
         screen.queryByText(/No role holds read on ext_notes_signing_key/),
@@ -540,10 +549,26 @@ describe("ExtensionAccessCard", () => {
     render(<ExtensionAccessCard />);
     await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
 
-    expect(screen.getByText(/needs a full seat/i)).toBeTruthy();
-    expect(cell("ext_notes_note", "Admin", "Read").disabled).toBe(true);
+    // Once for the eye, in the block that holds the matrices — not on the card
+    // above them, where a reader looking at dead toggles had to leave the card
+    // to find out why.
+    expect(
+      screen.getAllByText(
+        "Your seat reads this page. Changing a grant needs a full seat.",
+      )[0],
+    ).toBeTruthy();
+    const denied = cell("ext_notes_note", "Admin", "Read");
+    expect(denied.disabled).toBe(true);
     // The state is still legible — a read seat sees what is granted.
-    expect(cell("ext_notes_note", "Admin", "Read").checked).toBe(true);
+    expect(denied.on).toBe(true);
+    // And the refusal reaches a reader who lands on ONE cell: the sentence in
+    // the block above is for the eye, this is what a screen reader is handed
+    // with the control itself.
+    const reasonId = denied.describedBy;
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId ?? "")?.textContent).toMatch(
+      /needs a full seat/i,
+    );
   });
 
   it("renders the loading state before either read answers", async () => {
@@ -634,9 +659,9 @@ describe("ExtensionAccessCard", () => {
     render(<ExtensionAccessCard />);
     await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
 
-    const box = cell("ext_notes_note", "Rep", "Read");
-    box.focus();
-    expect(document.activeElement).toBe(box);
+    const { control } = cell("ext_notes_note", "Rep", "Read");
+    control.focus();
+    expect(document.activeElement).toBe(control);
     await userEvent.keyboard(" ");
 
     await waitFor(() =>

@@ -98,11 +98,30 @@ type Recorded = {
   ifMatch: string | null;
 };
 
-// The surface asks three separate questions of the automation object, so the
-// default fixture answers all three and the read-only case answers none.
+// The surface asks four separate questions of the automation object, so the
+// default fixture answers all four. `read` is not decoration: AutomationStore's
+// List gates on it, so the instances query is disabled without it and an
+// operator fixture missing it would prove the list renders for a seat the
+// server would refuse.
 const AUTOMATION_OPERATOR: GrantSpec = {
-  automation: ["create", "update", "delete"],
+  automation: ["create", "read", "update", "delete"],
 };
+
+// The verbs a row folds behind its overflow control. Opening it is a step the
+// reader takes deliberately, so a test asserting on Edit / Runs / Preview /
+// Delete takes it too.
+async function openRowMenu(name = "Nudge stalled fleet deals") {
+  await userEvent.click(
+    screen.getByRole("button", { name: `Actions for ${name}` }),
+  );
+}
+
+// React mints an id per render tree, and a second tree in the same document
+// gets different ones. They say nothing about the row's CONTENT, which is what
+// the authorship-blindness check is about, so the comparison drops them.
+function withoutGeneratedIds(html: string): string {
+  return html.replaceAll(/_r_[0-9a-z]+_/g, "_rid_");
+}
 
 function automationsBackend(
   automations: Automation[],
@@ -244,9 +263,15 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     const row = document.querySelector('[data-automation="au-1"]');
     expect(row).not.toBeNull();
     if (row instanceof HTMLElement) {
-      expect(within(row).getByText("paused")).toBeTruthy();
+      // The state is the switch's own, announced rather than restated beside it
+      // in a second vocabulary: a created automation arrives OFF.
+      expect(
+        within(row)
+          .getByRole("switch", { name: "Enabled" })
+          .getAttribute("aria-checked"),
+      ).toBe("false");
     }
-    await userEvent.click(screen.getByRole("button", { name: "Enable" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].body).toMatchObject({ status: "enabled" });
     expect(calls[1].ifMatch).toBe("1");
@@ -306,7 +331,7 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
         />
       </ul>,
     );
-    const firstHtml = first.container.innerHTML;
+    const firstHtml = withoutGeneratedIds(first.container.innerHTML);
     cleanup();
     const second = render(
       <ul>
@@ -319,7 +344,7 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
         />
       </ul>,
     );
-    expect(second.container.innerHTML).toBe(firstHtml);
+    expect(withoutGeneratedIds(second.container.innerHTML)).toBe(firstHtml);
   });
 
   it("a role without the automation config grant gets the honest read-only editor", async () => {
@@ -327,7 +352,10 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     // surface still shows catalog + instances, but no affordance that could
     // only 403 — and it says WHY instead of silently thinning out.
     const automations = [instance({})];
-    vi.stubGlobal("fetch", automationsBackend(automations, [], {}));
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read"] }),
+    );
     render(<AutomationsAdmin />);
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
@@ -338,7 +366,11 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
+    // No switch to flip, and the badge in its place so the state is still a
+    // read this row answers.
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.getByText("paused")).toBeTruthy();
+    await openRowMenu();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
@@ -357,10 +389,10 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
     );
-    // update -> the pause/enable toggle is offered (its label follows status)
-    expect(screen.getAllByRole("button", { name: /Pause|Enable/ }).length).toBe(
-      1,
-    );
+    // update -> the setting writes when you flip it, so it is a switch
+    expect(screen.getAllByRole("switch", { name: "Enabled" }).length).toBe(1);
+    await openRowMenu();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
     // no delete grant -> the destructive control is withheld
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     // no create grant -> the catalog cannot be instantiated
@@ -377,9 +409,34 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
     );
+    await openRowMenu();
     expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(1);
-    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+  });
+
+  it("deleting asks first — the confirm is what writes, not the menu item", async () => {
+    const automations = [instance({})];
+    const calls: Recorded[] = [];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, calls, {
+        automation: ["read", "delete"],
+      }),
+    );
+    render(<AutomationsAdmin />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    await openRowMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    // The dialog names the automation and says what pausing would do instead;
+    // nothing has been written yet.
+    expect(
+      screen.getByRole("heading", { name: "Delete this automation?" }),
+    ).toBeTruthy();
+    expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(0);
   });
 
   // The runs and preview inspectors are READS (automations_runs.go gates on
@@ -395,9 +452,10 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
     );
+    await openRowMenu();
     expect(screen.getAllByRole("button", { name: "Runs" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Preview" }).length).toBe(1);
-    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
@@ -418,7 +476,8 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
         screen.getAllByRole("button", { name: "Use template" }).length,
       ).toBeGreaterThan(0),
     );
-    expect(screen.getByRole("button", { name: "Enable" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Enabled" })).toBeTruthy();
+    await openRowMenu();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 });
@@ -446,7 +505,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     });
   }
 
-  it("shows the Runs/Preview toggles on the READ grant, not the write one", () => {
+  it("shows the Runs/Preview toggles on the READ grant, not the write one", async () => {
     vi.stubGlobal("fetch", panelBackend());
     const view = render(
       <ul>
@@ -459,6 +518,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         />
       </ul>,
     );
+    await openRowMenu();
     expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
     view.unmount();
@@ -477,11 +537,14 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         />
       </ul>,
     );
+    await openRowMenu();
     expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
     readOnly.unmount();
 
-    // No read grant: gone.
+    // No read grant: gone. The menu is still there — Edit and Delete are the
+    // caller's other two grants — so the assertion is about the items, not
+    // about the control that holds them.
     render(
       <ul>
         <AutomationRow
@@ -493,6 +556,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         />
       </ul>,
     );
+    await openRowMenu();
     expect(screen.queryByRole("button", { name: "Runs" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
   });
@@ -511,6 +575,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
       </ul>,
     );
     expect(screen.queryByTestId("automation-runs")).toBeNull();
+    await openRowMenu();
     await userEvent.click(screen.getByRole("button", { name: "Runs" }));
     expect(screen.getByTestId("automation-runs")).toBeTruthy();
     expect(screen.queryByTestId("automation-preview")).toBeNull();
@@ -529,6 +594,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         />
       </ul>,
     );
+    await openRowMenu();
     await userEvent.click(screen.getByRole("button", { name: "Runs" }));
     await userEvent.click(screen.getByRole("button", { name: "Preview" }));
     expect(screen.getByTestId("automation-runs")).toBeTruthy();

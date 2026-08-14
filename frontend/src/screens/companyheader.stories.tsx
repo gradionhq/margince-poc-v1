@@ -10,7 +10,12 @@ import {
   CompanyLifecycleControl,
   CompanyPrimaryActions,
 } from "./companyheader";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The account header's own pieces (RecordView's nameBadge/subtitle/pulse/
 // actions slots in organizations.tsx), mounted together rather than through
@@ -18,7 +23,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // reaching for it through CompanyScreen would drag in every other tab's reads.
 
 const meta: Meta = {
-  title: "Screens/Company header",
+  title: "Records/Company 360/Header",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -87,6 +92,7 @@ function Header({
   loading,
 }: Readonly<{ view?: View; loading?: boolean }>) {
   installFetchStub({
+    "GET /me": meRoute({ organization: ["read", "update"] }),
     "GET /users": () =>
       jsonResponse({ data: [{ id: "u-1", display_name: "Mira Voss" }], page }),
     "GET /people/p-1": () =>

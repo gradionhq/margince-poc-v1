@@ -13,7 +13,7 @@ import { StoryProviders } from "./story-utils";
 // claim only a fresh run has earned.
 
 const meta: Meta = {
-  title: "Screens/Onboarding/Payoff",
+  title: "Onboarding/Payoff",
   parameters: { layout: "centered" },
 };
 export default meta;

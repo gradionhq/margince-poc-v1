@@ -1,13 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
-import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import { Badge, Button, DataTable, EmptyState } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
 import { formatMoney, formatNumber } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import { QueryGate, throwProblem, useMe } from "./common";
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 type AiUsage = components["schemas"]["AiUsage"];
 type UsageTask = AiUsage["days"][number]["tasks"][number];
@@ -72,16 +80,193 @@ function aggregate(days: AiUsage["days"]): UsageTask[] {
   return [...rows.values()];
 }
 
-export function AiUsageCard() {
+// The spend table's columns, built once per render of the body rather than
+// inline in the JSX: the cost column exists only when the server priced at
+// least one call, and a column list is data — DataTable owns the .table-scroll
+// wrapper that keeps seven columns inside the card on a phone instead of
+// running 630px wide inside 324px of it.
+function usageColumns(
+  showCost: boolean,
+  currency: string,
+  locale: Locale,
+  t: ReturnType<typeof useT>,
+) {
+  const columns = [
+    {
+      key: "task",
+      header: t("aiusage.col.task"),
+      render: (r: UsageTask) => r.task,
+    },
+    {
+      key: "tier",
+      header: t("aiusage.col.tier"),
+      render: (r: UsageTask) => r.tier,
+    },
+    {
+      key: "calls",
+      header: t("aiusage.col.calls"),
+      render: (r: UsageTask) => formatNumber(r.calls, locale),
+    },
+    {
+      key: "cached",
+      header: t("aiusage.col.cached"),
+      render: (r: UsageTask) => formatNumber(r.cached_hits ?? 0, locale),
+    },
+    {
+      key: "tokensIn",
+      header: t("aiusage.col.tokensIn"),
+      render: (r: UsageTask) => formatNumber(r.tokens_in, locale),
+    },
+    {
+      key: "tokensOut",
+      header: t("aiusage.col.tokensOut"),
+      render: (r: UsageTask) => formatNumber(r.tokens_out, locale),
+    },
+  ];
+  if (!showCost) {
+    return columns;
+  }
+  return [
+    ...columns,
+    {
+      key: "cost",
+      header: t("aiusage.col.cost"),
+      // A row the server did not price is not a row that cost nothing — the
+      // marker says we do not know, where a zero would state a figure.
+      render: (r: UsageTask) =>
+        r.cost_est_minor === undefined
+          ? "—"
+          : formatMoney(r.cost_est_minor, currency, locale),
+    },
+  ];
+}
+
+// The body is its own component so the per-task rollup can be a useMemo. Inside
+// QueryGate's render prop it was an O(days × tasks) fold re-run on every render
+// of the card — including the ones a sibling's 60-second clock causes.
+function AiUsageBody({
+  data,
+  month,
+  onMonth,
+}: Readonly<{
+  data: AiUsage;
+  month: Month | null;
+  onMonth: (next: Month) => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const [showDays, setShowDays] = useState(false);
+  const pct =
+    data.budget.monthly_tokens > 0
+      ? Math.round(
+          (data.budget.spent_tokens / data.budget.monthly_tokens) * 100,
+        )
+      : 100;
+  const rows = useMemo(() => aggregate(data.days), [data.days]);
+  const showCost = useMemo(
+    () =>
+      data.days.some((day) =>
+        day.tasks.some((task) => task.cost_est_minor !== undefined),
+      ),
+    [data.days],
+  );
+  const currency = data.budget.currency ?? "USD";
+  const totalCost = useMemo(
+    () => rows.reduce((sum, row) => sum + (row.cost_est_minor ?? 0), 0),
+    [rows],
+  );
+
+  return (
+    <>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "var(--space-3)",
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          {/* pct, not the raw token pair: a workspace with no monthly budget
+              configured reads as fully spent (pct is 100 above), and the bar
+              must say what the caption beside it says. */}
+          <Meter value={pct} max={100} label={t("aiusage.budgetMeter")} />
+          <p className="t-sub" style={PANEL_SUB}>
+            {t("aiusage.budget", {
+              spent: formatNumber(data.budget.spent_tokens, locale),
+              budget: formatNumber(data.budget.monthly_tokens, locale),
+              pct,
+            })}
+          </p>
+        </div>
+        <Badge tone={bandTone(data.budget.band)}>
+          {bandLabel(data.budget.band, t)}
+        </Badge>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          margin: "var(--space-3) 0",
+        }}
+      >
+        <Button
+          small
+          aria-label={t("aiusage.prevMonth")}
+          onClick={() => onMonth(adjacentMonth(month, -1))}
+        >
+          ‹
+        </Button>
+        <Button
+          small
+          aria-label={t("aiusage.nextMonth")}
+          disabled={isCurrentMonth(month)}
+          onClick={() => onMonth(adjacentMonth(month, 1))}
+        >
+          ›
+        </Button>
+      </div>
+      {rows.length === 0 ? (
+        <EmptyState>{t("aiusage.empty")}</EmptyState>
+      ) : (
+        // Seven columns do not fit a phone, and nothing here can be dropped —
+        // a spend row is only reconcilable whole. DataTable is what scrolls the
+        // TABLE sideways inside the card rather than the page; a hand-rolled
+        // <table className="table"> borrowed the look and left the wrapper out.
+        <DataTable
+          columns={usageColumns(showCost, currency, locale, t)}
+          rows={rows}
+          rowKey={(row) => `${row.task}-${row.tier}`}
+        />
+      )}
+      {showCost && (
+        <p className="t-caption">
+          {t("aiusage.costNote")} {formatMoney(totalCost, currency, locale)}
+        </p>
+      )}
+      {data.days.length > 0 && (
+        <Button small onClick={() => setShowDays((value) => !value)}>
+          {showDays ? t("aiusage.days.hide") : t("aiusage.days.show")}
+        </Button>
+      )}
+      {showDays &&
+        data.days.map((day) => (
+          <p key={day.date} className="t-mono">
+            {day.date} · {day.tasks.reduce((sum, task) => sum + task.calls, 0)}{" "}
+            {t("aiusage.col.calls")}
+          </p>
+        ))}
+    </>
+  );
+}
+
+export function AiUsageCard() {
+  const t = useT();
   const me = useMe();
   // The server treats the AI runtime's spend as operator information and gates
   // this read on automation:update — a write verb guarding a GET, which is why
   // the seat ceiling stays out of it (capability.ts): a read seat may still read.
   const canSee = useCan("automation", "update");
   const [month, setMonth] = useState<Month | null>(null);
-  const [showDays, setShowDays] = useState(false);
   const query = useQuery({
     enabled: canSee,
     queryKey: ["ai-usage", month],
@@ -105,168 +290,36 @@ export function AiUsageCard() {
     // than flashing while they are in flight, and the query above asks the server
     // for nothing because the answer is already known.
     return (
-      <Card
-        title={t("aiusage.title")}
-        sub={t("aiusage.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <QueryGate query={me}>
-          {() => (
-            <EmptyState>
-              <p className="t-small">{t("aiusage.withheld")}</p>
-            </EmptyState>
-          )}
-        </QueryGate>
-      </Card>
+      <Panel title={t("aiusage.title")}>
+        <PanelBody>
+          <p className="t-sub" style={PANEL_SUB}>
+            {t("aiusage.sub")}
+          </p>
+          <QueryGate query={me}>
+            {() => (
+              <EmptyState>
+                <p className="t-small">{t("aiusage.withheld")}</p>
+              </EmptyState>
+            )}
+          </QueryGate>
+        </PanelBody>
+      </Panel>
     );
   }
 
+  // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Card
-      title={t("aiusage.title")}
-      sub={t("aiusage.sub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
-      <QueryGate query={query}>
-        {(data) => {
-          const pct =
-            data.budget.monthly_tokens > 0
-              ? Math.round(
-                  (data.budget.spent_tokens / data.budget.monthly_tokens) * 100,
-                )
-              : 100;
-          const rows = aggregate(data.days);
-          const showCost = data.days.some((day) =>
-            day.tasks.some((task) => task.cost_est_minor !== undefined),
-          );
-          const currency = data.budget.currency ?? "USD";
-          const totalCost = rows.reduce(
-            (sum, row) => sum + (row.cost_est_minor ?? 0),
-            0,
-          );
-          return (
-            <>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "var(--space-3)",
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  {/* pct, not the raw token pair: a workspace with no monthly
-                      budget configured reads as fully spent (pct is 100 above),
-                      and the bar must say what the caption beside it says. */}
-                  <Meter
-                    value={pct}
-                    max={100}
-                    label={t("aiusage.budgetMeter")}
-                  />
-                  <p className="sub">
-                    {t("aiusage.budget", {
-                      spent: formatNumber(data.budget.spent_tokens, locale),
-                      budget: formatNumber(data.budget.monthly_tokens, locale),
-                      pct,
-                    })}
-                  </p>
-                </div>
-                <Badge tone={bandTone(data.budget.band)}>
-                  {bandLabel(data.budget.band, t)}
-                </Badge>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "var(--space-2)",
-                  margin: "var(--space-3) 0",
-                }}
-              >
-                <Button
-                  small
-                  aria-label={t("aiusage.prevMonth")}
-                  onClick={() => setMonth(adjacentMonth(month, -1))}
-                >
-                  ‹
-                </Button>
-                <Button
-                  small
-                  aria-label={t("aiusage.nextMonth")}
-                  disabled={isCurrentMonth(month)}
-                  onClick={() => setMonth(adjacentMonth(month, 1))}
-                >
-                  ›
-                </Button>
-              </div>
-              {rows.length === 0 ? (
-                <EmptyState>{t("aiusage.empty")}</EmptyState>
-              ) : (
-                // Seven columns do not fit a phone, and nothing here can be
-                // dropped — a spend row is only reconcilable whole. So the
-                // TABLE scrolls sideways inside the card rather than the page
-                // doing it, which is what DataTable already does for every
-                // list built from it (atoms.tsx).
-                <div className="table-scroll">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>{t("aiusage.col.task")}</th>
-                        <th>{t("aiusage.col.tier")}</th>
-                        <th>{t("aiusage.col.calls")}</th>
-                        <th>{t("aiusage.col.cached")}</th>
-                        <th>{t("aiusage.col.tokensIn")}</th>
-                        <th>{t("aiusage.col.tokensOut")}</th>
-                        {showCost && <th>{t("aiusage.col.cost")}</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={`${row.task}-${row.tier}`}>
-                          <td>{row.task}</td>
-                          <td>{row.tier}</td>
-                          <td>{formatNumber(row.calls, locale)}</td>
-                          <td>{formatNumber(row.cached_hits ?? 0, locale)}</td>
-                          <td>{formatNumber(row.tokens_in, locale)}</td>
-                          <td>{formatNumber(row.tokens_out, locale)}</td>
-                          {showCost && (
-                            <td>
-                              {row.cost_est_minor === undefined
-                                ? "—"
-                                : formatMoney(
-                                    row.cost_est_minor,
-                                    currency,
-                                    locale,
-                                  )}
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {showCost && (
-                <p className="t-caption">
-                  {t("aiusage.costNote")}{" "}
-                  {formatMoney(totalCost, currency, locale)}
-                </p>
-              )}
-              {data.days.length > 0 && (
-                <Button small onClick={() => setShowDays((value) => !value)}>
-                  {showDays ? t("aiusage.days.hide") : t("aiusage.days.show")}
-                </Button>
-              )}
-              {showDays &&
-                data.days.map((day) => (
-                  <p key={day.date} className="t-mono">
-                    {day.date} ·{" "}
-                    {day.tasks.reduce((sum, task) => sum + task.calls, 0)}{" "}
-                    {t("aiusage.col.calls")}
-                  </p>
-                ))}
-            </>
-          );
-        }}
-      </QueryGate>
-    </Card>
+    <Panel title={t("aiusage.title")}>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("aiusage.sub")}
+        </p>
+        <QueryGate query={query}>
+          {(data) => (
+            <AiUsageBody data={data} month={month} onMonth={setMonth} />
+          )}
+        </QueryGate>
+      </PanelBody>
+    </Panel>
   );
 }

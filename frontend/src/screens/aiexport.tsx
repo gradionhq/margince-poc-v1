@@ -1,6 +1,13 @@
 import { useId, useState } from "react";
 import type { components } from "../api/schema";
-import { Button, Field, Modal, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Checkbox,
+  Field,
+  Modal,
+  TextInput,
+} from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import "./aiexport.css";
 
@@ -141,15 +148,19 @@ export function ExportScenarioDialog({
             />
           )}
         </Field>
-        <div className="aiexport-callout">
-          <input
-            id="cert-pii-ack"
-            type="checkbox"
+        {/* The PII gate before copy or download: `warn` says something will go
+            wrong if you do nothing, which is exactly what this step is for. It
+            was a class literally named "callout" carrying its own border,
+            radius and padding — a second Callout with a second set of numbers.
+            The tick is the design system's own, so the words are half the
+            click target rather than a label threaded to a hand-written id. */}
+        <Callout tone="warn">
+          <Checkbox
+            label={t("aiexport.checklist")}
             checked={acknowledged}
             onChange={(event) => setAcknowledged(event.target.checked)}
           />
-          <label htmlFor="cert-pii-ack">{t("aiexport.checklist")}</label>
-        </div>
+        </Callout>
         <div className="field">
           <span className="code-label t-eyebrow">
             {t("aiexport.previewLabel")}

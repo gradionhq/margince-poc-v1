@@ -3,13 +3,18 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CompaniesScreen, CompanyScreen } from "./organizations";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // CompaniesScreen (list) and CompanyScreen (360 Overview) both read through
 // the api client on mount — fixtures mirror organizations.test.tsx's `org`
 // plus the dormant-strength default the Overview tab always fires.
 const meta: Meta = {
-  title: "Screens/Organizations",
+  title: "Records/Companies",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -100,6 +105,7 @@ const facts = [
 export const CompaniesList: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ organization: ["read", "update"] }),
       "GET /organizations": () =>
         jsonResponse({
           data: [org],
@@ -241,6 +247,7 @@ const overviewRoutes = {
 export const CompanyOverview: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ organization: ["read", "update"] }),
       ...overviewRoutes,
       "GET /organizations/o-1/profile-fields": () =>
         jsonResponse({ data: profileFields }),
@@ -259,6 +266,7 @@ export const CompanyOverview: Story = {
 export const CompanyOverviewEmpty: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ organization: ["read", "update"] }),
       ...overviewRoutes,
       "GET /organizations/o-1/profile-fields": () => jsonResponse({ data: [] }),
       "GET /organizations/o-1/facts": () => jsonResponse({ data: [] }),
@@ -276,6 +284,7 @@ export const CompanyOverviewEmpty: Story = {
 export const CompanyOverviewWithheldSection: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ organization: ["read", "update"] }),
       ...overviewRoutes,
       "GET /organizations/o-1/360": () =>
         jsonResponse({

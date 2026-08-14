@@ -2,8 +2,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { useCanWrite } from "../app/capability";
-import { Badge, SectionHeader } from "../design-system/atoms";
+import { Badge } from "../design-system/atoms";
 import type { ListColumn } from "../design-system/listtable";
+import { Panel, PanelBody } from "../design-system/panel";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
@@ -16,6 +17,7 @@ import {
   ListTable,
   useListQuery,
 } from "./listquery";
+import "./listsection.css";
 
 type Product = components["schemas"]["Product"];
 
@@ -92,9 +94,13 @@ function toMinor(major: string | undefined): number {
  *
  * Not a screen of its own: it was one, reached by a card that existed only to
  * send you here, and a door is not a section. So it renders no `.wrap` — the
- * settings page owns the reading column — and names itself with a section header
- * rather than leaning on the shell's page title, which now belongs to the whole
- * data-model page.
+ * settings page owns the reading column — and names itself, since the shell's
+ * page title now belongs to the whole data-model page.
+ *
+ * A Panel around the list surface rather than a bare heading above it: the two
+ * surfaces beside it on this tab are cards, and a section whose name floats on
+ * the page ground while its neighbours' names sit inside their cards reads as
+ * two different kinds of thing on one page.
  */
 export function ProductsAdmin() {
   const t = useT();
@@ -207,22 +213,19 @@ export function ProductsAdmin() {
   };
 
   return (
-    <>
-      <SectionHeader
-        title={t("product.title")}
-        sub={t("product.settingsSub")}
-      />
-      {/* A reader who holds no write verb here sees a list with no editor, and
-          silence about why is a claim that the list has none. The posture is
-          stated ONCE for the whole section (design-system README, "Absent,
-          disabled, or withheld"); a reader who can edit but not archive needs no
-          page-level notice, because the affordances they do hold say what they
-          may do. */}
-      {!canCreate && !canUpdate && !canArchive && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("product.readOnly")}
-        </p>
-      )}
+    <Panel className="listsection" title={t("product.title")}>
+      <PanelBody className="listsection-intro">
+        <p className="t-caption">{t("product.settingsSub")}</p>
+        {/* A reader who holds no write verb here sees a list with no editor, and
+            silence about why is a claim that the list has none. The posture is
+            stated ONCE for the whole section (design-system README, "Absent,
+            disabled, or withheld"); a reader who can edit but not archive needs no
+            page-level notice, because the affordances they do hold say what they
+            may do. */}
+        {!canCreate && !canUpdate && !canArchive && (
+          <p className="t-caption">{t("product.readOnly")}</p>
+        )}
+      </PanelBody>
       <ListTable
         state={list}
         unit="unit.products"
@@ -287,6 +290,6 @@ export function ProductsAdmin() {
           },
         ]}
       />
-    </>
+    </Panel>
   );
 }

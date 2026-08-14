@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent } from "storybook/test";
 import type { components } from "../api/schema";
 import { ComposeModal, RelinkModal } from "./compose";
 import {
@@ -115,8 +115,10 @@ function composeStory(routes: RouteMap) {
 // Fills the four Send preconditions (To, subject, body, purpose) then confirms
 // — the same sequence fillSendableForm drives in compose.test.tsx, so a story
 // reaches the send outcome (409 gate / 501 unavailable) it means to capture.
-async function fillAndSend(canvasElement: HTMLElement) {
-  const canvas = within(canvasElement);
+// `screen` rather than the story canvas throughout: this composer IS a Modal,
+// portalled to document.body, so a canvas-scoped query searches an empty div.
+async function fillAndSend() {
+  const canvas = screen;
   await userEvent.type(canvas.getByLabelText("To"), "buyer@acme.test");
   await userEvent.tab();
   await userEvent.type(canvas.getByPlaceholderText("Subject"), "Following up");
@@ -126,13 +128,13 @@ async function fillAndSend(canvasElement: HTMLElement) {
   // reader clicks, never by the wire key behind it.
   await userEvent.click(canvas.getByRole("combobox"));
   await userEvent.click(
-    within(document.body).getByRole("option", { name: PURPOSES.data[0].label }),
+    screen.getByRole("option", { name: PURPOSES.data[0].label }),
   );
   await userEvent.click(canvas.getByRole("button", { name: "Send" }));
 }
 
 const meta: Meta = {
-  title: "Screens/compose",
+  title: "Patterns/Compose mail",
 };
 export default meta;
 
@@ -152,8 +154,8 @@ export const Drafted: Story = {
     "GET /voice-profiles": () => jsonResponse(VOICE_PROFILE),
     "POST /activities/act-1/draft-email": () => jsonResponse(DRAFT),
   }),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+  play: async () => {
+    const canvas = screen;
     await userEvent.click(
       canvas.getByRole("button", { name: "Draft with AI" }),
     );
@@ -175,8 +177,8 @@ export const ConsentBlocked: Story = {
         409,
       ),
   }),
-  play: async ({ canvasElement }) => {
-    await fillAndSend(canvasElement);
+  play: async () => {
+    await fillAndSend();
   },
 };
 
@@ -195,8 +197,8 @@ export const MailboxNotSendCapable: Story = {
         422,
       ),
   }),
-  play: async ({ canvasElement }) => {
-    await fillAndSend(canvasElement);
+  play: async () => {
+    await fillAndSend();
   },
 };
 
@@ -216,8 +218,8 @@ export const SharedUnsubscribeToken: Story = {
         422,
       ),
   }),
-  play: async ({ canvasElement }) => {
-    await fillAndSend(canvasElement);
+  play: async () => {
+    await fillAndSend();
   },
 };
 
@@ -231,8 +233,8 @@ export const SendUnavailable: Story = {
         501,
       ),
   }),
-  play: async ({ canvasElement }) => {
-    await fillAndSend(canvasElement);
+  play: async () => {
+    await fillAndSend();
   },
 };
 
@@ -263,8 +265,8 @@ export const Default: Story = {
       </StoryProviders>
     );
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+  play: async () => {
+    const canvas = screen;
     await userEvent.type(canvas.getByRole("searchbox"), "Acme");
   },
 };

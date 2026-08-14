@@ -17,7 +17,7 @@ import { StoryProviders } from "./story-utils";
 // says so for the two it cannot answer, rather than silently dropping them.
 
 const meta: Meta = {
-  title: "Screens/Today on this account",
+  title: "Records/Company 360/Today on this account",
   parameters: { layout: "padded" },
 };
 export default meta;

@@ -12,7 +12,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // hand-built UseQueryResult (react-query's result shape isn't meant to be
 // constructed by hand).
 const meta: Meta = {
-  title: "Screens/Common",
+  title: "Patterns/Query gate",
   parameters: { layout: "padded" },
 };
 export default meta;

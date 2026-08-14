@@ -10,7 +10,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // (fallback route → empty page, no name) stays a plain mono id. Both states
 // are captured so the gate proves the fallback never renders blank.
 const meta: Meta<typeof EntityRef> = {
-  title: "Screens/EntityRef",
+  title: "Patterns/Entity reference",
   component: EntityRef,
   parameters: { layout: "padded" },
   decorators: [

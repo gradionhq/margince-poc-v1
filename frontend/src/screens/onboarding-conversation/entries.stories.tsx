@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MarginceCoreScene } from "../../design-system/margince-core";
 import { LocaleProvider } from "../../i18n";
 import {
@@ -15,13 +16,23 @@ import {
 import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 
+// A UserTurn renders an EvidenceMark, which reads through react-query — so the
+// two stories carrying one threw "No QueryClient set" on mount and rendered
+// nothing at all. The client is a decorator rather than a per-story wrapper
+// because the requirement belongs to the entries, not to two of them.
+const client = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 const meta: Meta = {
-  title: "Screens/OnboardingConversation/Entries",
+  title: "Onboarding/Conversation entries",
   decorators: [
     (Story) => (
-      <LocaleProvider initial="en">
-        <Story />
-      </LocaleProvider>
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <Story />
+        </LocaleProvider>
+      </QueryClientProvider>
     ),
   ],
 };

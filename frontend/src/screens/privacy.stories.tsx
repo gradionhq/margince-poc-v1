@@ -7,6 +7,7 @@ import { PrivacyInboxCard } from "./privacy";
 import {
   installFetchStub,
   jsonResponse,
+  meRoute,
   type RouteMap,
   StoryProviders,
 } from "./story-utils";
@@ -42,9 +43,14 @@ const DSRS = {
   page: { next_cursor: null, has_more: false },
 };
 
+// The subject-request queue is the admin's alone (useHoldsAdminRole), so the
+// session is what decides whether these stories show the queue at all: without
+// it every one of them drew "this is admin only" under a name promising rows.
 function inbox(routes: RouteMap) {
   return () => {
-    installFetchStub(routes, () => jsonResponse(DSRS));
+    installFetchStub({ "GET /me": meRoute({}), ...routes }, () =>
+      jsonResponse(DSRS),
+    );
     return (
       <StoryProviders>
         <PrivacyInboxCard />
@@ -77,7 +83,7 @@ async function findRow(
 }
 
 const meta: Meta<typeof PrivacyInboxCard> = {
-  title: "Screens/privacy",
+  title: "Settings/Organization/Privacy/Subject requests",
   component: PrivacyInboxCard,
 };
 export default meta;

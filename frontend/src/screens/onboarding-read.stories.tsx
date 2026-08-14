@@ -8,7 +8,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 import "./onboarding.css";
 
 const meta: Meta = {
-  title: "Screens/Onboarding/Read",
+  title: "Onboarding/Read the company",
   parameters: { layout: "fullscreen" },
 };
 export default meta;

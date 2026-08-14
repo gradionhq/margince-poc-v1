@@ -1,6 +1,18 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { AiCallsCard, CallDetailPanel } from "./aicalls";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+
+// The card is gated on automation:update, so /me decides which of its two
+// branches renders. Left unrouted, the fetch stub answers with an empty list
+// page, useMe rejects that as malformed, and every grant fails closed — which
+// is how the List and Empty stories below both used to draw the same probe
+// error under two names that promised the trace table.
+const OPERATOR: GrantSpec = { automation: ["read", "update"] };
 
 const summary = {
   id: "call-1",
@@ -50,15 +62,18 @@ const detail = {
   payload: { request: { system: "safe", messages: [] }, response: "ok" },
 };
 
-function list(data: unknown[], capture = true) {
+function list(data: unknown[], capture = true, allow: GrantSpec = OPERATOR) {
   return () => {
     installFetchStub({
+      "GET /me": () => jsonResponse(meFixture({ allow })),
       "GET /ai/calls": () =>
         jsonResponse({
           data,
           page: { has_more: false },
           payload_capture_enabled: capture,
+          tasks: ["capture_classify"],
         }),
+      "GET /ai/calls/call-1": () => jsonResponse(detail),
     });
     return (
       <StoryProviders>
@@ -69,13 +84,18 @@ function list(data: unknown[], capture = true) {
 }
 
 const meta: Meta<typeof AiCallsCard> = {
-  title: "Screens/ai-calls",
+  title: "Settings/Organization/AI/Model calls",
   component: AiCallsCard,
 };
 export default meta;
 type Story = StoryObj<typeof AiCallsCard>;
 export const List: Story = { render: list([summary]) };
 export const Empty: Story = { render: list([]) };
+
+// No automation grant: the trace keeps its place and says it is withheld. An
+// absent card would read as "this installation made no model calls".
+export const Withheld: Story = { render: list([summary], true, {}) };
+
 export const PayloadOff: Story = {
   render: () => {
     installFetchStub({
@@ -99,4 +119,18 @@ export const WithPayload: Story = {
     );
   },
 };
-export const Expanded = WithPayload;
+
+// The detail panel IN the table, which is the only place a reader meets it:
+// the disclosure button opens the attempt trail under its own row, so the
+// trace stays readable as one thing rather than two surfaces side by side.
+export const RowExpanded: Story = {
+  render: list([summary]),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const disclosure = await canvas.findByRole("button", {
+      name: /Show the attempt trail for capture_classify/,
+    });
+    await userEvent.click(disclosure);
+    await canvas.findByText("Attempts");
+  },
+};

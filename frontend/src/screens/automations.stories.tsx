@@ -14,7 +14,7 @@ type Automation = components["schemas"]["Automation"];
 type CatalogEntry = components["schemas"]["AutomationCatalogEntry"];
 
 const meta: Meta = {
-  title: "Screens/Automations",
+  title: "Settings/Organization/AI/Automations",
   parameters: { layout: "padded" },
 };
 export default meta;

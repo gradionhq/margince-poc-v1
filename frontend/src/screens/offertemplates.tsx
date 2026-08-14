@@ -2,8 +2,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { useCanWrite } from "../app/capability";
-import { Badge, SectionHeader } from "../design-system/atoms";
+import { Badge } from "../design-system/atoms";
 import type { ListColumn } from "../design-system/listtable";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -16,6 +17,7 @@ import {
   ListTable,
   useListQuery,
 } from "./listquery";
+import "./listsection.css";
 
 type OfferTemplate = components["schemas"]["OfferTemplate"];
 
@@ -84,8 +86,9 @@ const TEMPLATE_FIELDS: CreateField[] = [
  *
  * Not a screen of its own, for the same reason as {@link ProductsAdmin}: it was
  * reached by a card that existed only to send you here. It renders no `.wrap` —
- * the settings page owns the reading column — and names itself with a section
- * header, since the shell's page title now belongs to the whole data-model page.
+ * the settings page owns the reading column — and names itself in a Panel, the
+ * same shape products takes, since the shell's page title now belongs to the
+ * whole data-model page and the surfaces on it have to read as one kind of thing.
  */
 export function OfferTemplatesAdmin() {
   const t = useT();
@@ -194,21 +197,18 @@ export function OfferTemplatesAdmin() {
   };
 
   return (
-    <>
-      <SectionHeader
-        title={t("template.title")}
-        sub={t("template.settingsSub")}
-      />
-      {/* Stated once for the whole section (design-system README, "Absent,
-          disabled, or withheld"): a readable list whose editors are all withheld
-          has to say so, or their absence reads as a claim about the list rather
-          than about authority. A reader holding one write verb needs no notice —
-          the affordance they keep says what they may do. */}
-      {!canCreate && !canUpdate && !canArchive && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("template.readOnly")}
-        </p>
-      )}
+    <Panel className="listsection" title={t("template.title")}>
+      <PanelBody className="listsection-intro">
+        <p className="t-caption">{t("template.settingsSub")}</p>
+        {/* Stated once for the whole section (design-system README, "Absent,
+            disabled, or withheld"): a readable list whose editors are all withheld
+            has to say so, or their absence reads as a claim about the list rather
+            than about authority. A reader holding one write verb needs no notice —
+            the affordance they keep says what they may do. */}
+        {!canCreate && !canUpdate && !canArchive && (
+          <p className="t-caption">{t("template.readOnly")}</p>
+        )}
+      </PanelBody>
       <ListTable
         state={list}
         unit="unit.offerTemplates"
@@ -259,6 +259,6 @@ export function OfferTemplatesAdmin() {
           },
         ]}
       />
-    </>
+    </Panel>
   );
 }

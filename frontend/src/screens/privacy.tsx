@@ -4,7 +4,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { type ReactNode, useId, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole, useHoldsConsentAdminRole } from "../app/capability";
@@ -20,7 +27,10 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import {
   RecordPicker,
   type RecordPickerCandidate,
@@ -52,6 +62,13 @@ import {
 } from "./privacy.logic";
 import "./privacy.css";
 import { isOption } from "../app/options";
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 type DataSubjectRequest = components["schemas"]["DataSubjectRequest"];
 type CreateDataSubjectRequest =
@@ -209,57 +226,61 @@ export function ConsentPurposesCard() {
       return data;
     },
   });
+  // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Card
+    <Panel
       title={t("settings.purposes")}
-      sub={t("settings.purposesSub")}
       // Authoring a purpose is an admin/ops act, and the registry is now on a page
       // every seat opens — so the affordance has to ask. Rendered unconditionally
       // it offered a form whose submit the server refuses, which is the one thing
       // a governance surface must not do: promise an authority it does not carry.
-      actions={
+      titleAction={
         canAdminister ? (
           <Button small onClick={() => setAdding((value) => !value)}>
             {t("privacy.addPurpose")}
           </Button>
         ) : undefined
       }
-      style={{ marginBottom: "var(--space-4)" }}
     >
-      {/* Dropping the button above without this line leaves a rep looking at a
-          registry that simply has no way to grow, on a page whose other three
-          cards each explain themselves — the reader cannot tell a posture from
-          a control that broke. One sentence for the card's one write
-          affordance, never a disabled button that promises a click. */}
-      {me.isSuccess && !canAdminister && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
-          {t("privacy.purposesReadOnly")}
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("settings.purposesSub")}
         </p>
-      )}
-      {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              flexWrap: "wrap",
-              marginTop: adding ? "var(--space-3)" : 0,
-            }}
-          >
-            {page.data.map((purpose) => (
-              <Badge
-                key={purpose.id}
-                tone={purpose.requires_double_opt_in ? "warn" : undefined}
-              >
-                {purpose.label}
-                {purpose.requires_double_opt_in ? " · DOI" : ""}
-              </Badge>
-            ))}
-          </div>
+        {/* Dropping the button above without this line leaves a rep looking at a
+            registry that simply has no way to grow, on a page whose other three
+            cards each explain themselves — the reader cannot tell a posture from
+            a control that broke. One sentence for the card's one write
+            affordance, never a disabled button that promises a click. */}
+        {me.isSuccess && !canAdminister && (
+          <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
+            {t("privacy.purposesReadOnly")}
+          </p>
         )}
-      </QueryGate>
-    </Card>
+        {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
+        <QueryGate query={query} empty={(page) => page.data.length === 0}>
+          {(page) => (
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                flexWrap: "wrap",
+                marginTop: adding ? "var(--space-3)" : 0,
+              }}
+            >
+              {page.data.map((purpose) => (
+                <Badge
+                  key={purpose.id}
+                  tone={purpose.requires_double_opt_in ? "warn" : undefined}
+                >
+                  {purpose.label}
+                  {purpose.requires_double_opt_in ? " · DOI" : ""}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </QueryGate>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -647,8 +668,17 @@ function DsrRow({
                 regardless of `terminal`, not only inside the open-case
                 branch below (an assignment failure on a closed request would
                 otherwise be invisible). */}
+            {/* role="alert": this line is the ONLY report that a transition
+                did not land, and `privacy.movedOn` exists precisely to say the
+                click a reader just made changed nothing. Rendered silently it
+                told nobody — the row's badges do not move on a refused write,
+                so a reader who was looking at the buttons saw the same screen
+                either way. The paragraph mounts carrying its message, which is
+                the case an assertive region is for. */}
             {patchErrorMessage && (
-              <p className="t-caption dsr-error">{patchErrorMessage}</p>
+              <p className="t-caption dsr-error" role="alert">
+                {patchErrorMessage}
+              </p>
             )}
 
             {terminal ? (
@@ -833,15 +863,19 @@ function FulfilErasureModal({
           onChange={(event) => setTyped(event.target.value)}
         />
       </div>
+      {/* The one spelling of "what this surface says about itself". Both of
+          these were a hand-rolled bordered panel — `.dsr-legal-hold`, at its
+          own padding and its own radius — which is a Callout with a different
+          name and a second set of numbers to keep in step. */}
       {held && (
-        <div className="dsr-legal-hold" role="alert">
+        <Callout tone="danger" live="alert" className="dsr-refusal">
           <p>{t("privacy.legalHold")}</p>
-        </div>
+        </Callout>
       )}
       {movedOn && (
-        <div className="dsr-legal-hold" role="alert">
+        <Callout tone="danger" live="alert" className="dsr-refusal">
           <p>{t("privacy.movedOn")}</p>
-        </div>
+        </Callout>
       )}
     </ConfirmModal>
   );
@@ -884,6 +918,11 @@ export function PrivacyInboxCard() {
   // fetch is disabled for anyone else, which keeps a non-admin who reaches the
   // tab for its consent registry from issuing a call that only 403s.
   const isAdmin = useHoldsAdminRole();
+  // The probe itself, not only its answer. useHoldsAdminRole reads the roles
+  // off the /me cache, so it is false while that read is in flight — and
+  // branching on `!isAdmin` alone flashed "the subject queue is admin only" at
+  // every administrator, on every load of this tab, until the session landed.
+  const me = useMe();
 
   // The facet is server-side (part of the queryKey and the query param), not
   // a client re-slice of one big page — a re-slice would hide rows the
@@ -911,14 +950,26 @@ export function PrivacyInboxCard() {
     getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
 
-  const rows = query.data?.pages.flatMap((page) => page.data) ?? [];
-
-  const facetLabels = Object.fromEntries(
-    DSR_STATUS_FACETS.map((value) => [
-      value,
-      value === "all" ? t("privacy.facetAll") : humanizeToken(value),
-    ]),
-  ) as Record<DsrStatusFacet, string>;
+  // Both are memoised against the 60-second clock above: `useNow` re-renders
+  // this card every minute for the overdue badges, and without these the tick
+  // also re-flattened every loaded page and rebuilt the facet labels — the
+  // second of which then handed SegmentedControl a new object identity a
+  // minute at a time, for a set of five words that never change.
+  const pages = query.data?.pages;
+  const rows = useMemo(
+    () => pages?.flatMap((page) => page.data) ?? [],
+    [pages],
+  );
+  const facetLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        DSR_STATUS_FACETS.map((value) => [
+          value,
+          value === "all" ? t("privacy.facetAll") : humanizeToken(value),
+        ]),
+      ) as Record<DsrStatusFacet, string>,
+    [t],
+  );
 
   // Honest state matrix (§3a): pending/error stay identical to every other
   // list here; filtering happens server-side so an empty page after a facet
@@ -929,10 +980,17 @@ export function PrivacyInboxCard() {
     // seat reaches for the consent registry, and says why it is empty. An
     // absent card there would read as "no requests", which is a different
     // claim entirely.
+    //
+    // Behind the probe, so this states a settled denial and not the absence of
+    // an answer — while /me is in flight nobody holds any role yet.
     body = (
-      <EmptyState>
-        <p className="t-small">{t("privacy.inboxAdminOnly")}</p>
-      </EmptyState>
+      <QueryGate query={me}>
+        {() => (
+          <EmptyState>
+            <p className="t-small">{t("privacy.inboxAdminOnly")}</p>
+          </EmptyState>
+        )}
+      </QueryGate>
     );
   } else if (query.isPending) {
     body = (
@@ -993,36 +1051,46 @@ export function PrivacyInboxCard() {
   }
 
   return (
-    <Card
+    <Panel
       title={t("settings.privacy")}
-      sub={t("settings.privacySub")}
-      actions={
+      titleAction={
         <Button small onClick={() => setCreating((value) => !value)}>
           {t("privacy.newRequest")}
         </Button>
       }
     >
-      {creating && <NewDsrForm onDone={() => setCreating(false)} />}
-      {/* .filter-tabs puts the gap below the tabs so it holds for every body
-          state (rows, empty, loading), not just a populated list. */}
-      <div className="filter-tabs">
-        <SegmentedControl
-          options={DSR_STATUS_FACETS}
-          value={facet}
-          onChange={setFacet}
-          labels={facetLabels}
-        />
-      </div>
-      {body}
-      <FulfilErasureModal
-        dsr={fulfilling?.dsr ?? null}
-        resolution={fulfilling?.resolution ?? ""}
-        onClose={() => setFulfilling(null)}
-        returnFocusTo={() => {
-          const id = stagedRowToggle.current;
-          return id ? document.getElementById(id) : null;
-        }}
-      />
-    </Card>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("settings.privacySub")}
+        </p>
+        {/* One card's throw stays inside one card: this body renders a queue
+            of subject requests straight off the wire, and without a boundary
+            a single malformed row costs the reader the whole tab and the rail
+            they would have left by. */}
+        <CardBoundary>
+          {creating && <NewDsrForm onDone={() => setCreating(false)} />}
+          {/* .filter-tabs puts the gap below the tabs so it holds for every body
+              state (rows, empty, loading), not just a populated list. */}
+          <div className="filter-tabs">
+            <SegmentedControl
+              options={DSR_STATUS_FACETS}
+              value={facet}
+              onChange={setFacet}
+              labels={facetLabels}
+            />
+          </div>
+          {body}
+          <FulfilErasureModal
+            dsr={fulfilling?.dsr ?? null}
+            resolution={fulfilling?.resolution ?? ""}
+            onClose={() => setFulfilling(null)}
+            returnFocusTo={() => {
+              const id = stagedRowToggle.current;
+              return id ? document.getElementById(id) : null;
+            }}
+          />
+        </CardBoundary>
+      </PanelBody>
+    </Panel>
   );
 }

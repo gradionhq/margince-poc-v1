@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
-import { Card, TextInput } from "../design-system/atoms";
+import { Button, Field, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -132,44 +135,38 @@ function BaselineSection() {
   const query = useConsumerMailBaseline(needle);
   const result = query.data;
   return (
-    <div
-      style={{
-        marginTop: "var(--space-3)",
-        paddingTop: "var(--space-3)",
-        borderTop: "1px solid var(--borderSubtle)",
-      }}
-    >
-      <p className="t-label">{t("consumerMail.baselineTitle")}</p>
+    <section className="consumer-mail-baseline">
+      {/* A real heading, one level under the panel's own title, rather than a
+          paragraph styled to look like one — a reader navigating by heading can
+          reach the shipped list without scrolling the card. */}
+      <Eyebrow as="h3">{t("consumerMail.baselineTitle")}</Eyebrow>
       {result && (
-        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
+        <p className="t-small">
           {t("consumerMail.baselineCount", { total: result.total })}
         </p>
       )}
-      <TextInput
-        aria-label={t("consumerMail.baselineSearchLabel")}
-        data-testid="consumer-mail-baseline-search"
-        placeholder={t("consumerMail.baselinePlaceholder")}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        style={{ marginTop: "var(--space-2)" }}
-      />
+      {/* Field, not a bare aria-label: it owns the id and draws a real
+          `<label for>`, so the words above the box are also the box's click
+          target and its accessible name. */}
+      <Field label={t("consumerMail.baselineSearchLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            data-testid="consumer-mail-baseline-search"
+            placeholder={t("consumerMail.baselinePlaceholder")}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        )}
+      </Field>
       {needle !== "" && result && result.matched === 0 && (
-        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
-          {t("consumerMail.baselineNone")}
-        </p>
+        <p className="t-small">{t("consumerMail.baselineNone")}</p>
       )}
       {needle !== "" && result && result.matched > 0 && (
         <>
           <ul
+            className="consumer-mail-baseline-list"
             data-testid="consumer-mail-baseline-list"
-            style={{
-              listStyle: "none",
-              margin: "var(--space-2) 0 0",
-              padding: 0,
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "var(--space-1) var(--space-2)",
-            }}
           >
             {result.data.map((domain) => (
               <li key={domain} className="t-mono t-small">
@@ -178,7 +175,7 @@ function BaselineSection() {
             ))}
           </ul>
           {result.matched > result.data.length && (
-            <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
+            <p className="t-small">
               {t("consumerMail.baselineMore", {
                 shown: result.data.length,
                 matched: result.matched,
@@ -187,7 +184,7 @@ function BaselineSection() {
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -206,135 +203,145 @@ export function ConsumerMailDomainsCard() {
   const remove = useRemoveConsumerMailDomain();
   const [domain, setDomain] = useState("");
   const [kind, setKind] = useState<Kind>("extra");
+  // The denial, said once and POINTED AT — the same wiring `Switch`'s `reason`
+  // prop does for a toggle (design-system README), spelled with an id and
+  // `aria-describedby` for the controls that are not switches. A reason
+  // floating below the form is a reason a screen reader never reads out with
+  // the control it explains.
+  //
+  // Two grants, so two sentences, and a reader gets exactly one of them: no
+  // create at all means nothing on this card writes, while create-without-
+  // update means the carve-out and removal are what is refused. The id is
+  // minted unconditionally, because a hook may not depend on a permission.
+  const denialId = useId();
+  const denial = !canAdd
+    ? t("consumerMail.adminOnly")
+    : canManage
+      ? undefined
+      : t("consumerMail.addOnly");
+  // Named only on the controls the denial actually disables: pointing an
+  // enabled field at "you may only add" describes a refusal that is not
+  // happening to it.
+  const addDescribedBy = canAdd ? undefined : denialId;
+  const manageDescribedBy = canManage ? undefined : denialId;
 
   return (
-    <Card
-      style={{ marginBottom: "var(--space-4)" }}
-      title={t("consumerMail.title")}
-      sub={t("consumerMail.sub")}
-    >
-      <form
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          marginBottom: "var(--space-3)",
-        }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!canAdd || domain.trim() === "") return;
-          add.mutate(
-            { domain: domain.trim(), kind },
-            { onSuccess: () => setDomain("") },
-          );
-        }}
-      >
-        <input
-          aria-label={t("consumerMail.domainLabel")}
-          data-testid="consumer-mail-domain-input"
-          placeholder={t("consumerMail.domainPlaceholder")}
-          value={domain}
-          disabled={!canAdd}
-          onChange={(e) => setDomain(e.target.value)}
-        />
-        {/* The kind stays on the update grant: `never` overrides the shipped
-            baseline for the whole workspace, so a create-only seat submits the
-            initial `extra` and never reaches the carve-out. */}
-        <Select
-          className="consumer-mail-kind"
-          aria-label={t("consumerMail.kindLabel")}
-          value={kind}
-          disabled={!canManage}
-          onChange={(value) => {
-            if (isOption(value, KINDS)) {
-              setKind(value);
-            }
+    <Panel title={t("consumerMail.title")}>
+      <PanelBody className="form-stack">
+        <p className="t-caption">{t("consumerMail.sub")}</p>
+        <form
+          className="consumer-mail-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!canAdd || domain.trim() === "") return;
+            add.mutate(
+              { domain: domain.trim(), kind },
+              { onSuccess: () => setDomain("") },
+            );
           }}
-          options={KINDS.map((value) => ({
-            value,
-            label: t(kindLabel[value]),
-          }))}
-        />
-        <button type="submit" disabled={!canAdd || add.isPending}>
-          {t("consumerMail.add")}
-        </button>
-        {add.isError && (
-          <span
-            role="alert"
-            style={{ color: "var(--danger)", fontSize: "var(--fs-sm)" }}
-          >
-            {problemMessageOf(add.error, t)}
-          </span>
-        )}
-      </form>
-      {!canAdd && (
-        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
-          {t("consumerMail.adminOnly")}
-        </p>
-      )}
-      {canAdd && !canManage && (
-        <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
-          {t("consumerMail.addOnly")}
-        </p>
-      )}
-      <QueryGate query={query}>
-        {(entries) =>
-          entries.length === 0 ? (
-            <p style={{ color: "var(--textMeta)", fontSize: "var(--fs-sm)" }}>
-              {t("consumerMail.none")}
-            </p>
-          ) : (
-            <ul
-              data-testid="consumer-mail-domain-list"
-              style={{ listStyle: "none", margin: 0, padding: 0 }}
-            >
-              {entries.map((entry) => (
-                <li
-                  key={entry.id}
-                  data-kind={entry.kind}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-2)",
-                    padding: "var(--space-2) 0",
-                  }}
-                >
-                  <Mail aria-hidden size={16} />
-                  <span style={{ flex: 1 }}>{entry.domain}</span>
-                  <span
-                    style={{
-                      color: "var(--textMeta)",
-                      fontSize: "var(--fs-sm)",
-                    }}
-                  >
-                    {entry.kind === "never"
-                      ? t("consumerMail.kind.never")
-                      : t("consumerMail.kind.extra")}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={t("consumerMail.remove")}
-                    disabled={!canManage || remove.isPending}
-                    onClick={() => remove.mutate(entry.id)}
-                  >
-                    <Trash2 aria-hidden size={16} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )
-        }
-      </QueryGate>
-      {remove.isError && (
-        <span
-          role="alert"
-          style={{ color: "var(--danger)", fontSize: "var(--fs-sm)" }}
         >
-          {problemMessageOf(remove.error, t)}
-        </span>
-      )}
-      <BaselineSection />
-    </Card>
+          <Field label={t("consumerMail.domainLabel")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                data-testid="consumer-mail-domain-input"
+                placeholder={t("consumerMail.domainPlaceholder")}
+                value={domain}
+                disabled={!canAdd}
+                aria-describedby={addDescribedBy}
+                onChange={(e) => setDomain(e.target.value)}
+              />
+            )}
+          </Field>
+          {/* The kind stays on the update grant: `never` overrides the shipped
+              baseline for the whole workspace, so a create-only seat submits the
+              initial `extra` and never reaches the carve-out. */}
+          <Field label={t("consumerMail.kindLabel")}>
+            {(control) => (
+              <Select
+                {...control}
+                className="consumer-mail-kind"
+                value={kind}
+                disabled={!canManage}
+                aria-describedby={manageDescribedBy}
+                onChange={(value) => {
+                  if (isOption(value, KINDS)) {
+                    setKind(value);
+                  }
+                }}
+                options={KINDS.map((value) => ({
+                  value,
+                  label: t(kindLabel[value]),
+                }))}
+              />
+            )}
+          </Field>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!canAdd || add.isPending}
+            aria-describedby={addDescribedBy}
+          >
+            {t("consumerMail.add")}
+          </Button>
+        </form>
+        {denial && (
+          <p className="t-small" id={denialId}>
+            {denial}
+          </p>
+        )}
+        {add.isError && (
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(add.error, t)}
+          </Callout>
+        )}
+        <QueryGate query={query}>
+          {(entries) =>
+            entries.length === 0 ? (
+              <p className="t-small">{t("consumerMail.none")}</p>
+            ) : (
+              <ul
+                className="consumer-mail-list"
+                data-testid="consumer-mail-domain-list"
+              >
+                {entries.map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="consumer-mail-row"
+                    data-kind={entry.kind}
+                  >
+                    <Mail aria-hidden size={16} />
+                    <span className="consumer-mail-row-domain">
+                      {entry.domain}
+                    </span>
+                    <span className="t-small">
+                      {entry.kind === "never"
+                        ? t("consumerMail.kind.never")
+                        : t("consumerMail.kind.extra")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      small
+                      aria-label={t("consumerMail.remove")}
+                      disabled={!canManage || remove.isPending}
+                      aria-describedby={manageDescribedBy}
+                      onClick={() => remove.mutate(entry.id)}
+                    >
+                      <Trash2 aria-hidden size={16} />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </QueryGate>
+        {remove.isError && (
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(remove.error, t)}
+          </Callout>
+        )}
+        <BaselineSection />
+      </PanelBody>
+    </Panel>
   );
 }

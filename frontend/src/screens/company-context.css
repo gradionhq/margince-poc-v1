@@ -1,126 +1,54 @@
-/* The company-profile surface (Settings → General): the hero, the field form,
-   and the refresh-review comparison. Split out of settings.css, which was
-   carrying three unrelated tabs; a sheet a screen owns lives beside it. */
+/* The company-profile surface (Settings → General).
+ *
+ * What used to live here was five surfaces this app draws nowhere else — a
+ * gradient hero with a 180px decorative circle, two 20px/--r-lg boxes with
+ * their own shadow, a bordered comparison article with a 3px accent rail, and
+ * the shell around them. Against Card's 16px/--r-md and Panel's 20px/--r-sm
+ * they read as a different product. They are Panels now, so this sheet is only
+ * what a panel does not already know: how this screen's own rows and grids sit
+ * inside one. */
 
+/* The page's two panels — the profile and the review the refresh opens. Owned
+ * here rather than by the settings page, because this card is also rendered on
+ * its own. */
 .company-context-shell {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-.company-context-hero {
-  position: relative;
-  overflow: hidden;
+/* What this surface is, and which rollout stage it is on, as one line under the
+ * panel's title — off the tinted header band, where a neutral badge reads. */
+.company-context-kicker {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-5);
-  padding: var(--space-6);
-  border: 1px solid var(--accentMed);
-  border-radius: var(--r-lg);
-  background: linear-gradient(
-    135deg,
-    var(--accentLight),
-    var(--bgElevated) 58%
-  );
-  box-shadow: var(--shadow-card);
-}
-
-.company-context-hero::after {
-  content: "";
-  position: absolute;
-  width: 180px;
-  height: 180px;
-  right: -60px;
-  bottom: -105px;
-  border-radius: 50%;
-  border: 30px solid var(--accentMed);
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.company-context-hero h2,
-.company-context-review h3 {
-  margin: var(--space-2) 0;
-  color: var(--textPrimary);
-  letter-spacing: -0.025em;
-}
-
-.company-context-hero p {
-  max-width: 680px;
-  color: var(--textSecondary);
-  line-height: 1.55;
-}
-
-.company-context-kicker,
-.company-context-saved {
-  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.company-context-warning {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--warn);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.company-context-kicker svg,
-.company-context-saved svg,
-.company-context-warning svg,
-.company-context-trust svg,
-.company-context-actions svg {
-  width: 16px;
-  height: 16px;
-}
-
+/* The trust line on the panel's recessed plate: the claim on the left, the
+ * count of confirmed statements at the far right. PanelPlate draws the plate;
+ * this is only what sits on it. */
 .company-context-trust {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
   color: var(--textSecondary);
-  background: var(--bgCard);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
 }
-
 .company-context-trust svg,
 .company-context-trust strong {
   color: var(--accent);
 }
-
 .company-context-trust strong {
   margin-left: auto;
 }
 
-.company-context-form,
-.company-context-review {
-  padding: var(--space-5);
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-}
-
-.company-context-form,
+/* A field group under its own level-3 heading, ruled off from the group above
+ * so the three subjects read as three rather than as one long form. */
 .company-context-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-
-.company-context-group {
   padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
 }
@@ -131,128 +59,55 @@
   gap: var(--space-4);
 }
 
-.company-context-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  color: var(--textSecondary);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.company-context-field:has(.textarea),
-.company-context-website {
+/* A field holding prose takes the full width: two columns of a three-line
+ * textarea is a form that reads as a wall. */
+.company-context-fields > .field:has(.textarea) {
   grid-column: 1 / -1;
 }
 
-.company-context-field .textarea {
-  min-height: 78px;
-}
-
-.company-context-field small {
+/* Where a value came from, under the value: the source badge and the link to
+ * the page it was read off. */
+.company-context-source {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-weight: 400;
 }
-
-.company-context-field small a {
+.company-context-source a {
   color: var(--accent);
 }
 
-.company-context-website-row,
-.company-context-actions,
-.company-context-review-head,
-.company-context-comparison-title,
-.company-context-comparison-title > div {
+/* The website and the control that reads it are one row — the field is the
+ * whole width of the form, and the button keeps its own. */
+.company-context-website {
+  width: 100%;
+}
+.company-context-website-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
-
 .company-context-website-row .input {
   flex: 1;
 }
 
-.company-context-actions {
-  justify-content: flex-end;
-  min-height: 36px;
-}
-
-.company-context-error {
-  margin-right: auto;
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.company-context-review-head {
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-}
-
-.company-context-coverage {
+/* One proposed change, as a full-bleed row of the review panel: its name and
+ * classification on one line, the old → new diff under them. The left rail is
+ * the only mark that distinguishes a change needing a decision from one that
+ * does not, so it stays. */
+.company-context-comparison {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  color: var(--textMeta);
-  font-size: 11px;
-}
-
-.company-context-coverage strong {
-  color: var(--accent);
-  font-size: 24px;
-}
-
-.company-context-comparisons {
-  display: grid;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-
-.company-context-comparison {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--borderSubtle);
+  gap: var(--space-2);
   border-left: 3px solid var(--accentMed);
-  border-radius: var(--r-md);
-  background: var(--bgCard);
 }
-
 .company-context-comparison.is-human_conflict {
   border-left-color: var(--warn);
 }
-
-.company-context-comparison-title,
-.company-context-resolutions {
-  grid-column: 1 / -1;
-}
-
 .company-context-comparison-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   justify-content: space-between;
-}
-
-.company-context-current,
-.company-context-proposed {
-  padding: var(--space-3);
-  border-radius: var(--r-sm);
-  background: var(--bgElevated);
-}
-
-.company-context-current span,
-.company-context-proposed span {
-  color: var(--textMeta);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.company-context-current p,
-.company-context-proposed p {
-  margin-top: var(--space-1);
-  color: var(--textPrimary);
-  line-height: 1.45;
 }
 
 .company-context-resolutions {
@@ -263,30 +118,28 @@
   padding-top: var(--space-3);
   border-top: 1px solid var(--borderSubtle);
 }
-
 .company-context-resolutions label {
   color: var(--textSecondary);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
-
 .company-context-resolutions .input {
   flex: 1 1 240px;
 }
 
+/* How much of the site the read actually reached, in the panel's footer band.
+ * It is a caveat on everything above it, not a headline: it used to be set at
+ * 24px, larger than the page's own h1, for a number nobody acts on. */
+.company-context-coverage strong {
+  color: var(--accent);
+}
+
 @media (max-width: 760px) {
-  .company-context-fields,
-  .company-context-comparison {
+  .company-context-fields {
     grid-template-columns: 1fr;
   }
 
-  .company-context-website-row,
-  .company-context-actions,
-  .company-context-review-head {
+  .company-context-website-row {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .company-context-coverage {
-    align-items: flex-start;
   }
 }

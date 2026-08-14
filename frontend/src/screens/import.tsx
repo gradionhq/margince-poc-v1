@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { Upload } from "lucide-react";
-import { useRef } from "react";
+import { type CSSProperties, useRef } from "react";
 import { useCan, useCanWrite } from "../app/capability";
-import { Button, Card, SegmentedControl } from "../design-system/atoms";
+import { Button, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf } from "./common";
@@ -19,6 +20,13 @@ import type {
 } from "./importtypes";
 import { identifyingFieldFor } from "./importtypes";
 import "./import.css";
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 // Bringing a customer's file into the estate (S-E11.6): upload it, see what its
 // columns actually hold, map them, read what the import WILL do, then commit.
@@ -61,95 +69,102 @@ export function ImportCard() {
   const committed = run?.status === "complete" || run?.status === "failed";
 
   return (
-    <Card title={t("import.title")} sub={t("import.sub")}>
-      <div className="import">
-        {/* The control carries its own group label, so it needs no Field
+    <Panel title={t("import.title")}>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("import.sub")}
+        </p>
+        <div className="import">
+          {/* The control carries its own group label, so it needs no Field
             around it — a second label would announce the same words twice. */}
-        <SegmentedControl
-          options={["lead", "organization"] as const}
-          value={flow.object}
-          onChange={busy ? () => undefined : flow.chooseObject}
-          label={t("import.objectLabel")}
-          labels={{
-            lead: t("import.object.lead"),
-            organization: t("import.object.organization"),
-          }}
-        />
-        <p className="import__hint">{t(`import.objectHint.${flow.object}`)}</p>
+          <SegmentedControl
+            options={["lead", "organization"] as const}
+            value={flow.object}
+            onChange={busy ? () => undefined : flow.chooseObject}
+            label={t("import.objectLabel")}
+            labels={{
+              lead: t("import.object.lead"),
+              organization: t("import.object.organization"),
+            }}
+          />
+          <p className="import__hint">
+            {t(`import.objectHint.${flow.object}`)}
+          </p>
 
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,text/csv"
-          /* The design system's own visually-hidden class, not a copy of it:
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".csv,text/csv"
+            /* The design system's own visually-hidden class, not a copy of it:
              the file input stays reachable by label and keyboard while the
              Button beside it is what a reader actually sees and presses. */
-          className="sr-only"
-          aria-label={t("import.fileLabel")}
-          // Cleared after every pick: a browser fires no change event when the
-          // SAME path is chosen again, and the natural next move after reading
-          // "Line 3 is empty" is to fix that line in that file and choose it
-          // once more. Without this the click does nothing, the old report
-          // stays on screen, and the commit button writes the FIRST upload's
-          // bytes.
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) {
-              upload.mutate(file);
-            }
-          }}
-          // Out of the tab order: it is invisible, so a keyboard user landing
-          // on it has a focus stop they cannot see. The Button beside it is the
-          // keyboard path, and the label keeps the input reachable by name.
-          tabIndex={-1}
-        />
-        <Button
-          variant="ghost"
-          disabled={busy}
-          onClick={() => fileInput.current?.click()}
-        >
-          <Upload size={16} aria-hidden />
-          <span>
-            {profile ? t("import.chooseAnother") : t("import.choose")}
-          </span>
-        </Button>
-
-        {upload.error ? (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(upload.error, t)}
-          </Callout>
-        ) : null}
-
-        {showMapping ? (
-          <ImportMappingStep
-            profile={profile}
-            mapping={mapping}
-            object={flow.object}
-            busy={busy}
-            locked={validate.isPending}
-            pending={validate.isPending}
-            error={validate.error}
-            onChange={flow.setTarget}
-            onValidate={() =>
-              validate.mutate({ object: flow.object, profile, mapping })
-            }
+            className="sr-only"
+            aria-label={t("import.fileLabel")}
+            // Cleared after every pick: a browser fires no change event when the
+            // SAME path is chosen again, and the natural next move after reading
+            // "Line 3 is empty" is to fix that line in that file and choose it
+            // once more. Without this the click does nothing, the old report
+            // stays on screen, and the commit button writes the FIRST upload's
+            // bytes.
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) {
+                upload.mutate(file);
+              }
+            }}
+            // Out of the tab order: it is invisible, so a keyboard user landing
+            // on it has a focus stop they cannot see. The Button beside it is the
+            // keyboard path, and the label keeps the input reachable by name.
+            tabIndex={-1}
           />
-        ) : null}
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
+          >
+            <Upload size={16} aria-hidden />
+            <span>
+              {profile ? t("import.chooseAnother") : t("import.choose")}
+            </span>
+          </Button>
 
-        {report && run ? (
-          <ImportOutcome
-            report={report}
-            run={run}
-            committed={committed}
-            busy={busy}
-            onCommit={() => commit.mutate(run)}
-            onRestart={flow.restart}
-            error={commit.error}
-          />
-        ) : null}
-      </div>
-    </Card>
+          {upload.error ? (
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(upload.error, t)}
+            </Callout>
+          ) : null}
+
+          {showMapping ? (
+            <ImportMappingStep
+              profile={profile}
+              mapping={mapping}
+              object={flow.object}
+              busy={busy}
+              locked={validate.isPending}
+              pending={validate.isPending}
+              error={validate.error}
+              onChange={flow.setTarget}
+              onValidate={() =>
+                validate.mutate({ object: flow.object, profile, mapping })
+              }
+            />
+          ) : null}
+
+          {report && run ? (
+            <ImportOutcome
+              report={report}
+              run={run}
+              committed={committed}
+              busy={busy}
+              onCommit={() => commit.mutate(run)}
+              onRestart={flow.restart}
+              error={commit.error}
+            />
+          ) : null}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 

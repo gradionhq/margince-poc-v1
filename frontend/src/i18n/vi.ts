@@ -459,6 +459,8 @@ export const vi = {
   "overlay.budgetLoading": "Đang tải cửa sổ hạn mức…",
   "overlay.budgetLoadFailed": "Không tải được cửa sổ hạn mức.",
   "overlay.budgetHeadroom": "Còn dư: {headroom}",
+  "overlay.budgetEmpty":
+    "Hệ thống cũ không báo cáo cửa sổ ngân sách nào cho kỳ này.",
   "overlay.budgetSources":
     "Force-fresh {forceFresh} · Poller {poller} · Capture {capture}",
   "overlay.budgetSearch": "API tìm kiếm: {consumed} / {limit} mỗi giây",
@@ -3385,6 +3387,13 @@ export const vi = {
     "Đối tượng này chưa có trường ngày nào đang hoạt động.",
   "auto.dateField.loadError":
     "Không tải được các trường ngày của đối tượng này. Vui lòng thử lại.",
+  "auto.enabledLabel": "Đang bật",
+  "auto.rowActions": "Thao tác cho {name}",
+  "auto.withheld":
+    "Các tự động hoá đã cấu hình bị ẩn — vai trò của bạn không được phép đọc chúng.",
+  "auto.deleteTitle": "Xoá tự động hoá này?",
+  "auto.deleteBody":
+    "“{name}” cùng toàn bộ thiết lập sẽ bị xoá vĩnh viễn. Nếu bạn chỉ muốn nó ngừng chạy mà vẫn giữ quy tắc, hãy tắt nó đi.",
 
   "auto.runs.open": "Lượt chạy",
   "auto.runs.title": "Lịch sử chạy",
@@ -3593,6 +3602,8 @@ export const vi = {
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Giọng văn riêng của bạn. Nó định hình các bản nháp viết cho bạn, chỉ riêng bạn thấy, và chỉ học từ những nguồn bạn thêm vào.",
+  "settings.voice.readOnly":
+    "Chế độ chỉ đọc — bạn không có quyền thay đổi Voice DNA của mình.",
   "settings.voice.emptyTitle": "Chưa có Voice DNA",
   "settings.voice.emptyBody":
     "Hãy thêm vài mẫu văn bên dưới rồi dựng Voice DNA của bạn — hoặc làm việc đó trong Onboarding.",
@@ -4134,6 +4145,8 @@ export const vi = {
   "webhooks.secret.copyFailed":
     "Không tự sao chép được — hãy bôi đen rồi tự sao chép khoá.",
   "webhooks.secret.done": "Xong",
+  "webhooks.secret.leaveWarning":
+    "Rời đi sẽ hủy bản sao duy nhất của khóa bí mật này. Hãy sao chép trước.",
 
   "webhooks.deliveries.show": "Xem lượt gửi",
   "webhooks.deliveries.hide": "Ẩn lượt gửi",

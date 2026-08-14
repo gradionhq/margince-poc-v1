@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -153,6 +154,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Rotating the signing secret and archiving the subscription both live behind
+// the row's overflow: neither is the same weight as Edit, and both are
+// irreversible. Every assertion about them opens it first, the way a reader
+// does.
+const MORE_ACTIONS = "More actions";
+
+async function openRowActions(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: MORE_ACTIONS }));
+}
+
 describe("WebhooksCard", () => {
   it("renders a subscription list from the typed seam", async () => {
     vi.stubGlobal("fetch", backendFor(WEBHOOK_OPERATOR));
@@ -204,6 +215,8 @@ describe("WebhooksCard", () => {
       ).toBeTruthy(),
     );
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    await openRowActions(userEvent.setup());
+    expect(screen.getByTestId("rotate-webhook-secret")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
   });
@@ -220,8 +233,10 @@ describe("WebhooksCard", () => {
         screen.getByText("https://example.test/hooks/margince"),
       ).toBeTruthy(),
     );
+    await openRowActions(userEvent.setup());
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByTestId("rotate-webhook-secret")).toBeNull();
   });
 
   // Three grants, three absent affordances, and a card that still lists every
@@ -238,6 +253,8 @@ describe("WebhooksCard", () => {
     );
     expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    // Not even the overflow: with no write grant there is nothing behind it.
+    expect(screen.queryByRole("button", { name: MORE_ACTIONS })).toBeNull();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     // The subscription itself still reads: what it targets, which events it
     // takes, and its delivery health stay inspectable.
@@ -564,6 +581,7 @@ describe("WebhooksCard — archive", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WebhooksCard />);
 
+    await openRowActions(user);
     await user.click(await screen.findByTestId("archive-record"));
     await user.click(screen.getByTestId("archive-confirm"));
 
@@ -731,7 +749,14 @@ describe("WebhooksCard — deliveries panel (Task 10)", () => {
     );
 
     await user.click(await screen.findByTestId("replay-delivery"));
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    // The confirm names the ACT, not the dialog's mechanics — which is also
+    // why it has to be found INSIDE the dialog: the row's own trigger says the
+    // same word, as it should.
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Replay",
+      }),
+    );
 
     // The dead-lettered row refreshes to reflect the replay's outcome — the
     // list-invalidation contract (["webhook-deliveries", id]).
@@ -806,8 +831,17 @@ describe("WebhooksCard — rotate secret", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WebhooksCard />);
 
+    await openRowActions(user);
     await user.click(await screen.findByTestId("rotate-webhook-secret"));
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    // The confirm names the ACT, not the dialog's mechanics — and it is a
+    // danger button, because the old secret stops verifying the moment this
+    // succeeds. Scoped to the dialog: the row's own trigger says the same
+    // word, as it should.
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Rotate secret",
+      }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText("whsec_rotatedNEW123==")).toBeTruthy(),

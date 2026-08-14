@@ -68,7 +68,7 @@ function RateSheets() {
 }
 
 const meta: Meta<typeof RateSheets> = {
-  title: "Screens/rates",
+  title: "Settings/Organization/Rates and model costs",
   component: RateSheets,
 };
 export default meta;

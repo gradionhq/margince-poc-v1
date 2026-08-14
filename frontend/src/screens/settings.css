@@ -13,10 +13,26 @@
 
    The gap is the same --space-4 the shell's rule gives, so a settings page and any
    other page space alike. */
+/* And the WIDTH, which the entry register declares per page (settings.tsx's
+   SETTINGS_TABS `layout`). The default is a reading measure, matched to the
+   proportion the record page gives its own story column (composed.css
+   `.record-zones-aside`: 7 of 10 tracks inside the 1280px `--pageColumn`). Most
+   settings pages are forms and prose, and dropping one full-width column into
+   that page meant a single text input was ~950px of empty field and a
+   two-option light/dark control spanned the same distance — a form is not more
+   usable for being wider, it is only harder to associate a label with a value
+   across. */
 .settings-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  max-width: 860px;
+}
+/* The two pages that carry real tables — the member roster, the data model's
+   field / product / template editors — keep the whole column, because a table
+   squeezed to a reading measure does not read better, it starts scrolling. */
+.settings-stack-wide {
+  max-width: none;
 }
 
 /* A section heading inside the stack separates SUBJECTS, so it needs more air
@@ -31,23 +47,255 @@
   margin: var(--space-4) 0 0;
 }
 
+/* A Card drew its descriptive line in the header, under the title. Panel's
+   header is a fixed-height band with room for a title and one control, so that
+   line moves into the body — where it is the first thing read, above the form
+   or the rows it describes, and it pays for its own interval to them. */
+.settings-panel-sub {
+  margin-bottom: var(--space-4);
+}
+
+/* A control whose width is intrinsic: a two-option segmented control is two
+   words wide and a language dropdown is one language wide. Both sit in a
+   `.field`, which is a flex COLUMN — its default `align-items: stretch` is what
+   dragged them across the whole page column. Stated once here rather than as an
+   inline width per control, because the rule is about what the control IS, not
+   about this page. */
+.settings-intrinsic {
+  align-items: flex-start;
+}
+.settings-intrinsic .input {
+  width: auto;
+  min-width: 12rem;
+}
+
+/* The one panel that announces its own danger: the red border is what separates
+   a destructive surface from the ordinary settings around it. */
+.settings-danger {
+  border-color: var(--danger);
+}
+.settings-danger-result {
+  margin-top: var(--space-3);
+}
+.settings-danger-warning {
+  margin-top: var(--space-1);
+  color: var(--warn);
+}
+
+/* The profile block, borrowed from the record page's identity header
+   (composed.css `.record-head`): the mark, then the name with its standing
+   badges on the same line, then the two meta lines that qualify it. Three loose
+   items in a wide box said nothing about which of them was the subject. */
+.settings-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.settings-identity-id {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* So a long address wraps inside the row rather than widening it. */
+  min-width: 0;
+}
+.settings-identity-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* PassportCard. The mint form is a label, a name field, five scope ticks and
+   the button, on as few lines as the width allows. */
+.passport-mint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.passport-mint .input {
+  width: auto;
+}
+.passport-mint-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+/* The always-mounted live region the minted token lands in. It has no box of
+   its own — the plate inside it is the surface — and no focus ring, because
+   focus arrives here programmatically rather than by tabbing to it. */
+.passport-token:focus {
+  outline: none;
+}
+.passport-token-value {
+  margin-top: var(--space-1);
+  /* A token is one unbroken run of characters and must wrap inside the panel
+     rather than set its minimum width. */
+  overflow-wrap: anywhere;
+}
+.passport-facts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Struck, not dimmed: dimming a revoked row drops it under the AA contrast
+   floor (B-EP09.21), and the revoked row is the one a reader most needs. */
+.passport-struck {
+  text-decoration: line-through;
+}
+
+/* AutonomyCard: the tier, its name, and — on the locked row — the badge saying
+   so, on one line each. */
+.autonomy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* PipelinesCard. One pipeline per full-bleed row: its own heading (a real
+   `h3` through SectionHeader), the verbs beside it, and its stages under. */
+.pipeline-row > .section-header {
+  margin: 0 0 var(--space-2);
+  /* A pipeline name plus a standing badge plus two verbs is wider than a phone.
+     `.section-header` keeps its actions on one unwrapped line by default, which
+     is right for a page header and wrong here: the strip simply ran past the
+     panel's edge and the last verb was clipped away. Wrapping costs a line and
+     keeps every verb reachable. */
+  flex-wrap: wrap;
+}
+.pipeline-row > .section-header .section-header-actions {
+  flex-wrap: wrap;
+}
+.stage-rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* The four tracks of one stage: the name, its semantic badge, the win
+   probability, the edit verb. Fixed tracks for the three short ones so a column
+   of stages lines up. */
+.stage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 56px auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+/* A stage name is free text nobody promised would be short. Without this it
+   could not break, so at any width where the fixed tracks and the Edit button
+   leave it ~60px it painted straight over the badge beside it. */
+.stage-name {
+  overflow-wrap: anywhere;
+}
+/* The badge sits at the start of its fixed track at its own width. A grid cell
+   stretches its child by default, and a pill stretched to the width of the
+   longest semantic label reads as a bar rather than a tag. */
+.stage-row > .badge {
+  justify-self: start;
+}
+/* On a phone the three fixed tracks plus the verb ARE the width, and the name
+   has nothing left. So the row becomes two lines: the name across the top, the
+   readings and the verb under it. */
+@media (max-width: 560px) {
+  .stage-row {
+    grid-template-columns: auto auto 1fr;
+  }
+  .stage-name {
+    grid-column: 1 / -1;
+  }
+  /* The verb takes the end of its own line at its own width — the 1fr track is
+     there to push it there, not to stretch it across the row. */
+  .stage-row > :last-child {
+    justify-self: end;
+  }
+}
+
+/* AuditLogCard. Six narrow filters as a grid of labelled cells rather than one
+   long row — in a row each control took the width of the card and the six of
+   them stacked into a page-tall form. */
+.audit-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.audit-filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.audit-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.audit-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* The expanded before/after trail, set in from the row it belongs to and
+   marked by a rule so it reads as this entry's detail rather than the next. */
+.audit-row-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--borderSubtle);
+}
+.audit-diff-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.audit-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.audit-error-cause {
+  margin: var(--space-2) 0 var(--space-3);
+}
+
 /* Tool console's passport-scope filter (AgentToolsCard): the gap between the
    selector and the inventory it scopes, on the shared spacing scale rather
    than the off-scale value the inline <select> style used to carry. */
 .tool-scope-filter {
   margin-bottom: var(--space-3);
 }
+/* One of a handful of passports is an intrinsic choice, like the language
+   dropdown beside the theme on Account: it takes the width its longest option
+   needs, not the width of the card it narrows. */
+.tool-scope-filter .input {
+  width: auto;
+  min-width: 14rem;
+  max-width: 100%;
+}
 
 /* Tool console rows (AgentToolsCard): the verb and its governance badges on
-   one line, the selection prose under them. Layout lives here rather than in
-   inline styles so it reads on the spacing scale; only the dimming of a tool
-   the selected passport cannot reach stays inline, because it is per-row state
-   rather than layout. */
-.tool-row {
+   one line, the selection prose under them. All of it lives here rather than in
+   inline styles so it reads on the spacing scale — including the strikethrough
+   on a tool the chosen passport cannot reach, which is a state with one
+   spelling and not a per-row decision. */
+.tool-row-body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-1);
+}
+/* The verb is the identifier an agent selects on, so it reads in the accent
+   the rest of the product gives an identifier. */
+.tool-name {
+  color: var(--accent);
+}
+/* Struck, not dimmed. Dimming the row to 0.4 took it under the AA contrast
+   floor (B-EP09.21) — including the caption that is supposed to be the text
+   equivalent of the dimming, so the one part a reader needs most became the
+   hardest to read. */
+.tool-out-of-scope {
+  text-decoration: line-through;
 }
 .tool-row-head {
   display: flex;

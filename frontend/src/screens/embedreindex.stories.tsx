@@ -14,11 +14,6 @@ const STATUS_NEEDED = {
   updated_at: "2026-07-22T00:00:00Z",
   reindex_needed: true,
   entities_pending: 128,
-  per_workspace: [
-    {
-      entities_pending: 128,
-    },
-  ],
 };
 
 const STATUS_IDLE = {
@@ -28,6 +23,11 @@ const STATUS_IDLE = {
   entities_pending: 0,
 };
 
+// utilization_impact is a top-level field of EmbedReindexPreview — the band the
+// INSTALLATION would land in (A107/ADR-0061: one installation, one
+// organization). It sat under a `per_workspace` array the contract has no such
+// property for, so the card read `preview.utilization_impact`, found nothing,
+// and the impact badge this story exists to show never rendered.
 const PREVIEW = {
   entities_pending: 128,
   estimated_ai_tokens: 34_500,
@@ -35,13 +35,7 @@ const PREVIEW = {
   estimate_quality: "heuristic",
   currency: "USD",
   computed_at: "2026-07-22T00:00:00Z",
-  per_workspace: [
-    {
-      entities_pending: 128,
-      estimated_ai_tokens: 34_500,
-      utilization_impact: "degraded",
-    },
-  ],
+  utilization_impact: "degraded",
 };
 
 function admin(overrides: Record<string, unknown> = {}) {
@@ -53,7 +47,7 @@ function admin(overrides: Record<string, unknown> = {}) {
 }
 
 const meta: Meta<typeof EmbedReindexCard> = {
-  title: "Screens/embed-reindex-card",
+  title: "Settings/Organization/Maintenance/Embedding reindex",
   component: EmbedReindexCard,
 };
 export default meta;
@@ -92,8 +86,9 @@ export const UpToDateRebuildAvailable: Story = {
 };
 
 // The preview→confirm dialog's consent surface: tokens/cost/quality plus the
-// per-workspace utilization-impact disclosure, captured after the estimate
-// loads (confirm starts disabled until then).
+// utilization-impact disclosure — the budget band the installation would land
+// in were this spend added — captured after the estimate loads (confirm starts
+// disabled until then).
 export const PreviewDialogWithEstimate: Story = {
   render: () => {
     installFetchStub({
@@ -114,6 +109,11 @@ export const PreviewDialogWithEstimate: Story = {
     });
     await userEvent.click(reviewButton);
     await canvas.findByText(/34,500/);
+    // The badge is the half of the disclosure a story cannot assert by
+    // eyeballing a number: it renders only when the top-level
+    // utilization_impact is present, so naming it here keeps the fixture
+    // honest to the contract.
+    await canvas.findByText("would enter economy mode");
   },
 };
 

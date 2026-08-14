@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { FieldBuilder, FieldTable } from "./customfields";
 import { StoryProviders } from "./story-utils";
@@ -9,11 +10,12 @@ import { StoryProviders } from "./story-utils";
 // The custom-fields admin sub-components rendered with direct props so the
 // fe-uat render lane exercises them without a network round-trip. FieldBuilder
 // owns its own type/label state internally, so the currency / picklist /
-// refusal variants below render the default builder and are driven into that
-// state interactively (the repo has no @storybook/test `play` harness to script
-// it). FieldTable is fully prop-driven, so its states are pinned by fixtures.
+// refusal variants drive it there with `play` before the frame is taken — a
+// story that only mounted the default builder three times captured the same
+// screenshot three times and proved nothing about any of the three branches.
+// FieldTable is fully prop-driven, so its states are pinned by fixtures.
 const meta: Meta = {
-  title: "Screens/CustomFields",
+  title: "Settings/Organization/Data model/Custom fields",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -76,8 +78,8 @@ export const BuilderText: Story = {
   ),
 };
 
-// Renders the default builder; select the Currency type to reveal the ISO-4217
-// currency-code input (the builder owns its own type state — no `play` harness).
+// The Currency type, chosen: the ISO-4217 currency-code input appears under
+// the type control and the DDL preview below picks up the numeric column.
 export const BuilderCurrency: Story = {
   render: () => (
     <StoryProviders>
@@ -89,10 +91,16 @@ export const BuilderCurrency: Story = {
       />
     </StoryProviders>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByLabelText("Label"), "Ceiling");
+    await userEvent.click(canvas.getByRole("button", { name: "Currency" }));
+    await canvas.findByLabelText("Currency code");
+  },
 };
 
-// Renders the default builder; select the Picklist type to reveal the options
-// editor (reached interactively — the repo has no `play` scripting).
+// The Picklist type, chosen, with two options typed in: the options editor is
+// the only type whose shape the builder validates before Confirm goes live.
 export const BuilderPicklist: Story = {
   render: () => (
     <StoryProviders>
@@ -104,10 +112,20 @@ export const BuilderPicklist: Story = {
       />
     </StoryProviders>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByLabelText("Label"), "Stage reason");
+    await userEvent.click(canvas.getByRole("button", { name: "Picklist" }));
+    const [first] = await canvas.findAllByLabelText("Option label");
+    await userEvent.type(first, "Budget");
+    await userEvent.click(canvas.getByRole("button", { name: "Add option" }));
+    const rows = await canvas.findAllByLabelText("Option label");
+    await userEvent.type(rows[rows.length - 1], "Timing");
+  },
 };
 
-// Renders the default builder; type a structural label (e.g. "Link to parent
-// account") to surface the refusal banner and disable Confirm.
+// A structural label refused up front: the banner explains why a link between
+// objects is not a field, and Confirm stays dead while the label says it.
 export const BuilderRefusal: Story = {
   render: () => (
     <StoryProviders>
@@ -119,6 +137,14 @@ export const BuilderRefusal: Story = {
       />
     </StoryProviders>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(
+      canvas.getByLabelText("Label"),
+      "Link to parent account",
+    );
+    await canvas.findByRole("alert");
+  },
 };
 
 export const TableWithFields: Story = {

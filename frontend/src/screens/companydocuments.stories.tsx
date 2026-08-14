@@ -13,7 +13,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // row in each of those states, not just the clean happy path.
 
 const meta: Meta = {
-  title: "Screens/Company documents",
+  title: "Records/Company 360/Documents",
   parameters: { layout: "padded" },
 };
 export default meta;

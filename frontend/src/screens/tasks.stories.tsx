@@ -32,7 +32,7 @@ const task = {
 };
 
 const meta: Meta<typeof TasksScreen> = {
-  title: "Screens/tasks",
+  title: "Records/Tasks",
   component: TasksScreen,
 };
 export default meta;

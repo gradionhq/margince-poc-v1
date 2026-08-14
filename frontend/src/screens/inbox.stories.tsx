@@ -143,7 +143,7 @@ function inbox(config: Parameters<typeof installApprovalsStub>[0]) {
 }
 
 const meta: Meta<typeof InboxScreen> = {
-  title: "Screens/inbox",
+  title: "Records/Inbox",
   component: InboxScreen,
 };
 export default meta;

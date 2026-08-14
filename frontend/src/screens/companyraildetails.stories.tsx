@@ -12,7 +12,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // below is the only place a reader sees that second half render.
 
 const meta: Meta = {
-  title: "Screens/Company rail details",
+  title: "Records/Company rail/Details",
   parameters: { layout: "padded" },
 };
 export default meta;

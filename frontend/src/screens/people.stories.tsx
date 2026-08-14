@@ -3,14 +3,19 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ContactsScreen, PersonScreen } from "./people";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // ContactsScreen (list) and PersonScreen (360 Overview) both read through
 // the api client on mount — fixtures mirror people.test.tsx's `anna` +
 // dormant-strength default (the Overview tab fires the strength GET
 // unconditionally).
 const meta: Meta = {
-  title: "Screens/People",
+  title: "Records/People",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -37,6 +42,7 @@ const dormantStrength = {
 export const ContactsList: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ person: ["read", "update"] }),
       "GET /people": () =>
         jsonResponse({
           data: [anna],
@@ -54,6 +60,7 @@ export const ContactsList: Story = {
 export const PersonOverview: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ person: ["read", "update"] }),
       "GET /people/p-1": () => jsonResponse(anna),
       "GET /people/p-1/strength": () => jsonResponse(dormantStrength),
       "GET /activities": () => jsonResponse({ data: [] }),

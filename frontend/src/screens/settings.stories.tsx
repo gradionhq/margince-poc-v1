@@ -106,7 +106,7 @@ function tab(tabId: string, routes: RouteMap) {
 }
 
 const meta: Meta<typeof SettingsScreen> = {
-  title: "Screens/settings",
+  title: "Settings/Settings screen",
   component: SettingsScreen,
 };
 export default meta;

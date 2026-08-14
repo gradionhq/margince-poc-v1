@@ -4,7 +4,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
 import { CompanyRail } from "./companyrail";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The record's left rail (mockup State A): one panel, a details grid over
 // collapsible sections. Every seeded demo account grants full RBAC and
@@ -14,7 +19,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // empty state.
 
 const meta: Meta = {
-  title: "Screens/Company rail",
+  title: "Records/Company rail/Rail",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -101,6 +106,7 @@ const withheld = {
 
 function Rail({ view }: Readonly<{ view: View }>) {
   installFetchStub({
+    "GET /me": meRoute({ organization: ["read", "update"] }),
     "GET /organizations/o-1/finance-summary": () =>
       jsonResponse({ organization_id: "o-1", state: "no_connection" }),
     "GET /users": () =>

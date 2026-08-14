@@ -1,9 +1,5 @@
 /* The reach table: which accounts a member's imported network reaches. */
 
-.li-reach {
-  margin-bottom: var(--space-4);
-}
-
 /* The reach table scrolls inside its own box rather than widening the page. */
 .li-reach-table {
   display: block;

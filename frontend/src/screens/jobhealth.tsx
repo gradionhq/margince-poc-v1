@@ -7,14 +7,16 @@ import type { CSSProperties, ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole } from "../app/capability";
-import { Badge, Card, EmptyState } from "../design-system/atoms";
+import { Badge, EmptyState, SectionHeader } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { CardBoundary } from "../design-system/cardboundary";
 import { type Fact, FactList } from "../design-system/factlist";
+import { Panel, PanelBody } from "../design-system/panel";
 import { formatDateTime, formatNumber } from "../format/format";
 import type { Translator } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { QueryGate, throwProblem } from "./common";
+import { QueryGate, throwProblem, useMe } from "./common";
 
 // GET /admin/job-health — the operator's only window onto the background
 // system, for Settings → Maintenance. Until this card existed a stalled queue
@@ -29,6 +31,13 @@ type JobHealth = components["schemas"]["JobHealth"];
 type JobKindHealth = components["schemas"]["JobKindHealth"];
 type JobFailure = components["schemas"]["JobFailure"];
 
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
+
 // A row of pills that wraps instead of running the card wide.
 const PILL_ROW: CSSProperties = {
   display: "flex",
@@ -36,8 +45,10 @@ const PILL_ROW: CSSProperties = {
   flexWrap: "wrap",
 };
 
-// The gap between this card's stacked sections.
-const SECTION: CSSProperties = { marginTop: "var(--space-4)" };
+// The trailing note under a section's own content — the vetted-reason caveat
+// and the generated-at stamp. The headings above them carry their own rhythm
+// (SectionHeader owns it), so this is the only gap left to state.
+const NOTE: CSSProperties = { marginTop: "var(--space-4)" };
 
 // The closed failure-state enum with the tone each state earns. `cancelled`
 // earns none: it was stopped deliberately, so it records a decision somebody
@@ -136,9 +147,11 @@ function KindSection({
 }>) {
   const t = useT();
   return (
-    <section style={SECTION}>
-      <h3>{title}</h3>
-      {sub !== undefined && <p className="t-caption">{sub}</p>}
+    // level={3}: a section INSIDE the panel's own h2. A bare <h3> carries no
+    // class, and with Tailwind's preflight live that renders at body size and
+    // body weight — a heading nothing on screen reads as one.
+    <section>
+      <SectionHeader level={3} title={title} sub={sub} />
       {kinds.length === 0 ? (
         <EmptyState>{emptyText}</EmptyState>
       ) : (
@@ -191,15 +204,18 @@ function FailureSection({
 }>) {
   const t = useT();
   return (
-    <section style={SECTION}>
-      <h3>{t("jobs.failures")}</h3>
-      <p className="t-caption">{t("jobs.failuresSub")}</p>
+    <section>
+      <SectionHeader
+        level={3}
+        title={t("jobs.failures")}
+        sub={t("jobs.failuresSub")}
+      />
       {failures.length === 0 ? (
         <EmptyState>{t("jobs.failuresEmpty")}</EmptyState>
       ) : (
         <>
           <FactList facts={failureFacts(failures, t, locale, zone)} />
-          <p className="t-caption" style={SECTION}>
+          <p className="t-caption" style={NOTE}>
             {t("jobs.reasonVetted")}
           </p>
         </>
@@ -254,7 +270,7 @@ function JobHealthBody({ health }: Readonly<{ health: JobHealth }>) {
         locale={locale}
         zone={zone}
       />
-      <p className="t-caption" style={SECTION}>
+      <p className="t-caption" style={NOTE}>
         {t("jobs.generatedAt", {
           time: formatDateTime(health.generated_at, locale, zone),
         })}
@@ -265,6 +281,11 @@ function JobHealthBody({ health }: Readonly<{ health: JobHealth }>) {
 
 export function JobHealthCard() {
   const t = useT();
+  // The probe itself, not only its answer: useHoldsAdminRole reads false while
+  // /me is in flight, so branching on `!isAdmin` alone told every administrator
+  // that job health was admin-only, on every load of the Maintenance tab,
+  // until the session landed.
+  const me = useMe();
   // The role, not a grant: the endpoint gates on `admin` server-side and no
   // RBAC object describes background work. `enabled` is what keeps a non-admin
   // from issuing a call that could only 403 — a refusal the reader cannot act
@@ -306,10 +327,17 @@ export function JobHealthCard() {
     // Withheld, not absent. The card keeps its place on a maintenance page a
     // non-admin reaches for its other sections, and an absent card there would
     // read as "nothing is queued" — a different claim entirely.
+    //
+    // Behind the probe, so the notice states a settled denial rather than the
+    // absence of an answer: while /me is in flight nobody holds any role yet.
     body = (
-      <EmptyState>
-        <p className="t-small">{t("jobs.adminOnly")}</p>
-      </EmptyState>
+      <QueryGate query={me}>
+        {() => (
+          <EmptyState>
+            <p className="t-small">{t("jobs.adminOnly")}</p>
+          </EmptyState>
+        )}
+      </QueryGate>
     );
   } else {
     // No `empty` predicate on the gate: its generic copy would understate the
@@ -321,13 +349,20 @@ export function JobHealthCard() {
     );
   }
 
+  // No bottom margin: `.settings-stack` owns the gap between cards, and a card
+  // that adds its own gets two.
   return (
-    <Card
-      title={t("settings.jobs")}
-      sub={t("settings.jobsSub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
-      {body}
-    </Card>
+    <Panel title={t("settings.jobs")}>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("settings.jobsSub")}
+        </p>
+        {/* One card's throw stays inside one card. This body derives every
+            line from a payload the background system writes, so it has more
+            ways to give out than the panels beside it — and without a boundary
+            the whole Maintenance tab, navigation rail included, goes with it. */}
+        <CardBoundary>{body}</CardBoundary>
+      </PanelBody>
+    </Panel>
   );
 }

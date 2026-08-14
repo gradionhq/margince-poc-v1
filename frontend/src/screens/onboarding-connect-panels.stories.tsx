@@ -17,7 +17,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // (Gmail and Microsoft) and the provider-agnostic post-consent return view.
 
 const meta: Meta<typeof ImapConnectPanel> = {
-  title: "Screens/onboarding-connect-panels",
+  title: "Onboarding/Connect panels",
   component: ImapConnectPanel,
 };
 export default meta;

@@ -7,6 +7,7 @@ import {
   emptyPage,
   installFetchStub,
   jsonResponse,
+  meRoute,
   type RouteMap,
   StoryProviders,
 } from "./story-utils";
@@ -131,6 +132,9 @@ const LEARNING = {
 function voiceStory(routes: RouteMap) {
   return () => {
     installFetchStub({
+      // Every control here mutates, so the card asks useCanWrite — grant AND
+      // seat. Both halves are named because they fail the same way on screen.
+      "GET /me": meRoute({ voice_profile: ["read", "create", "update"] }),
       "GET /voice-profiles/vp-1/versions": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/deltas": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/learning": () => jsonResponse(LEARNING),
@@ -145,7 +149,7 @@ function voiceStory(routes: RouteMap) {
 }
 
 const meta: Meta = {
-  title: "Screens/voice-dna",
+  title: "Settings/You/Voice/Voice DNA",
 };
 export default meta;
 

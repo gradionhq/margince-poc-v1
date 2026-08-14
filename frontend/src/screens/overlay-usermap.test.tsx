@@ -116,6 +116,11 @@ type Fixture = {
   ownersFail?: boolean;
   userMapProblem?: { status: number; body: unknown };
   extra?: Record<string, RouteHandler>;
+  // The workspace's system-of-record mode, as /me reports it. Overlay by
+  // default because that is the only installation this card has anything to
+  // map on — a native one has no mirror, and the card is expected to say so
+  // WITHOUT asking the two endpoints, which is its own test below.
+  sorMode?: "native" | "overlay";
 };
 
 function renderCard(fixture: Fixture = {}) {
@@ -130,6 +135,7 @@ function renderCard(fixture: Fixture = {}) {
       return jsonResponse({
         ...me,
         user: { ...me.user, id: fixture.me ?? "admin-1" },
+        system_of_record: { mode: fixture.sorMode ?? "overlay" },
       });
     },
     "GET /overlay/user-map": (request) => {
@@ -812,6 +818,22 @@ describe("the mirror user-map card", () => {
     expect(requests(calls, "GET", "/overlay/owners")).toHaveLength(0);
   });
 
+  // /me already carries the workspace's mode, so a native installation — which
+  // is every installation until somebody connects an incumbent — must reach the
+  // same sentence without spending two round trips provoking a 404 first.
+  it("says a native workspace has nothing to map without asking the server", async () => {
+    const { calls } = renderCard({ sorMode: "native" });
+
+    expect(
+      await screen.findByText(/reads from native tables/i),
+    ).toBeInTheDocument();
+    expect(requests(calls, "GET", "/overlay/user-map")).toHaveLength(0);
+    expect(requests(calls, "GET", "/overlay/owners")).toHaveLength(0);
+  });
+
+  // The mode on /me and the mode this endpoint enforces are two reads of one
+  // workspace, and a flip between them lands here as the 404. It still reads as
+  // the calm native state rather than as a failure.
   it("reads a native workspace as nothing to map, not as a failure", async () => {
     renderCard({
       userMapProblem: {

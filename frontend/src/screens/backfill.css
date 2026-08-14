@@ -1,0 +1,149 @@
+/* The bounded connect-time backfill (ADR-0063): window picker → estimate card
+ * → live run view.
+ *
+ * These rules lived in onboarding.css, which the panel that draws them never
+ * imports — and onboarding does not mount BackfillPanel at all any more, so the
+ * ONLY caller (the Settings connected-inboxes card) was rendering a panel whose
+ * whole sheet was somewhere else. The sheet lives beside the screen that draws
+ * it, and the component imports it itself.
+ */
+
+.backfill-setup,
+.capture-hero {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  text-align: left;
+}
+/* The finished capture reads as arrival, not just a stopped process. */
+.capture-hero.done {
+  border-color: var(--online);
+  background: var(--successBg);
+}
+.backfill-h {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
+}
+.capture-hero.done .backfill-h svg {
+  color: var(--success);
+}
+/* The window choices wrap rather than overflow: three labelled radios plus the
+   control-label gap outgrow a narrow or zoomed column, and a horizontal
+   scrollbar is not an acceptable way to reach the third option. */
+.backfill-windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.backfill-estimate {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--accentLight);
+  border-radius: var(--r-sm);
+}
+.backfill-estimate p {
+  margin: 0 0 var(--space-2);
+}
+.backfill-error {
+  color: var(--danger);
+}
+.backfill-skipped {
+  margin-top: var(--space-3);
+}
+/* Neutral, not danger-tinted: a capability gap and a stalled-progress note
+   are honest states, not errors. */
+.backfill-unsupported,
+.backfill-stale {
+  color: var(--textSecondary);
+}
+
+/* The panel's own trailing verb — skip, or cancel a live run. It used to be a
+ * bare <button> painted as an underlined link; it is a Button now, and the only
+ * thing left for this sheet to say is where it sits. */
+.backfill-foot {
+  margin-top: var(--space-3);
+}
+
+/* The capture hero: the three headline figures a newly-connected mailbox
+   grows, climbing live as the backfill pages. */
+.capture-stats {
+  display: flex;
+  gap: var(--space-4);
+  margin: var(--space-3) 0;
+  flex-wrap: wrap;
+}
+.capture-stat {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px var(--space-2); /* ds:ignore a figure and its caption are one reading; --space-1's 4px floor splits them */
+  min-width: 84px;
+}
+.capture-stat svg {
+  grid-row: 1 / 3;
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+.capture-stat-value {
+  font-family: var(--f-body);
+  font-size: var(--fs-h1);
+  line-height: var(--lh-tight);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
+}
+.capture-stat span {
+  grid-column: 2;
+  font-size: var(--fs-eyebrow);
+  /* textContent, not textSecondary — clears AA over the done-state green tint. */
+  color: var(--textContent);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+.capture-hero progress {
+  width: 100%;
+  margin: var(--space-2) 0;
+}
+.capture-scanned {
+  margin: var(--space-1) 0 0;
+  color: var(--textContent);
+}
+/* Each increment re-keys the value node, replaying this pop. */
+.capture-stat-value {
+  animation: capture-pop 0.42s ease-out;
+}
+.spin-slow {
+  animation: capture-spin 1.6s linear infinite;
+}
+@keyframes capture-pop {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.35;
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes capture-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-stat-value,
+  .spin-slow {
+    animation: none;
+  }
+}

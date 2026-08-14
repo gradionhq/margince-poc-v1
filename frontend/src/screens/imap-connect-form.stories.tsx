@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent } from "storybook/test";
 import { ImapConnectForm } from "./imap-connect-form";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
@@ -12,14 +12,15 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // screenshot shows the actual error sentence, not just the empty form.
 
 const meta: Meta<typeof ImapConnectForm> = {
-  title: "Screens/imap-connect-form",
+  title: "Settings/You/Connections/IMAP connect form",
   component: ImapConnectForm,
 };
 export default meta;
 type Story = StoryObj<typeof ImapConnectForm>;
 
-async function fillAndSubmit(canvasElement: HTMLElement) {
-  const canvas = within(canvasElement);
+// `screen`, not the story canvas: the form is inside a portalled Modal.
+async function fillAndSubmit() {
+  const canvas = screen;
   await userEvent.type(
     canvas.getByLabelText("IMAP server *"),
     "mail.example.org",
@@ -61,9 +62,9 @@ export const LoginRejected: Story = {
       </StoryProviders>
     );
   },
-  play: async ({ canvasElement }) => {
-    await fillAndSubmit(canvasElement);
-    await within(canvasElement).findByText(/rejected these credentials/i);
+  play: async () => {
+    await fillAndSubmit();
+    await screen.findByText(/rejected these credentials/i);
   },
 };
 
@@ -85,8 +86,8 @@ export const Unreachable: Story = {
       </StoryProviders>
     );
   },
-  play: async ({ canvasElement }) => {
-    await fillAndSubmit(canvasElement);
-    await within(canvasElement).findByText(/could not be reached/i);
+  play: async () => {
+    await fillAndSubmit();
+    await screen.findByText(/could not be reached/i);
   },
 };

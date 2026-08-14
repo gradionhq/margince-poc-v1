@@ -91,7 +91,7 @@ function retention(retainOnly: boolean, extra: RouteMap = {}) {
 }
 
 const meta: Meta<typeof RetentionCard> = {
-  title: "Screens/retention",
+  title: "Settings/Organization/Privacy/Retention",
   component: RetentionCard,
 };
 export default meta;

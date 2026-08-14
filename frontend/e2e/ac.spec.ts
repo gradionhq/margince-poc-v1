@@ -416,9 +416,13 @@ test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enab
     ),
   ).toBeVisible();
   const row = page.locator('[data-automation="au-2"]');
-  await expect(row.getByText("pausiert")).toBeVisible();
-  await row.getByRole("button", { name: "Aktivieren" }).click();
-  await expect(row.getByText("aktiv", { exact: true })).toBeVisible();
+  // The row states its status on the control that changes it, rather than on a
+  // badge beside a button whose label named the OTHER state. So the criterion
+  // reads the switch: arrives off, one deliberate flip turns it on.
+  const active = row.getByRole("switch", { name: "Aktiv" });
+  await expect(active).toHaveAttribute("aria-checked", "false");
+  await active.click();
+  await expect(active).toHaveAttribute("aria-checked", "true");
 });
 
 test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, no user-defined trigger", async ({

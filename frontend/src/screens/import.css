@@ -80,9 +80,15 @@
   gap: var(--space-3);
 }
 
+/* A heading needs a heading's weight. Tailwind's preflight resets h1–h6 and
+   nothing in this tree puts it back, so an h3 that only sets a size renders at
+   body weight — indistinguishable from the hint line under it, which is the one
+   thing the title above the counts must not be. */
 .import__outcomeTitle {
   margin: 0;
   font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
 }
 
 .import__counts {

@@ -8,15 +8,21 @@ import {
   Button,
   Card,
   Checkbox,
+  EmptyState,
+  OverflowMenu,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import { Switch } from "../design-system/switch";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
 import { DateFieldSelect } from "./automations.datefield";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
+import "./automations.css";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
 // catalog (E15/ADR-0035). The anti-DSL invariant of features/10 §1 holds by
@@ -242,17 +248,17 @@ function AutomationForm({
     <Card
       as="form"
       inset
-      style={{ marginTop: "var(--space-3)" }}
+      className="auto-form"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit(name.trim() || entry.name, paramsFromValues(fields, values));
       }}
     >
       <p className="t-label">{entry.name}</p>
-      <p className="t-mono t-small" style={{ marginTop: 2 }}>
+      <p className="t-mono t-small auto-recipe">
         {entry.trigger} {"->"} {entry.action}
       </p>
-      <div className="field" style={{ marginTop: 8 }}>
+      <div className="field auto-field">
         <span className="t-label" id={`${formId}-name`}>
           {t("auto.name")}
         </span>
@@ -274,7 +280,7 @@ function AutomationForm({
           }
         />
       ))}
-      <div className="approval-gate" style={{ marginTop: 10 }}>
+      <div className="approval-gate auto-form-actions">
         <Button type="submit" variant="primary" small disabled={pending}>
           {submitLabel}
         </Button>
@@ -321,6 +327,65 @@ function InspectorToggles({
       >
         {t("auto.preview.open")}
       </Button>
+    </>
+  );
+}
+
+// Deleting an automation drops the rule entirely — the records it watched stop
+// being watched — so it asks first, the way every other destructive verb in
+// settings does. It owns its own mutation and its own staged state rather than
+// borrowing the row's: the question, the refusal and the write are one thing,
+// and keeping them together is what lets the row stay a row.
+//
+// The refusal stays IN the dialog, which is where the reader still is. A row
+// that reported it underneath would report it behind the thing covering it.
+function DeleteAutomationAction({
+  automation,
+}: Readonly<{ automation: Automation }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [asking, setAsking] = useState(false);
+
+  const remove = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.DELETE("/automations/{id}", {
+        params: { path: { id: automation.id } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+    },
+    onSuccess: () => {
+      setAsking(false);
+      queryClient.invalidateQueries({ queryKey: ["automations"] });
+    },
+  });
+
+  return (
+    <>
+      <Button
+        small
+        variant="danger"
+        disabled={remove.isPending}
+        onClick={() => setAsking(true)}
+      >
+        {t("auto.delete")}
+      </Button>
+      <ConfirmModal
+        open={asking}
+        onClose={() => {
+          setAsking(false);
+          remove.reset();
+        }}
+        title={t("auto.deleteTitle")}
+        confirmLabel={t("auto.delete")}
+        confirmVariant="danger"
+        pending={remove.isPending}
+        error={remove.isError ? problemMessageOf(remove.error, t) : null}
+        onConfirm={() => remove.mutate()}
+      >
+        <p>{t("auto.deleteBody", { name: automation.name })}</p>
+      </ConfirmModal>
     </>
   );
 }
@@ -391,39 +456,15 @@ export function AutomationRow({
     },
   });
 
-  const remove = useMutation({
-    mutationFn: async () => {
-      const { error } = await api.DELETE("/automations/{id}", {
-        params: { path: { id: automation.id } },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["automations"] });
-    },
-  });
-
   const enabled = automation.status === "enabled";
-
-  let mutationError: string | null = null;
-  if (patch.error) {
-    mutationError = problemMessageOf(patch.error, t);
-  } else if (remove.error) {
-    mutationError = problemMessageOf(remove.error, t);
-  }
+  // The row offers at least one verb worth folding away. With none of the three
+  // grants there is nothing behind the control, and a menu that opens on an
+  // empty panel is worse than no menu.
+  const hasVerbs = (canEdit && entry !== undefined) || canViewRuns || canDelete;
 
   return (
-    <li style={{ marginBottom: 12 }} data-automation={automation.id}>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
+    <li className="auto-row" data-automation={automation.id}>
+      <div className="auto-row-head">
         {entry?.tier && (
           <AutonomyDot
             tier={entry.tier === "auto_execute" ? "auto" : "confirm"}
@@ -431,50 +472,55 @@ export function AutomationRow({
         )}
         <strong>{automation.name}</strong>
         <span className="t-mono t-small">{automation.key}</span>
-        <Badge tone={enabled ? "success" : "warn"}>
-          {enabled ? t("auto.statusEnabled") : t("auto.statusPaused")}
-        </Badge>
         <span className="t-mono t-small">
           {Object.entries(automation.params)
             .map(([key, value]) => `${key}=${scalarText(value)}`)
             .join(" ")}
         </span>
-        <span style={{ flexGrow: 1 }} />
-        {canEdit && (
-          <>
-            <Button
-              small
-              disabled={patch.isPending}
-              onClick={() =>
-                patch.mutate({ status: enabled ? "paused" : "enabled" })
-              }
-            >
-              {enabled ? t("auto.pause") : t("auto.enable")}
-            </Button>
-            {entry && (
+        <span className="auto-row-fill" />
+        {/* A Switch, because flipping it IS the write: the old pair was a
+            button whose label named the NEXT state beside a badge naming the
+            current one, so the row said "Pause" and "enabled" and left the
+            reader to work out which of the two their click would produce.
+            Without the update grant there is nothing to flip, and the badge
+            comes back — the state is a read this row still owes, and the
+            section says once, above the list, why the control is not here. */}
+        {canEdit ? (
+          <Switch
+            label={t("auto.enabledLabel")}
+            checked={enabled}
+            disabled={patch.isPending}
+            onChange={(next) =>
+              patch.mutate({ status: next ? "enabled" : "paused" })
+            }
+          />
+        ) : (
+          <Badge tone={enabled ? "success" : "warn"}>
+            {enabled ? t("auto.statusEnabled") : t("auto.statusPaused")}
+          </Badge>
+        )}
+        {/* Four verbs of equal visual weight, one of them irreversible, used to
+            sit in a row separated from the rest only by a flex spacer. The menu
+            is what the design system offers for exactly that: the row carries
+            what the automation IS and whether it is on, and the things a reader
+            occasionally does to it live one click away. */}
+        {hasVerbs && (
+          <OverflowMenu label={t("auto.rowActions", { name: automation.name })}>
+            {canEdit && entry && (
               <Button small onClick={() => setEditing((open) => !open)}>
                 {t("trust.edit")}
               </Button>
             )}
-          </>
-        )}
-        {canViewRuns && (
-          <InspectorToggles
-            runsOpen={runsOpen}
-            previewOpen={previewOpen}
-            onToggleRuns={() => setRunsOpen((open) => !open)}
-            onTogglePreview={() => setPreviewOpen((open) => !open)}
-          />
-        )}
-        {canDelete && (
-          <Button
-            small
-            variant="danger"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {t("auto.delete")}
-          </Button>
+            {canViewRuns && (
+              <InspectorToggles
+                runsOpen={runsOpen}
+                previewOpen={previewOpen}
+                onToggleRuns={() => setRunsOpen((open) => !open)}
+                onTogglePreview={() => setPreviewOpen((open) => !open)}
+              />
+            )}
+            {canDelete && <DeleteAutomationAction automation={automation} />}
+          </OverflowMenu>
         )}
       </div>
       <AutomationInspectors
@@ -494,12 +540,13 @@ export function AutomationRow({
           onCancel={() => setEditing(false)}
         />
       )}
-      {(patch.isError || remove.isError) && (
-        <p
-          className="t-caption"
-          style={{ color: "var(--danger)", marginTop: 8 }}
-        >
-          {mutationError}
+      {/* The switch and the edit form share one mutation, and a refused write
+          moves nothing on screen — so this line is the only report that the
+          flip did not land, and it has to be spoken. The delete's own refusal
+          stays in its dialog, where the reader still is. */}
+      {patch.isError && (
+        <p className="t-caption auto-error" role="alert">
+          {problemMessageOf(patch.error, t)}
         </p>
       )}
     </li>
@@ -541,8 +588,15 @@ export function AutomationsAdmin() {
     },
   });
 
+  // Gated on the grant the SERVER demands: AutomationStore.List calls
+  // auth.Require(automation, read), so without it this query could only 403 —
+  // a settled denial rendered as a failure with a Retry that cannot succeed.
+  // The catalog above is deliberately NOT gated: ListAutomationCatalog reaches
+  // no store and requires no object grant, so the starter library is readable
+  // by anyone the session admits.
   const instances = useQuery({
     queryKey: ["automations"],
+    enabled: canViewRuns,
     queryFn: async () => {
       const { data, error } = await api.GET("/automations", {
         params: { query: { limit: 50 } },
@@ -578,119 +632,125 @@ export function AutomationsAdmin() {
     catalog.data?.data.find((entry) => entry.key === key);
 
   return (
-    // One addressable region, so a reader — and a test — can say "the
-    // automations surface" rather than "the whole settings page".
-    <section data-automations-admin>
-      <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
-      {me.isSuccess && !canCreate && !canEdit && !canDelete && (
-        <p className="t-caption" style={{ marginBottom: 10 }}>
-          {t("auto.readOnly")}
-        </p>
-      )}
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <Card
-          style={{ flex: "1 1 260px", minWidth: 240 }}
-          title={t("auto.catalog")}
-          sub={t("auto.catalogSub")}
-          level={3}
-        >
-          <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
-            {(page) => (
-              <ul
-                style={{
-                  listStyle: "none",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
-              >
-                {page.data.map((entry) => (
-                  <li key={entry.key}>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {entry.tier && (
-                        <AutonomyDot
-                          tier={
-                            entry.tier === "auto_execute" ? "auto" : "confirm"
-                          }
-                        />
-                      )}
-                      <strong>{entry.name}</strong>
-                      {canCreate && (
-                        <Button small onClick={() => setTemplate(entry)}>
-                          {t("auto.use")}
-                        </Button>
-                      )}
-                    </div>
-                    {entry.description && (
-                      <p className="t-caption" style={{ marginTop: 2 }}>
-                        {entry.description}
-                      </p>
-                    )}
-                    <p className="t-mono t-small" style={{ marginTop: 2 }}>
-                      {entry.trigger} {"->"} {entry.action}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </QueryGate>
-          {template && (
-            <AutomationForm
-              key={template.key}
-              entry={template}
-              initialName={template.name}
-              submitLabel={t("auto.create")}
-              pending={create.isPending}
-              onSubmit={(name, params) =>
-                create.mutate({ key: template.key, name, params })
-              }
-              onCancel={() => setTemplate(null)}
+    // ONE panel, not two side by side under a heading of their own. The old
+    // shape put an h2 over two cards that each minted a second h2, and gave the
+    // pair hard 240px/280px floors — the tightest in settings — against about
+    // 308px of card interior on a phone. The panel's h2 names the surface, the
+    // two halves are sections INSIDE it, and neither has a width it refuses to
+    // go below.
+    //
+    // `data-automations-admin` still marks the one addressable region, so a
+    // reader — and the acceptance suite — can say "the automations surface"
+    // rather than "the whole settings page".
+    <Panel title={t("nav.automations")}>
+      <PanelBody>
+        <p className="t-sub">{t("auto.sub")}</p>
+        {me.isSuccess && !canCreate && !canEdit && !canDelete && (
+          <p className="t-caption auto-readonly">{t("auto.readOnly")}</p>
+        )}
+        <div className="auto-columns" data-automations-admin>
+          <section className="auto-column">
+            <SectionHeader
+              level={3}
+              title={t("auto.catalog")}
+              sub={t("auto.catalogSub")}
             />
-          )}
-          {create.isSuccess && (
-            <p className="t-caption" style={{ marginTop: 8 }}>
-              {t("auto.createdPaused")}
-            </p>
-          )}
-          {create.isError && (
-            <p
-              className="t-caption"
-              style={{ color: "var(--danger)", marginTop: 8 }}
-            >
-              {problemMessageOf(create.error, t)}
-            </p>
-          )}
-        </Card>
-        <Card
-          style={{ flex: "2 1 320px", minWidth: 280 }}
-          title={t("auto.instances")}
-          level={3}
-        >
-          <QueryGate query={instances} empty={(page) => page.data.length === 0}>
-            {(page) => (
-              <ul style={{ listStyle: "none" }}>
-                {page.data.map((automation) => (
-                  <AutomationRow
-                    key={automation.id}
-                    automation={automation}
-                    entry={entryFor(automation.key)}
-                    canViewRuns={canViewRuns}
-                    canEdit={canEdit}
-                    canDelete={canDelete}
-                  />
-                ))}
-              </ul>
+            <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
+              {(page) => (
+                <ul className="auto-catalog">
+                  {page.data.map((entry) => (
+                    <li key={entry.key}>
+                      <div className="auto-catalog-head">
+                        {entry.tier && (
+                          <AutonomyDot
+                            tier={
+                              entry.tier === "auto_execute" ? "auto" : "confirm"
+                            }
+                          />
+                        )}
+                        <strong>{entry.name}</strong>
+                        {canCreate && (
+                          <Button small onClick={() => setTemplate(entry)}>
+                            {t("auto.use")}
+                          </Button>
+                        )}
+                      </div>
+                      {entry.description && (
+                        <p className="t-caption auto-note">
+                          {entry.description}
+                        </p>
+                      )}
+                      <p className="t-mono t-small auto-note">
+                        {entry.trigger} {"->"} {entry.action}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </QueryGate>
+            {template && (
+              <AutomationForm
+                key={template.key}
+                entry={template}
+                initialName={template.name}
+                submitLabel={t("auto.create")}
+                pending={create.isPending}
+                onSubmit={(name, params) =>
+                  create.mutate({ key: template.key, name, params })
+                }
+                onCancel={() => setTemplate(null)}
+              />
             )}
-          </QueryGate>
-        </Card>
-      </div>
-    </section>
+            {create.isSuccess && (
+              <p className="t-caption auto-note" role="status">
+                {t("auto.createdPaused")}
+              </p>
+            )}
+            {create.isError && (
+              <p className="t-caption auto-error" role="alert">
+                {problemMessageOf(create.error, t)}
+              </p>
+            )}
+          </section>
+          <section className="auto-column auto-column-wide">
+            <SectionHeader level={3} title={t("auto.instances")} />
+            {canViewRuns ? (
+              <QueryGate
+                query={instances}
+                empty={(page) => page.data.length === 0}
+              >
+                {(page) => (
+                  <ul className="auto-instances">
+                    {page.data.map((automation) => (
+                      <AutomationRow
+                        key={automation.id}
+                        automation={automation}
+                        entry={entryFor(automation.key)}
+                        canViewRuns={canViewRuns}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </QueryGate>
+            ) : (
+              // Withheld, not absent, and not empty: an empty instance list
+              // says this installation runs no automations, which is a claim
+              // about the workspace rather than about who may read it. Behind
+              // the probe, so it states a settled denial rather than the
+              // absence of an answer.
+              <QueryGate query={me}>
+                {() => (
+                  <EmptyState>
+                    <p className="t-small">{t("auto.withheld")}</p>
+                  </EmptyState>
+                )}
+              </QueryGate>
+            )}
+          </section>
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }

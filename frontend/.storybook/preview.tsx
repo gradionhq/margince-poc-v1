@@ -20,13 +20,29 @@ const withTheme: Decorator = (Story, context) => {
   return <Story />;
 };
 
+// Storybook's own `layout` parameter says how a story wants to be framed, and
+// two of its three values mean "not like this": `fullscreen` asks for the raw
+// viewport, `centered` asks Storybook to centre the story itself. A frame that
+// ignores the parameter does not just add margin — it silently repeals it. The
+// shell's sidebar measures its foot against the viewport, so 2rem of frame
+// clipped it on the very story written to catch that; and a 390px phone
+// viewport carrying a 2rem frame on each side is a 342px phone, which is not
+// a phone any reader has.
+const FRAMED_BY_STORYBOOK = new Set(["fullscreen", "centered"]);
+
 // Surface decorator — frames every story with consistent breathing room so
-// the catalog reads as composed, not dumped in the canvas corner.
-const withSurface: Decorator = (Story) => (
-  <div style={{ minHeight: "100vh", padding: "2rem" }}>
-    <Story />
-  </div>
-);
+// the catalog reads as composed, not dumped in the canvas corner. Stories that
+// declared their own framing keep it.
+const withSurface: Decorator = (Story, context) => {
+  if (FRAMED_BY_STORYBOOK.has(context.parameters.layout)) {
+    return <Story />;
+  }
+  return (
+    <div style={{ minHeight: "100vh", padding: "2rem" }}>
+      <Story />
+    </div>
+  );
+};
 
 const preview: Preview = {
   globalTypes: {

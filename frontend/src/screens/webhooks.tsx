@@ -14,13 +14,14 @@ import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
-  Card,
   DataTable,
   EmptyState,
   Modal,
+  OverflowMenu,
   SectionHeader,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -42,6 +43,7 @@ import {
   splitMultiselectValue,
 } from "./create";
 import { EditAction } from "./edit";
+import "./webhooks.css";
 
 // Settings → Integrations (B-E10.14): the subscription list for outbound
 // webhooks. The list wire (WebhookSubscription) carries no per-item delivery
@@ -295,8 +297,15 @@ function RotateSecretAction({
 
   return (
     <>
+      {/* The old secret stops verifying the moment this succeeds, and there is
+          no way back to it — so the control reads as destructive and the
+          confirm's own button does too. It rendered as a plain default button
+          beside Edit, at exactly the weight of a reversible change, and its
+          confirm borrowed "Confirm" from the deals namespace, which named the
+          dialog's mechanics rather than the act being confirmed. */}
       <Button
         small
+        variant="danger"
         onClick={() => setConfirming(true)}
         data-testid="rotate-webhook-secret"
       >
@@ -306,7 +315,8 @@ function RotateSecretAction({
         open={confirming}
         onClose={() => setConfirming(false)}
         title={t("webhooks.rotateConfirm.title")}
-        confirmLabel={t("deals.confirm")}
+        confirmLabel={t("webhooks.rotate")}
+        confirmVariant="danger"
         onConfirm={() => mutation.mutate()}
         pending={mutation.isPending}
         error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
@@ -369,12 +379,25 @@ function SecretRevealModal({
           {t("webhooks.secret.copyFailed")}
         </p>
       )}
+      {/* Dismissing is what DESTROYS the only copy of the secret: it lives in
+          this component's state and is never re-derivable from any read. So
+          Copy is the primary act here and Done is the quiet one — the reverse
+          of what this dialog used to say, where the green button was the
+          irreversible half and read as the safe way out. Done is still
+          available before a copy (a reader who deliberately abandons a
+          subscription must be able to leave), but the caution says in words
+          what it costs. */}
+      {!copied && (
+        <p className="t-caption webhook-secret-caution">
+          {t("webhooks.secret.leaveWarning")}
+        </p>
+      )}
       <div className="actions">
-        <Button small onClick={() => void copySecret()}>
-          {copied ? t("webhooks.secret.copied") : t("webhooks.secret.copy")}
-        </Button>
-        <Button small variant="primary" onClick={onClose}>
+        <Button small onClick={onClose}>
           {t("webhooks.secret.done")}
+        </Button>
+        <Button small variant="primary" onClick={() => void copySecret()}>
+          {copied ? t("webhooks.secret.copied") : t("webhooks.secret.copy")}
         </Button>
       </div>
     </Modal>
@@ -490,7 +513,10 @@ function ReplayDeliveryAction({
         open={confirming}
         onClose={() => setConfirming(false)}
         title={t("webhooks.deliveries.replayConfirm.title")}
-        confirmLabel={t("deals.confirm")}
+        // The act, not the dialog's mechanics: "Confirm" was borrowed from the
+        // deals namespace and told a reader nothing about what they were about
+        // to re-send.
+        confirmLabel={t("webhooks.deliveries.replay")}
         onConfirm={() =>
           mutation.mutate(delivery.id, {
             onSuccess: () => setConfirming(false),
@@ -608,7 +634,14 @@ function deliveryColumns(
 function DeliveriesPanel({
   subscription,
   canReplay,
-}: Readonly<{ subscription: WebhookSubscription; canReplay: boolean }>) {
+  id,
+}: Readonly<{
+  subscription: WebhookSubscription;
+  canReplay: boolean;
+  // The region the row's toggle points `aria-controls` at, so a screen reader
+  // is told what the button opens rather than only that it opened.
+  id: string;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const { query, loadMore, canLoadMore } = useWebhookDeliveries(
@@ -616,10 +649,7 @@ function DeliveriesPanel({
   );
 
   return (
-    <div
-      className="webhook-deliveries-panel"
-      style={{ marginTop: "var(--space-3)" }}
-    >
+    <div className="webhook-deliveries-panel" id={id}>
       <QueryStates query={query}>
         <DeliveriesBody
           response={query.data}
@@ -667,7 +697,10 @@ function DeliveriesBody({
   return (
     <>
       {deadLettered.length > 0 && (
-        <div data-testid="dead-letter-group">
+        <div
+          className="webhook-deliveries-group"
+          data-testid="dead-letter-group"
+        >
           <SectionHeader
             title={t("webhooks.deliveries.deadLetterGroup", {
               count: deadLettered.length,
@@ -682,9 +715,7 @@ function DeliveriesBody({
         </div>
       )}
       {others.length > 0 && (
-        <div
-          style={{ marginTop: deadLettered.length > 0 ? "var(--space-3)" : 0 }}
-        >
+        <div className="webhook-deliveries-group">
           {deadLettered.length > 0 && (
             <SectionHeader
               title={t("webhooks.deliveries.allGroup")}
@@ -717,29 +748,16 @@ function SubscriptionRow({
   const t = useT();
   const { locale } = useLocale();
   const [showDeliveries, setShowDeliveries] = useState(false);
+  const deliveriesId = useId();
   return (
-    <Card inset className="webhook-row">
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <span className="t-mono">{subscription.target_url}</span>
+    <PanelRow>
+      <div className="webhook-row">
+        <span className="t-mono webhook-target">{subscription.target_url}</span>
         <Badge tone={subscriptionStateTone(subscription.state)}>
           {t(`webhooks.state.${subscription.state}`)}
         </Badge>
       </div>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          flexWrap: "wrap",
-          marginTop: "var(--space-2)",
-        }}
-      >
+      <div className="webhook-events">
         {subscription.event_types.map((eventType) => (
           <Badge key={eventType} tone="accent">
             {eventType}
@@ -747,7 +765,7 @@ function SubscriptionRow({
         ))}
       </div>
       {subscription.updated_at && (
-        <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+        <p className="t-caption webhook-updated">
           {t("webhooks.updated", {
             date: formatDateTime(
               subscription.updated_at,
@@ -757,16 +775,18 @@ function SubscriptionRow({
           })}
         </p>
       )}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          marginTop: "var(--space-2)",
-        }}
-      >
+      <div className="webhook-row-actions">
+        {/* Not `Disclosure`, deliberately: `<details>` renders its children
+            whether or not it is open, and the panel behind this one fetches a
+            subscription's deliveries on mount — every row on the card would
+            issue that read on page load to draw a section nobody opened. The
+            accessibility half of a disclosure is what was actually missing, so
+            the button carries it: what it controls, and whether it is open. */}
         <Button
           small
           data-testid="view-deliveries"
+          aria-expanded={showDeliveries}
+          aria-controls={deliveriesId}
           onClick={() => setShowDeliveries((prev) => !prev)}
         >
           {showDeliveries
@@ -774,36 +794,49 @@ function SubscriptionRow({
             : t("webhooks.deliveries.show")}
         </Button>
         {canEdit && (
-          <>
-            <EditAction
-              label={t("webhooks.edit")}
-              invalidate="webhook-subscriptions"
-              recordKey="webhook-subscription"
-              record={{ ...subscription }}
-              update={updateWebhookSubscription(subscription)}
-              fields={editSubscriptionFields(t)}
-            />
-            <RotateSecretAction
-              subscription={subscription}
-              onRotated={onRotated}
-            />
-          </>
-        )}
-        {canArchive && (
-          <ArchiveAction
-            label={t("webhooks.archive")}
-            confirmText={t("webhooks.archiveConfirm")}
+          <EditAction
+            label={t("webhooks.edit")}
             invalidate="webhook-subscriptions"
             recordKey="webhook-subscription"
-            onArchived={() => {}}
-            archive={() => archiveWebhookSubscription(subscription)}
+            record={{ ...subscription }}
+            update={updateWebhookSubscription(subscription)}
+            fields={editSubscriptionFields(t)}
           />
+        )}
+        {/* The two irreversible verbs behind the overflow, the same treatment
+            the provider card's disconnect/delete pair gets: rotating destroys
+            the secret every receiver is verifying with, archiving stops every
+            delivery. Beside Edit they were four buttons on one line at equal
+            weight, two of them red, and the row did not even wrap. */}
+        {(canEdit || canArchive) && (
+          <OverflowMenu label={t("record.moreActions")}>
+            {canEdit && (
+              <RotateSecretAction
+                subscription={subscription}
+                onRotated={onRotated}
+              />
+            )}
+            {canArchive && (
+              <ArchiveAction
+                label={t("webhooks.archive")}
+                confirmText={t("webhooks.archiveConfirm")}
+                invalidate="webhook-subscriptions"
+                recordKey="webhook-subscription"
+                onArchived={() => {}}
+                archive={() => archiveWebhookSubscription(subscription)}
+              />
+            )}
+          </OverflowMenu>
         )}
       </div>
       {showDeliveries && (
-        <DeliveriesPanel subscription={subscription} canReplay={canEdit} />
+        <DeliveriesPanel
+          subscription={subscription}
+          canReplay={canEdit}
+          id={deliveriesId}
+        />
       )}
-    </Card>
+    </PanelRow>
   );
 }
 
@@ -853,13 +886,13 @@ export function WebhooksCard() {
     me.isSuccess && deliveryEnabled && !canCreate && !canEdit && !canArchive;
 
   return (
-    <Card
-      style={{ marginBottom: "var(--space-4)" }}
+    // No per-card bottom margin: the tab owns the rhythm between its cards, and
+    // one card paying for its own gap is how a page ends up with two different
+    // ones depending on which card happens to be above.
+    <Panel
       title={t("webhooks.title")}
-      sub={t("webhooks.sub")}
-    >
-      {canCreateHere && (
-        <div style={{ marginBottom: "var(--space-3)" }}>
+      titleAction={
+        canCreateHere ? (
           <Button
             small
             variant="primary"
@@ -868,46 +901,44 @@ export function WebhooksCard() {
           >
             <Webhook aria-hidden /> {t("webhooks.new")}
           </Button>
-        </div>
-      )}
-      {/* Outside QueryGate for the same reason the create button is: its
-          `empty` branch replaces `children` wholesale, and the posture is most
-          needed precisely when the list is empty — a seat that can neither add
-          the first subscription nor be told why would read the empty card as
-          the whole story. */}
-      {showReadOnlyPosture && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("webhooks.readOnly")}
-        </p>
-      )}
+        ) : undefined
+      }
+    >
+      <PanelBody>
+        <p className="t-caption">{t("webhooks.sub")}</p>
+        {/* Outside QueryGate for the same reason the create button is: its
+            `empty` branch replaces `children` wholesale, and the posture is most
+            needed precisely when the list is empty — a seat that can neither add
+            the first subscription nor be told why would read the empty card as
+            the whole story. */}
+        {showReadOnlyPosture && (
+          <p className="t-caption">{t("webhooks.readOnly")}</p>
+        )}
+        {/* No signing key: delivery is off, so mutating controls are withheld
+            and a not-enabled note explains why. It sits outside the gate too —
+            it is a fact about the DEPLOYMENT, and the list's own state has no
+            bearing on it. Existing subscriptions still render read-only (write
+            grants forced false) so their config and delivery health stay
+            inspectable. */}
+        {query.isSuccess && !query.data.deliveryEnabled && (
+          <NotConfiguredState />
+        )}
+      </PanelBody>
       <QueryGate
         query={query}
         empty={(result) => result.deliveryEnabled && result.data.length === 0}
       >
-        {(result) => (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-2)",
-            }}
-          >
-            {/* No signing key: delivery is off, so mutating controls are
-                withheld and a not-enabled note explains why. Existing
-                subscriptions still render read-only (write grants forced false)
-                so their config and delivery health stay inspectable. */}
-            {!result.deliveryEnabled && <NotConfiguredState />}
-            {result.data.map((subscription) => (
-              <SubscriptionRow
-                key={subscription.id}
-                subscription={subscription}
-                canEdit={canEdit && result.deliveryEnabled}
-                canArchive={canArchive && result.deliveryEnabled}
-                onRotated={setRevealedSecret}
-              />
-            ))}
-          </div>
-        )}
+        {(result) =>
+          result.data.map((subscription) => (
+            <SubscriptionRow
+              key={subscription.id}
+              subscription={subscription}
+              canEdit={canEdit && result.deliveryEnabled}
+              canArchive={canArchive && result.deliveryEnabled}
+              onRotated={setRevealedSecret}
+            />
+          ))
+        }
       </QueryGate>
       {canCreateHere && (
         <CreateRecordModal
@@ -926,6 +957,6 @@ export function WebhooksCard() {
           onClose={() => setRevealedSecret(null)}
         />
       )}
-    </Card>
+    </Panel>
   );
 }

@@ -19,6 +19,11 @@ const E2E_ADMIN_GRANTS: GrantSpec = {
   fx_rate: ["create", "read", "update"],
   ai_model_rate: ["create", "read", "update"],
   saved_view: ["create", "read", "update", "delete"],
+  // The Voice DNA surface, which gates every write on this one object (core
+  // migration 0042 grants admin/ops/manager all four). Without it the
+  // `settings/voice` sweep measures a card with no controls at all — the
+  // read-only posture a `read_only` seat gets, not the admin the specs drive.
+  voice_profile: ["create", "read", "update", "delete"],
   // The consent registry's own gate, and so the Privacy & audit ENTRY's: the
   // server reads purposes under `person:read` (consent/store.go), not under a
   // role. Read alone, because no spec exercises a person write from here and a

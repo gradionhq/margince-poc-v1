@@ -480,6 +480,8 @@ export const en = {
   "overlay.budgetLoading": "Loading the budget window…",
   "overlay.budgetLoadFailed": "Couldn't load the budget window.",
   "overlay.budgetHeadroom": "Headroom: {headroom}",
+  "overlay.budgetEmpty":
+    "The incumbent reported no budget window for this period.",
   "overlay.budgetSources":
     "Force-fresh {forceFresh} · Poller {poller} · Capture {capture}",
   "overlay.budgetSearch": "Search API: {consumed} / {limit} per second",
@@ -3413,6 +3415,13 @@ export const en = {
   "auto.dateField.empty": "This object has no active date fields yet.",
   "auto.dateField.loadError":
     "Couldn't load this object's date fields. Try again.",
+  "auto.enabledLabel": "Enabled",
+  "auto.rowActions": "Actions for {name}",
+  "auto.withheld":
+    "The configured automations are hidden — your role cannot read them.",
+  "auto.deleteTitle": "Delete this automation?",
+  "auto.deleteBody":
+    "“{name}” and its settings are removed for good. To stop it firing without losing the rule, turn it off instead.",
 
   "auto.runs.open": "Runs",
   "auto.runs.title": "Run history",
@@ -3625,6 +3634,8 @@ export const en = {
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Your personal writing voice. It shapes drafts made for you, stays private to you, and only learns from sources you add.",
+  "settings.voice.readOnly":
+    "Read-only view — you do not have permission to change your Voice DNA.",
   "settings.voice.emptyTitle": "No Voice DNA yet",
   "settings.voice.emptyBody":
     "Add a few writing samples below and build your Voice DNA — or do it during onboarding.",
@@ -4155,6 +4166,8 @@ export const en = {
   "webhooks.secret.copyFailed":
     "Couldn't copy automatically — select and copy the secret manually.",
   "webhooks.secret.done": "Done",
+  "webhooks.secret.leaveWarning":
+    "Leaving destroys the only copy of this secret. Copy it first.",
 
   "webhooks.deliveries.show": "View deliveries",
   "webhooks.deliveries.hide": "Hide deliveries",

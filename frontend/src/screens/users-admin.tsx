@@ -3,14 +3,10 @@ import { UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  TextInput,
-} from "../design-system/atoms";
+import { Badge, Button, EmptyState, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select, type SelectOption } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
@@ -95,11 +91,14 @@ export function UsersAdminCard() {
             // Withheld, not absent: the page opens for every seat now, so an
             // invite form that simply were not there would leave a reader to
             // wonder whether this installation can add people at all.
-            <Card title={t("users.inviteTitle")} sub={t("users.inviteSub")}>
-              <EmptyState>
-                <p className="t-small">{t("users.adminOnly")}</p>
-              </EmptyState>
-            </Card>
+            <Panel title={t("users.inviteTitle")}>
+              <PanelBody>
+                <p className="t-caption">{t("users.inviteSub")}</p>
+                <EmptyState>
+                  <p className="t-small">{t("users.adminOnly")}</p>
+                </EmptyState>
+              </PanelBody>
+            </Panel>
           )}
         </QueryGate>
       )}
@@ -119,14 +118,14 @@ function MembersCard({
   const t = useT();
   const roster = members.data;
   return (
-    <Card
+    <Panel
+      className="users-members"
       title={t("users.membersTitle")}
-      sub={t("users.membersSub")}
       // The count states what the roster holds, deactivated members included —
       // the read opts into them, and a roster of twelve with three switched off
       // is not a roster of nine. Nothing to count is said by the empty state
       // below instead, so a "0 members" badge never doubles it.
-      actions={
+      titleAction={
         roster && roster.length > 0 ? (
           <Badge>
             {t(
@@ -139,27 +138,39 @@ function MembersCard({
         ) : undefined
       }
     >
-      <QueryGate query={members}>
-        {(list) =>
-          list.length === 0 ? (
-            <EmptyState>
-              <p className="t-small">{t("users.empty")}</p>
-            </EmptyState>
-          ) : (
-            <ul className="users-list">
-              {list.map((u) => (
-                <MemberRow
-                  key={u.id}
-                  member={u}
-                  canIssueLink={canIssueLink}
-                  canAdminister={canAdminister}
-                />
-              ))}
-            </ul>
-          )
-        }
-      </QueryGate>
-    </Card>
+      <PanelBody className="users-intro">
+        <p className="t-caption">{t("users.membersSub")}</p>
+      </PanelBody>
+      {/* The rows run full-bleed against the panel's edges, so this body carries
+          no padding of its own and the sheet gives it back to everything the
+          gate can put here INSTEAD of rows — the skeletons, a failure, the
+          empty state — none of which should touch the panel's edge. */}
+      <PanelBody className="users-roster">
+        <QueryGate query={members}>
+          {(list) =>
+            list.length === 0 ? (
+              <EmptyState>
+                <p className="t-small">{t("users.empty")}</p>
+              </EmptyState>
+            ) : (
+              // A roster is a list, so it stays a <ul> of <li> rather than
+              // becoming PanelRow's <div>s — the rows take the panel row's look
+              // from this screen's sheet instead of losing their semantics to it.
+              <ul className="users-list">
+                {list.map((u) => (
+                  <MemberRow
+                    key={u.id}
+                    member={u}
+                    canIssueLink={canIssueLink}
+                    canAdminister={canAdminister}
+                  />
+                ))}
+              </ul>
+            )
+          }
+        </QueryGate>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -208,51 +219,57 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    // The card IS the form: submitting it is the only thing this surface does,
-    // so there is no inner element for the browser to associate the Enter key
-    // with other than the one carrying the heading.
-    <Card
-      as="form"
-      title={t("users.inviteTitle")}
-      sub={t("users.inviteSub")}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (canInvite) {
-          invite.mutate();
-        }
-      }}
-    >
-      <div className="users-invite">
-        <TextInput
-          aria-label={t("users.emailLabel")}
-          placeholder={t("users.emailPlaceholder")}
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <TextInput
-          aria-label={t("users.nameLabel")}
-          placeholder={t("users.namePlaceholder")}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Select
-          aria-label={t("users.roleLabel")}
-          value={role}
-          onChange={(value) => {
-            if (isOption(value, ROLES)) setRole(value);
+    // The Panel is the surface and the <form> inside it is the form: a Panel is
+    // a <section>, so the element the browser associates the Enter key with has
+    // to be its own rather than the one carrying the heading.
+    <Panel title={t("users.inviteTitle")}>
+      <PanelBody>
+        <p className="t-caption">{t("users.inviteSub")}</p>
+        <form
+          className="users-invite"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canInvite) {
+              invite.mutate();
+            }
           }}
-          options={roleOptions(t)}
-        />
-        <Button variant="primary" small type="submit" disabled={!canInvite}>
-          <UserPlus aria-hidden /> {t("users.invite")}
-        </Button>
-        {error && (
-          <p className="t-small" role="alert" style={{ flexBasis: "100%" }}>
-            {error}
-          </p>
-        )}
-      </div>
+        >
+          <TextInput
+            aria-label={t("users.emailLabel")}
+            placeholder={t("users.emailPlaceholder")}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <TextInput
+            aria-label={t("users.nameLabel")}
+            placeholder={t("users.namePlaceholder")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Select
+            aria-label={t("users.roleLabel")}
+            value={role}
+            onChange={(value) => {
+              if (isOption(value, ROLES)) setRole(value);
+            }}
+            options={roleOptions(t)}
+          />
+          <Button variant="primary" small type="submit" disabled={!canInvite}>
+            <UserPlus aria-hidden /> {t("users.invite")}
+          </Button>
+          {/* A refused invite is the surface saying something is wrong, which
+              is what Callout's `danger` tone is; a bare tinted paragraph with a
+              role on it was the same claim, hand-drawn, and it took its
+              emphasis from nothing at all. `alert` because the reader pressed
+              the button and has to act on the answer. */}
+          {error && (
+            <Callout tone="danger" live="alert" className="users-formerror">
+              {error}
+            </Callout>
+          )}
+        </form>
+      </PanelBody>
       {invited && (
         <PasswordLinkModal
           memberName={invited.name}
@@ -267,7 +284,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           }}
         />
       )}
-    </Card>
+    </Panel>
   );
 }
 
@@ -470,10 +487,14 @@ function MemberRow({
           {t("users.reactivate")}
         </Button>
       )}
+      {/* Same vocabulary as the invite form's refusal, one row down: a failed
+          role change or deactivation is the surface saying something is wrong,
+          and it takes the whole row rather than wedging itself between the
+          controls that caused it. */}
       {error && (
-        <span className="t-small" role="alert" style={{ flexBasis: "100%" }}>
+        <Callout tone="danger" live="alert" className="users-formerror">
           {error}
-        </span>
+        </Callout>
       )}
       <ConfirmModal
         open={confirmOff}

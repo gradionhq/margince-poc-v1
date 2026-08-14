@@ -381,11 +381,10 @@ export function ConnectedAgentsCard() {
   useClockAt(nextExpiry(connections, Date.now()));
 
   return (
-    <Card
-      title={t("agents.connected")}
-      sub={t("agents.connectedSub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
+    // No margin of its own: the settings stack owns the gap between two cards,
+    // and a card that also pays for one gets double the interval its neighbours
+    // get.
+    <Card title={t("agents.connected")} sub={t("agents.connectedSub")}>
       {/* The empty state is written out here rather than left to QueryGate's
           generic one: "nothing here" beside a guide explaining how to connect
           reads as a loading failure, and the sentence a human needs is that no

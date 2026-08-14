@@ -4,10 +4,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { OnboardingScreen } from "./onboarding";
 import { configuredAiProfile } from "./onboarding.stories.fixtures";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 const meta: Meta = {
-  title: "Screens/Onboarding",
+  title: "Onboarding/Onboarding screen",
   parameters: { layout: "fullscreen" },
 };
 export default meta;
@@ -47,6 +52,7 @@ function wizardState(step: "confirm" | "results") {
 
 function FullScreenStory({ step }: Readonly<{ step: "confirm" | "results" }>) {
   installFetchStub({
+    "GET /me": meRoute({}),
     "GET /ai/profile": () => jsonResponse(configuredAiProfile),
     "GET /company/context/capabilities": () =>
       jsonResponse({ onboarding_enabled: true, read_enabled: true }),
