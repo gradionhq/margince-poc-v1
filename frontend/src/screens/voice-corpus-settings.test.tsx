@@ -309,6 +309,107 @@ describe("handing a file to the Settings voice card", () => {
   });
 });
 
+// Intake is bounded so that selecting a large batch does not hand the server
+// one request per file at once, or hold every file's text in memory at the
+// same time. What the reader sees is unchanged: every file still lands, and
+// the ones past the bound simply wait their turn.
+describe("adding many files at once", () => {
+  // A stub whose previews stay open until the test releases them, so the
+  // number in flight can actually be counted rather than inferred.
+  function stubHeldPreviews(result: CorpusPreview) {
+    let inFlight = 0;
+    let peak = 0;
+    const ingested: string[] = [];
+    const release: (() => void)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/voice-profiles") {
+          return jsonResponse({
+            data: [{ id: "vp-1" }],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        if (path === "/voice-profiles/vp-1/sources/preview") {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise<void>((resolve) => release.push(resolve));
+          inFlight -= 1;
+          return jsonResponse(result);
+        }
+        if (path === "/voice-profiles/vp-1/sources") {
+          const body = JSON.parse(await request.text());
+          ingested.push(String(body.source_label));
+          return jsonResponse(
+            { source: {}, summary: SUMMARY, ingest_stats: STATS },
+            201,
+          );
+        }
+        return jsonResponse({});
+      }),
+    );
+    return {
+      peak: () => peak,
+      ingested: () => ingested,
+      // Drains whatever is waiting, repeatedly: releasing the first batch is
+      // what lets the queue hand slots to the next one.
+      releaseAll: async () => {
+        for (let round = 0; round < 40 && release.length > 0; round++) {
+          release.shift()?.();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      },
+    };
+  }
+
+  it("previews at most three files at a time, and still gets through all of them", async () => {
+    const held = stubHeldPreviews(PROSE);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.upload(
+      fileInput(),
+      Array.from({ length: 9 }, (_, i) => fileOf(`s${i}.txt`, `Sample ${i}.`)),
+    );
+    await waitFor(() => expect(held.peak()).toBe(3));
+
+    // Releasing lets the queue hand its slots on. Every file still lands —
+    // the bound delays work, it never drops it. (The notices list is capped
+    // at six, so the ingests are what proves all nine got through.)
+    await held.releaseAll();
+    await waitFor(
+      () => {
+        expect(held.ingested().length).toBe(9);
+      },
+      { timeout: 4000 },
+    );
+    expect(new Set(held.ingested()).size).toBe(9);
+    expect(held.peak()).toBe(3);
+  });
+
+  // Each unanswered question holds its source's whole text, and the reader
+  // answers them one at a time. Past the cap a file is declined out loud
+  // rather than queued into memory nobody will reach.
+  it("declines a conversational file once five questions are already waiting", async () => {
+    stubApi(CONVERSATION);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.upload(
+      fileInput(),
+      Array.from({ length: 7 }, (_, i) =>
+        fileOf(`talk${i}.vtt`, `Lars: turn ${i}. Sam: ok ${i}.`),
+      ),
+    );
+
+    // Five questions are held; the sixth and seventh are turned away with a
+    // notice that says what to do about it. Only one question is on screen at
+    // a time, so the notice is the visible evidence of the cap.
+    await waitFor(() => {
+      expect(screen.getAllByText(/was not added/).length).toBe(2);
+    });
+  });
+});
+
 describe("dropping a file on the page", () => {
   it("takes a file dropped on the intake area", async () => {
     const bodies = stubApi(PROSE);

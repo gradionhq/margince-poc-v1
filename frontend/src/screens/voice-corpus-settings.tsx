@@ -195,6 +195,8 @@ function noticeText(t: ReturnType<typeof useT>, notice: IntakeNotice): string {
       return t("settings.voice.noticeSkippedEmpty", { name: notice.label });
     case "dismissed":
       return t("settings.voice.noticeDismissed", { name: notice.label });
+    case "askQueueFull":
+      return t("settings.voice.noticeAskQueueFull", { name: notice.label });
     case "refused":
       switch (notice.reason) {
         case "unattributed":
