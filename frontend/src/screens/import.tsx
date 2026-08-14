@@ -4,12 +4,12 @@
 import { Upload } from "lucide-react";
 import { type CSSProperties, useRef } from "react";
 import { useCan, useCanWrite } from "../app/capability";
-import { Button, SegmentedControl } from "../design-system/atoms";
+import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf } from "./common";
+import { problemMessageOf, useMe } from "./common";
 import { useImportFlow } from "./importflow";
 import { ImportMappingTable } from "./importmapping";
 import type {
@@ -49,14 +49,33 @@ export function ImportCard() {
   const mayCreate = useCanWrite("import_run", "create");
   const mayAdvance = useCan("import_run", "update");
   const mayImport = mayCreate && mayAdvance;
+  const me = useMe();
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useImportFlow();
   const { profile, mapping, run, report, upload, validate, commit } = flow;
 
   // Gated on the grant the STORE demands, not on the admin role: `import_run`
   // is seeded to admin AND ops, so asking for the role would hide the card
-  // from an ops seat the server would have accepted. A rep sees no card rather
-  // than a card that 403s.
+  // from an ops seat the server would have accepted.
+  //
+  // Withheld rather than absent, and gated on the PROBE rather than its absence.
+  // Maintenance opens on `isAdmin || embedding_reindex:read`, so a seat holding
+  // only the reindex grant reaches this page — and a card that simply is not
+  // there tells them this installation cannot import, which is a claim about the
+  // product rather than about their authority. Every capability hook also fails
+  // closed while /me is in flight, so branching before it answers would flash
+  // the notice at the admin who holds the grant.
+  if (me.isSuccess && !mayImport) {
+    return (
+      <Panel title={t("import.title")}>
+        <PanelBody>
+          <EmptyState>
+            <p className="t-small">{t("import.withheld")}</p>
+          </EmptyState>
+        </PanelBody>
+      </Panel>
+    );
+  }
   if (!mayImport) {
     return null;
   }

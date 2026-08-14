@@ -487,7 +487,13 @@ export function AutomationRow({
             section says once, above the list, why the control is not here. */}
         {canEdit ? (
           <Switch
-            label={t("auto.enabledLabel")}
+            // Named for the automation it governs, like the row's menu beside
+            // it: twenty switches all announcing "Enabled" tell a reader which
+            // control they are on and nothing about which rule it belongs to.
+            // labelHidden because the row already prints the name in view — the
+            // words are for the announcement, not a second copy on screen.
+            label={t("auto.enabledFor", { name: automation.name })}
+            labelHidden
             checked={enabled}
             disabled={patch.isPending}
             onChange={(next) =>
@@ -645,7 +651,12 @@ export function AutomationsAdmin() {
     <Panel title={t("nav.automations")}>
       <PanelBody>
         <p className="t-sub">{t("auto.sub")}</p>
-        {me.isSuccess && !canCreate && !canEdit && !canDelete && (
+        {/* Bound to the grant the CONTROL asks for. It read "no create AND no
+            edit AND no delete" while the row swaps its Switch for a Badge on
+            `update` alone — so a seat holding create but not update lost the
+            toggle with nothing on the page saying why, which is the one thing
+            this line exists to prevent. */}
+        {me.isSuccess && !canEdit && (
           <p className="t-caption auto-readonly">{t("auto.readOnly")}</p>
         )}
         <div className="auto-columns" data-automations-admin>

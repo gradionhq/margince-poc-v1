@@ -75,10 +75,17 @@ function unroutedSessionProbe(): Response {
  * drifted into omission — which is invisible, because a missing session looks
  * exactly like a denied one on screen.
  *
- * `allow` is the grants the story is ABOUT. Passing none is a real fixture (a
- * seat holding nothing, which is how a withheld surface is drawn), so it has
- * to be spelled out rather than defaulted into: `meRoute({})` says the story
- * means it.
+ * `allow` is the grants the story is ABOUT, and it has to be spelled out rather
+ * than defaulted into: `meRoute({})` says the story means it.
+ *
+ * What `meRoute({})` is NOT is a denied seat. `meFixture` defaults to
+ * `roles: ["admin"]` on a full seat, so an empty `allow` is an ADMIN holding no
+ * object grants — `useHoldsAdminRole()` is true and `useCanMutate()` is true,
+ * while every `useCan()` is false. That is a real principal and a useful one,
+ * but a story about a denial has to say so with the second argument:
+ * `meRoute({}, { roles: ["rep"], seat: "read" })`. Getting this wrong is
+ * invisible on screen, which is how a story ends up named for a boundary it
+ * never draws.
  */
 export function meRoute(
   allow: GrantSpec,
@@ -121,11 +128,16 @@ async function requestBody(
 // Installs the fetch stub synchronously — called from a story's `render()`,
 // which runs before any component mount effects, so the first queryFn call
 // always sees the stub in place (same ordering the RTL tests rely on).
+// Marks the patched fetch so StoryProviders can tell "this story routed its
+// requests" from "this story never called installFetchStub, and every request
+// it makes is leaving for a real host".
+const STUB_INSTALLED = Symbol.for("margince.storyFetchStub");
+
 export function installFetchStub(
   routes: RouteMap,
   fallback: () => Response = () => jsonResponse(emptyPage),
 ): void {
-  globalThis.fetch = async (
+  const stub = async (
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
@@ -144,6 +156,26 @@ export function installFetchStub(
     }
     return key === SESSION_PROBE ? unroutedSessionProbe() : fallback();
   };
+  (stub as typeof fetch & { [STUB_INSTALLED]?: true })[STUB_INSTALLED] = true;
+  globalThis.fetch = stub as typeof fetch;
+}
+
+// The half of the guard that installFetchStub cannot cover: a story that never
+// calls it at all. Those requests do not hit a fallback — they leave the page
+// for whatever host the iframe is served from, 404, and resolve to an empty
+// answer that looks like a legitimate one. Two stories were screenshotting an
+// anonymous avatar that way.
+//
+// So the providers every story already wraps with put a stub in place when none
+// is, and that stub routes nothing: the session probe says so loudly, and
+// everything else gets the same empty page the explicit fallback gives.
+function ensureFetchStubInstalled(): void {
+  const patched = globalThis.fetch as typeof fetch & {
+    [STUB_INSTALLED]?: true;
+  };
+  if (!patched?.[STUB_INSTALLED]) {
+    installFetchStub({});
+  }
 }
 
 // A fresh QueryClient (retry:false — a mocked 4xx/5xx settles immediately
@@ -159,6 +191,9 @@ export function StoryProviders({
   children,
   locale = "en",
 }: Readonly<{ children: ReactNode; locale?: Locale }>) {
+  // Before the client, so a story that routed nothing cannot reach the network
+  // on its first render.
+  ensureFetchStubInstalled();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });

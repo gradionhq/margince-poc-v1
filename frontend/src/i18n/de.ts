@@ -1800,6 +1800,8 @@ export const de = {
   "settings.revoke": "Widerrufen",
   "settings.revokeConfirm":
     "Das Credential dieses Passports wird sofort ungültig — der Agent verliert beim nächsten Aufruf den Zugriff.",
+  "import.withheld":
+    "Eine Datei zu importieren ist eine Admin- oder Ops-Aktion — es gibt sie in dieser Installation, du darfst sie nur nicht ausführen.",
   "import.title": "Datei importieren",
   "import.sub":
     "Eine CSV mit Interessenten oder Firmen einlesen. Es wird nichts geschrieben, bevor Sie gelesen haben, was passieren wird.",
@@ -3400,6 +3402,7 @@ export const de = {
   "auto.dateField.empty": "Dieses Objekt hat noch keine aktiven Datumsfelder.",
   "auto.dateField.loadError":
     "Die Datumsfelder dieses Objekts konnten nicht geladen werden. Erneut versuchen.",
+  "auto.enabledFor": "{name} ist aktiv",
   "auto.enabledLabel": "Aktiv",
   "auto.rowActions": "Aktionen für {name}",
   "auto.withheld":
@@ -3558,7 +3561,7 @@ export const de = {
   "cf.audit.footer":
     "Jedes Hinzufügen / Bearbeiten / Archivieren wird dauerhaft im Audit-Log festgehalten.",
   "cf.noPermission":
-    "Du hast nur Lesezugriff auf benutzerdefinierte Felder — der Builder sowie die Bearbeiten- und Archivieren-Steuerelemente sind deaktiviert.",
+    "Du hast nur Lesezugriff auf benutzerdefinierte Felder — Anlegen, Bearbeiten und Archivieren sind hier nicht deine Sache.",
   "cf.retired": "Archiviert",
   "cf.propagate.title": "Wo ein neues Feld auftaucht",
   "cf.propagate.360": "In der 360-Ansicht des Datensatzes",

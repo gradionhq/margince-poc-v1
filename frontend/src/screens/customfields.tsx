@@ -799,7 +799,14 @@ export function CustomFieldsAdmin() {
               onToast={showToast}
             />
           </Disclosure>
-        ) : (
+        ) : null}
+        {/* The posture speaks for BOTH grants, so it is bound to both. The
+            server splits them — create.go admits `custom_field:create`, the
+            lifecycle handlers admit `update` — and a principal holding update
+            without create was reading "you have read-only access" above rows
+            whose Edit and Archive buttons worked. A sentence about a boundary
+            has to be true of the boundary it names. */}
+        {!canCreate && !canEdit && (
           <p className="cf-posture">{t("cf.noPermission")}</p>
         )}
 

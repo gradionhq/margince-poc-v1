@@ -1785,6 +1785,8 @@ export const vi = {
   "settings.revoke": "Thu hồi",
   "settings.revokeConfirm":
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
+  "import.withheld":
+    "Nhập tệp là thao tác của admin hoặc ops — cài đặt này vẫn có, chỉ là bạn không được chạy.",
   "import.title": "Nhập tệp",
   "import.sub":
     "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
@@ -3387,6 +3389,7 @@ export const vi = {
     "Đối tượng này chưa có trường ngày nào đang hoạt động.",
   "auto.dateField.loadError":
     "Không tải được các trường ngày của đối tượng này. Vui lòng thử lại.",
+  "auto.enabledFor": "{name} đang bật",
   "auto.enabledLabel": "Đang bật",
   "auto.rowActions": "Thao tác cho {name}",
   "auto.withheld":
@@ -3543,7 +3546,7 @@ export const vi = {
   "cf.audit.footer":
     "Mọi lần thêm / sửa / lưu trữ đều được ghi vĩnh viễn vào nhật ký kiểm toán.",
   "cf.noPermission":
-    "Bạn chỉ có quyền đọc với trường tuỳ chỉnh — trình dựng cùng các nút sửa và lưu trữ đều bị vô hiệu hoá.",
+    "Bạn chỉ có quyền đọc trường tùy chỉnh — thêm, sửa và lưu trữ không thuộc quyền của bạn ở đây.",
   "cf.retired": "Đã ngừng dùng",
   "cf.propagate.title": "Trường mới xuất hiện ở đâu",
   "cf.propagate.360": "Trên trang 360 của bản ghi",

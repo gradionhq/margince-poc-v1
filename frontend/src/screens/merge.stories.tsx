@@ -4,7 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { screen, userEvent, within } from "storybook/test";
 import { MergeAction } from "./merge";
-import { StoryProviders } from "./story-utils";
+import { installFetchStub, meRoute, StoryProviders } from "./story-utils";
 
 // MergeAction owns its own open/search/target state — a play() interaction
 // opens the dialog, types a search term (past the 250ms debounce), and
@@ -29,6 +29,12 @@ export default meta;
 type Story = StoryObj<typeof MergeAction>;
 
 export const TargetPicked: Story = {
+  // The merge dialog mounts record chrome that reads the session, so the probe
+  // has to be routed — an unrouted one fails every grant closed and renders a
+  // branch this story is not named for.
+  beforeEach: () => {
+    installFetchStub({ "GET /me": meRoute({ person: ["read", "update"] }) });
+  },
   args: {
     label: "Merge into…",
     sourceId: "p-1",

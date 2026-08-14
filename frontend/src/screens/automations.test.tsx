@@ -267,11 +267,13 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
       // in a second vocabulary: a created automation arrives OFF.
       expect(
         within(row)
-          .getByRole("switch", { name: "Enabled" })
+          .getByRole("switch", { name: /is enabled$/ })
           .getAttribute("aria-checked"),
       ).toBe("false");
     }
-    await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Stalled-deal nudge is enabled" }),
+    );
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].body).toMatchObject({ status: "enabled" });
     expect(calls[1].ifMatch).toBe("1");
@@ -390,7 +392,11 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
     );
     // update -> the setting writes when you flip it, so it is a switch
-    expect(screen.getAllByRole("switch", { name: "Enabled" }).length).toBe(1);
+    expect(
+      screen.getAllByRole("switch", {
+        name: "Nudge stalled fleet deals is enabled",
+      }).length,
+    ).toBe(1);
     await openRowMenu();
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
     // no delete grant -> the destructive control is withheld
@@ -476,7 +482,7 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
         screen.getAllByRole("button", { name: "Use template" }).length,
       ).toBeGreaterThan(0),
     );
-    expect(screen.getByRole("switch", { name: "Enabled" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: /is enabled$/ })).toBeTruthy();
     await openRowMenu();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });

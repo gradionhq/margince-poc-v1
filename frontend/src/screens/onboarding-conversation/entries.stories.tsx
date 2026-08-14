@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MarginceCoreScene } from "../../design-system/margince-core";
 import { LocaleProvider } from "../../i18n";
+import { installFetchStub, meRoute } from "../story-utils";
 import {
   type ConversationState,
   initialConversationState,
@@ -16,10 +17,14 @@ import {
 import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 
-// A UserTurn renders an EvidenceMark, which reads through react-query — so the
-// two stories carrying one threw "No QueryClient set" on mount and rendered
-// nothing at all. The client is a decorator rather than a per-story wrapper
-// because the requirement belongs to the entries, not to two of them.
+// A UserTurn draws the signed-in person's Avatar and so calls useMe() —
+// react-query for the client, and GET /me for the answer. Both are decorators
+// rather than per-story wrappers because the requirement belongs to the
+// entries, not to the two stories that happen to show one.
+//
+// Without the route the request left the page for a real host, 404'd, and the
+// name resolved to "" — a story called "User" screenshotting an anonymous chip,
+// green in every gate that does not watch the console.
 const client = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
@@ -27,13 +32,16 @@ const client = new QueryClient({
 const meta: Meta = {
   title: "Onboarding/Conversation entries",
   decorators: [
-    (Story) => (
-      <QueryClientProvider client={client}>
-        <LocaleProvider initial="en">
-          <Story />
-        </LocaleProvider>
-      </QueryClientProvider>
-    ),
+    (Story) => {
+      installFetchStub({ "GET /me": meRoute({}) });
+      return (
+        <QueryClientProvider client={client}>
+          <LocaleProvider initial="en">
+            <Story />
+          </LocaleProvider>
+        </QueryClientProvider>
+      );
+    },
   ],
 };
 export default meta;

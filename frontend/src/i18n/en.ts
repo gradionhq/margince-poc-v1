@@ -1809,6 +1809,8 @@ export const en = {
   "settings.revoke": "Revoke",
   "settings.revokeConfirm":
     "This passport's credential is invalidated immediately — the agent loses access on its next call.",
+  "import.withheld":
+    "Importing a file is an admin or ops action — this installation still has one, it is not yours to run.",
   "import.title": "Import a file",
   "import.sub":
     "Bring a CSV of prospects or companies into the estate. Nothing is written until you have read what it will do.",
@@ -3415,6 +3417,7 @@ export const en = {
   "auto.dateField.empty": "This object has no active date fields yet.",
   "auto.dateField.loadError":
     "Couldn't load this object's date fields. Try again.",
+  "auto.enabledFor": "{name} is enabled",
   "auto.enabledLabel": "Enabled",
   "auto.rowActions": "Actions for {name}",
   "auto.withheld":
@@ -3568,7 +3571,7 @@ export const en = {
   "cf.audit.footer":
     "Every add / edit / archive is recorded permanently in the audit log.",
   "cf.noPermission":
-    "You have read-only access to custom fields — the builder and the edit and archive controls are disabled.",
+    "You have read-only access to custom fields — adding, editing and archiving are not yours to do here.",
   "cf.retired": "Retired",
   "cf.propagate.title": "Where a new field shows up",
   "cf.propagate.360": "On the record 360 view",

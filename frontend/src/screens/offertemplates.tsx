@@ -8,7 +8,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
-import { throwProblem } from "./common";
+import { throwProblem, useMe } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
@@ -97,6 +97,7 @@ export function OfferTemplatesAdmin() {
   // mutate, and the licensing seat is clamped on the HTTP method before RBAC is
   // reached — a read seat holding offer_template:update would otherwise open an
   // editor whose every save is refused.
+  const me = useMe();
   const canCreate = useCanWrite("offer_template", "create");
   const canUpdate = useCanWrite("offer_template", "update");
   const canArchive = useCanWrite("offer_template", "delete");
@@ -205,7 +206,11 @@ export function OfferTemplatesAdmin() {
             has to say so, or their absence reads as a claim about the list rather
             than about authority. A reader holding one write verb needs no notice —
             the affordance they keep says what they may do. */}
-        {!canCreate && !canUpdate && !canArchive && (
+        {/* me.isSuccess first: every capability hook fails CLOSED while the
+            probe is in flight, so branching on the grants alone flashes a
+            read-only notice at the admin who holds all three. Gate on the
+            probe, not on its absence. */}
+        {me.isSuccess && !canCreate && !canUpdate && !canArchive && (
           <p className="t-caption">{t("template.readOnly")}</p>
         )}
       </PanelBody>

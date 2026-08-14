@@ -8,7 +8,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
-import { throwProblem } from "./common";
+import { throwProblem, useMe } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
@@ -110,6 +110,7 @@ export function ProductsAdmin() {
   // because all three mutate, and the licensing seat is clamped on the HTTP
   // method before RBAC is consulted — a read seat holding product:update would
   // otherwise be handed an editor every save bounces off.
+  const me = useMe();
   const canCreate = useCanWrite("product", "create");
   const canUpdate = useCanWrite("product", "update");
   const canArchive = useCanWrite("product", "delete");
@@ -222,7 +223,11 @@ export function ProductsAdmin() {
             disabled, or withheld"); a reader who can edit but not archive needs no
             page-level notice, because the affordances they do hold say what they
             may do. */}
-        {!canCreate && !canUpdate && !canArchive && (
+        {/* me.isSuccess first: every capability hook fails CLOSED while the
+            probe is in flight, so branching on the grants alone flashes a
+            read-only notice at the admin who holds all three. Gate on the
+            probe, not on its absence. */}
+        {me.isSuccess && !canCreate && !canUpdate && !canArchive && (
           <p className="t-caption">{t("product.readOnly")}</p>
         )}
       </PanelBody>
