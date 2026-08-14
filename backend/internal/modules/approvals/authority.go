@@ -46,6 +46,12 @@ type grantRequirement struct {
 // spelling; the compose-side waiver fitness tests bind the two together.
 const kindLinkedInMatch = "linkedin_match"
 
+// KindScheduledSendHeld is the card a stopped scheduled message raises for the
+// rep who scheduled it (ADR-0104 §5). Exported because compose stages it and
+// registers both its effects: the message lives in activities and the inbox
+// lives here, so the edge is injected there and both halves name one kind.
+const KindScheduledSendHeld = "scheduled_send_held"
+
 // decisionGrants maps each stageable kind onto the RBAC its effect needs given
 // the KIND ALONE; approving requires every one of them. A kind whose grant also
 // depends on what the staging points at carries that half in
@@ -53,6 +59,14 @@ const kindLinkedInMatch = "linkedin_match"
 // both today, and decisionGrantsFor combines them so one that grows a second half
 // gains authority rather than silently losing the first.
 var decisionGrants = map[string][]grantRequirement{
+	// A held message asks its rep to try again or give up. Both answers move the
+	// message's own state — reschedule and cancel — which the store gates on
+	// activity.UPDATE, so that is what deciding requires. It is the effects'
+	// grant rather than the send's, because a gate that admitted a decision its
+	// effect then refuses would commit the decision and fail the work: the card
+	// gone, the message still held. selfOnlyKinds narrows it from "anyone
+	// holding that grant" to the one person whose message it is.
+	KindScheduledSendHeld: {{objectActivity, principal.ActionUpdate}},
 	// A step-up requires NO object grant, and the empty slice is the decision
 	// rather than an omission. Releasing a volume window touches no record: it
 	// does not widen what the agent may read, only how much of what it may
@@ -273,7 +287,13 @@ const (
 // A step-up is the other: "may this agent keep reading" is a question about ONE
 // connection, and the only person who can answer it is the human whose authority
 // that connection borrows.
-var selfOnlyKinds = map[string]bool{kindLinkedInMatch: true, KindQuotaRelease: true}
+// A held scheduled send is the third: the message is one rep's, the decision is
+// whether to retry it or abandon it, and nobody else has standing to answer.
+var selfOnlyKinds = map[string]bool{
+	kindLinkedInMatch:     true,
+	KindQuotaRelease:      true,
+	KindScheduledSendHeld: true,
+}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would

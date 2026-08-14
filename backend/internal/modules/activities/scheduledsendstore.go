@@ -161,7 +161,23 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 		return ScheduledSend{}, err
 	}
 
-	err = s.tx(ctx, func(tx pgx.Tx) error {
+	if err := s.tx(ctx, func(tx pgx.Tx) error {
+		return s.RescheduleInTx(ctx, tx, id, sched, expectedVersion, current, timer)
+	}); err != nil {
+		return ScheduledSend{}, err
+	}
+	return s.GetScheduledSend(ctx, id)
+}
+
+// RescheduleInTx is RescheduleScheduledSend's write, in the CALLER's transaction.
+//
+// It exists so a decision releasing this work can consume its approval and do
+// the work atomically (approvals.RedeemAndApply): a failed move then leaves the
+// approval unconsumed and the card retryable, rather than committing the
+// decision and losing the work — which is the exact failure a held-message card
+// exists to prevent.
+func (s *Store) RescheduleInTx(ctx context.Context, tx pgx.Tx, id ids.UUID, sched SendSchedule, expectedVersion int64, current ScheduledSend, timer ScheduleTimer) error {
+	{
 		// held_reason is cleared with the move: the row is pending again, and a
 		// stale reason would have the surface explain a hold that is over. The
 		// state-shape CHECK enforces the pairing, so this is not optional.
@@ -189,12 +205,12 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 		// A FRESH timer for the new moment. The old one still wakes at the old
 		// time and finds a row whose due moment has moved, which it re-snoozes
 		// or ignores — the row is the schedule, the job is only an alarm.
+		// The rep answered the hold, so its card goes with it.
+		if err := s.resolveHeld(ctx, tx, id); err != nil {
+			return err
+		}
 		return timer.ScheduleTx(ctx, tx, id, sched.At.UTC())
-	})
-	if err != nil {
-		return ScheduledSend{}, err
 	}
-	return s.GetScheduledSend(ctx, id)
 }
 
 // CancelScheduledSend withdraws a message before it fires, or gives up on one
@@ -212,6 +228,14 @@ func (s *Store) CancelScheduledSend(ctx context.Context, id ids.UUID) error {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		return s.CancelInTx(ctx, tx, id)
+	})
+}
+
+// CancelInTx is CancelScheduledSend's write, in the CALLER's transaction — the
+// same reason RescheduleInTx exists.
+func (s *Store) CancelInTx(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	{
 		tag, err := tx.Exec(ctx, `
 			UPDATE scheduled_send
 			   SET status = 'cancelled', held_reason = NULL,
@@ -223,9 +247,22 @@ func (s *Store) CancelScheduledSend(ctx context.Context, id ids.UUID) error {
 		if tag.RowsAffected() == 0 {
 			return apperrors.ErrVersionSkew
 		}
-		_, err = storekit.Audit(ctx, tx, "cancel", "scheduled_send", id, nil, nil)
-		return err
-	})
+		if _, err := storekit.Audit(ctx, tx, "cancel", "scheduled_send", id, nil, nil); err != nil {
+			return err
+		}
+		// Answered, like the reschedule above: a cancelled message needs no
+		// decision, so its card must not outlive it.
+		return s.resolveHeld(ctx, tx, id)
+	}
+}
+
+// resolveHeld clears the inbox card a hold raised, once the rep has acted on
+// the message. A surface with no notifier wired has nothing to clear.
+func (s *Store) resolveHeld(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	if s.heldNotifier == nil {
+		return nil
+	}
+	return s.heldNotifier.ResolveHeldInTx(ctx, tx, id)
 }
 
 // scanScheduledSend reads one row, thawing the payload for the fields the

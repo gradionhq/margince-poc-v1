@@ -42,6 +42,15 @@ type Service struct {
 	// commits, only on approve; exactly-once is the effect's own duty
 	// (the redeem-then-execute discipline every 🟡 executor follows).
 	effects map[string]ApprovedEffect
+	// declines are the mirror of effects: what runs when a human says NO.
+	//
+	// Most kinds need nothing here, because rejecting a PROPOSAL is simply not
+	// applying it — the record was never changed, so there is nothing to undo.
+	// A kind needs one when the staged subject is a thing that already exists
+	// and is WAITING: rejecting then has to resolve that waiting state, or the
+	// item leaves the inbox and the thing it was about carries on waiting for a
+	// decision nobody will make again.
+	declines map[string]DeclinedEffect
 	// quota is the volume meter an approved step-up widens (quotarelease.go).
 	// Nil in a composition that serves no agents, where a step-up can never be
 	// staged in the first place.
@@ -64,15 +73,40 @@ const (
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
+// DeclinedEffect is what a rejection executes. It takes no diff hash: there is
+// nothing to redeem, because nothing is being applied — the work is resolving
+// whatever the staging left waiting.
+// It runs in the DECISION's own transaction, which is the whole point: a
+// rejection whose work failed afterwards would leave the card decided, the retry
+// refused as already-decided, and the subject still waiting. Both commit or
+// neither does.
+type DeclinedEffect func(ctx context.Context, tx pgx.Tx, approvalID ids.ApprovalID, proposedChange json.RawMessage) error
+
 // NewService builds the approvals engine over a workspace-bound handle,
 // with no effects registered until compose wires them.
 func NewService(db *database.DB) *Service {
-	return &Service{db: db, now: time.Now, effects: map[string]ApprovedEffect{}}
+	return &Service{
+		db: db, now: time.Now,
+		effects:  map[string]ApprovedEffect{},
+		declines: map[string]DeclinedEffect{},
+	}
 }
 
 // WithEffect registers the follow-on executor for one staging kind.
 func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
 	s.effects[kind] = effect
+	return s
+}
+
+// WithDeclinedEffect registers what runs when a human REJECTS one staging kind.
+//
+// Register one only where a rejection has work to do. For a proposal, "no" means
+// the record stays as it was and nothing needs to happen. For a staging about a
+// subject that is already waiting — a message the system stopped and is holding
+// — "no" is an instruction about that subject, and without this the item leaves
+// the inbox while the thing it named waits forever.
+func (s *Service) WithDeclinedEffect(kind string, effect DeclinedEffect) *Service {
+	s.declines[kind] = effect
 	return s
 }
 

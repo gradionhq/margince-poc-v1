@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -20,10 +19,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// stagingTTL bounds how long an unactioned staging stays approvable; a
-// week-old agent intention should be re-proposed against fresh state.
-const stagingTTL = 24 * time.Hour
 
 // StageInput describes one refused 🟡 call to hold for decision.
 type StageInput struct {
@@ -436,7 +431,7 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 	// the payload — deriving the row's expires_at from the DB now() while the
 	// payload used the app clock let approval.requested.data.expires_at drift
 	// from what the approval row actually stored.
-	expiresAt := s.now().UTC().Add(stagingTTL)
+	expiresAt := s.now().UTC().Add(ttlFor(in.Kind))
 	evidence, err := marshalEvidence(in.Evidence)
 	if err != nil {
 		return ids.ApprovalID{}, err

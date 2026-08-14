@@ -70,8 +70,15 @@ func scan(r pgx.Row) (row, error) {
 
 // effectiveStatus folds lazy expiry in: a pending row past its expiry
 // reads as expired everywhere without a sweeper process.
+//
+// Except for the kinds that do not expire at all. Expiry answers "has this
+// intention gone stale against the state it was formed on" — a real question
+// about a PROPOSAL, and a meaningless one about a staging whose subject is
+// simply still waiting. Those kinds are excluded from the comparison rather than
+// given a distant expires_at, because a date is a cliff however far away it is
+// put, and the invariant here is that there is no cliff (ExpiresNever).
 func (a row) effectiveStatus(now time.Time) string {
-	if a.Status == statusPending && now.After(a.ExpiresAt) {
+	if a.Status == statusPending && !ExpiresNever(a.Kind) && now.After(a.ExpiresAt) {
 		return StatusExpired
 	}
 	return a.Status
