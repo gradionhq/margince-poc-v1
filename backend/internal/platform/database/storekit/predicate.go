@@ -78,6 +78,14 @@ const (
 type Field struct {
 	Expr string
 	Type FieldType
+	// Link makes this a correlated-subquery leaf rather than a base-table
+	// one: Expr names the column INSIDE the subquery, and Link is the
+	// EXISTS template — exactly one %s — the compiled comparison is
+	// substituted into. It exists because some filterable facts are link
+	// rows rather than columns (a tag lives in the polymorphic taggable
+	// join), and a link row is present or absent where a column is null
+	// or not. Empty for every base-table field.
+	Link string
 }
 
 // Predicate is the canonical filter tree (the representation
@@ -242,6 +250,10 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 		}
 	}
 
+	if field.Link != "" {
+		return compileLinkLeaf(p, field, arg)
+	}
+
 	switch p.Op {
 	case OpExists:
 		// exists carries a boolean operand: true → the value is present.
@@ -286,6 +298,54 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 		}
 		return fmt.Sprintf("%s %s $%d", field.Expr, comparisonSQL[p.Op], arg(value)), nil
 	}
+}
+
+// compileLinkLeaf compiles a leaf whose fact is a link row. The comparison is
+// built against the column inside the subquery and then wrapped, and a negation
+// applies to the WRAPPER: "does not carry this tag" is NOT EXISTS(… = …), where
+// EXISTS(… <> …) would answer "carries some other tag" — a different question,
+// and true for almost every record. `exists` needs no operand at all: presence
+// of any link row is the whole question, so it binds nothing and the wrapper's
+// own correlation carries it.
+func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error) {
+	var inner string
+	negate := false
+	switch p.Op {
+	case OpExists:
+		present, ok := p.Value.(bool)
+		if !ok {
+			return "", &PredicateError{
+				Field: p.Field, Code: CodeFilterValueInvalid,
+				Message: "exists takes true or false",
+			}
+		}
+		inner, negate = "TRUE", !present
+	case OpIn:
+		values, err := inOperand(p, field)
+		if err != nil {
+			return "", err
+		}
+		inner = fmt.Sprintf("%s = ANY($%d)", field.Expr, arg(values))
+	case OpEq, OpNeq:
+		value, err := scalarOperand(p.Value, field, p.Field, OpEq)
+		if err != nil {
+			return "", err
+		}
+		inner, negate = fmt.Sprintf("%s = $%d", field.Expr, arg(value)), p.Op == OpNeq
+	default:
+		// Unreachable while the operator matrix gates this path; stated rather
+		// than fallen through, so a widened matrix fails loudly here instead of
+		// compiling a comparison this shape cannot express.
+		return "", &PredicateError{
+			Field: p.Field, Code: CodeFilterOpNotAllowed,
+			Message: fmt.Sprintf("operator %q does not apply to the linked field %q", p.Op, p.Field),
+		}
+	}
+	sql := fmt.Sprintf(field.Link, inner)
+	if negate {
+		return "NOT " + sql, nil
+	}
+	return sql, nil
 }
 
 // comparisonSQL is closed over the operator constants above; compileLeaf

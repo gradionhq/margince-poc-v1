@@ -10,6 +10,7 @@ package storekit
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -29,13 +30,39 @@ var dealFields = map[string]Field{
 	"is_hot":              {Expr: "t.is_hot", Type: FieldBoolean},
 }
 
-const ownerUUID = "018f4a5e-0000-7000-8000-000000000001"
+// tagFields is the link-leaf vocabulary: a tag is an id reference that lives in
+// the taggable join, so its Expr names the column INSIDE the subquery and Link
+// carries the EXISTS the comparison is wrapped in.
+var tagFields = map[string]Field{
+	"tag": {
+		Expr: "tg.tag_id",
+		Type: FieldID,
+		Link: "EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
+			" AND tg.entity_id = t.id AND %s)",
+	},
+}
+
+const (
+	ownerUUID = "018f4a5e-0000-7000-8000-000000000001"
+	tagUUID   = "018f4a5e-0000-7000-8000-0000000000aa"
+)
 
 func compile(t *testing.T, p Predicate) (string, []any) {
 	t.Helper()
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	sql, err := CompilePredicate(p, dealFields, arg)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	return sql, args
+}
+
+func compileTag(t *testing.T, p Predicate) (string, []any) {
+	t.Helper()
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql, err := CompilePredicate(p, tagFields, arg)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -225,6 +252,93 @@ func TestCompileNeverInlinesValues(t *testing.T) {
 	}
 	if len(args) != 2 {
 		t.Fatalf("args = %d, want 2 bind parameters", len(args))
+	}
+}
+
+// A link leaf negates its WRAPPER, never the comparison inside it: "does not
+// carry this tag" is NOT EXISTS(… = …), where EXISTS(… <> …) would answer the
+// different question "carries some other tag" — true for almost every record.
+func TestLinkLeafGoldenSQLPerOperator(t *testing.T) {
+	const wrapper = "EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
+		" AND tg.entity_id = t.id AND %s)"
+	cases := []struct {
+		name     string
+		p        Predicate
+		wantSQL  string
+		wantArgs []any
+	}{
+		{
+			"eq is a positive EXISTS",
+			leaf("tag", OpEq, tagUUID),
+			fmt.Sprintf(wrapper, "tg.tag_id = $1"),
+			[]any{tagUUID},
+		},
+		{
+			"neq negates the wrapper",
+			leaf("tag", OpNeq, tagUUID),
+			"NOT " + fmt.Sprintf(wrapper, "tg.tag_id = $1"),
+			[]any{tagUUID},
+		},
+		{
+			"in binds one array inside the wrapper",
+			leaf("tag", OpIn, []any{tagUUID, ownerUUID}),
+			fmt.Sprintf(wrapper, "tg.tag_id = ANY($1)"),
+			[]any{[]string{tagUUID, ownerUUID}},
+		},
+		{
+			"exists true carries any tag and binds nothing",
+			leaf("tag", OpExists, true),
+			fmt.Sprintf(wrapper, "TRUE"),
+			nil,
+		},
+		{
+			"exists false finds the untagged",
+			leaf("tag", OpExists, false),
+			"NOT " + fmt.Sprintf(wrapper, "TRUE"),
+			nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sql, args := compileTag(t, tc.p)
+			if sql != tc.wantSQL {
+				t.Errorf("sql = %q, want %q", sql, tc.wantSQL)
+			}
+			if !reflect.DeepEqual(args, tc.wantArgs) {
+				t.Errorf("args = %#v, want %#v", args, tc.wantArgs)
+			}
+		})
+	}
+}
+
+// A link leaf validates its operand exactly as the scalar id fields do, so a
+// malformed tag reference is the caller's 422 and never reaches the database.
+func TestLinkLeafRejectsAMalformedID(t *testing.T) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	_, err := CompilePredicate(leaf("tag", OpEq, "not-a-uuid"), tagFields, arg)
+	var perr *PredicateError
+	if !errors.As(err, &perr) || perr.Code != CodeFilterValueInvalid {
+		t.Fatalf("err = %v, want a PredicateError with code %s", err, CodeFilterValueInvalid)
+	}
+}
+
+// A link leaf composes inside AND/OR like any other, because the wrapper is
+// self-contained: no join is hoisted to the outer query and no row is duplicated.
+func TestLinkLeafNestsInsideAGroup(t *testing.T) {
+	sql, args := compileTag(t, Predicate{Or: []Predicate{
+		leaf("tag", OpEq, tagUUID),
+		leaf("tag", OpExists, false),
+	}})
+	want := "(EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
+		" AND tg.entity_id = t.id AND tg.tag_id = $1)" +
+		" OR NOT EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
+		" AND tg.entity_id = t.id AND TRUE))"
+	if sql != want {
+		t.Errorf("sql = %q, want %q", sql, want)
+	}
+	if !reflect.DeepEqual(args, []any{tagUUID}) {
+		t.Errorf("args = %#v, want one bound tag id", args)
 	}
 }
 
