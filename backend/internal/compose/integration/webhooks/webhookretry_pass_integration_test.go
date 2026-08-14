@@ -14,6 +14,7 @@ package webhooks
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,6 +167,13 @@ func TestWebhookRetryReportsASweepWhoseDueScanFailed(t *testing.T) {
 	if err == nil {
 		t.Fatal("a sweep whose due-retry scan failed reported success — every parked delivery stays parked and nothing records that the scan never ran")
 	}
+	// The failure is the one this test injected, not any failure. Without this
+	// the assertion above passes on an unrelated break — including the one it is
+	// least able to notice, a fault that stopped reaching the scan while
+	// something else failed in its place.
+	if !strings.Contains(err.Error(), "webhook due-scan fault injection") {
+		t.Errorf("the sweep failed with %v, which does not name the injected due-scan fault", err)
+	}
 }
 
 // TestWebhookRetryRecordsAFailedPassAsAFailedRow is what survives the fan-out.
@@ -211,6 +219,11 @@ func TestWebhookRetryRecordsAFailedPassAsAFailedRow(t *testing.T) {
 	if outcome := jobtest.AwaitKindOutcome(waitCtx, t, completed, failed, kind); outcome {
 		t.Error("the pass whose due scan could not run reported a completed job — the failure the row exists to record was swallowed")
 	}
+
+	// What the ROW records is the classified message — River stores the
+	// classified fault and keeps the cause in the process log — so the proof
+	// that this failure is the injected one lives next door, in the test that
+	// calls the sweep directly and can read the raw error.
 }
 
 // TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval pins the half of the
