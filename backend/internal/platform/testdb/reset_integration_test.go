@@ -59,6 +59,7 @@ func nonEmptyTables(ctx context.Context, t *testing.T, owner *pgx.Conn) []string
 		  AND n.nspname <> 'information_schema'
 		  AND c.relkind IN ('r', 'p', 'f')
 		  AND c.relname NOT LIKE 'schema_migrations_%'
+		  AND c.relname NOT IN ('activity_kind', 'channel_provider')
 		ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		t.Fatalf("listing tables: %v", err)
@@ -94,9 +95,13 @@ func TestResetScopeCoversEveryDataRelation(t *testing.T) {
 	}
 	// Derived independently and deliberately wider: any relation in a schema the
 	// migration lane owns that stores rows, whatever its relkind, minus the ledger
-	// the reset preserves on purpose. Partitioned parents ('p') count — their
-	// leaves are emptied, but a parent outside the reset's scope also hides from
-	// reclaimBloat and restartSequences.
+	// and the boot-seeded reference-data tables the reset preserves on purpose
+	// (activity_kind, channel_provider — DESIGN-SP4 §4: migration 0239 seeds rows
+	// a test depends on, breaking this package's former "no migration seeds
+	// reference data" invariant, so both are excluded the same way the ledger
+	// is). Partitioned parents ('p') count — their leaves are emptied, but a
+	// parent outside the reset's scope also hides from reclaimBloat and
+	// restartSequences.
 	expected, err := queryIdents(ctx, owner, `
 		SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname)
 		FROM pg_class c
@@ -104,6 +109,7 @@ func TestResetScopeCoversEveryDataRelation(t *testing.T) {
 		WHERE n.nspname IN ('public', 'ext')
 		  AND c.relkind IN ('r', 'p')
 		  AND c.relname NOT LIKE 'schema_migrations_%'
+		  AND c.relname NOT IN ('activity_kind', 'channel_provider')
 		ORDER BY n.nspname, c.relname`)
 	if err != nil {
 		t.Fatalf("listing every data relation: %v", err)

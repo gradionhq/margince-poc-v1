@@ -60,12 +60,20 @@ var (
 )
 
 // resetTables is the ONE spelling of which relations a reset acts on: ordinary
-// tables in the schemas below, minus the schema_migrations_* ledger. That ledger
-// is preserved so EnsureSchema's once-per-process contract holds — re-running
-// dbmigrate.Up in a later process (parallel runner, fresh clone) must still see
-// an unmigrated database, while a reset leaves the applied-version rows intact
-// for the current one. Every caller selects a qualified identifier from it, so
-// the emitted statements never depend on search_path resolution.
+// tables in the schemas below, minus the schema_migrations_* ledger and the
+// boot-seeded reference-data tables. Both are preserved for the same reason:
+// EnsureSchema's once-per-process contract assumes what its own package doc
+// once stated as an invariant — "no migration seeds reference data a test
+// depends on" — and migration 0239 was the first to break that assumption
+// (activity_kind, channel_provider: DESIGN-SP4 §4). A reset that DELETEd them
+// would silently un-seed every test's fixed activity kinds and telegram's
+// channel-provider row, and the failure would surface somewhere else entirely
+// — a foreign-key violation on an activity insert with no visible connection
+// to Reset. Re-running dbmigrate.Up in a later process (parallel runner, fresh
+// clone) must still see an unmigrated database, while a reset leaves both the
+// migration ledger AND this boot-seeded reference data intact for the current
+// one. Every caller selects a qualified identifier from it, so the emitted
+// statements never depend on search_path resolution.
 //
 // ext is in scope for exactly the reason public is. Since 0202 every extension
 // unit's tables live there (ADR-0069), applied by the same lane, and an ext_
@@ -79,7 +87,8 @@ const resetTables = `
 	JOIN pg_namespace n ON n.oid = c.relnamespace
 	WHERE n.nspname IN ('public', 'ext')
 	  AND c.relkind = 'r'
-	  AND c.relname NOT LIKE 'schema_migrations_%'`
+	  AND c.relname NOT LIKE 'schema_migrations_%'
+	  AND c.relname NOT IN ('activity_kind', 'channel_provider')`
 
 // reclaimSlack is how much a table may grow past its empty size before a reset
 // TRUNCATEs it instead of DELETEing it. Growth, not absolute size, is the
