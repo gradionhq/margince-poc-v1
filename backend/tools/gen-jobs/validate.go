@@ -18,7 +18,7 @@ import (
 // one is a change to what a job IS, and it has to land in both places at once.
 const (
 	roleDispatcher = "dispatcher"
-	roleWorkspace  = "workspace"
+	roleWorker  = "worker"
 
 	unitWorkspace  = "workspace"
 	unitConnection = "connection"
@@ -50,7 +50,7 @@ const (
 )
 
 var (
-	roles     = map[string]bool{roleDispatcher: true, roleWorkspace: true}
+	roles     = map[string]bool{roleDispatcher: true, roleWorker: true}
 	fanUnits  = map[string]bool{unitWorkspace: true, unitConnection: true, unitBuild: true}
 	optsOwner = map[string]bool{optsFanOut: true, optsArgs: true, optsCaller: true}
 
@@ -126,7 +126,7 @@ func (c contract) validateKind(name string, def kindDef) error {
 		return fmt.Errorf("kind %q: name must match %s — River persists it in river_job.kind", name, kindNameRE)
 	}
 	if !roles[def.Role] {
-		return fmt.Errorf("kind %q: role must be %q or %q, got %q", name, roleDispatcher, roleWorkspace, def.Role)
+		return fmt.Errorf("kind %q: role must be %q or %q, got %q", name, roleDispatcher, roleWorker, def.Role)
 	}
 	if !goTypeRE.MatchString(def.GoType) {
 		return fmt.Errorf("kind %q: go_type %q must match %s — it names the compose args struct", name, def.GoType, goTypeRE)
@@ -278,18 +278,18 @@ func (c contract) validateFanOut(name string, def kindDef) error {
 	if !ok {
 		return fmt.Errorf("kind %q: fans_out_to %q, which no kinds: entry declares", name, def.FansOutTo)
 	}
-	if child.Role != roleWorkspace {
-		return fmt.Errorf("kind %q: fans_out_to %q, whose role is %q — a fan-out child carries one tenant's pass", name, def.FansOutTo, child.Role)
+	if child.Role != roleWorker {
+		return fmt.Errorf("kind %q: fans_out_to %q, whose role is %q — a fan-out child does the work for one unit", name, def.FansOutTo, child.Role)
 	}
 	return nil
 }
 
 // validateCadence holds the schedule to the role: a dispatcher is ticked and a
-// workspace kind is enqueued, and neither may claim the other's posture.
+// worker is enqueued, and neither may claim the other's posture.
 func (c contract) validateCadence(name string, def kindDef) error {
 	if def.Role != roleDispatcher {
 		if def.Cadence != nil {
-			return fmt.Errorf("kind %q: declares a cadence but its role is %q — a workspace kind is enqueued by its dispatcher, never ticked", name, def.Role)
+			return fmt.Errorf("kind %q: declares a cadence but its role is %q — an enqueued worker is never ticked", name, def.Role)
 		}
 		return nil
 	}

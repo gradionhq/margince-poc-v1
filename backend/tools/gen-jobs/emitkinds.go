@@ -122,7 +122,7 @@ func writeRoleAssertions(b *strings.Builder, c contract) {
 	b.WriteString("// pass and says which in its own args.\n")
 	b.WriteString("var (\n")
 	for _, name := range c.sortedKinds() {
-		if def := c.Kinds[name]; def.Role == roleWorkspace {
+		if def := c.Kinds[name]; def.Role == roleWorker {
 			fmt.Fprintf(b, "\t_ jobs.WorkspaceScoped = %s{}\n", def.GoType)
 		}
 	}
