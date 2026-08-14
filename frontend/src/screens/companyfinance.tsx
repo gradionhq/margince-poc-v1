@@ -1,17 +1,14 @@
 import { Landmark } from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
+import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemCodeOf, useFinanceSummary } from "./common";
-import {
-  medianDaysLabel,
-  RECORD_ZONE,
-  SectionPart,
-  type SectionState,
-} from "./company360";
+import { medianDaysLabel, RECORD_ZONE } from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
 //
@@ -98,9 +95,9 @@ export function CompanyFinanceCard({
     return (
       <Panel title={title}>
         <PanelBody>
-          <SectionPart state="loading" emptyLabel={t("finance.none")}>
+          <SurfaceState state="loading" emptyLabel={t("finance.none")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       </Panel>
     );
@@ -113,13 +110,13 @@ export function CompanyFinanceCard({
     return (
       <Panel title={title}>
         <PanelBody>
-          <SectionPart
+          <SurfaceState
             state={withheld ? "withheld" : "failed"}
             emptyLabel={t("finance.none")}
             detail={withheld ? {} : { onRetry: () => void query.refetch() }}
           >
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       </Panel>
     );
@@ -140,7 +137,7 @@ export function CompanyFinanceCard({
       footer={present ? <FinanceProvenance summary={summary} /> : undefined}
     >
       <PanelBody>
-        <SectionPart
+        <SurfaceState
           state={cardState}
           emptyLabel={t(EMPTY_LABEL[summary.state] ?? "finance.none")}
           detail={{
@@ -151,7 +148,7 @@ export function CompanyFinanceCard({
           }}
         >
           <FinanceBody summary={summary} />
-        </SectionPart>
+        </SurfaceState>
       </PanelBody>
     </Panel>
   );
@@ -220,7 +217,7 @@ function FinanceFigure({
 }: Readonly<{ label: string; value?: string; tone?: "danger" }>) {
   return (
     <div className="co-figure">
-      <span className="co-part-label">{label}</span>
+      <Eyebrow>{label}</Eyebrow>
       <span
         className={
           tone ? `co-figure-value fin-value-${tone}` : "co-figure-value"
@@ -242,7 +239,7 @@ function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
   }
   return (
     <p className="fin-behaviour">
-      <span className="co-part-label">{t("finance.behaviour")}</span>{" "}
+      <Eyebrow>{t("finance.behaviour")}</Eyebrow>{" "}
       {medianDaysLabel(summary.median_days_after_due, t)}
     </p>
   );
@@ -257,25 +254,32 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
   }
   return (
     <>
-      <table className="table fin-table">
-        <thead>
-          <tr>
-            <th>{t("finance.col.invoice")}</th>
-            <th>{t("finance.col.issued")}</th>
-            <th>{t("finance.col.due")}</th>
-            <th>{t("finance.col.paid")}</th>
-            <th>{t("finance.col.amount")}</th>
-            <th>{t("finance.col.status")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoices.map((invoice) => (
-            <InvoiceRow key={invoice.id} invoice={invoice} locale={locale} />
-          ))}
-        </tbody>
-      </table>
+      {/* Six columns — number, three dates, amount, status — on a panel inside
+          a record page. Nothing here is droppable: an invoice is only checkable
+          against its own dates. So the table scrolls sideways inside its panel
+          rather than widening the whole record page, which is the containment
+          DataTable already gives every list built from it (atoms.tsx). */}
+      <div className="table-scroll">
+        <table className="table fin-table">
+          <thead>
+            <tr>
+              <th>{t("finance.col.invoice")}</th>
+              <th>{t("finance.col.issued")}</th>
+              <th>{t("finance.col.due")}</th>
+              <th>{t("finance.col.paid")}</th>
+              <th>{t("finance.col.amount")}</th>
+              <th>{t("finance.col.status")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((invoice) => (
+              <InvoiceRow key={invoice.id} invoice={invoice} locale={locale} />
+            ))}
+          </tbody>
+        </table>
+      </div>
       {summary.truncated && (
-        <p className="co-empty">{t("finance.moreInvoices")}</p>
+        <p className="surfacestate-empty">{t("finance.moreInvoices")}</p>
       )}
     </>
   );

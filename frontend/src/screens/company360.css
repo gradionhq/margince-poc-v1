@@ -32,7 +32,7 @@
 }
 /* What this account is worth to us, boxed like every panel beside it rather
    than standing bare in the column. GrowthFitPanel draws its own heading
-   (co-part-label) inside, so this wrapper carries no title of its own. */
+   (an Eyebrow) inside, so this wrapper carries no title of its own. */
 .co-worth > .co-growth-fit {
   margin-bottom: 0;
 }
@@ -171,42 +171,11 @@
   margin-left: auto;
 }
 
-/* The two absent states read differently on purpose: "there is none" is
-   ordinary meta text, "you may not see this" is set apart so a rep never
-   mistakes a permission boundary for an empty account. */
-.co-empty {
-  margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--textMeta);
-}
-/* Reads --textMeta, the canonical AA small-text role: this text says a
-   permission boundary or a failed read, which is exactly the text a reader
-   must not have to squint at. Italic carries the "this is about the page,
-   not the record" tone without leaning on colour. */
-.co-restricted {
-  margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--textMeta);
-  font-style: italic;
-}
-
-/* A failed section keeps its retry on the same line as the reason, so the
-   sentence and the way out of it read as one thing. */
-.co-failed {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-/* Stale values are SHOWN, with the caveat above them rather than below: a
-   caveat under a figure arrives after the reader has already taken it as
-   current. The warn tone marks it as a caveat and not as prose. */
-.co-stale {
-  margin-bottom: var(--space-2);
-  font-size: 12.5px;
-  color: var(--warn);
-}
+/* The four message lines these states draw — "there is none", the permission
+   boundary, the failed read and its retry, the stale caveat — moved to
+   SurfaceState (design-system/surfacestate.css) with the component that draws
+   them. Every one of them was already a statement about the SURFACE rather
+   than about a company. */
 
 .co-callout {
   margin-top: 8px;
@@ -237,13 +206,9 @@
 .co-part + .co-part {
   margin-top: var(--space-3);
 }
-.co-part-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--textMeta);
-}
+/* The label above a part is an Eyebrow (design-system/eyebrow.tsx) now — the
+   one spelling of uppercase micro-type, which this used to carry its own copy
+   of. */
 
 /* A profile/fact row: label above the value, with the value carrying its
    own evidence mark rather than a footer of chips beneath it. */
@@ -318,29 +283,19 @@
   color: var(--textMeta);
 }
 
-/* "Worth doing next": the overview's lead panel, tinted so it reads as the
-   one card asking for a move rather than one more card that reports state. */
-.co-lead {
-  border-color: var(--accentMed);
-}
-.co-lead > .panel-head {
-  background: var(--accentLight);
-  border-bottom-color: var(--accentMed);
-}
-.co-lead > .panel-head h2 {
-  color: var(--accent);
-}
-.co-lead > .panel-foot,
-.co-move {
-  border-top-color: var(--accentMed);
-}
+/* "Worth doing next": the overview's lead panel. The tint that makes it read
+   as the one card asking for a move is Panel's own tone="accent" now — this
+   class no longer reaches into .panel-head or .panel-foot, and what is left of
+   it is only the name the moves inside the panel are laid out under. */
 
 /* One move: the ask at the row's loudest weight, the reason under it — the
-   reason is the part a rep judges, and everything else is chrome around it. */
+   reason is the part a rep judges, and everything else is chrome around it.
+   Its hairline matches the accent bands above and below it. */
 .co-move {
   display: flex;
   gap: var(--space-4);
   align-items: flex-start;
+  border-top-color: var(--accentMed);
   /* .panel-row already sets the padding and the hairline border (none on
      the first row); this only lays the row's own content out. */
 }
@@ -531,7 +486,7 @@
   border-radius: var(--r-md);
   background: var(--bgCard);
 }
-.co-strip-withheld .co-restricted {
+.co-strip-withheld .surfacestate-withheld {
   margin-top: 0;
 }
 .co-strip {
@@ -630,12 +585,9 @@
   margin-block-start: 1.75rem;
 }
 
-.co-brief-section-label.t-caption {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--textMeta);
+/* The type is .t-eyebrow; what belongs to THIS label is that it holds its own
+   line in the grid column beside the prose rather than wrapping into two. */
+.co-brief-section-label {
   white-space: nowrap;
 }
 
@@ -884,13 +836,10 @@
 .co-timeline-day + .co-timeline-day {
   margin-top: var(--space-4);
 }
+/* The type is .t-eyebrow; the padding is the panel's own, because the heading
+   sits between full-bleed rows and has to line up with their content. */
 .co-timeline-day-heading {
   padding: var(--space-3) var(--space-5) 0;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--textMeta);
 }
 
 /* The growth-fit bars: the band taken apart, one row per dimension. The reason
@@ -1129,16 +1078,10 @@
    rather than the lower one. Two jobs, two shapes: the strip states what the
    account IS, in a grid; this says what is true TODAY, in a sentence. */
 /* The context sits on its own plate, inset from the panel's edges, while the
-   moves below run full-bleed on the panel's own ground. That is the whole
-   device: a reader can tell which part of the panel is what IS from which
-   part is what to DO before reading a word of either, and nothing on the
-   plate looks pressable. */
-.today-context {
-  margin: var(--space-4) var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--r-md);
-  background: var(--bgCard);
-}
+   moves below run full-bleed on the panel's own ground — PanelPlate
+   (design-system/panel.tsx) is that plate, and it is the whole device: a
+   reader can tell which part of the panel is what IS from which part is what
+   to DO before reading a word of either. */
 /* Whose move it is, at the top and in its own weight: the one thing a reader
    must know before the moves under it mean anything. */
 .today-lead {
@@ -1313,19 +1256,10 @@
   background: none;
   color: var(--textContent);
 }
-.co-lead > .panel-head {
-  gap: var(--space-2);
-}
-/* The panel's own name, at body weight: the record's tabs and its heading are
-   already louder, and a brief that shouts over them stops reading as one part
-   of a page. */
-.co-lead > .panel-head h2 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--fs-body);
-  font-weight: var(--fw-semibold);
-}
+/* The panel's own name, at body weight and laid out as a row, moved into
+   Panel's tone="accent" (design-system/panel.css): the record's tabs and its
+   heading are already louder, and a lead that shouts over them stops reading
+   as one part of a page. */
 
 /* The readings are a row a reader sweeps, so each one needs room around it to
    read as its own reading rather than as a column of a table. The shared tile

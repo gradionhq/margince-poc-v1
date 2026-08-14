@@ -278,6 +278,25 @@ export function JobHealthCard() {
       if (error) {
         throwProblem(error);
       }
+      // The contract makes all three required (JobHealth), so a body missing
+      // one is not a thin report — it is a report this card cannot read, and
+      // the check belongs at the boundary where the wire stops being trusted
+      // rather than at each of the six places the body dereferences it.
+      //
+      // Rejecting it is the point. `?? []` would draw the card's idle state,
+      // which says the background system has nothing queued and nothing failed
+      // — a claim about the installation that this response never made, and
+      // exactly the reading an operator opens this card to trust. A malformed
+      // payload is a condition to report, so it becomes the card's error state:
+      // it says the report could not be loaded and offers a retry.
+      if (
+        !data ||
+        typeof data.generated_at !== "string" ||
+        !Array.isArray(data.kinds) ||
+        !Array.isArray(data.recent_failures)
+      ) {
+        throw new Error("malformed job-health response");
+      }
       return data;
     },
   });

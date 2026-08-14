@@ -53,10 +53,77 @@ const CORE_SCREENS = [
   // carries two full list surfaces with their own toolbars, `integrations` four
   // installation-wide cards, `people` a roster of rows that each end in two
   // buttons. These are where a narrow viewport actually breaks.
+  //
+  // ALL twelve, not the five that happened to be listed. The seven added here
+  // were in neither sweep, and they are not the quiet ones: `capture` is where
+  // the switch that shipped without `aria-checked` lives, `connections` carries
+  // the import form whose 13px labels sat at 1.5:1, and `maintenance` was
+  // rendering the app error boundary — a dead page both sweeps passed.
   "settings/data-model",
   "settings/integrations",
   "settings/people",
+  "settings/voice",
+  "settings/agents",
+  "settings/connections",
+  "settings/general",
+  "settings/capture",
+  "settings/privacy",
+  "settings/maintenance",
 ];
+
+/**
+ * The page rendered, rather than the app error boundary standing in for it.
+ *
+ * Both sweeps below measure what is on screen, and a page that threw during
+ * render puts almost nothing there: `settings/maintenance` crashed on a
+ * malformed `/admin/job-health` payload and scored zero axe violations and zero
+ * overflow — a dead page passing every check. The rail is the cheapest proof
+ * the shell survived, because the boundary is mounted ABOVE it (main.tsx): if
+ * the fallback is showing, the rail is gone.
+ */
+async function expectShellRendered(page: Page) {
+  await expect(page.locator("nav.rail")).toBeVisible();
+}
+
+/**
+ * How far the PAGE scrolls sideways, and which scroller does it.
+ *
+ * NOT `document.body.scrollWidth`, which is what this sweep used to read. The
+ * shell pins `.main` to `overflow: hidden` (shell.css) and gives `.scroll` an
+ * `overflow-y: auto` that computes `overflow-x` to `auto` with it, so wide
+ * content scrolls INSIDE the page's own scroller and the body never grows a
+ * pixel. Measured across all twelve settings tabs the body reported 0 while
+ * `.scroll` itself overflowed by up to 273px — the assertion was structurally
+ * incapable of failing, whatever the layout did.
+ *
+ * So this reads the two elements that actually scroll the page: the document,
+ * and the shell's content column. Anything a screen spills — a header row, a
+ * card, a table — spills into one of them, and it is the reader panning THOSE
+ * that §3.8 forbids.
+ *
+ * A component that declares a horizontal scroll region of its own is not this
+ * and is deliberately not measured: `.table-scroll` around a table too wide for
+ * a phone (atoms.css) is the sanctioned answer to wide content, and it is
+ * bounded by its card, so the page around it never moves.
+ */
+async function pageOverflow(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const scrollers: { name: string; element: Element }[] = [
+      { name: "the document", element: document.documentElement },
+      ...Array.from(document.querySelectorAll(".scroll")).map((element) => ({
+        name: "the shell content scroller (.scroll)",
+        element,
+      })),
+    ];
+    return scrollers
+      .map(({ name, element }) => ({
+        name,
+        overflow: element.scrollWidth - element.clientWidth,
+      }))
+      .filter(({ overflow }) => overflow > 0)
+      .map(({ name, overflow }) => `${name}: ${overflow}px past the viewport`);
+  });
+}
 
 /**
  * The one account affordance, at the foot of the sidebar.
@@ -811,15 +878,19 @@ test.describe("§3.8: 390px mobile", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   for (const screen of CORE_SCREENS) {
-    test(`no horizontal body scroll at 390px on #/${screen}`, async ({
+    test(`nothing scrolls sideways at 390px on #/${screen}`, async ({
       page,
     }) => {
       await page.goto(`/#/${screen}`);
       await page.waitForLoadState("networkidle");
-      const overflow = await page.evaluate(
-        () => document.body.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow).toBeLessThanOrEqual(0);
+      await expectShellRendered(page);
+      // The scroller has to be FOUND, or a renamed class would leave this
+      // sweep quietly measuring only the document — which is the blindness it
+      // was written to end.
+      await expect(page.locator(".scroll")).toHaveCount(1);
+      // Named offenders rather than a count: a bare number tells whoever broke
+      // this that something is 169px too wide and nothing about what.
+      expect(await pageOverflow(page)).toEqual([]);
     });
   }
 
@@ -834,22 +905,63 @@ test.describe("§3.8: 390px mobile", () => {
   });
 });
 
+/**
+ * The AA sweep of one page: assert what axe DECIDED, report what it could not.
+ *
+ * `violations` is the gate, and it stays the gate. `incomplete` is deliberately
+ * reported rather than asserted, and the reason is what the word means: axe
+ * puts a node there when it cannot reach a verdict at all — a colour over a
+ * gradient or an image, a pseudo-element, or (the case in this tree) a `.cf-count`
+ * whose "content [is] too short to determine if it is actual text content".
+ * None of those become decidable by fixing the page, so a blanket
+ * `expect(incomplete).toEqual([])` could only be satisfied by deleting the
+ * assertion again — and a gate that gets weakened once teaches everyone that
+ * gates get weakened.
+ *
+ * So the undecided findings are PRINTED, with axe's own reason attached, on a
+ * line a human reading the run can see. That is a real gap and it is stated as
+ * one: an incomplete `color-contrast` is a colour nobody has verified, and the
+ * only thing standing behind those today is the token law in tokens.css — meta
+ * text takes `--textMeta`, and `--textTertiary` is for marks.
+ */
+async function expectNoAaViolations(page: Page, screen: string) {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const undecided = results.incomplete.flatMap((check) =>
+    check.nodes.map(
+      (node) =>
+        `${check.id}: ${node.target.join(" ")} — ${node.any
+          .map((result) => result.message)
+          .join("; ")}`,
+    ),
+  );
+  if (undecided.length > 0) {
+    console.warn(
+      `axe could not decide ${undecided.length} finding(s) on #/${screen}; a human has to:\n  ${undecided.join("\n  ")}`,
+    );
+  }
+  expect(
+    results.violations.flatMap((violation) =>
+      violation.nodes.map(
+        (node) => `${violation.id}: ${node.target.join(" ")}`,
+      ),
+    ),
+  ).toEqual([]);
+}
+
 test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
   for (const screen of CORE_SCREENS) {
     test(`no AA violations on #/${screen}`, async ({ page }) => {
       await page.goto(`/#/${screen}`);
       await page.waitForLoadState("networkidle");
+      // Before measuring anything: a page that threw during render has almost
+      // no accessibility tree to fault, so a crash used to read as a clean
+      // sweep. #/settings/maintenance scored zero violations while showing the
+      // app error boundary.
+      await expectShellRendered(page);
       await animationsSettled(page);
-      const results = await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-        .analyze();
-      expect(
-        results.violations.flatMap((violation) =>
-          violation.nodes.map(
-            (node) => `${violation.id}: ${node.target.join(" ")}`,
-          ),
-        ),
-      ).toEqual([]);
+      await expectNoAaViolations(page, screen);
     });
   }
 
@@ -872,16 +984,8 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
     // finds nothing to complain about in an empty shell.
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await animationsSettled(page);
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-      .analyze();
-    expect(
-      results.violations.flatMap((violation) =>
-        violation.nodes.map(
-          (node) => `${violation.id}: ${node.target.join(" ")}`,
-        ),
-      ),
-    ).toEqual([]);
+    await expectShellRendered(page);
+    await expectNoAaViolations(page, "companies/o-brandt");
   });
 });
 
@@ -1116,32 +1220,19 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
     // surface a user of an SSO installation actually clicks unmeasured.
     await page.waitForLoadState("networkidle");
     await animationsSettled(page);
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-      .analyze();
-    expect(
-      results.violations.flatMap((violation) =>
-        violation.nodes.map(
-          (node) => `${violation.id}: ${node.target.join(" ")}`,
-        ),
-      ),
-    ).toEqual([]);
+    await expectNoAaViolations(page, "login (with SSO providers)");
   });
 
   test("no AA violations on the login screen", async ({ page }) => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
+    // The rail-less surface has no shell to check for; its own h1 is the proof
+    // the screen rendered, and the block above already asserts that.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
+    ).toBeVisible();
     await animationsSettled(page);
-    const results = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-      .analyze();
-    expect(
-      results.violations.flatMap((violation) =>
-        violation.nodes.map(
-          (node) => `${violation.id}: ${node.target.join(" ")}`,
-        ),
-      ),
-    ).toEqual([]);
+    await expectNoAaViolations(page, "login");
   });
 });
 

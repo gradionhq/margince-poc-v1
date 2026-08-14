@@ -20,7 +20,7 @@ import {
   Webhook,
   Wrench,
 } from "lucide-react";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
@@ -87,6 +87,7 @@ import { ProviderCard } from "./integrations-provider";
 import { JobHealthCard } from "./jobhealth";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
+import { SEARCH_DEBOUNCE_MS } from "./listquery";
 import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
@@ -1845,6 +1846,26 @@ function auditLogQueryParams(
   };
 }
 
+/**
+ * The filters as a QUESTION, settled — which is a different thing from the
+ * filters as they are being typed.
+ *
+ * The row updates on every keystroke, as it must; what waits is the query. The
+ * filter object is the query key, so before this every character was its own
+ * `GET /audit-log`: typing `agent:runner` asked the server twelve questions,
+ * eleven of them about prefixes nobody wanted an answer to, and the answers
+ * could land out of order. The shared list surface settles its own search on
+ * this same constant, so a filter costs the same anywhere in the product.
+ */
+function useSettledAuditLogFilters(typed: AuditLogFilters): AuditLogFilters {
+  const [settled, setSettled] = useState(typed);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(typed), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [typed]);
+  return settled;
+}
+
 function AuditLogFilterFields({
   filters,
   onChange,
@@ -2106,6 +2127,8 @@ export function AuditLogCard() {
   const meUserId = useMe().data?.user?.id;
   const isAdmin = useHoldsAdminRole();
   const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);
+  // The row reads what is being typed; the entries read what has settled.
+  const asked = useSettledAuditLogFilters(filters);
   return (
     <>
       {/* The filter row is absent, not withheld, for a reader who may not read
@@ -2123,7 +2146,7 @@ export function AuditLogCard() {
           <AuditLogFilterFields filters={filters} onChange={setFilters} />
         </Card>
       )}
-      <AuditLogEntries filters={filters} meUserId={meUserId} />
+      <AuditLogEntries filters={asked} meUserId={meUserId} />
     </>
   );
 }

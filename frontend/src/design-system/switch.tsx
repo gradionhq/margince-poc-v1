@@ -49,7 +49,16 @@ export function Switch({
   labelHidden?: boolean;
   /** A help line under the label — what the setting does, in the user's terms. */
   hint?: ReactNode;
-  checked: boolean;
+  /**
+   * Whether the setting is on. Required, so a caller still has to say — but
+   * typed to admit `undefined`, because the value is routinely read off a
+   * server payload and a body that lost a contract-required field hands one
+   * over anyway. `role="switch"` has exactly two states and no third, so the
+   * control renders OFF for an absent one: the same thing the knob draws, and
+   * the only reading ARIA can carry. Whether a payload that thin should reach
+   * a control at all is a question for the query boundary, not for a toggle.
+   */
+  checked: boolean | undefined;
   onChange: (next: boolean) => void;
   disabled?: boolean;
   /** Why it cannot be changed. Rendered, and announced with the control. */
@@ -66,17 +75,28 @@ export function Switch({
       .filter(Boolean)
       .join(" ") || undefined;
 
+  // Resolved once, and used for BOTH the announced state and the value handed
+  // back on click, so what a reader hears and what the next write carries can
+  // never disagree.
+  const on = checked === true;
+
   return (
     <div className="switchrow">
       <button
         type="button"
         role="switch"
-        aria-checked={checked}
+        // `on`, never the raw prop: React omits an attribute whose value is
+        // undefined, and a `role="switch"` with no `aria-checked` is a control
+        // that announces no state at all — WCAG 4.1.2, which axe reports as
+        // `aria-required-attr`. The stylesheet keys the knob off this same
+        // attribute, so dropping it also left the track drawn as off with
+        // nothing saying so.
+        aria-checked={on}
         aria-describedby={describedBy}
         disabled={disabled}
         className="switchcontrol"
         data-testid={testId}
-        onClick={() => onChange(!checked)}
+        onClick={() => onChange(!on)}
       >
         {/* The track's knob. Decorative: the state is already on aria-checked,
             and announcing it twice is how a reader hears "on on". */}

@@ -11,3 +11,17 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+
+/* On a phone this group stacks, and `flex-wrap` alone is why it has to be said
+ * here. SectionHeader hands its actions slot `flex: none`, so the slot is sized
+ * to the group's MAX-CONTENT — the width of the row unwrapped — and a wrap rule
+ * inside it is never reached: the two controls measured 353px inside a 324px
+ * card, pushing the whole page 12px past a 390px viewport and squeezing the
+ * card's own title to zero width beside them. In a column the group is only as
+ * wide as its widest control, which the card can hold. */
+@media (max-width: 640px) {
+  .rates-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

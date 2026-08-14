@@ -672,6 +672,7 @@ function DeliveriesBody({
             title={t("webhooks.deliveries.deadLetterGroup", {
               count: deadLettered.length,
             })}
+            level={3}
           />
           <DataTable
             columns={columns}
@@ -685,7 +686,10 @@ function DeliveriesBody({
           style={{ marginTop: deadLettered.length > 0 ? "var(--space-3)" : 0 }}
         >
           {deadLettered.length > 0 && (
-            <SectionHeader title={t("webhooks.deliveries.allGroup")} />
+            <SectionHeader
+              title={t("webhooks.deliveries.allGroup")}
+              level={3}
+            />
           )}
           <DataTable columns={columns} rows={others} rowKey={(d) => d.id} />
         </div>

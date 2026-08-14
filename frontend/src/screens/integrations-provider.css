@@ -110,12 +110,15 @@
   border-bottom: 1px solid var(--borderSubtle);
 }
 
-/* Month and pool are labels and read left; the three figure columns read right
- * so their digits line up under each other, each holding a fixed width so they
- * stay grouped instead of stranded across the table. */
+/* Month and pool are labels and read left; the three figure columns read right,
+ * which is what actually lines their digits up — every number ends at the same
+ * x whatever its length. No `width` here: under the default `table-layout: auto`
+ * a column width is a preference the algorithm may discard, and this one was —
+ * a declaration the browser ignores is worse than none, because the next reader
+ * believes the layout is pinned. The narrow-screen answer is the .table-scroll
+ * wrapper around the table, not a per-column size. */
 .provider-spend-table th:nth-child(n + 3),
 .provider-spend-table td:nth-child(n + 3) {
-  width: 6rem;
   text-align: right;
 }
 

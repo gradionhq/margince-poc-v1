@@ -200,42 +200,49 @@ export function AiUsageCard() {
               {rows.length === 0 ? (
                 <EmptyState>{t("aiusage.empty")}</EmptyState>
               ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>{t("aiusage.col.task")}</th>
-                      <th>{t("aiusage.col.tier")}</th>
-                      <th>{t("aiusage.col.calls")}</th>
-                      <th>{t("aiusage.col.cached")}</th>
-                      <th>{t("aiusage.col.tokensIn")}</th>
-                      <th>{t("aiusage.col.tokensOut")}</th>
-                      {showCost && <th>{t("aiusage.col.cost")}</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={`${row.task}-${row.tier}`}>
-                        <td>{row.task}</td>
-                        <td>{row.tier}</td>
-                        <td>{formatNumber(row.calls, locale)}</td>
-                        <td>{formatNumber(row.cached_hits ?? 0, locale)}</td>
-                        <td>{formatNumber(row.tokens_in, locale)}</td>
-                        <td>{formatNumber(row.tokens_out, locale)}</td>
-                        {showCost && (
-                          <td>
-                            {row.cost_est_minor === undefined
-                              ? "—"
-                              : formatMoney(
-                                  row.cost_est_minor,
-                                  currency,
-                                  locale,
-                                )}
-                          </td>
-                        )}
+                // Seven columns do not fit a phone, and nothing here can be
+                // dropped — a spend row is only reconcilable whole. So the
+                // TABLE scrolls sideways inside the card rather than the page
+                // doing it, which is what DataTable already does for every
+                // list built from it (atoms.tsx).
+                <div className="table-scroll">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{t("aiusage.col.task")}</th>
+                        <th>{t("aiusage.col.tier")}</th>
+                        <th>{t("aiusage.col.calls")}</th>
+                        <th>{t("aiusage.col.cached")}</th>
+                        <th>{t("aiusage.col.tokensIn")}</th>
+                        <th>{t("aiusage.col.tokensOut")}</th>
+                        {showCost && <th>{t("aiusage.col.cost")}</th>}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr key={`${row.task}-${row.tier}`}>
+                          <td>{row.task}</td>
+                          <td>{row.tier}</td>
+                          <td>{formatNumber(row.calls, locale)}</td>
+                          <td>{formatNumber(row.cached_hits ?? 0, locale)}</td>
+                          <td>{formatNumber(row.tokens_in, locale)}</td>
+                          <td>{formatNumber(row.tokens_out, locale)}</td>
+                          {showCost && (
+                            <td>
+                              {row.cost_est_minor === undefined
+                                ? "—"
+                                : formatMoney(
+                                    row.cost_est_minor,
+                                    currency,
+                                    locale,
+                                  )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
               {showCost && (
                 <p className="t-caption">

@@ -489,7 +489,7 @@ export function CompanyContextCard() {
                 </div>
                 {PROFILE_GROUPS.map((group) => (
                   <div className="company-context-group" key={group.title}>
-                    <SectionHeader title={t(group.title)} />
+                    <SectionHeader title={t(group.title)} level={3} />
                     <div className="company-context-fields">
                       {group.fields.map((field) => (
                         <CompanyField

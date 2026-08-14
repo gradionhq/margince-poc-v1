@@ -343,6 +343,25 @@ export const de = {
     "Versuch es noch einmal. Wenn es weiter fehlschlägt, lade die Seite neu.",
   "app.errorRetry": "Erneut versuchen",
 
+  // Die Grenze um EINE Karte: sagt weniger als die App-Grenze, weil sie
+  // weniger genommen hat — Seite und Navigation stehen noch.
+  "card.errorTitle": "Diese Karte funktioniert nicht mehr.",
+  "card.errorRetry": "Erneut versuchen",
+
+  // Das neunteilige Zustandsvokabular (design-system/surfacestate.tsx):
+  // gehört dem ZUSTAND, nicht einer einzelnen Fläche.
+  "state.withheld": "Ausgeblendet — deine Rolle darf das nicht lesen",
+  "state.unavailable":
+    "Konnte nicht geladen werden — das ist möglicherweise nicht das ganze Bild",
+  "state.unsupported":
+    "In diesem Modus nicht verfügbar — das angebundene System führt es nicht",
+  "state.failed": "Dieser Abschnitt wurde nicht geladen.",
+  "state.retry": "Erneut versuchen",
+  "state.stale": "Zuletzt bekannte Werte — seitdem nicht aktualisiert",
+  "state.staleAsOf": "Zuletzt bekannte Werte, Stand {when}",
+  "state.partial": "Nur ein Teil der Liste",
+  "state.partialCount": "{count} weitere nicht angezeigt",
+
   "list.search": "Suchen",
   "list.sort": "Sortieren",
   "list.showArchived": "Archivierte anzeigen",
@@ -3525,6 +3544,8 @@ export const de = {
   "cf.audit.loading": "Aktuelle Änderungen werden geladen…",
   "cf.audit.error":
     "Letzte Änderungen konnten nicht geladen werden — bitte kurz erneut versuchen.",
+  "cf.audit.adminOnly":
+    "Nur Admins lesen den Änderungsverlauf. Deine Feldänderungen werden trotzdem festgehalten — sie werden hier nur nicht angezeigt.",
   "cf.audit.footer":
     "Jedes Hinzufügen / Bearbeiten / Archivieren wird dauerhaft im Audit-Log festgehalten.",
   "cf.noPermission":

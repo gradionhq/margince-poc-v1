@@ -25,18 +25,24 @@
   flex: none;
 }
 
+/* Who an agent acted FOR. This is attribution, not ornament — the half of the
+ * line that says a human authorised the machine — so it takes --textMeta, the
+ * AA small-text role, rather than the 3:1 mark role. The lighter WEIGHT is
+ * what subordinates it to the actor beside it. */
 .audit-behalf {
   font-weight: 400;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 .audit-entity {
   color: var(--textSecondary);
 }
 
+/* The timestamp is the reading an audit trail exists to be checked against, at
+ * 11px — the size that most needs the AA token, not the least. */
 .audit-when {
   margin-left: auto;
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }

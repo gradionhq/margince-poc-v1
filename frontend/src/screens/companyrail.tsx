@@ -6,17 +6,15 @@ import { AvatarStack } from "../design-system/avatarstack";
 import { EvidenceMark } from "../design-system/evidencemark";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
+import {
+  type SectionState,
+  SurfaceState,
+  sectionState,
+} from "../design-system/surfacestate";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemCodeOf, throwProblem } from "./common";
-import {
-  RECORD_ZONE,
-  SectionPart,
-  type SectionState,
-  sectionState,
-  signalKindLabel,
-  worstOf,
-} from "./company360";
+import { RECORD_ZONE, signalKindLabel, worstOf } from "./company360";
 import {
   HEALTH_DIMENSION_LABEL,
   HEALTH_RANK,
@@ -230,9 +228,9 @@ function HealthSection({
         </PanelBody>
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={t("co.health.empty")}>
+          <SurfaceState state={state} emptyLabel={t("co.health.empty")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Disclosure>
@@ -277,9 +275,9 @@ function PeopleSection({
         ))
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={t("co.people.empty")}>
+          <SurfaceState state={state} emptyLabel={t("co.people.empty")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Disclosure>
@@ -418,7 +416,7 @@ function SignalsSection({ orgId }: Readonly<{ orgId: string }>) {
         ))
       ) : (
         <PanelBody>
-          <SectionPart
+          <SurfaceState
             state={state}
             emptyLabel={t("co.signals.empty")}
             detail={
@@ -426,7 +424,7 @@ function SignalsSection({ orgId }: Readonly<{ orgId: string }>) {
             }
           >
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Disclosure>

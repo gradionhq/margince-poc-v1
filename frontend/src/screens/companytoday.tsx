@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
-import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -140,7 +140,7 @@ export function TodayOnThisAccount({
 
   if (loading) {
     return (
-      <Panel title={t("today.title")} className="co-lead">
+      <Panel title={t("today.title")} tone="accent" className="co-lead">
         <PanelBody>
           <Skeleton width="100%" height={64} />
         </PanelBody>
@@ -149,7 +149,7 @@ export function TodayOnThisAccount({
   }
   if (failed || !view) {
     return (
-      <Panel title={t("today.title")} className="co-lead">
+      <Panel title={t("today.title")} tone="accent" className="co-lead">
         <PanelBody>
           <EmptyState>{t("today.failed")}</EmptyState>
         </PanelBody>
@@ -173,6 +173,7 @@ export function TodayOnThisAccount({
   return (
     <Panel
       title={<TodayTitle moves={suggestions.count + manualMoves.length} />}
+      tone="accent"
       className="co-lead"
       titleAction={
         onOpenTasks && (
@@ -254,7 +255,7 @@ function TodayContextBlock({
   items,
 }: Readonly<{ lead: TodayLead | null; items: TodayItem[] }>) {
   return (
-    <div className="today-context">
+    <PanelPlate>
       {lead && (
         <p
           className={
@@ -292,7 +293,7 @@ function TodayContextBlock({
           ))}
         </dl>
       )}
-    </div>
+    </PanelPlate>
   );
 }
 

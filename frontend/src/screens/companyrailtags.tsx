@@ -4,8 +4,8 @@
 import type { components } from "../api/schema";
 import { Badge, Disclosure } from "../design-system/atoms";
 import { PanelBody } from "../design-system/panel";
+import { SurfaceState, sectionState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
-import { SectionPart, sectionState } from "./company360";
 import { ListAction, TagAction } from "./companyactions";
 import { useCompanyReadOnlyReason } from "./companyheader";
 import { SectionSummary, sectionAnswered } from "./companyrailshared";
@@ -74,7 +74,7 @@ export function TagsSection({
       summary={<SectionSummary title={t("co.tags.title")} count={count} />}
     >
       <PanelBody>
-        <SectionPart
+        <SurfaceState
           label={t("co.tags.lists")}
           state={listState}
           emptyLabel={t("co.tags.noLists")}
@@ -86,7 +86,7 @@ export function TagsSection({
               </Badge>
             ))}
           </p>
-        </SectionPart>
+        </SurfaceState>
         {listsAnswered && view?.organization && (
           <TagsSectionVerb
             organization={view.organization}
@@ -94,7 +94,7 @@ export function TagsSection({
             action="list"
           />
         )}
-        <SectionPart
+        <SurfaceState
           label={t("co.tags.tags")}
           state={tagState}
           emptyLabel={t("co.tags.noTags")}
@@ -104,7 +104,7 @@ export function TagsSection({
               <Badge key={tag.id}>{tag.name}</Badge>
             ))}
           </p>
-        </SectionPart>
+        </SurfaceState>
         {tagsAnswered && view?.organization && (
           <TagsSectionVerb
             organization={view.organization}

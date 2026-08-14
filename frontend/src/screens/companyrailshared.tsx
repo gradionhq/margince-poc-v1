@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { Badge } from "../design-system/atoms";
-import type { SectionState } from "./company360";
+import type { SectionState } from "../design-system/surfacestate";
 
 // Small pieces companyrail.tsx and companyrailtags.tsx both draw a section
 // summary off — a leaf so neither file imports the other, the same no-cycle

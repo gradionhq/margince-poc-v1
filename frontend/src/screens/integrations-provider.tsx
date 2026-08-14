@@ -197,39 +197,44 @@ function SpendBlock({
   return (
     <div>
       <h4 className="provider-block-title">{t("provider.spend")}</h4>
-      <table className="provider-spend-table">
-        <thead>
-          <tr>
-            <th>{t("provider.spend.month")}</th>
-            <th>{t("provider.spend.pool")}</th>
-            <th>{t("provider.spend.chargedHead")}</th>
-            <th>{t("provider.spend.heldHead")}</th>
-            <th>{t("provider.spend.runsHead")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {months.map((month) => (
-            <tr key={`${month.month}-${month.pool}`}>
-              <td>
-                {month.month === current
-                  ? t("provider.spend.thisMonth")
-                  : month.month}
-              </td>
-              <td>{month.pool}</td>
-              <td>{month.charged_credits}</td>
-              {/* Never folded into the charge: the platform does not know
-                  whether those credits were spent, and a total that quietly
-                  counted them either way would assert something it cannot
-                  support. This is the figure a human reconciles against the
-                  provider's invoice. */}
-              <td className="provider-held">
-                {month.held_credits > 0 ? month.held_credits : "—"}
-              </td>
-              <td>{month.runs}</td>
+      {/* Five columns of billing, all of them reconciled against an invoice, so
+          none can be dropped on a narrow screen. The table scrolls sideways
+          inside the card the way DataTable's does (atoms.tsx). */}
+      <div className="table-scroll">
+        <table className="provider-spend-table">
+          <thead>
+            <tr>
+              <th>{t("provider.spend.month")}</th>
+              <th>{t("provider.spend.pool")}</th>
+              <th>{t("provider.spend.chargedHead")}</th>
+              <th>{t("provider.spend.heldHead")}</th>
+              <th>{t("provider.spend.runsHead")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {months.map((month) => (
+              <tr key={`${month.month}-${month.pool}`}>
+                <td>
+                  {month.month === current
+                    ? t("provider.spend.thisMonth")
+                    : month.month}
+                </td>
+                <td>{month.pool}</td>
+                <td>{month.charged_credits}</td>
+                {/* Never folded into the charge: the platform does not know
+                    whether those credits were spent, and a total that quietly
+                    counted them either way would assert something it cannot
+                    support. This is the figure a human reconciles against the
+                    provider's invoice. */}
+                <td className="provider-held">
+                  {month.held_credits > 0 ? month.held_credits : "—"}
+                </td>
+                <td>{month.runs}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="provider-block-hint">{t("provider.spend.hint")}</p>
     </div>
   );

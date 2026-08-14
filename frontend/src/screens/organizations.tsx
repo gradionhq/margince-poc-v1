@@ -26,6 +26,7 @@ import {
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
 import { Panel } from "../design-system/panel";
+import { sectionState } from "../design-system/surfacestate";
 import {
   AutonomyDot,
   ConfidenceMeter,
@@ -60,7 +61,6 @@ import {
   RecentActivityPanel,
   StateStrip,
   type SuggestionAction,
-  sectionState,
   useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
@@ -1107,19 +1107,19 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
     <Card title={t("tab.rollup")} style={{ marginBottom: "var(--space-4)" }}>
       <dl className="firmo">
         <div>
-          <dt>{t("rollup.weightedPipeline")}</dt>
+          <dt className="t-eyebrow">{t("rollup.weightedPipeline")}</dt>
           <dd className="t-mono">{money(rollup.weighted_pipeline)}</dd>
         </div>
         <div>
-          <dt>{t("rollup.closedWon")}</dt>
+          <dt className="t-eyebrow">{t("rollup.closedWon")}</dt>
           <dd className="t-mono">{money(rollup.closed_won)}</dd>
         </div>
         <div>
-          <dt>{t("rollup.activity30d")}</dt>
+          <dt className="t-eyebrow">{t("rollup.activity30d")}</dt>
           <dd>{rollup.activity_count_30d}</dd>
         </div>
         <div>
-          <dt>{t("rollup.accounts")}</dt>
+          <dt className="t-eyebrow">{t("rollup.accounts")}</dt>
           <dd>{rollup.aggregated_account_count}</dd>
         </div>
       </dl>

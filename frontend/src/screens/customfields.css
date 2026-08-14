@@ -51,10 +51,14 @@
   background: var(--accentLight);
 }
 
+/* --textMeta, not --textTertiary: the count is 11px text a reader reads off
+ * the chip — how many fields this object carries — and --textTertiary is the
+ * 3:1 role for marks and rules (tokens.css). At 2.52:1 on --bgElevated it does
+ * not hold AA for small text. */
 .cf-objchip .cf-count {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 .cf-builder {
@@ -229,10 +233,13 @@
   gap: 8px;
 }
 
+/* The field's API key, 11px — the string an integrator copies into a payload.
+ * Nothing on this page has to be read more exactly, so it takes the AA
+ * small-text role rather than the 3:1 mark role. */
 .cf-key {
   display: block;
   font-size: 11px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 /* Type chip: a soft pill echoing the mockup's .ftype, with the type glyph. */
@@ -254,15 +261,20 @@
   flex: none;
 }
 
-/* just-added optimistic row, pending the server commit */
+/* just-added optimistic row, pending the server commit. The italic carries the
+ * staged-ness; the colour only has to stay readable, so it is --textMeta —
+ * dimming a row below AA would make "not committed yet" cost the reader the
+ * row's contents. */
 .cf-cell-staged {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-style: italic;
 }
 
-/* archived field: dimmed but still legible in the audit-retained list */
+/* archived field: dimmed but still legible in the audit-retained list — and
+ * "still legible" is the whole claim of the comment, so the colour has to be
+ * one that holds AA at this size. The strike-through says archived. */
 .cf-cell-retired {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   text-decoration: line-through;
 }
 
@@ -273,8 +285,11 @@
   flex-direction: column;
 }
 
+/* This line is the rail's whole answer — loading, empty, or a failure it
+ * carries in a role="alert". A message a reader is being asked to act on is
+ * the last text on the page that may sit under AA. */
 .cf-audit-empty {
   font-size: 12px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   padding: 8px 0;
 }

@@ -254,6 +254,18 @@ export const Sections: Story = {
         <SectionHeader title="Contacts" sub="Three people at this company" />
         <p className="t-small">Carol Wagner · Bob Schmidt · Alice Müller</p>
       </Card>
+      {/* level={3} is a section INSIDE a section — a group of fields under the
+          page's own h2. The type steps down with the outline: an inner heading
+          drawn at its parent's size tells the eye they are peers while the
+          document says they are not, and the eye is the one a reader
+          believes. */}
+      <Card>
+        <SectionHeader title="Delivery" sub="Where webhooks are sent" />
+        <SectionHeader title="Endpoints" level={3} />
+        <p className="t-small">Two subscriptions, both healthy.</p>
+        <SectionHeader title="Dead-lettered" level={3} />
+        <p className="t-small">Nothing waiting.</p>
+      </Card>
       <Disclosure summary="Matching rules">
         <p className="t-small">
           Closed by default: the reader pays one line for a surface they rarely

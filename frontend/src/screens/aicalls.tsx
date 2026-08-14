@@ -80,7 +80,7 @@ export function CallDetailPanel({
                 style={{ marginTop: "var(--space-3)" }}
               >
                 <div className="field">
-                  <span className="code-label">
+                  <span className="code-label t-eyebrow">
                     {t("aicalls.detail.request")}
                   </span>
                   <pre className="code-block">
@@ -88,7 +88,7 @@ export function CallDetailPanel({
                   </pre>
                 </div>
                 <div className="field">
-                  <span className="code-label">
+                  <span className="code-label t-eyebrow">
                     {t("aicalls.detail.response")}
                   </span>
                   <pre className="code-block">
@@ -196,36 +196,43 @@ export function AiCallsCard() {
         {calls.length === 0 ? (
           <EmptyState>{t("aicalls.empty")}</EmptyState>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                {/* The disclosure column. Named rather than left blank: a table
-                    that announces five headers for six cells makes the reader
-                    count. */}
-                <th className="sr-only">{t("aicalls.col.detail")}</th>
-                <th>{t("aicalls.col.when")}</th>
-                <th>{t("aicalls.col.task")}</th>
-                <th>{t("aicalls.col.model")}</th>
-                <th>{t("aicalls.col.tokens")}</th>
-                <th>{t("aicalls.col.latency")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((call) => (
-                <FragmentRow
-                  key={call.id}
-                  call={call}
-                  expanded={expanded === call.id}
-                  captureEnabled={captureEnabled}
-                  onToggle={() =>
-                    setExpanded(expanded === call.id ? null : call.id)
-                  }
-                  when={formatDateTime(call.occurred_at, locale, zone)}
-                  tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
-                />
-              ))}
-            </tbody>
-          </table>
+          // Six columns of trace, none of them droppable — a call is only
+          // diagnosable with its model, its tokens and its latency side by
+          // side. The table scrolls sideways inside the card instead of the
+          // page scrolling, the same containment DataTable gives every list
+          // built from it (atoms.tsx).
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  {/* The disclosure column. Named rather than left blank: a
+                      table that announces five headers for six cells makes the
+                      reader count. */}
+                  <th className="sr-only">{t("aicalls.col.detail")}</th>
+                  <th>{t("aicalls.col.when")}</th>
+                  <th>{t("aicalls.col.task")}</th>
+                  <th>{t("aicalls.col.model")}</th>
+                  <th>{t("aicalls.col.tokens")}</th>
+                  <th>{t("aicalls.col.latency")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calls.map((call) => (
+                  <FragmentRow
+                    key={call.id}
+                    call={call}
+                    expanded={expanded === call.id}
+                    captureEnabled={captureEnabled}
+                    onToggle={() =>
+                      setExpanded(expanded === call.id ? null : call.id)
+                    }
+                    when={formatDateTime(call.occurred_at, locale, zone)}
+                    tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {query.hasNextPage && (
           <Button

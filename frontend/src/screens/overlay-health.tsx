@@ -108,7 +108,7 @@ function SyncStatusPanel({
   const objects: SyncObject[] = query.data?.objects ?? [];
   return (
     <div style={{ marginTop: "var(--space-3)" }}>
-      <SectionHeader title={t("overlay.syncTitle")} />
+      <SectionHeader title={t("overlay.syncTitle")} level={3} />
       {objects.length === 0 && (
         <p className="t-small">{t("overlay.syncEmpty")}</p>
       )}
@@ -224,7 +224,7 @@ function BudgetPanel({ query }: Readonly<{ query: QueryLike<Budget> }>) {
   }
   return (
     <div style={{ marginTop: "var(--space-3)" }}>
-      <SectionHeader title={t("overlay.budgetTitle")} />
+      <SectionHeader title={t("overlay.budgetTitle")} level={3} />
       <div
         style={{
           display: "flex",

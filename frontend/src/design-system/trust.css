@@ -195,8 +195,12 @@ button.evidence-chip:hover {
   overflow-y: auto;
 }
 
+/* --textMeta, not --textTertiary: the value a field USED to hold is the half of
+ * a diff a reader checks the new one against, so it is text to be read at 12px
+ * and takes the AA small-text role. The line-through is what says "replaced" —
+ * subordinating it with colour as well would cost the reader the old value. */
 .field-diff-from {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   text-decoration: line-through;
 }
 
@@ -207,11 +211,20 @@ button.evidence-chip:hover {
   padding: 1px 6px;
 }
 
+/* Not a blank and not a dash: this side renders the WORDS "created" or
+ * "cleared" (FieldDiff), which is the whole point of the marker — so it is
+ * text, and the italic alone marks it as the component's own wording rather
+ * than a value that was stored. */
 .field-diff-empty {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-style: italic;
 }
 
+/* Left on --textTertiary deliberately: this is the aria-hidden ArrowRight
+ * GLYPH, not text. It is a mark, which is the role --textTertiary names
+ * (tokens.css), and its meaning is already carried without it — the two sides
+ * are labelled "old value" / "new value" for a screen reader and drawn
+ * struck-through and pill-green for everyone else. */
 .field-diff-arrow {
   color: var(--textTertiary);
 }

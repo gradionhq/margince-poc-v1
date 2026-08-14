@@ -24,7 +24,15 @@ import { problemMessageOf, useSorMode } from "./common";
 // mutate under a live feed). useListQuery owns the react-query wiring;
 // ListTable binds that query to the list surface, which owns the controls.
 
-const SEARCH_DEBOUNCE_MS = 250;
+/**
+ * How long a typed filter settles before it becomes a request.
+ *
+ * Exported because it is a product decision about what a keystroke costs, not
+ * a detail of this file: any surface that turns typing into a server query
+ * reads it here rather than picking its own number, so the app has one answer
+ * to "how responsive is a filter" instead of one per screen.
+ */
+export const SEARCH_DEBOUNCE_MS = 250;
 
 export type ListQuery = {
   q: string;

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
@@ -9,6 +9,7 @@ import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import { SEARCH_DEBOUNCE_MS } from "./listquery";
 import "./settings.css";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
@@ -105,6 +106,16 @@ function useRemoveConsumerMailDomain() {
   });
 }
 
+/** A typed value held back until the typing stops, so it can be a query key. */
+function useSettledSearch(typed: string): string {
+  const [settled, setSettled] = useState(typed);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(typed), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [typed]);
+  return settled;
+}
+
 // The shipped baseline, searchable in place: an operator deciding whether a
 // domain needs an entry first sees what the shipped list already says about
 // it. Results render only once a filter is typed — the first 50 of 8 700
@@ -112,7 +123,12 @@ function useRemoveConsumerMailDomain() {
 function BaselineSection() {
   const t = useT();
   const [q, setQ] = useState("");
-  const needle = q.trim();
+  // The field shows what is being typed; the SEARCH is what has settled. `q`
+  // is the query key, so without this every character was its own request over
+  // a list of 8 700 domains — and the answers could land out of order, leaving
+  // the results of a prefix under the word the reader had finished typing. The
+  // shared list surface settles on the same constant.
+  const needle = useSettledSearch(q.trim());
   const query = useConsumerMailBaseline(needle);
   const result = query.data;
   return (

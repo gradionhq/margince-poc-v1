@@ -345,6 +345,20 @@ export const vi = {
   "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
   "app.errorRetry": "Thử lại",
 
+  "card.errorTitle": "Thẻ này đã ngừng hoạt động.",
+  "card.errorRetry": "Thử lại",
+
+  "state.withheld": "Đã ẩn — vai trò của bạn không đọc được phần này",
+  "state.unavailable": "Không tải được — đây có thể chưa phải toàn cảnh",
+  "state.unsupported":
+    "Không có ở chế độ này — hệ thống đang kết nối không lưu dữ liệu đó",
+  "state.failed": "Phần này không tải được.",
+  "state.retry": "Thử lại",
+  "state.stale": "Giá trị biết đến gần nhất — chưa làm mới từ đó",
+  "state.staleAsOf": "Giá trị biết đến gần nhất, tính đến {when}",
+  "state.partial": "Chỉ hiển thị một phần danh sách",
+  "state.partialCount": "Còn {count} mục chưa hiển thị",
+
   "list.search": "Tìm kiếm",
   "list.sort": "Sắp xếp",
   "list.showArchived": "Hiện mục lưu trữ",
@@ -3515,6 +3529,8 @@ export const vi = {
   "cf.audit.loading": "Đang tải các thay đổi gần đây…",
   "cf.audit.error":
     "Không tải được các thay đổi gần đây — hãy thử lại sau chốc lát.",
+  "cf.audit.adminOnly":
+    "Chỉ quản trị viên đọc được dấu vết thay đổi. Các thay đổi trường của bạn vẫn được ghi lại — chỉ là không hiển thị ở đây.",
   "cf.audit.footer":
     "Mọi lần thêm / sửa / lưu trữ đều được ghi vĩnh viễn vào nhật ký kiểm toán.",
   "cf.noPermission":

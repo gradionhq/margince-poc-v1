@@ -592,6 +592,7 @@ export function AutomationsAdmin() {
           style={{ flex: "1 1 260px", minWidth: 240 }}
           title={t("auto.catalog")}
           sub={t("auto.catalogSub")}
+          level={3}
         >
           <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
             {(page) => (
@@ -670,6 +671,7 @@ export function AutomationsAdmin() {
         <Card
           style={{ flex: "2 1 320px", minWidth: 280 }}
           title={t("auto.instances")}
+          level={3}
         >
           <QueryGate query={instances} empty={(page) => page.data.length === 0}>
             {(page) => (

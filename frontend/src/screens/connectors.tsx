@@ -604,7 +604,7 @@ export function ConnectorsCard() {
         rows.length > 0 &&
         (addable.length > 0 || notConfigured501) && (
           <div className="connector-add">
-            <SectionHeader title={t("connectors.addConnection")} />
+            <SectionHeader title={t("connectors.addConnection")} level={3} />
             {addPanel}
           </div>
         )}
@@ -641,6 +641,7 @@ export function ConnectorsCard() {
         <SectionHeader
           title={t("connectors.telegramTitle")}
           sub={t("connectors.telegramSub")}
+          level={3}
         />
         <TelegramConnectorPanel />
       </div>

@@ -99,8 +99,10 @@
   background: var(--bgElevated);
 }
 
+/* The same rule as .li-import-field above: a 12px term naming the figure
+ * beside it is text to be read, not a rule to be seen. */
 .li-import-result dt {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font: 500 0.75rem / 1.3 var(--f-body);
 }
 
@@ -120,11 +122,15 @@
   border-bottom: 1px solid var(--borderSubtle);
 }
 
+/* --textMeta, not --textMuted: this is the 13px LABEL of a form field, and
+ * --textMuted is placeholder-grade (1.54:1 on this card's ground). A label a
+ * reader must read to know what to type is small text under SC 1.4.3, so it
+ * takes the AA small-text role. */
 .li-import-field {
   display: grid;
   gap: var(--space-1);
   max-width: 32rem;
-  color: var(--textMuted);
+  color: var(--textMeta);
   font: 500 0.8125rem / 1.4 var(--f-body);
 }
 

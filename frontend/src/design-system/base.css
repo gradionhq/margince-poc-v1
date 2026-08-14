@@ -140,6 +140,19 @@
 .t-mono {
   font-family: var(--f-mono);
 }
+/* The eyebrow: the micro-label above the thing it names. THE one spelling of
+   uppercase micro-type — five sheets used to carry their own copy of it, at
+   11px or 12px and 0.03em or 0.04em, and every copy looked right on its own.
+   The tracking reads --tracking-eyebrow, which is the token named for exactly
+   this: uppercase this small sets cramped at the default spacing.
+   `Eyebrow` (eyebrow.tsx) renders it with the element the caller means. */
+.t-eyebrow {
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
 
 /* Code / payload preview surface (AI observability: the call-trace panel and
    the cert-scenario export). Wraps long single-line JSON/YAML and scrolls in
@@ -159,12 +172,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Small uppercase label sitting above a code-block or preview section. */
+/* Small uppercase label sitting above a code-block or preview section. It IS
+   an eyebrow, so it carries .t-eyebrow for the type and keeps only the one
+   thing that is its own: a span that has to take the full line above the
+   block it names. */
 .code-label {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--textMeta);
 }

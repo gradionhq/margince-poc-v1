@@ -61,3 +61,53 @@
   font-size: var(--fs-sm);
   color: var(--textMeta);
 }
+
+/* Verbs under the content they change: spaced off it so they read as an action
+ * strip rather than as another row of the list. They sit on the body's own
+ * padding rather than full-bleed, because a button that touches the panel edge
+ * reads as part of the panel's chrome instead of as something to press. */
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-5);
+}
+/* Directly under the header there is no body above to be spaced off, so the
+ * strip pays for its own top interval. */
+.panel-head + .panel-actions {
+  padding-top: var(--space-4);
+}
+
+/* The recessed plate: what IS, inset from the panel's edges, while the rows
+ * below run full-bleed on the panel's own ground. Nothing on the plate looks
+ * pressable, which is the entire device. */
+.panel-plate {
+  margin: var(--space-4) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: var(--bgCard);
+}
+
+/* tone="accent" — the one card on a page asking for a move rather than
+ * reporting state. Tinted, not shouted: the border and the header band carry
+ * it, and the title comes up to reading size because it is the sentence a
+ * reader is meant to land on first. */
+.panel-accent {
+  border-color: var(--accentMed);
+}
+.panel-accent > .panel-head {
+  gap: var(--space-2);
+  background: var(--accentLight);
+  border-bottom-color: var(--accentMed);
+}
+.panel-accent > .panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--accent);
+}
+.panel-accent > .panel-foot {
+  border-top-color: var(--accentMed);
+}

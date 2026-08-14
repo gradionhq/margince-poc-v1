@@ -151,11 +151,15 @@ export function ExportScenarioDialog({
           <label htmlFor="cert-pii-ack">{t("aiexport.checklist")}</label>
         </div>
         <div className="field">
-          <span className="code-label">{t("aiexport.previewLabel")}</span>
+          <span className="code-label t-eyebrow">
+            {t("aiexport.previewLabel")}
+          </span>
           <pre className="code-block">{yaml}</pre>
         </div>
         <div className="field">
-          <span className="code-label">{t("aiexport.responseLabel")}</span>
+          <span className="code-label t-eyebrow">
+            {t("aiexport.responseLabel")}
+          </span>
           <pre className="code-block">{responseText}</pre>
         </div>
         {copyFailed && (

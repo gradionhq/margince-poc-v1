@@ -13,6 +13,7 @@ import {
   Modal,
   Skeleton,
 } from "../design-system/atoms";
+import { Eyebrow } from "../design-system/eyebrow";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 import "./connections.css";
@@ -490,7 +491,7 @@ function NodeList({
 }: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
   const t = useT();
   if (nodes.length === 0) {
-    return <p className="co-empty">{t("co.connections.empty")}</p>;
+    return <p className="surfacestate-empty">{t("co.connections.empty")}</p>;
   }
   return (
     <ul className="co-list cx-nodes">
@@ -606,7 +607,7 @@ function Withheld({ groups }: Readonly<{ groups: readonly Group[] }>) {
     return null;
   }
   return (
-    <p className="co-restricted">
+    <p className="surfacestate-withheld">
       {t("co.connections.withheld", {
         groups: groups
           .map((group) => t(`co.connections.group.${group}`))
@@ -645,7 +646,7 @@ function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
           rendered as an account nobody here knows. */}
       {ourSide.length > 0 && (
         <section className="co-part" aria-label={t("co.connections.ourSide")}>
-          <h3 className="co-part-label">{t("co.connections.ourSide")}</h3>
+          <Eyebrow as="h3">{t("co.connections.ourSide")}</Eyebrow>
           <NodeList nodes={ourSide} graph={graph} />
         </section>
       )}
@@ -655,7 +656,7 @@ function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
           group, because there the empty state IS the answer. */}
       {(theirSide.length > 0 || ourSide.length === 0) && (
         <section className="co-part" aria-label={t("co.connections.theirSide")}>
-          <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
+          <Eyebrow as="h3">{t("co.connections.theirSide")}</Eyebrow>
           <NodeList nodes={theirSide} graph={graph} />
         </section>
       )}
@@ -683,7 +684,7 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
     <Card className="co-card cx-card" title={t("co.connections.title")}>
       {query.isPending && <Skeleton width="100%" height={120} />}
       {(query.isError || unreadable) && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
+        <p className="surfacestate-withheld">{t("co.section.unavailable")}</p>
       )}
       {readable && (
         <>

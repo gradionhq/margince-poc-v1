@@ -390,6 +390,7 @@ export function Card({
   title,
   sub,
   actions,
+  level,
   children,
   className,
   style,
@@ -404,6 +405,10 @@ export function Card({
   title?: string;
   sub?: string;
   actions?: ReactNode;
+  // Passed straight to the card's SectionHeader. A card nested inside a
+  // section that already has an h2 passes 3, so the outline says "inside"
+  // rather than "beside" — see SectionHeader's own note.
+  level?: 1 | 2 | 3;
   children?: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -434,7 +439,12 @@ export function Card({
       onSubmit={onSubmit}
     >
       {title !== undefined && (
-        <SectionHeader title={title} sub={sub} actions={actions} />
+        <SectionHeader
+          title={title}
+          sub={sub}
+          actions={actions}
+          level={level}
+        />
       )}
       {children}
     </Tag>
@@ -474,12 +484,23 @@ export function SectionHeader({
   // the page's name — a record surface the app shell deliberately yields to,
   // where this title is the only thing naming the page. Every other header on
   // that page stays at level 2, so a document never carries two page titles.
-  level?: 1 | 2;
+  //
+  // `3` is a section INSIDE a section: a group of fields under a settings
+  // page's own h2, an "add a connection" block inside the connectors card.
+  // Without it those headers were h2s nested in an h2, which tells a screen
+  // reader the inner block is a sibling of the page's own section — the
+  // outline says the group is as important as the page it sits in, and a
+  // reader navigating by heading cannot tell where they are. The type follows
+  // the level down with it: an inner heading that is the same size as its
+  // parent is the same defect drawn instead of announced.
+  level?: 1 | 2 | 3;
 }>) {
   return (
     <div className="section-header">
       <div className="section-header-text">
-        {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
+        {level === 1 && <h1>{title}</h1>}
+        {level === 2 && <h2>{title}</h2>}
+        {level === 3 && <h3>{title}</h3>}
         {sub && <span className="sub">{sub}</span>}
       </div>
       {actions && <div className="section-header-actions">{actions}</div>}

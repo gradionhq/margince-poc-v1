@@ -11,7 +11,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCanWrite } from "../app/capability";
+import { useCanWrite, useHoldsAdminRole } from "../app/capability";
 import {
   Badge,
   Button,
@@ -544,6 +544,11 @@ export function CustomFieldsAdmin() {
   // while rename and retire change one that already exists.
   const canCreate = useCanWrite("custom_field", "create");
   const canEdit = useCanWrite("custom_field", "update");
+  // The trail is the ADMIN's, not this screen's: /audit-log is gated
+  // server-side on the role (privacy.ListAuditLog), while this page opens for
+  // anyone holding custom_field:read. So the rail below is gated on the role
+  // too, exactly as the settings audit card is.
+  const isAdmin = useHoldsAdminRole();
   const meUserId = me.data?.user?.id;
 
   const [object, setObject] = useState<CfObject>("deal");
@@ -590,6 +595,11 @@ export function CustomFieldsAdmin() {
 
   const audit = useQuery({
     queryKey: ["cf-audit"],
+    // A denial that is already known is not worth a request. Without this a
+    // non-admin on this tab fired a call that could only 403 and got the
+    // rail's red role="alert" back — a failure with a retry that can never
+    // succeed, over a refusal they cannot act on.
+    enabled: isAdmin,
     queryFn: async () => {
       const { data, error } = await api.GET("/audit-log", {
         params: { query: { entity_type: "custom_field" } },
@@ -750,12 +760,24 @@ export function CustomFieldsAdmin() {
       )}
 
       <Card title={t("cf.audit.title")}>
-        <AuditRail
-          entries={audit.data?.data ?? []}
-          isError={audit.isError}
-          isLoading={audit.isPending}
-          meUserId={meUserId}
-        />
+        {/* Withheld, not absent, and not "loading" either: a disabled query
+            never leaves the pending state, so handing it to the rail would
+            spin forever at a reader whose answer is already settled. The card
+            keeps its place — an absent trail here would read as "nobody has
+            changed a field", which is a claim about the data rather than about
+            who may read it. */}
+        {isAdmin ? (
+          <AuditRail
+            entries={audit.data?.data ?? []}
+            isError={audit.isError}
+            isLoading={audit.isPending}
+            meUserId={meUserId}
+          />
+        ) : (
+          <p className="cf-audit-empty">{t("cf.audit.adminOnly")}</p>
+        )}
+        {/* True for every reader: the recording happens whether or not this
+            one may read it back. */}
         <p className="t-caption">{t("cf.audit.footer")}</p>
       </Card>
 

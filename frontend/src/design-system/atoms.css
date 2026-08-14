@@ -450,6 +450,15 @@
   font-weight: 600;
   color: var(--textPrimary);
 }
+/* SectionHeader level={3}: a section inside a section. It steps down in size
+   as well as in outline depth — a nested heading drawn at its parent's size
+   tells the eye they are peers while the document says they are not, and the
+   eye is the one the reader believes. */
+.section-header h3 {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--textPrimary);
+}
 /* The page-naming variant (SectionHeader level={1}): a record whose surface
    carries the page's only heading reads at the record scale, not the section
    one, and it sets its margins rather than inheriting the UA's — the row is
