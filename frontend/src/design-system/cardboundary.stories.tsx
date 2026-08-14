@@ -70,4 +70,11 @@ function ContainedFailure() {
   );
 }
 
-export const OneCardFails: Story = { render: () => <ContainedFailure /> };
+export const OneCardFails: Story = {
+  // React reports every error a boundary catches through console.error, so this
+  // story — whose whole subject is a caught throw — trips the render gate's
+  // console rule by doing exactly what it exists to show. The tag is the gate's
+  // declared opt-out (frontend/scripts/fe-uat.mjs), scoped to this one story.
+  tags: ["uat-expected-console-error"],
+  render: () => <ContainedFailure />,
+};

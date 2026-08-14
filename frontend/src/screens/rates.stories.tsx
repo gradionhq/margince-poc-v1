@@ -6,10 +6,20 @@ import { meFixture } from "../app/mefixture";
 import { FxRatesCard, ModelCostsCard } from "./rates";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
+// READ before create. Both cards gate on `useCan(<object>, "read")` and skip
+// their query entirely without it, so a create-only fixture reached the withheld
+// body — and these two stories captured "only an admin or ops can see this"
+// under names promising a populated price sheet, with the fixtures below as
+// dead code. The predicate a surface opens on is the one a story has to hold.
 function admin() {
   return () =>
     jsonResponse(
-      meFixture({ allow: { fx_rate: ["create"], ai_model_rate: ["create"] } }),
+      meFixture({
+        allow: {
+          fx_rate: ["read", "create"],
+          ai_model_rate: ["read", "create"],
+        },
+      }),
     );
 }
 

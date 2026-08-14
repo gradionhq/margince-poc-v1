@@ -191,7 +191,16 @@ export const DataModelTab: Story = {
 // The consent registry and the audit trail on one page: the trail is what proves
 // the surfaces above it were honoured, so it moved here from a tab of its own.
 export const PrivacyTab: Story = {
-  render: tab("privacy", { "GET /me": me(), "GET /audit-log": auditLog }),
+  // `person:read` is what opens this entry — the consent registry is gated on it
+  // server-side (consent/store.go), not on a role. Without it the entry is not
+  // visible, useVisibleSettingsTabs falls back to Account, and this story
+  // captured the Account tab: byte-identical to AccountTab, under the name of a
+  // page it never rendered. The comment two stories up describes this exact
+  // failure; it happened again here.
+  render: tab("privacy", {
+    "GET /me": me({ person: ["read"] }),
+    "GET /audit-log": auditLog,
+  }),
 };
 
 // PipelinesCard (D-8, on the Data model entry) reads GET /me (roles →

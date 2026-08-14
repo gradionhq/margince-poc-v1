@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { AutomationRow } from "./automations";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -61,6 +62,17 @@ function stubPanels() {
 }
 
 export const Configurable: Story = {
+  // The verbs live behind the row's overflow menu, so a story that leaves it
+  // closed captures the same picture whatever the grants say — which is what
+  // this pair was doing: two names, one screenshot, and the difference they
+  // exist to show never drawn. Opening it is the story.
+  play: async ({ canvasElement }) => {
+    await userEvent
+      .setup()
+      .click(
+        within(canvasElement).getByRole("button", { name: /Actions for/ }),
+      );
+  },
   render: () => {
     stubPanels();
     return (
@@ -84,6 +96,17 @@ export const Configurable: Story = {
 // case a single "canManage" flag could not express, and the one a divergent
 // fixture exists to catch.
 export const EditableButNotDeletable: Story = {
+  // The verbs live behind the row's overflow menu, so a story that leaves it
+  // closed captures the same picture whatever the grants say — which is what
+  // this pair was doing: two names, one screenshot, and the difference they
+  // exist to show never drawn. Opening it is the story.
+  play: async ({ canvasElement }) => {
+    await userEvent
+      .setup()
+      .click(
+        within(canvasElement).getByRole("button", { name: /Actions for/ }),
+      );
+  },
   render: () => {
     stubPanels();
     return (

@@ -130,23 +130,11 @@ export const ReadOnlySeat: Story = {
   render: cardStory(READER, [connected]),
 };
 
-// No adapter is compiled in. An empty list and a 501 mean the same thing, and
-// both read as the honest no-provider state rather than as a failure.
+// No adapter is compiled in. An empty list and a 501 both land here, because
+// the card collapses them into one honest no-provider state rather than a
+// failure — which is why there is ONE story and not two: the second was the
+// same picture under a second name. The 501 path is drawn where it differs, in
+// the person record's own provider section.
 export const NoProvider: Story = {
   render: cardStory(OPERATOR, []),
-};
-
-export const NotConfigured: Story = {
-  render: () => {
-    installFetchStub({
-      "GET /me": () => jsonResponse(meFixture({ allow: OPERATOR })),
-      "GET /provider-connections": () =>
-        jsonResponse({ code: "not_implemented" }, 501),
-    });
-    return (
-      <StoryProviders>
-        <ProviderCard />
-      </StoryProviders>
-    );
-  },
 };

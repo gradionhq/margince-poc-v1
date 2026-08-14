@@ -167,6 +167,9 @@ for (const f of changed) {
 }
 
 // Map story files (frontend/src/…) to Storybook importPaths (./src/…).
+// The one tag fe-uat honours: see the console listener below.
+const EXPECTED_ERROR_TAG = "uat-expected-console-error";
+
 const wantImportPaths = new Set([...storyFiles].map((p) => `./${p.replace(/^frontend\//, "")}`));
 
 function writeManifest(fields) {
@@ -215,8 +218,16 @@ if (storyFiles.size > 0) {
     page.removeAllListeners("pageerror");
     page.removeAllListeners("console");
     page.on("pageerror", (e) => errors.push(String(e)));
+    // A story whose SUBJECT is a failure has to be able to say so. React reports
+    // an error a boundary caught through console.error, so a story that renders
+    // a caught throw — the only way to show what an error boundary draws — can
+    // never pass a blanket console-error rule, and the alternative is having no
+    // story for the boundary at all. The opt-out is a tag on that one story
+    // rather than a flag on the run, so it names the story it excuses and shows
+    // up in the index beside it.
+    const expectsConsoleError = (story.tags ?? []).includes(EXPECTED_ERROR_TAG);
     page.on("console", (m) => {
-      if (m.type() === "error") errors.push(m.text());
+      if (m.type() === "error" && !expectsConsoleError) errors.push(m.text());
     });
 
     await page.goto(`http://localhost:${port}/iframe.html?id=${story.id}&viewMode=story`, {

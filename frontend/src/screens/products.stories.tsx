@@ -32,8 +32,8 @@ const product = {
 };
 
 // Every story here needs a principal, because the screen's write affordances are
-// gated on product grants now. The stub's catch-all answers `GET /me` with an
-// empty page, which resolves to a caller holding no grant at all — so without
+// gated on product grants now. The stub REFUSES to answer an unrouted `GET /me`
+// rather than guessing one — so without
 // this the whole catalog captured the read-only posture and no story showed the
 // editor. Named once rather than repeated per story.
 const AUTHORING_ME = () =>
