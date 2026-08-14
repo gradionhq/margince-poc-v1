@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "873e23f3e11c6c2c00c55dbf71eeb3a25b679c3d601d5e8c5b1b38e86ed1fa90"
+const jobContractHash = "09280f19b8163593de5ad31bad7d3b98e106fc20114eb12df6be14750da3cf8e"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -26,9 +26,7 @@ type declaredJobArgs interface {
 	river.JobArgs
 
 	AgentSchedulerArgs |
-		AgentSchedulerWorkspaceArgs |
 		AgentTaskRetentionArgs |
-		AgentTaskRetentionWorkspaceArgs |
 		AiModelRateRefreshArgs |
 		CaptureAutoEnrichSweepArgs |
 		CaptureAutoEnrichWorkspaceArgs |
@@ -120,8 +118,6 @@ func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.Wo
 // The declared dispatchers: each enumerates the fleet and enqueues, and does
 // no tenant work of its own.
 var (
-	_ jobs.FleetWide = AgentSchedulerArgs{}
-	_ jobs.FleetWide = AgentTaskRetentionArgs{}
 	_ jobs.FleetWide = CaptureAutoEnrichSweepArgs{}
 	_ jobs.FleetWide = CaptureClassifyArgs{}
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
@@ -151,8 +147,6 @@ var (
 // The declared tenant-scoped kinds: each says which workspace it is for
 // in its own args.
 var (
-	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
-	_ jobs.WorkspaceScoped = AgentTaskRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}

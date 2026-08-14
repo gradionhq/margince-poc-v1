@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -398,6 +399,7 @@ func addDatabaseOnlySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Lo
 	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{pool: pool, log: log})
 	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
 	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
-	addDeclaredWorker[AgentTaskRetentionArgs](reg, &agentTaskRetentionWorker{pool: pool})
-	addDeclaredWorker[AgentTaskRetentionWorkspaceArgs](reg, &agentTaskRetentionWorkspaceWorker{sweeper: NewAgentTaskRetentionSweeper(pool, log)})
+	addDeclaredWorker[AgentTaskRetentionArgs](reg, &agentTaskRetentionWorker{
+		sweeper: NewAgentTaskRetentionSweeper(pool, log), identity: identity.NewService(pool),
+	})
 }

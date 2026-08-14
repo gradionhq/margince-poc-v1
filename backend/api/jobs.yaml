@@ -152,20 +152,13 @@ queues:
 # file rather than holding a worker until the rescuer notices. A dispatcher that
 # grows work of its own stops being a dispatcher and takes its own number here.
 kinds:
+  # One job, not a dispatcher and a child (ADR-0103 §1): it keeps the
+  # dispatcher's kind and cadence and the child's queue, timeout and attempt
+  # cap. opts_owner is `args` so the cap below stays declared — the periodic
+  # insert supplies uniqueness and no attempt policy.
   agent_scheduler:
-    role: dispatcher
-    go_type: AgentSchedulerArgs
-    queue: default
-    timeout: 2m
-    opts_owner: caller
-    cadence: {operator: AgentScheduler.Interval, schedule_when_positive: AgentScheduler.Interval}
-    registration: {when: [AgentScheduler.Service], absent: registers_nothing}
-    fans_out_to: agent_scheduler_workspace
-    fan_out_unit: workspace
-
-  agent_scheduler_workspace:
     role: worker
-    go_type: AgentSchedulerWorkspaceArgs
+    go_type: AgentSchedulerArgs
     queue: agent_scheduler
     timeout:
       derived: agentSchedulerPassTimeout
@@ -174,18 +167,16 @@ kinds:
         claimBatch runs executed back to back, each entitled to the full
         RunWallClock, plus the seed/claim/finish round trips between them.
     max_attempts: 1
-    opts_owner: fan_out
+    opts_owner: args
+    cadence: {operator: AgentScheduler.Interval, schedule_when_positive: AgentScheduler.Interval}
     registration: {when: [AgentScheduler.Service], absent: registers_nothing}
-    args:
-      Workspace: id
     reason: >-
-      One attempt, not three: this kind's retry is the dispatcher's own tick,
-      which is tens of seconds while a single attempt may run for the timeout
-      above. A second rung would spend a fresh batch of model budget on work the
-      next tick re-enqueues anyway — and, because retryable is one of
-      compose's activeSweepStates, a backing-off row SUPPRESSES that tick's
-      re-enqueue, so the ladder would delay the tenant's next pass rather than
-      hasten it.
+      One attempt, not three: this pass's retry is its own next tick, which is
+      tens of seconds while a single attempt may run for the timeout above. A
+      second rung would spend a fresh batch of model budget on work the next
+      tick repeats anyway — and, because retryable is one of compose's
+      activeSweepStates, a backing-off row SUPPRESSES that tick, so the ladder
+      would delay the next pass rather than hasten it.
 
   ai_model_rate_refresh:
     role: worker
@@ -720,35 +711,23 @@ kinds:
       loses all of it and starts over. The cap has to clear the refold of the
       longest-history tenant, and the daily cadence leaves the room to do it.
 
+  # One job, not a dispatcher and a child (ADR-0103 §1). The delete it runs was
+  # already table-wide once agent_task lost its tenant column, so the fan-out
+  # was N identical passes over the same rows.
   agent_task_retention:
-    role: dispatcher
+    role: worker
     go_type: AgentTaskRetentionArgs
     queue: default
-    timeout: 2m
-    opts_owner: caller
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: args
     cadence: 1h
-    fans_out_to: agent_task_retention_workspace
-    fan_out_unit: workspace
     reason: >-
       Hourly, and for the same reason the idempotency sweep is: a completed MCP
       task stores the verbatim tool result its execution produced, which for most
       of the confirm-first set is a whole record read-back. Past the task's own
       expiry no surface can read it back, so a daily pass would leave a day of
       expired personal data sitting past its purpose.
-
-  agent_task_retention_workspace:
-    role: worker
-    go_type: AgentTaskRetentionWorkspaceArgs
-    queue: default
-    timeout: 5m
-    max_attempts: 3
-    opts_owner: fan_out
-    args:
-      Workspace: id
-    reason: >-
-      An indexed delete of one tenant's MCP tasks past their own expires_at —
-      database-only, and hourly, so a pass never faces more than an hour's
-      arrivals once an installation has caught up.
 
   idempotency_retention:
     role: dispatcher

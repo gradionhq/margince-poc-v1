@@ -44,7 +44,7 @@ func TestTheTenantPassClosesAbandonedRunsAndLeavesTheRestAlone(t *testing.T) {
 	pendingApproval := re.seedApproval(t)
 	awaitingHuman := re.seedRun(t, "awaiting-human", "awaiting_approval", 30*24*time.Hour, &pendingApproval)
 
-	if err := re.svc.TickWorkspace(re.wsCtx, time.Now().UTC()); err != nil {
+	if err := re.svc.Tick(re.wsCtx, time.Now().UTC()); err != nil {
 		t.Fatalf("tenant pass: %v", err)
 	}
 
@@ -99,11 +99,11 @@ func (re *runnerEnv) seedRun(t *testing.T, triggerRef, status string, staleFor t
 		pending = &snapshot
 	}
 	if _, err := re.Owner.Exec(context.Background(), `
-		INSERT INTO agent_run (id, workspace_id, agent_spec, goal, trigger_ref, status, updated_at,
+		INSERT INTO agent_run (id, agent_spec, goal, trigger_ref, status, updated_at,
 		                       approval_id, pending)
-		VALUES ($1, $2, 'morning_brief', 'seeded for the sweep', $3, $4,
-		        now() - ($5 * interval '1 microsecond'), $6, $7::jsonb)`,
-		id, re.wsID, triggerRef, status, staleFor.Microseconds(), approvalID, pending); err != nil {
+		VALUES ($1, 'morning_brief', 'seeded for the sweep', $2, $3,
+		        now() - ($4 * interval '1 microsecond'), $5, $6::jsonb)`,
+		id, triggerRef, status, staleFor.Microseconds(), approvalID, pending); err != nil {
 		t.Fatalf("seeding a %q run: %v", status, err)
 	}
 	return id

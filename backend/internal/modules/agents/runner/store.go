@@ -47,8 +47,8 @@ func NewStore(db *database.DB) *Store {
 func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string, passportID ids.PassportID) (runID ids.UUID, created bool, err error) {
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO agent_run (workspace_id, agent_spec, goal, trigger_ref, passport_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO agent_run (agent_spec, goal, trigger_ref, passport_id)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (trigger_ref) DO NOTHING
 			RETURNING id`,
 			spec.Name, spec.Goal, triggerRef, passportID)
@@ -247,8 +247,8 @@ type QueuedJob struct {
 func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, passportID *ids.PassportID, dueAt time.Time) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO runner_job (workspace_id, agent_spec, trigger_ref, passport_id, due_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+			INSERT INTO runner_job (agent_spec, trigger_ref, passport_id, due_at)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (agent_spec, trigger_ref) DO NOTHING`,
 			specName, triggerRef, passportID, dueAt)
 		if err != nil {
@@ -258,23 +258,17 @@ func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, pas
 	})
 }
 
-// ClaimDueJobs atomically claims up to limit due jobs for this
-// workspace. FOR UPDATE SKIP LOCKED keeps parallel workers from
-// double-claiming without serializing on each other.
+// ClaimDueJobs atomically claims up to limit due jobs. FOR UPDATE SKIP LOCKED
+// keeps parallel workers from double-claiming without serializing on each
+// other.
 func (s *Store) ClaimDueJobs(ctx context.Context, limit int) ([]QueuedJob, error) {
 	var jobs []QueuedJob
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		// The workspace predicate is the claim's own. Tenant isolation used to
-		// bound it, so this pass claimed only its own tenant's jobs without
-		// saying so; with RLS retired (ADR-0091 §8 phase A) an unscoped claim
-		// takes another tenant's due work and runs it under this pass's
-		// authority.
 		rows, err := tx.Query(ctx, `
 			UPDATE runner_job SET status = 'running', attempts = attempts + 1
 			WHERE id IN (
 			  SELECT id FROM runner_job
 			  WHERE status = 'queued' AND due_at <= now()
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  ORDER BY due_at
 			  LIMIT $1
 			  FOR UPDATE SKIP LOCKED)
