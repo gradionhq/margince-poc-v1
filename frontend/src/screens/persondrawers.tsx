@@ -201,6 +201,74 @@ function SendFailure({
   return <p className="pe-send-error">{problemMessageOf(error, t)}</p>;
 }
 
+// Every email purpose this person may currently be written to under.
+//
+// The guard answers per purpose and the composer already holds all of them, so
+// when the chosen one is refused it can name the ones that are not — which is
+// the difference between telling a rep they may not send and telling them what
+// would work.
+function allowedPurposes(guard: PersonConsentGuard | undefined) {
+  return (guard?.entries ?? []).filter(
+    (entry) => entry.channel === "email" && entry.verdict === "allowed",
+  );
+}
+
+// What to do about a send this person's consent state refuses.
+//
+// A verdict on its own is a dead end: the composer said why it would not send
+// and offered nothing, so a rep who hit it had to ask somebody. Three moves
+// exist and this names the ones that apply — switch to a purpose that IS
+// allowed for this person, open their consent record, or wait for them to
+// write, which lifts business correspondence on its own.
+//
+// It renders nothing until a purpose is chosen, because "no purpose picked" is
+// not a refusal and offering a way out of it would read as one.
+function ConsentWayOut({
+  purpose,
+  guard,
+  personId,
+  onPick,
+}: Readonly<{
+  purpose: string;
+  guard: PersonConsentGuard | undefined;
+  personId: string;
+  onPick: (purpose: string) => void;
+}>) {
+  const t = useT();
+  if (purpose === "" || emailGuardFor(guard, purpose)?.verdict === "allowed") {
+    return null;
+  }
+  const alternatives = allowedPurposes(guard);
+  return (
+    <div className="pe-consent-wayout">
+      <p className="t-caption">{t("person.composer.blockedLead")}</p>
+      <ul className="pe-consent-moves">
+        {alternatives.map((entry) => (
+          <li key={entry.purpose_key}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => onPick(entry.purpose_key ?? "")}
+            >
+              {t("person.composer.blockedSwitch", {
+                purpose: entry.purpose_label ?? entry.purpose_key ?? "",
+              })}
+            </button>
+          </li>
+        ))}
+        <li>
+          <a className="link-button" href={`#/contacts/${personId}`}>
+            {t("person.composer.blockedOpenConsent")}
+          </a>
+        </li>
+        <li className="t-caption">
+          {t("person.composer.blockedWaitForReply")}
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 export function PersonComposer({
   personId,
   view,
@@ -325,6 +393,12 @@ export function PersonComposer({
                 : t("person.composer.consentPickPurpose"))}
           </span>
         </div>
+        <ConsentWayOut
+          purpose={purpose}
+          guard={guard}
+          personId={personId}
+          onPick={setPurpose}
+        />
       </div>
 
       <div className="drawer-body">

@@ -4466,6 +4466,12 @@ export const de = {
   "person.composer.sendNote":
     "Mit dem Senden geht diese Nachricht aus Ihrem eigenen Postfach raus.",
   "person.composer.purpose": "Einwilligungszweck",
+  "person.composer.blockedLead":
+    "Unter diesem Zweck können Sie nicht senden. Das geht:",
+  "person.composer.blockedSwitch": "Stattdessen als {purpose} senden",
+  "person.composer.blockedOpenConsent": "Einwilligung dieser Person öffnen",
+  "person.composer.blockedWaitForReply":
+    "Oder abwarten — Geschäftskorrespondenz öffnet sich von selbst, sobald die Person Ihnen schreibt.",
   "person.composer.consentPickPurpose":
     "Wählen Sie, wofür diese Nachricht ist — die Einwilligung gilt je Zweck.",
   "person.composer.intent": "Worum soll es gehen?",

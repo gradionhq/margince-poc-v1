@@ -4476,6 +4476,12 @@ export const en = {
   "person.composer.sendNote":
     "Pressing send delivers this message from your own mailbox.",
   "person.composer.purpose": "Consent purpose",
+  "person.composer.blockedLead":
+    "You cannot send under this purpose. What works:",
+  "person.composer.blockedSwitch": "Send as {purpose} instead",
+  "person.composer.blockedOpenConsent": "Open their consent record",
+  "person.composer.blockedWaitForReply":
+    "Or wait — business correspondence opens by itself once they write to you.",
   "person.composer.consentPickPurpose":
     "Choose what this message is for — consent is decided per purpose.",
   "person.composer.intent": "What should it be about?",

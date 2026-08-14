@@ -749,6 +749,24 @@
   margin-top: 0;
 }
 
+/* The way out of a refused send. It sits under the verdict rather than beside
+   it: the verdict says what is true and this says what to do about it, and a
+   reader needs them in that order. */
+.pe-consent-wayout {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--danger);
+  background: var(--dangerBg);
+}
+
+.pe-consent-moves {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 /* The steering field and the button that uses it, on one line: typing what the
    mail should be about and asking for it are one action, and splitting them
    down the drawer would read as two unrelated controls. */
