@@ -8,13 +8,39 @@ Why it is shaped this way — the custom Postgres, the update contract, why the
 two platforms differ where they do, the known limits — is
 [explanation/desktop-distribution.md](../explanation/desktop-distribution.md).
 
+## Will it run on my computer?
+
+What a **user** needs. Building it needs more — see the next section.
+
+| | macOS bundle | Windows bundle |
+|---|---|---|
+| **OS** | macOS 12 Monterey or newer | Windows 10 or newer (Server 2016+ shares that kernel) |
+| **Architecture** | Whatever the build machine was — **not** universal. An Apple-silicon build does not run on an Intel Mac at all; an Intel build runs on Apple silicon under Rosetta 2. `make desktop-dist` prints which one it produced | x64 only. Windows on ARM has x64 emulation, but no ARM build is produced and none is tested |
+| **Must already be installed** | Nothing | The [Microsoft Visual C++ x64 redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). Present on most machines, **not** bundled |
+| **Admin rights** | Not needed | Not needed. Running as an administrator also works — `pg_ctl` drops the privileges Postgres refuses to start with |
+| **First-launch warning** | Ad-hoc signed, so a copy downloaded through a browser is quarantined and Gatekeeper refuses it. Right-click → **Open**, or `xattr -dr com.apple.quarantine <folder>`. Copying by `cp`, USB or AirDrop sets no quarantine and needs none of this | Unsigned, so SmartScreen blocks it: **More info** → **Run anyway** |
+| **Where it is put** | Path must be short: the database socket path has a 103-byte system limit, and the launcher measures it and says so | Anywhere. There is no socket, so no limit |
+| **Browser** | Chrome/Edge 111+, Firefox 114+, or Safari 16.4+ (Safari 16.4 is available back to macOS 11, so it is reachable on every supported version) | Chrome/Edge 111+ or Firefox 114+ |
+
+The OS floors are not aspirational: `MACOSX_DEPLOYMENT_TARGET` is pinned to
+12.0 and **the build fails** if any shipped binary requires newer, so it cannot
+silently inherit the build machine's macOS. On Windows the floor is
+PostgreSQL 16's own (Windows 10 or newer), which Go and the MSYS2 runtime also
+share.
+
+Both need roughly 1 GB free for the folder plus the database, and neither
+writes a single byte outside its own folder — no installer, no registry keys,
+no `~/Library`, no `%APPDATA%`.
+
+## What building it needs
+
 **Each platform builds on itself.** Neither half cross-builds: the macOS lane
 compiles Postgres and Valkey with the Xcode tools, and pgvector on Windows has
 no build system other than `nmake` against MSVC.
 
 | | Build host | Also needs |
 |---|---|---|
-| macOS | Apple silicon | Xcode Command Line Tools (`xcode-select --install`), Go, node+pnpm |
+| macOS | Apple silicon or Intel — the bundle inherits the builder's architecture | Xcode Command Line Tools (`xcode-select --install`), Go, node+pnpm |
 | Windows | x64 | [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/) with the "Desktop development with C++" workload (for pgvector), [MSYS2](https://www.msys2.org/) with `base-devel gcc` (for the event bus), Go, node+pnpm |
 
 ## Build it — macOS

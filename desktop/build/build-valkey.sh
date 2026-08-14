@@ -15,6 +15,10 @@ VALKEY_VERSION="9.1.1"
 VALKEY_SHA256="7d7232acd1b8a49b4e05d07a00b3ca8c801ae06ab633ca6a3423bc5f385ab7ee"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Pins the deployment target before make runs, so the binary is stamped with
+# the bundle's declared floor instead of the build machine's OS.
+# shellcheck source=desktop/build/macos-target.sh
+. "$HERE/macos-target.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 STAGE="$ROOT/build/desktop/.stage"
 WORK="$STAGE/.work"
@@ -57,6 +61,11 @@ verify() {
     echo "FAIL: valkey-server links against a package-manager prefix" >&2
     exit 1
   fi
+
+  if ! assert_min_os "$OUT/valkey-server"; then
+    exit 1
+  fi
+  log "runs on macOS $MACOS_MIN or newer"
 
   log "$("$OUT/valkey-server" --version)"
   log "size: $(du -sh "$OUT" | awk '{print $1}')"

@@ -19,6 +19,10 @@ PGVECTOR_VERSION="0.8.6"
 PGVECTOR_SHA256="10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Pins the deployment target before ./configure runs, so every object here is
+# stamped with the bundle's declared floor instead of the build machine's OS.
+# shellcheck source=desktop/build/macos-target.sh
+. "$HERE/macos-target.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 STAGE="$ROOT/build/desktop/.stage"
 WORK="$STAGE/.work"
@@ -35,7 +39,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 require_tools() {
   local missing=()
-  for tool in curl shasum make clang install_name_tool otool codesign; do
+  for tool in curl shasum make clang install_name_tool otool codesign vtool; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
   done
   if [ ${#missing[@]} -gt 0 ]; then
@@ -198,6 +202,16 @@ verify() {
       exit 1
     fi
   done
+
+  # Nothing may require a newer macOS than the bundle declares. Checked here
+  # rather than trusted, because MACOSX_DEPLOYMENT_TARGET is one unset variable
+  # away from being ignored and the result runs fine on the build machine.
+  local checked=()
+  while IFS= read -r file; do checked+=("$file"); done < <(mach_o_files)
+  if ! assert_min_os "${checked[@]}"; then
+    exit 1
+  fi
+  log "every binary runs on macOS $MACOS_MIN or newer"
 
   log "postgres $("$OUT/bin/postgres" --version | awk '{print $3}') staged at $OUT"
   log "extensions present: vector unaccent pg_trgm btree_gist"

@@ -63,6 +63,35 @@ rather than compiling Postgres itself: the property the macOS compile exists to
 produce is one the platform gives away. Only pgvector is compiled, with MSVC,
 against that staged tree.
 
+### The other kind of relocatability: which OS the binary admits to needing
+
+A binary that resolves all its libraries can still refuse to launch, because a
+Mach-O carries the oldest macOS it will run on and the loader enforces it.
+`clang` sets that from the machine doing the build, so an unpinned build stamps
+whatever the builder was running that week. Nothing is visibly wrong: it works
+on the build machine, it works on anything newer, and it fails on everything
+older with a floor **nobody chose and nobody wrote down** — one that silently
+rises the next time the builder takes an OS update.
+
+Measured on a Mac running 15.7: a C file compiled with no deployment target
+reports `minos 15.0`, while a Go binary from the same tree reports `minos 12.0`,
+because Go sets its own. So the bundle's real floor was the newest of its
+parts, and the two halves of one folder disagreed by three major versions.
+
+`desktop/build/macos-target.sh` is the one place that number lives. It exports
+`MACOSX_DEPLOYMENT_TARGET=12.0` — Go's own floor for this toolchain, so the C
+halves and the Go halves agree rather than merely coexist — and `assert_min_os`
+re-reads every shipped binary and **fails the build** if any of them wants
+newer. A pinned variable alone would be a comment: it is one unset environment
+away from being ignored, and the machine that ignores it is the one machine
+that cannot notice.
+
+Architecture is the limit that stays. The bundle is whatever the builder was —
+Apple silicon or Intel, never universal — because a universal Postgres means
+building it twice and `lipo`-ing the result, and the audience is one person on
+one machine. `build-dist.sh` prints the architecture rather than leaving it to
+be discovered.
+
 The two lanes verify the same claim in the way each platform allows: macOS
 inspects the link table, Windows **runs each third-party binary out of the
 assembled folder**. A missing DLL is invisible on the build machine, where the
@@ -268,6 +297,10 @@ file's protection is whatever the user's profile directory gives it.
 - **Neither build is signed for distribution.** macOS is ad-hoc signed and
   needs a Developer ID plus notarization, without which a downloaded copy is
   quarantined; Windows is unsigned and warns through SmartScreen.
+- **One architecture per build, and it is the builder's.** An Apple-silicon
+  bundle will not start on an Intel Mac; an Intel one runs on Apple silicon
+  only under Rosetta 2. Windows is x64 with no ARM build. Shipping to a mixed
+  fleet means building once per architecture.
 - **The Windows build assumes the Microsoft Visual C++ runtime.** It is
   installed machine-wide by almost anything built with MSVC, and the C++
   workload the build itself requires puts it on the build host — which is

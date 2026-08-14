@@ -25,6 +25,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=desktop/build/macos-target.sh
+. "$HERE/macos-target.sh"
 ROOT="$(cd "$HERE/../.." && pwd)"
 STAGE="$ROOT/build/desktop/.stage"
 DIST="$ROOT/build/desktop/margince"
@@ -86,6 +88,34 @@ verify_signed() {
   done
 }
 
+# verify_runnable_os checks what the ASSEMBLED folder needs, not what each
+# build step meant to produce.
+#
+# The per-step checks constrain their own output; this one constrains the thing
+# the user actually copies, and it is the only place the Go binaries and the C
+# binaries are judged by the same rule. It also names the one architecture the
+# folder contains — a bundle built on Apple silicon does not run on an Intel
+# Mac, and vice versa, so which one this is belongs in the build log rather
+# than in a support conversation.
+verify_runnable_os() {
+  log "verifying every binary runs on macOS $MACOS_MIN or newer"
+  local binaries=()
+  while IFS= read -r file; do binaries+=("$file"); done < <(
+    find "$DIST" -type f -perm -u+x
+    find "$DIST" -type f \( -name '*.dylib' -o -name '*.so' \)
+  )
+  # An empty list would pass this check while examining nothing — the way a
+  # verification step most often fails.
+  if [ ${#binaries[@]} -eq 0 ]; then
+    echo "FAIL: found no executables in $DIST to check" >&2
+    exit 1
+  fi
+  if ! assert_min_os "${binaries[@]}"; then
+    exit 1
+  fi
+  log "architecture: $(lipo -archs "$DIST/margince")"
+}
+
 main() {
   require "$STAGE/pgsql/bin/postgres" "build-postgres.sh"
   require "$STAGE/valkey/valkey-server" "build-valkey.sh"
@@ -95,6 +125,7 @@ main() {
 
   stage_dist
   verify_signed
+  verify_runnable_os
 
   log "built $DIST ($(du -sh "$DIST" | awk '{print $1}'))"
   log "run it:  \"$DIST/margince\""

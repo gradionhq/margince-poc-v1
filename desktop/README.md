@@ -46,6 +46,7 @@ there is one copy to keep true:
 
 | Path | What it is |
 |---|---|
+| `build/macos-target.sh` | macOS: the one place the supported OS floor lives — pins `MACOSX_DEPLOYMENT_TARGET` and fails the build if any binary needs newer |
 | `build/build-postgres.sh` | macOS: relocatable Postgres 16 + pgvector + contrib, compiled from source |
 | `build/build-valkey.sh` | macOS: the event bus |
 | `build/build-app.sh` | macOS: api, worker, migrate, frontend, launcher |
