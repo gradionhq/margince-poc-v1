@@ -167,6 +167,13 @@ var decisionGrants = map[string][]grantRequirement{
 	// may see and decide it (targetVisible), the create grant gates the
 	// write the confirm performs.
 	"deal_follow_up": {{objectActivity, principal.ActionCreate}},
+	// Confirming a next step read out of a meeting transcript (S-E04.3)
+	// creates the task activity it proposed. The transcript activity it is
+	// filed against gates who may see and decide it (targetVisible); the
+	// create grant gates the write the confirm performs. Read is not enough:
+	// somebody who may read the transcript but not add to the timeline could
+	// otherwise release a task they could not have logged themselves.
+	"transcript_proposal": {{objectActivity, principal.ActionCreate}},
 }
 
 // targetResolvedGrants are the kinds whose decision grant is not fixed by the

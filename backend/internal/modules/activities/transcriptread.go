@@ -184,6 +184,54 @@ func transcriptLineCount(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 	return len(transcriptLines(*activity.Body)), nil
 }
 
+// TranscriptReading is everything a reader needs about one transcript, read
+// under one gate so the lines and the records they belong to cannot come from
+// two different answers to "may you see this".
+type TranscriptReading struct {
+	// Lines are the addressable lines, index i holding line i+1.
+	Lines []string
+	// Links are the records the transcript is attached to. A task proposed out
+	// of this meeting inherits them: a next step that hangs off no account is
+	// one nobody will find again.
+	Links []ActivityLinkInput
+}
+
+// ReadTranscript hands back a transcript's lines and the records it belongs to.
+//
+// It exists so the engine that reads a transcript never splits one itself. The
+// split is what line numbers MEAN (ADR-0058), and a second spelling of it
+// elsewhere would cite numbers that disagree with the ones on screen without
+// either side looking wrong.
+func (s *Store) ReadTranscript(ctx context.Context, activityID ids.ActivityID) (TranscriptReading, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return TranscriptReading{}, err
+	}
+	var out TranscriptReading
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		activity, err := readActivity(ctx, tx, activityID, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if activity.SourceSystem == nil || *activity.SourceSystem != transcriptSourceSystem {
+			return &NotATranscriptError{Kind: string(activity.Kind)}
+		}
+		if activity.Body == nil || *activity.Body == "" {
+			return ErrBlankTranscript
+		}
+		out.Lines = transcriptLines(*activity.Body)
+		if activity.Links != nil {
+			for _, link := range *activity.Links {
+				out.Links = append(out.Links, ActivityLinkInput{
+					EntityType: string(link.EntityType),
+					EntityID:   ids.UUID(link.EntityId),
+				})
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // BeginTranscriptRead claims a queued reading, moving it to running. The
 // compare-and-set is the claim: a second worker handed the same job by an
 // at-least-once queue finds no queued row and stops, rather than reading and
