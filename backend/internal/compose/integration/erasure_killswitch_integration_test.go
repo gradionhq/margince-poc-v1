@@ -52,7 +52,7 @@ func (m refusingMailbox) Resolve(context.Context, ids.UserID, string) (connector
 	return m, connector.Auth{}, nil, nil
 }
 
-func (m refusingMailbox) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+func (m refusingMailbox) ResolveChannel(context.Context, ids.UserID, string) (connector.MessageSender, connector.Auth, error) {
 	m.t.Fatal("the queued send resolved a channel mailbox after erasure")
 	return nil, connector.Auth{}, nil
 }
