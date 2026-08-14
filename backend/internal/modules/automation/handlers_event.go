@@ -287,6 +287,13 @@ type postMeetingRecap struct {
 // (automations_catalog.go's CatalogEntry doc).
 const postMeetingRecapName = "post_meeting_recap"
 
+// purposeBusinessCorrespondence is the seeded consent purpose whose class is
+// never consent-gated (ADR-0098 D1): answering somebody individually rests on
+// Art 6(1)(b)/(f), and consent with its German evidence standard belongs to
+// marketing. Spelled once here so a starter and its tests cannot disagree
+// about which purpose a recap is sent under.
+const purposeBusinessCorrespondence = "business_correspondence"
+
 func (postMeetingRecap) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    postMeetingRecapName,
@@ -309,7 +316,22 @@ func (postMeetingRecap) Match(_ context.Context, ev workflow.Event) (bool, error
 }
 
 func (postMeetingRecap) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
-	args, err := json.Marshal(draftEmailArgs{Intent: recapIntent})
+	// business_correspondence is NAMED here rather than left to a default, and
+	// naming it is not this code choosing a lawful basis: the purpose exists
+	// for exactly this case. ADR-0098 D1 added it because ADR-0011's blanket
+	// default-deny "overshoots on one class: replying to a person who wrote to
+	// us" — individual business correspondence is not advertising under UWG §7
+	// and rests on Art 6(1)(b)/(f), not consent. A recap to the person you just
+	// met with is that and nothing else.
+	//
+	// A user-configured draft_email instance declares its own purpose and is
+	// refused without one (MissingConsentPurposeError). This is a seeded
+	// starter whose recipient and register are both fixed by the template, so
+	// its purpose is fixed with them.
+	args, err := json.Marshal(draftEmailArgs{
+		Intent:         recapIntent,
+		ConsentPurpose: purposeBusinessCorrespondence,
+	})
 	if err != nil {
 		return workflow.Effect{}, fmt.Errorf("automation: encoding the draft_email action: %w", err)
 	}

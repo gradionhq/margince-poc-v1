@@ -52,11 +52,23 @@ type commsAdapter struct {
 
 var _ agents.Comms = commsAdapter{}
 
-// commsAdapter also structurally satisfies automation.Comms (the same
-// DraftEmail signature, seams.go) — the deterministic draft_email
-// workflow action reuses this ONE adapter rather than wrapping it a
-// second time.
+// commsAdapter also satisfies automation.Comms (seams.go) — the
+// deterministic draft_email workflow action reuses this ONE adapter
+// rather than wrapping it a second time. DraftEmail is shared with
+// agents.Comms; ReplyAddress below is automation's alone, because only
+// the automation surface composes a message with no human present to
+// name who it goes to.
 var _ automation.Comms = commsAdapter{}
+
+// ReplyAddress forwards automation's addressee question to the activities
+// store, which owns the participants a thread's counterparty is read from.
+//
+// It asks the store rather than the drafter even when a model drafting lane is
+// wired: who a reply is TO is a fact about the record, and a routed drafter
+// must not be able to change it.
+func (c commsAdapter) ReplyAddress(ctx context.Context, anchor ids.UUID) (string, error) {
+	return c.store.ReplyAddressFor(ctx, ids.From[ids.ActivityKind](anchor))
+}
 
 func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
 	if c.draft != nil {

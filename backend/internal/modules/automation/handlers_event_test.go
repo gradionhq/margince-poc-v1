@@ -342,7 +342,8 @@ func TestPostMeetingRecapPlanEmitsOneDraftEmailWithTheRecapIntent(t *testing.T) 
 // guarantees, exercised end-to-end through the handler.
 func TestPostMeetingRecapApplyComposesTheDraftDurably(t *testing.T) {
 	comms := &fakeComms{subject: "Recap: kickoff", body: "here's what we agreed"}
-	w := postMeetingRecap{ex: Executors{Comms: comms}}
+	approvals := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
+	w := postMeetingRecap{ex: Executors{Comms: comms, Approvals: approvals}}
 	meeting := datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()}
 
 	eff, err := w.Plan(context.Background(), workflow.Event{Entity: meeting})
@@ -350,8 +351,11 @@ func TestPostMeetingRecapApplyComposesTheDraftDurably(t *testing.T) {
 		t.Fatalf("Plan err = %v, want nil", err)
 	}
 	result, err := w.Apply(context.Background(), workflow.Event{Entity: meeting}, eff, nil)
-	if err != nil {
-		t.Fatalf("Apply err = %v, want nil", err)
+	// The recap composes and then holds its send for a human, so the firing
+	// suspends. The draft it produced still has to reach run history.
+	var staged *workflow.StagedApprovalError
+	if !errors.As(err, &staged) {
+		t.Fatalf("Apply err = %v, want a StagedApprovalError", err)
 	}
 	if len(result.Applied) != 1 {
 		t.Fatalf("Apply result.Applied = %v, want the one draft_email action", result.Applied)

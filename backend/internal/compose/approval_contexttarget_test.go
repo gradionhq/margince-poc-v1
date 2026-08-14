@@ -79,5 +79,12 @@ func registeredEffectKinds() map[string]bool {
 	for _, kind := range approvalsServiceWithEffects(nil).EffectKinds() {
 		registered[kind] = true
 	}
+	// The late-bound executors too. They are registered in applySendPath rather
+	// than in the list above because they send, and so need the configured send
+	// path — a census reading only the construction-time list would call their
+	// waivers stale and invite deleting a pin waiver that is load-bearing.
+	for kind := range lateApprovalEffects {
+		registered[kind] = true
+	}
 	return registered
 }

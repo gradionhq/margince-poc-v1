@@ -41,10 +41,33 @@ func (f *fakeLists) AddMember(_ context.Context, listID ids.ListID, entityType s
 type fakeComms struct {
 	subject, body string
 	err           error
-	calls         []struct {
+	// address is what ReplyAddress answers. It defaults to a real one below
+	// rather than to the empty string: a fake that hands back "" would let a
+	// draft stage with no addressee and agree with exactly the defect the
+	// resolution exists to prevent.
+	address      string
+	addressErr   error
+	addressCalls []ids.UUID
+	calls        []struct {
 		anchor ids.UUID
 		intent string
 	}
+}
+
+// replyAddressDefault is what the fake answers unless a test asks for another
+// outcome, so every test that does not care about addressing still exercises a
+// draft that could actually have been sent.
+const replyAddressDefault = "counterparty@example.com"
+
+func (f *fakeComms) ReplyAddress(_ context.Context, anchor ids.UUID) (string, error) {
+	f.addressCalls = append(f.addressCalls, anchor)
+	if f.addressErr != nil {
+		return "", f.addressErr
+	}
+	if f.address == "" {
+		return replyAddressDefault, nil
+	}
+	return f.address, nil
 }
 
 func (f *fakeComms) DraftEmail(_ context.Context, anchor ids.UUID, intent string) (string, string, error) {
@@ -241,16 +264,23 @@ func TestApplyActionsAddToListNeverSwallowsAnAddMemberFailure(t *testing.T) {
 // the intent, never the composed subject/body.
 func TestApplyActionsDraftEmailCapturesTheDraftInTheAppliedRecord(t *testing.T) {
 	comms := &fakeComms{subject: "Re: hello", body: "following up"}
+	approvals := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
 	anchor := ids.NewV7()
 	action := workflow.Action{
 		Kind:   workflow.ActionDraftEmail,
 		Target: datasource.EntityRef{Type: datasource.EntityActivity, ID: anchor},
-		Args:   json.RawMessage(`{"intent":"nudge toward a decision"}`),
+		Args:   json.RawMessage(`{"intent":"nudge toward a decision","consent_purpose":"business_correspondence"}`),
 	}
 
-	applied, err := ApplyActions(context.Background(), Executors{Comms: comms}, workflow.Effect{Actions: []workflow.Action{action}})
-	if err != nil {
-		t.Fatalf("ApplyActions err = %v, want nil", err)
+	applied, err := ApplyActions(context.Background(),
+		Executors{Comms: comms, Approvals: approvals},
+		workflow.Effect{Actions: []workflow.Action{action}})
+	// Drafting composes AND stages, so the firing suspends. The artifact below
+	// must survive that suspension: parking a run is not a reason to lose what
+	// the run produced.
+	var staged *workflow.StagedApprovalError
+	if !errors.As(err, &staged) {
+		t.Fatalf("ApplyActions err = %v, want a StagedApprovalError — the send waits for a human", err)
 	}
 	if len(applied) != 1 {
 		t.Fatalf("applied = %v, want the one draft_email action", applied)
@@ -279,20 +309,132 @@ func TestApplyActionsDraftEmailCapturesTheDraftInTheAppliedRecord(t *testing.T) 
 	if rec.Intent != "nudge toward a decision" {
 		t.Errorf("applied draft dropped the requested intent %q — got %q", "nudge toward a decision", rec.Intent)
 	}
+
+	// The other half: the SEND is what waits, carrying everything a release
+	// needs. A staging that showed only the words would be a decision a human
+	// cannot actually take — and one missing the anchor could not be sent at
+	// all, because the release effect is never handed the approval's target.
+	if len(approvals.calls) != 1 {
+		t.Fatalf("Stage called %d times, want exactly 1", len(approvals.calls))
+	}
+	staging := approvals.calls[0]
+	if staging.Kind != HeldDraftKind {
+		t.Errorf("staged kind = %q, want %q — sharing send_email's kind would waive its version pin too", staging.Kind, HeldDraftKind)
+	}
+	if !staging.JoinPending {
+		t.Error("staged without JoinPending: an at-least-once redelivery would add a second copy of this message to the inbox")
+	}
+	var proposal HeldDraftProposal
+	if err := json.Unmarshal(staging.ProposedChange, &proposal); err != nil {
+		t.Fatalf("staged proposal does not decode: %v", err)
+	}
+	if proposal.AnchorActivityID != anchor {
+		t.Errorf("staged anchor = %v, want %v — the release reads it from the payload, never from the target", proposal.AnchorActivityID, anchor)
+	}
+	if proposal.To != replyAddressDefault {
+		t.Errorf("staged to = %q, want the resolved counterparty %q", proposal.To, replyAddressDefault)
+	}
+	if proposal.ConsentPurpose != "business_correspondence" {
+		t.Errorf("staged consent_purpose = %q, want the declared one — a send with no purpose cannot pass the gate", proposal.ConsentPurpose)
+	}
+	if proposal.Subject != "Re: hello" || proposal.Body != "following up" {
+		t.Errorf("staged message = (%q, %q), want the composed draft", proposal.Subject, proposal.Body)
+	}
 }
 
 func TestApplyActionsDraftEmailNeverSwallowsADraftFailure(t *testing.T) {
 	draftErr := errors.New("activities: anchor not found")
 	comms := &fakeComms{err: draftErr}
+	approvals := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
 	action := workflow.Action{
 		Kind:   workflow.ActionDraftEmail,
 		Target: datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()},
+		Args:   json.RawMessage(`{"consent_purpose":"business_correspondence"}`),
 	}
 
-	_, err := ApplyActions(context.Background(), Executors{Comms: comms}, workflow.Effect{Actions: []workflow.Action{action}})
+	_, err := ApplyActions(context.Background(),
+		Executors{Comms: comms, Approvals: approvals},
+		workflow.Effect{Actions: []workflow.Action{action}})
 
 	if !errors.Is(err, draftErr) {
 		t.Fatalf("ApplyActions err = %v, want it to wrap %v", err, draftErr)
+	}
+	if len(approvals.calls) != 0 {
+		t.Errorf("staged %d approvals after the draft failed — a message that was never composed must not appear in anyone's inbox", len(approvals.calls))
+	}
+}
+
+// A draft_email instance that names no consent purpose refuses at compose time
+// rather than staging a message no human could ever release: the send gate is
+// default-deny per purpose, so a purposeless draft is one that fails at the
+// moment somebody tries to approve it, which is the worst place to learn.
+func TestApplyActionsDraftEmailRefusesWithoutAConsentPurpose(t *testing.T) {
+	comms := &fakeComms{subject: "Re: hello", body: "following up"}
+	approvals := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
+	action := workflow.Action{
+		Kind:   workflow.ActionDraftEmail,
+		Target: datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()},
+		Args:   json.RawMessage(`{"intent":"nudge toward a decision"}`),
+	}
+
+	_, err := ApplyActions(context.Background(),
+		Executors{Comms: comms, Approvals: approvals},
+		workflow.Effect{Actions: []workflow.Action{action}})
+
+	var missing *MissingConsentPurposeError
+	if !errors.As(err, &missing) {
+		t.Fatalf("ApplyActions err = %v, want MissingConsentPurposeError", err)
+	}
+	if len(approvals.calls) != 0 {
+		t.Errorf("staged %d approvals for a draft that can never be released", len(approvals.calls))
+	}
+	if len(comms.calls) != 0 {
+		t.Error("composed a draft before checking the purpose — the certain refusal must run before the expensive work")
+	}
+}
+
+// The addressee is resolved at STAGING, so a thread with no counterparty fails
+// the firing where an operator can see it — instead of producing an inbox item
+// that dies at the moment a human presses approve.
+func TestApplyActionsDraftEmailRefusesWhenTheThreadHasNoAddress(t *testing.T) {
+	noAddress := errors.New("activities: no counterparty address on this thread")
+	comms := &fakeComms{subject: "Re: hello", body: "following up", addressErr: noAddress}
+	approvals := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
+	action := workflow.Action{
+		Kind:   workflow.ActionDraftEmail,
+		Target: datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()},
+		Args:   json.RawMessage(`{"consent_purpose":"business_correspondence"}`),
+	}
+
+	_, err := ApplyActions(context.Background(),
+		Executors{Comms: comms, Approvals: approvals},
+		workflow.Effect{Actions: []workflow.Action{action}})
+
+	if !errors.Is(err, noAddress) {
+		t.Fatalf("ApplyActions err = %v, want it to wrap %v", err, noAddress)
+	}
+	if len(approvals.calls) != 0 {
+		t.Errorf("staged %d approvals for a message with nowhere to go", len(approvals.calls))
+	}
+}
+
+// A composition that wired no staging seam refuses honestly instead of
+// dereferencing nil. The draft is already composed by then, so the alternative
+// to an error is a crash — or, worse, silently discarding it and reporting the
+// run healthy.
+func TestApplyActionsDraftEmailRefusesWithNoStagingSeam(t *testing.T) {
+	comms := &fakeComms{subject: "Re: hello", body: "following up"}
+	action := workflow.Action{
+		Kind:   workflow.ActionDraftEmail,
+		Target: datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()},
+		Args:   json.RawMessage(`{"consent_purpose":"business_correspondence"}`),
+	}
+
+	_, err := ApplyActions(context.Background(), Executors{Comms: comms},
+		workflow.Effect{Actions: []workflow.Action{action}})
+
+	if !errors.Is(err, ErrNoApprovalStaging) {
+		t.Fatalf("ApplyActions err = %v, want ErrNoApprovalStaging", err)
 	}
 }
 

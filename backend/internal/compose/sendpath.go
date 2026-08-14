@@ -27,6 +27,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -123,6 +125,47 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		WithRecipientDirectory(recipientDirectory{}).
 		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
+	decisions := s.approvalsHandlers
+	for kind, build := range lateApprovalEffects {
+		decisions = decisions.WithLateEffect(kind,
+			func(svc *approvals.Service) approvals.ApprovedEffect {
+				return build(svc, sendStore(pool, send), consentGateFor(pool), send.Delivery)
+			})
+	}
+	s.approvalsHandlers = decisions
+}
+
+// lateApprovalEffects are the approve-side executors that cannot be registered
+// with the others, because they send.
+//
+// The list beside the rest (approvalsServiceWithEffects) runs when the
+// approvals surface is built, which is BEFORE server options assemble the send
+// path — so an executor registered there would send through a store with no
+// signature, no unsubscribe linker and no send authority. It would work, and
+// put out mail visibly worse than the same human's own send, with nothing
+// failing to say so.
+//
+// A table rather than a call, so the two things that must agree cannot drift:
+// applySendPath registers exactly these kinds, and the version-pin census gate
+// enumerates exactly these keys. A waiver for a late-registered kind would
+// otherwise read as a waiver for a kind nothing stages.
+// consentGateFor is the ONE spelling of the send path's consent authority.
+//
+// Every send in this process must ask the same gate the same way: a second
+// construction that differed — a different store, a different db handle — would
+// be a second answer to "may this person be written to", and the surface that
+// got the wrong one would look identical to the surface that got the right one.
+// The concrete gate, not the activities.ConsentGate seam it satisfies: this is
+// composition naming a dependency, and every caller assigns it into the seam
+// itself. Widening here would only hide which gate was built.
+func consentGateFor(pool *pgxpool.Pool) *consent.Gate {
+	return consent.NewGate(consent.NewStore(InstallationDB(pool)))
+}
+
+var lateApprovalEffects = map[string]func(
+	*approvals.Service, *activities.Store, activities.ConsentGate, activities.DeliveryStager,
+) approvals.ApprovedEffect{
+	automation.HeldDraftKind: heldDraftReleaseEffect,
 }
 
 // sendStore builds the activities store the tool surface sends through — one
@@ -160,7 +203,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
 		store:         sendStore(pool, send),
-		gate:          consent.NewGate(consent.NewStore(InstallationDB(pool))),
+		gate:          consentGateFor(pool),
 		draft:         drafter,
 		stager:        send.Delivery,
 		channelStager: send.Delivery,

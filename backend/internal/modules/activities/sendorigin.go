@@ -16,12 +16,15 @@ package activities
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -90,6 +93,41 @@ func (o SendOrigin) resolve(ctx context.Context, s *Store) ([]ActivityLinkInput,
 		return nil, err
 	}
 	return inheritedLinks(anchor), nil
+}
+
+// lockAnchorLive re-reads the anchor under a row lock inside the writing
+// transaction, and refuses if it is no longer live.
+//
+// resolve() already rejected an archived anchor, but it read through the pool
+// and held nothing: between that read and this write the anchor can be
+// archived, and threading() does not filter archived rows — so the reply would
+// join a thread whose root no longer exists. The account origin has always been
+// safe here because its links are re-probed inside the staging transaction
+// ("the probe at insert stays", resolve above); the reply origin had no
+// equivalent, and this is it.
+//
+// The window is a request's width for an immediate send and can be days for a
+// released draft or a scheduled send, which is why the check belongs on the
+// shared write path rather than on whichever caller happened to notice it.
+//
+// ErrNotFound, not a distinct sentinel: an archived anchor is indistinguishable
+// from one that was never visible to this caller, and saying which would leak
+// the existence of a record they may no longer read.
+func (o SendOrigin) lockAnchorLive(ctx context.Context, tx pgx.Tx) error {
+	if !o.isReply() {
+		return nil
+	}
+	var id ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM activity WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
+		o.anchor.UUID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("the message this replies to is no longer available: %w", apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("lock the anchor of a reply: %w", err)
+	}
+	return nil
 }
 
 // probeLinkTargets refuses an account-started send whose named records the

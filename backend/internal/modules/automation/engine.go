@@ -262,6 +262,16 @@ func ApplyActions(ctx context.Context, ex Executors, effect workflow.Effect) ([]
 		if staged != nil {
 			// A 🟡 action stages rather than executing: the run parks
 			// behind the approval id and nothing after it applies.
+			//
+			// It can still have PRODUCED something first, though, and then the
+			// artifact belongs in the record even though the action suspended:
+			// draft_email composes the message and stages the send. An arm with
+			// nothing to show returns the zero action, which is how it says so
+			// — appending a planned-but-unexecuted action here would report a
+			// write that never happened.
+			if recorded.Kind != "" {
+				applied = append(applied, recorded)
+			}
 			return applied, staged
 		}
 		// recorded is the action AS APPLIED, which is not always the action
@@ -302,14 +312,28 @@ func applyOne(ctx context.Context, ex Executors, action workflow.Action) (workfl
 		if err != nil {
 			return action, nil, err
 		}
-		return action, &workflow.StagedApprovalError{ApprovalID: id}, nil
+		// The ZERO action, not this one: these kinds produced nothing before
+		// staging, so there is no artifact for the run record. Returning the
+		// planned action here would put an unexecuted write into `applied`.
+		return workflow.Action{}, &workflow.StagedApprovalError{ApprovalID: id}, nil
 	case workflow.ActionNotify:
 		return action, nil, applyNotify(ctx, ex.Notifier, action)
 	case workflow.ActionAddToList:
 		return action, nil, applyAddToList(ctx, ex.Lists, action)
 	case workflow.ActionDraftEmail:
-		recorded, err := applyDraftEmail(ctx, ex.Comms, action)
-		return recorded, nil, err
+		// Drafting is 🟢 and has just run; the SEND it proposes is the 🟡 that
+		// waits (AUTO-PARAM-4, AUTO-AC-1). The action returned is the enriched
+		// one, so the composed draft still lands on the run as run history —
+		// parking a run must not cost the artifact the firing produced.
+		recorded, proposal, err := applyDraftEmail(ctx, ex.Comms, action)
+		if err != nil {
+			return recorded, nil, err
+		}
+		id, err := stageHeldDraft(ctx, ex.Approvals, action.Target, proposal)
+		if err != nil {
+			return recorded, nil, err
+		}
+		return recorded, &workflow.StagedApprovalError{ApprovalID: id}, nil
 	case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
 		// Declared kinds whose executors ride later slices; refusing loudly
 		// beats silently claiming success.
@@ -364,5 +388,55 @@ func stageForApproval(ctx context.Context, approvals Approvals, action workflow.
 		TargetType:     string(action.Target.Type),
 		TargetID:       action.Target.ID,
 		Summary:        fmt.Sprintf("automation wants to %s on %s %s", action.Kind, action.Target.Type, action.Target.ID),
+	})
+}
+
+// HeldDraftKind is the staging kind an automation-composed email waits under.
+//
+// It is deliberately NOT send_email, which is the kind an agent's own 🟡 send
+// stages under. Two reasons, and either alone would be enough. The pin: this
+// kind waives the target version pin (approvals' contextTargetKinds) because a
+// draft waits in an inbox while ordinary work bumps the message it answers —
+// and send_email must keep its pin, so sharing the name would silently waive
+// it for agent sends too. The effect: the release executor is registered per
+// kind, and an agent's staged send must not acquire an executor that fires it
+// on approval when its own surface redeems it by token.
+const HeldDraftKind = "held_draft"
+
+// stageHeldDraft puts one composed draft in front of a human.
+//
+// JoinPending, unlike the generic stager above: a firing reaches this seam more
+// than once (the bus is at-least-once, and a scan re-evaluates candidates), and
+// an identical re-stage must return the row already waiting rather than add a
+// second copy of the same message to somebody's inbox. The generic stager has
+// no such caller today and is left alone.
+//
+// The summary names the addressee, because the inbox row is read before the
+// draft is opened and "send an email" is not a decision anyone can take.
+func stageHeldDraft(ctx context.Context, approvals Approvals, target datasource.EntityRef, proposal HeldDraftProposal) (ids.ApprovalID, error) {
+	if approvals == nil {
+		// A composition with no staging seam cannot hold this draft for
+		// anybody, and the alternative to saying so is a nil dereference. It
+		// refuses the way a notify firing with no transport does (§3.3): the
+		// run records a visible outcome an operator can act on, rather than the
+		// process falling over — or, worse, the draft quietly evaporating.
+		return ids.ApprovalID{}, ErrNoApprovalStaging
+	}
+	raw, err := json.Marshal(proposal)
+	if err != nil {
+		return ids.ApprovalID{}, fmt.Errorf("automation: encoding a held draft for staging: %w", err)
+	}
+	canonical, diffHash, err := diffhash.Canonical(raw)
+	if err != nil {
+		return ids.ApprovalID{}, fmt.Errorf("automation: canonicalizing a held draft for staging: %w", err)
+	}
+	return approvals.Stage(ctx, StageRequest{
+		Kind:           HeldDraftKind,
+		ProposedChange: canonical,
+		DiffHash:       diffHash,
+		TargetType:     string(target.Type),
+		TargetID:       target.ID,
+		Summary:        fmt.Sprintf("an automation drafted a reply to %s — read it before it goes", proposal.To),
+		JoinPending:    true,
 	})
 }

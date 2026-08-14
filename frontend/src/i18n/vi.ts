@@ -901,6 +901,7 @@ export const vi = {
   "approval.kind.update_record": "Cập nhật một bản ghi",
   "approval.kind.create_record": "Tạo một bản ghi",
   "approval.kind.send_email": "Gửi một email",
+  "approval.kind.held_draft": "Xem lại email đã soạn",
   "approval.kind.book_meeting": "Đặt một lịch họp",
   "approval.kind.send_offer": "Gửi một báo giá",
   "approval.kind.quota_release": "Cho tác nhân tiếp tục",
@@ -1321,6 +1322,8 @@ export const vi = {
   "inbox.tab.pending": "Đang chờ",
   "inbox.tab.decided": "Đã quyết",
   "inbox.rejectReason": "Lý do",
+  "inbox.draftSubject": "Tiêu đề",
+  "inbox.draftBody": "Nội dung",
   "inbox.rejectReasonHint":
     "Người mà mục này được xếp chờ duyệt cho sẽ thấy lý do này.",
   "inbox.tokenTitle": "Token phê duyệt",

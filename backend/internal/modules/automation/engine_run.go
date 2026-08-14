@@ -151,10 +151,21 @@ func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Hand
 			if err != nil {
 				return err
 			}
+			// `applied` is written on this arm too, not only on the default
+			// one. A staged action can have PRODUCED something before it asked
+			// for permission — draft_email composes the message and then stages
+			// the send — and that artifact is the run's honest history whether
+			// or not a human ever releases it. Recording the suspension while
+			// discarding what the firing made would leave run history saying an
+			// automation drafted a reply and holding nothing to show for it.
+			appliedJSON, err := json.Marshal(result.Applied)
+			if err != nil {
+				return err
+			}
 			_, err = tx.Exec(ctx, `
-				UPDATE workflow_run SET status = 'requires_approval', detail = $3
+				UPDATE workflow_run SET status = 'requires_approval', detail = $3, applied = $4
 				WHERE handler = $1 AND idempotency_key = $2`,
-				h.Spec().Name, runKey(h, ev), detail)
+				h.Spec().Name, runKey(h, ev), detail, appliedJSON)
 			return err
 		case errors.Is(applyErr, ErrNoNotificationTransport):
 			// Matched and would have delivered, but this environment has
