@@ -2118,7 +2118,25 @@ export interface paths {
         get: operations["getStage"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Remove a stage from its pipeline (soft delete; archive is the delete).
+         * @description The removal half of the bounded stage-configuration surface (DEAL-WIRE-7). Archiving
+         *     rather than deleting is what keeps the stage-change history readable — a
+         *     `deal_stage_history` row references the stage a deal moved out of.
+         *
+         *     The surviving stages of the pipeline shift down so `position` stays contiguous, which
+         *     publishes ONE `pipeline.updated` reorder alongside `stage.archived`.
+         *
+         *     Two refusals, both `422` (DEAL-WIRE-10). Neither names a request field — the caller
+         *     sent the removal they meant and what refuses is the workspace's own state — so each
+         *     carries its machine code as the problem's `code` and its reason as `detail`:
+         *     * `stage_occupied` while live deals sit on the stage. The detail counts them and
+         *       names them (bounded, with "and N more" beyond the cap) so they can be moved
+         *       first; no `deal.stage_id` is ever left pointing at a removed stage.
+         *     * `terminal_stage_not_removable` on a `won`/`lost` stage: add and remove operate on
+         *       non-terminal stages only, so the pair the close semantics hang off survives.
+         */
+        delete: operations["archiveStage"];
         options?: never;
         head?: never;
         /** Update a stage (rename / reorder / probability). */
@@ -19833,6 +19851,41 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    archiveStage: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     updateStage: {

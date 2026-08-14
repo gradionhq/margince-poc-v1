@@ -114,15 +114,17 @@ func (c *channelSendEnv) bindIdentity(t *testing.T) {
 
 // seedInboundMessage writes the conversation being answered: an inbound telegram
 // activity filed under the chat's thread key and linked to the person, which is
-// the shape capture leaves behind.
+// the shape capture leaves behind — including the TRANSPORT that carried it. The
+// reply path resolves the provider from that column, so an anchor seeded without
+// it is not a channel conversation and every reply on it is refused.
 func (c *channelSendEnv) seedInboundMessage(t *testing.T) {
 	t.Helper()
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, body, occurred_at, direction,
+			INSERT INTO activity (workspace_id, kind, channel_provider, body, occurred_at, direction,
 			                      source_system, source_id, source, captured_by, thread_key)
-			VALUES ($1, 'telegram', 'Is this still available?', now(), 'inbound',
+			VALUES ($1, 'telegram', 'telegram', 'Is this still available?', now(), 'inbound',
 			        'telegram', '8100:770011:5', 'telegram:8100:770011:5', 'connector:telegram', $2)
 			RETURNING id`, c.ws, channelSendThreadKey).Scan(&c.activityID); err != nil {
 			return err

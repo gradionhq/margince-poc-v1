@@ -989,8 +989,11 @@ type PublicEventSignalResolved struct {
 	SignalId openapi_types.UUID `json:"signal_id"`
 }
 
-// PublicEventStageArchived Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
-type PublicEventStageArchived struct{}
+// PublicEventStageArchived Payload for stage.archived — a stage was removed from a pipeline (archiveStage; archive is the removal, so the stage-change history referencing it stays readable). The pipeline is named here, as it is on stage.created, because a subscriber holding only the envelope's stage id cannot tell which pipeline reshaped; the shift that closes the vacated position rides its own pipeline.updated.
+type PublicEventStageArchived struct {
+	// PipelineId The pipeline the stage belonged to.
+	PipelineId openapi_types.UUID `json:"pipeline_id"`
+}
 
 // PublicEventStageCreated Payload for stage.created — a stage was added to a pipeline.
 type PublicEventStageCreated struct {

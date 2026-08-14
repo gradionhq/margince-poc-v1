@@ -49,17 +49,29 @@ const captureLatencyBudget = 60 * time.Second
 // under its chat-scoped natural key, and the person the ensure linked it to.
 // Both must exist — an activity with no link is the connector's own retry
 // marker, not a captured conversation.
+//
+// It also asserts the transport landed on the row. That check lives HERE, in the
+// shared read-back, rather than in a case of its own: every test that reads a
+// captured message then proves the invariant, so a writer that stops recording
+// the provider fails wherever it is exercised instead of only where somebody
+// remembered to look. A message whose transport is missing is a message the reply
+// path will refuse — a conversation the rep can read and cannot answer.
 func (c *telegramEnv) capturedMessage(t *testing.T, u telegramUpdate) (activityID, personID string) {
 	t.Helper()
+	var provider string
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			SELECT a.id::text, l.person_id::text
+			SELECT a.id::text, l.person_id::text, coalesce(a.channel_provider, '')
 			  FROM activity a
 			  JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'person'
 			 WHERE a.source_system = 'telegram' AND a.source_id = $1`, u.naturalKey()).
-			Scan(&activityID, &personID)
+			Scan(&activityID, &personID, &provider)
 	}); err != nil {
 		t.Fatalf("reading back the captured message %s: %v", u.naturalKey(), err)
+	}
+	if provider != "telegram" {
+		t.Fatalf("captured message %s landed with channel_provider %q, want telegram — the ingest is not recording which transport carried it, "+
+			"so the reply path has nothing to resolve and every answer on this conversation is refused", u.naturalKey(), provider)
 	}
 	return activityID, personID
 }

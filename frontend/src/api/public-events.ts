@@ -303,8 +303,14 @@ export interface components {
             /** @description The stage's new win probability (absent when this update did not touch it). */
             win_probability?: number;
         };
-        /** @description Payload for stage.archived. Never emitted today (no archive path exists for stage); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it. */
-        PublicEventStageArchived: Record<string, never>;
+        /** @description Payload for stage.archived — a stage was removed from a pipeline (archiveStage; archive is the removal, so the stage-change history referencing it stays readable). The pipeline is named here, as it is on stage.created, because a subscriber holding only the envelope's stage id cannot tell which pipeline reshaped; the shift that closes the vacated position rides its own pipeline.updated. */
+        PublicEventStageArchived: {
+            /**
+             * Format: uuid
+             * @description The pipeline the stage belonged to.
+             */
+            pipeline_id: string;
+        };
         /** @description How many child rows on each side were repointed from the merged- away person onto the survivor (people/merge.go relinkCounts). */
         PublicEventPersonMergedRelinkCounts: {
             /**

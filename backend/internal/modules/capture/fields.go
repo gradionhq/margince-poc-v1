@@ -11,7 +11,20 @@ import "time"
 
 // ActivityFields is a captured interaction bound for the timeline.
 type ActivityFields struct {
-	Kind       string // email | call | meeting | note | whatsapp | telegram
+	Kind string // email | call | meeting | note | whatsapp | telegram
+
+	// ChannelProvider names the messaging transport that carried this record —
+	// a channel_provider row — and is empty for anything that did not arrive on
+	// one (a mail capture, a meeting, a note).
+	//
+	// It is a separate field from Kind because they answer separate questions:
+	// Kind is what sort of interaction happened, ChannelProvider is how it
+	// travelled. They were one column for as long as the only channels were
+	// named as kinds, and the send path recovered the transport by reading a
+	// kind back as a provider name — which stops being possible the moment a
+	// provider that is not also a kind exists.
+	ChannelProvider string
+
 	Subject    string
 	Body       string
 	OccurredAt time.Time

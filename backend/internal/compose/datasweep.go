@@ -53,13 +53,13 @@ var preservedResetTables = map[string]bool{
 	// installation configuration and secrets
 	"setting": true, "vault_secret": true, "ai_call_config": true,
 	"embed_store_binding": true,
-	// The derived channel-provider registry (DESIGN-SP4 §4): installation-global
-	// reference data, not this workspace's records, on the SAME footing as
-	// `setting` above — a reset that cleared it would leave the installation
-	// unable to recognise the connectors it has compiled in, and (for
-	// channel_provider specifically) the sweep's unconditional, non-tenant-scoped
-	// DELETE would hit the activity_kind_fkey/channel_provider_provider_fkey
-	// constraints and abort the whole sweep transaction outright.
+	// The derived channel-provider registry: installation-global reference data,
+	// not this workspace's records, on the SAME footing as `setting` above — a
+	// reset that cleared it would leave the installation unable to recognise the
+	// connectors it has compiled in, and the sweep's unconditional,
+	// non-tenant-scoped DELETE would hit the activity_kind_fkey and
+	// activity_channel_provider_fkey constraints and abort the whole sweep
+	// transaction outright.
 	"activity_kind": true, "channel_provider": true,
 	// in-flight delivery: drained by the outbox pass, not deleted under it
 	"event_outbox": true,

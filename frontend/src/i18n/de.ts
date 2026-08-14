@@ -2089,6 +2089,11 @@ export const de = {
   "stage.semOpen": "Offen",
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
+  "stage.remove": "Entfernen",
+  "stage.removeConfirm": "Phase entfernen",
+  "stage.removeTitle": "Diese Phase entfernen?",
+  "stage.removeBody":
+    "„{name}“ verlässt die Pipeline, die nachfolgenden Phasen rücken auf. Frühere Phasenwechsel bleiben lesbar. Deals, die noch darauf stehen, müssen zuerst umziehen.",
 
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",

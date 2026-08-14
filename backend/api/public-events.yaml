@@ -702,10 +702,19 @@ components:
       x-entity-type: stage
       x-version: 1
       description: >-
-        Payload for stage.archived. Never emitted today (no archive path
-        exists for stage); the schema is published so the type is a valid
-        subscription target and the coverage gate can name it explicitly
-        rather than silently omitting it.
+        Payload for stage.archived — a stage was removed from a pipeline
+        (archiveStage; archive is the removal, so the stage-change history
+        referencing it stays readable). The pipeline is named here, as it is
+        on stage.created, because a subscriber holding only the envelope's
+        stage id cannot tell which pipeline reshaped; the shift that closes
+        the vacated position rides its own pipeline.updated.
+      required:
+        - pipeline_id
+      properties:
+        pipeline_id:
+          type: string
+          format: uuid
+          description: The pipeline the stage belonged to.
       additionalProperties: false
 
     PublicEventPersonMergedRelinkCounts:

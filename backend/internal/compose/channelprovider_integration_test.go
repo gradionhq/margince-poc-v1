@@ -27,46 +27,86 @@ func TestReconcileChannelProvidersInsertsAnUnseenProvider(t *testing.T) {
 	// set, and a later test in this process must not see it.
 	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
 	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	// Deleting the channel_provider row keeps the shared test database tidy for
+	// the tests that follow. The activity_kind row is deliberately NOT cleaned
+	// up: nothing should have written one, and the assertion below is what says
+	// so — a defensive delete here would tidy away the evidence of a regression.
 	t.Cleanup(func() {
-		if _, err := owner.Exec(context.Background(), `DELETE FROM channel_provider WHERE provider = 'fake-core-channel'`); err != nil {
+		if _, err := owner.Exec(context.Background(), `DELETE FROM channel_provider WHERE provider = 'fake_core_channel'`); err != nil {
 			t.Errorf("cleaning up channel_provider: %v", err)
-		}
-		if _, err := owner.Exec(context.Background(), `DELETE FROM activity_kind WHERE kind = 'fake-core-channel'`); err != nil {
-			t.Errorf("cleaning up activity_kind: %v", err)
 		}
 	})
 
-	// telegram is already seeded by migration 0240; assert the reconcile is a
-	// no-op for it and does insert BOTH the activity_kind and channel_provider
-	// rows for a genuinely new one — standing in for "core ships a second
-	// channel connector" without adding one.
-	if err := reconcileChannelProviders(ctx, e.Pool, []string{"telegram", "fake-core-channel"}); err != nil {
+	// telegram is already seeded by the core migration; assert the reconcile is
+	// a no-op for it and inserts a genuinely new one — standing in for "core
+	// ships a second channel connector" without adding one.
+	if err := reconcileChannelProviders(ctx, e.Pool, []string{"telegram", "fake_core_channel"}); err != nil {
 		t.Fatalf("reconcileChannelProviders: %v", err)
-	}
-
-	var kindExists bool
-	if err := owner.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM activity_kind WHERE kind = 'fake-core-channel')`).Scan(&kindExists); err != nil {
-		t.Fatalf("querying activity_kind: %v", err)
-	}
-	if !kindExists {
-		t.Fatal("reconcileChannelProviders did not insert the activity_kind row a new provider needs before channel_provider can FK into it")
 	}
 
 	var transport string
 	if err := owner.QueryRow(ctx,
-		`SELECT transport FROM channel_provider WHERE provider = 'fake-core-channel'`).Scan(&transport); err != nil {
+		`SELECT transport FROM channel_provider WHERE provider = 'fake_core_channel'`).Scan(&transport); err != nil {
 		t.Fatalf("querying the inserted row: %v", err)
 	}
 	if transport != "core" {
 		t.Fatalf("transport = %q, want core", transport)
 	}
 
+	// The mirror, and the point of the whole reconcile change: registering a
+	// transport must NOT mint an interaction kind. A provider says how a message
+	// travelled; an activity kind says what sort of interaction it was. While
+	// those two shared a vocabulary, boot had to insert an activity_kind row for
+	// every provider just to satisfy a foreign key — and the moment the kind
+	// vocabulary narrows to its semantic members, that insert would put back
+	// exactly the rows the narrowing removed, on the next boot, for as long as
+	// nobody noticed.
+	var kindExists bool
+	if err := owner.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM activity_kind WHERE kind = 'fake_core_channel')`).Scan(&kindExists); err != nil {
+		t.Fatalf("querying activity_kind: %v", err)
+	}
+	if kindExists {
+		t.Fatal("reconcileChannelProviders minted an activity_kind row for a provider — a transport is not an interaction kind, " +
+			"and a boot that keeps inserting these will silently restore whatever the kind-narrowing migration removes")
+	}
+
 	// Idempotent: calling it again with the SAME set changes nothing and
 	// errors on nothing — a role that constructs the registry twice (the
 	// worker's one-shot backfill helper does) must not fail its second call.
-	if err := reconcileChannelProviders(ctx, e.Pool, []string{"telegram", "fake-core-channel"}); err != nil {
+	if err := reconcileChannelProviders(ctx, e.Pool, []string{"telegram", "fake_core_channel"}); err != nil {
 		t.Fatalf("reconcileChannelProviders, second call: %v", err)
+	}
+}
+
+// A provider name the registry's own grammar refuses fails the reconcile
+// loudly, rather than being skipped into a half-composed installation. The
+// grammar lives on the column itself — the channel_provider_provider_grammar
+// constraint — so this is also the proof that boot keeps no second, disagreeing
+// spelling of the rule.
+func TestReconcileChannelProvidersRefusesAProviderNameTheGrammarRejects(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+
+	// Hyphens and capitals are both outside ^[a-z][a-z0-9_]*$ — and this exact
+	// spelling was a test fixture in this file before the grammar existed, which
+	// is how a name no installation could ever register got used as the stand-in
+	// for one that could.
+	err := reconcileChannelProviders(ctx, e.Pool, []string{"fake-core-channel"})
+	if err == nil {
+		t.Fatal("reconcileChannelProviders accepted a provider name the channel_provider grammar refuses; " +
+			"a name that cannot be stored must fail at boot, not become a provider the registry silently lacks")
+	}
+
+	var exists bool
+	if qErr := integration.OwnerConn(t).QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM channel_provider WHERE provider = 'fake-core-channel')`).Scan(&exists); qErr != nil {
+		t.Fatalf("querying channel_provider: %v", qErr)
+	}
+	if exists {
+		t.Fatal("the refused provider was stored anyway")
 	}
 }
 

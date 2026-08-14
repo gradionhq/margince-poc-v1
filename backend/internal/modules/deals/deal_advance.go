@@ -161,7 +161,8 @@ func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, t
 func resolveAdvanceTarget(ctx context.Context, tx pgx.Tx, toStage ids.StageID, current crmcontracts.Deal) (semantic string, winProbability int, err error) {
 	var stagePipeline ids.PipelineID
 	err = tx.QueryRow(ctx,
-		`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`,
+		`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`+
+			lockLiveStageTarget,
 		toStage).Scan(&semantic, &stagePipeline, &winProbability)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", 0, apperrors.ErrNotFound
