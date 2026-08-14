@@ -344,9 +344,12 @@ func originKind(o SendOrigin) string {
 	return "account"
 }
 
-func nullableAnchor(o SendOrigin) any {
+// nullableAnchor is the anchor a reply continues, or nil for an account-started
+// message — a typed pointer, which pgx writes as SQL NULL.
+func nullableAnchor(o SendOrigin) *ids.UUID {
 	if o.isReply() {
-		return o.anchor.UUID
+		anchor := o.anchor.UUID
+		return &anchor
 	}
 	return nil
 }
