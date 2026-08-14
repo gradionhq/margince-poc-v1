@@ -14,6 +14,7 @@ import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button } from "./atoms";
+import { useTruncationTooltip } from "./tooltip";
 import {
   AutonomyDot,
   type ConfidenceLevel,
@@ -406,6 +407,7 @@ function RecordHead({
   actionsAt: "none" | "inline" | "controls" | "below";
   wide: boolean;
 }>) {
+  const nameTip = useTruncationTooltip<HTMLHeadingElement>(name);
   return (
     <header className={wide ? "record-head record-head-wide" : "record-head"}>
       <Avatar name={name} src={avatarSrc} size="lg" />
@@ -420,7 +422,14 @@ function RecordHead({
           {/* The shell's page head yields to it on a record route — it
               prints the trail that leads here and nothing at heading
               level, so this stays the page's one h1. */}
-          <h1>{name}</h1>
+          {/* A record's name is user data of unbounded length. It is drawn on
+              one line and truncated rather than allowed to grow the header;
+              the tooltip is what carries the whole of it, and appears only
+              when there was more name than row. */}
+          <h1 ref={nameTip.ref} {...nameTip.trigger}>
+            {name}
+            {nameTip.tip}
+          </h1>
           {nameBadge}
         </div>
         {/* A div, not a p: a caller passing structure — the company page's

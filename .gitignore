@@ -117,3 +117,8 @@ workspace/
 # inspection profiles), not a build input. Machine-local, so it never belongs
 # in a commit.
 /.idea/
+
+# Agent-tooling scratch: state a Claude Code plugin keeps for its own runs,
+# written into whichever tree it was invoked from. Machine-local and per-session,
+# same as the IDE state above.
+/.impeccable/
