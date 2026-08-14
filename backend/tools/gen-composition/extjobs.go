@@ -68,7 +68,7 @@ type extJobKind struct {
 
 const (
 	extRoleDispatcher = "dispatcher"
-	extRoleWorker  = "worker"
+	extRoleWorker     = "worker"
 )
 
 // extensionJobs reads every enabled unit's scheduled jobs out of the merged
