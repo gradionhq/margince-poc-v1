@@ -4488,6 +4488,13 @@ export const de = {
   "person.composer.to": "An",
   "person.composer.subject": "Betreff",
   "person.composer.body": "Nachricht",
+  "richtext.bold": "Fett",
+  "richtext.italic": "Kursiv",
+  "richtext.bulletList": "Aufzählung",
+  "richtext.numberList": "Nummerierte Liste",
+  "richtext.link": "Link",
+  "richtext.linkPrompt":
+    "Webadresse für diesen Link (leer lassen zum Entfernen)",
   "person.composer.drafting": "Entwurf wird geschrieben…",
   "person.composer.why": "Warum dieser Entwurf",
   "person.composer.consentUnknown":

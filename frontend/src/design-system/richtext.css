@@ -1,0 +1,113 @@
+/* RichText — the editable surface and its toolbar.
+ *
+ * It borrows .textarea's box exactly: same font, same border, same focus ring.
+ * A rep moving between the subject field and the message must not feel two
+ * different products, and the only visible difference should be the toolbar
+ * that sits above it. */
+
+.richtext {
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  overflow: hidden;
+  transition: 0.15s;
+}
+
+/* The ring goes on the WRAPPER rather than the editable div, so focusing the
+ * text lights the whole control — toolbar included — which is what a reader
+ * expects when the two are one field. */
+.richtext:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+.richtext-bar {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--borderSubtle);
+  background: var(--bgCard);
+}
+
+.richtext-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--textSecondary);
+  cursor: pointer;
+  transition: 0.12s;
+}
+
+.richtext-btn:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+.richtext-btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+.richtext-input {
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  color: var(--textPrimary);
+  padding: 9px 11px;
+  outline: none;
+  overflow-y: auto;
+}
+
+/* The placeholder is a pseudo-element because contentEditable has no
+ * placeholder attribute, and :empty is what tells "nothing typed" from "typed
+ * and deleted" — a browser leaves a <br> behind on the second, so the check
+ * has to allow for it. */
+.richtext-input:empty::before,
+.richtext-input:has(> br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--textMuted);
+  pointer-events: none;
+}
+
+/* Lists need their markers back: the reset strips them, and a bulleted list
+ * with no bullets is the one formatting the toolbar promises most visibly. */
+.richtext-input ul,
+.richtext-input ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.richtext-input ul {
+  list-style: disc;
+}
+
+.richtext-input ol {
+  list-style: decimal;
+}
+
+.richtext-input p {
+  margin: 0 0 8px;
+}
+
+.richtext-input p:last-child,
+.richtext-input ul:last-child,
+.richtext-input ol:last-child {
+  margin-bottom: 0;
+}
+
+.richtext-input a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.richtext-input blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--borderSubtle);
+  color: var(--textSecondary);
+}

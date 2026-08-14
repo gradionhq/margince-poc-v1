@@ -4469,6 +4469,12 @@ export const vi = {
   "person.composer.to": "Đến",
   "person.composer.subject": "Chủ đề",
   "person.composer.body": "Nội dung",
+  "richtext.bold": "Đậm",
+  "richtext.italic": "Nghiêng",
+  "richtext.bulletList": "Danh sách dấu đầu dòng",
+  "richtext.numberList": "Danh sách đánh số",
+  "richtext.link": "Liên kết",
+  "richtext.linkPrompt": "Địa chỉ web cho liên kết này (để trống để gỡ bỏ)",
   "person.composer.drafting": "Đang soạn bản nháp…",
   "person.composer.why": "Vì sao có bản nháp này",
   "person.composer.consentUnknown":
