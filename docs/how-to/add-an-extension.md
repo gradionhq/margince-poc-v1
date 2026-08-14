@@ -35,7 +35,7 @@ tier owner's review.
    ```text
    module github.com/gradionhq/margince/extensions/<name>
 
-   go 1.26.5
+   go 1.26.6
    ```
 
 3. **Write the declaration** `extensions/<name>/<name>.go`, starting with the BUSL SPDX header (every
