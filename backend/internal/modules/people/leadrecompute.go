@@ -70,7 +70,14 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 	if err != nil {
 		return err
 	}
-	machine, _ := ScoreLead(deref(title), deref(source), signals, now)
+	// A rep's own inputs count toward the same weighted total — that is the
+	// point of supplying them — and stay their own labelled rows.
+	manual, err := leadManualFactors(ctx, tx, leadID)
+	if err != nil {
+		return err
+	}
+	scored := ScoreLeadDetail(deref(title), deref(source), signals, now).withManual(manual)
+	machine := scored.Score
 
 	// Sticky override: the machine value moves score_computed, never score.
 	if overrideReason != nil {
@@ -78,6 +85,12 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 			return nil
 		}
 		if _, err := tx.Exec(ctx, `UPDATE lead SET score_computed = $2 WHERE id = $1`, leadID, machine); err != nil {
+			return err
+		}
+		// The displayed score stays the human's; the factors explain the
+		// machine's. The entry carries both so the read can say which is
+		// which instead of presenting one as an account of the other.
+		if err := appendLeadScoreHistory(ctx, tx, leadID, currentScore, scored, overrideReason); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,
@@ -90,10 +103,16 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 		})
 	}
 
+	// Unchanged score, no entry: history records the number MOVING, which is
+	// what a trend plots and what a rep asks about. Appending on every decay
+	// tick would bury that under drift nobody reads (ADR-0105 §5).
 	if machine == currentScore {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `UPDATE lead SET score = $2 WHERE id = $1`, leadID, machine); err != nil {
+		return err
+	}
+	if err := appendLeadScoreHistory(ctx, tx, leadID, machine, scored, nil); err != nil {
 		return err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,

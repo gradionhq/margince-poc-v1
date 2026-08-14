@@ -4545,6 +4545,117 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /leads/{id}/score:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: explainLeadScore
+      x-mcp-tool: { verb: explain_lead_score, record_type: lead, tier: auto_execute, scope: read }
+      summary: Explain This Score — the weighted-factor decomposition behind a lead's score.
+      description: |
+        The decomposition is READ from the retained series (ADR-0105 §1), never recomputed
+        at read time: behavioral factors decay continuously, so a recomputed breakdown would
+        explain a number the record does not carry.
+
+        While a Commercial Judgement override is in force the factors sum to `score_computed`,
+        NOT to the displayed `score` — the response names both and carries the override's
+        reason, because presenting a machine breakdown as the explanation of a human's number
+        would be a lie (ADR-0105 §1).
+
+        Rounding and clamping are separate steps and both are visible: `raw_sum` is the
+        fractional factor total, `rounded_sum` is it rounded half-up, and `score_computed` is
+        that bounded to 0..100. They differ in ordinary cases (45.6 → 46, no clamp) as well as
+        at the cap (100.6 → 101 → 100).
+
+        A lead whose score has never been recomputed since this shipped has no entry yet:
+        `explained` is false and `factors` is absent — deliberately NOT an empty array, which
+        would read as "nothing contributed". Source activities are re-read through the
+        caller's own scope.
+      parameters:
+        - name: history
+          in: query
+          schema: { type: boolean, default: false }
+          description: Return the retained score series instead of the current explanation.
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The current explanation, or the paged series when `history=true`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadScoreExplanation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leads/{id}/manual-signals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Leads]
+      operationId: setLeadManualSignal
+      x-mcp-tool: { verb: set_lead_manual_signal, record_type: lead, tier: confirmation_required, scope: write }
+      summary: Enter or replace a human-provided scoring factor (S-E13.6).
+      description: |
+        A rep supplies a qualification signal capture cannot fetch — a traffic band, an
+        employee count, a budget hint. It feeds the same transparent weighted score and
+        appears in the decomposition as its own human-provided factor, never blended into an
+        auto-captured one.
+
+        One live band per factor: setting a factor that already has one REPLACES it. A
+        non-empty `reason` is required. Setting a factor the model already fetches
+        automatically is refused 422 `factor_auto_sourced` — the auto value wins (ADR-0105 §4),
+        and a rep who disagrees with a fetched fact is overruling the model, which is what the
+        Commercial Judgement override on `updateLead` is for.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetLeadManualSignalRequest' }
+      responses:
+        '200':
+          description: The stored manual signal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadManualSignal' }
+        '403':
+          description: Approval required (agent-triggered) or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Unknown factor, band invalid for the factor, blank reason, or the factor is auto-sourced.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/manual-signals/{factor}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: factor
+        in: path
+        required: true
+        schema: { type: string, enum: [web_traffic, employees, budget_hint] }
+    delete:
+      tags: [Leads]
+      operationId: clearLeadManualSignal
+      x-mcp-tool: { verb: clear_lead_manual_signal, record_type: lead, tier: confirmation_required, scope: write }
+      summary: Withdraw a human-provided scoring factor.
+      description: |
+        Clears the rep's own live input for this factor and recomputes. Superseded rows are
+        history and are NOT deleted by this path — clearing withdraws a current input, and
+        where there is none (the auto value already took over) this succeeds as a no-op
+        (ADR-0105 §4).
+      responses:
+        '204':
+          description: Cleared — or nothing live to clear, which is also success.
+        '403':
+          description: Approval required (agent-triggered) or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # -------------------------- /relationships --------------------------------
   /relationships:
     get:
@@ -17579,6 +17690,106 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Explain This Score (AC-S7, ADR-0105) ----
+    # How a human characterised a manual scoring input. Named rather than
+    # inlined at its three use sites so the generator emits ONE prefixed Go
+    # type: an inline `fact` collides with the organization brief's sentence
+    # nature of the same name and silently renames ITS constants, breaking
+    # call sites in modules that have nothing to do with lead scoring.
+    LeadManualSignalKind:
+      type: string
+      enum: [fact, assumption, judgement]
+      description: |
+        `fact` — the rep knows this. `assumption` — a working estimate.
+        `judgement` — a read of the situation. Shown on the factor, never
+        blended into an auto-captured signal (AC-S7a).
+
+    LeadScoreFactor:
+      type: object
+      description: |
+        One row of the decomposition. `points` is the factor's contribution AFTER decay and
+        BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+        `raw_sum` — never, on their own, to `score_computed`.
+      required: [factor, points]
+      properties:
+        factor:
+          type: string
+          description: |
+            The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+            `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+            `meeting_booked`), or a human-provided one (`manual:<factor>`).
+        points: { type: number, description: 'Contribution after decay. May be negative (low_intent_source).' }
+        base_points: { type: [number, 'null'], description: 'The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay.' }
+        source_activity_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: 'The activities behind a behavioral factor, re-read through the CALLER''s scope (ADR-0105 §3).'
+        set_by: { type: [string, 'null'], format: uuid, description: 'The human who supplied a manual factor. Null for machine factors.' }
+        # Optional rather than nullable: a machine factor OMITS it. A null
+        # would claim the field applies here and happens to be empty, which
+        # is a different statement about a decision nobody made.
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        reason: { type: [string, 'null'], description: 'The written reason on a manual factor.' }
+
+    LeadScoreEntry:
+      type: object
+      description: One point in the retained series — what the score was, and why.
+      required: [score, score_computed, raw_sum, rounded_sum, computed_at]
+      properties:
+        score: { type: integer, description: 'The DISPLAYED score at this point: the human''s number under an override, else the machine value.' }
+        score_computed: { type: integer, description: 'The machine value the factors below reconcile to.' }
+        override_reason: { type: [string, 'null'], description: 'The Commercial Judgement reason in force at this point; null when the score is machine-computed.' }
+        raw_sum: { type: number, description: 'The fractional sum of the factors, before rounding.' }
+        rounded_sum: { type: integer, description: 'raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired.' }
+        factors: { type: array, items: { $ref: '#/components/schemas/LeadScoreFactor' } }
+        computed_at: { type: string, format: date-time }
+
+    LeadScoreExplanation:
+      type: object
+      description: |
+        The current explanation, or the retained series when `history=true`. `explained` is
+        false for a lead whose score predates the retained series; `current` is then absent
+        rather than carrying an empty factor list, which would read as "nothing contributed".
+      required: [score, explained]
+      properties:
+        score: { type: integer, description: 'The lead''s displayed score right now.' }
+        explained: { type: boolean, description: 'False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1).' }
+        current: { $ref: '#/components/schemas/LeadScoreEntry' }
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/LeadScoreEntry' }
+          description: Present only when `history=true`.
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    LeadManualSignal:
+      type: object
+      description: |
+        A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+        replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+        by enrichment (ADR-0105 §4).
+      required: [factor, band, points, signal_kind, reason, set_by, set_at]
+      properties:
+        factor: { type: string, enum: [web_traffic, employees, budget_hint] }
+        band: { type: string, description: 'The band picked for this factor; validated per factor.' }
+        points: { type: integer, description: 'The band→points mapping. May be negative.' }
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        reason: { type: string, minLength: 1 }
+        set_by: { type: string, format: uuid }
+        set_at: { type: string, format: date-time }
+        superseded_at: { type: [string, 'null'], format: date-time }
+        superseded_by: { type: [string, 'null'], description: 'Names the auto source that took over, so the rep sees WHAT replaced their estimate.' }
+
+    SetLeadManualSignalRequest:
+      type: object
+      required: [factor, band, signal_kind, reason]
+      properties:
+        factor: { type: string, enum: [web_traffic, employees, budget_hint] }
+        band: { type: string, minLength: 1 }
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        reason: { type: string, minLength: 1, description: 'Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end.' }
 
     # ---- Signals (E08 warm room, data-model §12.5) ----
     Signal:
