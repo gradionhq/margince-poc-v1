@@ -36,10 +36,11 @@
 }
 /* Reduced motion takes the fade, not the delay: the delay is what keeps a tip
    from flashing at every pointer that crosses the row, which is a comfort
-   rather than a decoration. */
+   rather than a decoration. Only the DURATION is overridden, so the delay, the
+   keyframes and `forwards` all survive — dropping the whole animation would
+   take the delay with it and put a tip under every pointer that passes. */
 @media (prefers-reduced-motion: reduce) {
   .tooltip {
-    animation: none;
-    opacity: 1;
+    animation-duration: 0ms;
   }
 }
