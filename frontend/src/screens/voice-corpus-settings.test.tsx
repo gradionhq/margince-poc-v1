@@ -512,6 +512,67 @@ describe("dropping a file on the page", () => {
     await waitFor(() => expect(bodies).toHaveLength(1));
   });
 
+  // Reported from the running product: dropping several files took only the
+  // first. Every drop test here used ONE file, so nothing caught it.
+  it("takes every file in a multi-file drop", async () => {
+    const bodies = stubApi(PROSE);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+    const zone = document.querySelector(".vdna-intake");
+    if (!(zone instanceof HTMLElement)) {
+      throw new Error("no drop zone rendered");
+    }
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: {
+        types: ["Files"],
+        files: [
+          fileOf("one.txt", "First sample."),
+          fileOf("two.txt", "Second sample."),
+          fileOf("three.txt", "Third sample."),
+        ],
+      },
+    });
+    Object.defineProperty(drop, "target", { value: zone });
+    window.dispatchEvent(drop);
+
+    await waitFor(() => expect(bodies).toHaveLength(3), { timeout: 4000 });
+  });
+
+  // The real defect behind that report: the server upserts on source_ref, and
+  // a key derived from content ALONE gave three files holding the same text
+  // one key — so each silently replaced the last and the drop looked like it
+  // had taken a single file. Copies of a sample, or several drafts exported
+  // from one template, are exactly this shape.
+  it("keeps files that share their text but not their name", async () => {
+    const bodies = stubApi(PROSE);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+    const zone = document.querySelector(".vdna-intake");
+    if (!(zone instanceof HTMLElement)) {
+      throw new Error("no drop zone rendered");
+    }
+
+    const same = "The same words in every one of these files.";
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: {
+        types: ["Files"],
+        files: [
+          fileOf("dup1.txt", same),
+          fileOf("dup2.txt", same),
+          fileOf("dup3.txt", same),
+        ],
+      },
+    });
+    Object.defineProperty(drop, "target", { value: zone });
+    window.dispatchEvent(drop);
+
+    await waitFor(() => expect(bodies).toHaveLength(3), { timeout: 4000 });
+    // Three DISTINCT rows, not one row written over three times.
+    const refs = new Set(bodies.map((body) => body.source_ref));
+    expect(refs.size).toBe(3);
+  });
+
   // A file dropped on the command palette or any other overlay belongs to
   // nobody. Feeding it to whatever screen happens to sit behind is how a
   // stray file silently becomes part of someone's voice.

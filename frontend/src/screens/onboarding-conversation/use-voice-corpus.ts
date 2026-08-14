@@ -289,7 +289,7 @@ export function useVoiceCorpus({
           async (stamp) => {
             const text = await file.text();
             return intakeUpload(
-              sourceRef("upload", text),
+              sourceRef("upload", file.name, text),
               file.name,
               text,
               stamp,
@@ -305,7 +305,7 @@ export function useVoiceCorpus({
 
   const addPaste = useCallback(
     (text: string, label: string) => {
-      const ref = sourceRef("paste", text);
+      const ref = sourceRef("paste", label, text);
       dispatch({ type: "UPLOAD_ADDED", id: ref, name: label });
       runIntake(
         (stamp) => intakePaste(ref, label, text, stamp),

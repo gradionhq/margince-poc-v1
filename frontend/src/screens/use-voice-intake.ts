@@ -264,7 +264,11 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
         }
         runIntake(file.name, async () => {
           const text = await file.text();
-          return intakeUpload(sourceRef("upload", text), file.name, text);
+          return intakeUpload(
+            sourceRef("upload", file.name, text),
+            file.name,
+            text,
+          );
         });
       }
     },
@@ -274,7 +278,7 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
   const addPaste = useCallback(
     (text: string, label: string) => {
       runIntake(label, () =>
-        intakePaste(sourceRef("paste", text), label, text),
+        intakePaste(sourceRef("paste", label, text), label, text),
       );
     },
     [runIntake],

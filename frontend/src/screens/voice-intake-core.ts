@@ -32,14 +32,19 @@ export const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 export const VOICE_MIN_WORDS = 800;
 
 // source_ref is the contract's stable natural key and the server upserts on it
-// (ON CONFLICT (voice_profile_id, source_ref)). That makes it an identity, not
-// a label: two different files both called "meeting.txt" must not claim the
-// same key, and the same text handed over twice must not become two rows.
+// (ON CONFLICT (voice_profile_id, source_ref)), so two sources that share a key
+// become ONE row and the later one silently replaces the earlier.
 //
-// So the key is derived from the CONTENT. Re-adding the same writing updates
-// the one row it already made, and two different files keep their own rows
-// whatever they are called. The name is not part of it — a file renamed is
-// still the same writing, and a name cannot be trusted to be unique.
+// The key is therefore the name AND the content together. Content alone is
+// wrong: dropping several files that happen to hold the same text — three
+// exported drafts from one template, or copies of a sample under different
+// names — collapsed them into a single row, so a multi-file drop looked like
+// it had taken only the first. Name alone is wrong the other way: two
+// different files both called "meeting.txt" would overwrite each other.
+//
+// Together they say what a reader means: re-adding the same file updates the
+// one row it already made, and anything that differs in either name or content
+// keeps its own.
 const SOURCE_REF_MAX = 512;
 const SOURCE_LABEL_MAX = 255;
 
@@ -60,9 +65,18 @@ function contentKey(content: string): string {
   return `${hash.toString(16).padStart(8, "0")}-${content.length}`;
 }
 
-/** The key one piece of writing is known by, wherever it was handed over. */
-export function sourceRef(kind: "upload" | "paste", content: string): string {
-  return clamp(`voice:${kind}:${contentKey(content)}`, SOURCE_REF_MAX);
+/** The key one source is known by: what it is called and what it says. The
+ * label is hashed rather than embedded so a long filename cannot push the
+ * content half of the key past the contract's 512-character cap. */
+export function sourceRef(
+  kind: "upload" | "paste",
+  label: string,
+  content: string,
+): string {
+  return clamp(
+    `voice:${kind}:${contentKey(label)}:${contentKey(content)}`,
+    SOURCE_REF_MAX,
+  );
 }
 
 // What one previewed source honestly IS.

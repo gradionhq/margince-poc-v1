@@ -201,7 +201,7 @@ describe("the request bodies the server actually receives", () => {
     const bodies = stubApi(preview());
     const text = "Short sentences. Concrete nouns.";
     const outcome = await intakeUpload(
-      sourceRef("upload", text),
+      sourceRef("upload", "letter.txt", text),
       "letter.txt",
       text,
     );
@@ -239,7 +239,11 @@ describe("the request bodies the server actually receives", () => {
   it("sends pasted prose as prose the owner claimed as their own", async () => {
     const bodies = stubApi(preview());
     const text = "Some words.";
-    await intakePaste(sourceRef("paste", text), "Pasted writing", text);
+    await intakePaste(
+      sourceRef("paste", "Pasted writing", text),
+      "Pasted writing",
+      text,
+    );
     expect(bodies[0]).toMatchObject({
       kind: "other",
       register: "general",
@@ -262,7 +266,7 @@ describe("the request bodies the server actually receives", () => {
       }),
     );
     const outcome = await intakePaste(
-      sourceRef("paste", "Lars: hi. Sam: hello."),
+      sourceRef("paste", "Pasted writing", "Lars: hi. Sam: hello."),
       "Pasted writing",
       "Lars: hi. Sam: hello.",
     );
@@ -329,30 +333,44 @@ describe("which files are offered to the server at all", () => {
   });
 });
 
-// The server upserts on source_ref, so the key has to identify the WRITING.
-// Keyed by filename, two different files both called "meeting.txt" would
-// silently overwrite each other, and the same file added from two surfaces
-// would be counted twice.
+// The server upserts on source_ref, so any two sources sharing a key become
+// ONE row and the later silently replaces the earlier. The key is the name and
+// the content together: either half alone loses real sources.
 describe("source_ref, the key the ingest is idempotent on", () => {
-  it("is the same for the same writing, so a retry updates one row", () => {
-    expect(sourceRef("upload", "the same words")).toBe(
-      sourceRef("upload", "the same words"),
+  it("is the same for the same file, so a retry updates one row", () => {
+    expect(sourceRef("upload", "letter.txt", "the same words")).toBe(
+      sourceRef("upload", "letter.txt", "the same words"),
     );
   });
 
+  // The reported bug: dropping several files that happen to hold the same
+  // text — copies of a sample, or exports from one template — collapsed into
+  // a single row, so the drop looked like it had taken only the first.
+  it("keeps differently-named files apart even when their text is identical", () => {
+    const same = "The same words in every one of these files.";
+    const refs = new Set([
+      sourceRef("upload", "dup1.txt", same),
+      sourceRef("upload", "dup2.txt", same),
+      sourceRef("upload", "dup3.txt", same),
+    ]);
+    expect(refs.size).toBe(3);
+  });
+
   it("differs for different writing under the same file name", () => {
-    expect(sourceRef("upload", "one meeting")).not.toBe(
-      sourceRef("upload", "a different meeting"),
+    expect(sourceRef("upload", "meeting.txt", "one meeting")).not.toBe(
+      sourceRef("upload", "meeting.txt", "a different meeting"),
     );
   });
 
   it("does not collide when only the length matches", () => {
-    expect(sourceRef("upload", "abcd")).not.toBe(sourceRef("upload", "dcba"));
+    expect(sourceRef("upload", "a.txt", "abcd")).not.toBe(
+      sourceRef("upload", "a.txt", "dcba"),
+    );
   });
 
   it("stays inside the contract's 512-character cap", () => {
-    expect(sourceRef("upload", "x".repeat(90000)).length).toBeLessThanOrEqual(
-      512,
-    );
+    expect(
+      sourceRef("upload", "y".repeat(9000), "x".repeat(90000)).length,
+    ).toBeLessThanOrEqual(512);
   });
 });
