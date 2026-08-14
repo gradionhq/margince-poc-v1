@@ -79,6 +79,12 @@ type SARPackage struct {
 	// The governed outbound messages addressed to the subject: what was sent
 	// to them, when, and whether it left (comms_outbound).
 	SentMessages []map[string]any `json:"sent_messages"`
+	// The messages addressed to the subject that have NOT been sent: waiting
+	// for their moment, withdrawn, or held for a human (scheduled_send,
+	// ADR-0104). Held apart from SentMessages because the distinction is the
+	// subject's to know — one is a message they received, the other is one
+	// somebody wrote to them that the system is still holding.
+	ScheduledMessages []map[string]any `json:"scheduled_messages"`
 }
 
 // AssembleSAR builds the package. It is a privileged read: the caller must be
@@ -264,84 +270,6 @@ func sarRecordSections(pkg *SARPackage) []sarSection {
 		   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
 		      OR (at.entity_type = 'activity' AND at.entity_id IN (
 		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
-	}
-}
-
-// sarMessagingSections gather both directions of the messaging boundary: what
-// capture decided about mail arriving from the subject, and what this
-// installation sent out about or to them.
-func sarMessagingSections(pkg *SARPackage) []sarSection {
-	return []sarSection{
-		{&pkg.CaptureDispositions, `SELECT p.email, p.display_name, p.status, p.disposition_reason, p.created_at, p.resolved_at
-		   FROM capture_pending_counterparty p
-		   WHERE p.email IN (SELECT email FROM person_email WHERE person_id = $1)`},
-		// The governed outbound messages this installation sent about or to the
-		// subject. Reached BOTH ways on purpose, unlike the erasure cascade: a
-		// send whose activity was never linked to their record still went to
-		// their address, and one addressed to a third party but filed on their
-		// timeline is still a message about them.
-		//
-		// The two arms err in OPPOSITE directions and both are deliberate.
-		// Reaching by address alone would miss the timeline; reaching by link
-		// alone would miss the unlinked send.
-		//
-		// The PROJECTION is deliberate too: recipients and cc are returned
-		// whole, so a message the subject shared with other people hands the
-		// export those people's addresses as well — whichever arm matched the
-		// row. Narrowing the arrays to the subject's own address would be the
-		// safer default in a self-serve export, and it is rejected here for two
-		// reasons. An address list is part of what the message WAS, and Art. 15
-		// owes the subject the data held about them rather than a redraft of
-		// it. And this assembly is admin-mediated (AssembleSAR demands the
-		// person.delete grant and an unbounded scope, above), so the disclosure
-		// is a human handing a package to a subject, not an endpoint answering
-		// one — the same posture, and the same tolerated over-inclusion, as the
-		// Activities and Attachments sections, whose free text and filenames
-		// name third parties for exactly the same reason. It is what separates
-		// this from the erasure cascade, which must refuse the equivalent
-		// reach: a disclosure to an admin-mediated export is recoverable, and
-		// destroying another subject's evidence is not.
-		//
-		// It spans BOTH shapes the row admits (comms_outbound_shape, 0155): a
-		// channel delivery leaves subject/recipients/cc null and names its
-		// addressee in channel_user_id, so a mail-only projection would hand a
-		// channel-only subject a message with no addressee — withholding the
-		// account id the row holds about them.
-		// html_body rides beside body rather than instead of it: a message
-		// carrying both is ONE message the subject received in two renderings,
-		// and disclosing only the plain one withholds markup the system still
-		// holds about them. from_name joins them for the same reason: this
-		// projection discloses the message AS THE SUBJECT RECEIVED IT, and who
-		// it appeared to be from is part of what they were shown.
-		//
-		// The address match spans bcc, and the DISCLOSURE of it is narrowed to
-		// the subject's own address.
-		//
-		// Both halves are required and they pull opposite ways. A person bcc'd
-		// on a message with no activity link would otherwise be absent from
-		// their own export of a message they received — and exporting the
-		// whole bcc array would hand one subject every other blind recipient's
-		// address, which is the disclosure a blind copy exists to prevent. So
-		// the row is FOUND on any addressee and the blind list is REDUCED to
-		// the asker.
-		//
-		// attachments too, and it is not covered by the attachment query
-		// below: that one finds files hanging off the subject or an activity
-		// linked to them, while a send may carry any file its sender could see
-		// — one attached to an organization or a deal reaches the subject
-		// without ever being attached TO them.
-		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.from_name, o.attachments, o.recipients, o.cc,
-		      (SELECT coalesce(jsonb_agg(addr), '[]'::jsonb)
-		         FROM jsonb_array_elements_text(coalesce(o.bcc, '[]'::jsonb)) AS addr
-		        WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1)) AS bcc,
-		      o.consent_purpose,
-		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
-		   FROM comms_outbound o
-		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)
-		      OR EXISTS (
-		           SELECT 1 FROM jsonb_array_elements_text(
-		                          o.recipients || o.cc || coalesce(o.bcc, '[]'::jsonb)) AS addr
-		           WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1))`},
 	}
 }
 
