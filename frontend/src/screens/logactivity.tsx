@@ -24,7 +24,7 @@ import { problemMessageOf, throwProblem, useSorMode } from "./common";
 // RFC 7807 detail verbatim.
 
 type ActivityDraft = {
-  kind: "note" | "task";
+  kind: "note" | "task" | "meeting";
   subject: string;
   body: string;
   // yyyy-mm-dd from the date input; only a task carries a due date.
@@ -64,15 +64,24 @@ export function LogActivityForm({
 
   const log = useMutation({
     mutationFn: async (input: ActivityDraft) => {
+      const trimmedBody = input.body.trim();
+      // source_system: transcript is what routes the body through the
+      // server's ADR-0058 normalizer and what the activity/transcript
+      // retention scope keys its sweep on (see backend logActivity's
+      // `transcript` example) — only meaningful when there is text to
+      // normalize, so a meeting logged with no pasted transcript stays an
+      // ordinary meeting activity.
+      const isTranscript = input.kind === "meeting" && trimmedBody !== "";
       const { data, error } = await api.POST("/activities", {
         body: {
           kind: input.kind,
           subject: input.subject.trim(),
-          body: input.body.trim() || null,
+          body: trimmedBody || null,
           occurred_at: new Date().toISOString(),
           ...(input.kind === "task" && input.dueAt
             ? { due_at: new Date(input.dueAt).toISOString() }
             : {}),
+          ...(isTranscript ? { source_system: "transcript" } : {}),
           links: [{ entity_type: entityType, entity_id: entityId }],
           source: "manual",
         },
@@ -114,10 +123,14 @@ export function LogActivityForm({
               options={[
                 { value: "note", label: t("log.kindNote") },
                 { value: "task", label: t("log.kindTask") },
+                { value: "meeting", label: t("log.kindMeeting") },
               ]}
               value={draft.kind}
               onChange={(value) =>
-                setField({ kind: value === "task" ? "task" : "note" })
+                setField({
+                  kind:
+                    value === "task" || value === "meeting" ? value : "note",
+                })
               }
             />
           )}
@@ -149,16 +162,46 @@ export function LogActivityForm({
           />
         )}
       </Field>
-      <Field label={t("log.body")}>
+      <Field
+        label={
+          draft.kind === "meeting" ? t("log.transcriptLabel") : t("log.body")
+        }
+        hint={draft.kind === "meeting" ? t("log.transcriptHint") : undefined}
+      >
         {(control) => (
           <Textarea
             {...control}
-            rows={3}
+            rows={draft.kind === "meeting" ? 10 : 3}
             value={draft.body}
             onChange={(event) => setField({ body: event.target.value })}
           />
         )}
       </Field>
+      {draft.kind === "meeting" && (
+        <Field label={t("log.transcriptUpload")}>
+          {(control) => (
+            <input
+              {...control}
+              type="file"
+              accept=".txt,.vtt,text/plain,text/vtt"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) {
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  if (typeof reader.result === "string") {
+                    setField({ body: reader.result });
+                  }
+                };
+                reader.readAsText(file);
+                event.target.value = "";
+              }}
+            />
+          )}
+        </Field>
+      )}
       {log.isError && (
         <p className="t-caption form-error">{problemMessageOf(log.error, t)}</p>
       )}

@@ -1593,6 +1593,11 @@ export const de = {
   "log.kind": "Art",
   "log.kindNote": "Notiz",
   "log.kindTask": "Aufgabe",
+  "log.kindMeeting": "Meeting",
+  "log.transcriptLabel": "Transkript",
+  "log.transcriptHint":
+    "Aus Ihrem Meeting-Tool einfügen (Teams, Zoom, Meet …) — Sprecherkennzeichnungen bleiben, sofern vorhanden, erhalten.",
+  "log.transcriptUpload": "Oder eine Datei hochladen",
   "log.subject": "Betreff",
   "log.body": "Details",
   "log.dueAt": "Fällig am",

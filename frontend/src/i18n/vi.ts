@@ -1585,6 +1585,11 @@ export const vi = {
   "log.kind": "Loại",
   "log.kindNote": "Ghi chú",
   "log.kindTask": "Công việc",
+  "log.kindMeeting": "Cuộc họp",
+  "log.transcriptLabel": "Bản ghi",
+  "log.transcriptHint":
+    "Dán từ công cụ họp của bạn (Teams, Zoom, Meet…) — nhãn người nói, nếu có, sẽ được giữ nguyên.",
+  "log.transcriptUpload": "Hoặc tải lên một tệp",
   "log.subject": "Tiêu đề",
   "log.body": "Nội dung",
   "log.dueAt": "Ngày đến hạn",

@@ -233,4 +233,76 @@ describe("log activity from a 360", () => {
       new Date("2026-07-10").toISOString(),
     );
   });
+
+  it("posts source_system: transcript for a meeting with pasted text, and switches the body field's label", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    // The label swaps for a meeting — pasting is a transcript, not "details".
+    expect(screen.queryByLabelText("Details")).toBeNull();
+    await userEvent.type(screen.getByLabelText("Subject *"), "Kickoff call");
+    await userEvent.type(
+      screen.getByLabelText("Transcript"),
+      "Anna: hello\nBen: hi",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).toMatchObject({
+      kind: "meeting",
+      subject: "Kickoff call",
+      body: "Anna: hello\nBen: hi",
+      source_system: "transcript",
+      links: [{ entity_type: "deal", entity_id: "d1" }],
+    });
+  });
+
+  it("does not stamp source_system for a meeting logged with no transcript text", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.type(screen.getByLabelText("Subject *"), "Quick sync");
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).not.toHaveProperty("source_system");
+  });
+
+  it("reads an uploaded transcript file into the transcript field", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    const file = new File(["Anna: hello from a file"], "meeting.txt", {
+      type: "text/plain",
+    });
+    const input = screen.getByLabelText("Or upload a file") as HTMLInputElement;
+    await userEvent.upload(input, file);
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
+      ).toBe("Anna: hello from a file"),
+    );
+  });
 });

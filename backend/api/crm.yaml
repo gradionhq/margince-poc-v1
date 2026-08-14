@@ -3288,6 +3288,25 @@ paths:
                   links:
                     - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
                   source: 'email:CAF=abc@mail.gmail.com'
+              transcript:
+                summary: 'A pasted or uploaded meeting transcript (ADR-0058) — no new operation, this one'
+                description: >-
+                  `source_system: transcript` on a `call`/`meeting` activity normalizes `body` server-side
+                  to ADR-0058's canonical form (newlines unified, trailing whitespace trimmed per line) —
+                  the same mapping every transport shares, so a pasted transcript and an agent-supplied one
+                  land identically. Only `call`/`meeting` accept it; any other `kind` is refused 422. There
+                  is no presigned file-upload path in V1 — a `.txt`/`.vtt` file is read to text client-side
+                  and sent the same way a paste is.
+                value:
+                  kind: meeting
+                  body: |-
+                    Anna: Let's ship the proposal by Friday.
+                    Ben: Works for me, I'll review Thursday.
+                  occurred_at: '2026-05-02T16:00:00Z'
+                  source_system: transcript
+                  links:
+                    - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
+                  source: ui
       responses:
         '201':
           description: Created activity.
