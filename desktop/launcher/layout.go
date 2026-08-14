@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // layout is the installation directory — everything is relative to it, so the
@@ -26,7 +25,15 @@ import (
 // codesign reads a directory that contains both a same-named executable and
 // a "resources" subdirectory as a legacy bundle, then fails to verify the
 // launcher because the folder has no signed resource envelope. Renaming the
-// directory removes the ambiguity outright.
+// directory removes the ambiguity outright. Windows has no such rule, but the
+// two platforms keep one layout so the documentation, the update gesture and
+// this file describe both.
+//
+// The 0700 modes below are the macOS half of that shared layout and are
+// inert on Windows, where a mode bit is not the access control. What protects
+// data/ there is the credential inside it: the database authenticates with
+// scram-sha-256 over loopback rather than trusting whoever can reach a socket
+// (postgres_windows.go).
 type layout struct {
 	root string
 }
@@ -63,11 +70,12 @@ func resolveLayout() (layout, error) {
 	return l, nil
 }
 
-// Replaceable build output.
+// Replaceable build output. Executables go through exeName so the same call
+// finds `api` on macOS and `api.exe` on Windows.
 func (l layout) runtimeDir() string        { return filepath.Join(l.root, "runtime") }
 func (l layout) pgRoot() string            { return filepath.Join(l.runtimeDir(), "pgsql") }
-func (l layout) pgBin(name string) string  { return filepath.Join(l.pgRoot(), "bin", name) }
-func (l layout) appBin(name string) string { return filepath.Join(l.runtimeDir(), name) }
+func (l layout) pgBin(name string) string  { return filepath.Join(l.pgRoot(), "bin", exeName(name)) }
+func (l layout) appBin(name string) string { return filepath.Join(l.runtimeDir(), exeName(name)) }
 func (l layout) webRoot() string           { return filepath.Join(l.runtimeDir(), "web") }
 
 // The user's, and never replaced by an update.
@@ -77,7 +85,6 @@ func (l layout) aiRoutingPath() string { return filepath.Join(l.root, "ai-routin
 
 func (l layout) data() string              { return filepath.Join(l.root, "data") }
 func (l layout) pgData() string            { return filepath.Join(l.data(), "pg") }
-func (l layout) sockets() string           { return filepath.Join(l.data(), "sockets") }
 func (l layout) logs() string              { return filepath.Join(l.data(), "logs") }
 func (l layout) adminPasswordPath() string { return filepath.Join(l.data(), "admin-password") }
 
@@ -136,30 +143,26 @@ func (l layout) ensureAdminPassword() (string, error) {
 		return "", fmt.Errorf("stat %s: %w", path, err)
 	}
 
-	// The api requires at least 12 characters; 24 random bytes clears that
-	// with margin and leaves no room for a guessable default to ship.
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
+	password, err := generateSecret()
+	if err != nil {
 		return "", fmt.Errorf("generate the admin password: %w", err)
 	}
-	password := base64.RawURLEncoding.EncodeToString(raw)
 	if err := os.WriteFile(path, []byte(password), 0o600); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return password, nil
 }
 
-// localTimezone reports the IANA zone name macOS records, so the first-run
-// organization is created in the user's own time rather than UTC.
-func localTimezone() string {
-	target, err := os.Readlink("/etc/localtime")
-	if err != nil {
-		return "UTC"
+// generateSecret mints one credential.
+//
+// The api requires at least 12 characters; 24 random bytes clears that with
+// margin and leaves no room for a guessable default to ship. base64url keeps
+// the alphabet to letters, digits, '-' and '_', which is what lets a caller
+// put the value in a SQL literal or a URL without escaping it.
+func generateSecret() (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
 	}
-	// /var/db/timezone/zoneinfo/Europe/Berlin -> Europe/Berlin
-	const marker = "/zoneinfo/"
-	if idx := strings.Index(target, marker); idx >= 0 {
-		return target[idx+len(marker):]
-	}
-	return "UTC"
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }

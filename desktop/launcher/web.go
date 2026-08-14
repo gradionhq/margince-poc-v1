@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ type ui struct {
 	errs   chan error
 }
 
-func (u *ui) baseURL() string { return fmt.Sprintf("http://127.0.0.1:%d", u.port) }
+func (u *ui) baseURL() string { return fmt.Sprintf("http://%s:%d", loopbackHost, u.port) }
 
 func (u *ui) start(ctx context.Context) error {
 	target, err := url.Parse(u.apiURL)
@@ -66,7 +67,7 @@ func (u *ui) start(ctx context.Context) error {
 	// restarts for a bookmark to keep working. Refusing a taken port is
 	// deliberate — silently moving would break that bookmark and leave the
 	// user hunting for the new address.
-	addr := fmt.Sprintf("127.0.0.1:%d", u.port)
+	addr := fmt.Sprintf("%s:%d", loopbackHost, u.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf(
@@ -118,12 +119,19 @@ func spaHandler(root string) http.Handler {
 		// Real assets keep their own content type and caching; only unknown
 		// paths become the shell. Anything under the build's asset directory
 		// that is missing is a genuine 404, not a route.
-		clean := filepath.Clean(r.URL.Path)
+		//
+		// A URL path is cleaned with path, not filepath: filepath.Clean turns
+		// the separators into backslashes on Windows, so the /assets/ test
+		// below would never match there and every hashed bundle would be
+		// answered with index.html — a blank app, served with a 200.
+		clean := path.Clean(r.URL.Path)
 		if strings.HasPrefix(clean, "/assets/") {
 			files.ServeHTTP(w, r)
 			return
 		}
-		if candidate := filepath.Join(root, clean); clean != "/" && fileExists(candidate) {
+		// FromSlash is the other half: the cleaned URL becomes a path on this
+		// filesystem only when its separators are this filesystem's.
+		if candidate := filepath.Join(root, filepath.FromSlash(clean)); clean != "/" && fileExists(candidate) {
 			files.ServeHTTP(w, r)
 			return
 		}

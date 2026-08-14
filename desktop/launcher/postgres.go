@@ -4,14 +4,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 )
 
 // Roles and database, matching scripts/db-init.sql: margince_app is the
@@ -24,175 +21,98 @@ const (
 	databaseName = "margince"
 )
 
-// maxUnixSocketPath is the hard limit on a unix-domain socket path.
+// cluster is how the launcher TALKS to a running database.
 //
-// Postgres composes <dir>/.s.PGSQL.<port>, and the kernel's sockaddr_un is
-// 104 bytes including the terminator. Since the socket lives inside the
-// installation folder, how deeply the user unpacked that folder decides
-// whether the database can start at all. This is not hypothetical: it is the
-// first failure this bundle hit.
-const maxUnixSocketPath = 103
-
-type postgres struct {
-	layout    layout
-	socketDir string
-	proc      *child
-}
-
-func newPostgres(l layout) (*postgres, error) {
-	socketDir, err := resolveSocketDir(l)
-	if err != nil {
-		return nil, err
-	}
-	return &postgres{layout: l, socketDir: socketDir}, nil
-}
-
-// resolveSocketDir keeps the socket inside the installation folder, like
-// every other piece of runtime state.
+// How the postmaster is STARTED and STOPPED is the part the two platforms
+// genuinely disagree about — macOS gets a unix socket and a supervised child,
+// Windows a loopback port and pg_ctl — so that lives in postgres_darwin.go and
+// postgres_windows.go. Everything below is the same question on both: run this
+// SQL against the database this launcher just started.
 //
-// There is deliberately no fallback to /tmp. Escaping the folder would leave
-// one process's runtime state outside the directory the user can see, move
-// and delete — which is the whole property this layout exists to have. When
-// the path does not fit, that is a real limit the user must act on, and the
-// error says exactly what to do rather than hiding the problem somewhere they
-// will never look.
-func resolveSocketDir(l layout) (string, error) {
-	dir := l.sockets()
-	if path := socketPath(dir); len(path) > maxUnixSocketPath {
-		return "", fmt.Errorf(
-			"the installation folder is too deeply nested: the database socket path would be %d bytes and the system limit is %d.\n"+
-				"Move the Margince folder somewhere shorter (for example ~/Margince) and start it again.\n"+
-				"  path: %s",
-			len(path), maxUnixSocketPath, path,
-		)
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create the socket directory %s: %w", dir, err)
-	}
-	return dir, nil
+// The three fields are what the platform files fill in. They exist so the SQL
+// helpers never have to ask which OS they are on.
+type cluster struct {
+	layout layout
+
+	// connArgs is the host/port/user half of every psql invocation, spelled
+	// once so no caller can reach a DIFFERENT postgres than the one this
+	// launcher started.
+	connArgs []string
+
+	// connEnv carries PGPASSWORD where the platform authenticates by password.
+	// It is empty on macOS, where the connection is a unix socket in a 0700
+	// directory and no password is exchanged at all.
+	connEnv []string
+
+	// appRoleOptions is appended to CREATE ROLE for the runtime role: empty
+	// where trust auth applies, a PASSWORD clause where the connection is a
+	// TCP one that has to authenticate.
+	appRoleOptions string
 }
 
-func socketPath(dir string) string {
-	return filepath.Join(dir, ".s.PGSQL.5432")
-}
-
-// ensureCluster initialises the data directory on first launch. An existing
-// cluster is left untouched — this runs on every start, and the user's data
-// is the thing it must never re-create.
-func (p *postgres) ensureCluster() error {
-	versionFile := filepath.Join(p.layout.pgData(), "PG_VERSION")
+// needsInitdb reports whether the data directory still has to be created.
+//
+// Both platforms run this on every start, so the question it answers is the
+// one that matters: the user's existing cluster must never be re-created.
+// PG_VERSION is the marker because initdb writes it last, so a run that died
+// half way leaves the directory looking un-initialised rather than looking
+// finished.
+func needsInitdb(l layout) (bool, error) {
+	versionFile := filepath.Join(l.pgData(), "PG_VERSION")
 	if _, err := os.Stat(versionFile); err == nil {
-		return nil
+		return false, nil
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat %s: %w", versionFile, err)
+		return false, fmt.Errorf("stat %s: %w", versionFile, err)
 	}
-
-	// --no-locale selects the C locale, which is the only one guaranteed to
-	// exist identically on every Mac; combined with UTF8 it gives byte-order
-	// collation. See the design note on collation before shipping: names with
-	// diacritics sort by byte value under this setting.
-	cmd := exec.Command(
-		p.layout.pgBin("initdb"),
-		"-D", p.layout.pgData(),
-		"-U", ownerRole,
-		"--no-locale",
-		"--encoding=UTF8",
-		"--auth=trust",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("initdb failed: %w\n%s", err, out)
-	}
-	return nil
-}
-
-// start launches the postmaster and waits for it to accept connections.
-func (p *postgres) start(ctx context.Context) error {
-	if err := p.ensureCluster(); err != nil {
-		return err
-	}
-	// listen_addresses='' removes the TCP listener entirely: the database is
-	// reachable only through a socket in a 0700 directory, so no port can
-	// collide and no other account on the Mac can reach it.
-	proc, err := startChild("postgres", p.layout.pgBin("postgres"), []string{
-		"-D", p.layout.pgData(),
-		"-k", p.socketDir,
-		"-c", "listen_addresses=",
-	}, nil, p.layout.root, p.layout.logs())
-	if err != nil {
-		return err
-	}
-	p.proc = proc
-
-	return waitUntil(ctx, "postgres", 60*time.Second, proc.exited, func() error {
-		return exec.Command(p.layout.pgBin("pg_isready"),
-			"-h", p.socketDir, "-U", ownerRole).Run()
-	})
+	return true, nil
 }
 
 // ensureSchema creates the runtime role and the database if they are absent.
 // Both checks are existence-guarded rather than error-tolerant, so a genuine
 // failure surfaces instead of being mistaken for "already there".
-func (p *postgres) ensureSchema() error {
-	exists, err := p.queryBool(fmt.Sprintf("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s')", appRole))
+func (c cluster) ensureSchema() error {
+	exists, err := c.queryBool(fmt.Sprintf("SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s')", appRole))
 	if err != nil {
 		return fmt.Errorf("check for the %s role: %w", appRole, err)
 	}
 	if !exists {
-		if err := p.execSQL("postgres", fmt.Sprintf("CREATE ROLE %s LOGIN", appRole)); err != nil {
+		if err := c.execSQL("postgres", "CREATE ROLE "+appRole+" LOGIN"+c.appRoleOptions); err != nil {
 			return fmt.Errorf("create the %s role: %w", appRole, err)
 		}
 	}
 
-	exists, err = p.queryBool(fmt.Sprintf("SELECT EXISTS (SELECT FROM pg_database WHERE datname = '%s')", databaseName))
+	exists, err = c.queryBool(fmt.Sprintf("SELECT EXISTS (SELECT FROM pg_database WHERE datname = '%s')", databaseName))
 	if err != nil {
 		return fmt.Errorf("check for the %s database: %w", databaseName, err)
 	}
 	if !exists {
-		if err := p.execSQL("postgres", fmt.Sprintf("CREATE DATABASE %s OWNER %s", databaseName, ownerRole)); err != nil {
+		if err := c.execSQL("postgres", fmt.Sprintf("CREATE DATABASE %s OWNER %s", databaseName, ownerRole)); err != nil {
 			return fmt.Errorf("create the %s database: %w", databaseName, err)
 		}
 	}
 	return nil
 }
 
-func (p *postgres) psql(database string, args ...string) *exec.Cmd {
-	base := []string{"-h", p.socketDir, "-U", ownerRole, "-d", database, "-v", "ON_ERROR_STOP=1"}
-	return exec.Command(p.layout.pgBin("psql"), append(base, args...)...)
+func (c cluster) psql(database string, args ...string) *exec.Cmd {
+	base := append(append([]string{}, c.connArgs...), "-d", database, "-v", "ON_ERROR_STOP=1")
+	cmd := exec.Command(c.layout.pgBin("psql"), append(base, args...)...)
+	if len(c.connEnv) > 0 {
+		cmd.Env = append(os.Environ(), c.connEnv...)
+	}
+	return cmd
 }
 
-func (p *postgres) execSQL(database, sql string) error {
-	if out, err := p.psql(database, "-q", "-c", sql).CombinedOutput(); err != nil {
+func (c cluster) execSQL(database, sql string) error {
+	if out, err := c.psql(database, "-q", "-c", sql).CombinedOutput(); err != nil {
 		return fmt.Errorf("%w\n%s", err, out)
 	}
 	return nil
 }
 
-func (p *postgres) queryBool(sql string) (bool, error) {
-	out, err := p.psql("postgres", "-tAc", sql).Output()
+func (c cluster) queryBool(sql string) (bool, error) {
+	out, err := c.psql("postgres", "-tAc", sql).Output()
 	if err != nil {
 		return false, err
 	}
 	return strings.TrimSpace(string(out)) == "t", nil
-}
-
-// dsn builds a connection string for role over the unix socket. Trust auth on
-// a 0700 socket directory means no password is exchanged; the filesystem is
-// the access control, which on a single-user desktop is strictly stronger
-// than a password stored next to the data it protects.
-func (p *postgres) dsn(role string) string {
-	return fmt.Sprintf("postgres://%s@/%s?host=%s", role, databaseName, p.socketDir)
-}
-
-func (p *postgres) ownerDSN() string { return p.dsn(ownerRole) }
-func (p *postgres) appDSN() string   { return p.dsn(appRole) }
-
-// stop performs a fast shutdown.
-//
-// SIGINT, not SIGTERM: Postgres reads SIGTERM as "smart shutdown" and waits
-// for every client to disconnect first, which never happens while a pooled
-// connection is still open — the app would hang on quit. SIGINT rolls back
-// in-flight transactions and closes cleanly, which is what a desktop quit
-// means. SIGQUIT would be faster but leaves recovery work for the next launch.
-func (p *postgres) stop() error {
-	return p.proc.stop(syscall.SIGINT, 30*time.Second)
 }

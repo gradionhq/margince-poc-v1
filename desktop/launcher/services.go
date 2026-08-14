@@ -14,14 +14,17 @@ import (
 	"time"
 )
 
-// valkey is the event bus behind platform/events.
-type valkey struct {
+// eventBus is the event bus behind platform/events — Valkey on macOS, Redis
+// 7.2 on Windows, which has no Valkey build. Both speak the same protocol and
+// take the same flags, so only the executable's name differs (busBinary, in
+// the platform_*.go file that explains the choice).
+type eventBus struct {
 	layout layout
 	port   int
 	proc   *child
 }
 
-func (v *valkey) addr() string { return fmt.Sprintf("127.0.0.1:%d", v.port) }
+func (b *eventBus) addr() string { return fmt.Sprintf("%s:%d", loopbackHost, b.port) }
 
 // start launches the bus on loopback at an ephemeral port.
 //
@@ -30,52 +33,52 @@ func (v *valkey) addr() string { return fmt.Sprintf("127.0.0.1:%d", v.port) }
 // over a socket would mean changing product code the bundle is meant to run
 // unmodified. The port is ephemeral because nothing outside this installation
 // ever addresses it.
-func (v *valkey) start(ctx context.Context) error {
+func (b *eventBus) start(ctx context.Context) error {
 	port, err := freePort()
 	if err != nil {
 		return err
 	}
-	v.port = port
+	b.port = port
 
-	dir := filepath.Join(v.layout.data(), "valkey")
+	dir := filepath.Join(b.layout.data(), "bus")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create the valkey directory: %w", err)
+		return fmt.Errorf("create the event bus directory: %w", err)
 	}
 
 	// Persistence stays ON. The outbox in Postgres is the durable record, but
 	// consumer-group offsets and the events.Dedupe keys live here — losing
 	// them across a restart turns at-least-once delivery into visibly
 	// duplicated work for the user.
-	proc, err := startChild("valkey", v.layout.appBin("valkey-server"), []string{
+	proc, err := startChild("bus", b.layout.appBin(busBinary), []string{
 		"--port", fmt.Sprintf("%d", port),
-		"--bind", "127.0.0.1",
+		"--bind", loopbackHost,
 		"--dir", dir,
 		"--appendonly", "yes",
-	}, nil, v.layout.root, v.layout.logs())
+	}, nil, b.layout.root, b.layout.logs())
 	if err != nil {
 		return err
 	}
-	v.proc = proc
+	b.proc = proc
 
-	return waitUntil(ctx, "valkey", 30*time.Second, proc.exited, func() error {
-		return dialTCP(v.addr())
+	return waitUntil(ctx, "bus", 30*time.Second, proc.exited, func() error {
+		return dialTCP(b.addr())
 	})
 }
 
-func (v *valkey) stop() error { return v.proc.stop(syscall.SIGTERM, 15*time.Second) }
+func (b *eventBus) stop() error { return b.proc.stop(syscall.SIGTERM, 15*time.Second) }
 
 // backend runs the two process roles the server is split into.
 type backend struct {
 	layout  layout
 	pg      *postgres
-	bus     *valkey
+	bus     *eventBus
 	userEnv []string
 	port    int
 	api     *child
 	worker  *child
 }
 
-func (b *backend) baseURL() string { return fmt.Sprintf("http://127.0.0.1:%d", b.port) }
+func (b *backend) baseURL() string { return fmt.Sprintf("http://%s:%d", loopbackHost, b.port) }
 
 // migrate brings the schema to head before either role starts. It runs with
 // the owner DSN — the app role deliberately cannot alter the schema it is
@@ -133,7 +136,7 @@ func (b *backend) start(ctx context.Context) error {
 
 	env := b.childEnv()
 	apiArgs := append([]string{
-		"--addr", fmt.Sprintf("127.0.0.1:%d", port),
+		"--addr", fmt.Sprintf("%s:%d", loopbackHost, port),
 		"--dsn", b.pg.appDSN(),
 		// The owner pool is what makes the custom-fields schema operations
 		// answer rather than 501; a desktop install has no DBA to run them.

@@ -16,10 +16,22 @@ import (
 	"time"
 )
 
-// child is one supervised service process. Every service the bundle runs is
-// a child of the launcher rather than a daemon, so quitting the app cannot
-// leave an orphaned Postgres holding the data directory — the failure that
-// makes the next launch report a stale lock file the user cannot interpret.
+// loopbackHost is the only interface anything in this installation listens on.
+//
+// Every service here — the database, the bus, the api, the web ui — is reached
+// by another process on the same machine and by nothing else. Binding the
+// loopback address rather than a wildcard is what keeps a laptop on a café
+// network from serving a CRM to it.
+const loopbackHost = "127.0.0.1"
+
+// child is one supervised service process. A service the bundle runs is a
+// child of the launcher rather than a daemon, so quitting the app cannot leave
+// an orphan holding a port or a data directory — the failure that makes the
+// next launch report a stale lock file the user cannot interpret.
+//
+// Postgres is the one exception, and only on Windows, where it has to be
+// pg_ctl's process rather than ours (postgres_windows.go says why). The same
+// property is bought there by stopping a stray postmaster at startup instead.
 type child struct {
 	name string
 	cmd  *exec.Cmd
@@ -55,6 +67,7 @@ func startChild(name, bin string, args, env []string, workDir, logDir string) (*
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
+	configureChild(cmd)
 	if err := cmd.Start(); err != nil {
 		if closeErr := logFile.Close(); closeErr != nil {
 			return nil, fmt.Errorf("start %s: %w (and closing its log failed: %v)", name, err, closeErr)
@@ -64,18 +77,21 @@ func startChild(name, bin string, args, env []string, workDir, logDir string) (*
 	return &child{name: name, cmd: cmd, log: logFile}, nil
 }
 
-// stop signals the process and waits for it to exit, giving up after grace.
+// stop asks the process to quit and waits for it to exit, giving up after
+// grace.
 //
 // The signal is a parameter because Postgres does not use the conventional
 // one: SIGTERM asks it to wait for every client to disconnect, which never
 // completes while the api still holds its pool, so the postmaster gets
-// SIGINT (fast shutdown) instead.
+// SIGINT (fast shutdown) instead. Windows has no signal vocabulary at all —
+// requestStop there sends the one console control event that means the same
+// thing, and process_windows.go explains why the distinction costs nothing.
 func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return nil
 	}
-	if err := c.cmd.Process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("signal %s: %w", c.name, err)
+	if err := c.requestStop(sig); err != nil {
+		return err
 	}
 
 	exited := make(chan error, 1)
@@ -84,9 +100,9 @@ func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 	var stopErr error
 	select {
 	case err := <-exited:
-		// A service killed by our own signal exited as instructed; only an
-		// unexpected failure is worth surfacing.
-		if err != nil && !isSignaled(err, sig) {
+		// A service that quit because we asked it to exited as instructed;
+		// only an unexpected failure is worth surfacing.
+		if err != nil && !isExpectedStopExit(err, sig) {
 			stopErr = fmt.Errorf("%s exited: %w", c.name, err)
 		}
 	case <-time.After(grace):
@@ -102,17 +118,6 @@ func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 		stopErr = fmt.Errorf("close %s log: %w", c.name, err)
 	}
 	return stopErr
-}
-
-// isSignaled reports whether err is the process dying from sig — the normal
-// outcome of stop(), not a fault to report.
-func isSignaled(err error, sig syscall.Signal) bool {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		return false
-	}
-	status, ok := exitErr.Sys().(syscall.WaitStatus)
-	return ok && status.Signaled() && status.Signal() == sig
 }
 
 // exited reports whether the process is already gone, so a readiness wait can
@@ -184,7 +189,7 @@ func httpOK(url string) error {
 // binaries accept, and on a single-user desktop the collision window is
 // microseconds against a machine with no other process hunting for ports.
 func freePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", loopbackHost+":0")
 	if err != nil {
 		return 0, fmt.Errorf("reserve a local port: %w", err)
 	}

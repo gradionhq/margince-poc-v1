@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -35,7 +34,7 @@ const defaultPort = 8800
 type stack struct {
 	layout layout
 	pg     *postgres
-	bus    *valkey
+	bus    *eventBus
 	be     *backend
 	web    *ui
 }
@@ -46,6 +45,7 @@ func main() {
 			return
 		}
 		fmt.Fprintf(os.Stderr, "\nMargince could not start:\n%v\n", err)
+		holdConsole()
 		os.Exit(1)
 	}
 }
@@ -130,7 +130,7 @@ func (s *stack) start(ctx context.Context, userEnv []string, port int) error {
 		return err
 	}
 
-	s.bus = &valkey{layout: s.layout}
+	s.bus = &eventBus{layout: s.layout}
 	fmt.Println("Starting event bus…")
 	if err := s.bus.start(ctx); err != nil {
 		return err
@@ -202,13 +202,4 @@ func announce(baseURL string, l layout, adminPassword string) {
 	fmt.Printf("  Company   margince.yaml     name, currency, timezone\n")
 	fmt.Printf("  Logs      data/logs/\n")
 	fmt.Printf("\n  Press Ctrl-C to stop.\n\n")
-}
-
-// openBrowser is a convenience, never a requirement: the URL is printed
-// above, so a failure to launch a browser is not worth interrupting a working
-// start for.
-func openBrowser(url string) {
-	if err := exec.Command("open", url).Start(); err != nil {
-		fmt.Printf("  (could not open your browser automatically — visit %s)\n\n", url)
-	}
 }
