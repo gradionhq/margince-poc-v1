@@ -215,6 +215,14 @@ func TestFlipChecksBlockOnARowWhoseReprojectionFailed(t *testing.T) {
 	if err := ms.RecordReprojectionFailure(ctx, "person", "p-unmappable", currentContactsDeclaration); err != nil {
 		t.Fatalf("RecordReprojectionFailure: %v", err)
 	}
+	// A row holding the old declaration already blocks the flip on its own, so
+	// the assertion below is only about the SKIP if the row provably carries
+	// the record: read it back before asking. Without this the test passes
+	// unchanged against a no-op record, or one that landed on another row.
+	if recorded := reprojectionFailureRecord(ctx, t, pool, "p-unmappable"); recorded != currentContactsDeclaration {
+		t.Fatalf("the row records %q, want %q — the flip assertion below would be made against a row the sweep has NOT given up on",
+			recorded, currentContactsDeclaration)
+	}
 
 	checks, err := svc.FlipChecks(ctx)
 	if err != nil {

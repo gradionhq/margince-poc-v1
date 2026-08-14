@@ -184,9 +184,11 @@ func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	}
 }
 
-// getFailingIncumbent fails the single-record read with a chosen error — the
-// only way to inject a rate-limited / auth-rejected / unreachable incumbent,
-// since none of those can be arranged against a real portal in a test.
+// getFailingIncumbent fails the single-record read with a chosen error, which
+// is the only way to put the worker in front of a specific read failure: a
+// rate-limited, auth-rejected or unreachable incumbent cannot be arranged
+// against a real portal here, and neither can a record the incumbent serves
+// whole that this build's declaration cannot project.
 type getFailingIncumbent struct {
 	*fake.Adapter
 	err error

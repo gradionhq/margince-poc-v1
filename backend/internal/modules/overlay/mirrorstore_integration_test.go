@@ -298,20 +298,32 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 		t.Errorf("fingerprint = %q, want the fresher row's — a refused write must leave the column alone", row.ProjectionFingerprint)
 	}
 
-	var failedFor *string
+	if failedFor := reprojectionFailureRecord(ctx, t, pool, externalID); failedFor != "fingerprint-three" {
+		t.Errorf("reprojection_failed_for = %q, want the recorded fingerprint — a refused write lands nothing, "+
+			"so it must neither clear nor overwrite the record, or the sweep starts re-reading a row it still cannot project", failedFor)
+	}
+}
+
+// reprojectionFailureRecord answers the declaration the "person" row named by
+// externalID records it could not reach, read straight from the column, with a
+// NULL — the state of almost every row — rendered as the empty string the read
+// paths coalesce it to. That is the direct evidence and the only kind there is
+// here: a record written under an object class other than the canonical one
+// these fixtures mirror under updates zero rows, returns no error, and leaves
+// the mirror looking exactly as it does when nothing was recorded at all.
+func reprojectionFailureRecord(ctx context.Context, t *testing.T, pool *pgxpool.Pool, externalID string) string {
+	t.Helper()
+	var recorded *string
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
-			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&failedFor)
+			WHERE object_class='person' AND external_id=$1`, externalID).Scan(&recorded)
 	}); err != nil {
-		t.Fatalf("reading the failure record back: %v", err)
+		t.Fatalf("reading person/%s's re-projection failure record: %v", externalID, err)
 	}
-	if failedFor == nil {
-		t.Error("reprojection_failed_for is NULL, want the recorded fingerprint — a refused write lands nothing, " +
-			"so it must not clear the record either, or the sweep starts re-reading a row it still cannot map")
-	} else if *failedFor != "fingerprint-three" {
-		t.Errorf("reprojection_failed_for = %q, want the recorded fingerprint — a refused write lands nothing, "+
-			"so it must not overwrite the record either, or the sweep starts re-reading a row it still cannot map", *failedFor)
+	if recorded == nil {
+		return ""
 	}
+	return *recorded
 }
 
 // The record names the declaration the row failed to reach, so a repaired
@@ -335,17 +347,8 @@ func TestRecordReprojectionFailureStoresTheFingerprintItFailedToReach(t *testing
 		t.Fatalf("RecordReprojectionFailure: %v", err)
 	}
 
-	var recorded *string
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
-			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&recorded)
-	}); err != nil {
-		t.Fatalf("reading the record back: %v", err)
-	}
-	if recorded == nil {
-		t.Error("reprojection_failed_for is NULL, want the fingerprint the re-projection was reaching for")
-	} else if *recorded != "current-declaration" {
-		t.Errorf("reprojection_failed_for = %q, want the fingerprint the re-projection was reaching for", *recorded)
+	if recorded := reprojectionFailureRecord(ctx, t, pool, externalID); recorded != "current-declaration" {
+		t.Errorf("reprojection_failed_for = %q, want the fingerprint the re-projection was reaching for", recorded)
 	}
 }
 
@@ -379,15 +382,8 @@ func TestIngestClearsAReprojectionFailureRecord(t *testing.T) {
 		t.Fatalf("re-projection ingest: %v", err)
 	}
 
-	var recorded *string
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
-			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&recorded)
-	}); err != nil {
-		t.Fatalf("reading the record back: %v", err)
-	}
-	if recorded != nil {
-		t.Errorf("reprojection_failed_for = %q, want NULL — the row landed a projection, so it is not failing", *recorded)
+	if recorded := reprojectionFailureRecord(ctx, t, pool, externalID); recorded != "" {
+		t.Errorf("reprojection_failed_for = %q, want none — the row landed a projection, so it is not failing", recorded)
 	}
 }
 
