@@ -93,6 +93,11 @@ const (
 	// a reader comparing two reports should not have to notice a spelling
 	// difference that means nothing.
 	aliasDeals = "deals"
+	// aliasCount is the ad-hoc plan's output column. Spelled apart from
+	// aggFnCount even though the two strings match: one names a FUNCTION the
+	// engine switches on, the other an output column a caller reads, and
+	// renaming the function must never rename somebody's column.
+	aliasCount = "count"
 )
 
 type reportAggregate struct {
@@ -427,7 +432,7 @@ func (e *reportEngine) runAdHocPlan(ctx context.Context, plan datasource.ReportP
 		dimensions:   map[string]string{},
 		measures:     map[string]string{},
 		filters:      map[string]string{},
-		defaultAggs:  []reportAggregate{{Fn: aggFnCount, As: aggFnCount}},
+		defaultAggs:  []reportAggregate{{Fn: aggFnCount, As: aliasCount}},
 	}
 	for _, f := range fields {
 		expr := "t." + f.Name

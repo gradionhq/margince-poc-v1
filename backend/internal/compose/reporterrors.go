@@ -7,6 +7,7 @@ package compose
 // this names what a plan may not say.
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -110,6 +111,88 @@ func (e *UnknownReportError) Error() string {
 // Unwrap puts it on the sentinel table's 404 row. Deliberately NOT a
 // MessageFault: that interface forces 422, and Classify reaches it first.
 func (e *UnknownReportError) Unwrap() error { return apperrors.ErrNotFound }
+
+// FilterValueNotAllowedError refuses a filter VALUE the engine cannot bind.
+//
+// Its own type rather than a FieldNotAllowedError because the two refuse
+// different halves of one argument: that one says this report has no filter by
+// that NAME, this one says the name is fine and the value cannot be compared.
+// Telling a caller their field is out of vocabulary when it is not would send
+// them hunting for a spelling that was never wrong.
+//
+// It exists because the alternative is worse than a bad message. A value the
+// driver cannot encode used to travel all the way to Postgres, fail there, and
+// arrive back as an unclassified fault — which httperr can only mask as an
+// opaque 500 (the mask is correct; a database error's text is not a client's
+// business). So the caller most likely to trip it — one who spelled a year the
+// way JSON spells a year, `2026` rather than `"2026"` — was told the server had
+// broken, and an agent reading that retries the same call forever.
+type FilterValueNotAllowedError struct {
+	Filter string
+	// Kind is the shape that arrived, named so the message can be concrete
+	// about what was wrong rather than restating the rule.
+	Kind string
+}
+
+func (e *FilterValueNotAllowedError) Error() string {
+	return fmt.Sprintf("report: this report's `%s` cannot compare %s against %q",
+		slotFilters, e.Kind, e.Filter)
+}
+
+// MessageFault reuses the contract's one declared 422 code, for the reason
+// EmptyReportPlanError records above.
+//
+// The message names the fix rather than the rule: a caller who sent a number
+// needs "quote it", not a taxonomy of accepted shapes they must map their value
+// onto themselves.
+func (e *FilterValueNotAllowedError) MessageFault() (code, message string) {
+	return reportFieldNotAllowedCode,
+		e.Error() + " — quote the value as text (a period like \"2026\" or \"2026-Q1\"), " +
+			"or send true/false for a yes-or-no filter"
+}
+
+// reportFilterValue admits a caller's filter value, or refuses it as their
+// mistake.
+//
+// Text and booleans both pass through unchanged, and both are load-bearing: a
+// report's filters are text-valued columns AND boolean-valued expressions
+// (deals-by-stage's partner_sourced and stalled), so narrowing to text alone
+// would break filters that already work.
+//
+// Nothing is coerced. Rendering a number as its decimal string would make
+// `2026` work today, because every filter this engine serves compares text or
+// booleans — and would silently compare "2026" against the first numeric filter
+// anyone adds, which is a wrong answer rather than a refusal.
+//
+//craft:ignore naked-any a filter value arrives from caller JSON — deciding what it may be is this function's whole job
+func reportFilterValue(filter string, value any) (any, error) {
+	switch value.(type) {
+	case string, bool:
+		return value, nil
+	default:
+		return nil, &FilterValueNotAllowedError{Filter: filter, Kind: jsonShapeOf(value)}
+	}
+}
+
+// jsonShapeOf names an arrived value in the caller's own vocabulary.
+//
+// Deliberately NOT %T: the caller wrote JSON and has never heard of float64 or
+// map[string]interface {}. Naming a Go type in a 422 both fails to locate their
+// mistake and leaks how this server is built.
+//
+//craft:ignore naked-any it names the shape of a decoded JSON value, which is any by construction
+func jsonShapeOf(value any) string {
+	switch value.(type) {
+	case float64, int, int64, json.Number:
+		return "a number"
+	case map[string]any:
+		return "an object"
+	case []any:
+		return "a list"
+	default:
+		return "that value"
+	}
+}
 
 // allowedReportNames renders a report vocabulary for a refusal to carry, sorted
 // because map iteration is not.

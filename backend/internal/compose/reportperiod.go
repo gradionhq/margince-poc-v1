@@ -114,8 +114,15 @@ func winLossSpec() reportSpec {
 		// Cloned rather than aliased — the two vocabularies are equal today and
 		// nothing about them has to stay equal, so sharing one map would make a
 		// later edit to either silently change both.
-		filters:   maps.Clone(dimensions),
-		defaultBy: []string{fieldStatus},
+		filters: maps.Clone(dimensions),
+		// Currency rides in the DEFAULT grouping, not just the vocabulary.
+		// amount_minor is a minor-unit integer in the deal's own currency, so
+		// summing across currencies yields a number with no unit — and the
+		// default plan is the one an agent calls first and a screen renders
+		// unattended. Splitting by currency makes every total mean something;
+		// converting to a base currency is the frozen-FX roll-up, a different
+		// and larger feature.
+		defaultBy: []string{fieldStatus, fieldCurrency},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "amount_minor_sum"},

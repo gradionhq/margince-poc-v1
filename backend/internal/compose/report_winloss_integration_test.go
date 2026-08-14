@@ -26,6 +26,19 @@ import (
 // helper supplies both rather than letting each test rediscover them.
 func (e *forecastEnv) seedClosedDeal(t *testing.T, name, status, closedAt string, amountMinor int64) {
 	t.Helper()
+	e.seedClosedDealWith(t, name, status, "manual", closedAt, amountMinor)
+}
+
+// seedClosedDealFromSource writes a WON deal recorded under a given source,
+// including the empty one a deal may legitimately carry (deal.source is NOT
+// NULL with no CHECK against "").
+func (e *forecastEnv) seedClosedDealFromSource(t *testing.T, name, source, closedAt string, amountMinor int64) {
+	t.Helper()
+	e.seedClosedDealWith(t, name, "won", source, closedAt, amountMinor)
+}
+
+func (e *forecastEnv) seedClosedDealWith(t *testing.T, name, status, source, closedAt string, amountMinor int64) {
+	t.Helper()
 	lostReason := "no reason"
 	if status == "won" {
 		lostReason = ""
@@ -37,8 +50,8 @@ func (e *forecastEnv) seedClosedDeal(t *testing.T, name, status, closedAt string
 	e.seed(t, `INSERT INTO deal
 		(id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency,
 		 status, closed_at, lost_reason, fx_rate_to_base, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'EUR', $7, $8::timestamptz, $9, 1.0, 'manual', 'human:x')`,
-		name, e.pipeline, e.stages[60], amountMinor, status, closedAt, reason)
+		VALUES ($1, $2, $3, $4, $5, $6, 'EUR', $7, $8::timestamptz, $9, 1.0, $10, 'human:x')`,
+		name, e.pipeline, e.stages[60], amountMinor, status, closedAt, reason, source)
 }
 
 // setInstallationZone rewrites the reporting zone the period buckets are
@@ -185,5 +198,104 @@ func TestWinLossPeriodGrainsUseTheirCanonicalSpelling(t *testing.T) {
 				t.Errorf("%s row %d = %v, want %q", dimension, i, got, bucket)
 			}
 		}
+	}
+}
+
+// The two doors onto one question must answer it the same way. A response's own
+// derivation handle spells an unset group key as the empty value, which the
+// drill-through binds as IS NULL; the filter door used to bind `= NULL`, which
+// is never true. So a report could answer "no rows" and hand the reader a link
+// that answered "six" — from the same response, about the same question. The
+// package's whole premise is that an explanation cannot disagree with the number
+// it explains.
+func TestAnUnsetFilterMeansTheSameThingOnBothDoors(t *testing.T) {
+	e := setupForecast(t)
+	e.seedClosedDeal(t, "Unowned A", "won", "2025-03-04T10:00:00Z", 10000)
+	e.seedClosedDeal(t, "Unowned B", "won", "2025-11-30T10:00:00Z", 25000)
+
+	result := e.runReport(e.Admin(), t, "win-loss",
+		`{"filters":{"owner_id":null},"aggregates":[{"fn":"count","as":"deals"}]}`)
+	if len(result.Rows) == 0 {
+		t.Fatalf("the filter door found nothing for owner_id=null, but both deals are unowned: %+v", result)
+	}
+	filtered := wireInt(t, result.Rows[0], "deals")
+
+	derivation := e.explainReport(e.Admin(), t, "win-loss", result.DerivationURL)
+	if got := wireInt(t, derivation.Aggregates, "deals"); got != filtered {
+		t.Errorf("the filter door says %d and the handle it minted says %d — one question, two answers",
+			filtered, got)
+	}
+}
+
+// A year is spelled 2026 in JSON far more naturally than "2026", and the period
+// grains are the first filters whose values look numeric. That call must come
+// back as the caller's own mistake with the fix in it, never as an opaque 500
+// that sends an agent retrying something that cannot succeed.
+func TestANumericPeriodFilterIsRefusedAsTheCallersMistake(t *testing.T) {
+	e := setupForecast(t)
+	e.seedClosedDeal(t, "A", "won", "2026-03-04T10:00:00Z", 10000)
+
+	if got := e.reportStatus(e.Admin(), "win-loss",
+		`{"filters":{"period_year":2026},"aggregates":[{"fn":"count","as":"deals"}]}`); got != 422 {
+		t.Errorf("a numeric period filter answered %d, want 422", got)
+	}
+	// The quoted spelling is the one that works, so the advice is actionable.
+	if got := e.reportStatus(e.Admin(), "win-loss",
+		`{"filters":{"period_year":"2026"},"aggregates":[{"fn":"count","as":"deals"}]}`); got != 200 {
+		t.Errorf("the quoted spelling answered %d, want 200", got)
+	}
+}
+
+// A group key that is EMPTY TEXT is not a group key that is ABSENT, and the
+// handle has to keep them apart. `source` is the catalog's first unconstrained
+// text dimension — every earlier one is a uuid, or carries a CHECK that forbids
+// the empty string — so this is the first report where the two can collide.
+// When they did, a bucket reported one deal and the handle it minted in the
+// same response resolved to none.
+func TestAnEmptyTextGroupKeyIsNotTheSameAsAnAbsentOne(t *testing.T) {
+	e := setupForecast(t)
+	e.seedClosedDealFromSource(t, "No source recorded", "", "2025-03-04T10:00:00Z", 10000)
+	e.seedClosedDealFromSource(t, "Sourced", "manual", "2025-04-04T10:00:00Z", 20000)
+
+	result := e.runReport(e.Admin(), t, "win-loss",
+		`{"group_by":["source"],"aggregates":[{"fn":"count","as":"deals"}]}`)
+	row := bucketRow(t, result, map[string]string{"source": ""})
+	displayed := wireInt(t, row, "deals")
+
+	derivation := e.explainReport(e.Admin(), t, "win-loss", row["derivation_url"].(string))
+	if got := wireInt(t, derivation.Aggregates, "deals"); got != displayed {
+		t.Errorf("the empty-source bucket shows %d and its own handle resolves to %d — "+
+			"empty text and absent collapsed to one spelling", displayed, got)
+	}
+	for _, source := range derivation.Rows {
+		if source["source"] != "" {
+			t.Errorf("drill-through row has source %q, want the empty-source deal", source["source"])
+		}
+	}
+}
+
+// amount_minor is a minor-unit integer in the deal's OWN currency, so a total
+// that spans currencies is a number with no unit. The default plan is the one
+// an agent calls first and a screen renders unattended, so it has to split.
+func TestTheWinLossDefaultNeverSumsAcrossCurrencies(t *testing.T) {
+	e := setupForecast(t)
+	e.seedClosedDeal(t, "In euros", "won", "2025-03-04T10:00:00Z", 10000)
+	e.seed(t, `INSERT INTO deal
+		(id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency,
+		 status, closed_at, fx_rate_to_base, source, captured_by)
+		VALUES ($1, $2, 'In dollars', $3, $4, 10000, 'USD', 'won', now(), 1.0, 'manual', 'human:x')`,
+		e.pipeline, e.stages[60])
+
+	result := e.runReport(e.Admin(), t, "win-loss", `{}`)
+	for _, row := range result.Rows {
+		if row["currency"] == nil {
+			t.Fatalf("a default row carries no currency, so its total has no unit: %+v", row)
+		}
+		if got := wireInt(t, row, "amount_minor_sum"); got != 10000 {
+			t.Errorf("row %v totals %d — the two currencies were added together", row["currency"], got)
+		}
+	}
+	if len(result.Rows) != 2 {
+		t.Errorf("rows = %d, want one per currency: %+v", len(result.Rows), result.Rows)
 	}
 }

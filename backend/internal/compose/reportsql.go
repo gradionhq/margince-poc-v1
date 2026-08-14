@@ -75,7 +75,21 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 		if !ok {
 			return nil, &FieldNotAllowedError{Field: key, Slot: slotFilters, Allowed: allowedReportNames(spec.filters)}
 		}
-		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
+		// A null filter means "not set", the SAME meaning the drill-through
+		// gives an empty group key (derivationWhere). Binding it as `= NULL`
+		// instead — which is never true — let one response answer "no rows"
+		// while the derivation handle it minted in the same breath answered
+		// with every unset row. Two doors onto one question have to agree, or
+		// the explanation disagrees with the number it explains.
+		if req.Filters[key] == nil {
+			where = append(where, expr+" IS NULL")
+			continue
+		}
+		value, err := reportFilterValue(key, req.Filters[key])
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(value)))
 	}
 	var scope string
 	var err error
