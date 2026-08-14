@@ -544,6 +544,16 @@ function ShareScreenBody({
             )}
           </Field>
 
+          {/* A share widens who can see a record, so the surface states the
+              consequence in plain words rather than leaving the reader to
+              infer it from a duration (AC-share-4). Access ending on its own
+              is the default, and the one case that does NOT end says so. */}
+          <p className="t-caption" data-testid="share-expiry-consequence">
+            {expiryDays > 0
+              ? t("share.expiryConsequence", { days: expiryDays })
+              : t("share.expiryConsequenceNone")}
+          </p>
+
           <Field label={t("share.reason")}>
             {(control) => (
               <Textarea

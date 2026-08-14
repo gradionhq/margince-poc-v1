@@ -36,6 +36,7 @@ import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
+import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import {
   type ListPage,
@@ -332,13 +333,115 @@ function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
   return status === "new" || status === "working";
 }
 
+// Ownership: who holds the lead, and reassignment to any workspace user.
+// The owner reads as a NAME — EntityRef resolves it off the shared `/users`
+// roster and falls back to the id only while that load is in flight or when
+// the viewer cannot see the roster, so a reader is never handed a bare uuid.
+// Reassignment is a plain owner change (UC-E13-04): the server audits it and
+// keeps whatever routing decision it overrides, so the only thing this
+// control owes the reader is an honest list of who they can hand it to.
+function LeadOwner({
+  lead,
+  meId,
+  pending,
+  onAssign,
+}: Readonly<{
+  lead: Lead;
+  meId: string | undefined;
+  pending: boolean;
+  onAssign: (ownerId: string) => void;
+}>) {
+  const t = useT();
+  const [picking, setPicking] = useState(false);
+  const roster = useRoster("user", picking);
+  const candidates = (roster.data ?? []).filter(
+    (entry) => entry.id !== lead.owner_id,
+  );
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          alignItems: "center",
+        }}
+      >
+        <span className="t-caption">
+          {lead.owner_id ? t("lead.ownerLabel") : t("lead.unassigned")}
+        </span>
+        {lead.owner_id &&
+          (lead.owner_id === meId ? (
+            <span className="t-caption">{t("lead.ownerYou")}</span>
+          ) : (
+            <EntityRef kind="user" id={lead.owner_id} />
+          ))}
+        {meId && meId !== lead.owner_id && (
+          <Button small disabled={pending} onClick={() => onAssign(meId)}>
+            {t("lead.assignToMe")}
+          </Button>
+        )}
+        <Button small disabled={pending} onClick={() => setPicking(!picking)}>
+          {t("lead.assignToSomeone")}
+        </Button>
+      </div>
+
+      {picking &&
+        (roster.isPending ? (
+          <span className="t-caption">{t("share.rosterLoading")}</span>
+        ) : roster.isError ? (
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-2)",
+              alignItems: "center",
+            }}
+          >
+            <span className="t-caption share-error">
+              {t("share.rosterErrorUsers")}
+            </span>
+            <Button small onClick={() => roster.refetch()}>
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : candidates.length === 0 ? (
+          <span className="t-caption">{t("lead.assignNobodyElse")}</span>
+        ) : (
+          <Select
+            aria-label={t("lead.assignTo")}
+            placeholder={t("lead.assignChoose")}
+            value=""
+            disabled={pending}
+            options={candidates.map((entry) => ({
+              value: entry.id,
+              // A user with no display name still has to be pickable, so the
+              // id stands in rather than rendering a blank row.
+              label:
+                ("display_name" in entry ? entry.display_name : null) ??
+                entry.id,
+            }))}
+            onChange={(value) => {
+              onAssign(value);
+              setPicking(false);
+            }}
+          />
+        ))}
+    </div>
+  );
+}
+
 // Phase 4 lifecycle controls (P-10/11/12): status (new↔working only —
 // promoted/disqualified are terminal and stay badge-only), the score
 // explain/override panel (the read carries no per-factor breakdown, so
-// "explain" here is honestly just the override-vs-machine story), and the
-// owner display + "Assign to me" (no user-list endpoint exists yet, so
-// reassigning to an arbitrary OTHER user isn't buildable here). All three
-// share one PATCH /leads/{id} + If-Match(lead.version) mutation.
+// "explain" here is honestly just the override-vs-machine story), and
+// ownership — the owner's name plus reassignment to any workspace user.
+// All three share one PATCH /leads/{id} + If-Match(lead.version) mutation.
 function LeadLifecycle({
   lead,
   id,
@@ -494,28 +597,12 @@ function LeadLifecycle({
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <span className="t-caption">
-          {lead.owner_id
-            ? t("lead.owner", {
-                // No user-directory endpoint exists to resolve an arbitrary
-                // owner id to a name (only /me), so we can only name the one
-                // user we know — the current one — and fall back to the id.
-                owner:
-                  lead.owner_id === meId ? t("lead.ownerYou") : lead.owner_id,
-              })
-            : t("lead.unassigned")}
-        </span>
-        {meId && meId !== lead.owner_id && (
-          <Button
-            small
-            disabled={patch.isPending}
-            onClick={() => patch.mutate({ owner_id: meId })}
-          >
-            {t("lead.assignToMe")}
-          </Button>
-        )}
-      </div>
+      <LeadOwner
+        lead={lead}
+        meId={meId}
+        pending={patch.isPending}
+        onAssign={(ownerId) => patch.mutate({ owner_id: ownerId })}
+      />
 
       {patch.isError && (
         <span className="t-caption" style={{ color: "var(--danger)" }}>

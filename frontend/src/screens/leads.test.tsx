@@ -810,11 +810,11 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
     );
     render(<LeadScreen id="l-1" />);
 
-    // Owned by the current user settles to the "you" owner line once /me
+    // Owned by the current user settles to the "You" owner line once /me
     // resolves (LeadScreen subscribes to the probe up front); waiting on that
     // settled state — rather than the transient raw owner id — is what makes
     // the self-assign assertion below reliable.
-    await waitFor(() => expect(screen.getByText("Owner: you")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("You")).toBeTruthy());
     await waitFor(() =>
       expect(urls.some((url) => url.endsWith("/v1/me"))).toBe(true),
     );
@@ -908,12 +908,60 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     await waitFor(() => expect(screen.getByText("overridden")).toBeTruthy());
   });
 
-  it("names the owner 'you' when the lead is owned by the current user", async () => {
+  it("names the owner 'You' when the lead is owned by the current user", async () => {
     stubFetchWithMe(
       async () => jsonResponse({ ...lead, owner_id: "u-9" }),
       "u-9",
     );
     render(<LeadScreen id="l-1" />);
-    await waitFor(() => expect(screen.getByText("Owner: you")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("You")).toBeTruthy());
+  });
+
+  it("names an owner who is not the viewer, and never shows their raw id", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-42", display_name: "Dana Fischer" }],
+        });
+      }
+      return jsonResponse({ ...lead, owner_id: "u-42" });
+    }, "u-9");
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByText("Dana Fischer")).toBeTruthy());
+    // The defect this replaced: an owner who was not the viewer rendered as a
+    // bare uuid, which names nobody a reader can recognize.
+    expect(screen.queryByText("u-42")).toBeNull();
+  });
+
+  it("assigns the lead to another user picked from the roster", async () => {
+    let patchBody: Record<string, unknown> | null = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-42", display_name: "Dana Fischer" }],
+        });
+      }
+      if (method === "PATCH") {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return jsonResponse({ ...lead, owner_id: "u-42" });
+      }
+      return undefined;
+    }, "u-9");
+    render(<LeadScreen id="l-1" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Assign to someone else" }),
+    );
+    // The listbox is opened ONCE and the option awaited inside it: clicking
+    // the trigger again would toggle it shut, and the popup re-renders in
+    // place when the roster lands.
+    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Dana Fischer" }),
+    );
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({ owner_id: "u-42" });
   });
 });
