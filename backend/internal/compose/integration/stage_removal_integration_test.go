@@ -36,6 +36,12 @@ func TestStageRemovalRefusesWhileDealsSitOnIt(t *testing.T) {
 	dealID := apptest.CreateOpenDeal(t, e, seeded)
 
 	stages := readStages(t, e, seeded.PipelineID)
+	// Named, not indexed-into blindly: this scenario needs an occupied
+	// stage AND an empty one above it, so a seed that stopped supplying
+	// both should say which precondition it broke rather than panic.
+	if len(stages) < 3 {
+		t.Fatalf("the seeded pipeline has %d stages; this scenario removes an empty one above an occupied one", len(stages))
+	}
 	occupied := stages[0] // CreateOpenDeal lands the deal on the first open stage.
 	empty := stages[2]
 	if occupied.ID != seeded.Open {
@@ -138,8 +144,11 @@ func TestStageRemovalRenumbersWhateverLayoutItFinds(t *testing.T) {
 		t.Fatalf("create a gapped pipeline → %d", status)
 	}
 	gapped := readStages(t, e, pipeline.ID)
-	if gapped[0].Position != 2 || gapped[2].Position != 9 {
-		t.Fatalf("the fixture is not gapped: %+v", gapped)
+	// The whole point of this fixture is the layout, so say so before
+	// indexing into it: a create that silently normalized the positions
+	// would otherwise fail somewhere further down, or panic.
+	if len(gapped) != 3 || gapped[0].Position != 2 || gapped[2].Position != 9 {
+		t.Fatalf("the fixture is not the gapped 2/5/9 layout this scenario needs: %+v", gapped)
 	}
 
 	// Removing the LAST stage moves nothing above it — but the gaps below
@@ -152,7 +161,7 @@ func TestStageRemovalRenumbersWhateverLayoutItFinds(t *testing.T) {
 	// Now the list is 1..n already, so removing its last stage moves
 	// nothing at all — and publishes no reorder.
 	survivors := readStages(t, e, pipeline.ID)
-	if status := e.Call(t, "DELETE", "/v1/stages/"+survivors[1].ID, nil, nil, nil); status != http.StatusNoContent {
+	if status := e.Call(t, "DELETE", "/v1/stages/"+survivors[len(survivors)-1].ID, nil, nil, nil); status != http.StatusNoContent {
 		t.Fatalf("removing the trailing stage → %d, want 204", status)
 	}
 	assertContiguous(t, e, pipeline.ID, 1)
