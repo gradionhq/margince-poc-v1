@@ -79,8 +79,16 @@ type OutboundFile struct {
 // JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
 // owns decoding on the way in.
 type EmailMessage struct {
-	To      []string
-	Cc      []string
+	To []string
+	Cc []string
+	// FromName is the sender's display name, or empty to send a bare address.
+	//
+	// A From header with no display name shows the address's LOCAL PART in every
+	// mail client, so a message from lars@gradion.com arrives from "lars". The
+	// address itself is the connector's own (the connected mailbox); this is the
+	// human the CRM records as having sent it.
+	FromName string
+
 	Subject string
 	Body    string // text/plain; always present, and the only part a text client reads
 

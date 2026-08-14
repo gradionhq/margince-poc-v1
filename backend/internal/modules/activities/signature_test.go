@@ -208,3 +208,99 @@ func TestBothPartsCarryTheUnsubscribeSurface(t *testing.T) {
 		t.Fatalf("the markup part carries no unsubscribe surface: %q", got)
 	}
 }
+
+type stubSenderName struct {
+	name string
+	err  error
+}
+
+func (s *stubSenderName) ActorIdentity(context.Context) (string, string, error) {
+	return s.name, "", s.err
+}
+
+// The name reaches the send when identity knows it.
+func TestTheSenderNameIsResolvedForTheSend(t *testing.T) {
+	store := (&Store{}).WithSenderName(&stubSenderName{name: "Lars Jankowfsky"})
+
+	got, err := store.senderDisplayName(humanCtx(ids.NewV7()))
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "Lars Jankowfsky" {
+		t.Fatalf("expected the sender's name, got %q", got)
+	}
+}
+
+// A role wired without the seam sends a bare address rather than refusing.
+func TestNoSenderNameReaderSendsUnnamed(t *testing.T) {
+	got, err := (&Store{}).senderDisplayName(humanCtx(ids.NewV7()))
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("a store with no reader produced a name: %q", got)
+	}
+}
+
+// A name that cannot be read is not a reason to refuse a send: the message is
+// correct without it, and trading a cosmetic gap for a delivery failure is the
+// worse answer. The error still surfaces rather than being swallowed.
+func TestAFailedSenderNameReadSurfaces(t *testing.T) {
+	boom := errors.New("identity is unreachable")
+	store := (&Store{}).WithSenderName(&stubSenderName{err: boom})
+
+	if _, err := store.senderDisplayName(humanCtx(ids.NewV7())); !errors.Is(err, boom) {
+		t.Fatalf("expected the read error to surface, got %v", err)
+	}
+}
+
+// An agent send carries no name, for the same reason it carries no signature:
+// the approval authorizes the sending, it does not make the approver the author.
+// ActorIdentity resolves an agent to the human it acts for — right for a draft,
+// wrong for an envelope — so the refusal has to be made at this seam.
+func TestAnAgentSendCarriesNoSenderName(t *testing.T) {
+	reader := &stubSenderName{name: "Lars Jankowfsky"}
+	store := (&Store{}).WithSenderName(reader)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:assistant", UserID: ids.NewV7(),
+	})
+
+	got, err := store.senderDisplayName(ctx)
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("an agent send was named %q", got)
+	}
+}
+
+// The header and the sign-off must agree about authorship. A message naming a
+// human on the envelope while deliberately withholding their signature below
+// would be the same claim told louder, in the line the inbox shows first.
+func TestTheEnvelopeAndTheSignOffAgreeAboutAuthorship(t *testing.T) {
+	store := (&Store{}).
+		WithSenderName(&stubSenderName{name: "Lars Jankowfsky"}).
+		WithSignature(&stubSignature{body: "Lars Jankowfsky"})
+
+	for name, ctx := range map[string]context.Context{
+		"human": humanCtx(ids.NewV7()),
+		"agent": principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:assistant", UserID: ids.NewV7(),
+		}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			envelope, err := store.senderDisplayName(ctx)
+			if err != nil {
+				t.Fatalf("resolving the sender name failed: %v", err)
+			}
+			signed, err := store.signedBody(ctx, "Body")
+			if err != nil {
+				t.Fatalf("signing the body failed: %v", err)
+			}
+			named := envelope != ""
+			if signedOff := signed != "Body"; named != signedOff {
+				t.Fatalf("envelope named=%v but signed=%v — the two disagree", named, signedOff)
+			}
+		})
+	}
+}

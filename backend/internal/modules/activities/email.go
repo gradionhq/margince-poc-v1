@@ -101,14 +101,17 @@ type DeliveryStager interface {
 // the authenticated principal at the far side of this seam, never named by
 // a caller, exactly as captured_by is stamped everywhere else.
 type DeliveryRequest struct {
-	ActivityID     ids.ActivityID
-	Provider       string
-	MessageID      string
-	Recipients     []string // To: only — the merged consent list minus Cc
-	Cc             []string
-	Subject        string
-	Body           string // the unsubscribe footer, when there is one, is already applied
-	HTMLBody       string // the markup alternative, empty for a plain-text send
+	ActivityID ids.ActivityID
+	Provider   string
+	MessageID  string
+	Recipients []string // To: only — the merged consent list minus Cc
+	Cc         []string
+	Subject    string
+	Body       string // the unsubscribe footer, when there is one, is already applied
+	HTMLBody   string // the markup alternative, empty for a plain-text send
+	// FromName is the sender's display name, snapshotted so a retry renders the
+	// same From header the first attempt did.
+	FromName       string
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a conversation
 	References     []string // unbracketed ancestry, oldest first
@@ -234,9 +237,19 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 		return crmcontracts.Activity{}, err
 	}
 
+	// Who the recipient sees this is from. Resolved here, beside the signature
+	// and before the transaction, because both answer "who is sending this" and
+	// a message whose header and sign-off named different people would be one
+	// message telling two stories.
+	fromName, err := s.senderDisplayName(ctx)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
+		fromName:        fromName,
 		body:            derived.transmitted,
 		recordedBody:    derived.recorded,
 		htmlBody:        htmlBody,
