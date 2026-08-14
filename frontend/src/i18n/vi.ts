@@ -1814,7 +1814,8 @@ export const vi = {
     "Lần nhập dừng sau {checkpoint} dòng. Tiếp tục sẽ chạy tiếp từ đó thay vì làm lại từ đầu.",
   "import.resume": "Tiếp tục nhập",
   "import.another": "Nhập tệp khác",
-  "import.undo": "Hoàn tác lần nhập này",
+  "import.undo.one": "Hoàn tác lần nhập này (1 dòng)",
+  "import.undo.other": "Hoàn tác lần nhập này ({rows} dòng)",
   "import.undoing": "Đang hoàn tác…",
   "import.undoInterrupted":
     "Việc hoàn tác đã bị gián đoạn giữa chừng. Tiếp tục sẽ chạy tiếp từ đó, không làm lại từ đầu.",
@@ -1823,6 +1824,7 @@ export const vi = {
   "import.undoReversed.one": "Đã hoàn tác 1 dòng.",
   "import.undoReversed.other": "Đã hoàn tác {rows} dòng.",
   "import.undoKeptLead": "Giữ nguyên — các dòng này đã được sửa sau khi nhập:",
+  "import.undoErroredLead": "Không thể hoàn tác — giữ nguyên như cũ:",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
     "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",

@@ -480,6 +480,7 @@ describe("the import card", () => {
               status: "undone",
               reversed_count: 3,
               kept: [],
+              errored: [],
             },
           }),
       });
@@ -496,7 +497,7 @@ describe("the import card", () => {
       await screen.findByText("The import finished.");
 
       const undoButton = screen.getByRole("button", {
-        name: "Undo this import",
+        name: "Undo this import (3 rows)",
       });
       await userEvent.click(undoButton);
 
@@ -523,6 +524,7 @@ describe("the import card", () => {
               status: "undone",
               reversed_count: 2,
               kept: [{ object: "lead", id: "019ff-kept-lead" }],
+              errored: [],
             },
           }),
       });
@@ -538,7 +540,7 @@ describe("the import card", () => {
       );
       await screen.findByText("The import finished.");
       await userEvent.click(
-        screen.getByRole("button", { name: "Undo this import" }),
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
       );
 
       expect(await screen.findByText("2 rows reversed.")).toBeInTheDocument();
@@ -567,7 +569,7 @@ describe("the import card", () => {
       );
       await screen.findByText("The import finished.");
       await userEvent.click(
-        screen.getByRole("button", { name: "Undo this import" }),
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
       );
 
       expect(
@@ -575,6 +577,55 @@ describe("the import card", () => {
       ).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Continue the undo" }),
+      ).toBeInTheDocument();
+    });
+
+    it("names a row that could not be reversed, without hiding the rest of the outcome", async () => {
+      stubRoutes({
+        "POST /imports/019ff-run/undo": () =>
+          jsonResponse({ ...run, status: "undone" }, 202),
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({
+            ...dryRun,
+            status: "undone",
+            undo: {
+              run_id: run.id,
+              status: "undone",
+              reversed_count: 2,
+              kept: [],
+              errored: [
+                {
+                  object: "lead",
+                  id: "019ff-stuck-lead",
+                  reason: "the record refused the reversal",
+                },
+              ],
+            },
+          }),
+      });
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
+      );
+
+      expect(
+        await screen.findByText("The import was undone."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("2 rows reversed.")).toBeInTheDocument();
+      expect(screen.getByText(/Could not be reversed/)).toBeInTheDocument();
+      expect(screen.getByText(/019ff-stuck-lead/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/the record refused the reversal/),
       ).toBeInTheDocument();
     });
   });

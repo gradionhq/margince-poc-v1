@@ -21,11 +21,18 @@ type importUndoKeptDTO struct {
 	ID     string `json:"id"`
 }
 
+type importUndoErroredDTO struct {
+	Object string `json:"object"`
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
 type importUndoReportDTO struct {
-	RunID         string              `json:"run_id"`
-	Status        string              `json:"status"`
-	ReversedCount int                 `json:"reversed_count"`
-	Kept          []importUndoKeptDTO `json:"kept"`
+	RunID         string                 `json:"run_id"`
+	Status        string                 `json:"status"`
+	ReversedCount int                    `json:"reversed_count"`
+	Kept          []importUndoKeptDTO    `json:"kept"`
+	Errored       []importUndoErroredDTO `json:"errored"`
 }
 
 type importReportWithUndoDTO struct {
@@ -190,14 +197,13 @@ func TestCSVImportUndoReversesOrganizations(t *testing.T) {
 	}
 }
 
-// A row already archived by the time undo reaches it (here: a human
-// disqualified the lead directly, outside the import) must not make Reverse
-// error — it is reversed to the same state it is already in, not skipped as
-// though a human had edited it. DisqualifyLead audits action='archive', not
-// 'update', so humanEditedSince does not catch this as a protected edit;
-// Reverse's own idempotence is what keeps it from erring on a live-only read
-// that no longer finds a live row.
-func TestCSVImportUndoIsIdempotentOnAnAlreadyArchivedRow(t *testing.T) {
+// A row a human has touched by ANY action — not narrowly an 'update' —
+// must be kept, not reversed: here, a human disqualified the lead directly,
+// outside the import. DisqualifyLead audits action='archive', and the
+// human-touch check catches any human actor's audit row on the entity, so
+// this lands in `kept` rather than being reversed out from under the human
+// who touched it.
+func TestCSVImportUndoKeepsARowAHumanDisqualifiedOutsideTheImport(t *testing.T) {
 	e := setupImportApp(t)
 
 	profile, _ := uploadCSV(t, e, "lead", "Email,Full Name\nada@lovelace.example,Ada Lovelace\n")
@@ -227,7 +233,7 @@ func TestCSVImportUndoIsIdempotentOnAnAlreadyArchivedRow(t *testing.T) {
 	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.ID+"/report", nil, nil, &report); status != http.StatusOK {
 		t.Fatalf("report after undo → %d, want 200", status)
 	}
-	if report.Undo == nil || report.Undo.ReversedCount != 1 {
-		t.Fatalf("undo report = %+v, want the already-archived row counted as reversed, not erred on", report.Undo)
+	if report.Undo == nil || report.Undo.ReversedCount != 0 || len(report.Undo.Kept) != 1 || report.Undo.Kept[0].ID != rows[0].ID {
+		t.Fatalf("undo report = %+v, want the disqualified row kept, not reversed", report.Undo)
 	}
 }

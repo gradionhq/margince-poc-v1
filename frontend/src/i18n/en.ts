@@ -1829,7 +1829,8 @@ export const en = {
     "The import stopped after {checkpoint} rows. Resuming continues from there rather than starting again.",
   "import.resume": "Resume the import",
   "import.another": "Import another file",
-  "import.undo": "Undo this import",
+  "import.undo.one": "Undo this import (1 row)",
+  "import.undo.other": "Undo this import ({rows} rows)",
   "import.undoing": "Undoing…",
   "import.undoInterrupted":
     "The undo was interrupted partway through. Continuing picks up where it stopped, not from the start.",
@@ -1838,6 +1839,8 @@ export const en = {
   "import.undoReversed.one": "1 row reversed.",
   "import.undoReversed.other": "{rows} rows reversed.",
   "import.undoKeptLead": "Kept — you edited these since the import:",
+  "import.undoErroredLead":
+    "Could not be reversed — left exactly as they stood:",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
     "Non-production only — irreversible on this installation.",

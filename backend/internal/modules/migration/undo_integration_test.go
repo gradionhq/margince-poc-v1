@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -20,21 +19,20 @@ import (
 // fakeUndoWriters is UndoWriters over a plain map — this package never
 // imports people, so a real archive path is compose's own integration
 // test (csvimport_integration_test.go); this one proves RunStore.Undo's
-// own SQL: the kept/reversed split, checkpoint resume, and the lifecycle
-// gates.
+// own SQL: the kept/reversed/errored split, checkpoint paging/resume, and
+// the lifecycle gates.
 type fakeUndoWriters struct {
 	reversed map[ids.UUID]bool
-	// failOnce, if set, errors the FIRST time this native id is reversed
-	// and succeeds on any later attempt — the crash-then-resume window
-	// Reverse's own idempotence contract exists for.
-	failOnce ids.UUID
-	failed   bool
+	// failAlways, if set, errors every time this native id is reversed —
+	// a deterministic per-row refusal (a business rule, a row-scope miss)
+	// that must land in the errored bucket and never stop the rest of the
+	// run.
+	failAlways ids.UUID
 }
 
 func (w *fakeUndoWriters) Reverse(_ context.Context, _ string, nativeID ids.UUID) error {
-	if !w.failed && nativeID == w.failOnce {
-		w.failed = true
-		return errors.New("simulated reversal failure")
+	if nativeID == w.failAlways {
+		return errors.New("simulated reversal refusal")
 	}
 	if w.reversed == nil {
 		w.reversed = map[ids.UUID]bool{}
@@ -44,9 +42,7 @@ func (w *fakeUndoWriters) Reverse(_ context.Context, _ string, nativeID ids.UUID
 }
 
 // completeCSVRun drives a fresh staged run all the way to `complete`, the
-// only state Undo starts from, and returns the run plus a helper closure
-// that lands one import_record_map row for it (mirroring what a real
-// Writers.Ensure commits alongside the native row).
+// only state Undo starts from.
 func completeCSVRun(ctx context.Context, t *testing.T, s *RunStore) Run {
 	t.Helper()
 	run, err := s.CreateStagedRun(ctx, CreateStagedRunInput{
@@ -72,6 +68,8 @@ func completeCSVRun(ctx context.Context, t *testing.T, s *RunStore) Run {
 	return got
 }
 
+// landLead records one import_record_map row for the run, the bookkeeping a
+// real Writers.Ensure commits alongside the native row.
 func landLead(ctx context.Context, t *testing.T, s *RunStore, runID RunID, externalID string) ids.UUID {
 	t.Helper()
 	native := ids.NewV7()
@@ -81,22 +79,23 @@ func landLead(ctx context.Context, t *testing.T, s *RunStore, runID RunID, exter
 	return native
 }
 
-// markHumanEdited inserts the audit_log row humanEditedSince reads: a
-// human 'update' after the run's completion instant.
-func markHumanEdited(ctx context.Context, t *testing.T, db interface {
+// markHumanTouched inserts the audit_log row humanTouchedSince reads: a
+// human action, occurring now — always after the row's own created_at,
+// which a moment-earlier RecordIdentity call already committed.
+func markHumanTouched(ctx context.Context, t *testing.T, db interface {
 	Tx(context.Context, func(pgx.Tx) error) error
-}, nativeID ids.UUID, since time.Time,
+}, action string, nativeID ids.UUID,
 ) {
 	t.Helper()
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, occurred_at)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'human', 'human:tester', 'update', $2, $3, $4)`,
-			ids.NewV7(), ObjectLead, nativeID, since.Add(time.Minute))
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'human', 'human:tester', $2, $3, $4, now())`,
+			ids.NewV7(), action, ObjectLead, nativeID)
 		return err
 	})
 	if err != nil {
-		t.Fatalf("seeding a human-edit audit row: %v", err)
+		t.Fatalf("seeding a human-touch audit row: %v", err)
 	}
 }
 
@@ -107,7 +106,7 @@ func TestUndoReversesUntouchedRowsAndKeepsHumanEdited(t *testing.T) {
 
 	untouched := landLead(ctx, t, s, run.ID, "row-1")
 	edited := landLead(ctx, t, s, run.ID, "row-2")
-	markHumanEdited(ctx, t, db, edited, run.UpdatedAt)
+	markHumanTouched(ctx, t, db, "update", edited)
 
 	w := &fakeUndoWriters{}
 	rep, err := s.Undo(ctx, run.ID, w)
@@ -119,6 +118,9 @@ func TestUndoReversesUntouchedRowsAndKeepsHumanEdited(t *testing.T) {
 	}
 	if len(rep.Kept) != 1 || rep.Kept[0].ID != edited || rep.Kept[0].Object != ObjectLead {
 		t.Fatalf("kept = %+v, want the human-edited row named", rep.Kept)
+	}
+	if len(rep.Errored) != 0 {
+		t.Fatalf("errored = %+v, want none", rep.Errored)
 	}
 	if w.reversed[edited] {
 		t.Fatal("the human-edited row was reversed — A93 requires it be left in place")
@@ -135,6 +137,64 @@ func TestUndoReversesUntouchedRowsAndKeepsHumanEdited(t *testing.T) {
 	// Undoing an already-undone run is a conflict, not a no-op.
 	if _, err := s.Undo(ctx, run.ID, w); !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("second undo err = %v, want ErrConflict", err)
+	}
+}
+
+// A93's protection is "has a human touched this row", not narrowly
+// "updated" it: a lead a human independently disqualified outside the
+// import (an 'archive' audit action, not 'update') must still be kept, not
+// reversed out from under them.
+func TestUndoKeepsARowAHumanTouchedThroughAnyAction(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
+	run := completeCSVRun(ctx, t, s)
+
+	disqualified := landLead(ctx, t, s, run.ID, "row-1")
+	markHumanTouched(ctx, t, db, "archive", disqualified)
+
+	w := &fakeUndoWriters{}
+	rep, err := s.Undo(ctx, run.ID, w)
+	if err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if rep.ReversedCount != 0 || len(rep.Kept) != 1 || rep.Kept[0].ID != disqualified {
+		t.Fatalf("undo report = %+v, want the disqualified row kept, not reversed", rep)
+	}
+	if w.reversed[disqualified] {
+		t.Fatal("a row a human touched (any action) was reversed")
+	}
+}
+
+// A row Reverse cannot process — a business rule refuses it, or it is no
+// longer visible — is recorded and left in place, and the rest of the run
+// still completes. The old behaviour (abort on the first such row) wedged
+// the run in `undoing` forever, since a deterministic per-row refusal fails
+// identically on every retry.
+func TestUndoRecordsAnUnreversibleRowAndContinues(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
+	run := completeCSVRun(ctx, t, s)
+
+	stuck := landLead(ctx, t, s, run.ID, "row-1")
+	fine := landLead(ctx, t, s, run.ID, "row-2")
+
+	w := &fakeUndoWriters{failAlways: stuck}
+	rep, err := s.Undo(ctx, run.ID, w)
+	if err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if rep.ReversedCount != 1 || !w.reversed[fine] {
+		t.Fatalf("undo report = %+v, want the other row reversed despite the stuck one", rep)
+	}
+	if len(rep.Errored) != 1 || rep.Errored[0].ID != stuck || rep.Errored[0].Reason == "" {
+		t.Fatalf("errored = %+v, want the stuck row named with a reason", rep.Errored)
+	}
+	got, err := s.GetStaged(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetStaged: %v", err)
+	}
+	if got.Status != StatusUndone {
+		t.Fatalf("status = %q, want undone — one unreversible row must not wedge the whole run", got.Status)
 	}
 }
 
@@ -168,11 +228,33 @@ func TestUndoRefusesAnythingButComplete(t *testing.T) {
 	}
 }
 
-// TestUndoResumesAfterAPartialFailure proves the checkpoint/Since contract
-// IEM-WIRE-9 promises: a reversal interrupted mid-way is picked up again
-// by calling undo a second time, from where it stopped — not from the
-// start, and the human-edit reference instant does not move with it.
-func TestUndoResumesAfterAPartialFailure(t *testing.T) {
+// A second call while an undo is genuinely under way for the same run is a
+// conflict, not a second concurrent pass over the same rows — beginUndo's
+// row lock only covers its own transaction, so it is claimUndo's advisory
+// lock (held for the whole call) that must refuse this, not the lifecycle
+// check alone.
+func TestUndoRefusesAConcurrentSecondCallOnTheSameRun(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
+	run := completeCSVRun(ctx, t, s)
+	landLead(ctx, t, s, run.ID, "row-1")
+
+	release, err := s.claimUndo(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("claimUndo: %v", err)
+	}
+	defer release()
+
+	if _, err := s.Undo(ctx, run.ID, &fakeUndoWriters{}); !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("undo while the lock is held err = %v, want ErrConflict", err)
+	}
+}
+
+// A run resumed (or re-entered on a later page) must not miss an edit made
+// while it was still awaiting the next page — the reference instant is per
+// row (import_record_map.created_at), not the run's own last-touched time,
+// which advances every page.
+func TestUndoResumesFromAPersistedCheckpointAcrossPages(t *testing.T) {
 	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
 	s := NewRunStore(db)
 	run := completeCSVRun(ctx, t, s)
@@ -180,28 +262,32 @@ func TestUndoResumesAfterAPartialFailure(t *testing.T) {
 	first := landLead(ctx, t, s, run.ID, "row-1")
 	second := landLead(ctx, t, s, run.ID, "row-2")
 
-	failing := &fakeUndoWriters{failOnce: first}
-	if _, err := s.Undo(ctx, run.ID, failing); err == nil {
-		t.Fatal("Undo with a failing writer returned nil, want the row's error")
+	// Simulate a crash after one page (here, one row) already reversed and
+	// its checkpoint persisted: begin the reversal directly, then advance
+	// the cursor past `first` without going through the public loop.
+	if _, _, err := s.beginUndo(ctx, run.ID); err != nil {
+		t.Fatalf("beginUndo: %v", err)
 	}
-	stopped, err := s.GetStaged(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetStaged after the interrupted undo: %v", err)
-	}
-	if stopped.Status != StatusUndoing || stopped.Checkpoint != 0 {
-		t.Fatalf("interrupted run = %+v, want undoing at checkpoint 0 (the failed row never advanced)", stopped)
+	partial := UndoReport{ReversedCount: 1}
+	if err := s.advanceUndoCheckpoint(ctx, run.ID, 1, partial); err != nil {
+		t.Fatalf("simulating a partial undo: %v", err)
 	}
 
-	// A second call with a writer that no longer fails resumes rather than
-	// restarting: `first` was already attempted (and errored, so it was
-	// never reversed) and `second` was never reached.
 	resumed := &fakeUndoWriters{}
 	rep, err := s.Undo(ctx, run.ID, resumed)
 	if err != nil {
 		t.Fatalf("resumed Undo: %v", err)
 	}
-	if rep.ReversedCount != 2 || !resumed.reversed[first] || !resumed.reversed[second] {
-		t.Fatalf("resumed undo report = %+v, reversed = %v, want both rows reversed", rep, resumed.reversed)
+	if resumed.reversed[first] {
+		t.Fatal("the resumed call redid a row the persisted checkpoint already covered")
+	}
+	if !resumed.reversed[second] {
+		t.Fatal("the resumed call never reached the row after the checkpoint")
+	}
+	// 1 carried from the simulated first page + 1 the resumed call itself
+	// reversed — the count survives across pages, not just within one.
+	if rep.ReversedCount != 2 {
+		t.Fatalf("reversed_count = %d, want 2 (1 carried + 1 new)", rep.ReversedCount)
 	}
 }
 

@@ -7043,15 +7043,20 @@ export interface paths {
          *     path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
          *     import; `hubspot`/`salesforce` are unbuilt).
          *
-         *     Reverses only the rows this run created that nobody has edited since
+         *     Reverses only the rows this run created that nobody has touched since
          *     (A93): never an all-or-nothing hard rollback that clobbers a later
          *     edit. A row a human touched after import is left exactly as they left
-         *     it and named in the report's `kept` list, not silently skipped.
+         *     it and named in the report's `kept` list, not silently skipped — and
+         *     a row that cannot be reversed for any other reason (a business rule
+         *     refuses it, or it is no longer visible to the caller) is named in
+         *     `errored` with why, rather than aborting every row after it.
          *
          *     Checkpointed and resumable on the same run record's `checkpoint`
          *     field the forward commit already uses (IEM-WIRE-5) — an undo over
          *     thousands of rows is the same shape of bulk write the import itself
-         *     is. Undoing an already-`undone` run is a conflict, not a no-op.
+         *     is, and paged the same way. Undoing an already-`undone` run is a
+         *     conflict, not a no-op; a second call while one is already under way
+         *     for the same run is a conflict too, not a second concurrent pass.
          */
         post: operations["undoImportRun"];
         delete?: never;
@@ -8368,10 +8373,12 @@ export interface components {
          */
         ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed" | "undoing" | "undone";
         /**
-         * @description The result of undoing a committed import run (IEM-WIRE-9; A93). Which
-         *     import-created rows were reversed, and which were kept because a
-         *     human edited them since — the "kept — you edited these" list
-         *     S-E15.4c requires, not a diff of what changed.
+         * @description The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+         *     import-created row lands in exactly one of three buckets: reversed,
+         *     kept because a human edited it since (the "kept — you edited these"
+         *     list S-E15.4c requires, not a diff of what changed), or errored
+         *     because it could not be reversed — a single unreversible row never
+         *     aborts the rest of the run.
          */
         ImportUndoReport: {
             /** Format: uuid */
@@ -8384,6 +8391,19 @@ export interface components {
                 object: components["schemas"]["ImportObject"];
                 /** Format: uuid */
                 id: string;
+            }[];
+            /**
+             * @description Import-created rows the reversal could not archive (a business
+             *     rule refused it, or the caller's row scope no longer covers it) —
+             *     left exactly as they stood, named with why, rather than the
+             *     whole run aborting on one row it cannot process.
+             */
+            errored: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+                /** @description What kept it from reversing, in terms the operator can act on — never a database or driver message. */
+                reason: string;
             }[];
         };
         ImportRun: {

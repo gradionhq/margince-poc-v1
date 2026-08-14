@@ -216,7 +216,10 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 		out.RowsRead-out.Disposition.Created-out.Disposition.Updated-out.Disposition.Skipped,
 		0,
 	)
-	if run.UndoReport != nil {
+	// Present once the run has been undone, not while undoing — a
+	// still-in-progress or interrupted reversal's partial counts are the
+	// run's own internal resume state, not a finished outcome to report.
+	if run.UndoReport != nil && run.Status == migration.StatusUndone {
 		out.Undo = toContractUndoReport(run.ID, run.Status, *run.UndoReport)
 	}
 	return out
@@ -234,11 +237,24 @@ func toContractUndoReport(id migration.RunID, status string, rep migration.UndoR
 			Object crmcontracts.ImportObject `json:"object"`
 		}{Id: openapi_types.UUID(k.ID), Object: crmcontracts.ImportObject(k.Object)})
 	}
+	errored := make([]struct {
+		Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Errored item shape
+		Object crmcontracts.ImportObject `json:"object"`
+		Reason string                    `json:"reason"`
+	}, 0, len(rep.Errored))
+	for _, e := range rep.Errored {
+		errored = append(errored, struct {
+			Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Errored item shape
+			Object crmcontracts.ImportObject `json:"object"`
+			Reason string                    `json:"reason"`
+		}{Id: openapi_types.UUID(e.ID), Object: crmcontracts.ImportObject(e.Object), Reason: e.Reason})
+	}
 	return &crmcontracts.ImportUndoReport{
 		RunId:         openapi_types.UUID(id),
 		Status:        crmcontracts.ImportRunStatus(status),
 		ReversedCount: rep.ReversedCount,
 		Kept:          kept,
+		Errored:       errored,
 	}
 }
 

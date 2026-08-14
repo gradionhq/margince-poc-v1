@@ -13256,11 +13256,32 @@ type ImportSourceProfile struct {
 	Targets []string `json:"targets"`
 }
 
-// ImportUndoReport The result of undoing a committed import run (IEM-WIRE-9; A93). Which
-// import-created rows were reversed, and which were kept because a
-// human edited them since — the "kept — you edited these" list
-// S-E15.4c requires, not a diff of what changed.
+// ImportUndoReport The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+// import-created row lands in exactly one of three buckets: reversed,
+// kept because a human edited it since (the "kept — you edited these"
+// list S-E15.4c requires, not a diff of what changed), or errored
+// because it could not be reversed — a single unreversible row never
+// aborts the rest of the run.
 type ImportUndoReport struct {
+	// Errored Import-created rows the reversal could not archive (a business
+	// rule refused it, or the caller's row scope no longer covers it) —
+	// left exactly as they stood, named with why, rather than the
+	// whole run aborting on one row it cannot process.
+	Errored []struct {
+		Id openapi_types.UUID `json:"id"`
+
+		// Object What the file's rows are. `lead` — not `person` — is what a bulk
+		// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+		// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+		// asserts it by number (`0 person, N lead`). A file of people already
+		// known to the business is imported as leads and promoted, not smuggled
+		// past the qualification step by the choice of an enum value.
+		Object ImportObject `json:"object"`
+
+		// Reason What kept it from reversing, in terms the operator can act on — never a database or driver message.
+		Reason string `json:"reason"`
+	} `json:"errored"`
+
 	// Kept Import-created rows a human edited since import, therefore left in place (A93).
 	Kept []struct {
 		Id openapi_types.UUID `json:"id"`

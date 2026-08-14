@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
@@ -323,8 +324,10 @@ func (w *csvWriters) Reverse(ctx context.Context, object string, nativeID ids.UU
 		if lead.ArchivedAt != nil {
 			return nil
 		}
-		_, err = w.people.DisqualifyLead(ctx, ids.From[ids.LeadKind](nativeID))
-		return err
+		if _, err := w.people.DisqualifyLead(ctx, ids.From[ids.LeadKind](nativeID)); err != nil {
+			return fmt.Errorf("import undo: reversing lead %s: %w", nativeID, err)
+		}
+		return nil
 	case migration.ObjectOrganization:
 		org, err := w.people.GetOrganization(ctx, ids.From[ids.OrganizationKind](nativeID), storekit.IncludeArchived)
 		if err != nil {
@@ -333,9 +336,11 @@ func (w *csvWriters) Reverse(ctx context.Context, object string, nativeID ids.UU
 		if org.ArchivedAt != nil {
 			return nil
 		}
-		_, err = w.people.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](nativeID))
-		return err
+		if _, err := w.people.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](nativeID)); err != nil {
+			return fmt.Errorf("import undo: reversing organization %s: %w", nativeID, err)
+		}
+		return nil
 	default:
-		return fmt.Errorf("import undo: %q is not a reversible object", object)
+		return fmt.Errorf("import undo: %q is not a reversible object: %w", object, apperrors.ErrConflict)
 	}
 }

@@ -317,7 +317,7 @@ function UndoSection({
         </Callout>
       ) : null}
 
-      {undone ? <UndoOutcome report={report} /> : null}
+      {undone ? <UndoOutcome undo={report.undo} /> : null}
 
       {undoable || undoInterrupted ? (
         <Button variant="ghost" disabled={busy} onClick={onUndo}>
@@ -325,7 +325,10 @@ function UndoSection({
             ? t("import.undoing")
             : undoInterrupted
               ? t("import.continueUndo")
-              : t("import.undo")}
+              : undoLabel(
+                  t,
+                  report.disposition.created + report.disposition.updated,
+                )}
         </Button>
       ) : null}
       {undoError ? (
@@ -337,38 +340,58 @@ function UndoSection({
   );
 }
 
-// UndoOutcome shows what a reversal did: how many rows it reversed, and the
-// "kept — you edited these" list (A93) — a human-edited row is disclosed by
-// name, never silently rewritten back over what they typed.
-function UndoOutcome({ report }: Readonly<{ report: ImportReport }>) {
+// UndoOutcome shows what a reversal did: how many rows it reversed, the
+// "kept — you edited these" list (A93 — a human-edited row is disclosed by
+// name, never silently rewritten back over what they typed), and any row
+// that could not be reversed at all, named with why rather than dropped.
+//
+// undo can be absent even though the run is undone: the commit itself
+// already finished server-side by the time the follow-up report read
+// answers, so a failed read must still say the import was undone rather
+// than rendering nothing.
+function UndoOutcome({ undo }: Readonly<{ undo: ImportReport["undo"] }>) {
   const t = useT();
-  const undo = report.undo;
-  if (!undo) {
-    return null;
-  }
   return (
     <div className="import__undoOutcome">
       <Callout tone="success" live="status">
         {t("import.undone")}
       </Callout>
-      <p className="import__hint">
-        {t(
-          undo.reversed_count === 1
-            ? "import.undoReversed.one"
-            : "import.undoReversed.other",
-          { rows: undo.reversed_count },
-        )}
-      </p>
-      {undo.kept.length > 0 ? (
+      {undo ? (
         <>
-          <p className="import__hint">{t("import.undoKeptLead")}</p>
-          <ul className="import__issues">
-            {undo.kept.map((row) => (
-              <li key={`${row.object}-${row.id}`}>
-                {t(`import.object.${row.object}`)} — {row.id}
-              </li>
-            ))}
-          </ul>
+          <p className="import__hint">
+            {t(
+              undo.reversed_count === 1
+                ? "import.undoReversed.one"
+                : "import.undoReversed.other",
+              { rows: undo.reversed_count },
+            )}
+          </p>
+          {undo.kept.length > 0 ? (
+            <>
+              <p className="import__hint">{t("import.undoKeptLead")}</p>
+              <ul className="import__issues">
+                {undo.kept.map((row) => (
+                  <li key={`${row.object}-${row.id}`}>
+                    {t(`import.object.${row.object}`)} — {row.id}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {undo.errored.length > 0 ? (
+            <>
+              <Callout tone="warn" live="status">
+                {t("import.undoErroredLead")}
+              </Callout>
+              <ul className="import__issues">
+                {undo.errored.map((row) => (
+                  <li key={`${row.object}-${row.id}`}>
+                    {t(`import.object.${row.object}`)} — {row.id}: {row.reason}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </>
       ) : null}
     </div>
@@ -384,6 +407,17 @@ function commitLabel(
 ): string {
   const key: MessageKey =
     rows === 1 ? "import.commit.one" : "import.commit.other";
+  return t(key, { rows });
+}
+
+// undoLabel names the count on the undo button for the same reason
+// commitLabel does: it is the last thing a human reads before undo
+// archives every row this run created.
+function undoLabel(
+  t: (key: MessageKey, params?: Record<string, string | number>) => string,
+  rows: number,
+): string {
+  const key: MessageKey = rows === 1 ? "import.undo.one" : "import.undo.other";
   return t(key, { rows });
 }
 
