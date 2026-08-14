@@ -1,6 +1,6 @@
 import { Upload } from "lucide-react";
 import type { ChangeEvent } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Radio, Textarea } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf } from "./common";
@@ -48,12 +48,13 @@ export function VoiceCorpusIntake({
     onFiles: intake.addFiles,
   });
 
+  // Told AFTER the render that changed it: calling a parent's setState from a
+  // render body updates one component while another is rendering, which React
+  // does not support.
   const busy = intake.busy;
-  const busyRef = useRef(busy);
-  if (busyRef.current !== busy) {
-    busyRef.current = busy;
+  useEffect(() => {
     onBusyChange?.(busy);
-  }
+  }, [busy, onBusyChange]);
 
   const onBrowsed = (event: ChangeEvent<HTMLInputElement>) => {
     intake.addFiles(Array.from(event.target.files ?? []));
@@ -67,7 +68,11 @@ export function VoiceCorpusIntake({
       className={`vdna-intake${dragOver ? " vdna-intake-dragover" : ""}`}
     >
       {intake.pendingAsk && (
+        // Keyed by the source: when the queue advances to the next file the
+        // panel is a NEW panel, so the previous file's chosen speaker cannot
+        // survive into a question about different people.
         <SpeakerPanel
+          key={intake.pendingAsk.ref}
           ask={intake.pendingAsk}
           onAnswer={intake.answerSpeaker}
           onDismiss={intake.dismissAsk}

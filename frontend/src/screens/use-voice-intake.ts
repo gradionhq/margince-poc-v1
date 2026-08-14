@@ -6,8 +6,7 @@ import {
   intakeTranscript,
   intakeUpload,
   isAcceptedCorpusFile,
-  pasteRef,
-  uploadRef,
+  sourceRef,
 } from "./voice-intake-core";
 
 // The Settings side of the shared voice-corpus intake: the same core the
@@ -65,7 +64,6 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
   const [notices, setNotices] = useState<readonly IntakeNotice[]>([]);
   const [inFlight, setInFlight] = useState(0);
   const mounted = useRef(true);
-  const pasteSeq = useRef(0);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -139,16 +137,24 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
   // A rejected promise here is a client-side fault, never a server refusal —
   // the core resolves those as a "refused" outcome. Its message is not shown
   // to the reader (it is not written for them); it is logged, and the card
-  // says only that adding the source failed.
+  // says only that adding the source failed. The source's own key is not known
+  // on that path (a file that could not be read has no content to key on), so
+  // the notice is keyed by the label the reader chose it under.
   const runIntake = useCallback(
-    (ref: string, label: string, start: () => Promise<IntakeOutcome>) => {
+    (label: string, start: () => Promise<IntakeOutcome>) => {
       setInFlight((count) => count + 1);
       start()
         .then(applyOutcome)
         .catch((err: unknown) => {
           console.error("voice corpus intake failed unexpectedly", err);
           if (mounted.current) {
-            note({ ref, label, tone: "warn", kind: "failed", problem: err });
+            note({
+              ref: `failed:${label}`,
+              label,
+              tone: "warn",
+              kind: "failed",
+              problem: err,
+            });
           }
         })
         .finally(() => {
@@ -163,19 +169,21 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
   const addFiles = useCallback(
     (files: readonly File[]) => {
       for (const file of files) {
-        const ref = uploadRef("settings", file.name);
         if (!isAcceptedCorpusFile(file.name)) {
+          // Nothing was read, so there is no content key yet; the name is
+          // enough to tell the reader which file was left out.
           note({
-            ref,
+            ref: `skipped:${file.name}`,
             label: file.name,
             tone: "warn",
             kind: "skippedType",
           });
           continue;
         }
-        runIntake(ref, file.name, async () =>
-          intakeUpload(ref, file.name, await file.text()),
-        );
+        runIntake(file.name, async () => {
+          const text = await file.text();
+          return intakeUpload(sourceRef("upload", text), file.name, text);
+        });
       }
     },
     [note, runIntake],
@@ -183,9 +191,9 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
 
   const addPaste = useCallback(
     (text: string, label: string) => {
-      pasteSeq.current += 1;
-      const ref = pasteRef("settings", pasteSeq.current);
-      runIntake(ref, label, () => intakePaste(ref, label, text));
+      runIntake(label, () =>
+        intakePaste(sourceRef("paste", text), label, text),
+      );
     },
     [runIntake],
   );
@@ -199,7 +207,7 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
         return;
       }
       setAsks((prev) => prev.filter((candidate) => candidate.ref !== ask.ref));
-      runIntake(ask.ref, ask.label, () =>
+      runIntake(ask.label, () =>
         intakeTranscript(ask.ref, ask.label, ask.content, speakerLabel),
       );
     },

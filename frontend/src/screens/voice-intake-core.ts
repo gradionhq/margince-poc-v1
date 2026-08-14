@@ -31,14 +31,15 @@ export const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
 // words"): gating the build action turns that 422 into a clear, up-front ask.
 export const VOICE_MIN_WORDS = 800;
 
-// A .txt is treated as a transcript when the preview attributes at least this
-// share of its spoken words to labelled speakers.
-const ATTRIBUTED_SHARE = 0.8;
-
-// source_ref is the contract's stable natural key: the ingest is idempotent on
-// it, so retrying an upload that failed halfway updates the one source rather
-// than adding a second copy. It is capped at 512 and source_label at 255, and a
-// long filename is truncated rather than refused by the server for length.
+// source_ref is the contract's stable natural key and the server upserts on it
+// (ON CONFLICT (voice_profile_id, source_ref)). That makes it an identity, not
+// a label: two different files both called "meeting.txt" must not claim the
+// same key, and the same text handed over twice must not become two rows.
+//
+// So the key is derived from the CONTENT. Re-adding the same writing updates
+// the one row it already made, and two different files keep their own rows
+// whatever they are called. The name is not part of it — a file renamed is
+// still the same writing, and a name cannot be trusted to be unique.
 const SOURCE_REF_MAX = 512;
 const SOURCE_LABEL_MAX = 255;
 
@@ -46,33 +47,53 @@ function clamp(value: string, max: number): string {
   return value.length <= max ? value : value.slice(0, max);
 }
 
-export function uploadRef(surface: string, name: string): string {
-  return clamp(`${surface}:upload:${name}`, SOURCE_REF_MAX);
+// FNV-1a over the content: short, stable, and dependency-free. This is an
+// identity for rows the same person is adding to their own corpus, never a
+// security boundary — a collision costs one overwritten sample, and the
+// server's own uniqueness rules still apply on top.
+function contentKey(content: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < content.length; i++) {
+    hash ^= content.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${hash.toString(16).padStart(8, "0")}-${content.length}`;
 }
 
-export function pasteRef(surface: string, seq: number): string {
-  return clamp(`${surface}:paste:${seq}`, SOURCE_REF_MAX);
+/** The key one piece of writing is known by, wherever it was handed over. */
+export function sourceRef(kind: "upload" | "paste", content: string): string {
+  return clamp(`voice:${kind}:${contentKey(content)}`, SOURCE_REF_MAX);
 }
 
-// What one previewed file honestly IS: a conversational source needs the
-// speaker answer first; a transcript-shaped file nobody is attributable in is
-// refused whole (none of it can be proven the owner's own words); and
-// single-author prose ingests directly.
+// What one previewed source honestly IS.
+//
+// `ingestible_as_transcript` is the SERVER's answer to "does this attribute
+// turns to named speakers?", and it is the only authority here. A client-side
+// share threshold used to gate it, which meant a .txt whose dialogue was 68%
+// attributed — the rest narration — was ingested as single-author prose with
+// the counterparty's words counted as the owner's own. Whether the reader
+// happened to name the file .vtt is not evidence about its contents.
+//
+// So: anything the server says carries speakers needs the speaker answer
+// first. A transcript-shaped file it CANNOT attribute is refused whole (none
+// of it can be proven the owner's own words). Everything else is prose.
 export function routePreview(
   name: string,
   preview: CorpusPreview,
 ): "ask-speaker" | "refuse" | "document" {
-  const attributedWords = preview.speakers.reduce(
-    (sum, speaker) => sum + speaker.words,
-    0,
-  );
-  const conversational =
-    TRANSCRIPT_EXT.test(name) ||
-    attributedWords >= preview.total_words * ATTRIBUTED_SHARE;
-  if (conversational && preview.ingestible_as_transcript) {
+  if (preview.ingestible_as_transcript) {
     return "ask-speaker";
   }
-  return TRANSCRIPT_EXT.test(name) ? "refuse" : "document";
+  // A source with named speakers the server could not make ingestible is not
+  // prose either: ingesting it would credit every speaker to the owner. The
+  // speakers list is read defensively because being WRONG here means
+  // misattributing someone's words — an older or partial response must fall
+  // back to refusing a transcript-shaped file, never to ingesting it.
+  const speakers = preview.speakers ?? [];
+  if (TRANSCRIPT_EXT.test(name) || speakers.length > 0) {
+    return "refuse";
+  }
+  return "document";
 }
 
 /** Why the server would not take a source, as a category both surfaces phrase
@@ -213,8 +234,13 @@ async function ingest(
   body: IngestRequest,
   label: string,
   transcript: boolean,
+  onIssue?: () => void,
 ): Promise<IntakeOutcome> {
   const profileId = await ensureProfileId();
+  // Called at the moment this write is issued, so a caller ordering concurrent
+  // ingests stamps them by when the SERVER was asked — not by when the reader
+  // picked the file, which a slow read or preview would distort.
+  onIssue?.();
   const { data, error } = await api.POST("/voice-profiles/{id}/sources", {
     params: { path: { id: profileId } },
     body,
@@ -238,16 +264,22 @@ async function ingest(
   };
 }
 
-/** Preview one accepted file and act on what it honestly is. The empty
- * pre-gate is the only client-side word counting anywhere; every count a
- * surface displays is a server number. */
-export async function intakeUpload(
+// Every source is previewed before anything is written, whether it arrived as
+// a file or as pasted text. Pasting used to skip this, which left the whole
+// corruption intact behind the paste box: paste a meeting transcript and every
+// speaker's words were credited to the owner. The two entry points differ only
+// in which body prose is sent under, so they share one path.
+async function intakePreviewed(
   ref: string,
-  name: string,
+  label: string,
   text: string,
+  proseBody: (ref: string, label: string, content: string) => IngestRequest,
+  onIssue?: () => void,
 ): Promise<IntakeOutcome> {
+  // The empty pre-gate is the only client-side word counting anywhere; every
+  // count a surface displays is a server number.
   if (text.split(/\s+/).filter(Boolean).length === 0) {
-    return { kind: "skipped", ref, label: name, reason: "empty" };
+    return { kind: "skipped", ref, label, reason: "empty" };
   }
   const profileId = await ensureProfileId();
   const { data, error } = await api.POST(
@@ -261,31 +293,47 @@ export async function intakeUpload(
     return {
       kind: "refused",
       ref,
-      label: name,
+      label,
       reason: refusalOf(error),
       problem: error,
     };
   }
-  const route = routePreview(name, data);
+  const route = routePreview(label, data);
   if (route === "ask-speaker") {
-    return {
-      kind: "speaker-needed",
-      ref,
-      label: name,
-      content: text,
-      preview: data,
-    };
+    return { kind: "speaker-needed", ref, label, content: text, preview: data };
   }
   if (route === "refuse") {
     return {
       kind: "refused",
       ref,
-      label: name,
+      label,
       reason: "unattributed",
       problem: null,
     };
   }
-  return ingest(documentBody(ref, name, text), name, false);
+  return ingest(proseBody(ref, label, text), label, false, onIssue);
+}
+
+/** A file the owner handed over: previewed, then ingested as prose or held for
+ * the speaker question. */
+export function intakeUpload(
+  ref: string,
+  name: string,
+  text: string,
+  onIssue?: () => void,
+): Promise<IntakeOutcome> {
+  return intakePreviewed(ref, name, text, documentBody, onIssue);
+}
+
+/** Text the owner pasted. Previewed exactly like a file — a transcript is a
+ * transcript however it reached the box. */
+export function intakePaste(
+  ref: string,
+  label: string,
+  content: string,
+  onIssue?: () => void,
+): Promise<IntakeOutcome> {
+  return intakePreviewed(ref, label, content, pasteBody, onIssue);
 }
 
 /** The owner named themselves in a conversational source: ingest with the
@@ -296,18 +344,14 @@ export function intakeTranscript(
   label: string,
   content: string,
   speakerLabel: string,
+  onIssue?: () => void,
 ): Promise<IntakeOutcome> {
-  return ingest(transcriptBody(ref, label, content, speakerLabel), label, true);
-}
-
-/** Pasted prose. It is not previewed: the owner typed or pasted it as their
- * own writing, and there is no filename to disagree with. */
-export function intakePaste(
-  ref: string,
-  label: string,
-  content: string,
-): Promise<IntakeOutcome> {
-  return ingest(pasteBody(ref, label, content), label, false);
+  return ingest(
+    transcriptBody(ref, label, content, speakerLabel),
+    label,
+    true,
+    onIssue,
+  );
 }
 
 /** Whether a filename is one the corpus accepts at all. */

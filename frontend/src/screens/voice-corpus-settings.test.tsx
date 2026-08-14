@@ -192,6 +192,60 @@ describe("handing a file to the Settings voice card", () => {
     });
   });
 
+  // Pasting used to skip the preview, so the whole speaker protection could be
+  // walked around by pasting a transcript instead of uploading one.
+  it("asks who is speaking when a transcript is PASTED, not uploaded", async () => {
+    const bodies = stubApi(CONVERSATION);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.type(
+      screen.getByPlaceholderText(
+        "Paste an email, post, or anything you've written…",
+      ),
+      "Lars: we ship Friday. Sam: agreed.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Add sample" }));
+
+    expect(await screen.findByText(/Which speaker are you in/)).toBeTruthy();
+    expect(bodies).toHaveLength(0);
+  });
+
+  // Two conversational files queue two questions. The second must be asked
+  // fresh: carrying the first answer over would submit a speaker the reader
+  // never chose for that file — silently ingesting the wrong person's words
+  // whenever that name happens to appear in both.
+  it("does not carry one file's chosen speaker into the next file's question", async () => {
+    const bodies = stubApi(CONVERSATION);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.upload(fileInput(), [
+      fileOf("one.vtt", "Lars: first. Sam: ok."),
+      fileOf("two.vtt", "Lars: second. Sam: ok."),
+    ]);
+    await screen.findByText(/Which speaker are you in/);
+
+    await userEvent.click(screen.getByRole("radio", { name: /^Lars/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "That one is me" }),
+    );
+
+    // The next question is a question, not a pre-filled answer.
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("radio")
+          .every((r) => !(r as HTMLInputElement).checked),
+      ).toBe(true);
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "That one is me" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    // Only the answered file was written.
+    expect(bodies).toHaveLength(1);
+  });
+
   it("drops a conversation the owner declines to claim", async () => {
     const bodies = stubApi(CONVERSATION);
     render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);

@@ -6,10 +6,9 @@ import {
   intakeTranscript,
   intakeUpload,
   isAcceptedCorpusFile,
-  pasteRef,
   refusalOf,
   routePreview,
-  uploadRef,
+  sourceRef,
 } from "./voice-intake-core";
 
 // The intake core is what both surfaces that collect writing samples run on.
@@ -96,7 +95,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("what a previewed file honestly is", () => {
+describe("what a previewed source honestly is", () => {
   it("asks who is speaking when a transcript-named file is attributable", () => {
     expect(
       routePreview(
@@ -106,9 +105,9 @@ describe("what a previewed file honestly is", () => {
     ).toBe("ask-speaker");
   });
 
-  it("asks who is speaking when prose is mostly attributed dialogue", () => {
-    // Above the 0.8 attributed share a .txt is a conversation whatever its
-    // extension claims.
+  // The server's verdict decides, not the file extension: a .txt that carries
+  // dialogue is a conversation however it was named.
+  it("asks who is speaking when a .txt turns out to carry dialogue", () => {
     expect(
       routePreview(
         "notes.txt",
@@ -124,11 +123,46 @@ describe("what a previewed file honestly is", () => {
     ).toBe("ask-speaker");
   });
 
+  // A .txt of 68% attributed dialogue plus narration used to fall under a
+  // client-side share threshold and ingest as prose — crediting the
+  // counterparty's words to the owner. The server already says it is
+  // ingestible as a transcript, and that answer is the one that counts.
+  it("asks who is speaking even when much of the source is unattributed", () => {
+    expect(
+      routePreview(
+        "mixed.txt",
+        preview({
+          total_words: 888,
+          ingestible_as_transcript: true,
+          unattributed_words: 288,
+          speakers: [
+            { label: "Lars", words: 325, turns: 25 },
+            { label: "Sam", words: 275, turns: 25 },
+          ],
+        }),
+      ),
+    ).toBe("ask-speaker");
+  });
+
   it("refuses a transcript nobody can be attributed in", () => {
     // Nothing in it can be proven the owner's own words, and a transcript is
     // refused whole rather than ingested as if one person wrote it.
     expect(
       routePreview("meeting.srt", preview({ ingestible_as_transcript: false })),
+    ).toBe("refuse");
+  });
+
+  // Named speakers the server could not make ingestible are still speakers:
+  // taking the file as prose would credit all of them to the owner.
+  it("refuses a source with speakers it cannot attribute, whatever its name", () => {
+    expect(
+      routePreview(
+        "notes.txt",
+        preview({
+          ingestible_as_transcript: false,
+          speakers: [{ label: "Sam", words: 400, turns: 8 }],
+        }),
+      ),
     ).toBe("refuse");
   });
 
@@ -165,10 +199,11 @@ describe("which refusal the server named", () => {
 describe("the request bodies the server actually receives", () => {
   it("sends single-author prose as a text document", async () => {
     const bodies = stubApi(preview());
+    const text = "Short sentences. Concrete nouns.";
     const outcome = await intakeUpload(
-      uploadRef("settings", "letter.txt"),
+      sourceRef("upload", text),
       "letter.txt",
-      "Short sentences. Concrete nouns.",
+      text,
     );
     expect(outcome.kind).toBe("ingested");
     expect(bodies).toHaveLength(1);
@@ -177,7 +212,6 @@ describe("the request bodies the server actually receives", () => {
       register: "general",
       format: "text",
       speaker_label: null,
-      source_ref: "settings:upload:letter.txt",
       source_label: "letter.txt",
     });
   });
@@ -202,15 +236,38 @@ describe("the request bodies the server actually receives", () => {
     });
   });
 
-  it("sends pasted writing as prose the owner claimed as their own", async () => {
+  it("sends pasted prose as prose the owner claimed as their own", async () => {
     const bodies = stubApi(preview());
-    await intakePaste(pasteRef("settings", 1), "Pasted writing", "Some words.");
+    const text = "Some words.";
+    await intakePaste(sourceRef("paste", text), "Pasted writing", text);
     expect(bodies[0]).toMatchObject({
       kind: "other",
       register: "general",
       format: "text",
-      source_ref: "settings:paste:1",
     });
+  });
+
+  // Pasting used to skip the preview entirely, so a meeting transcript pasted
+  // into the box was ingested as prose with every speaker credited to the
+  // owner — the same corruption an uploaded file was protected from.
+  it("previews pasted text too, so a pasted transcript still asks who is speaking", async () => {
+    const bodies = stubApi(
+      preview({
+        ingestible_as_transcript: true,
+        unattributed_words: 0,
+        speakers: [
+          { label: "Lars", words: 600, turns: 12 },
+          { label: "Sam", words: 400, turns: 9 },
+        ],
+      }),
+    );
+    const outcome = await intakePaste(
+      sourceRef("paste", "Lars: hi. Sam: hello."),
+      "Pasted writing",
+      "Lars: hi. Sam: hello.",
+    );
+    expect(outcome.kind).toBe("speaker-needed");
+    expect(bodies).toHaveLength(0);
   });
 });
 
@@ -272,18 +329,29 @@ describe("which files are offered to the server at all", () => {
   });
 });
 
+// The server upserts on source_ref, so the key has to identify the WRITING.
+// Keyed by filename, two different files both called "meeting.txt" would
+// silently overwrite each other, and the same file added from two surfaces
+// would be counted twice.
 describe("source_ref, the key the ingest is idempotent on", () => {
-  it("names the surface and the file, so a retry updates one source", () => {
-    expect(uploadRef("settings", "letter.txt")).toBe(
-      "settings:upload:letter.txt",
-    );
-    expect(uploadRef("settings", "letter.txt")).toBe(
-      uploadRef("settings", "letter.txt"),
+  it("is the same for the same writing, so a retry updates one row", () => {
+    expect(sourceRef("upload", "the same words")).toBe(
+      sourceRef("upload", "the same words"),
     );
   });
 
+  it("differs for different writing under the same file name", () => {
+    expect(sourceRef("upload", "one meeting")).not.toBe(
+      sourceRef("upload", "a different meeting"),
+    );
+  });
+
+  it("does not collide when only the length matches", () => {
+    expect(sourceRef("upload", "abcd")).not.toBe(sourceRef("upload", "dcba"));
+  });
+
   it("stays inside the contract's 512-character cap", () => {
-    expect(uploadRef("settings", "x".repeat(900)).length).toBeLessThanOrEqual(
+    expect(sourceRef("upload", "x".repeat(90000)).length).toBeLessThanOrEqual(
       512,
     );
   });

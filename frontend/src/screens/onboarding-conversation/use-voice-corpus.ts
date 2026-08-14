@@ -9,8 +9,7 @@ import {
   intakeTranscript,
   intakeUpload,
   isAcceptedCorpusFile,
-  pasteRef,
-  uploadRef,
+  sourceRef,
 } from "../voice-intake-core";
 import type {
   ConversationEvent,
@@ -94,7 +93,6 @@ export function useVoiceCorpus({
   const [asks, setAsks] = useState<readonly SpeakerAsk[]>([]);
   const [probesInFlight, setProbesInFlight] = useState(0);
   const summaryRef = useRef<CorpusSummary | null>(initialSummary);
-  const pasteSeq = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -231,18 +229,27 @@ export function useVoiceCorpus({
     [dispatch, recordIngest, say],
   );
 
-  // Every intake path stamps its request at issue time, so a stale response
-  // arriving late cannot roll the meter backwards.
+  // Each intake is stamped when its INGEST is issued, and only the
+  // newest-stamped summary may drive the meter. A response that settles late
+  // carries the corpus as it stood when the server answered it, so applying it
+  // after a newer one would roll the displayed total — and the build gate that
+  // reads it — backwards. The stamp is taken inside the core's ingest call
+  // rather than here at intake start, because a file that reads and previews
+  // slowly has not written anything yet: ordering it by when the reader picked
+  // it would let a preview delay decide which summary wins.
   const runIntake = useCallback(
     (
-      start: () => Promise<IntakeOutcome>,
+      start: (stamp: () => number) => Promise<IntakeOutcome>,
       reactionKey: MessageKey,
       failureId: string,
     ): void => {
-      ingestSeq.current += 1;
-      const seq = ingestSeq.current;
       setProbesInFlight((count) => count + 1);
-      start()
+      let seq = 0;
+      start(() => {
+        ingestSeq.current += 1;
+        seq = ingestSeq.current;
+        return seq;
+      })
         .then((outcome) => applyOutcome(seq, outcome, reactionKey))
         .catch((err: unknown) => {
           if (mounted.current) {
@@ -270,12 +277,26 @@ export function useVoiceCorpus({
           });
           continue;
         }
-        const ref = uploadRef("onboarding", file.name);
-        dispatch({ type: "UPLOAD_ADDED", id: ref, name: file.name });
+        // The thread shows the file the moment it is handed over, before its
+        // content has been read — so the bubble is identified by name, while
+        // the SOURCE it becomes is keyed by what is in it.
+        dispatch({
+          type: "UPLOAD_ADDED",
+          id: `onboarding:upload:${file.name}`,
+          name: file.name,
+        });
         runIntake(
-          async () => intakeUpload(ref, file.name, await file.text()),
+          async (stamp) => {
+            const text = await file.text();
+            return intakeUpload(
+              sourceRef("upload", text),
+              file.name,
+              text,
+              stamp,
+            );
+          },
           "ob.conv.voice.reactionDocument",
-          `refuse:${ref}`,
+          `refuse:onboarding:upload:${file.name}`,
         );
       }
     },
@@ -284,11 +305,10 @@ export function useVoiceCorpus({
 
   const addPaste = useCallback(
     (text: string, label: string) => {
-      pasteSeq.current += 1;
-      const ref = pasteRef("onboarding", pasteSeq.current);
+      const ref = sourceRef("paste", text);
       dispatch({ type: "UPLOAD_ADDED", id: ref, name: label });
       runIntake(
-        () => intakePaste(ref, label, text),
+        (stamp) => intakePaste(ref, label, text, stamp),
         "ob.conv.voice.reactionDocument",
         `refuse:${ref}`,
       );
@@ -336,7 +356,8 @@ export function useVoiceCorpus({
       }
       setAsks((prev) => prev.filter((candidate) => candidate.ref !== ask.ref));
       runIntake(
-        () => intakeTranscript(ask.ref, ask.label, ask.content, value),
+        (stamp) =>
+          intakeTranscript(ask.ref, ask.label, ask.content, value, stamp),
         "ob.conv.voice.reactionTranscript",
         `refuse:${ask.ref}`,
       );
