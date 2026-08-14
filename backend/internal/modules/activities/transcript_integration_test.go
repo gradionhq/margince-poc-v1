@@ -5,18 +5,18 @@
 
 package activities
 
-// A transcript lands through the real write shape exactly like any other
-// logged activity — normalized, linked, and carrying the source_system the
+// A transcript lands normalized, linked, and carrying the source_system the
 // privacy module's activity/transcript retention selector
-// (internal/modules/privacy/retentionselectors.go) keys its sweep on. This
-// proves the two sides of that contract actually agree: this module writes
-// what that selector expects, not just what a unit test asserts in isolation.
+// (internal/modules/privacy/retentionselectors.go) keys its sweep on — this
+// proves the two sides of that contract actually agree against a real row,
+// not just what a unit test asserts over the mapping in isolation.
 
 import (
 	"context"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -63,5 +63,41 @@ func TestLogActivityNormalizesAndStoresATranscript(t *testing.T) {
 	}
 	if storedBody == nil {
 		t.Fatal("body is NULL — the retention selector's body IS NOT NULL clause would skip this row")
+	}
+}
+
+// TestUpdateActivityNormalizesATranscriptBody: the create path is not the
+// only writer of activity.body — a PATCH that skipped normalization would
+// leave a transcript-marked row holding raw CRLFs and trailing whitespace,
+// which is exactly the row the retention selector and any future line
+// citation both assume is already canonical.
+func TestUpdateActivityNormalizesATranscriptBody(t *testing.T) {
+	e := setupSend(t)
+	ctx := e.as(principal.RowScopeAll)
+	store := e.store(nil)
+
+	raw := "Anna: hello"
+	sourceSystem := "transcript"
+	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
+		Kind: "call", Body: &raw, SourceSystem: &sourceSystem, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("LogActivityInputFrom: %v", err)
+	}
+	activity, _, err := store.LogActivity(ctx, in)
+	if err != nil {
+		t.Fatalf("LogActivity: %v", err)
+	}
+
+	unnormalized := "Anna: hello   \r\nBen: hi\r\n"
+	updated, err := store.UpdateActivity(ctx, ids.From[ids.ActivityKind](ids.UUID(activity.Id)), UpdateActivityInput{
+		Body: &unnormalized,
+	})
+	if err != nil {
+		t.Fatalf("UpdateActivity: %v", err)
+	}
+	want := "Anna: hello\nBen: hi"
+	if updated.Body == nil || *updated.Body != want {
+		t.Errorf("Body = %v, want %q — a PATCH must normalize a transcript-marked row the same as create does", updated.Body, want)
 	}
 }

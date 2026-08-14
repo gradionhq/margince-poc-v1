@@ -35,14 +35,17 @@ const transcriptSourceSystem = "transcript"
 
 // TranscriptKindError maps to 422: a transcript is a recording of a
 // conversation, so it only makes sense on the two activity kinds that ARE
-// one.
+// one. The message never echoes the caller's kind — this fires before the
+// kind ever reaches the DB CHECK that would otherwise be the only
+// validation of it, so an unbounded value has no other floor here.
 type TranscriptKindError struct{ Kind string }
 
 func (e *TranscriptKindError) Error() string {
-	return "a transcript may only be attached to a call or meeting activity, not " + e.Kind
+	return "only a call or meeting activity may carry a transcript"
 }
 
-// FieldFault names the offending field, on every surface.
+// FieldFault names the offending field; the caller's value is left to the
+// wire's own field pointer, not interpolated into the message.
 func (e *TranscriptKindError) FieldFault() (field, code, message string) {
 	return "kind", "invalid", e.Error()
 }

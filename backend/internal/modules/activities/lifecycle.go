@@ -57,6 +57,19 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		if in.IfVersion != nil && current.Version != nil && int64(*current.Version) != *in.IfVersion {
 			return apperrors.ErrVersionSkew
 		}
+		// A transcript's normalized form is only ever produced on ingest
+		// (LogActivityInputFrom): without this, a PATCH could leave a
+		// transcript-marked row holding un-normalized text (raw CRLFs,
+		// trailing whitespace), which is exactly the row the
+		// activity/transcript retention selector and any future line
+		// citation both assume is already canonical.
+		if in.Body != nil && current.SourceSystem != nil && *current.SourceSystem == transcriptSourceSystem {
+			normalized, err := normalizeTranscript(*in.Body)
+			if err != nil {
+				return err
+			}
+			in.Body = &normalized
+		}
 		if in.AssigneeID != nil {
 			// A client-supplied user reference is still a reference; the
 			// FK checks existence, RLS the tenancy.

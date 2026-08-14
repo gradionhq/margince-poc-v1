@@ -1586,10 +1586,14 @@ export const vi = {
   "log.kindNote": "Ghi chú",
   "log.kindTask": "Công việc",
   "log.kindMeeting": "Cuộc họp",
-  "log.transcriptLabel": "Bản ghi",
+  "log.transcriptLabel": "Bản chép lời",
   "log.transcriptHint":
     "Dán từ công cụ họp của bạn (Teams, Zoom, Meet…) — nhãn người nói, nếu có, sẽ được giữ nguyên.",
+  "log.asTranscript": "Đây là một bản chép lời",
   "log.transcriptUpload": "Hoặc tải lên một tệp",
+  "log.transcriptUploadRejected": "Chỉ chấp nhận tệp .txt.",
+  "log.transcriptUploadFailed":
+    "Không thể đọc tệp đó — hãy thử dán văn bản thay vào đó.",
   "log.subject": "Tiêu đề",
   "log.body": "Nội dung",
   "log.dueAt": "Ngày đến hạn",

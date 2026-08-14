@@ -3,13 +3,18 @@
 
 package activities
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
-// TestNormalizeTranscriptCanonicalizesLineEndingsAndWhitespace pins ADR-0058's
-// normalization rule: split on newlines, trim trailing whitespace per line,
-// 1-indexed. The stored form must be reproducible regardless of the pasted
-// source's line-ending or trailing-space conventions, since a later reader
-// cites a line by splitting the same way.
+// TestNormalizeTranscriptCanonicalizesLineEndingsAndWhitespace pins the
+// line-addressing half of ADR-0058's normalization rule: split on newlines,
+// trim trailing whitespace per line, 1-indexed. The stored form must be
+// reproducible regardless of the pasted or uploaded source's line-ending,
+// byte-order mark, or trailing-space conventions, since a later reader cites
+// a line by splitting the same way.
 func TestNormalizeTranscriptCanonicalizesLineEndingsAndWhitespace(t *testing.T) {
 	cases := []struct {
 		name string
@@ -41,6 +46,16 @@ func TestNormalizeTranscriptCanonicalizesLineEndingsAndWhitespace(t *testing.T) 
 			in:   "Anna: hello\n\nBen: hi",
 			want: "Anna: hello\n\nBen: hi",
 		},
+		{
+			name: "a leading byte-order mark is stripped",
+			in:   "\uFEFFAnna: hello",
+			want: "Anna: hello",
+		},
+		{
+			name: "NUL and other C0 control bytes are stripped, a mid-line tab is kept",
+			in:   "Anna:\x00 hel\x01lo\tthere",
+			want: "Anna: hello\tthere",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,5 +78,20 @@ func TestNormalizeTranscriptRefusesBlankInput(t *testing.T) {
 		if _, err := normalizeTranscript(in); err == nil {
 			t.Errorf("normalizeTranscript(%q) = nil error, want a refusal", in)
 		}
+	}
+}
+
+// TestNormalizeTranscriptRefusesAnOversizedTranscript: activity.search_tsv is
+// a GENERATED tsvector column over subject+body, and Postgres's tsvector
+// output has its own hard 1,048,575-byte ceiling — well under the chassis's
+// 1 MiB request cap. A transcript large enough to cross it must be refused
+// here, as a typed 422, rather than surfacing as an unmapped 500 at the
+// write.
+func TestNormalizeTranscriptRefusesAnOversizedTranscript(t *testing.T) {
+	oversized := strings.Repeat("a", maxTranscriptBytes+1)
+	_, err := normalizeTranscript(oversized)
+	var tooLarge oversizedTranscriptError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("err = %v, want oversizedTranscriptError", err)
 	}
 }

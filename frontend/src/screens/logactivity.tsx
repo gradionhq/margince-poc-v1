@@ -5,6 +5,7 @@ import type { EntityKind } from "../app/entity";
 import {
   Button,
   Card,
+  Checkbox,
   Field,
   Modal,
   Textarea,
@@ -29,6 +30,13 @@ type ActivityDraft = {
   body: string;
   // yyyy-mm-dd from the date input; only a task carries a due date.
   dueAt: string;
+  // A meeting's body is ordinary notes UNLESS this is explicitly checked —
+  // otherwise "discussed pricing, follow up Tuesday" typed while logging a
+  // meeting would silently carry source_system: transcript, which the
+  // backend documents as meaning pasted/uploaded transcript TEXT and which
+  // the activity/transcript retention scope sweeps on a different schedule
+  // than an ordinary meeting note. Meaningless outside kind: meeting.
+  asTranscript: boolean;
 };
 
 const EMPTY_DRAFT: ActivityDraft = {
@@ -36,7 +44,14 @@ const EMPTY_DRAFT: ActivityDraft = {
   subject: "",
   body: "",
   dueAt: "",
+  asTranscript: false,
 };
+
+// Only a plain-text paste round-trips through normalizeTranscript's line
+// splitting the way ADR-0058's line-addressing promises: a `.vtt` file's cue
+// timestamps and header would themselves become "transcript lines", pointing
+// any future line citation at a timestamp instead of what was said.
+const ACCEPTED_TRANSCRIPT_EXTENSION = ".txt";
 
 /**
  * LogActivityForm is the composer itself, without a frame, so the same fields
@@ -61,6 +76,7 @@ export function LogActivityForm({
   const [draft, setDraft] = useState<ActivityDraft>(
     initialKind ? { ...EMPTY_DRAFT, kind: initialKind } : EMPTY_DRAFT,
   );
+  const [fileError, setFileError] = useState<string | null>(null);
 
   const log = useMutation({
     mutationFn: async (input: ActivityDraft) => {
@@ -68,15 +84,24 @@ export function LogActivityForm({
       // source_system: transcript is what routes the body through the
       // server's ADR-0058 normalizer and what the activity/transcript
       // retention scope keys its sweep on (see backend logActivity's
-      // `transcript` example) — only meaningful when there is text to
-      // normalize, so a meeting logged with no pasted transcript stays an
-      // ordinary meeting activity.
-      const isTranscript = input.kind === "meeting" && trimmedBody !== "";
+      // `transcript` example) — only when the writer has explicitly marked
+      // this text as one (asTranscript), never inferred from kind: meeting
+      // alone, or ordinary meeting notes would carry a marker meaning
+      // something else and sweep on a different retention schedule.
+      const isTranscript = input.kind === "meeting" && input.asTranscript;
+      // A transcript is sent RAW, not trimmed: the server's normalizer
+      // (transcriptnorm.go) is the one place line-1-indexing gets decided,
+      // and it only trims trailing whitespace per line — a leading blank
+      // line or leading indentation the client stripped first would make a
+      // transcript pasted here normalize to different stored text (and
+      // different line numbers) than the identical paste sent by an agent
+      // or another client straight to the API.
+      const outgoingBody = isTranscript ? input.body : trimmedBody;
       const { data, error } = await api.POST("/activities", {
         body: {
           kind: input.kind,
           subject: input.subject.trim(),
-          body: trimmedBody || null,
+          body: outgoingBody || null,
           occurred_at: new Date().toISOString(),
           ...(input.kind === "task" && input.dueAt
             ? { due_at: new Date(input.dueAt).toISOString() }
@@ -162,41 +187,54 @@ export function LogActivityForm({
           />
         )}
       </Field>
+      {draft.kind === "meeting" && (
+        <Checkbox
+          label={t("log.asTranscript")}
+          checked={draft.asTranscript}
+          onChange={(event) => setField({ asTranscript: event.target.checked })}
+        />
+      )}
       <Field
-        label={
-          draft.kind === "meeting" ? t("log.transcriptLabel") : t("log.body")
-        }
-        hint={draft.kind === "meeting" ? t("log.transcriptHint") : undefined}
+        label={draft.asTranscript ? t("log.transcriptLabel") : t("log.body")}
+        hint={draft.asTranscript ? t("log.transcriptHint") : undefined}
       >
         {(control) => (
           <Textarea
             {...control}
-            rows={draft.kind === "meeting" ? 10 : 3}
+            rows={draft.asTranscript ? 10 : 3}
             value={draft.body}
             onChange={(event) => setField({ body: event.target.value })}
           />
         )}
       </Field>
-      {draft.kind === "meeting" && (
-        <Field label={t("log.transcriptUpload")}>
+      {draft.kind === "meeting" && draft.asTranscript && (
+        <Field label={t("log.transcriptUpload")} hint={fileError ?? undefined}>
           {(control) => (
-            <input
+            <TextInput
               {...control}
               type="file"
-              accept=".txt,.vtt,text/plain,text/vtt"
-              onChange={(event) => {
+              accept={ACCEPTED_TRANSCRIPT_EXTENSION}
+              onChange={async (event) => {
                 const file = event.target.files?.[0];
+                event.target.value = "";
                 if (!file) {
                   return;
                 }
-                const reader = new FileReader();
-                reader.onload = () => {
-                  if (typeof reader.result === "string") {
-                    setField({ body: reader.result });
-                  }
-                };
-                reader.readAsText(file);
-                event.target.value = "";
+                if (
+                  !file.name
+                    .toLowerCase()
+                    .endsWith(ACCEPTED_TRANSCRIPT_EXTENSION)
+                ) {
+                  setFileError(t("log.transcriptUploadRejected"));
+                  return;
+                }
+                try {
+                  const text = await file.text();
+                  setFileError(null);
+                  setField({ body: text });
+                } catch {
+                  setFileError(t("log.transcriptUploadFailed"));
+                }
               }}
             />
           )}
