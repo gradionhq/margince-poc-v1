@@ -285,6 +285,11 @@ export function useVoiceCorpus({
           id: `onboarding:upload:${file.name}`,
           name: file.name,
         });
+        // No known-refs set is passed here, and that is the honest answer
+        // rather than an omission: this act's `manifest` holds only what THIS
+        // session added, so it cannot say what the profile already stores. A
+        // reader in onboarding is building a first corpus anyway, which by
+        // definition has no older rows to collide with.
         runIntake(
           async (stamp) => {
             const text = await file.text();

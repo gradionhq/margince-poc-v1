@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import type { IntakeOutcome, RefusalReason } from "./voice-intake-core";
@@ -75,6 +76,19 @@ type UseVoiceIntakeArgs = Readonly<{
 }>;
 
 export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
+  const qc = useQueryClient();
+  // The keys this profile's sources are ALREADY stored under, read from the
+  // manifest the card has fetched rather than asked for again. A source whose
+  // row predates the current key format is re-added under the key it already
+  // has, so the ingest updates that row instead of writing a second copy of
+  // the same writing beside it.
+  const knownRefs = useCallback((): ReadonlySet<string> => {
+    const manifest = qc.getQueryData<{
+      sources: readonly { source_ref: string }[];
+    }>(["voice-sources", profileId]);
+    return new Set((manifest?.sources ?? []).map((s) => s.source_ref));
+  }, [qc, profileId]);
+
   const [asks, setAsks] = useState<readonly SpeakerAsk[]>([]);
   const [notices, setNotices] = useState<readonly IntakeNotice[]>([]);
   const [inFlight, setInFlight] = useState(0);
@@ -265,23 +279,23 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
         runIntake(file.name, async () => {
           const text = await file.text();
           return intakeUpload(
-            sourceRef("upload", file.name, text),
+            sourceRef("upload", file.name, text, knownRefs()),
             file.name,
             text,
           );
         });
       }
     },
-    [note, runIntake],
+    [knownRefs, note, runIntake],
   );
 
   const addPaste = useCallback(
     (text: string, label: string) => {
       runIntake(label, () =>
-        intakePaste(sourceRef("paste", label, text), label, text),
+        intakePaste(sourceRef("paste", label, text, knownRefs()), label, text),
       );
     },
-    [runIntake],
+    [knownRefs, runIntake],
   );
 
   const pendingAsk = asks[0] ?? null;
