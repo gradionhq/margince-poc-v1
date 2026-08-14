@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -69,14 +70,23 @@ func UnmarshalTranscriptStepProposal(raw json.RawMessage) (TranscriptStepProposa
 // could not be used closes the run as failed and returns nil, because retrying
 // would ask the same question of the same text and get the same answer.
 func (p *TranscriptProposer) Read(ctx context.Context, store transcriptReadStore, readID ids.UUID, activityID ids.ActivityID) error {
-	if _, err := store.BeginTranscriptRead(ctx, readID); err != nil {
+	if _, err := store.BeginTranscriptRead(ctx, readID, activities.TranscriptReadLease); err != nil {
 		return err
 	}
 	reading, err := store.ReadTranscript(ctx, activityID)
 	if err != nil {
-		return p.fail(ctx, store, readID, err.Error())
+		if detail, terminal := unreadableTranscript(err); terminal {
+			return p.fail(ctx, store, readID, detail)
+		}
+		// Anything else — the database unreachable, a scoped transient fault —
+		// is the JOB's to retry. Closing the reading here would turn a blip
+		// into a permanent verdict the rep has to notice and undo.
+		return err
 	}
-	if err := withinReadingBounds(reading.Lines); err != nil {
+	// Checked again even though the door checked it: the body can be edited
+	// between the request and the reading, and a re-normalized transcript is a
+	// different size than the one that was queued.
+	if err := activities.WithinReadingBounds(reading.Lines); err != nil {
 		return p.fail(ctx, store, readID, err.Error())
 	}
 	steps, err := p.ask(ctx, reading.Lines)
@@ -92,8 +102,9 @@ func (p *TranscriptProposer) Read(ctx context.Context, store transcriptReadStore
 	kept := aboveFloor(steps)
 	if len(kept) == 0 {
 		return store.FinishTranscriptRead(ctx, readID, activities.TranscriptReadOutcome{
-			Status: activities.TranscriptReadDone,
-			Detail: "this transcript states no next steps clearly enough to propose one",
+			Status:    activities.TranscriptReadDone,
+			Detail:    "this transcript states no next steps clearly enough to propose one",
+			LineCount: len(reading.Lines),
 		})
 	}
 	staged, err := p.stage(ctx, kept, reading, activityID)
@@ -103,7 +114,29 @@ func (p *TranscriptProposer) Read(ctx context.Context, store transcriptReadStore
 	return store.FinishTranscriptRead(ctx, readID, activities.TranscriptReadOutcome{
 		Status:      activities.TranscriptReadDone,
 		ProposalIDs: staged,
+		LineCount:   len(reading.Lines),
 	})
+}
+
+// unreadableTranscript separates a refusal a rep can act on from a fault the
+// job should retry, and answers with the message the rep is shown.
+//
+// Only the typed refusals reach status_detail. A raw err.Error() there would
+// put a driver string ("failed to connect to host=…") in front of a rep on the
+// one field this feature exists to make readable, and would settle a transient
+// blip as a permanent failure.
+func unreadableTranscript(err error) (detail string, terminal bool) {
+	var notTranscript *activities.NotATranscriptError
+	var tooLong *activities.TranscriptTooLongError
+	switch {
+	case errors.As(err, &notTranscript), errors.As(err, &tooLong):
+		return err.Error(), true
+	case errors.Is(err, activities.ErrBlankTranscript):
+		return "this transcript is empty, so there is nothing to read", true
+	case errors.Is(err, apperrors.ErrNotFound):
+		return "this transcript is no longer available to read", true
+	}
+	return "", false
 }
 
 // fail closes the run with a reason a rep can act on. A failure to record the

@@ -229,6 +229,14 @@ export function TranscriptReadCard({
       style={{ marginTop: "var(--space-3)" }}
     >
       {latest.isPending && <Skeleton width="40%" />}
+      {/* A 404 is "never read" and resolves to null; anything else means we do
+          not KNOW whether this transcript has been read. Saying so beats an
+          empty card, which reads as a confident "not yet". */}
+      {latest.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {problemMessageOf(latest.error, t)}
+        </p>
+      )}
       {start.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
           {problemMessageOf(start.error, t)}

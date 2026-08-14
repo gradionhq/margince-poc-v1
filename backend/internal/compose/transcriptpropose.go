@@ -50,15 +50,16 @@ const (
 	// eight next steps has not been read, it has been summarized — and eight
 	// questions in the inbox is not a confirmation flow, it is a form.
 	maxTranscriptProposals = 5
-	// maxTranscriptPromptLines and maxTranscriptPromptChars bound what one
-	// reading addresses. Beyond them the read FAILS with a message that says
-	// so, rather than reading a prefix: a proposal set that silently covers the
-	// first half of a meeting looks exactly like one that covers all of it.
-	maxTranscriptPromptLines = 600
-	maxTranscriptPromptChars = 60000
 	// maxTranscriptCitedLines bounds one claim's citation. A commitment stated
 	// across more than a few lines is being summarized, not located.
 	maxTranscriptCitedLines = 6
+	// maxProposedSummary and maxProposedOwner bound the two free-text fields a
+	// reply chooses. They are MODEL output derived from text a counterparty may
+	// have written, and they land in an inbox row a human reads — an unbounded
+	// summary is a way to push a wall of text in front of the reviewer, and the
+	// approvals summary sanitizer only trims what reaches ITS field.
+	maxProposedSummary = 200
+	maxProposedOwner   = 80
 )
 
 const transcriptSystem = `You read one meeting or call transcript and report the NEXT STEPS and COMMITMENTS
@@ -212,6 +213,12 @@ func validateProposedStep(step proposedStep, lineCount int) string {
 		return "a proposal carries no summary, so nothing in the inbox would say what was promised"
 	case strings.TrimSpace(step.Owner) == "":
 		return "a proposal names no owner, so nobody would know whose commitment it was"
+	case len(step.Summary) > maxProposedSummary:
+		return fmt.Sprintf("a proposal's summary is %d characters, and at most %d may be proposed — a next step is one sentence",
+			len(step.Summary), maxProposedSummary)
+	case len(step.Owner) > maxProposedOwner:
+		return fmt.Sprintf("a proposal's owner is %d characters, and at most %d may be proposed",
+			len(step.Owner), maxProposedOwner)
 	case len(step.SourceLines) == 0:
 		return fmt.Sprintf("proposal %q cites no line, and an uncited next step is a guess",
 			clampToken(step.Summary))
@@ -277,33 +284,6 @@ func aboveFloor(steps []proposedStep) []proposedStep {
 	return kept
 }
 
-// transcriptTooLongError explains a refusal a rep can act on, naming the size
-// of the thing they gave and the size a reading addresses.
-type transcriptTooLongError struct {
-	lines, chars int
-}
-
-func (e transcriptTooLongError) Error() string {
-	return fmt.Sprintf(
-		"this transcript is %d lines / %d characters, and one reading addresses at most %d lines / %d characters; "+
-			"log the meeting as more than one transcript and read each",
-		e.lines, e.chars, maxTranscriptPromptLines, maxTranscriptPromptChars)
-}
-
-// withinReadingBounds refuses a transcript larger than one reading covers. It
-// refuses rather than truncating because a proposal set covering the first half
-// of a meeting is indistinguishable from one covering all of it.
-func withinReadingBounds(lines []string) error {
-	chars := 0
-	for _, line := range lines {
-		chars += len(line) + 1
-	}
-	if len(lines) > maxTranscriptPromptLines || chars > maxTranscriptPromptChars {
-		return transcriptTooLongError{lines: len(lines), chars: chars}
-	}
-	return nil
-}
-
 // stepEvidence renders the lines one proposal was read from as the approval's
 // evidence, quoting the transcript rather than the model's paraphrase of it —
 // the point is to show the human what the text actually says.
@@ -314,7 +294,10 @@ func stepEvidence(step proposedStep, lines []string, activityID ids.ActivityID) 
 	}
 	snippet := strings.Join(quoted, "\n")
 	if len(snippet) > maxEvidenceSnippetChars {
-		snippet = snippet[:maxEvidenceSnippetChars]
+		// Trimmed on a rune boundary: cutting mid-sequence would replace the
+		// last character with U+FFFD, so a quotation of the transcript would
+		// end in a glyph the transcript does not contain.
+		snippet = strings.ToValidUTF8(snippet[:maxEvidenceSnippetChars], "")
 	}
 	return approvals.Evidence{
 		Snippet:     snippet,
@@ -333,7 +316,7 @@ const maxEvidenceSnippetChars = 500
 // A narrow interface because the engine's whole relationship with the module is
 // these three calls, and naming them is what says the engine owns no rows.
 type transcriptReadStore interface {
-	BeginTranscriptRead(ctx context.Context, readID ids.UUID) (activities.TranscriptRead, error)
+	BeginTranscriptRead(ctx context.Context, readID ids.UUID, reclaimAfter time.Duration) (activities.TranscriptRead, error)
 	ReadTranscript(ctx context.Context, activityID ids.ActivityID) (activities.TranscriptReading, error)
 	FinishTranscriptRead(ctx context.Context, readID ids.UUID, outcome activities.TranscriptReadOutcome) error
 }

@@ -38,6 +38,11 @@ const fieldBody = "body"
 // (privacy/retentionselectors.go) keys its sweep on.
 const transcriptSourceSystem = "transcript"
 
+// faultInvalid is the RFC 7807 code every field refusal in this module carries:
+// the value is well-formed enough to have reached us and is still not one this
+// field accepts.
+const faultInvalid = "invalid"
+
 // TranscriptKindError maps to 422: a transcript is a recording of a
 // conversation, so it only makes sense on the two activity kinds that ARE
 // one. The message never echoes the caller's kind — this fires before the
@@ -52,7 +57,7 @@ func (e *TranscriptKindError) Error() string {
 // FieldFault names the offending field; the caller's value is left to the
 // wire's own field pointer, not interpolated into the message.
 func (e *TranscriptKindError) FieldFault() (field, code, message string) {
-	return "kind", "invalid", e.Error()
+	return "kind", faultInvalid, e.Error()
 }
 
 // pathID asserts a contract path id as entity K's id — the widening

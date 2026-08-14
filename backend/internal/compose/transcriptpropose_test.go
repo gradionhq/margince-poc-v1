@@ -134,28 +134,6 @@ func TestTheConfidenceFloorDropsAnUnsureReadingRatherThanRefusingIt(t *testing.T
 	}
 }
 
-func TestATranscriptTooLargeForOneReadingIsRefusedRatherThanReadInPart(t *testing.T) {
-	if err := withinReadingBounds(meetingLines()); err != nil {
-		t.Fatalf("an ordinary transcript is within bounds, got %v", err)
-	}
-	tooManyLines := make([]string, maxTranscriptPromptLines+1)
-	for i := range tooManyLines {
-		tooManyLines[i] = "Dana: noted."
-	}
-	err := withinReadingBounds(tooManyLines)
-	if err == nil {
-		t.Fatal("a transcript past the line bound must be refused; a reading of its first half is indistinguishable from a reading of all of it")
-	}
-	if !strings.Contains(err.Error(), "log the meeting as more than one transcript") {
-		t.Errorf("the refusal must say what to do about it, got %q", err.Error())
-	}
-
-	oneEnormousLine := []string{strings.Repeat("x", maxTranscriptPromptChars+1)}
-	if withinReadingBounds(oneEnormousLine) == nil {
-		t.Error("the character bound must hold even when the line bound does not")
-	}
-}
-
 func TestEvidenceQuotesTheTranscriptRatherThanTheModelsParaphrase(t *testing.T) {
 	lines := meetingLines()
 	activityID := ids.New[ids.ActivityKind]()

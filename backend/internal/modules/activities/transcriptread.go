@@ -37,7 +37,7 @@ import (
 // message never echoes the caller's kind — an activity kind reaching here has
 // already passed the DB CHECK, but the same rule that keeps TranscriptKindError
 // quiet applies to every message a client sees.
-type NotATranscriptError struct{ Kind string }
+type NotATranscriptError struct{}
 
 func (e *NotATranscriptError) Error() string {
 	return "only an activity logged with source_system=transcript can be read for next steps"
@@ -46,8 +46,18 @@ func (e *NotATranscriptError) Error() string {
 // FieldFault names the offending field; the caller's value is left to the
 // wire's own field pointer, not interpolated into the message.
 func (e *NotATranscriptError) FieldFault() (field, code, message string) {
-	return "id", "invalid", e.Error()
+	return "id", faultInvalid, e.Error()
 }
+
+// TranscriptReadLease is how long a claimed reading may go unfinished before it
+// is treated as abandoned. The job's own wall is four minutes; the extra minute
+// is the terminal write's headroom, so a worker that is merely slow to close a
+// reading never has it taken away mid-commit.
+//
+// One number, read by both halves: the worker claims with it and the door
+// re-arms with it. Two numbers here would let a reading be reclaimable by one
+// and not the other, which is the state nothing can get out of.
+const TranscriptReadLease = 5 * time.Minute
 
 // Transcript read statuses. Queued and running are live; done and failed are
 // terminal. Done with no proposals is a CORRECT answer — a transcript that
@@ -157,12 +167,56 @@ func (s *Store) StartTranscriptReadQueued(
 			SELECT `+transcriptReadColumns+`
 			  FROM transcript_read
 			 WHERE activity_id = $1 AND status IN ('queued','running')`, activityID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The reading finished between the insert's conflict and this
+			// select. Nothing is wrong and nothing is in flight — saying so
+			// beats a 500 on an innocent second press.
+			return fmt.Errorf("%w: the previous reading of this transcript finished as this one was starting; ask again",
+				apperrors.ErrConflict)
+		}
 		if err != nil {
 			return fmt.Errorf("join in-flight transcript read: %w", err)
 		}
-		return nil
+		return s.rearmIfAbandoned(ctx, tx, &out, enqueue)
 	})
 	return out, joined, err
+}
+
+// rearmIfAbandoned hands a dead reading back to a worker.
+//
+// A row still `running` past its lease is not a live reading: the worker that
+// claimed it was killed, timed out, or exhausted its retries. Nothing else
+// would ever pick it up — a finished job is not re-enqueued, and
+// uq_transcript_read_inflight makes the corpse block every new reading of that
+// transcript — so without this the transcript is unreadable for good.
+//
+// Pressing the button again is therefore the recovery path, which is also the
+// thing a rep would try unprompted.
+func (s *Store) rearmIfAbandoned(
+	ctx context.Context, tx pgx.Tx, read *TranscriptRead, enqueue TranscriptReadEnqueue,
+) error {
+	if read.Status != TranscriptReadRunning {
+		return nil
+	}
+	rearmed, err := scanTranscriptRead(tx.QueryRow(ctx, `
+		UPDATE transcript_read
+		   SET status = 'queued', started_at = NULL, status_detail = NULL
+		 WHERE id = $1
+		   AND status = 'running'
+		   AND started_at < now() - ($2 * interval '1 microsecond')
+		RETURNING `+transcriptReadColumns, read.ID, TranscriptReadLease.Microseconds()))
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Inside its lease: a real worker holds it, and joining is correct.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("re-arm abandoned transcript read: %w", err)
+	}
+	*read = rearmed
+	if enqueue == nil {
+		return nil
+	}
+	return enqueue(ctx, tx, rearmed)
 }
 
 // transcriptLineCount resolves how many addressable lines the transcript has,
@@ -176,12 +230,19 @@ func transcriptLineCount(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 		return 0, err
 	}
 	if activity.SourceSystem == nil || *activity.SourceSystem != transcriptSourceSystem {
-		return 0, &NotATranscriptError{Kind: string(activity.Kind)}
+		return 0, &NotATranscriptError{}
 	}
 	if activity.Body == nil || *activity.Body == "" {
 		return 0, ErrBlankTranscript
 	}
-	return len(transcriptLines(*activity.Body)), nil
+	lines := transcriptLines(*activity.Body)
+	// Refused at the door rather than by the worker: everything needed to say
+	// no is already in hand here, and a queued reading that fails minutes later
+	// for a reason knowable now is a worse answer to the same question.
+	if err := WithinReadingBounds(lines); err != nil {
+		return 0, err
+	}
+	return len(lines), nil
 }
 
 // TranscriptReading is everything a reader needs about one transcript, read
@@ -213,7 +274,7 @@ func (s *Store) ReadTranscript(ctx context.Context, activityID ids.ActivityID) (
 			return err
 		}
 		if activity.SourceSystem == nil || *activity.SourceSystem != transcriptSourceSystem {
-			return &NotATranscriptError{Kind: string(activity.Kind)}
+			return &NotATranscriptError{}
 		}
 		if activity.Body == nil || *activity.Body == "" {
 			return ErrBlankTranscript
@@ -232,24 +293,43 @@ func (s *Store) ReadTranscript(ctx context.Context, activityID ids.ActivityID) (
 	return out, err
 }
 
-// BeginTranscriptRead claims a queued reading, moving it to running. The
-// compare-and-set is the claim: a second worker handed the same job by an
-// at-least-once queue finds no queued row and stops, rather than reading and
-// billing the same transcript twice.
-func (s *Store) BeginTranscriptRead(ctx context.Context, readID ids.UUID) (TranscriptRead, error) {
+// BeginTranscriptRead claims a queued reading, moving it to running.
+//
+// The compare-and-set is the claim, and it has TWO arms because a second
+// delivery of the same job means two different things. A live holder is inside
+// its lease and must be left alone — reading the transcript twice bills it
+// twice and stages every proposal in duplicate. A holder past its lease is a
+// dead attempt: the worker was killed, timed out, or the process went away
+// mid-model-call, and the row it left behind is `running` with nobody working
+// it.
+//
+// Without the second arm every retry after a transient provider failure finds
+// the row already running, declines it as somebody else's, and returns. The
+// reading is then stranded running forever — and because uq_transcript_read_inflight
+// counts `running` as in flight, the transcript becomes permanently unreadable:
+// every later attempt joins the corpse instead of starting a reading.
+func (s *Store) BeginTranscriptRead(ctx context.Context, readID ids.UUID, reclaimAfter time.Duration) (TranscriptRead, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return TranscriptRead{}, err
+	}
+	if reclaimAfter <= 0 {
+		return TranscriptRead{}, errors.New("activities: the transcript-read reclaim interval must be positive")
 	}
 	var out TranscriptRead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
+		// RETURNING hands the worker the CLAIMED row's own identity, so the
+		// reading is attributed to whoever the row says asked for it rather
+		// than to a job payload that could in principle disagree with it.
 		out, err = scanTranscriptRead(tx.QueryRow(ctx, `
 			UPDATE transcript_read
-			   SET status = 'running', started_at = now()
-			 WHERE id = $1 AND status = 'queued'
-			RETURNING `+transcriptReadColumns, readID))
+			   SET status = 'running', status_detail = NULL, started_at = now()
+			 WHERE id = $1
+			   AND (status = 'queued'
+			     OR (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
+			RETURNING `+transcriptReadColumns, readID, reclaimAfter.Microseconds()))
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: transcript read %s is not queued", apperrors.ErrConflict, readID)
+			return fmt.Errorf("%w: transcript read %s is not claimable", apperrors.ErrConflict, readID)
 		}
 		if err != nil {
 			return fmt.Errorf("claim transcript read: %w", err)
@@ -270,6 +350,12 @@ type TranscriptReadOutcome struct {
 	Detail string
 	// ProposalIDs are the approvals staged, in the order they were staged.
 	ProposalIDs []ids.UUID
+	// LineCount is how many lines the reading actually addressed. The door
+	// stamps its own count when the reading is queued; this is the count at
+	// READ time, which is the one a citation was checked against — a body
+	// edited in between would otherwise leave "line 3 of 48" describing a
+	// transcript that no longer has 48 lines.
+	LineCount int
 }
 
 // FinishTranscriptRead records what the reading produced and closes it.
@@ -294,9 +380,10 @@ func (s *Store) FinishTranscriptRead(ctx context.Context, readID ids.UUID, outco
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE transcript_read
-			   SET status = $2, status_detail = $3, proposal_ids = $4, finished_at = now()
+			   SET status = $2, status_detail = $3, proposal_ids = $4, finished_at = now(),
+			       line_count = COALESCE($5, line_count)
 			 WHERE id = $1 AND status = 'running'`,
-			readID, outcome.Status, detail, proposals)
+			readID, outcome.Status, detail, proposals, readLineCount(outcome.LineCount))
 		if err != nil {
 			return fmt.Errorf("finish transcript read: %w", err)
 		}
@@ -310,6 +397,15 @@ func (s *Store) FinishTranscriptRead(ctx context.Context, readID ids.UUID, outco
 		}
 		return nil
 	})
+}
+
+// readLineCount keeps the door's own count when the outcome names none — a
+// reading that failed before it split the body has nothing truer to say.
+func readLineCount(count int) *int {
+	if count <= 0 {
+		return nil
+	}
+	return &count
 }
 
 // GetTranscriptRead answers the client's poll. It is a read of a record, so it

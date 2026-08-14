@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -34,15 +36,22 @@ const transcriptProposalSourceSystem = "transcript-proposal"
 // is on the decision's audit row, which is where "who approved this" belongs.
 const transcriptProposalActor = "agent:transcript-proposer"
 
-// transcriptProposalEffect executes an approved next step: redeem-then-create
-// like every 🟡 executor, then log the (possibly human-edited) task through the
-// activities store. The single-use redemption is the exactly-once claim, and
-// the write is additionally idempotent on (source_system, source_id).
+// transcriptProposalEffect executes an approved next step: redeem and create in
+// ONE transaction, so the approval is spent if and only if the task exists.
+//
+// RedeemAndApply rather than Redeem-then-write, because the two-transaction
+// shape has a hole with no way out of it. If the write fails — the meeting was
+// relinked to a deal somebody has since archived, or any transient fault hits
+// the link insert — the approval is already consumed: it cannot be decided
+// again, cannot be redeemed again, and nothing else drives the effect. The task
+// is lost and the rep is told only that "executing the effect failed". Sharing
+// the transaction rolls the redemption back with the write, leaving the
+// proposal exactly where it was, ready to be approved again.
+//
+// The write stays additionally idempotent on (source_system, source_id) keyed
+// to the approval, which is what makes a REPLAY of the whole effect safe.
 func transcriptProposalEffect(svc *approvals.Service, store *activities.Store) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		if _, _, err := svc.Redeem(ctx, approvalID, TranscriptProposalKind, diffHash); err != nil {
-			return err
-		}
 		proposal, err := UnmarshalTranscriptStepProposal(proposedChange)
 		if err != nil {
 			return err
@@ -61,16 +70,18 @@ func transcriptProposalEffect(svc *approvals.Service, store *activities.Store) a
 		body := transcriptTaskBody(proposal)
 		sourceSystem := transcriptProposalSourceSystem
 		sourceID := approvalID.String()
-		_, _, err = store.LogActivity(execCtx, activities.LogActivityInput{
-			Kind:         "task",
-			Subject:      &subject,
-			Body:         &body,
-			SourceSystem: &sourceSystem,
-			SourceID:     &sourceID,
-			Source:       transcriptProposalSourceSystem,
-			Links:        proposal.Links,
+		return svc.RedeemAndApply(ctx, approvalID, TranscriptProposalKind, diffHash, func(tx pgx.Tx) error {
+			_, _, err := store.LogActivityTx(execCtx, tx, activities.LogActivityInput{
+				Kind:         "task",
+				Subject:      &subject,
+				Body:         &body,
+				SourceSystem: &sourceSystem,
+				SourceID:     &sourceID,
+				Source:       transcriptProposalSourceSystem,
+				Links:        proposal.Links,
+			})
+			return err
 		})
-		return err
 	}
 }
 

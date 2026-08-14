@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -99,7 +100,7 @@ func refuseUnreadableTranscript(lines transcriptProposeFixture) error {
 		return errors.New(
 			"transcript_propose/next_steps: the fixture supplies no line, so there is no transcript to read")
 	}
-	if err := withinReadingBounds(lines); err != nil {
+	if err := activities.WithinReadingBounds(lines); err != nil {
 		return fmt.Errorf("transcript_propose/next_steps: %w", err)
 	}
 	for i, line := range lines {

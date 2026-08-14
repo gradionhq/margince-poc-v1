@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The reading gets its own bounded pool for the deep-read reason: it is one
@@ -58,12 +59,35 @@ func transcriptProposeInsertOpts() *river.InsertOpts {
 	}
 }
 
+// withTranscriptReader stamps the principal every write of this reading is
+// attributed to: the reader as the acting agent, the human who asked as the
+// owner of what it produces.
+//
+// It does NOT reuse deep read's withClaimedRequester, which names agent:deepread.
+// Borrowing it stamped every transcript proposal as proposed by the site
+// crawler — so the inbox told the person deciding a proposal that something
+// which never ran had read it. Provenance is written once and never
+// re-derived, which is exactly why it cannot be borrowed from a neighbour.
+func withTranscriptReader(ctx context.Context, requestedBy string, readID ids.UUID) context.Context {
+	requester := requestedByUserID(requestedBy)
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type:       principal.PrincipalSystem,
+		ID:         transcriptProposalActor,
+		UserID:     requester,
+		OnBehalfOf: requester,
+	})
+	return principal.WithCorrelationID(ctx, readID)
+}
+
 // transcriptProposeWorker runs one queued reading. It is always registered on
 // the worker role — with no model lane it FAILS the reading with a reason the
 // rep can see, rather than leaving it queued forever behind a worker that
 // cannot read.
 type transcriptProposeWorker struct {
-	activities *activities.Store
+	// activities is the run record's three movements, named as the seam the
+	// engine already takes rather than the concrete store: the worker's whole
+	// relationship with the module is claim, read, finish.
+	activities transcriptReadStore
 	proposer   *TranscriptProposer
 	log        *slog.Logger
 }
@@ -74,7 +98,7 @@ func (w *transcriptProposeWorker) Work(ctx context.Context, job *river.Job[Trans
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	wsCtx = withClaimedRequester(wsCtx, args.RequestedBy, args.TranscriptReadID)
+	wsCtx = withTranscriptReader(wsCtx, args.RequestedBy, args.TranscriptReadID)
 	if w.proposer == nil {
 		return jobs.FaultContext(ctx, w.declineUnread(wsCtx, args))
 	}
@@ -95,7 +119,7 @@ func (w *transcriptProposeWorker) Work(ctx context.Context, job *river.Job[Trans
 func (w *transcriptProposeWorker) declineUnread(ctx context.Context, args TranscriptProposeArgs) error {
 	w.log.WarnContext(ctx, "transcript reading declined: no model lane configured",
 		"transcript_read_id", args.TranscriptReadID)
-	if _, err := w.activities.BeginTranscriptRead(ctx, args.TranscriptReadID); err != nil {
+	if _, err := w.activities.BeginTranscriptRead(ctx, args.TranscriptReadID, activities.TranscriptReadLease); err != nil {
 		if errors.Is(err, apperrors.ErrConflict) {
 			return nil
 		}

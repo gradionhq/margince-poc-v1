@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -345,4 +346,175 @@ func (e *transcriptEnv) wsString(t *testing.T, sql string, args ...any) string {
 		t.Fatalf("reading %q: %v", sql, err)
 	}
 	return out
+}
+
+// age forces a claimed reading's lease into the past, which is what a killed
+// worker leaves behind. Nothing in the product writes started_at backwards, so
+// this is the only way to reach the state the reclaim exists for.
+func (e *transcriptEnv) age(t *testing.T, readID ids.UUID, by time.Duration) {
+	t.Helper()
+	e.WsExec(t, `UPDATE transcript_read SET started_at = now() - ($2 * interval '1 microsecond') WHERE id = $1`,
+		readID, by.Microseconds())
+}
+
+func TestAReadingAbandonedByADeadWorkerIsClaimableAgain(t *testing.T) {
+	e := setupTranscript(t)
+	started, _, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("starting the reading: %v", err)
+	}
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err != nil {
+		t.Fatalf("claiming the reading: %v", err)
+	}
+
+	// A live holder keeps it: reading the same transcript twice bills it twice
+	// and stages every proposal in duplicate.
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err == nil {
+		t.Fatal("a reading inside its lease must not be claimable by a second worker")
+	}
+
+	e.age(t, started.ID, activities.TranscriptReadLease+time.Minute)
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err != nil {
+		t.Fatalf("a reading past its lease is a dead attempt and must be reclaimable, got %v", err)
+	}
+}
+
+func TestAskingAgainReArmsAReadingNobodyIsWorking(t *testing.T) {
+	e := setupTranscript(t)
+	started, _, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("starting the reading: %v", err)
+	}
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err != nil {
+		t.Fatalf("claiming the reading: %v", err)
+	}
+	e.age(t, started.ID, activities.TranscriptReadLease+time.Minute)
+
+	// Without this the transcript would be unreadable for good: the in-flight
+	// index counts the corpse, so every later attempt joins it instead of
+	// starting a reading, and no job exists to move it.
+	enqueued := 0
+	rejoined, joined, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(),
+		func(context.Context, pgx.Tx, activities.TranscriptRead) error {
+			enqueued++
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("asking again: %v", err)
+	}
+	if !joined || rejoined.ID != started.ID {
+		t.Fatalf("the abandoned reading is re-armed, not replaced: got %s (joined=%v), want %s", rejoined.ID, joined, started.ID)
+	}
+	if rejoined.Status != activities.TranscriptReadQueued {
+		t.Errorf("a re-armed reading must be queued again, got %q", rejoined.Status)
+	}
+	if enqueued != 1 {
+		t.Errorf("re-arming must hand the reading back to a worker exactly once, got %d enqueues", enqueued)
+	}
+}
+
+func TestAReadingInFlightIsJoinedRatherThanReArmed(t *testing.T) {
+	e := setupTranscript(t)
+	started, _, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("starting the reading: %v", err)
+	}
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err != nil {
+		t.Fatalf("claiming the reading: %v", err)
+	}
+
+	enqueued := 0
+	joinedRead, joined, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(),
+		func(context.Context, pgx.Tx, activities.TranscriptRead) error {
+			enqueued++
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("asking again: %v", err)
+	}
+	if !joined || joinedRead.Status != activities.TranscriptReadRunning {
+		t.Errorf("a live reading is joined as it stands, got status %q (joined=%v)", joinedRead.Status, joined)
+	}
+	if enqueued != 0 {
+		t.Errorf("a reading somebody is working must not be queued a second time, got %d enqueues", enqueued)
+	}
+}
+
+func TestATranscriptTooLongForOneReadingIsRefusedAtTheDoor(t *testing.T) {
+	e := setupTranscript(t)
+	long := strings.Repeat("Dana: we discussed the rollout at some length.\n", activities.MaxReadableTranscriptLines+50)
+	subject := "A very long meeting"
+	sourceSystem := "transcript"
+	body := strings.TrimSuffix(long, "\n")
+	activity, _, err := e.Activities.LogActivity(e.ctx, activities.LogActivityInput{
+		Kind: "meeting", Subject: &subject, Body: &body, SourceSystem: &sourceSystem, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("logging the long transcript: %v", err)
+	}
+
+	_, _, err = e.Activities.StartTranscriptReadQueued(
+		e.ctx, ids.From[ids.ActivityKind](ids.UUID(activity.Id)), "human:"+e.Rep1.String(), nil)
+	if err == nil {
+		t.Fatal("a transcript past the reading bound must be refused here, not after a queued job fails minutes later")
+	}
+	var tooLong *activities.TranscriptTooLongError
+	if !errors.As(err, &tooLong) {
+		t.Fatalf("want the too-long refusal, got %v", err)
+	}
+	if e.WsCount(t, `SELECT count(*) FROM transcript_read`) != 0 {
+		t.Error("a refused request must leave no run record behind")
+	}
+}
+
+func TestTheLatestReadingIsFindableAfterTheTabThatStartedItIsGone(t *testing.T) {
+	e := setupTranscript(t)
+	if _, err := e.Activities.LatestTranscriptRead(e.ctx, e.activity); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("a transcript nobody has read must answer not-found — the honest difference between never tried and tried and got nothing; got %v", err)
+	}
+
+	read := e.read(t, cannedBrain{reply: groundedReply(t, 3, 0.9)})
+	latest, err := e.Activities.LatestTranscriptRead(e.ctx, e.activity)
+	if err != nil {
+		t.Fatalf("finding the latest reading: %v", err)
+	}
+	if latest.ID != read.ID {
+		t.Errorf("want the reading that just finished (%s), got %s", read.ID, latest.ID)
+	}
+}
+
+func TestAFinishedReadingMustSayWhatItProducedOrWhyItDidNot(t *testing.T) {
+	e := setupTranscript(t)
+	started, _, err := e.Activities.StartTranscriptReadQueued(e.ctx, e.activity, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("starting the reading: %v", err)
+	}
+	if _, err := e.Activities.BeginTranscriptRead(e.ctx, started.ID, activities.TranscriptReadLease); err != nil {
+		t.Fatalf("claiming the reading: %v", err)
+	}
+
+	if err := e.Activities.FinishTranscriptRead(e.ctx, started.ID, activities.TranscriptReadOutcome{
+		Status: activities.TranscriptReadRunning,
+	}); err == nil {
+		t.Error("a reading finishes done or failed; running is not a terminal state")
+	}
+	if err := e.Activities.FinishTranscriptRead(e.ctx, started.ID, activities.TranscriptReadOutcome{
+		Status: activities.TranscriptReadDone,
+	}); err == nil {
+		t.Error("an empty result that does not explain itself is indistinguishable from a broken one and must be refused")
+	}
+}
+
+func TestARepWhoMayNotAddToTheTimelineCannotStartAReading(t *testing.T) {
+	e := setupTranscript(t)
+	readOnly := transcriptPerms
+	readOnly.Objects = map[string]principal.ObjectGrant{
+		"activity":              {Read: true},
+		"installation_settings": {Read: true},
+	}
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, readOnly)
+
+	if _, _, err := e.Activities.StartTranscriptReadQueued(ctx, e.activity, "human:"+e.Rep1.String(), nil); err == nil {
+		t.Fatal("a caller who could not accept any outcome of the reading has nothing to gain from starting it")
+	}
 }
