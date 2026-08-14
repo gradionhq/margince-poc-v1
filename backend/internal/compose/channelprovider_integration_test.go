@@ -36,7 +36,7 @@ func TestReconcileChannelProvidersInsertsAnUnseenProvider(t *testing.T) {
 		}
 	})
 
-	// telegram is already seeded by migration 0239; assert the reconcile is a
+	// telegram is already seeded by migration 0240; assert the reconcile is a
 	// no-op for it and does insert BOTH the activity_kind and channel_provider
 	// rows for a genuinely new one — standing in for "core ships a second
 	// channel connector" without adding one.
