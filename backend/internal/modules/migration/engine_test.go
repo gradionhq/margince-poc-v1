@@ -76,6 +76,7 @@ func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 			// first, which is the whole claim. A nil tx proves it.
 			return s.RecordIdentityTx(ctx, nil, runID, "hubspot", "contact", "1", ids.NewV7())
 		}},
+		{"Undo", func() error { _, err := s.Undo(ctx, runID, nil); return err }},
 	} {
 		t.Run(entry.name, func(t *testing.T) {
 			if err := entry.call(); !errors.Is(err, apperrors.ErrPermissionDenied) {
@@ -615,7 +616,7 @@ func TestEveryRunStoreEntryPointIsGateChecked(t *testing.T) {
 		"RecordIdentity": true, "RecordIdentities": true, "Resume": true,
 		"CreateStagedRun": true, "AwaitApproval": true, "Approve": true,
 		"ResumeApproved": true, "FailValidation": true, "GetStaged": true,
-		"RecordIdentityTx": true,
+		"RecordIdentityTx": true, "Undo": true,
 	}
 	rt := reflect.TypeOf(&RunStore{})
 	for i := range rt.NumMethod() {

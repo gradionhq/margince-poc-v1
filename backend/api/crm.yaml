@@ -10921,6 +10921,43 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }   # not awaiting_approval
 
+  /imports/{id}/undo:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Import]
+      operationId: undoImportRun
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Reverse a completed CSV import run.
+      description: |
+        IEM-WIRE-9 (A93; S-E15.4c). Valid **only** from `complete`, and only
+        for the `csv` connector — undoing a run that is still in flight, has
+        already failed, or was never approved is a conflict, and the
+        `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
+        path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
+        import; `hubspot`/`salesforce` are unbuilt).
+
+        Reverses only the rows this run created that nobody has edited since
+        (A93): never an all-or-nothing hard rollback that clobbers a later
+        edit. A row a human touched after import is left exactly as they left
+        it and named in the report's `kept` list, not silently skipped.
+
+        Checkpointed and resumable on the same run record's `checkpoint`
+        field the forward commit already uses (IEM-WIRE-5) — an undo over
+        thousands of rows is the same shape of bulk write the import itself
+        is. Undoing an already-`undone` run is a conflict, not a no-op.
+      responses:
+        '202':
+          description: 'Undo accepted; reversal is under way (or complete — the run record says which).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }   # not complete, not csv, or already undone
+
   /overlay/user-map:
     get:
       tags: [Overlay]
@@ -12694,14 +12731,41 @@ components:
         estimated_duration_seconds:
           type: [integer, 'null']
           description: 'A dry run''s estimate for the commit. Null when the run has already finished and the real duration is on the run record.'
+        undo:
+          allOf: [ { $ref: '#/components/schemas/ImportUndoReport' } ]
+          description: 'Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise.'
 
     ImportRunStatus:
       type: string
-      enum: [pending, validating, awaiting_approval, running, complete, failed]
+      enum: [pending, validating, awaiting_approval, running, complete, failed, undoing, undone]
       description: |
         IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
         carries the checkpoint it stopped at, and resuming continues from
-        there rather than re-reading the file from the top.
+        there rather than re-reading the file from the top. `undoing`/`undone`
+        (IEM-WIRE-9) are the reversal's own states, reachable only from
+        `complete` and only for the `csv` connector.
+
+    ImportUndoReport:
+      type: object
+      description: |
+        The result of undoing a committed import run (IEM-WIRE-9; A93). Which
+        import-created rows were reversed, and which were kept because a
+        human edited them since — the "kept — you edited these" list
+        S-E15.4c requires, not a diff of what changed.
+      required: [run_id, status, reversed_count, kept]
+      properties:
+        run_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ImportRunStatus' }
+        reversed_count: { type: integer, minimum: 0, description: 'Import-created rows that were untouched since and have been reversed (archived).' }
+        kept:
+          type: array
+          description: 'Import-created rows a human edited since import, therefore left in place (A93).'
+          items:
+            type: object
+            required: [object, id]
+            properties:
+              object: { $ref: '#/components/schemas/ImportObject' }
+              id: { type: string, format: uuid }
 
     ImportRun:
       type: object

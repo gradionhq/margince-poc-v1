@@ -7023,6 +7023,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse a completed CSV import run.
+         * @description IEM-WIRE-9 (A93; S-E15.4c). Valid **only** from `complete`, and only
+         *     for the `csv` connector — undoing a run that is still in flight, has
+         *     already failed, or was never approved is a conflict, and the
+         *     `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
+         *     path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
+         *     import; `hubspot`/`salesforce` are unbuilt).
+         *
+         *     Reverses only the rows this run created that nobody has edited since
+         *     (A93): never an all-or-nothing hard rollback that clobbers a later
+         *     edit. A row a human touched after import is left exactly as they left
+         *     it and named in the report's `kept` list, not silently skipped.
+         *
+         *     Checkpointed and resumable on the same run record's `checkpoint`
+         *     field the forward commit already uses (IEM-WIRE-5) — an undo over
+         *     thousands of rows is the same shape of bulk write the import itself
+         *     is. Undoing an already-`undone` run is a conflict, not a no-op.
+         */
+        post: operations["undoImportRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/user-map": {
         parameters: {
             query?: never;
@@ -8318,14 +8355,37 @@ export interface components {
             source_key_used: string;
             /** @description A dry run's estimate for the commit. Null when the run has already finished and the real duration is on the run record. */
             estimated_duration_seconds?: number | null;
+            /** @description Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise. */
+            undo?: components["schemas"]["ImportUndoReport"];
         };
         /**
          * @description IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
          *     carries the checkpoint it stopped at, and resuming continues from
-         *     there rather than re-reading the file from the top.
+         *     there rather than re-reading the file from the top. `undoing`/`undone`
+         *     (IEM-WIRE-9) are the reversal's own states, reachable only from
+         *     `complete` and only for the `csv` connector.
          * @enum {string}
          */
-        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed";
+        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed" | "undoing" | "undone";
+        /**
+         * @description The result of undoing a committed import run (IEM-WIRE-9; A93). Which
+         *     import-created rows were reversed, and which were kept because a
+         *     human edited them since — the "kept — you edited these" list
+         *     S-E15.4c requires, not a diff of what changed.
+         */
+        ImportUndoReport: {
+            /** Format: uuid */
+            run_id: string;
+            status: components["schemas"]["ImportRunStatus"];
+            /** @description Import-created rows that were untouched since and have been reversed (archived). */
+            reversed_count: number;
+            /** @description Import-created rows a human edited since import, therefore left in place (A93). */
+            kept: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+            }[];
+        };
         ImportRun: {
             /** Format: uuid */
             id: string;
@@ -28538,6 +28598,32 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Approved; the commit is under way (or complete — the run record says which). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    undoImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Undo accepted; reversal is under way (or complete — the run record says which). */
             202: {
                 headers: {
                     [name: string]: unknown;

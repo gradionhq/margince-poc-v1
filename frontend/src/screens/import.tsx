@@ -43,7 +43,8 @@ export function ImportCard() {
   const mayImport = mayCreate && mayAdvance;
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useImportFlow();
-  const { profile, mapping, run, report, upload, validate, commit } = flow;
+  const { profile, mapping, run, report, upload, validate, commit, undo } =
+    flow;
 
   // Gated on the grant the STORE demands, not on the admin role: `import_run`
   // is seeded to admin AND ops, so asking for the role would hide the card
@@ -57,8 +58,16 @@ export function ImportCard() {
   // been produced for it yet — the one window in which the human is choosing
   // destinations.
   const showMapping = profile !== null && report === null;
-  const busy = upload.isPending || validate.isPending || commit.isPending;
-  const committed = run?.status === "complete" || run?.status === "failed";
+  const busy =
+    upload.isPending ||
+    validate.isPending ||
+    commit.isPending ||
+    undo.isPending;
+  const committed =
+    run?.status === "complete" ||
+    run?.status === "failed" ||
+    run?.status === "undoing" ||
+    run?.status === "undone";
 
   return (
     <Card title={t("import.title")} sub={t("import.sub")}>
@@ -144,8 +153,11 @@ export function ImportCard() {
             committed={committed}
             busy={busy}
             onCommit={() => commit.mutate(run)}
+            onUndo={() => undo.mutate(run)}
             onRestart={flow.restart}
             error={commit.error}
+            undoError={undo.error}
+            undoBusy={undo.isPending}
           />
         ) : null}
       </div>
@@ -162,20 +174,34 @@ function ImportOutcome({
   committed,
   busy,
   onCommit,
+  onUndo,
   onRestart,
   error,
+  undoError,
+  undoBusy,
 }: Readonly<{
   report: ImportReport;
   run: ImportRun;
   committed: boolean;
   busy: boolean;
   onCommit: () => void;
+  onUndo: () => void;
   onRestart: () => void;
   error: unknown;
+  undoError: unknown;
+  undoBusy: boolean;
 }>) {
   const t = useT();
   const d = report.disposition;
   const resumable = run.status === "failed";
+  // undoing doubles as "reversing" and "a reversal that stopped part-way" —
+  // pressing the same button again resumes it, the same shape `resumable`
+  // already gives the forward commit.
+  const undoInterrupted = run.status === "undoing";
+  const undone = run.status === "undone";
+  // Only a run nobody has touched an undo on yet offers to start one — once
+  // it is undoing or undone, the button below speaks to THAT state instead.
+  const undoable = run.status === "complete";
 
   return (
     <div className="import__outcome">
@@ -216,28 +242,134 @@ function ImportOutcome({
         </Callout>
       ) : null}
 
-      {committed && !resumable ? (
+      {committed && !resumable && !undoInterrupted && !undone ? (
         <Callout tone="success" live="status">
           {t("import.done")}
         </Callout>
-      ) : (
+      ) : null}
+
+      {!committed ? (
         <Button variant="primary" disabled={busy} onClick={onCommit}>
-          {busy
-            ? t("import.importing")
-            : resumable
-              ? t("import.resume")
-              : commitLabel(t, d.created + d.updated)}
+          {busy ? t("import.importing") : commitLabel(t, d.created + d.updated)}
         </Button>
-      )}
+      ) : null}
+
+      {resumable ? (
+        <Button variant="primary" disabled={busy} onClick={onCommit}>
+          {busy ? t("import.importing") : t("import.resume")}
+        </Button>
+      ) : null}
       {error ? (
         <Callout tone="danger" live="alert">
           {problemMessageOf(error, t)}
         </Callout>
       ) : null}
+
+      <UndoSection
+        report={report}
+        undoable={undoable}
+        undoInterrupted={undoInterrupted}
+        undone={undone}
+        busy={busy}
+        undoBusy={undoBusy}
+        undoError={undoError}
+        onUndo={onUndo}
+      />
+
       {committed && !resumable ? (
         <Button variant="ghost" onClick={onRestart}>
           {t("import.another")}
         </Button>
+      ) : null}
+    </div>
+  );
+}
+
+// UndoSection is the whole reversal affordance, pulled out of ImportOutcome
+// to keep that function's branching readable: the interrupted callout, the
+// outcome once undone, the button (which doubles as "start" and "continue"),
+// and its own error.
+function UndoSection({
+  report,
+  undoable,
+  undoInterrupted,
+  undone,
+  busy,
+  undoBusy,
+  undoError,
+  onUndo,
+}: Readonly<{
+  report: ImportReport;
+  undoable: boolean;
+  undoInterrupted: boolean;
+  undone: boolean;
+  busy: boolean;
+  undoBusy: boolean;
+  undoError: unknown;
+  onUndo: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {undoInterrupted ? (
+        <Callout tone="warn" live="status">
+          {t("import.undoInterrupted")}
+        </Callout>
+      ) : null}
+
+      {undone ? <UndoOutcome report={report} /> : null}
+
+      {undoable || undoInterrupted ? (
+        <Button variant="ghost" disabled={busy} onClick={onUndo}>
+          {undoBusy
+            ? t("import.undoing")
+            : undoInterrupted
+              ? t("import.continueUndo")
+              : t("import.undo")}
+        </Button>
+      ) : null}
+      {undoError ? (
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(undoError, t)}
+        </Callout>
+      ) : null}
+    </>
+  );
+}
+
+// UndoOutcome shows what a reversal did: how many rows it reversed, and the
+// "kept — you edited these" list (A93) — a human-edited row is disclosed by
+// name, never silently rewritten back over what they typed.
+function UndoOutcome({ report }: Readonly<{ report: ImportReport }>) {
+  const t = useT();
+  const undo = report.undo;
+  if (!undo) {
+    return null;
+  }
+  return (
+    <div className="import__undoOutcome">
+      <Callout tone="success" live="status">
+        {t("import.undone")}
+      </Callout>
+      <p className="import__hint">
+        {t(
+          undo.reversed_count === 1
+            ? "import.undoReversed.one"
+            : "import.undoReversed.other",
+          { rows: undo.reversed_count },
+        )}
+      </p>
+      {undo.kept.length > 0 ? (
+        <>
+          <p className="import__hint">{t("import.undoKeptLead")}</p>
+          <ul className="import__issues">
+            {undo.kept.map((row) => (
+              <li key={`${row.object}-${row.id}`}>
+                {t(`import.object.${row.object}`)} — {row.id}
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
     </div>
   );

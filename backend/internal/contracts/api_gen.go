@@ -3847,6 +3847,8 @@ const (
 	ImportRunStatusFailed           ImportRunStatus = "failed"
 	ImportRunStatusPending          ImportRunStatus = "pending"
 	ImportRunStatusRunning          ImportRunStatus = "running"
+	ImportRunStatusUndoing          ImportRunStatus = "undoing"
+	ImportRunStatusUndone           ImportRunStatus = "undone"
 	ImportRunStatusValidating       ImportRunStatus = "validating"
 )
 
@@ -3862,6 +3864,10 @@ func (e ImportRunStatus) Valid() bool {
 	case ImportRunStatusPending:
 		return true
 	case ImportRunStatusRunning:
+		return true
+	case ImportRunStatusUndoing:
+		return true
+	case ImportRunStatusUndone:
 		return true
 	case ImportRunStatusValidating:
 		return true
@@ -13166,7 +13172,9 @@ type ImportRun struct {
 
 	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 	// carries the checkpoint it stopped at, and resuming continues from
-	// there rather than re-reading the file from the top.
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
 	Status    ImportRunStatus `json:"status"`
 	UpdatedAt time.Time       `json:"updated_at"`
 }
@@ -13205,13 +13213,20 @@ type ImportRunReport struct {
 
 	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 	// carries the checkpoint it stopped at, and resuming continues from
-	// there rather than re-reading the file from the top.
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
 	Status ImportRunStatus `json:"status"`
+
+	// Undo Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise.
+	Undo *ImportUndoReport `json:"undo,omitempty"`
 }
 
 // ImportRunStatus IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 // carries the checkpoint it stopped at, and resuming continues from
-// there rather than re-reading the file from the top.
+// there rather than re-reading the file from the top. `undoing`/`undone`
+// (IEM-WIRE-9) are the reversal's own states, reachable only from
+// `complete` and only for the `csv` connector.
 type ImportRunStatus string
 
 // ImportSourceProfile What one uploaded file looks like, plus the mapping proposed for it.
@@ -13239,6 +13254,36 @@ type ImportSourceProfile struct {
 
 	// Targets Every field this object can receive, custom fields included — the closed set a mapping may name.
 	Targets []string `json:"targets"`
+}
+
+// ImportUndoReport The result of undoing a committed import run (IEM-WIRE-9; A93). Which
+// import-created rows were reversed, and which were kept because a
+// human edited them since — the "kept — you edited these" list
+// S-E15.4c requires, not a diff of what changed.
+type ImportUndoReport struct {
+	// Kept Import-created rows a human edited since import, therefore left in place (A93).
+	Kept []struct {
+		Id openapi_types.UUID `json:"id"`
+
+		// Object What the file's rows are. `lead` — not `person` — is what a bulk
+		// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+		// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+		// asserts it by number (`0 person, N lead`). A file of people already
+		// known to the business is imported as leads and promoted, not smuggled
+		// past the qualification step by the choice of an enum value.
+		Object ImportObject `json:"object"`
+	} `json:"kept"`
+
+	// ReversedCount Import-created rows that were untouched since and have been reversed (archived).
+	ReversedCount int                `json:"reversed_count"`
+	RunId         openapi_types.UUID `json:"run_id"`
+
+	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+	// carries the checkpoint it stopped at, and resuming continues from
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
+	Status ImportRunStatus `json:"status"`
 }
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
@@ -28685,6 +28730,9 @@ type ServerInterface interface {
 	// Read the run's report — what will happen, or what did.
 	// (GET /imports/{id}/report)
 	GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Reverse a completed CSV import run.
+	// (POST /imports/{id}/undo)
+	UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// The installation's own settings.
 	// (GET /installation/settings)
 	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
@@ -30161,6 +30209,12 @@ func (_ Unimplemented) ApproveImportRun(w http.ResponseWriter, r *http.Request, 
 // Read the run's report — what will happen, or what did.
 // (GET /imports/{id}/report)
 func (_ Unimplemented) GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reverse a completed CSV import run.
+// (POST /imports/{id}/undo)
+func (_ Unimplemented) UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36912,6 +36966,38 @@ func (siw *ServerInterfaceWrapper) GetImportRunReport(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetImportRunReport(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UndoImportRun operation middleware
+func (siw *ServerInterfaceWrapper) UndoImportRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoImportRun(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -48406,6 +48492,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/imports/{id}/report", wrapper.GetImportRunReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/imports/{id}/undo", wrapper.UndoImportRun)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)

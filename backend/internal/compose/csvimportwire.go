@@ -216,7 +216,30 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 		out.RowsRead-out.Disposition.Created-out.Disposition.Updated-out.Disposition.Skipped,
 		0,
 	)
+	if run.UndoReport != nil {
+		out.Undo = toContractUndoReport(run.ID, run.Status, *run.UndoReport)
+	}
 	return out
+}
+
+// toContractUndoReport renders the reversal outcome (IEM-WIRE-9).
+func toContractUndoReport(id migration.RunID, status string, rep migration.UndoReport) *crmcontracts.ImportUndoReport {
+	kept := make([]struct {
+		Id     openapi_types.UUID        `json:"id"`
+		Object crmcontracts.ImportObject `json:"object"`
+	}, 0, len(rep.Kept))
+	for _, k := range rep.Kept {
+		kept = append(kept, struct {
+			Id     openapi_types.UUID        `json:"id"`
+			Object crmcontracts.ImportObject `json:"object"`
+		}{Id: openapi_types.UUID(k.ID), Object: crmcontracts.ImportObject(k.Object)})
+	}
+	return &crmcontracts.ImportUndoReport{
+		RunId:         openapi_types.UUID(id),
+		Status:        crmcontracts.ImportRunStatus(status),
+		ReversedCount: rep.ReversedCount,
+		Kept:          kept,
+	}
 }
 
 // lineOf recovers the file line a skip named. The source records skips as

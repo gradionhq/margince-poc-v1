@@ -278,6 +278,43 @@ export function useImportFlow() {
     },
   });
 
+  const undo = useMutation({
+    mutationFn: async (committed: ImportRun) => {
+      const at = current();
+      const { data, error } = await api.POST("/imports/{id}/undo", {
+        params: { path: { id: committed.id } },
+      });
+      if (error) {
+        // A reversal interrupted part-way is resumable on the same run
+        // (the same shape the commit's own checkpoint gives IEM-WIRE-6) —
+        // read it back rather than losing the run behind a bare error.
+        const stopped = await readRun(committed.id);
+        if (stopped && stopped.run.status === "undoing") {
+          return { at, value: stopped };
+        }
+        throwProblem(error);
+      }
+      const undone = data;
+      const { data: fetched } = await api.GET("/imports/{id}/report", {
+        params: { path: { id: undone.id } },
+      });
+      return {
+        at,
+        value: { run: undone, report: fetched ?? emptyReport(undone) },
+      };
+    },
+    onSuccess: ({ at, value }) => {
+      if (at !== current()) {
+        return;
+      }
+      setRun(value.run);
+      setReport(value.report);
+      // Every reversed row is a lead or organization archived. Every cached
+      // list is stale, not only the ones this card could name.
+      queryClient.invalidateQueries();
+    },
+  });
+
   return {
     object,
     chooseObject: (next: ImportObject) => {
@@ -293,6 +330,7 @@ export function useImportFlow() {
     upload,
     validate,
     commit,
+    undo,
     restart,
   };
 }

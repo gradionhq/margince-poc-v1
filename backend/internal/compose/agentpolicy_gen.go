@@ -315,6 +315,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/imports":                                                   {Op: "createImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/imports/sources":                                           {Op: "uploadImportSource", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/imports/{id}/approve":                                      {Op: "approveImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/imports/{id}/undo":                                         {Op: "undoImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/leads":                                                     {Op: "createLead", Access: "tool", Tool: "create_record", RecordType: "lead", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/leads/{id}/promote":                                        {Op: "promoteLead", Access: "tool", Tool: "promote_lead", RecordType: "lead", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/lists":                                                     {Op: "createList", Access: "tool", Tool: "create_record", RecordType: "list", Tier: "auto_execute", Scope: "write"},
