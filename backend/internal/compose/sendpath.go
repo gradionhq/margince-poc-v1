@@ -164,5 +164,6 @@ func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send S
 		draft:         drafter,
 		stager:        send.Delivery,
 		channelStager: send.Delivery,
+		timer:         send.ScheduleTimer,
 	}
 }

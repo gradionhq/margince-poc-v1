@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 38 |
 | Resources | 8 |
-| Tool catalog | 106.0 KB |
+| Tool catalog | 107.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 27910 |
+| Approx. wire tokens | 28168 |
 | Largest tool | `run_report` (4.2 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 44.9 KB | 42% | **No** — a result's shape, never listed to a model |
+| Output schemas | 45.0 KB | 42% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 28.5 KB | 26% | Yes, every step |
-| Input schemas | 24.5 KB | 23% | Yes, every step |
+| Input schemas | 25.4 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 8.1 KB | 7% | Partly |
-| **Description + input schema** | **53.0 KB** | **50%** | **the recurring cost** |
+| **Description + input schema** | **53.9 KB** | **50%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -91,8 +91,8 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`run_report`](#run_report) | Run a report | yes |  | 4.1 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
-| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.1 KB |
-| [`send_email`](#send_email) | Send an email |  |  | 2.6 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.6 KB |
+| [`send_email`](#send_email) | Send an email |  |  | 3.1 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
@@ -6204,6 +6204,15 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "minItems": 1,
       "type": "array"
     },
+    "scheduled_at": {
+      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "scheduled_tz": {
+      "description": "IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then.",
+      "type": "string"
+    },
     "subject": {
       "type": "string"
     },
@@ -6240,12 +6249,18 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
           "format": "uuid",
           "type": "string"
         },
+        "scheduled_at": {
+          "type": "string"
+        },
+        "scheduled_send_id": {
+          "format": "uuid",
+          "type": "string"
+        },
         "status": {
           "type": "string"
         }
       },
       "required": [
-        "activity_id",
         "status"
       ],
       "type": "object"
@@ -6372,6 +6387,15 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "maxLength": 255,
       "type": "string"
     },
+    "scheduled_at": {
+      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "scheduled_tz": {
+      "description": "IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then.",
+      "type": "string"
+    },
     "subject": {
       "type": "string"
     },
@@ -6408,12 +6432,18 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
           "format": "uuid",
           "type": "string"
         },
+        "scheduled_at": {
+          "type": "string"
+        },
+        "scheduled_send_id": {
+          "format": "uuid",
+          "type": "string"
+        },
         "status": {
           "type": "string"
         }
       },
       "required": [
-        "activity_id",
         "status"
       ],
       "type": "object"
