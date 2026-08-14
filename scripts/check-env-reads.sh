@@ -36,16 +36,23 @@ tagged_integration() {
     head -20 "$1" | grep -q '^//go:build .*\binteg''ration\b'
 }
 
+# Every way the standard library hands out the environment, not just the one
+# spelling in the tree today: a gate that matches os.Getenv alone is satisfied
+# by rewriting the call as os.LookupEnv, which reads the same value.
+ENV_READ='os\.(Getenv|LookupEnv|Environ)\('
+
 report=""
 while IFS= read -r file; do
     case "$file" in
         backend/internal/platform/cliflags/*) continue ;;
     esac
     tagged_integration "$file" && continue
-    count=$(grep -c 'os\.Getenv' "$file")
+    # -o counts CALLS, not matching lines: two reads on one physical line are
+    # two reads, and a frozen count must not be satisfiable by joining them.
+    count=$(grep -oE "$ENV_READ" "$file" | grep -c '' || true)
     report="${report}${count} ${file}
 "
-done < <(grep -rl 'os\.Getenv' backend/internal --include='*.go' | grep -v '_test\.go$' | sort)
+done < <(grep -rlE "$ENV_READ" backend/internal --include='*.go' | grep -v '_test\.go$' | sort)
 
 printf '%s' "$report" | awk -v waivers="$WAIVERS" '
 BEGIN {
