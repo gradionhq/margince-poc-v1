@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,17 +128,14 @@ func noOtherGoFileStatesTheSet(t *testing.T, months []int) {
 	}
 }
 
-// sameMonths compares two window sets as sets.
+// sameMonths compares two window sets AS SETS: same members, whatever order
+// the source stated them in. Every caller happens to sort already, so the
+// order-independence is not load-bearing today — it is here because the next
+// caller will read this name and trust it, and a gate that answered "these
+// differ" about two spellings of one set would be the silent failure this
+// file exists to prevent elsewhere.
 func sameMonths(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }
 
 // contractWindowSets reads each named schema's window enum out of
