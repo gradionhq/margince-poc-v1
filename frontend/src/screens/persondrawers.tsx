@@ -10,13 +10,8 @@ import {
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  Modal,
-  Textarea,
-  TextInput,
-} from "../design-system/atoms";
+import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
+import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
@@ -236,6 +231,25 @@ function ConsentWayOut({
   );
 }
 
+// A plain-text draft as paragraphs, for the editor to open on.
+//
+// The drafting prompts forbid markup, so what arrives is text with blank lines
+// between paragraphs. Rendering it as one block would lose those breaks the
+// moment the rep touches the formatting toolbar.
+function paragraphsFrom(text: string): string {
+  const escaped = (line: string) =>
+    line
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block !== "")
+    .map((block) => `<p>${escaped(block).replaceAll("\n", "<br>")}</p>`)
+    .join("");
+}
+
 export function PersonComposer({
   personId,
   view,
@@ -256,7 +270,10 @@ export function PersonComposer({
 }>) {
   const t = useT();
   const [subject, setSubject] = useState("");
+  // The two renderings of one message. body is what a text client receives and
+  // what every existing gate reads; html is the markup alternative beside it.
   const [body, setBody] = useState("");
+  const [html, setHtml] = useState("");
   // Keyed on the intent the caller supplied, so a SECOND moment action opening
   // the same composer replaces the first one's intent instead of leaving the
   // rep with the reason the previous button had. useState alone seeds once and
@@ -288,6 +305,10 @@ export function PersonComposer({
       if (written) {
         setSubject(written.subject);
         setBody(written.body);
+        // The model writes PLAIN text by contract, so the markup alternative
+        // starts as that text in paragraphs rather than one run-on block. A
+        // rep formats from there; nothing is invented on their behalf.
+        setHtml(paragraphsFrom(written.body));
       }
     },
   });
@@ -307,6 +328,9 @@ export function PersonComposer({
         body: {
           subject,
           body,
+          // Omitted entirely when the rep formatted nothing: an empty markup
+          // part would make every plain send multipart for no reader's gain.
+          html_body: html.trim() === "" ? undefined : html,
           to: [recipient],
           consent_purpose: purpose,
           links: [{ entity_type: "person" as const, entity_id: personId }],
@@ -391,11 +415,27 @@ export function PersonComposer({
         <label className="pe-field-label" htmlFor="composer-body">
           {t("person.composer.body")}
         </label>
-        <Textarea
+        {/* Both renderings travel. The wire sends multipart/alternative, so a
+            composer that kept only the markup would leave the plain part —
+            which a text client, a screen reader and a spam filter all read —
+            saying something else. */}
+        <RichText
           id="composer-body"
+          value={html}
+          onChange={(next) => {
+            setHtml(next.html);
+            setBody(next.text);
+          }}
+          label={t("person.composer.body")}
+          labels={{
+            bold: t("richtext.bold"),
+            italic: t("richtext.italic"),
+            bulletList: t("richtext.bulletList"),
+            numberList: t("richtext.numberList"),
+            link: t("richtext.link"),
+            linkPrompt: t("richtext.linkPrompt"),
+          }}
           rows={12}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
         />
 
         {/* Why this draft: the reasoning is a SIBLING of the body, never part

@@ -4494,6 +4494,12 @@ export const en = {
   "person.composer.to": "To",
   "person.composer.subject": "Subject",
   "person.composer.body": "Message",
+  "richtext.bold": "Bold",
+  "richtext.italic": "Italic",
+  "richtext.bulletList": "Bulleted list",
+  "richtext.numberList": "Numbered list",
+  "richtext.link": "Link",
+  "richtext.linkPrompt": "Web address for this link (leave empty to remove it)",
   "person.composer.drafting": "Writing a draft…",
   "person.composer.why": "Why this draft",
   "person.composer.consentUnknown":
