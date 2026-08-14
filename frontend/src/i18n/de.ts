@@ -1631,6 +1631,11 @@ export const de = {
   "compose.purpose": "Einwilligungszweck",
   "compose.purposeHint":
     "Der Versand ist nur erlaubt, wenn jeder Empfänger für diesen Zweck eingewilligt hat.",
+  "compose.sendLaterLabel": "Später senden (optional)",
+  "compose.sendLaterHint":
+    "Leer lassen, um sofort zu senden. Eine geplante Nachricht taucht erst im Verlauf auf, wenn sie rausgeht. Einwilligung und Postfach werden zum Sendezeitpunkt erneut geprüft – wird dabei etwas abgelehnt, bleibt die Nachricht liegen und wartet auf Sie, statt rauszugehen.",
+  "compose.scheduledToast":
+    "Geplant. Die Nachricht geht zur gewählten Zeit raus.",
   "compose.send": "Senden",
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
@@ -4513,6 +4518,9 @@ export const de = {
   "person.composer.title": "Follow-up entwerfen · {name}",
   "person.composer.to": "An",
   "person.composer.subject": "Betreff",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "Eine Adresse pro Zeile – sie erhalten die Nachricht, kein anderer Empfänger sieht sie",
   "person.composer.body": "Nachricht",
   "richtext.bold": "Fett",
   "richtext.italic": "Kursiv",

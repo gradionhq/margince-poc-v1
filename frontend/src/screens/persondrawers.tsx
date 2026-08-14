@@ -15,7 +15,7 @@ import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
-import { refusalOf, SendRefusal } from "./compose";
+import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
 
@@ -249,6 +249,16 @@ function paragraphsFrom(text: string): string {
     .map((block) => `<p>${escaped(block).replaceAll("\n", "<br>")}</p>`)
     .join("");
 }
+// addressList splits what a rep typed into addresses: one per line or comma,
+// trimmed, with blanks dropped. Undefined when nothing was typed, so an
+// untouched field sends no bcc key at all rather than an empty list.
+function addressList(raw: string): string[] | undefined {
+  const out = raw
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  return out.length > 0 ? out : undefined;
+}
 
 // The composer's own head: who it is to, and whether it may go at all.
 //
@@ -340,6 +350,12 @@ export function PersonComposer({
     setIntent(initialIntent ?? "");
   }
   const [purpose, setPurpose] = useState("");
+  // Blind copies, and the moment the rep chose to send at. Both were on the
+  // wire before they were on this screen — the backend has carried bcc since
+  // migration 0188 — so a rep could not reach either from the one composer
+  // that sends formatted mail.
+  const [bcc, setBcc] = useState("");
+  const [sendAt, setSendAt] = useState("");
 
   // One spelling of "this composer holds no message", for the two moments that
   // need it: the recipient changing, and a send succeeding.
@@ -410,8 +426,13 @@ export function PersonComposer({
           // part would make every plain send multipart for no reader's gain.
           html_body: html.trim() === "" ? undefined : html,
           to: [recipient],
+          // One address per line or comma, trimmed. Blank entries are dropped
+          // rather than sent: an empty addressee is refused by the gate, and
+          // the rep would learn that from a 422 about a line they cannot see.
+          bcc: addressList(bcc),
           consent_purpose: purpose,
           links: [{ entity_type: "person" as const, entity_id: personId }],
+          ...scheduleFields(sendAt),
         },
       });
       if (error) {
@@ -451,7 +472,27 @@ export function PersonComposer({
         </label>
         <TextInput id="composer-to" value={recipient} readOnly />
 
+        <label className="pe-field-label" htmlFor="composer-bcc">
+          {t("person.composer.bcc")}
+        </label>
+        <TextInput
+          id="composer-bcc"
+          value={bcc}
+          onChange={(event) => setBcc(event.target.value)}
+          placeholder={t("person.composer.bccPlaceholder")}
+        />
+
         <PurposePicker purpose={purpose} onChange={setPurpose} />
+
+        <label className="pe-field-label" htmlFor="composer-send-at">
+          {t("compose.sendLaterLabel")}
+        </label>
+        <TextInput
+          id="composer-send-at"
+          type="datetime-local"
+          value={sendAt}
+          onChange={(event) => setSendAt(event.target.value)}
+        />
 
         <DraftBar
           intent={intent}

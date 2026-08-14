@@ -1624,6 +1624,11 @@ export const vi = {
   "compose.purpose": "Mục đích chấp thuận",
   "compose.purposeHint":
     "Lượt gửi chỉ được phép nếu mọi người nhận đều đã chấp thuận cho mục đích này.",
+  "compose.sendLaterLabel": "Gửi sau (tùy chọn)",
+  "compose.sendLaterHint":
+    "Để trống để gửi ngay. Thư đã lên lịch không xuất hiện trên dòng thời gian cho đến khi được gửi đi, và các kiểm tra về chấp thuận và hộp thư sẽ chạy lại vào đúng thời điểm đó — nếu một kiểm tra từ chối, thư sẽ được giữ lại chờ bạn thay vì được gửi.",
+  "compose.scheduledToast":
+    "Đã lên lịch. Thư sẽ được gửi vào thời điểm bạn chọn.",
   "compose.send": "Gửi",
   "compose.sendConfirmTitle": "Gửi email này?",
   "compose.sendBody":
@@ -4493,6 +4498,9 @@ export const vi = {
   "person.composer.title": "Soạn thư tiếp theo · {name}",
   "person.composer.to": "Đến",
   "person.composer.subject": "Chủ đề",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "Mỗi dòng một địa chỉ — họ nhận được thư và không người nhận nào khác thấy họ",
   "person.composer.body": "Nội dung",
   "richtext.bold": "Đậm",
   "richtext.italic": "Nghiêng",
