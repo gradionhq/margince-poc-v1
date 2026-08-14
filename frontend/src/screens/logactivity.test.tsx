@@ -379,4 +379,31 @@ describe("log activity from a 360", () => {
       (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
     ).toBe("");
   });
+
+  it("surfaces a failed file read instead of leaving the writer guessing", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    const file = new File(["Anna: hello"], "meeting.txt", {
+      type: "text/plain",
+    });
+    vi.spyOn(file, "text").mockRejectedValue(new Error("unreadable"));
+    const input = screen.getByLabelText("Or upload a file") as HTMLInputElement;
+    await userEvent.upload(input, file);
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Could not read that file — try pasting the text instead.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
 });

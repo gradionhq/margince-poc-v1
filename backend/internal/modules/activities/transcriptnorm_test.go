@@ -94,4 +94,29 @@ func TestNormalizeTranscriptRefusesAnOversizedTranscript(t *testing.T) {
 	if !errors.As(err, &tooLarge) {
 		t.Fatalf("err = %v, want oversizedTranscriptError", err)
 	}
+	if !strings.Contains(tooLarge.Error(), "over the") {
+		t.Errorf("Error() = %q, want it to name the bound", tooLarge.Error())
+	}
+	field, code, message := tooLarge.FieldFault()
+	if field != fieldBody || code != "transcript_too_large" || message == "" {
+		t.Errorf("FieldFault() = (%q, %q, %q), want (%q, transcript_too_large, non-empty)", field, code, message, fieldBody)
+	}
+}
+
+// TestBlankTranscriptErrorCarriesAnActionableMessage: FieldFault's message is
+// what a client renders verbatim (RFC 7807 detail) — it must say what to do,
+// not only that the paste was blank.
+func TestBlankTranscriptErrorCarriesAnActionableMessage(t *testing.T) {
+	field, code, message := ErrBlankTranscript.(interface {
+		FieldFault() (string, string, string)
+	}).FieldFault()
+	if field != fieldBody || code != "blank_transcript" {
+		t.Errorf("FieldFault() = (%q, %q, _), want (%q, blank_transcript, _)", field, code, fieldBody)
+	}
+	if !strings.Contains(message, "source_system") {
+		t.Errorf("message = %q, want it to name the remedy (omit source_system)", message)
+	}
+	if ErrBlankTranscript.Error() != fieldBody+": "+message {
+		t.Errorf("Error() = %q, want it built from the same FieldFault message", ErrBlankTranscript.Error())
+	}
 }

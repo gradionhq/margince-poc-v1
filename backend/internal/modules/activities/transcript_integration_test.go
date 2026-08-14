@@ -13,6 +13,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -99,5 +100,36 @@ func TestUpdateActivityNormalizesATranscriptBody(t *testing.T) {
 	want := "Anna: hello\nBen: hi"
 	if updated.Body == nil || *updated.Body != want {
 		t.Errorf("Body = %v, want %q — a PATCH must normalize a transcript-marked row the same as create does", updated.Body, want)
+	}
+}
+
+// TestUpdateActivityRefusesABlankTranscriptPatch: the PATCH path's
+// normalization runs the same refusal as create — a transcript-marked row
+// cannot be edited down to whitespace any more than one can be created that
+// way.
+func TestUpdateActivityRefusesABlankTranscriptPatch(t *testing.T) {
+	e := setupSend(t)
+	ctx := e.as(principal.RowScopeAll)
+	store := e.store(nil)
+
+	raw := "Anna: hello"
+	sourceSystem := "transcript"
+	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
+		Kind: "call", Body: &raw, SourceSystem: &sourceSystem, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("LogActivityInputFrom: %v", err)
+	}
+	activity, _, err := store.LogActivity(ctx, in)
+	if err != nil {
+		t.Fatalf("LogActivity: %v", err)
+	}
+
+	blank := "   \n\n"
+	_, err = store.UpdateActivity(ctx, ids.From[ids.ActivityKind](ids.UUID(activity.Id)), UpdateActivityInput{
+		Body: &blank,
+	})
+	if !errors.Is(err, ErrBlankTranscript) {
+		t.Fatalf("err = %v, want ErrBlankTranscript", err)
 	}
 }

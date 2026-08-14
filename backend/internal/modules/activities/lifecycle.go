@@ -57,31 +57,11 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		if in.IfVersion != nil && current.Version != nil && int64(*current.Version) != *in.IfVersion {
 			return apperrors.ErrVersionSkew
 		}
-		// A transcript's normalized form is only ever produced on ingest
-		// (LogActivityInputFrom): without this, a PATCH could leave a
-		// transcript-marked row holding un-normalized text (raw CRLFs,
-		// trailing whitespace), which is exactly the row the
-		// activity/transcript retention selector and any future line
-		// citation both assume is already canonical.
-		if in.Body != nil && current.SourceSystem != nil && *current.SourceSystem == transcriptSourceSystem {
-			normalized, err := normalizeTranscript(*in.Body)
-			if err != nil {
-				return err
-			}
-			in.Body = &normalized
+		if err := renormalizeTranscriptPatch(current, &in); err != nil {
+			return err
 		}
-		if in.AssigneeID != nil {
-			// A client-supplied user reference is still a reference; the
-			// FK checks existence, RLS the tenancy.
-			var exists bool
-			if err := tx.QueryRow(ctx,
-				`SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1 AND status = 'active' AND archived_at IS NULL)`,
-				*in.AssigneeID).Scan(&exists); err != nil {
-				return err
-			}
-			if !exists {
-				return apperrors.ErrNotFound
-			}
+		if err := ensureAssigneeExists(ctx, tx, in.AssigneeID); err != nil {
+			return err
 		}
 		// done_at travels WITH is_done (the activity_done_at CHECK):
 		// completion stamps the moment, reopening clears it.
@@ -115,6 +95,44 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		return err
 	})
 	return out, err
+}
+
+// renormalizeTranscriptPatch re-runs ADR-0058's normalizer on a body PATCH
+// when the target row is transcript-marked. A transcript's normalized form
+// is only ever produced on ingest (LogActivityInputFrom) — without this, a
+// PATCH could leave a transcript-marked row holding un-normalized text (raw
+// CRLFs, trailing whitespace), which is exactly the row the
+// activity/transcript retention selector and any future line citation both
+// assume is already canonical.
+func renormalizeTranscriptPatch(current crmcontracts.Activity, in *UpdateActivityInput) error {
+	if in.Body == nil || current.SourceSystem == nil || *current.SourceSystem != transcriptSourceSystem {
+		return nil
+	}
+	normalized, err := normalizeTranscript(*in.Body)
+	if err != nil {
+		return err
+	}
+	in.Body = &normalized
+	return nil
+}
+
+// ensureAssigneeExists checks a client-supplied user reference before it
+// lands: the FK checks existence, RLS the tenancy. Nil means the patch
+// doesn't touch the assignee, which is not this function's to gate.
+func ensureAssigneeExists(ctx context.Context, tx pgx.Tx, assigneeID *ids.UserID) error {
+	if assigneeID == nil {
+		return nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1 AND status = 'active' AND archived_at IS NULL)`,
+		*assigneeID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcontracts.Activity, error) {

@@ -40,6 +40,16 @@ func TestActivityLogInputRefusesATranscriptOnAKindThatIsNotCallOrMeeting(t *test
 	if !errors.As(err, &wrongKind) {
 		t.Fatalf("err = %v, want *TranscriptKindError — a transcript is not a note", err)
 	}
+	// The refusal must never echo the caller's own kind value back — it fires
+	// before the kind ever reaches the DB CHECK that would otherwise be its
+	// only validation.
+	if wrongKind.Error() != "only a call or meeting activity may carry a transcript" {
+		t.Errorf("Error() = %q, echoes or otherwise varies with the caller's kind", wrongKind.Error())
+	}
+	field, code, _ := wrongKind.FieldFault()
+	if field != "kind" || code != "invalid" {
+		t.Errorf("FieldFault() = (%q, %q, _), want (kind, invalid, _)", field, code)
+	}
 }
 
 func TestActivityLogInputRefusesABlankTranscript(t *testing.T) {
