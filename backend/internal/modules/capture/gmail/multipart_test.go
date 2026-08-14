@@ -457,3 +457,47 @@ func TestAFilenameWithAQuoteStaysOneParameter(t *testing.T) {
 		t.Fatalf("a client would see the filename as %q", got)
 	}
 }
+
+// A bcc'd address must never appear in a header the recipients read. This is
+// the whole of what "blind" means, and the To line is where it would leak.
+func TestABlindCopyIsAbsentFromTheVisibleHeaders(t *testing.T) {
+	msg := plainMessage()
+	msg.To = []string{"visible@surfe.test"}
+	msg.Bcc = []string{"blind@surfe.test"}
+
+	parsed := parseMail(t, buildRFC822("rep@gradion.test", msg))
+	for _, header := range []string{"To", "Cc"} {
+		if strings.Contains(parsed.Header.Get(header), "blind@surfe.test") {
+			t.Fatalf("a blind copy reached the %s header: %q", header, parsed.Header.Get(header))
+		}
+	}
+	// The Bcc header itself IS written: messages.send takes the raw message
+	// and no envelope list, so it is the only way to address a blind copy —
+	// and the submission agent strips it before delivery (RFC 5322 §3.6.3).
+	if !strings.Contains(parsed.Header.Get("Bcc"), "blind@surfe.test") {
+		t.Fatal("the blind copy was not addressed at all")
+	}
+}
+
+// A bare "To:" is a malformed header some relays refuse, so an empty visible
+// addressee line is omitted rather than written.
+//
+// The send path refuses a message with no visible addressee before it reaches
+// this renderer, so this is a defence in depth rather than a shape the product
+// produces: a renderer that emits a header it was handed nothing for is one
+// defect away from putting a malformed message on the wire.
+func TestABccOnlyMessageOmitsTheToHeaderEntirely(t *testing.T) {
+	msg := plainMessage()
+	msg.To = nil
+	msg.Bcc = []string{"one@surfe.test", "two@surfe.test"}
+
+	raw := buildRFC822("rep@gradion.test", msg)
+	for _, line := range strings.Split(raw, "\r\n") {
+		if strings.HasPrefix(line, "To:") {
+			t.Fatalf("an empty To header was written: %q", line)
+		}
+	}
+	if !strings.Contains(raw, "Bcc: one@surfe.test, two@surfe.test") {
+		t.Fatalf("the blind copies were not addressed:\n%s", raw)
+	}
+}

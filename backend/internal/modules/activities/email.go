@@ -173,11 +173,14 @@ func (s *Store) refuseUnsendable(ctx context.Context, in SendEmailInput, gate Co
 	// between a caller who can fix their argument and one who goes looking for
 	// a consent record that was never the problem.
 	//
-	// It asks whether anyone is ADDRESSED, not whether the To line has
-	// somebody on it: a message sent only to blind copies has an empty To line
-	// and real recipients, and refusing it would refuse the ordinary way to
-	// mail a group without disclosing the group.
-	if len(in.Recipients) == 0 {
+	// The check is on the VISIBLE addressee line, which is the contract's own
+	// rule: `to` carries minItems 1, and "cc alone does not make a message
+	// addressed to anyone" (crm.yaml). A bcc-only send is therefore not a
+	// shape this product offers — a blind copy accompanies a message that is
+	// addressed to somebody, rather than replacing the addressee — and
+	// loosening this in Go while the contract still refuses it would make the
+	// two disagree about what a valid send is.
+	if len(toRecipients(in.Recipients, in.Cc, in.Bcc)) == 0 {
 		return &NoRecipientsError{}
 	}
 	// The composition guards report a deployment defect, and a caller who may

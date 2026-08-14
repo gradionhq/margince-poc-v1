@@ -144,9 +144,11 @@ func TestDeliveryToRecipientsExcludeTheBccAddresses(t *testing.T) {
 	}
 }
 
-// A message addressed ONLY to blind copies has an empty To: line and real
-// recipients. It is the ordinary way to mail a group without disclosing the
-// group, and refusing it for having no To: would refuse the feature.
+// A blind copy accompanies an addressed message rather than replacing its
+// addressee: the contract carries minItems 1 on `to`, so a send whose every
+// recipient is blind is refused at the API before it reaches here. What this
+// pins is the derivation — the To line is empty when every address is blind,
+// which is what makes refuseUnsendable's check catch that shape.
 func TestABccOnlySendHasNoVisibleAddressee(t *testing.T) {
 	to := toRecipients(
 		[]string{"one@example.test", "two@example.test"},

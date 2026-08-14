@@ -47,6 +47,11 @@ var ErrDuplicateMessage = fmt.Errorf(
 // neither a To nor a Cc address can only be refused later — the consent gate
 // asks about an empty list and answers no — so it is refused here, where the
 // caller is still in the transaction that would have written the row.
+//
+// Bcc is deliberately NOT counted here, matching the contract: `to` carries
+// minItems 1 and a blind copy accompanies an addressed message rather than
+// replacing its addressee. A delivery that reached this with only blind copies
+// would have passed a guard the API layer already refuses.
 var ErrNoAddressee = errors.New("comms: a delivery needs at least one recipient or cc address")
 
 // Store is the comms_outbound seam: staging, loading with attempt-counting,

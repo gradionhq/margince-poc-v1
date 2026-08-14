@@ -29,7 +29,14 @@ import (
 func buildRFC822(from string, msg connector.EmailMessage) string {
 	var b strings.Builder
 	writeHeader(&b, "From", fromHeader(from, msg.FromName))
-	writeHeader(&b, "To", addressList(msg.To))
+	// An empty To line is omitted rather than written bare. A message sent
+	// only to blind copies has no visible addressee — that is what it IS — and
+	// "To:" with nothing after it is a malformed header some relays refuse,
+	// where an absent one is ordinary (RFC 5322 requires an originator, not a
+	// destination).
+	if to := addressList(msg.To); to != "" {
+		writeHeader(&b, "To", to)
+	}
 	if cc := addressList(msg.Cc); cc != "" {
 		writeHeader(&b, "Cc", cc)
 	}
