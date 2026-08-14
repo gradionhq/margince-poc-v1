@@ -35,7 +35,7 @@ const TranscriptProposalKind = "transcript_proposal"
 // was read from. The proposal does not MODIFY that activity — it proposes a new
 // one — which is why the kind is a context target in approvals rather than a
 // version-pinned one.
-const transcriptTargetType = "activity"
+const transcriptTargetType = string(recordTypeActivity)
 
 // TranscriptStepProposal is the staged payload: what was promised, by whom, and
 // where in the transcript it was said.

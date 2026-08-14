@@ -111,6 +111,14 @@ queues:
       fleet of them would occupy every default worker and delay sends, Telegram
       polls, and capture syncs. Same species as deep reads — long and
       model-bound — so the same posture.
+  transcript_read:
+    max_workers: 2
+    reason: >-
+      Reading a transcript is one long model call with a rep watching a spinner
+      for it. Its own pool for the deep-read reason, and separate from
+      ai_capture because that queue's passes are background sweeps nobody is
+      waiting on: sharing would let a fanned-out capture run put an interactive
+      reading behind it.
   overlay_reconcile:
     max_workers: 1
     reason: >-
@@ -1072,6 +1080,29 @@ kinds:
       staging and dossier writes — floored so a tightened cap never squeezes the
       terminal writes. Not knowable here: it is computed from CrawlCaps at
       registration.
+
+  transcript_propose:
+    role: worker
+    go_type: TranscriptProposeArgs
+    queue: transcript_read
+    timeout: 4m
+    opts_owner: caller
+    registration: {when: [TranscriptProposeBrain], absent: registers_anyway}
+    args:
+      Workspace: id
+      ActivityID: id
+      TranscriptReadID: id
+      RequestedBy: id
+    reason: >-
+      Four minutes is one model call with the structured lane's
+      retry-and-escalate headroom, plus the staging writes. A literal because
+      nothing else in the tree reads it: no operator dial feeds this wall.
+
+      Registered even with no model lane bound, because the alternative is a
+      queued reading nobody picks up — which, to the rep watching it, is
+      indistinguishable from one still being worked. Unregistered it would sit
+      forever; registered it fails with a message that says the installation has
+      no model configured.
 
   telegram_ingest:
     role: worker

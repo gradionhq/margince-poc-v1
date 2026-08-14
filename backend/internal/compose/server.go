@@ -75,6 +75,7 @@ type Server struct {
 	companyHandlers
 	onboardingStateHandlers
 	siteReadHandlers
+	transcriptReadHandlers
 	scrapeHandlers
 	connectorHandlers
 	backfillHandlers

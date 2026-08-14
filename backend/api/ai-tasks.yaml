@@ -99,7 +99,6 @@ tasks:
     status: shipped
     sites: [next_steps]
     company_context: none
-    cost_unit: per_activity
     doc: "S-E04.3 / MEET-AC-3/4: read the next steps and commitments out of a meeting transcript, each citing the 1-based transcript lines it was read from (ADR-0058). Floor 0.7; below it the proposal is dropped, never guessed, and a transcript stating none yields no proposal at all. Every proposal is a structural claim, so it STAGES for a human (approval kind transcript_proposal) and writes nothing until confirmed."
 
   enrich:

@@ -318,7 +318,7 @@ func stepEvidence(step proposedStep, lines []string, activityID ids.ActivityID) 
 	}
 	return approvals.Evidence{
 		Snippet:     snippet,
-		SourceType:  "activity",
+		SourceType:  string(recordTypeActivity),
 		SourceID:    activityID.UUID,
 		SourceLines: step.SourceLines,
 	}

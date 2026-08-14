@@ -134,6 +134,7 @@ func configDependencies(cfg JobRunnerConfig) map[string]bool {
 		"GmailWatch.Topic":       cfg.GmailWatch.Topic != "",
 		"OverlayVault":           cfg.OverlayVault != nil,
 		"SendRegistry":           cfg.SendRegistry != nil,
+		"TranscriptProposeBrain": cfg.TranscriptProposeBrain != nil,
 		"VoiceBrain":             cfg.VoiceBrain != nil,
 		"WebhookRetry.Deliverer": cfg.WebhookRetry.Deliverer != nil,
 		"ProviderRuns.Registry":  cfg.ProviderRuns.Registry != nil,
