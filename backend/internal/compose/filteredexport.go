@@ -9,10 +9,12 @@ package compose
 // pieces that already ship rather than growing a fourth filter/scope/format
 // path:
 //
-//   - the ONE predicate engine (storekit.Query.SelectIDs via
-//     collections.SegmentEngine) forces auth.ScopeClauseFor, so the slice
-//     is exactly the rows the caller could already see AND that match the
-//     filter — a filtered export can never widen visibility;
+//   - the ONE predicate engine (storekit.Query.SelectIDs, resolved through
+//     the collections store's SegmentEngine — the same method the list and
+//     the dynamic-list validator resolve it through) forces
+//     auth.ScopeClauseFor, so the slice is exactly the rows the caller could
+//     already see AND that match the filter — a filtered export can never
+//     widen visibility;
 //   - the bundle writer's schema-derived columns + open-format rendering
 //     (export.go: exportableColumns / rowsAsMaps / csvCell), so custom
 //     fields ride along automatically and the CSV/JSON shape is one
@@ -100,16 +102,13 @@ func (e *exportBadRequest) FieldFault() (field, code, message string) {
 // schema-derived columns, renders them to the requested format, and writes
 // one audit_log 'export' row — all inside a single workspace-bound
 // transaction so the audit is atomic with the read it records.
-func (w *FilteredExportWriter) WriteFiltered(ctx context.Context, resource string, pred storekit.Predicate, format exportFileFormat) (FilteredExportResult, error) {
+//
+// The engine arrives resolved: it carries this workspace's custom-field
+// vocabulary, which only the collections store can answer for, and resolving
+// it here instead would let an export disagree with the list it exports.
+func (w *FilteredExportWriter) WriteFiltered(ctx context.Context, engine storekit.Query, pred storekit.Predicate, format exportFileFormat) (FilteredExportResult, error) {
 	if format != exportFmtCSV && format != exportFmtJSON {
 		return FilteredExportResult{}, &exportBadRequest{field: "format", reason: "must be csv or json"}
-	}
-	engine, ok := collections.SegmentEngine(resource)
-	if !ok {
-		return FilteredExportResult{}, &exportBadRequest{
-			field:  "object",
-			reason: fmt.Sprintf("%q is not a filter-exportable object", resource),
-		}
 	}
 
 	var result FilteredExportResult
@@ -278,7 +277,20 @@ func (h filteredExportHandlers) CreateFilteredExport(w http.ResponseWriter, r *h
 		return
 	}
 
-	result, err := h.writer.WriteFiltered(r.Context(), resource, pred, exportFileFormat(req.Format))
+	engine, ok, err := h.collections.SegmentEngine(r.Context(), resource)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	if !ok {
+		httperr.Write(w, r, &exportBadRequest{
+			field:  "object",
+			reason: fmt.Sprintf("%q is not a filter-exportable object", resource),
+		})
+		return
+	}
+
+	result, err := h.writer.WriteFiltered(r.Context(), engine, pred, exportFileFormat(req.Format))
 	if err != nil {
 		writeFilteredExportError(w, r, err)
 		return

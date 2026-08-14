@@ -4,10 +4,15 @@
 package collections
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // Column references shared across the per-entity segment engines below —
@@ -139,16 +144,86 @@ var segmentEngines = map[string]storekit.Query{
 	},
 }
 
-// SegmentEngine returns the ONE predicate engine (the closed field
-// vocabulary, the fixed base clause, and the scope-forcing executor) for a
-// filterable resource. Dynamic-list membership (B-E15.11) and filtered
-// export (B-E15.13) both draw the engine from here, so the §13.5 filter
-// allow-list and the row-scope composition have exactly one spelling. ok
-// is false for a resource with no segment engine (activities/partners are
-// not predicate-leaf resources — see the vocabulary note above).
-func SegmentEngine(resource string) (storekit.Query, bool) {
-	q, ok := segmentEngines[resource]
-	return q, ok
+// catalogObjectFor maps a segment resource onto the custom_field.object it
+// carries columns under. The two vocabularies are not identical: an activity has
+// custom fields and no segment engine, a project has an engine and no custom
+// fields, so an absent entry means "this resource has no custom columns" rather
+// than an error.
+func catalogObjectFor(resource string) (string, bool) {
+	switch resource {
+	case "person", "organization", "deal", "lead":
+		return resource, true
+	default:
+		return "", false
+	}
+}
+
+// SegmentEngine returns the ONE predicate engine for a filterable resource: the
+// closed core vocabulary, widened with this workspace's active and retired cf_*
+// columns, plus the fixed base clause and the scope-forcing executor. Dynamic-list
+// validation, membership evaluation and filtered export all resolve it HERE — the
+// export handler through this same exported method, not a package-level lookup of
+// its own — so the vocabulary cannot differ between what a filter is allowed to
+// say, what it selects, and what an export of it contains (LVS-AC-2, one engine).
+//
+// ok is false for a resource with no engine at all (activities and partners are
+// not predicate-leaf resources); the caller decides what that means.
+func (s *Store) SegmentEngine(ctx context.Context, resource string) (storekit.Query, bool, error) {
+	core, ok := segmentEngines[resource]
+	if !ok {
+		return storekit.Query{}, false, nil
+	}
+	// A COPY, always: segmentEngines is process-wide and its Fields map is
+	// shared, so merging in place would leak one workspace's custom vocabulary
+	// into every later request.
+	merged := core
+	merged.Fields = make(map[string]storekit.Field, len(core.Fields))
+	for name, field := range core.Fields {
+		merged.Fields[name] = field
+	}
+	object, hasCustom := catalogObjectFor(resource)
+	if s.catalog == nil || !hasCustom {
+		return merged, true, nil
+	}
+	columns, err := s.catalog.FilterableColumns(ctx, object)
+	if err != nil {
+		return storekit.Query{}, false, fmt.Errorf("read the custom-field vocabulary for %s: %w", resource, err)
+	}
+	for _, column := range columns {
+		field, err := customField(column)
+		if err != nil {
+			return storekit.Query{}, false, err
+		}
+		merged.Fields[column.Name] = field
+	}
+	return merged, true, nil
+}
+
+// customField types one custom column for the predicate engine. The six catalog
+// types and the six filter types are the same closed set spelled in two packages,
+// so the mapping is total — and an unrecognised value fails rather than defaulting
+// to text, which would admit `contains` on a number and read as a working filter.
+func customField(column fieldcatalog.Column) (storekit.Field, error) {
+	var fieldType storekit.FieldType
+	switch column.Type {
+	case fieldcatalog.TypeText:
+		fieldType = storekit.FieldText
+	case fieldcatalog.TypeNumber:
+		fieldType = storekit.FieldNumber
+	case fieldcatalog.TypeDate:
+		fieldType = storekit.FieldDate
+	case fieldcatalog.TypeCurrency:
+		fieldType = storekit.FieldCurrency
+	case fieldcatalog.TypePicklist:
+		fieldType = storekit.FieldPicklist
+	case fieldcatalog.TypeBoolean:
+		fieldType = storekit.FieldBoolean
+	default:
+		return storekit.Field{}, fmt.Errorf(
+			"custom column %s carries type %q, which the filter engine has no operators for",
+			column.Name, column.Type)
+	}
+	return storekit.Field{Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(), Type: fieldType}, nil
 }
 
 // predicateFromDefinition decodes a dynamic list's stored `definition`

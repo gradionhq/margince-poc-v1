@@ -194,7 +194,10 @@ const dynamicAddedBy = "dynamic"
 // computed member carries no member-row id of its own, so the record's
 // own id IS its stable member identifier).
 func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.ListID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
-	engine, ok := segmentEngines[listEntityType]
+	engine, ok, err := s.SegmentEngine(ctx, listEntityType)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 	if !ok {
 		// A stored list.entity_type outside the segment set is a schema
 		// invariant break, not a client error — surface it, never guess.

@@ -24,9 +24,26 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// dealEngine resolves the deal vocabulary the same way the export handler
+// does — WriteFiltered now takes the resolved engine rather than looking a
+// resource string up itself, so a caller that drives the writer directly
+// (this suite, bypassing the HTTP handler) resolves it the same way.
+func dealEngine(t *testing.T, e *SearchEnv, ctx context.Context) storekit.Query {
+	t.Helper()
+	engine, ok, err := collections.NewStore(e.DB()).SegmentEngine(ctx, "deal")
+	if err != nil {
+		t.Fatalf("resolve deal engine: %v", err)
+	}
+	if !ok {
+		t.Fatalf("deal has no segment engine")
+	}
+	return engine
+}
 
 // filteredDealFixture seeds three deals that separate the two exclusion
 // axes: one owned-and-matching (kept), one owned-but-not-matching (dropped
@@ -69,8 +86,9 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 	e := SetupSearch(t)
 	f := e.seedFilteredDeals(t)
 
+	ctx := e.exportRep(e.Rep1, e.Team1)
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		e.exportRep(e.Rep1, e.Team1), "deal", commitDeals(), "csv",
+		ctx, dealEngine(t, e, ctx), commitDeals(), "csv",
 	)
 	if err != nil {
 		t.Fatalf("filtered export: %v", err)
@@ -102,10 +120,12 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 	writer := compose.NewFilteredExportWriter(e.Pool)
+	ctx := e.exportAdmin()
+	engine := dealEngine(t, e, ctx)
 
 	// CSV parses and holds the one matching deal for the admin (row_scope=all
 	// still narrowed to the predicate: only 'commit' deals, both teams).
-	csvResult, err := writer.WriteFiltered(e.exportAdmin(), "deal", commitDeals(), "csv")
+	csvResult, err := writer.WriteFiltered(ctx, engine, commitDeals(), "csv")
 	if err != nil {
 		t.Fatalf("csv export: %v", err)
 	}
@@ -114,7 +134,7 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 	}
 
 	// JSON validates, self-describes its format, and carries the same rows.
-	jsonResult, err := writer.WriteFiltered(e.exportAdmin(), "deal", commitDeals(), "json")
+	jsonResult, err := writer.WriteFiltered(ctx, engine, commitDeals(), "json")
 	if err != nil {
 		t.Fatalf("json export: %v", err)
 	}
@@ -159,8 +179,9 @@ func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
 	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
+	ctx := e.exportAdmin()
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		e.exportAdmin(), "deal",
+		ctx, dealEngine(t, e, ctx),
 		storekit.Predicate{Field: "forecast_category", Op: "eq", Value: "best_case"}, "csv",
 	)
 	if err != nil {
@@ -185,8 +206,9 @@ func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
 	e := SetupSearch(t)
 	e.seedFilteredDeals(t)
 
+	ctx := e.exportAdmin()
 	_, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		e.exportAdmin(), "deal",
+		ctx, dealEngine(t, e, ctx),
 		storekit.Predicate{Field: "amount_minor", Op: "eq", Value: float64(1)}, "csv",
 	)
 	var pred *storekit.PredicateError

@@ -94,9 +94,15 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// First-class filtered export (B-E15.13): the writer reuses the ONE
 	// predicate engine + the bundle writer's open-format rendering; the
-	// collections store resolves a saved view / dynamic list source
-	// behind its own visibility gate.
-	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(InstallationDB(pool))}
+	// collections store resolves a saved view / dynamic list source behind
+	// its own visibility gate. WithFieldCatalog widens that same store's
+	// vocabulary with this workspace's cf_* columns, so an export cannot
+	// disagree with the list or the saved view it was built from — the same
+	// seam newPeopleHandlers wires for the record stores.
+	s.filteredExportHandlers = filteredExportHandlers{
+		writer:      NewFilteredExportWriter(pool),
+		collections: collections.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil)),
+	}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }
 
