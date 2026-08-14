@@ -47,7 +47,7 @@ func (w *fakeUndoWriters) Reverse(_ context.Context, _ string, nativeID ids.UUID
 // only state Undo starts from, and returns the run plus a helper closure
 // that lands one import_record_map row for it (mirroring what a real
 // Writers.Ensure commits alongside the native row).
-func completeCSVRun(t *testing.T, s *RunStore, ctx context.Context) Run {
+func completeCSVRun(ctx context.Context, t *testing.T, s *RunStore) Run {
 	t.Helper()
 	run, err := s.CreateStagedRun(ctx, CreateStagedRunInput{
 		Connector: ConnectorCSV, SourceRef: "src", Source: "import_api",
@@ -72,7 +72,7 @@ func completeCSVRun(t *testing.T, s *RunStore, ctx context.Context) Run {
 	return got
 }
 
-func landLead(t *testing.T, s *RunStore, ctx context.Context, runID RunID, externalID string) ids.UUID {
+func landLead(ctx context.Context, t *testing.T, s *RunStore, runID RunID, externalID string) ids.UUID {
 	t.Helper()
 	native := ids.NewV7()
 	if err := s.RecordIdentity(ctx, runID, "import:csv", ObjectLead, externalID, native); err != nil {
@@ -83,9 +83,10 @@ func landLead(t *testing.T, s *RunStore, ctx context.Context, runID RunID, exter
 
 // markHumanEdited inserts the audit_log row humanEditedSince reads: a
 // human 'update' after the run's completion instant.
-func markHumanEdited(t *testing.T, db interface {
+func markHumanEdited(ctx context.Context, t *testing.T, db interface {
 	Tx(context.Context, func(pgx.Tx) error) error
-}, ctx context.Context, nativeID ids.UUID, since time.Time) {
+}, nativeID ids.UUID, since time.Time,
+) {
 	t.Helper()
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
@@ -102,11 +103,11 @@ func markHumanEdited(t *testing.T, db interface {
 func TestUndoReversesUntouchedRowsAndKeepsHumanEdited(t *testing.T) {
 	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
 	s := NewRunStore(db)
-	run := completeCSVRun(t, s, ctx)
+	run := completeCSVRun(ctx, t, s)
 
-	untouched := landLead(t, s, ctx, run.ID, "row-1")
-	edited := landLead(t, s, ctx, run.ID, "row-2")
-	markHumanEdited(t, db, ctx, edited, run.UpdatedAt)
+	untouched := landLead(ctx, t, s, run.ID, "row-1")
+	edited := landLead(ctx, t, s, run.ID, "row-2")
+	markHumanEdited(ctx, t, db, edited, run.UpdatedAt)
 
 	w := &fakeUndoWriters{}
 	rep, err := s.Undo(ctx, run.ID, w)
@@ -174,10 +175,10 @@ func TestUndoRefusesAnythingButComplete(t *testing.T) {
 func TestUndoResumesAfterAPartialFailure(t *testing.T) {
 	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
 	s := NewRunStore(db)
-	run := completeCSVRun(t, s, ctx)
+	run := completeCSVRun(ctx, t, s)
 
-	first := landLead(t, s, ctx, run.ID, "row-1")
-	second := landLead(t, s, ctx, run.ID, "row-2")
+	first := landLead(ctx, t, s, run.ID, "row-1")
+	second := landLead(ctx, t, s, run.ID, "row-2")
 
 	failing := &fakeUndoWriters{failOnce: first}
 	if _, err := s.Undo(ctx, run.ID, failing); err == nil {
@@ -207,7 +208,7 @@ func TestUndoResumesAfterAPartialFailure(t *testing.T) {
 func TestUndoIsTenantFenced(t *testing.T) {
 	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
 	sA := NewRunStore(dbA)
-	run := completeCSVRun(t, sA, ctxA)
+	run := completeCSVRun(ctxA, t, sA)
 
 	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
 	sB := NewRunStore(dbB)
