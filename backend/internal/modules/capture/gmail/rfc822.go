@@ -33,6 +33,21 @@ func buildRFC822(from string, msg connector.EmailMessage) string {
 	if cc := addressList(msg.Cc); cc != "" {
 		writeHeader(&b, "Cc", cc)
 	}
+	// Bcc is written HERE and delivered to NOBODY who can read it.
+	//
+	// messages.send takes the raw message and nothing else — there is no
+	// envelope list beside it — so this header is the only way to address a
+	// blind copy through this API. Gmail strips it before delivery, which is
+	// the behaviour every submission agent has and the reason a Bcc header is
+	// specified at all (RFC 5322 §3.6.3).
+	//
+	// It is therefore the one header whose PRESENCE here and ABSENCE at the
+	// recipient are both required. A renderer that omitted it would silently
+	// drop the recipients; one that could not rely on the strip would disclose
+	// them. Only the first is this code's to get right.
+	if bcc := addressList(msg.Bcc); bcc != "" {
+		writeHeader(&b, "Bcc", bcc)
+	}
 	// Encoded-word per RFC 2047 so a non-ASCII subject survives the wire.
 	writeHeader(&b, "Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
 	writeHeader(&b, "Message-ID", bracket(msg.MessageID))

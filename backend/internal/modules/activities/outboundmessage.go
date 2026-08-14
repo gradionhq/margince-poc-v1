@@ -97,6 +97,7 @@ func (m outboundMessage) delivery(activityID ids.UUID, chain threading) Delivery
 		MessageID:       m.messageID,
 		Recipients:      m.to,
 		Cc:              m.in.Cc,
+		Bcc:             m.in.Bcc,
 		Subject:         m.in.Subject,
 		Body:            m.body,
 		HTMLBody:        m.htmlBody,

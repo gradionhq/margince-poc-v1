@@ -16865,6 +16865,20 @@ components:
             than the record claims is a wrong record nobody is told about.
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
+        bcc:
+          type: array
+          items: { type: string, format: email }
+          description: |
+            Blind copies. They receive the message and are therefore owed consent
+            exactly as To and Cc are — the gate answers on every addressee, however
+            they were addressed — and they are absent from the headers the recipients
+            see, which is the whole of what "blind" means.
+
+            A message with a tokenized unsubscribe link may still have only ONE
+            addressee in total: that token is a bearer credential over one person's
+            consent record, so a bcc'd copy of a marketing send is refused 422
+            `shared_unsubscribe_token` rather than handing a stranger somebody else's
+            preference link.
         draft_ref:
           type: [string, 'null']
           description: |
@@ -16920,6 +16934,20 @@ components:
             anything is staged — `cc` alone does not make a message addressed to anyone.
           items: { type: string, format: email }
         cc: { type: array, items: { type: string, format: email } }
+        bcc:
+          type: array
+          items: { type: string, format: email }
+          description: |
+            Blind copies. They receive the message and are therefore owed consent
+            exactly as To and Cc are — the gate answers on every addressee, however
+            they were addressed — and they are absent from the headers the recipients
+            see, which is the whole of what "blind" means.
+
+            A message with a tokenized unsubscribe link may still have only ONE
+            addressee in total: that token is a bearer credential over one person's
+            consent record, so a bcc'd copy of a marketing send is refused 422
+            `shared_unsubscribe_token` rather than handing a stranger somebody else's
+            preference link.
         draft_ref:
           type: [string, 'null']
           description: |

@@ -60,15 +60,19 @@ var errNoDeliveryStager = errors.New("activities: send path has no delivery mach
 // SendEmailInput is one consented outbound send anchored to an
 // existing activity (the thread being replied to).
 type SendEmailInput struct {
-	// Recipients is the MERGED addressee list — every To AND Cc address —
+	// Recipients is the MERGED addressee list — every To, Cc AND Bcc address —
 	// because consent is owed to everyone who receives the message, however
-	// they were addressed. Cc below is a SUBSET of it, by design and not by
-	// accident: the delivery's To: line is what remains once the Cc
-	// addresses come out.
+	// they were addressed. Cc and Bcc below are SUBSETS of it, by design and
+	// not by accident: the delivery's To: line is what remains once both come
+	// out.
 	Recipients []string
 	Cc         []string
-	Subject    string
-	Body       string
+	// Bcc receives the message and appears in no header the other recipients
+	// see. It is in Recipients like every other addressee — a blind copy is
+	// blind to the RECIPIENTS, never to the consent gate.
+	Bcc     []string
+	Subject string
+	Body    string
 	// HTMLBody is the same message as markup, empty for a plain-text send.
 	// It never replaces Body: both travel, and the wire renders them as
 	// multipart/alternative so a client that cannot show markup still receives
@@ -109,11 +113,14 @@ type DeliveryRequest struct {
 	ActivityID ids.ActivityID
 	Provider   string
 	MessageID  string
-	Recipients []string // To: only — the merged consent list minus Cc
+	Recipients []string // To: only — the merged consent list minus Cc and Bcc
 	Cc         []string
-	Subject    string
-	Body       string // the unsubscribe footer, when there is one, is already applied
-	HTMLBody   string // the markup alternative, empty for a plain-text send
+	// Bcc is transmitted to but never rendered into a header the recipients
+	// read. The connector addresses it; the message does not name it.
+	Bcc      []string
+	Subject  string
+	Body     string // the unsubscribe footer, when there is one, is already applied
+	HTMLBody string // the markup alternative, empty for a plain-text send
 	// FromName is the sender's display name, snapshotted so a retry renders the
 	// same From header the first attempt did.
 	FromName string
@@ -165,7 +172,12 @@ func (s *Store) refuseUnsendable(ctx context.Context, in SendEmailInput, gate Co
 	// that named nobody at all. A FieldFault pointing at `to` is the difference
 	// between a caller who can fix their argument and one who goes looking for
 	// a consent record that was never the problem.
-	if len(toRecipients(in.Recipients, in.Cc)) == 0 {
+	//
+	// It asks whether anyone is ADDRESSED, not whether the To line has
+	// somebody on it: a message sent only to blind copies has an empty To line
+	// and real recipients, and refusing it would refuse the ordinary way to
+	// mail a group without disclosing the group.
+	if len(in.Recipients) == 0 {
 		return &NoRecipientsError{}
 	}
 	// The composition guards report a deployment defect, and a caller who may
@@ -281,7 +293,7 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 		htmlBody:        htmlBody,
 		files:           files,
 		listUnsubscribe: derived.listUnsubscribe,
-		to:              toRecipients(in.Recipients, in.Cc),
+		to:              toRecipients(in.Recipients, in.Cc, in.Bcc),
 		links:           links,
 	}
 
@@ -344,12 +356,18 @@ func (s *Store) messageIDDomain() string {
 // (consent is owed to every addressee), so rendering it as To: would copy
 // every cc'd person twice. Addresses are matched case- and space-
 // insensitively, the way a mail server treats them.
-func toRecipients(recipients, cc []string) []string {
-	if len(cc) == 0 {
+func toRecipients(recipients, cc, bcc []string) []string {
+	if len(cc) == 0 && len(bcc) == 0 {
 		return recipients
 	}
-	copied := make(map[string]bool, len(cc))
+	// Both come out. A bcc address left in the To line is not a blind copy at
+	// all — it is the failure the feature exists to prevent, and it is visible
+	// to every other recipient the moment the message arrives.
+	copied := make(map[string]bool, len(cc)+len(bcc))
 	for _, addr := range cc {
+		copied[normalizeAddress(addr)] = true
+	}
+	for _, addr := range bcc {
 		copied[normalizeAddress(addr)] = true
 	}
 	to := make([]string, 0, len(recipients))

@@ -100,7 +100,7 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
-		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, subject = $2,
+		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, bcc = '[]'::jsonb, subject = $2,
 		       body = '', html_body = NULL, attachments = '[]'::jsonb,
 		       list_unsubscribe = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,

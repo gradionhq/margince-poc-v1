@@ -314,17 +314,23 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		// projection discloses the message AS THE SUBJECT RECEIVED IT, and who
 		// it appeared to be from is part of what they were shown.
 		//
+		// The address match spans bcc as well. A blind copy is blind to the
+		// other RECIPIENTS and never to the subject themselves: a person
+		// bcc'd on a message with no activity link would otherwise be absent
+		// from their own export of a message they received.
+		//
 		// attachments too, and it is not covered by the attachment query
 		// below: that one finds files hanging off the subject or an activity
 		// linked to them, while a send may carry any file its sender could see
 		// — one attached to an organization or a deal reaches the subject
 		// without ever being attached TO them.
-		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.from_name, o.attachments, o.recipients, o.cc, o.consent_purpose,
+		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.from_name, o.attachments, o.recipients, o.cc, o.bcc, o.consent_purpose,
 		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)
 		      OR EXISTS (
-		           SELECT 1 FROM jsonb_array_elements_text(o.recipients || o.cc) AS addr
+		           SELECT 1 FROM jsonb_array_elements_text(
+		                          o.recipients || o.cc || coalesce(o.bcc, '[]'::jsonb)) AS addr
 		           WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1))`},
 	}
 }

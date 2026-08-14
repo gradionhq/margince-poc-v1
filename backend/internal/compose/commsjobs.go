@@ -345,6 +345,7 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		MessageID:       in.MessageID,
 		Recipients:      in.Recipients,
 		Cc:              in.Cc,
+		Bcc:             in.Bcc,
 		Subject:         in.Subject,
 		Body:            in.Body,
 		HTMLBody:        in.HTMLBody,

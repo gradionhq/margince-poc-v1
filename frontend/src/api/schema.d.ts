@@ -11987,6 +11987,19 @@ export interface components {
             to: string[];
             cc?: string[];
             /**
+             * @description Blind copies. They receive the message and are therefore owed consent
+             *     exactly as To and Cc are — the gate answers on every addressee, however
+             *     they were addressed — and they are absent from the headers the recipients
+             *     see, which is the whole of what "blind" means.
+             *
+             *     A message with a tokenized unsubscribe link may still have only ONE
+             *     addressee in total: that token is a bearer credential over one person's
+             *     consent record, so a bcc'd copy of a marketing send is refused 422
+             *     `shared_unsubscribe_token` rather than handing a stranger somebody else's
+             *     preference link.
+             */
+            bcc?: string[];
+            /**
              * @description Opaque reference returned by the drafting operation. After a successful send, the
              *     server compares this protected original with the final body and records accepted or
              *     edited-and-sent metadata. Only a guarded, human-authored final edit may become a
@@ -12036,6 +12049,19 @@ export interface components {
              */
             to: string[];
             cc?: string[];
+            /**
+             * @description Blind copies. They receive the message and are therefore owed consent
+             *     exactly as To and Cc are — the gate answers on every addressee, however
+             *     they were addressed — and they are absent from the headers the recipients
+             *     see, which is the whole of what "blind" means.
+             *
+             *     A message with a tokenized unsubscribe link may still have only ONE
+             *     addressee in total: that token is a bearer credential over one person's
+             *     consent record, so a bcc'd copy of a marketing send is refused 422
+             *     `shared_unsubscribe_token` rather than handing a stranger somebody else's
+             *     preference link.
+             */
+            bcc?: string[];
             /**
              * @description Opaque reference returned by the drafting operation, exactly as on `send_email`.
              *     Omit for independently composed mail.

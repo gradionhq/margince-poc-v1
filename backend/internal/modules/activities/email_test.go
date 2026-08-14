@@ -115,17 +115,46 @@ func TestMintMessageIDIsUnbracketedAndFreshPerMessage(t *testing.T) {
 	}
 }
 
-// Recipients is the MERGED consent list (to + cc) by design, so the delivery's
-// To: is what remains once the Cc: addresses come out — rendering the merged
-// list as To: would copy every cc'd person twice and expose the cc list as
-// primary recipients.
+// Recipients is the MERGED consent list (to + cc + bcc) by design, so the
+// delivery's To: is what remains once the Cc: and Bcc: addresses come out —
+// rendering the merged list as To: would copy every cc'd person twice and
+// expose both lists as primary recipients.
 func TestDeliveryToRecipientsExcludeTheCcAddresses(t *testing.T) {
 	to := toRecipients(
 		[]string{"buyer@example.test", "boss@example.test", "Watcher@Example.test"},
 		[]string{"boss@example.test", "watcher@example.test "},
+		nil,
 	)
 	if len(to) != 1 || to[0] != "buyer@example.test" {
 		t.Fatalf("To: = %v, want only the non-cc'd recipient (case and padding are not a different address)", to)
+	}
+}
+
+// A bcc'd address in the To: line is not a blind copy at all — every other
+// recipient reads it the moment the message arrives, which is the single
+// failure this feature exists to prevent.
+func TestDeliveryToRecipientsExcludeTheBccAddresses(t *testing.T) {
+	to := toRecipients(
+		[]string{"buyer@example.test", "quiet@example.test", "Watcher@Example.test"},
+		[]string{"watcher@example.test"},
+		[]string{"Quiet@Example.test "},
+	)
+	if len(to) != 1 || to[0] != "buyer@example.test" {
+		t.Fatalf("To: = %v — a blind copy reached the visible addressee line", to)
+	}
+}
+
+// A message addressed ONLY to blind copies has an empty To: line and real
+// recipients. It is the ordinary way to mail a group without disclosing the
+// group, and refusing it for having no To: would refuse the feature.
+func TestABccOnlySendHasNoVisibleAddressee(t *testing.T) {
+	to := toRecipients(
+		[]string{"one@example.test", "two@example.test"},
+		nil,
+		[]string{"one@example.test", "two@example.test"},
+	)
+	if len(to) != 0 {
+		t.Fatalf("To: = %v, want nobody visible on a bcc-only send", to)
 	}
 }
 
