@@ -4551,7 +4551,10 @@ paths:
     get:
       tags: [Leads]
       operationId: explainLeadScore
-      x-mcp-tool: { verb: explain_lead_score, record_type: lead, tier: auto_execute, scope: read }
+      # Human-only for now: this ships as the lead SCREEN's explanation. A
+      # governed read tool is a separate, additive decision — and declaring a
+      # verb tools/list cannot offer advertises a capability that is not there.
+      x-agent-access: human-only
       summary: Explain This Score — the weighted-factor decomposition behind a lead's score.
       description: |
         The decomposition is READ from the retained series (ADR-0105 §1), never recomputed
@@ -4593,7 +4596,10 @@ paths:
     put:
       tags: [Leads]
       operationId: setLeadManualSignal
-      x-mcp-tool: { verb: set_lead_manual_signal, record_type: lead, tier: confirmation_required, scope: write }
+      # Human-only by nature, not by caution: the row records what a NAMED
+      # person judged to be true, with their written reason. An agent typing
+      # one would be a judgement with nobody behind it.
+      x-agent-access: human-only
       summary: Enter or replace a human-provided scoring factor (S-E13.6).
       description: |
         A rep supplies a qualification signal capture cannot fetch — a traffic band, an
@@ -4639,7 +4645,9 @@ paths:
     delete:
       tags: [Leads]
       operationId: clearLeadManualSignal
-      x-mcp-tool: { verb: clear_lead_manual_signal, record_type: lead, tier: confirmation_required, scope: write }
+      # Human-only for the same reason as the set: withdrawing a judgement is
+      # the judge's own act.
+      x-agent-access: human-only
       summary: Withdraw a human-provided scoring factor.
       description: |
         Clears the rep's own live input for this factor and recomputes. Superseded rows are

@@ -36,6 +36,15 @@ var leadManualFactorBands = map[string]map[string]int{
 	"budget_hint": {"none": -4, "unknown": 0, "some": 4, "confirmed": 10},
 }
 
+// The audit and problem-field keys this surface spells more than once.
+// Named so the audit trail and the 422 body cannot drift apart from the
+// wire field they both describe.
+const (
+	auditKeyManualSignal = "manual_signal"
+	fieldKeyFactor       = "factor"
+	fieldKeyReason       = "reason"
+)
+
 // SetLeadManualSignalInput is one human-supplied factor.
 type SetLeadManualSignalInput struct {
 	Factor     string
@@ -107,14 +116,14 @@ func (s *Store) SetLeadManualSignal(ctx context.Context, leadID ids.LeadID, in S
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID, nil,
-			map[string]any{"manual_signal": map[string]any{
-				"factor": in.Factor, "band": in.Band, "points": points, "reason": in.Reason,
+			map[string]any{auditKeyManualSignal: map[string]any{
+				fieldKeyFactor: in.Factor, "band": in.Band, "points": points, fieldKeyReason: in.Reason,
 			}})
 		if err != nil {
 			return err
 		}
 		if err := storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
-			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"manual_signal": in.Factor}},
+			ChangedFields: map[string]any{eventKeyDelta: map[string]any{auditKeyManualSignal: in.Factor}},
 		}); err != nil {
 			return err
 		}
@@ -153,7 +162,7 @@ func (s *Store) ClearLeadManualSignal(ctx context.Context, leadID ids.LeadID, fa
 			return nil
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,
-			map[string]any{"manual_signal": factor}, nil)
+			map[string]any{auditKeyManualSignal: factor}, nil)
 		if err != nil {
 			return err
 		}

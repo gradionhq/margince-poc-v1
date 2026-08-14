@@ -21,7 +21,8 @@ import (
 // is unbounded work as well as an unbounded response.
 const explainScoreHistoryLimit = 50
 
-// ExplainLeadScore: GET /leads/{id}/score — the factor decomposition.
+// ExplainLeadScore serves GET /leads/{id}/score — the factor
+// decomposition behind the lead's number.
 func (h Handlers) ExplainLeadScore(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ExplainLeadScoreParams) {
 	in := ExplainLeadScoreInput{Limit: explainScoreHistoryLimit}
 	if params.History != nil {
@@ -41,8 +42,8 @@ func (h Handlers) ExplainLeadScore(w http.ResponseWriter, r *http.Request, id cr
 	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
-// SetLeadManualSignal: PUT /leads/{id}/manual-signals — a rep supplies what
-// capture cannot fetch.
+// SetLeadManualSignal serves PUT /leads/{id}/manual-signals, where a rep
+// supplies what capture cannot fetch.
 func (h Handlers) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	var req crmcontracts.SetLeadManualSignalRequest
 	if !httperr.Decode(w, r, &req) {
@@ -51,7 +52,7 @@ func (h Handlers) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id
 	// A reason is what separates a scoring input from a number somebody
 	// typed. The column enforces it too; refusing here names the field.
 	if strings.TrimSpace(req.Reason) == "" {
-		httperr.Write(w, r, httperr.Validation("reason", "reason_required",
+		httperr.Write(w, r, httperr.Validation(fieldKeyReason, "reason_required",
 			"say why this value is right — a scoring input nobody can account for is worse than none"))
 		return
 	}
@@ -69,7 +70,8 @@ func (h Handlers) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id
 	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
-// ClearLeadManualSignal: DELETE /leads/{id}/manual-signals/{factor}.
+// ClearLeadManualSignal serves DELETE
+// /leads/{id}/manual-signals/{factor}.
 func (h Handlers) ClearLeadManualSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, factor string) {
 	if err := h.store.ClearLeadManualSignal(r.Context(), pathID[ids.LeadKind](id), factor); err != nil {
 		writeStoreErr(w, r, err)

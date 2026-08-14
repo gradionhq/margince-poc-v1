@@ -242,7 +242,7 @@ func (e *UnknownLeadFactorError) Error() string {
 
 // FieldFault refuses a factor the model does not know.
 func (e *UnknownLeadFactorError) FieldFault() (field, code, message string) {
-	return "factor", "unknown_factor", e.Error()
+	return fieldKeyFactor, "unknown_factor", e.Error()
 }
 
 // InvalidLeadBandError refuses a band the named factor does not accept.
@@ -269,5 +269,5 @@ func (e *FactorAutoSourcedError) Error() string {
 
 // FieldFault names the factor and points at the override path.
 func (e *FactorAutoSourcedError) FieldFault() (field, code, message string) {
-	return "factor", "factor_auto_sourced", e.Error()
+	return fieldKeyFactor, "factor_auto_sourced", e.Error()
 }
