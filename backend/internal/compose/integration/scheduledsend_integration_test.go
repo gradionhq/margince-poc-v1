@@ -36,6 +36,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -289,6 +290,108 @@ func TestAScheduledMessageWritesNothingUntilItFires(t *testing.T) {
 		t.Fatalf("a fired message reads %q, want %q — 'sent' would claim the provider was called, and it has not been",
 			status, activities.ScheduledStatusReleased)
 	}
+}
+
+// DRAFT-AC-N-10a. Firing hands the message to the delivery machinery and stops
+// at `released`, which is honest at that instant — the provider has not been
+// called. When it IS called and confirms, the scheduled row has to follow: a
+// message this system sent reads "sent" whether a rep scheduled it or pressed
+// the button. Anything else leaves a rep looking at a message that demonstrably
+// arrived while its record still says it was merely handed over.
+func TestAConfirmedReceiptCarriesTheScheduledSendToSent(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	// Handed over, not yet delivered. This is the state the fire leaves behind.
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusReleased {
+		t.Fatalf("a fired message reads %q, want %q before the provider is called",
+			status, activities.ScheduledStatusReleased)
+	}
+
+	// A real dispatch through the real connector to a real receipt.
+	activityID := p.releasedActivity(t, id)
+	deliveryID, _ := p.deliveryFor(t, activityID)
+	p.transmit(t, deliveryID, "")
+
+	if status := p.scheduledStatusThroughAPI(t, id); status != activities.ScheduledStatusSent {
+		t.Fatalf("after the provider confirmed receipt the message reads %q, want %q — a rep would be looking at a message that has arrived while its record says it was only handed over",
+			status, activities.ScheduledStatusSent)
+	}
+}
+
+// The filter has to read the SAME state the projection renders. A derived
+// status rendered on the way out while the raw column is filtered on the way in
+// is the shape where `?status=sent` returns nothing and `?status=released`
+// returns rows that read "sent" — each half correct, the pair useless.
+func TestFilteringByStatusFindsTheStateTheListActuallyShows(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.makeDue(t, id)
+	p.fire(t, id)
+	activityID := p.releasedActivity(t, id)
+	deliveryID, _ := p.deliveryFor(t, activityID)
+	p.transmit(t, deliveryID, "")
+
+	// The list renders it as sent, so the sent filter must find it.
+	if got := p.listScheduledIDs(t, activities.ScheduledStatusSent); !slices.Contains(got, id.String()) {
+		t.Errorf("?status=sent did not return the message the list renders as sent: %v", got)
+	}
+	// …and the released filter must not, because no rep sees it that way.
+	if got := p.listScheduledIDs(t, activities.ScheduledStatusReleased); slices.Contains(got, id.String()) {
+		t.Errorf("?status=released returned a message the list renders as sent: %v", got)
+	}
+}
+
+// releasedActivity reads the activity a fired scheduled send produced.
+func (p *preflightEnv) releasedActivity(t *testing.T, id ids.UUID) ids.UUID {
+	t.Helper()
+	var activityID ids.UUID
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT activity_id FROM scheduled_send WHERE id = $1`, id).Scan(&activityID)
+	}); err != nil {
+		t.Fatalf("reading the activity the fire produced: %v", err)
+	}
+	return activityID
+}
+
+// scheduledStatusThroughAPI reads the status the way a REP sees it — through the
+// endpoint, where the derived state is computed. scheduledStatus reads the raw
+// column, which stays 'released': the difference between the two IS the
+// behaviour under test.
+func (p *preflightEnv) scheduledStatusThroughAPI(t *testing.T, id ids.UUID) string {
+	t.Helper()
+	var got struct {
+		Status string `json:"status"`
+	}
+	if status := p.Call(t, "GET", "/v1/scheduled-sends/"+id.String(), nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("reading the scheduled send → %d", status)
+	}
+	return got.Status
+}
+
+// listScheduledIDs reads the rep's list filtered by one status, through the
+// endpoint rather than the table: the filter and the projection are the two
+// halves this asserts agree.
+func (p *preflightEnv) listScheduledIDs(t *testing.T, status string) []string {
+	t.Helper()
+	var rows []struct {
+		ID string `json:"id"`
+	}
+	if code := p.Call(t, "GET", "/v1/scheduled-sends?status="+status, nil, nil, &rows); code != http.StatusOK {
+		t.Fatalf("listing scheduled sends with status=%s → %d", status, code)
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.ID)
+	}
+	return out
 }
 
 func TestConsentWithdrawnBeforeFiringHoldsTheMessage(t *testing.T) {

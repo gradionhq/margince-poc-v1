@@ -7188,6 +7188,7 @@ const (
 	ScheduledSendStatusHeld      ScheduledSendStatus = "held"
 	ScheduledSendStatusReleased  ScheduledSendStatus = "released"
 	ScheduledSendStatusScheduled ScheduledSendStatus = "scheduled"
+	ScheduledSendStatusSent      ScheduledSendStatus = "sent"
 )
 
 // Valid indicates whether the value is a known member of the ScheduledSendStatus enum.
@@ -7200,6 +7201,8 @@ func (e ScheduledSendStatus) Valid() bool {
 	case ScheduledSendStatusReleased:
 		return true
 	case ScheduledSendStatusScheduled:
+		return true
+	case ScheduledSendStatusSent:
 		return true
 	default:
 		return false
@@ -9915,6 +9918,7 @@ const (
 	Held      ListScheduledSendsParamsStatus = "held"
 	Released  ListScheduledSendsParamsStatus = "released"
 	Scheduled ListScheduledSendsParamsStatus = "scheduled"
+	Sent      ListScheduledSendsParamsStatus = "sent"
 )
 
 // Valid indicates whether the value is a known member of the ListScheduledSendsParamsStatus enum.
@@ -9927,6 +9931,8 @@ func (e ListScheduledSendsParamsStatus) Valid() bool {
 	case Released:
 		return true
 	case Scheduled:
+		return true
+	case Sent:
 		return true
 	default:
 		return false
@@ -17763,9 +17769,11 @@ type ScheduledSend struct {
 	ScheduledTz string `json:"scheduled_tz"`
 
 	// Status `scheduled` — waiting; the rep may move or cancel it.
-	// `released` — it fired: the activity, the delivery row and the dispatch job exist.
-	// Deliberately NOT "sent": the provider has not been called yet and the delivery can
-	// still park or fail, so delivery truth lives on the outbound record, not here.
+	// `released` — it fired: the activity, the delivery row and the dispatch job exist,
+	// and the provider has not been called yet, so the delivery can still park or fail.
+	// A step rather than an ending.
+	// `sent` — the provider confirmed receipt. A message this system sent reads the same
+	// whether a rep scheduled it or sent it directly.
 	// `cancelled` — withdrawn before it fired; nothing was transmitted.
 	// `held` — a gate refused at fire, or the window was missed. It will not send itself;
 	// a human reschedules or cancels it.
@@ -17784,9 +17792,11 @@ type ScheduledSend struct {
 type ScheduledSendHeldReason string
 
 // ScheduledSendStatus `scheduled` — waiting; the rep may move or cancel it.
-// `released` — it fired: the activity, the delivery row and the dispatch job exist.
-// Deliberately NOT "sent": the provider has not been called yet and the delivery can
-// still park or fail, so delivery truth lives on the outbound record, not here.
+// `released` — it fired: the activity, the delivery row and the dispatch job exist,
+// and the provider has not been called yet, so the delivery can still park or fail.
+// A step rather than an ending.
+// `sent` — the provider confirmed receipt. A message this system sent reads the same
+// whether a rep scheduled it or sent it directly.
 // `cancelled` — withdrawn before it fired; nothing was transmitted.
 // `held` — a gate refused at fire, or the window was missed. It will not send itself;
 // a human reschedules or cancels it.
