@@ -25,6 +25,7 @@ import {
 } from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
 import { TelegramConnectForm } from "./telegram-connect-form";
+import "./connectors.css";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It

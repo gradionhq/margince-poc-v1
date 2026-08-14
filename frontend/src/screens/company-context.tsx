@@ -30,6 +30,7 @@ import {
   throwProblem,
   useMe,
 } from "./common";
+import "./company-context.css";
 
 type Capabilities = components["schemas"]["CompanyContextCapabilities"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];

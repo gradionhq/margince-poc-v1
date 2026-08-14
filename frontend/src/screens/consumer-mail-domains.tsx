@@ -10,7 +10,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { SEARCH_DEBOUNCE_MS } from "./listquery";
-import "./settings.css";
+import "./consumer-mail-domains.css";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
 // domain still creates the person; what it never creates is a company. The
