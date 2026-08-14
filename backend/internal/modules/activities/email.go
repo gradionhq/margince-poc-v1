@@ -228,11 +228,20 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
+	// Caller markup is filtered BEFORE anything of ours is added to it, so the
+	// signature and the unsubscribe footer below are not themselves subject to
+	// a filter they would only ever pass — and so what the allowlist judges is
+	// exactly what the caller sent.
+	safeHTML, err := SanitizeOutboundHTML(in.HTMLBody)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	// The markup alternative gets the SAME sign-off and the same unsubscribe
 	// footer, in its own syntax. Two alternatives of one message that disagreed
 	// would be two messages, and which one the recipient reads is their client's
 	// decision rather than ours — including whether they can unsubscribe.
-	htmlBody, err := s.signedHTML(ctx, in.HTMLBody, derived)
+	htmlBody, err := s.signedHTML(ctx, safeHTML, derived)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
