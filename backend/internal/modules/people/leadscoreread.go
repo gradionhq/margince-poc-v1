@@ -29,6 +29,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -41,6 +42,7 @@ type ExplainLeadScoreInput struct {
 }
 
 type scoreHistoryRow struct {
+	ID             ids.UUID
 	Score          int
 	ScoreComputed  int
 	OverrideReason *string
@@ -69,7 +71,7 @@ func (s *Store) ExplainLeadScore(ctx context.Context, leadID ids.LeadID, in Expl
 		}
 		out.Score = displayed
 
-		rows, err := readLeadScoreHistory(ctx, tx, leadID, in)
+		rows, hasMore, err := readLeadScoreHistory(ctx, tx, leadID, in)
 		if err != nil {
 			return err
 		}
@@ -97,6 +99,13 @@ func (s *Store) ExplainLeadScore(ctx context.Context, leadID ids.LeadID, in Expl
 			entries = append(entries, wireScoreEntry(row))
 		}
 		out.History = &entries
+		page := crmcontracts.PageInfo{HasMore: hasMore}
+		if hasMore {
+			last := rows[len(rows)-1]
+			next := storekit.EncodeCursor(last.ComputedAt, last.ID)
+			page.NextCursor = &next
+		}
+		out.Page = &page
 		return nil
 	})
 	if err != nil {
@@ -105,36 +114,58 @@ func (s *Store) ExplainLeadScore(ctx context.Context, leadID ids.LeadID, in Expl
 	return out, nil
 }
 
-// readLeadScoreHistory reads the newest entry, or a page of the series.
-func readLeadScoreHistory(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, in ExplainLeadScoreInput) ([]scoreHistoryRow, error) {
+// readLeadScoreHistory reads the newest entry, or one keyset page of the
+// series. The page is fetched one row over its limit so has_more is a fact
+// about the table rather than a guess from a full page.
+func readLeadScoreHistory(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, in ExplainLeadScoreInput) ([]scoreHistoryRow, bool, error) {
 	limit := 1
 	if in.History {
 		limit = in.Limit
 	}
+	args := []any{leadID, limit + 1}
+	where := "lead_id = $1"
+	if in.History && in.Cursor != "" {
+		cursor, err := storekit.DecodeCursor(in.Cursor)
+		if err != nil {
+			return nil, false, err
+		}
+		// Newest first, so a later page is everything ORDER-BY-lower than
+		// where the last one stopped. The id breaks ties on a shared
+		// timestamp — two recomputes inside the same instant are ordinary.
+		args = append(args, cursor.CreatedAt, cursor.ID)
+		where += " AND (computed_at, id) < ($3, $4)"
+	}
 	rows, err := tx.Query(ctx,
-		`SELECT score, score_computed, override_reason, raw_sum, rounded_sum, factors, computed_at
+		`SELECT id, score, score_computed, override_reason, raw_sum, rounded_sum, factors, computed_at
 		   FROM lead_score_history
-		  WHERE lead_id = $1
+		  WHERE `+where+`
 		  ORDER BY computed_at DESC, id DESC
-		  LIMIT $2`, leadID, limit)
+		  LIMIT $2`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("read lead score history: %w", err)
+		return nil, false, fmt.Errorf("read lead score history: %w", err)
 	}
 	defer rows.Close()
 	var out []scoreHistoryRow
 	for rows.Next() {
 		var row scoreHistoryRow
 		var encoded []byte
-		if err := rows.Scan(&row.Score, &row.ScoreComputed, &row.OverrideReason,
+		if err := rows.Scan(&row.ID, &row.Score, &row.ScoreComputed, &row.OverrideReason,
 			&row.RawSum, &row.RoundedSum, &encoded, &row.ComputedAt); err != nil {
-			return nil, fmt.Errorf("scan lead score history: %w", err)
+			return nil, false, fmt.Errorf("scan lead score history: %w", err)
 		}
 		if err := json.Unmarshal(encoded, &row.Factors); err != nil {
-			return nil, fmt.Errorf("decode lead score factors: %w", err)
+			return nil, false, fmt.Errorf("decode lead score factors: %w", err)
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
 }
 
 // filterFactorSources re-reads each factor's source activities through the

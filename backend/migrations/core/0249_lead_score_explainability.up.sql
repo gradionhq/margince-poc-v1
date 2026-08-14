@@ -1,4 +1,4 @@
--- 0246: the lead score keeps the reasoning that produced it (ADR-0105/A156).
+-- 0249: the lead score keeps the reasoning that produced it (ADR-0105/A156).
 --
 -- Scoring already computes a weighted-factor breakdown and throws it away, so
 -- AC-S7's promised decomposition reaches no client and the number on screen
