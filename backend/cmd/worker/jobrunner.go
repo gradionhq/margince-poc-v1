@@ -181,13 +181,14 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		ChannelVault: configuredVault,
 		// The classify + enrich passes run only where a model is
 		// configured; without one both are absent by omission.
-		ClassifyBrain:        modelPath.CaptureClassify,
-		VerdictBrain:         modelPath.CaptureCounterpartyVerdict,
-		EnrichBrain:          modelPath.Enrich,
-		SignalExtractBrain:   modelPath.SignalExtract,
-		OverlayVault:         configuredVault,
-		OverlayInterval:      cfg.overlayInterval,
-		OverlayBackfillLimit: cfg.overlayBackfillLimit,
+		ClassifyBrain:          modelPath.CaptureClassify,
+		VerdictBrain:           modelPath.CaptureCounterpartyVerdict,
+		EnrichBrain:            modelPath.Enrich,
+		SignalExtractBrain:     modelPath.SignalExtract,
+		TranscriptProposeBrain: modelPath.TranscriptPropose,
+		OverlayVault:           configuredVault,
+		OverlayInterval:        cfg.overlayInterval,
+		OverlayBackfillLimit:   cfg.overlayBackfillLimit,
 		// The poller's OVB meter records against the SAME Redis the relay
 		// uses (rdb) so the worker's poller spend and the api's force-fresh
 		// spend land on one shared per-workspace-per-incumbent count. Built

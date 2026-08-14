@@ -24,6 +24,12 @@ func jobQueues() map[string]river.QueueConfig {
 		// delay sends, Telegram polls, and capture syncs. Same species as
 		// deep reads — long and model-bound — so the same posture.
 		aiCaptureQueue: {MaxWorkers: aiCaptureMaxWorkers},
+		// Reading a transcript is one long model call, and a rep is watching a
+		// spinner for it. Its own pool for the deep-read reason, and separate
+		// from ai_capture because that queue's passes are background sweeps
+		// nobody is waiting on: sharing would let a fanned-out capture run put
+		// an interactive reading behind it.
+		transcriptReadQueue: {MaxWorkers: transcriptReadMaxWorkers},
 		// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
 		// counts but does not pace, and its keys are per workspace, so it
 		// cannot bound a provider-level burst: a concurrent fan-out could

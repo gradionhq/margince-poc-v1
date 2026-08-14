@@ -1,0 +1,34 @@
+name: one_side_promises_revised_pricing
+task: transcript_propose
+site: next_steps
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  - 'Ines: Thanks for making time. We went through the Graz numbers again over the weekend.'
+  - 'Lars: Good — did the volumes move much?'
+  - 'Ines: Up about fifteen percent on the pallets, down a little on the returns line.'
+  - 'Lars: That changes the tiering. I''ll send the revised pricing by Friday.'
+  - 'Ines: Perfect. We can look at it before the budget round.'
+  - 'Lars: Anything else on your side worth flagging?'
+  - 'Ines: Not today. The integration is running fine since the upgrade.'
+expect:
+  outcome: accepted
+  answer:
+    - line: 4
+  rubric: >
+    One party states one commitment, and the transcript states nothing else
+    anyone could act on. "I'll send the revised pricing by Friday" is a
+    specific thing, by a named time, promised to the other side — cited on
+    line 4, owned by Lars. Score that one proposal highest. Proposing anything
+    from the volume discussion scores low: numbers moving is a topic, not a
+    promise, and this site reports what people SAID they would do. Proposing
+    that the deal should move stage is the worst answer, whatever confidence
+    it carries — a transcript records what was said, never what should happen
+    to the account. Then score the summary as one plain sentence a colleague
+    could act on, the owner as the transcript names them, and the confidence
+    as a real judgement, since a proposal below the 0.7 floor is dropped and
+    never asked about again.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

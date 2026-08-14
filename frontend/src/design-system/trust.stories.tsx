@@ -133,6 +133,18 @@ const INBOX_EVIDENCE = {
   snippet: "We are moving the renewal to October.",
   source: "email 12 Jun",
 };
+// A source with lines to point at: a run closes into a range, a gap stays
+// apart, and a single line is said in the singular.
+const TRANSCRIPT_EVIDENCE = {
+  snippet: "I'll send the revised quote on Monday.",
+  source: "transcript",
+  lines: [12, 13, 14],
+};
+const TRANSCRIPT_ONE_LINE = {
+  snippet: "Monday it is.",
+  source: "transcript",
+  lines: [21],
+};
 
 // The three forms of the chip, and the source-shortening with them: the
 // collapsed chip strips the scheme and the leading www and truncates in the
@@ -147,9 +159,12 @@ function EvidenceDemo() {
         onOpen={() => setOpened(INBOX_EVIDENCE.source)}
       />
       {opened && <span className="t-caption">Opened source: {opened}</span>}
+      <EvidenceChip evidence={TRANSCRIPT_EVIDENCE} />
+      <EvidenceChip evidence={TRANSCRIPT_ONE_LINE} />
       <div style={row}>
         <EvidenceChip evidence={WEB_EVIDENCE} collapsed />
         <EvidenceChip evidence={INBOX_EVIDENCE} collapsed />
+        <EvidenceChip evidence={TRANSCRIPT_EVIDENCE} collapsed />
       </div>
     </div>
   );

@@ -3458,6 +3458,97 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/{id}/transcript-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: readTranscriptForNextSteps
+      summary: Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+      description: |
+        S-E04.3. Reads the transcript's normalized lines (ADR-0058: line N is the Nth newline-split
+        segment of the body) and stages each next step or commitment it STATES as a 🟡 approval,
+        citing the exact lines it was read from in `evidence[].source_lines`. NOTHING is written to
+        the timeline until a human confirms; accepting one creates a single task activity, idempotent
+        on the approval id.
+
+        Asynchronous: answers 202 with the read to poll, because a model call cannot happen inside
+        the request that asks for it. Re-issuing while a reading is in flight answers the SAME read
+        (idempotent per activity), so pressing the button twice does not pay for the transcript twice
+        or stage every proposal in duplicate.
+
+        A transcript that states no next steps is a CORRECT empty answer, reported as `done` with a
+        detail saying so — never as a failure, because a rep who cannot tell those apart will either
+        distrust a good answer or trust a broken one.
+
+        Human-only. The `enrich` verb reads an ORGANIZATION from its website and takes an
+        organization id, so it cannot express reading one activity; and this operation exists to put
+        a question in front of the person who was in the meeting. An agent that wants the same
+        outcome proposes the task directly through its own governed tool, where the confirm-first
+        tier already applies — rather than through a second door that stages on its behalf.
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: The reading is queued; poll the read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadStarted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: This activity carries no transcript, or its transcript is blank or too long for one reading.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '501':
+          description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /activities/{id}/transcript-proposals/latest:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Activities]
+      operationId: getLatestTranscriptRead
+      summary: The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+      description: |
+        A read id lives only in the browser tab that started the reading, so a reading that finished
+        after the rep left the page could not be found again — and a transcript nobody had read looked
+        exactly like one whose reading had failed. 404 when this transcript has never been read, which
+        is the honest difference between "never tried" and "tried and got nothing".
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The newest reading's report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /activities/{id}/transcript-proposals/{readId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Activities]
+      operationId: getTranscriptRead
+      summary: One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The read report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /activities/{id}/draft-email:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -19486,6 +19577,44 @@ components:
       properties:
         url: { type: string, format: uri, description: Company URL to read instead of the org's domain. }
 
+    TranscriptReadStarted:
+      type: object
+      description: The 202 handle for a queued transcript reading.
+      required: [read_id, status]
+      properties:
+        read_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running], description: 'The joined reading''s state when one is already in flight.' }
+
+    TranscriptReadReport:
+      type: object
+      description: >-
+        What one reading of one transcript did. The three outcomes are kept apart on purpose: still
+        reading, read it and it stated nothing, and could not read it are different answers, and
+        collapsing the last two makes a correct empty result look like a broken feature.
+      required: [read_id, activity_id, status, line_count, proposal_ids, created_at]
+      properties:
+        read_id: { type: string, format: uuid }
+        activity_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running, done, failed] }
+        status_detail:
+          type: [string, 'null']
+          description: >-
+            Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading
+            that produced nothing so an empty result explains itself.
+        line_count:
+          type: integer
+          description: >-
+            How many lines the reading addressed, so a cited line can be shown against the size of
+            what was read. It is the count at READ time; a later body edit re-normalizes and can
+            change it, and each proposal's own evidence stays authoritative about what it saw.
+        proposal_ids:
+          type: array
+          description: The approvals this reading staged. Empty on a reading that found nothing to propose.
+          items: { type: string, format: uuid }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
     SiteReadStarted:
       type: object
       description: The 202 handle for a queued deep read.
@@ -19561,6 +19690,27 @@ components:
         created_at: { type: string, format: date-time }
 
     # ---- Approvals ----
+    ApprovalEvidence:
+      type: object
+      description: >-
+        One claim's backing material, so confirming a proposal is a check rather
+        than a vote of confidence in the model. Per claim, not per approval: a
+        proposal asserting three things carries three of these.
+      required: [evidence_snippet]
+      properties:
+        evidence_snippet: { type: string, description: 'The fragment as it reads in the source, quoted rather than paraphrased.' }
+        source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
+        source_id: { type: [string, 'null'], format: uuid }
+        source_lines:
+          type: array
+          description: >-
+            1-based line numbers within the source record's body that this claim
+            was read from, for a source whose body is line-addressed (a meeting
+            transcript today, per ADR-0058: line N is the Nth newline-split
+            segment of activity.body). Absent for a source that is not
+            line-addressed.
+          items: { type: integer, minimum: 1 }
+
     Approval:
       type: object
       description: A staged 🟡 confirm-first action awaiting human decision.
@@ -19598,12 +19748,7 @@ components:
         evidence:
           type: array
           description: Per-claim evidence (snippet + source id) backing the proposal.
-          items:
-            type: object
-            properties:
-              evidence_snippet: { type: string }
-              source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
-              source_id: { type: [string, 'null'], format: uuid }
+          items: { $ref: '#/components/schemas/ApprovalEvidence' }
         confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
         result_entity_type: { type: [string, 'null'] }
         result_entity_id: { type: [string, 'null'], format: uuid }

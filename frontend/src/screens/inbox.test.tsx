@@ -283,6 +283,36 @@ describe("InboxScreen (B-EP09.12a)", () => {
 });
 
 // ── AC-3: reject-with-reason ────────────────────────────────────────────
+// A proposal read out of a transcript cites the lines it was read from. Without
+// them the row quotes a sentence and leaves the reader no way back to the
+// exchange it came from — the one thing that makes the claim checkable.
+describe("InboxScreen — the lines a transcript proposal was read from", () => {
+  it("shows the cited line range beside the snippet", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const fromTranscript: Approval = {
+      ...approval,
+      kind: "transcript_proposal",
+      summary: "Send the revised quote on Monday",
+      evidence: [
+        {
+          evidence_snippet: "I'll send the revised quote on Monday.",
+          source_type: "activity",
+          source_lines: [12, 13, 14],
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", inboxBackend(calls, [], fromTranscript));
+    render(<InboxScreen />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Add a next step from a transcript"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText("lines 12–14")).toBeTruthy();
+  });
+});
+
 describe("InboxScreen — reject with reason (AC-3)", () => {
   it("opens a reason field and sends the reason in the reject body", async () => {
     const calls: { url: string; body: unknown }[] = [];

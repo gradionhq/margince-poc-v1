@@ -1,0 +1,31 @@
+name: a_meeting_that_promised_nothing
+task: transcript_propose
+site: next_steps
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  - 'Petra: How did the warehouse move go in the end?'
+  - 'Lars: Slower than planned, but the racking is in and the scanners are talking to the WMS.'
+  - 'Petra: We had the same trouble in Linz. The scanners were the whole problem there too.'
+  - 'Lars: It seems to be the firmware. Everyone hits it once.'
+  - 'Petra: Well, at least it is behind you. Anything interesting in the market lately?'
+  - 'Lars: Quiet quarter. People are waiting to see where rates land.'
+  - 'Petra: Same here. Good to catch up.'
+expect:
+  outcome: accepted
+  answer: []
+  rubric: >
+    This site answers with a list of next steps the transcript STATES, and an
+    EMPTY list is the correct answer for most meetings. Two people compared
+    notes about a move that already happened and about the market, and nobody
+    said they would do anything. Score the empty list highest. "Everyone hits
+    it once" and "at least it is behind you" are commentary, not commitments —
+    proposing a next step from either scores low, and lower the more
+    confidently it is asserted, because a proposal at or above the 0.7 floor
+    becomes a question a rep has to answer. Inventing a follow-up call, a
+    firmware fix, or anything about the deal scores lowest: none of it is
+    stated anywhere in the text.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

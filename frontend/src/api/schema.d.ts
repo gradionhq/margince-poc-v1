@@ -2242,6 +2242,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activities/{id}/transcript-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+         * @description S-E04.3. Reads the transcript's normalized lines (ADR-0058: line N is the Nth newline-split
+         *     segment of the body) and stages each next step or commitment it STATES as a 🟡 approval,
+         *     citing the exact lines it was read from in `evidence[].source_lines`. NOTHING is written to
+         *     the timeline until a human confirms; accepting one creates a single task activity, idempotent
+         *     on the approval id.
+         *
+         *     Asynchronous: answers 202 with the read to poll, because a model call cannot happen inside
+         *     the request that asks for it. Re-issuing while a reading is in flight answers the SAME read
+         *     (idempotent per activity), so pressing the button twice does not pay for the transcript twice
+         *     or stage every proposal in duplicate.
+         *
+         *     A transcript that states no next steps is a CORRECT empty answer, reported as `done` with a
+         *     detail saying so — never as a failure, because a rep who cannot tell those apart will either
+         *     distrust a good answer or trust a broken one.
+         *
+         *     Human-only. The `enrich` verb reads an ORGANIZATION from its website and takes an
+         *     organization id, so it cannot express reading one activity; and this operation exists to put
+         *     a question in front of the person who was in the meeting. An agent that wants the same
+         *     outcome proposes the task directly through its own governed tool, where the confirm-first
+         *     tier already applies — rather than through a second door that stages on its behalf.
+         */
+        post: operations["readTranscriptForNextSteps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/{id}/transcript-proposals/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+         * @description A read id lives only in the browser tab that started the reading, so a reading that finished
+         *     after the rep left the page could not be found again — and a transcript nobody had read looked
+         *     exactly like one whose reading had failed. 404 when this transcript has never been read, which
+         *     is the honest difference between "never tried" and "tried and got nothing".
+         */
+        get: operations["getLatestTranscriptRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/{id}/transcript-proposals/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing. */
+        get: operations["getTranscriptRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/draft-email": {
         parameters: {
             query?: never;
@@ -14214,6 +14303,37 @@ export interface components {
              */
             url?: string;
         };
+        /** @description The 202 handle for a queued transcript reading. */
+        TranscriptReadStarted: {
+            /** Format: uuid */
+            read_id: string;
+            /**
+             * @description The joined reading's state when one is already in flight.
+             * @enum {string}
+             */
+            status: "queued" | "running";
+        };
+        /** @description What one reading of one transcript did. The three outcomes are kept apart on purpose: still reading, read it and it stated nothing, and could not read it are different answers, and collapsing the last two makes a correct empty result look like a broken feature. */
+        TranscriptReadReport: {
+            /** Format: uuid */
+            read_id: string;
+            /** Format: uuid */
+            activity_id: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "done" | "failed";
+            /** @description Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading that produced nothing so an empty result explains itself. */
+            status_detail?: string | null;
+            /** @description How many lines the reading addressed, so a cited line can be shown against the size of what was read. It is the count at READ time; a later body edit re-normalizes and can change it, and each proposal's own evidence stays authoritative about what it saw. */
+            line_count: number;
+            /** @description The approvals this reading staged. Empty on a reading that found nothing to propose. */
+            proposal_ids: string[];
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
         /** @description The 202 handle for a queued deep read. */
         SiteReadStarted: {
             /** Format: uuid */
@@ -14302,6 +14422,17 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
         };
+        /** @description One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these. */
+        ApprovalEvidence: {
+            /** @description The fragment as it reads in the source, quoted rather than paraphrased. */
+            evidence_snippet: string;
+            /** @enum {string|null} */
+            source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
+            /** Format: uuid */
+            source_id?: string | null;
+            /** @description 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed. */
+            source_lines?: number[];
+        };
         /** @description A staged 🟡 confirm-first action awaiting human decision. */
         Approval: {
             /** Format: uuid */
@@ -14352,13 +14483,7 @@ export interface components {
                 [key: string]: unknown;
             };
             /** @description Per-claim evidence (snippet + source id) backing the proposal. */
-            evidence?: {
-                evidence_snippet?: string;
-                /** @enum {string|null} */
-                source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
-                /** Format: uuid */
-                source_id?: string | null;
-            }[];
+            evidence?: components["schemas"]["ApprovalEvidence"][];
             confidence?: number | null;
             result_entity_type?: string | null;
             /** Format: uuid */
@@ -20056,6 +20181,100 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    readTranscriptForNextSteps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reading is queued; poll the read. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description This activity carries no transcript, or its transcript is blank or too long for one reading. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getLatestTranscriptRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newest reading's report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getTranscriptRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The read report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     draftEmail: {

@@ -53,6 +53,11 @@ type StageInput struct {
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
 	Announce []AnnouncedEvent
+	// Evidence is the material each claim in ProposedChange was read out of,
+	// so the human confirming it can check the proposal instead of trusting
+	// it (evidence.go). Empty for a staging derived from record state rather
+	// than from reading something.
+	Evidence []Evidence
 	// BundleID names the act that proposed this row together with its siblings —
 	// today, a website read's company facts and the leads it published. Zero for
 	// a proposal staged alone.
@@ -432,15 +437,20 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 	// payload used the app clock let approval.requested.data.expires_at drift
 	// from what the approval row actually stored.
 	expiresAt := s.now().UTC().Add(stagingTTL)
+	evidence, err := marshalEvidence(in.Evidence)
+	if err != nil {
+		return ids.ApprovalID{}, err
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO approval (id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
-			                       summary, proposed_change, diff_hash, expires_at, bundle_id)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			                       summary, proposed_change, diff_hash, expires_at, bundle_id,
+			                       evidence)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		id, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
 		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt,
-		nullUUID(in.BundleID)); err != nil {
+		nullUUID(in.BundleID), evidence); err != nil {
 		return ids.ApprovalID{}, err
 	}
 	auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{

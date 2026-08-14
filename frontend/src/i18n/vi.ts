@@ -52,6 +52,8 @@ export const vi = {
   "trust.resolvedValue": "giá trị đã chốt",
   "trust.editValue": "Sửa {description}",
   "trust.evidenceFrom": "Bằng chứng từ {source}",
+  "trust.evidenceLine": "dòng {lines}",
+  "trust.evidenceLines": "dòng {lines}",
 
   "history.created": "— đã tạo —",
   "history.oldValue": "Giá trị trước",
@@ -910,6 +912,8 @@ export const vi = {
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
   "approval.kind.lifecycle_change": "Giai đoạn công ty",
+  "approval.kind.transcript_proposal":
+    "Thêm bước tiếp theo từ bản ghi cuộc trò chuyện",
   "approval.kind.fx_rate_proposal": "Làm mới tỷ giá",
   "approval.kind.ai_model_rate_proposal": "Làm mới giá mô hình",
   "co.assistant.title": "Hỏi về tài khoản này",
@@ -1429,6 +1433,26 @@ export const vi = {
   "deepread.kindProducts": "Sản phẩm",
   "deepread.kindContact": "Liên hệ",
   "deepread.kindOther": "Khác",
+
+  "transcriptread.title": "Đọc bản chép lời này",
+  "transcriptread.sub":
+    "Tìm các bước tiếp theo và cam kết mà cuộc trò chuyện này nêu ra. Không có gì được ghi cho đến khi bạn xác nhận.",
+  "transcriptread.cta": "Đọc bản chép lời",
+  "transcriptread.starting": "Đang bắt đầu…",
+  "transcriptread.unavailable":
+    "Máy chủ này chưa cấu hình chức năng đọc bản chép lời.",
+  "transcriptread.statusQueued": "Đang xếp hàng",
+  "transcriptread.statusRunning": "Đang đọc…",
+  "transcriptread.statusDone": "Xong",
+  "transcriptread.statusFailed": "Thất bại",
+  "transcriptread.lineCount.one": "Đã đọc {count} dòng",
+  "transcriptread.lineCount.other": "Đã đọc {count} dòng",
+  "transcriptread.proposals": "{count} bước tiếp theo đang chờ bạn rà soát",
+  "transcriptread.proposalsOne": "1 bước tiếp theo đang chờ bạn rà soát",
+  "transcriptread.nothingStated":
+    "Đã đọc toàn bộ. Cuộc trò chuyện này không nêu bước tiếp theo nào.",
+  "transcriptread.failedFallback":
+    "Không đọc được bản ghi này. Không có đề xuất nào được tạo.",
 
   "create.cancel": "Huỷ",
   "create.multiselect.required": "Bắt buộc — chọn ít nhất một.",

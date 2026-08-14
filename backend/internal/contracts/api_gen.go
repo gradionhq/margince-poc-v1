@@ -579,36 +579,6 @@ func (e ApplyTagRequestEntityType) Valid() bool {
 	}
 }
 
-// Defines values for ApprovalEvidenceSourceType.
-const (
-	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
-	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
-	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
-	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
-	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
-	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
-)
-
-// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
-func (e ApprovalEvidenceSourceType) Valid() bool {
-	switch e {
-	case ApprovalEvidenceSourceTypeActivity:
-		return true
-	case ApprovalEvidenceSourceTypeDeal:
-		return true
-	case ApprovalEvidenceSourceTypeLessThannil:
-		return true
-	case ApprovalEvidenceSourceTypePage:
-		return true
-	case ApprovalEvidenceSourceTypeRelationship:
-		return true
-	case ApprovalEvidenceSourceTypeSignal:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ApprovalStatus.
 const (
 	ApprovalStatusApproved ApprovalStatus = "approved"
@@ -651,6 +621,36 @@ func (e ApprovalBundleMemberOutcome) Valid() bool {
 	case ApprovalBundleMemberOutcomeEffectFailed:
 		return true
 	case ApprovalBundleMemberOutcomeExpired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalEvidenceSourceType.
+const (
+	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
+	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
+	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
+	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
+	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
+	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
+func (e ApprovalEvidenceSourceType) Valid() bool {
+	switch e {
+	case ApprovalEvidenceSourceTypeActivity:
+		return true
+	case ApprovalEvidenceSourceTypeDeal:
+		return true
+	case ApprovalEvidenceSourceTypeLessThannil:
+		return true
+	case ApprovalEvidenceSourceTypePage:
+		return true
+	case ApprovalEvidenceSourceTypeRelationship:
+		return true
+	case ApprovalEvidenceSourceTypeSignal:
 		return true
 	default:
 		return false
@@ -7836,6 +7836,48 @@ func (e TaggableEntityType) Valid() bool {
 	}
 }
 
+// Defines values for TranscriptReadReportStatus.
+const (
+	TranscriptReadReportStatusDone    TranscriptReadReportStatus = "done"
+	TranscriptReadReportStatusFailed  TranscriptReadReportStatus = "failed"
+	TranscriptReadReportStatusQueued  TranscriptReadReportStatus = "queued"
+	TranscriptReadReportStatusRunning TranscriptReadReportStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptReadReportStatus enum.
+func (e TranscriptReadReportStatus) Valid() bool {
+	switch e {
+	case TranscriptReadReportStatusDone:
+		return true
+	case TranscriptReadReportStatusFailed:
+		return true
+	case TranscriptReadReportStatusQueued:
+		return true
+	case TranscriptReadReportStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TranscriptReadStartedStatus.
+const (
+	TranscriptReadStartedStatusQueued  TranscriptReadStartedStatus = "queued"
+	TranscriptReadStartedStatusRunning TranscriptReadStartedStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptReadStartedStatus enum.
+func (e TranscriptReadStartedStatus) Valid() bool {
+	switch e {
+	case TranscriptReadStartedStatusQueued:
+		return true
+	case TranscriptReadStartedStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateAttachmentMetadataRequestCategory.
 const (
 	UpdateAttachmentMetadataRequestCategoryContract        UpdateAttachmentMetadataRequestCategory = "contract"
@@ -10618,11 +10660,7 @@ type Approval struct {
 	DiffHash *string `json:"diff_hash,omitempty"`
 
 	// Evidence Per-claim evidence (snippet + source id) backing the proposal.
-	Evidence *[]struct {
-		EvidenceSnippet *string                     `json:"evidence_snippet,omitempty"`
-		SourceId        *openapi_types.UUID         `json:"source_id,omitempty"`
-		SourceType      *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
-	} `json:"evidence,omitempty"`
+	Evidence *[]ApprovalEvidence `json:"evidence,omitempty"`
 
 	// ExpiresAt When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
@@ -10654,9 +10692,6 @@ type Approval struct {
 	// TargetVersion The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).
 	TargetVersion *int `json:"target_version,omitempty"`
 }
-
-// ApprovalEvidenceSourceType defines model for Approval.Evidence.SourceType.
-type ApprovalEvidenceSourceType string
 
 // ApprovalStatus defines model for Approval.Status.
 type ApprovalStatus string
@@ -10704,6 +10739,20 @@ type ApprovalBundleMember struct {
 // audited, but the follow-on change did not land; the member reads approved and
 // unredeemed, and the server log carries the cause.
 type ApprovalBundleMemberOutcome string
+
+// ApprovalEvidence One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these.
+type ApprovalEvidence struct {
+	// EvidenceSnippet The fragment as it reads in the source, quoted rather than paraphrased.
+	EvidenceSnippet string              `json:"evidence_snippet"`
+	SourceId        *openapi_types.UUID `json:"source_id,omitempty"`
+
+	// SourceLines 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed.
+	SourceLines *[]int                      `json:"source_lines,omitempty"`
+	SourceType  *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
+}
+
+// ApprovalEvidenceSourceType defines model for ApprovalEvidence.SourceType.
+type ApprovalEvidenceSourceType string
 
 // ApprovalListResponse defines model for ApprovalListResponse.
 type ApprovalListResponse struct {
@@ -18345,6 +18394,39 @@ type TeamListResponse struct {
 	Data []Team   `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// TranscriptReadReport What one reading of one transcript did. The three outcomes are kept apart on purpose: still reading, read it and it stated nothing, and could not read it are different answers, and collapsing the last two makes a correct empty result look like a broken feature.
+type TranscriptReadReport struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+	CreatedAt  time.Time          `json:"created_at"`
+	FinishedAt *time.Time         `json:"finished_at,omitempty"`
+
+	// LineCount How many lines the reading addressed, so a cited line can be shown against the size of what was read. It is the count at READ time; a later body edit re-normalizes and can change it, and each proposal's own evidence stays authoritative about what it saw.
+	LineCount int `json:"line_count"`
+
+	// ProposalIds The approvals this reading staged. Empty on a reading that found nothing to propose.
+	ProposalIds []openapi_types.UUID       `json:"proposal_ids"`
+	ReadId      openapi_types.UUID         `json:"read_id"`
+	StartedAt   *time.Time                 `json:"started_at,omitempty"`
+	Status      TranscriptReadReportStatus `json:"status"`
+
+	// StatusDetail Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading that produced nothing so an empty result explains itself.
+	StatusDetail *string `json:"status_detail,omitempty"`
+}
+
+// TranscriptReadReportStatus defines model for TranscriptReadReport.Status.
+type TranscriptReadReportStatus string
+
+// TranscriptReadStarted The 202 handle for a queued transcript reading.
+type TranscriptReadStarted struct {
+	ReadId openapi_types.UUID `json:"read_id"`
+
+	// Status The joined reading's state when one is already in flight.
+	Status TranscriptReadStartedStatus `json:"status"`
+}
+
+// TranscriptReadStartedStatus The joined reading's state when one is already in flight.
+type TranscriptReadStartedStatus string
 
 // UpdateActivityRequest defines model for UpdateActivityRequest.
 type UpdateActivityRequest struct {
@@ -28639,6 +28721,15 @@ type ServerInterface interface {
 	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-message)
 	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
+	// Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+	// (POST /activities/{id}/transcript-proposals)
+	ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request, id Id)
+	// The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+	// (GET /activities/{id}/transcript-proposals/latest)
+	GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request, id Id)
+	// One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+	// (GET /activities/{id}/transcript-proposals/{readId})
+	GetTranscriptRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
 	// What the background system is holding, and whose work failed.
 	// (GET /admin/job-health)
 	GetJobHealth(w http.ResponseWriter, r *http.Request)
@@ -29770,6 +29861,24 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-message)
 func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+// (POST /activities/{id}/transcript-proposals)
+func (_ Unimplemented) ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+// (GET /activities/{id}/transcript-proposals/latest)
+func (_ Unimplemented) GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+// (GET /activities/{id}/transcript-proposals/{readId})
+func (_ Unimplemented) GetTranscriptRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -32539,6 +32648,117 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadTranscriptForNextSteps operation middleware
+func (siw *ServerInterfaceWrapper) ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTranscriptForNextSteps(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLatestTranscriptRead operation middleware
+func (siw *ServerInterfaceWrapper) GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLatestTranscriptRead(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTranscriptRead operation middleware
+func (siw *ServerInterfaceWrapper) GetTranscriptRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTranscriptRead(w, r, id, readId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -48604,6 +48824,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/{id}/transcript-proposals", wrapper.ReadTranscriptForNextSteps)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/transcript-proposals/latest", wrapper.GetLatestTranscriptRead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/transcript-proposals/{readId}", wrapper.GetTranscriptRead)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/job-health", wrapper.GetJobHealth)
