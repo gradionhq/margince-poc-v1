@@ -1,4 +1,4 @@
--- Reverse of 0244: the three agent tables carry the tenant column again.
+-- Reverse of 0246: the three agent tables carry the tenant column again.
 --
 -- The backfill reads the LIVE workspace, and the predicate is the point: 0217's
 -- pre-flight refuses to run against a database holding more than one workspace

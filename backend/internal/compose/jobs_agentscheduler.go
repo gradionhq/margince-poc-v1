@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
@@ -83,7 +84,7 @@ func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerCo
 	if now == nil {
 		now = time.Now
 	}
-	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{svc: cfg.AgentScheduler.Service, now: now})
+	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{svc: cfg.AgentScheduler.Service, identity: identity.NewService(pool), now: now})
 	return periodicFor(cfg, AgentSchedulerArgs{})
 }
 
@@ -114,8 +115,9 @@ func (AgentSchedulerArgs) InsertOpts() river.InsertOpts {
 
 // agentSchedulerWorker seeds and executes the due jobs.
 type agentSchedulerWorker struct {
-	svc *RunnerService
-	now func() time.Time
+	svc      *RunnerService
+	identity *identity.Service
+	now      func() time.Time
 }
 
 // Work binds no pass-level actor: each claimed job resolves its own passport
@@ -123,5 +125,13 @@ type agentSchedulerWorker struct {
 // would relabel every run's audit rows as the scheduler's rather than the
 // agent's.
 func (w *agentSchedulerWorker) Work(ctx context.Context, _ *river.Job[AgentSchedulerArgs]) error {
-	return jobs.FaultContext(ctx, w.svc.Tick(ctx, w.now()))
+	// The installation is bound even though this pass names no workspace: the
+	// agent tools it executes reach stores that still stamp their workspace_id
+	// from the context (storekit.MustWorkspace). Unbound, those writes would
+	// stamp a zero uuid and fail their foreign key.
+	passCtx, err := installationJobCtx(ctx, w.identity)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, w.svc.Tick(passCtx, w.now()))
 }

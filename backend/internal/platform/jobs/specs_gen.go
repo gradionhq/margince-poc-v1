@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "3b41ab8809e22bc74b4a21355dd3dfeaafd1e4e342819970ffda8e805a095757"
+const JobContractHash = "09280f19b8163593de5ad31bad7d3b98e106fc20114eb12df6be14750da3cf8e"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -30,25 +30,14 @@ var specs = map[string]Spec{
 		Registration: Registration{When: []string{"AgentScheduler.Service"}},
 	},
 	"agent_task_retention": {
-		Kind:       "agent_task_retention",
-		GoType:     "AgentTaskRetentionArgs",
-		Role:       Dispatcher,
-		Queue:      "default",
-		Timeout:    TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit: FanOutWorkspace,
-		FanOutTo:   "agent_task_retention_workspace",
-		OptsOwner:  OptsCaller,
-		Cadence:    Cadence{Fixed: 1 * time.Hour},
-	},
-	"agent_task_retention_workspace": {
-		Kind:        "agent_task_retention_workspace",
-		GoType:      "AgentTaskRetentionWorkspaceArgs",
+		Kind:        "agent_task_retention",
+		GoType:      "AgentTaskRetentionArgs",
 		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
-		OptsOwner:   OptsFanOut,
-		Args:        []ArgField{{Name: "Workspace"}},
+		OptsOwner:   OptsArgs,
+		Cadence:     Cadence{Fixed: 1 * time.Hour},
 	},
 	"ai_model_rate_refresh": {
 		Kind:      "ai_model_rate_refresh",

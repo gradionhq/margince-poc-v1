@@ -1,4 +1,4 @@
--- 0244: the agent tables drop the tenant column (ADR-0091 §8 phase D).
+-- 0246: the agent tables drop the tenant column (ADR-0091 §8 phase D).
 --
 -- Held back until now because the scheduler fanned out one job per live tenant
 -- and its suite injected a fault through a trigger keyed on NEW.workspace_id.
