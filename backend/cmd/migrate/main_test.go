@@ -10,6 +10,7 @@ package main
 // integration lane alone.
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -218,6 +219,40 @@ func TestReportExtensionNamespacesPropagatesAWriteFailure(t *testing.T) {
 // scripts/lib-testdb.sh and captures the literal prefix it tests the summary
 // against.
 var shellMatcherPattern = regexp.MustCompile(`\[\[ "\$summary" != "([^"]*)"\* \]\]`)
+
+// entrypointProvisionedPattern finds the deploy entrypoint's comparison against
+// the org-exists answer and captures the literal it expects.
+var entrypointProvisionedPattern = regexp.MustCompile(`\[ "\$provisioned" = "([^"]*)" \]`)
+
+// TestOrgExistsAnswerMatchesTheEntrypointComparison pins the other half of a
+// wire contract that is otherwise only exercised in a container nothing in CI
+// runs: the entrypoint string-compares this verb's stdout to decide whether to
+// write a plaintext bootstrap credential. Drift in either direction is silent
+// and lands on the wrong side of that decision — print "TRUE" and every
+// provisioned installation gets the credential written again.
+func TestOrgExistsAnswerMatchesTheEntrypointComparison(t *testing.T) {
+	const script = "../../../scripts/deploy/api-entrypoint.sh"
+	source, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("reading %s: %v", script, err)
+	}
+	found := entrypointProvisionedPattern.FindSubmatch(source)
+	if found == nil {
+		t.Fatalf("%s no longer compares $provisioned against a literal — the bootstrap-credential branch was rewritten; re-point this test at whatever replaced it", script)
+	}
+	want := string(found[1])
+
+	var out bytes.Buffer
+	// The exact call orgExists makes to report a provisioned installation. The
+	// shell's $(…) strips the trailing newline, so the comparison is against the
+	// trimmed form.
+	if _, err := fmt.Fprintf(&out, "%t\n", true); err != nil {
+		t.Fatalf("rendering the answer: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Errorf("org-exists prints %q for a provisioned installation but %s branches on %q — the entrypoint would write a plaintext bootstrap credential onto a live installation; change both together", got, script, want)
+	}
+}
 
 // TestUpSummaryMatchesTheShellMatcher closes a silent-drift risk between two
 // files that cannot see each other: cmd/migrate prints the summary and

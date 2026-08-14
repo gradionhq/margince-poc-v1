@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,6 +210,68 @@ func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
 	}
 	if other != 0 {
 		t.Fatalf("ai_model_rate carries %d rows outside the bootstrapped workspace, want 0", other)
+	}
+}
+
+// TestBootBindsWithoutReadingASpentBootstrapSecret is the restart an operator
+// who followed ADR-0061 §2 actually performs. The ADR permits deleting the
+// bootstrap secret once the organization exists, and the deploy entrypoint stops
+// writing it at that point — so a boot that resolved the credential eagerly
+// would fail on precisely the installations that obeyed the ADR, turning every
+// redeploy into a crash loop. The password file is removed here rather than
+// merely left stale, because "absent" is the state the container filesystem
+// actually presents: /app/secrets carries no VOLUME, so a new container starts
+// without it.
+func TestBootBindsWithoutReadingASpentBootstrapSecret(t *testing.T) {
+	e := apptest.SetupApp(t)
+	pwFile := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(pwFile, []byte("correct-horse-battery"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := deployconfig.Config{
+		Version:      1,
+		Organization: deployconfig.Organization{Name: "Spent Secret Org", BaseCurrency: "EUR", Timezone: "Europe/Berlin"},
+		BootstrapAdmin: &deployconfig.BootstrapAdmin{
+			Email: "ops@spent.test", DisplayName: "Ops", PasswordFile: pwFile,
+		},
+		Seeds: deployconfig.Seeds{StarterAutomations: boolPtr(false), BookingPage: boolPtr(false)},
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := compose.EnsureInstallation(context.Background(), e.Pool, log, cfg); err != nil {
+		t.Fatalf("first boot: %v", err)
+	}
+
+	if err := os.Remove(pwFile); err != nil {
+		t.Fatalf("retiring the bootstrap secret: %v", err)
+	}
+	// Same configuration, same process role, second start.
+	if err := compose.EnsureInstallation(context.Background(), e.Pool, log, cfg); err != nil {
+		t.Fatalf("restart after the bootstrap secret was retired: %v — the boot path read a credential it only needs to CREATE an organization, so every redeploy of a bootstrapped installation would crash-loop", err)
+	}
+}
+
+// TestFirstBootStillFailsLoudlyOnAnUnreadableSecret is the other half: making
+// the read lazy must not make it optional. An empty database plus a configured
+// bootstrap_admin whose secret cannot be read is an operator error, and it has
+// to surface as one rather than as a silently unbootstrapped installation.
+func TestFirstBootStillFailsLoudlyOnAnUnreadableSecret(t *testing.T) {
+	e := apptest.SetupApp(t)
+	cfg := deployconfig.Config{
+		Version:      1,
+		Organization: deployconfig.Organization{Name: "No Secret Org", BaseCurrency: "EUR", Timezone: "Europe/Berlin"},
+		BootstrapAdmin: &deployconfig.BootstrapAdmin{
+			Email: "ops@nosecret.test", DisplayName: "Ops",
+			PasswordFile: filepath.Join(t.TempDir(), "never-written"),
+		},
+		Seeds: deployconfig.Seeds{StarterAutomations: boolPtr(false), BookingPage: boolPtr(false)},
+	}
+	err := compose.EnsureInstallation(context.Background(), e.Pool,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), cfg)
+	if err == nil {
+		t.Fatal("first boot succeeded with an unreadable bootstrap secret — the deferred read swallowed the error instead of refusing")
+	}
+	if !strings.Contains(err.Error(), "password_file") {
+		t.Errorf("the failure does not name the password file the operator must fix: %v", err)
 	}
 }
 
