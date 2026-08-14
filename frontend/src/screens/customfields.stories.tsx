@@ -78,6 +78,26 @@ export const BuilderText: Story = {
   ),
 };
 
+// The builder in dark, for the consent callout it always carries. The DDL
+// preview is a `.cf-ddl` chip painting `--bgElevated` INSIDE a warn-toned
+// Callout: an elevated ground nested in a tint, which is the composite that has
+// no reason to keep its separation once both tokens re-resolve. The autonomy dot
+// in the callout title is colour-only as well, and it is what marks this as a
+// confirm-tier action against a live table.
+export const BuilderTextDark: Story = {
+  globals: { theme: "dark" },
+  render: () => (
+    <StoryProviders>
+      <FieldBuilder
+        object="organization"
+        pending={false}
+        onSubmit={noop}
+        onToast={noop}
+      />
+    </StoryProviders>
+  ),
+};
+
 // The Currency type, chosen: the ISO-4217 currency-code input appears under
 // the type control and the DDL preview below picks up the numeric column.
 export const BuilderCurrency: Story = {
@@ -148,6 +168,28 @@ export const BuilderRefusal: Story = {
 };
 
 export const TableWithFields: Story = {
+  render: () => (
+    <StoryProviders>
+      <FieldTable
+        object="deal"
+        fields={dealFields}
+        canEdit
+        meUserId="u1"
+        onRename={noop}
+        onArchive={noop}
+      />
+    </StoryProviders>
+  ),
+};
+
+// The field table at 390px. Every row carries a fully-qualified mono key
+// (`deal.cf_deal_stage_reason`) next to a type, a version and its rename/archive
+// verbs — a long unbreakable identifier in an identity column beside an actions
+// column, which is the pairing that makes a table stop fitting. The table is
+// supposed to scroll inside the card; this says whether it does.
+export const TableWithFieldsPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => (
     <StoryProviders>
       <FieldTable

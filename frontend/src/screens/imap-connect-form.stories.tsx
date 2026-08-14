@@ -91,3 +91,60 @@ export const Unreachable: Story = {
     await screen.findByText(/could not be reached/i);
   },
 };
+
+// A rejected login in dark. This is the only form in the settings catalogue that
+// is a portalled dialog rather than a card, so it is the only place three layers
+// composite at once: the scrim, the elevated modal on top of it, and inside that
+// six labelled fields, three required marks, the caption explaining the app
+// password, and the error sentence the play() brings on screen. Dark is where a
+// scrim and an elevated surface stop being two things — an overlay that darkens a
+// page which is already dark leaves the dialog to separate itself.
+export const LoginRejectedDark: Story = {
+  globals: { theme: "dark" },
+  render: () => {
+    installFetchStub({
+      "POST /connectors/imap/connect": () =>
+        jsonResponse(
+          {
+            code: "imap_login_rejected",
+            detail: "The mailbox rejected these credentials.",
+          },
+          422,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <ImapConnectForm open onClose={() => {}} />
+      </StoryProviders>
+    );
+  },
+  play: async () => {
+    await fillAndSubmit();
+    await screen.findByText(/rejected these credentials/i);
+  },
+};
+
+// The dialog at 390px. `.modal` is `width: min(440px, 100vw - 40px)`, so a phone
+// takes it to 350px — and `max-height: calc(100dvh - 40px)` with its own
+// `overflow-y: auto` is what keeps the Connect button reachable when six fields
+// plus a caption outrun the screen. That guard exists because a dialog centred in
+// the viewport puts its actions off both ends, where nothing can reach them. What
+// to check is that the actions row is inside the dialog's own scroll rather than
+// below the fold of the page.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const IdlePhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => {
+    installFetchStub({});
+    return (
+      <StoryProviders>
+        <ImapConnectForm open onClose={() => {}} />
+      </StoryProviders>
+    );
+  },
+};

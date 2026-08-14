@@ -59,8 +59,12 @@
   background: var(--bgHover);
 }
 
+/* --textMeta, not --textMuted: --textMuted is the placeholder-grade ink and
+   measures 1.54:1 on this ground, while tokens.css names --textMeta the
+   canonical AA small-text role. Every line below is prose a reader is meant to
+   READ. */
 .vdna-drophint {
-  color: var(--textMuted);
+  color: var(--textMeta);
 }
 
 /* The distance to the first build, shown only below the floor. */

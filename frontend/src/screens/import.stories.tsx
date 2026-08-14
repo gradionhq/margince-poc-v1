@@ -40,3 +40,19 @@ export const ChooseAFile: Story = { render: story(OPERATOR) };
 export const Withheld: Story = {
   render: story({ embedding_reindex: ["read"] }),
 };
+
+// The resting state in dark, and the reason it is dark rather than narrow: this
+// card's own sheet opens by declaring that every quiet line on it reads --textMeta
+// and not --textMuted, because --textMuted measures 1.54:1 here while --textMeta
+// is the canonical AA small-text role — a rule written against the LIGHT palette
+// and, until this story, never looked at once both tokens re-resolved. The lines
+// under test are the object hint and the file-format sentence, sitting beside a
+// SegmentedControl whose selected segment is the loudest thing on the card.
+//
+// A narrow variant would prove less: the flow past the first step needs a real
+// file drop, so the wide mapping table and its .import__scroll box — the parts
+// that have a width problem to have — are not reachable from a story at all.
+export const ChooseAFileDark: Story = {
+  globals: { theme: "dark" },
+  render: story(OPERATOR),
+};

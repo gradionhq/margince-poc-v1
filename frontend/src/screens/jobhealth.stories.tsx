@@ -85,3 +85,39 @@ export const Idle: Story = {
 };
 
 export const Withheld: Story = { render: story(HEALTHY, ["ops"]) };
+
+// Dead work in dark, which is the only story that has every tone on screen at
+// once: the danger Callout an operator must not scroll past, the danger `dead`
+// pill and the warn `retrying` one beside it, and — the pairing that actually
+// needs looking at — the two UNTONED pills for waiting and running. An untoned
+// Badge is filled with --bgCard flat (atoms.css), one step off the card ground it
+// sits on, so in dark a count of zero either still reads as a pill or stops
+// looking like one while its toned neighbours shout.
+export const DeadWorkDark: Story = {
+  globals: { theme: "dark" },
+  render: story({
+    ...HEALTHY,
+    kinds: [{ ...CLASSIFY, retrying: 0, dead: 3 }, DISPATCHER],
+    recent_failures: [{ ...FAILURE, state: "discarded", attempt: 5 }],
+  }),
+};
+
+// The counts at 390px, which is the far side of FactList's own breakpoint: below
+// 480px (factlist.css) the two columns stop splitting and the term becomes a
+// LABEL above its value. That rule is what this story is here to show landing on
+// real content, because this card is the hardest case for it — the term is a
+// River job kind in mono with underscores and nothing to break on, and the value
+// is four pills that are always all four drawn, since a zero is a reading an
+// operator came for. What to check is that the pill row wraps inside the width it
+// has just been given, and that a kind and its counts still read as one row once
+// nothing but a small gap separates them from the next kind.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const HealthyPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story(HEALTHY),
+};

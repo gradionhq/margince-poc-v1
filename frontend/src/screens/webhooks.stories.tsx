@@ -104,6 +104,20 @@ export const Active: Story = {
   render: cardStory(baseRoutes()),
 };
 
+// A subscription row is the densest line in the settings tree: a state badge, a
+// `.t-mono` target URL nobody promised would be short, three event-type chips,
+// and four verbs (Edit, Rotate secret, View deliveries, Archive). At 390px that
+// row has to wrap into a readable block rather than push the card's scroll width
+// past the viewport — and there has been no render of it at any narrow width.
+//
+// No `layout` override: the canvas frame's 2rem gutter puts the card at ~326px,
+// which is the column the overflow measurements on this branch were taken in.
+export const ActivePhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: cardStory(baseRoutes()),
+};
+
 export const PausedSubscription: Story = {
   render: cardStory(baseRoutes([activeSubscription, pausedSubscription])),
 };
@@ -278,19 +292,52 @@ const deadLetteredDelivery = {
   updated_at: "2026-07-20T10:00:00Z",
 };
 
+const deliveriesRoutes = {
+  ...baseRoutes(),
+  "GET /webhook-subscriptions/sub-active/deliveries": () =>
+    jsonResponse({
+      data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
+      page: { next_cursor: null, has_more: true },
+    }),
+};
+
+const openDeliveries = async ({
+  canvasElement,
+}: {
+  canvasElement: HTMLElement;
+}) => {
+  const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
+  await canvas.findByTestId("dead-letter-group");
+};
+
 export const DeliveriesPanelOpen: Story = {
-  render: cardStory({
-    ...baseRoutes(),
-    "GET /webhook-subscriptions/sub-active/deliveries": () =>
-      jsonResponse({
-        data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
-        page: { next_cursor: null, has_more: true },
-      }),
-  }),
-  play: async ({ canvasElement }) => {
-    const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
-    await canvas.findByTestId("dead-letter-group");
-  },
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
+};
+
+// The eight-column delivery table inside its `.table-scroll` box at 390px. The
+// question is which of the two gives: either the scroller holds the table and
+// scrolls it sideways inside the card, or the table wins and the whole settings
+// column scrolls — and only a capture at this width can tell them apart, because
+// a table that overflows its scroller measures the same either way.
+export const DeliveriesPanelOpenPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
+};
+
+// The delivery statuses in situ rather than as a swatch row: `delivered`,
+// `retrying` and `dead_lettered` are three badge tones whose whole job is to be
+// told apart at a glance, and they sit here on the table's own striping, inside
+// the dead-letter group's tinted block, beside the `.t-mono` event ids. On a dark
+// ground a badge surface token and a table row token can converge, and that is
+// what this watches for — the pure `DeliveryStatusBadges` story below cannot,
+// because it shows the tones with nothing to be confused with.
+export const DeliveriesPanelOpenDark: Story = {
+  globals: { theme: "dark" },
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
 };
 
 export const DeliveriesReplayConfirm: Story = {

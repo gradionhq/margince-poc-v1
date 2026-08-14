@@ -371,6 +371,7 @@ function PhoneSectionExample() {
 export const SectionPhone: Story = {
   name: "a section — phone bar and the head's switcher",
   globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => (
     <LevelStory>
       <PhoneSectionExample />

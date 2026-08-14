@@ -80,3 +80,22 @@ export const ReadOnly: Story = { render: story(CAPABILITIES, READER) };
 export const NotEnabledHere: Story = {
   render: story({ ...CAPABILITIES, read_enabled: false }, EDITOR),
 };
+
+// The filled profile in dark, and this is the surface where that is not a
+// formality: the card is accent-toned, and the trust block sits on a
+// `PanelPlate` — a RECESSED ground. A translucent tint composites over a
+// recess differently than over the panel face, so the accent wash and the
+// callouts inside it are the pair to look at, not the text.
+export const FilledDark: Story = {
+  globals: { theme: "dark" },
+  render: story(CAPABILITIES, EDITOR),
+};
+
+// The profile at 390px. The form is a two-column grid that collapses to one at
+// 760px, so this is the only story that renders the collapsed layout at all —
+// and the website field carries a full URL with no space to break at.
+export const FilledPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story(CAPABILITIES, EDITOR),
+};

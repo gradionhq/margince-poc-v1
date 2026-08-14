@@ -40,15 +40,19 @@
 
 /* The reason a flag fired. It wraps onto its own line on a narrow card rather
    than truncating: a risk a rep cannot read the reason for is a red dot. */
+/* --textMeta, not --textMuted: --textMuted is the placeholder-grade ink and
+   measures 1.54:1 on this ground, while tokens.css names --textMeta the
+   canonical AA small-text role. Every line below is prose a reader is meant to
+   READ. */
 .net-risk-why {
   flex: 1 1 12rem;
   min-width: 0;
-  color: var(--textMuted);
+  color: var(--textMeta);
   font: 400 0.8125rem / 1.5 var(--f-body);
 }
 
 .net-risk-days {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }

@@ -128,10 +128,15 @@ async function requestBody(
 // Installs the fetch stub synchronously — called from a story's `render()`,
 // which runs before any component mount effects, so the first queryFn call
 // always sees the stub in place (same ordering the RTL tests rely on).
-// Marks the patched fetch so StoryProviders can tell "this story routed its
-// requests" from "this story never called installFetchStub, and every request
-// it makes is leaving for a real host".
-const STUB_INSTALLED = Symbol.for("margince.storyFetchStub");
+// The engine's own fetch, captured before any story replaces it. That reference
+// is the only reliable answer to "has this story installed a stub of any kind",
+// and it has to be the test rather than a marker of our own: inbox.stories.tsx
+// hand-rolls its own resolver instead of calling installFetchStub, and a guard
+// keyed on OUR marker would have seen an unmarked fetch, decided the story
+// routed nothing, and installed an empty stub straight over the routes that
+// story depends on. Refusing to touch anything that is not the native fetch
+// leaves every hand-rolled stub in the tree alone.
+const NATIVE_FETCH = globalThis.fetch;
 
 export function installFetchStub(
   routes: RouteMap,
@@ -156,7 +161,6 @@ export function installFetchStub(
     }
     return key === SESSION_PROBE ? unroutedSessionProbe() : fallback();
   };
-  (stub as typeof fetch & { [STUB_INSTALLED]?: true })[STUB_INSTALLED] = true;
   globalThis.fetch = stub as typeof fetch;
 }
 
@@ -170,10 +174,7 @@ export function installFetchStub(
 // is, and that stub routes nothing: the session probe says so loudly, and
 // everything else gets the same empty page the explicit fallback gives.
 function ensureFetchStubInstalled(): void {
-  const patched = globalThis.fetch as typeof fetch & {
-    [STUB_INSTALLED]?: true;
-  };
-  if (!patched?.[STUB_INSTALLED]) {
+  if (globalThis.fetch === NATIVE_FETCH) {
     installFetchStub({});
   }
 }

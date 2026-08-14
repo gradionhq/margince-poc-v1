@@ -66,3 +66,13 @@ export const CanAddButNotCarveOut: Story = {
 export const ReadOnly: Story = {
   render: story([ADDED, CARVED_OUT], READER),
 };
+
+// The card at 390px. An entry row keeps four things on one line — icon, domain,
+// what the domain IS, and the remove button — and the domain is the only one of
+// them that can be long. Watching whether the row gives it the width or breaks a
+// hostname mid-token to keep the sentence beside it.
+export const PopulatedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story([ADDED, CARVED_OUT], OPS),
+};

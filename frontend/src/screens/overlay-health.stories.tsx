@@ -140,3 +140,39 @@ export const ReconcileQueuedMessage: Story = {
     </StoryProviders>
   ),
 };
+
+// The same readings in dark, and the pairing to look at is the success Badge on
+// the recessed plate.
+//
+// A toned Badge paints its tint over --bgElevated (atoms.css: .badge-success is
+// --successBg composited on --bgElevated) while PanelPlate's ground is --bgCard,
+// so the chip's fill is fixed by the THEME rather than by what it sits on — its
+// legibility is therefore a property of the theme alone, and nothing but a
+// pinned dark story asks the question. That exact chip-on-plate pairing measured
+// 4.05:1 in light on this branch and had to be fixed; this is the dark half.
+//
+// Worth a look beside it: an untoned Badge is filled with --bgCard flat, the
+// same token the plate under it uses — so a sync state or band this build does
+// not recognise draws a chip with no fill of its own, in either theme.
+export const AdminWithActionsDark: Story = {
+  globals: { theme: "dark" },
+  render: () => (
+    <StoryProviders>
+      <OverlayLiveSection
+        sync={query(syncFresh)}
+        budget={query(budgetOk)}
+        locale="en"
+      />
+      <OverlayLiveActions
+        rolesKnown
+        canReconcile
+        canDisconnect
+        onReconcile={() => {}}
+        reconcilePending={false}
+        reconcileQueued={false}
+        reconcileError={null}
+        onDisconnect={() => {}}
+      />
+    </StoryProviders>
+  ),
+};

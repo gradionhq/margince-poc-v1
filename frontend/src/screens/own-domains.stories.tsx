@@ -65,3 +65,22 @@ export const Empty: Story = { render: story([], MANAGER) };
 export const ReadOnly: Story = {
   render: story([ADMIN_ENTERED, OBSERVED], READER),
 };
+
+// The rows at 390px, and the reason this is the story worth having rather than a
+// dark one: both flex rows on this card were written without `flex-wrap`. A
+// domain row is `space-between` with the name plus its confirmed/candidate label
+// on one side and a ghost Remove on the other; the add row is a TextInput and a
+// primary Add. Neither may wrap, and a Button never wraps its own label
+// (base.css `.btn` is nowrap) — so at a phone the name is the only thing that can
+// give, and what to check is whether "brandt-automotive.de · Confirmed" survives
+// beside a verb or gets squeezed into a two-character column.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const PopulatedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story([ADMIN_ENTERED, OBSERVED], MANAGER),
+};

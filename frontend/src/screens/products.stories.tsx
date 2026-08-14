@@ -58,6 +58,31 @@ export const List: Story = {
     );
   },
 };
+// The catalogue table at 390px. Products is one of the two `layout: "wide"`
+// settings pages — it keeps the whole column precisely because a table squeezed
+// to a reading measure starts scrolling — and a phone gives it no column to keep.
+// Seven values per row (name, SKU, unit, price, tax, active, the row verbs) have
+// to end up either wrapped or inside a scroller, and no story has drawn this
+// table narrow enough to say which.
+export const ListPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => {
+    installFetchStub({
+      "GET /me": AUTHORING_ME,
+      "GET /products": () =>
+        jsonResponse({
+          data: [product],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    return (
+      <StoryProviders>
+        <ProductsAdmin />
+      </StoryProviders>
+    );
+  },
+};
 export const Empty: Story = {
   render: () => {
     installFetchStub({

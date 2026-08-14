@@ -101,6 +101,32 @@ export const Populated: Story = {
   },
 };
 
+// The reason the header action band was restructured on this branch, pictured.
+// Beside the title, Refresh + "Set rate" were one unwrappable row sized to their
+// max content: at 390px the pair measured 353px inside a 324px card and pushed
+// the page 12px past the viewport. Both cards now put the pair in the panel's own
+// wrapping action band, and this is the only render that can show it holds —
+// nothing else in the catalogue draws either sheet below 1024px.
+//
+// No `layout` override: the canvas frame's 2rem gutter is what puts the card at
+// the ~324px the regression was measured in.
+export const PopulatedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /fx-rates": () => jsonResponse(FX),
+      "GET /ai-model-rates": () => jsonResponse(MODELS),
+    });
+    return (
+      <StoryProviders>
+        <RateSheets />
+      </StoryProviders>
+    );
+  },
+};
+
 // A fresh workspace: both sheets empty, the honest empty states render.
 export const Empty: Story = {
   render: () => {

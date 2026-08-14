@@ -16,8 +16,12 @@
   white-space: nowrap;
 }
 
+/* --textMeta, not --textMuted: --textMuted is the placeholder-grade ink and
+   measures 1.54:1 on this ground, while tokens.css names --textMeta the
+   canonical AA small-text role. Every line below is prose a reader is meant to
+   READ. */
 .li-reach-table th {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font: 500 0.75rem / 1.3 var(--f-body);
 }
 

@@ -47,9 +47,15 @@ function story(
     installFetchStub({
       "GET /me": meRoute({}, { roles }),
       "GET /extensions": () => jsonResponse({ extensions }),
+      // `roles`, which is what RoleDirectory names — not the `data` envelope the
+      // paginated collections use. Keyed wrong, the read narrowed to an empty
+      // list and every story in this file drew a matrix with no ROLE ROWS, over
+      // the "nobody holds read" warning that an empty list makes vacuously true:
+      // UnitsWithGrants and NothingGrantedYet were the same picture, and neither
+      // was the matrix.
       "GET /roles": () =>
         jsonResponse({
-          data: ROLES.map((role) => ({ ...role, objects })),
+          roles: ROLES.map((role) => ({ ...role, objects })),
         }),
     });
     return (
@@ -83,4 +89,35 @@ export const NoUnitsComposed: Story = { render: story([], ["admin"]) };
 // on screen — an absent one would say this installation composes nothing.
 export const NotAnAdmin: Story = {
   render: story([YOGI], ["rep"], { ext_yogi_briefing: READ }),
+};
+
+// The inventory and the matrix in dark. Two things here are drawn from tokens
+// that mean "one step off the card ground", and dark is where a step that small
+// either survives or collapses: `.ext-chip` fills an RBAC object and a route with
+// --bgHover inside a card, and the matrix separates every role row with a single
+// --borderSubtle hairline. The Switch tracks in the cells are the third — an
+// off track and an on track have to stay two different things when the whole
+// palette darkens under them.
+export const UnitsWithGrantsDark: Story = {
+  globals: { theme: "dark" },
+  render: story([YOGI, DE], ["admin"], { ext_yogi_briefing: READ }),
+};
+
+// The matrix at 390px, where it is the widest thing in settings that is not a
+// table of figures: a role column plus four CRUD columns, with both header rows
+// and the role names deliberately nowrap. It is meant to scroll inside
+// `.ext-matrix-wrap` rather than push the page sideways (the no-horizontal-page-
+// scroll rule), and the scroller holds the checkboxes themselves so it stays
+// keyboard-reachable. Above it, the version Badge and the link to the unit's own
+// page share the panel head with the unit name and are supposed to wrap onto
+// their own row.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const UnitsWithGrantsPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story([YOGI, DE], ["admin"], { ext_yogi_briefing: READ }),
 };

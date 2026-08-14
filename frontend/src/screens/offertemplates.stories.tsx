@@ -85,3 +85,36 @@ export const LoadError: Story = {
     );
   },
 };
+
+// The list at 390px, which is the one width ListTable's own devices all have to
+// answer at once. `.lt-head` is a non-wrapping row holding the count and the New
+// action; the locale filter chip sits under it; and the table itself is
+// `table-layout: fixed` with a `--lt-floor` min-width, so past that floor the
+// BODY scrolls sideways under a stuck header while the pinned name column casts
+// its shadow over what passes beneath. What to check is that the sideways scroll
+// stays inside `.lt-scroll` — the surface may scroll, the page may not — and that
+// the columns clip with ellipses rather than the row growing to fit.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const ListPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => {
+    installFetchStub({
+      "GET /me": AUTHORING_ME,
+      "GET /offer-templates": () =>
+        jsonResponse({
+          data: [template],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    return (
+      <StoryProviders>
+        <OfferTemplatesAdmin />
+      </StoryProviders>
+    );
+  },
+};

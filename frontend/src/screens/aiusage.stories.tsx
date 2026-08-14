@@ -70,3 +70,22 @@ export const Empty: Story = { render: story("normal", []) };
 // installation meters nothing", a claim about the data rather than about who
 // may read it.
 export const Withheld: Story = { render: story("normal", [task], {}) };
+
+// Economy mode in dark. The band is carried twice and both times by colour: the
+// Badge tone and the Meter's fill at 85% of budget. Nothing else on the card
+// says spend has crossed into throttling, so if either tint flattens against
+// the dark panel the reader sees an ordinary month.
+export const EconomyModeDark: Story = {
+  globals: { theme: "dark" },
+  render: story("degraded", [task]),
+};
+
+// The widest the table gets — the cost column exists only when the server
+// priced the calls — at 390px. Seven columns do not fit a phone and no spend row
+// is reconcilable in pieces, so DataTable's `.table-scroll` has to keep them
+// inside the card; this is the story that shows whether the claim holds.
+export const WithCostPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story("normal", [{ ...task, cost_est_minor: 124 }]),
+};

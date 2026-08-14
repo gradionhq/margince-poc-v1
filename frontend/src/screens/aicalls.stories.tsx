@@ -120,17 +120,44 @@ export const WithPayload: Story = {
   },
 };
 
-// The detail panel IN the table, which is the only place a reader meets it:
-// the disclosure button opens the attempt trail under its own row, so the
-// trace stays readable as one thing rather than two surfaces side by side.
+// The disclosure button opens the attempt trail under its own row, so the trace
+// stays readable as one thing rather than two surfaces side by side. Shared by
+// the stories below, which all need the row OPEN to show what they are about.
+const openAttemptTrail: NonNullable<Story["play"]> = async ({
+  canvasElement,
+}) => {
+  const canvas = within(canvasElement);
+  const disclosure = await canvas.findByRole("button", {
+    name: /Show the attempt trail for capture_classify/,
+  });
+  await userEvent.click(disclosure);
+  await canvas.findByText("Attempts");
+};
+
+// The detail panel IN the table, which is the only place a reader meets it.
 export const RowExpanded: Story = {
   render: list([summary]),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const disclosure = await canvas.findByRole("button", {
-      name: /Show the attempt trail for capture_classify/,
-    });
-    await userEvent.click(disclosure);
-    await canvas.findByText("Attempts");
-  },
+  play: openAttemptTrail,
+};
+
+// The same expanded row in dark. Two badge tones are all that separates a call
+// that limped from one that failed — `degraded` (warn) and the error sentinel
+// (danger) — so a tint that stops carrying that distinction against a dark card
+// takes the task column's meaning with it. The trail is open because the
+// attempt table brings a second danger badge onto a nested surface, where a
+// translucent tone composites over a different ground than on the card face.
+export const RowExpandedDark: Story = {
+  globals: { theme: "dark" },
+  render: list([summary]),
+  play: openAttemptTrail,
+};
+
+// Six columns of trace at 390px. None of them is droppable — a call is only
+// diagnosable with its model, tokens and latency side by side — so the card is
+// meant to scroll sideways inside itself (`.table-scroll`). This is the story
+// that says whether it does, or whether the latency column just leaves.
+export const ListPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: list([summary]),
 };

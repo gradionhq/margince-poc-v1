@@ -65,3 +65,20 @@ export const AccountReadFailed: Story = {
     );
   },
 };
+
+// The card in dark, for one control the design system does not draw. A native
+// file input carries a browser-drawn button whose label cannot be set, so it is
+// hidden and a real <label> — `.li-import-button` in linkedin-import.css — is
+// styled to stand in for it. That hand-rolled control fills itself with
+// --bgElevated, the same token the card under it uses, and its only separation
+// from that ground is one --borderSubtle hairline: what to check is whether it
+// still reads as a pressable thing rather than as a sentence. The Field +
+// TextInput above it comes from the design system, so it is the comparison
+// standing right there in the same picture.
+export const KnownProfileDark: Story = {
+  globals: { theme: "dark" },
+  render: cardStory({
+    profile_url: "https://www.linkedin.com/in/lars-brandt",
+    connected: true,
+  }),
+};

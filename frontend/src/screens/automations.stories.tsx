@@ -61,34 +61,63 @@ function stubPanels() {
   });
 }
 
+// The verbs live behind the row's overflow menu, so a story that leaves it
+// closed captures the same picture whatever the grants say — which is what the
+// pair below was doing: two names, one screenshot, and the difference they exist
+// to show never drawn. Opening it is the story.
+const openRowActions: NonNullable<Story["play"]> = async ({
+  canvasElement,
+}) => {
+  await userEvent
+    .setup()
+    .click(within(canvasElement).getByRole("button", { name: /Actions for/ }));
+};
+
+const renderConfigurable = () => {
+  stubPanels();
+  return (
+    <StoryProviders>
+      <ul style={{ listStyle: "none" }}>
+        <AutomationRow
+          automation={automation}
+          entry={entry}
+          canViewRuns
+          canEdit
+          canDelete
+        />
+      </ul>
+    </StoryProviders>
+  );
+};
+
 export const Configurable: Story = {
-  // The verbs live behind the row's overflow menu, so a story that leaves it
-  // closed captures the same picture whatever the grants say — which is what
-  // this pair was doing: two names, one screenshot, and the difference they
-  // exist to show never drawn. Opening it is the story.
-  play: async ({ canvasElement }) => {
-    await userEvent
-      .setup()
-      .click(
-        within(canvasElement).getByRole("button", { name: /Actions for/ }),
-      );
-  },
-  render: () => {
-    stubPanels();
-    return (
-      <StoryProviders>
-        <ul style={{ listStyle: "none" }}>
-          <AutomationRow
-            automation={automation}
-            entry={entry}
-            canViewRuns
-            canEdit
-            canDelete
-          />
-        </ul>
-      </StoryProviders>
-    );
-  },
+  play: openRowActions,
+  render: renderConfigurable,
+};
+
+// The row in dark with its menu open. Two things carry meaning by colour and
+// nothing else: the Switch track, which is the only statement that this
+// automation is live, and the tier badge that says whether it acts alone. The
+// open menu is the other half — a popover paints its OWN background over the
+// page, so it is the element that reads as a leftover light panel if a surface
+// token does not re-resolve.
+export const ConfigurableDark: Story = {
+  globals: { theme: "dark" },
+  play: openRowActions,
+  render: renderConfigurable,
+};
+
+// The row at 390px with the menu open, which is where the popover's anchoring
+// meets the edge of the screen. The row wraps its controls onto a second line, so
+// the trigger ends up near the LEFT margin; the menu is anchored to the trigger's
+// right edge and opens leftwards from there. Whether the verbs are still on
+// screen is the whole question, and a bounding box cannot answer it — hit-test
+// the middle of each item.
+export const ConfigurablePhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  play: openRowActions,
+  render: renderConfigurable,
 };
 
 // Deliberately a combination no seeded role holds: update without delete. The
@@ -96,17 +125,7 @@ export const Configurable: Story = {
 // case a single "canManage" flag could not express, and the one a divergent
 // fixture exists to catch.
 export const EditableButNotDeletable: Story = {
-  // The verbs live behind the row's overflow menu, so a story that leaves it
-  // closed captures the same picture whatever the grants say — which is what
-  // this pair was doing: two names, one screenshot, and the difference they
-  // exist to show never drawn. Opening it is the story.
-  play: async ({ canvasElement }) => {
-    await userEvent
-      .setup()
-      .click(
-        within(canvasElement).getByRole("button", { name: /Actions for/ }),
-      );
-  },
+  play: openRowActions,
   render: () => {
     stubPanels();
     return (

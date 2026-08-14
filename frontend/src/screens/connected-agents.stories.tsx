@@ -43,12 +43,21 @@ const LAPSED = {
   },
 };
 
-function story(passports: Record<string, unknown>[]) {
+// The connect guide asks the OAuth discovery document whether this installation
+// serves the governed tool surface at all — a well-known path, not a /v1 one, so
+// it needs routing like any other. Left unrouted it fell through to the stub's
+// empty-list fallback, which carries no `resource`, and the guide rendered its
+// own failure state under a story named for a working card.
+function story(passports: Record<string, unknown>[], connectorEnabled = true) {
   return () => {
     globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
     installFetchStub({
       "GET /me": meRoute({}),
       "GET /passports": () => jsonResponse({ data: passports }),
+      "GET /.well-known/oauth-protected-resource": () =>
+        connectorEnabled
+          ? jsonResponse({ resource: "https://margince.example/mcp" })
+          : jsonResponse({ code: "not_found" }, 404),
     });
     return (
       <StoryProviders>
@@ -70,3 +79,31 @@ export const Connected: Story = { render: story([CLAUDE, LAPSED]) };
 // Nobody has connected YET — written out rather than left to the generic empty
 // state, because "nothing here" beside a connect guide reads as a failed load.
 export const NoneConnected: Story = { render: story([]) };
+
+// The installation does not serve the tool surface, so discovery 404s and the
+// guide is absent rather than broken — a capability this deployment does not
+// have, which is the one cause that justifies a surface not being there.
+export const ConnectorNotEnabled: Story = {
+  render: story([], false),
+};
+
+// The roster in dark. The lapsed row is the case: it says "over" by striking its
+// facts through and putting a danger badge beside them, and the code deliberately
+// strikes rather than dims to hold an AA floor (B-EP09.21) — a rule written
+// against one set of token values and never once rendered against the other.
+export const ConnectedDark: Story = {
+  globals: { theme: "dark" },
+  render: story([CLAUDE, LAPSED]),
+};
+
+// At 390px each row is a wrapping run of facts (client name, connected date,
+// expiry, lent-from) with its verb and its scope chips in the same flex flow.
+// Watching where the wrap falls: the button lands BETWEEN the facts and the
+// scopes at this width, so the chips read as belonging to the control rather than
+// to the connection above it, and the struck-through lapsed row is the one where
+// that misreading costs something.
+export const ConnectedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story([CLAUDE, LAPSED]),
+};

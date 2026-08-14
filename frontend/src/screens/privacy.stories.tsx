@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { PrivacyInboxCard } from "./privacy";
 import {
   installFetchStub,
@@ -104,6 +104,22 @@ export const RowExpanded: Story = {
   },
 };
 
+// The narrow render of the row privacy.css's `.dsr-row-toggle` rule exists for:
+// a kind badge, a mono subject reference, a status badge, a due date and an
+// overdue badge are five nowrap children in one flex line, and before the wrap
+// they pushed the card's scroll width past the phone viewport. That comment
+// describes a fix no story has ever pictured. Expanded, because the case-work
+// panel underneath adds the status SegmentedControl and the transition verbs to
+// the same 390px column, and the facet bar above it is in frame either way.
+export const RowExpandedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: inbox({ "GET /data-subject-requests": () => jsonResponse(DSRS) }),
+  play: async ({ canvasElement }) => {
+    await expandRow(canvasElement, "8f3a-person-uuid");
+  },
+};
+
 // G-2: the inline open-request form (kind defaults to access — the
 // free-text subject field, not the erasure RecordPicker).
 export const NewRequestForm: Story = {
@@ -116,56 +132,78 @@ export const NewRequestForm: Story = {
   },
 };
 
+// Opens the fulfil confirm on the erasure row and types the word that arms it.
+// The resolution field and the row's own Fulfil verb are canvas-scoped because
+// they are in the card; the ERASE field is NOT — ConfirmModal portals to
+// document.body, outside canvasElement, so that one lookup goes through `screen`.
+// Looking for it on the canvas is why both stories below stopped at an un-armed
+// dialog: the query rejected, the play aborted, and the capture showed a confirm
+// nobody had confirmed. webhooks.stories.tsx carries the same note over its own
+// clickTestIds for the same reason.
+async function armErasureConfirm(canvasElement: HTMLElement) {
+  await expandRow(canvasElement, "8f3a-person-uuid");
+  const canvas = within(canvasElement);
+  await userEvent.type(await canvas.findByLabelText(/resolution/i), "verified");
+  const row = await findRow(canvasElement, "8f3a-person-uuid");
+  await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
+  await userEvent.type(await screen.findByLabelText(/type erase/i), "ERASE");
+}
+
 // The typed-ERASE confirm modal for the destructive erasure fulfil —
 // confirmVariant="danger" throughout, distinct from every routine transition.
 export const ErasureConfirm: Story = {
   render: inbox({ "GET /data-subject-requests": () => jsonResponse(DSRS) }),
   play: async ({ canvasElement }) => {
-    await expandRow(canvasElement, "8f3a-person-uuid");
-    const canvas = within(canvasElement);
-    await userEvent.type(
-      await canvas.findByLabelText(/resolution/i),
-      "verified",
-    );
-    const row = await findRow(canvasElement, "8f3a-person-uuid");
-    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
-    await userEvent.type(await canvas.findByLabelText(/type erase/i), "ERASE");
+    await armErasureConfirm(canvasElement);
   },
 };
 
 // Art. 17(3)(b): a documented, lawful refusal — never a red toast. The wire
 // shape is the real one (erasure.go's ErrConflict): {type, title, status:
 // 409, code: "conflict", detail} — no retain_until, ever.
+const legalHoldRoutes: RouteMap = {
+  "GET /data-subject-requests": () => jsonResponse(DSRS),
+  "PATCH /data-subject-requests/d1": () =>
+    jsonResponse(
+      {
+        type: "https://errors.gradion.com/conflict",
+        title: "Conflict",
+        status: 409,
+        code: "conflict",
+        detail: "erasing a person under legal hold: conflict",
+      },
+      409,
+    ),
+};
+
+const driveToLegalHold = async ({
+  canvasElement,
+}: {
+  canvasElement: HTMLElement;
+}) => {
+  await armErasureConfirm(canvasElement);
+  // Portalled too, and the refusal it produces is portalled with it.
+  await userEvent.click(
+    screen.getByRole("button", { name: /erase \+ suppress/i }),
+  );
+  await screen.findByText(/legal hold/i);
+};
+
 export const LegalHoldBlocked: Story = {
-  render: inbox({
-    "GET /data-subject-requests": () => jsonResponse(DSRS),
-    "PATCH /data-subject-requests/d1": () =>
-      jsonResponse(
-        {
-          type: "https://errors.gradion.com/conflict",
-          title: "Conflict",
-          status: 409,
-          code: "conflict",
-          detail: "erasing a person under legal hold: conflict",
-        },
-        409,
-      ),
-  }),
-  play: async ({ canvasElement }) => {
-    await expandRow(canvasElement, "8f3a-person-uuid");
-    const canvas = within(canvasElement);
-    await userEvent.type(
-      await canvas.findByLabelText(/resolution/i),
-      "verified",
-    );
-    const row = await findRow(canvasElement, "8f3a-person-uuid");
-    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
-    await userEvent.type(await canvas.findByLabelText(/type erase/i), "ERASE");
-    await userEvent.click(
-      canvas.getByRole("button", { name: /erase \+ suppress/i }),
-    );
-    await canvas.findByText(/legal hold/i);
-  },
+  render: inbox(legalHoldRoutes),
+  play: driveToLegalHold,
+};
+
+// The lawful refusal in dark. A `Callout tone="danger"` is a tinted surface, a
+// border and body text that all have to stay separable — the tone IS the claim
+// that this is a documented refusal and not a routine note, so if the danger
+// surface flattens into the card behind it the refusal stops reading as one. The
+// row underneath is still expanded, so the callout is judged against the panel,
+// the transition verbs and the mono subject reference it interrupts.
+export const LegalHoldBlockedDark: Story = {
+  globals: { theme: "dark" },
+  render: inbox(legalHoldRoutes),
+  play: driveToLegalHold,
 };
 
 export const Forbidden: Story = {

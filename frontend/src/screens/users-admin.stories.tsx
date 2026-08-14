@@ -67,6 +67,18 @@ export const Roster: Story = {
   render: story([LARS, DANA, RETIRED], ["admin"]),
 };
 
+// users-admin.css's `.users-who` rule says in so many words that it exists to
+// let a long name and email shrink and wrap "notably at 390px". This is the
+// render of that claim: three roster rows, each carrying a display name over an
+// email address, a role, a status and the row's own verbs in a wrapping flex
+// line — plus the invite form above them, whose `.input`s are `flex: 1 1 12rem`
+// and so have to fall to one control per line at this width rather than squeeze.
+export const RosterPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: story([LARS, DANA, RETIRED], ["admin"]),
+};
+
 export const Empty: Story = { render: story([], ["admin"]) };
 
 // The roster answers "who is on my team", which is not an admin's private

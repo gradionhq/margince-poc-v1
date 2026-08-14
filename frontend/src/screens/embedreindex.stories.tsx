@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { meFixture } from "../app/mefixture";
 import { EmbedReindexCard } from "./embedreindex";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -53,20 +53,29 @@ const meta: Meta<typeof EmbedReindexCard> = {
 export default meta;
 type Story = StoryObj<typeof EmbedReindexCard>;
 
+const renderNeedsReindex = () => {
+  installFetchStub({
+    "GET /me": admin(),
+    "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
+  });
+  return (
+    <StoryProviders>
+      <EmbedReindexCard />
+    </StoryProviders>
+  );
+};
+
 // The ops banner's companion card: reindex_needed is true, an admin sees the
 // "Review & reindex" trigger alongside the always-available "Rebuild index".
-export const NeedsReindex: Story = {
-  render: () => {
-    installFetchStub({
-      "GET /me": admin(),
-      "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
-    });
-    return (
-      <StoryProviders>
-        <EmbedReindexCard />
-      </StoryProviders>
-    );
-  },
+export const NeedsReindex: Story = { render: renderNeedsReindex };
+
+// The same card in dark. The status Badge is the whole state machine in one
+// chip — warn for "needed", accent for "re-embedding", success for idle — and
+// nothing else on the card distinguishes them, so a warn that stops reading as a
+// warning turns a pending reindex into a report that everything is fine.
+export const NeedsReindexDark: Story = {
+  globals: { theme: "dark" },
+  render: renderNeedsReindex,
 };
 
 // The v6 B2 rebuild affordance stays available even when nothing is pending —
@@ -108,7 +117,10 @@ export const PreviewDialogWithEstimate: Story = {
       name: "Review & reindex",
     });
     await userEvent.click(reviewButton);
-    await canvas.findByText(/34,500/);
+    // `screen`, not the canvas: ConfirmModal portals to document.body, so a
+    // canvas-scoped query for its body rejects — and a rejecting play() used to
+    // report after the gate had already screenshotted and passed the story.
+    await screen.findByText(/34,500/);
     // The badge is the half of the disclosure a story cannot assert by
     // eyeballing a number: it renders only when the top-level
     // utilization_impact is present, so naming it here keeps the fixture

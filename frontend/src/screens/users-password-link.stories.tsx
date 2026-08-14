@@ -41,6 +41,28 @@ export const Minted: Story = {
   ),
 };
 
+// The narrow case this dialog was built for, and the only one worth a variant:
+// `.users-link-row` claims it "wraps to two lines on a narrow card rather than
+// overflowing it", with the URL input at `flex: 1 1 20rem` beside a Copy button.
+// 20rem does not fit a 390px phone, so the wrap is load-bearing — and the link is
+// a live account-takeover credential the admin has to read off the screen to
+// dictate, so a URL clipped by an overflowing row is the failure that matters
+// here. The modal is `size="wide"`, which is the other half of the question.
+export const MintedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => (
+    <PasswordLinkModal
+      onClose={() => undefined}
+      memberName="Dana Kessler"
+      link={LINK}
+      pending={false}
+      error={null}
+      onRetry={() => undefined}
+    />
+  ),
+};
+
 export const Minting: Story = {
   render: () => (
     <PasswordLinkModal

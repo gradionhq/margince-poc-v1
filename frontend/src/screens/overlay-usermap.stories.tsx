@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { meFixture } from "../app/mefixture";
 import { MirrorUserMapCard } from "./overlay-usermap";
@@ -18,11 +18,18 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 type Entry = components["schemas"]["OverlayUserMapEntry"];
 type Owner = components["schemas"]["OverlayOwner"];
 
+// The grants are not enough on their own: the card reads `useSorMode()` first and
+// draws "this workspace reads from native tables" for anything that is not
+// overlay, before either query matters. meFixture states no mode, which is
+// native — so without this line every story in the file drew that one empty
+// state, the mapped table this file exists to picture appeared in none of them,
+// and the play() cases were asserting against a card that was never there.
 function admin() {
   return () =>
     jsonResponse({
       ...meFixture({ allow: { overlay_connection: ["read", "update"] } }),
       user: { ...meFixture().user, id: "me-1", email: "admin@acme.test" },
+      system_of_record: { mode: "overlay" },
     });
 }
 
@@ -231,7 +238,10 @@ export const UnmapSelfConfirm: Story = {
       name: "Unmap",
     });
     await userEvent.click(unmapButtons[0]);
-    await canvas.findByText(/You will stop seeing every mirrored record/);
+    // `screen`, not the canvas: ConfirmModal portals to document.body, so a
+    // canvas-scoped query for its body rejects — and a rejecting play() used to
+    // report after the gate had already screenshotted and passed the story.
+    await screen.findByText(/You will stop seeing every mirrored record/);
   },
 };
 
@@ -277,4 +287,34 @@ export const NonAdminSeat: Story = {
       </StoryProviders>
     );
   },
+};
+
+// Every unmapped reason in dark. Five rows of chips is the densest colour this
+// card ever shows, and each Badge composites its tint over --bgElevated whatever
+// the surface under it actually is (atoms.css), so dark is where a chip either
+// separates from its row or stops reading as a chip. The pairing to read is chip
+// against explanation: every reason chip sits beside a body sentence saying what
+// to do about it, and the chip has to stay the loud half of the pair.
+export const EveryUnmappedReasonDark: Story = {
+  globals: { theme: "dark" },
+  render: () => card(everyReason),
+};
+
+// The mapped table at 390px, which is the width this card's layout was rebuilt
+// for. `.usermap-identity` is `flex: 1 1 12rem` and the actions column wraps
+// within itself rather than holding its full nowrap width — so at a phone the
+// identity gets roughly 12rem and everything else has to fold into it: a name, an
+// address with nothing to break on, the "You" chip on the reader's own row, the
+// incumbent identity it is mapped to, and a match-source chip. Two buttons follow,
+// and a Button never wraps its own label (base.css `.btn`), so what to check is
+// whether Change and Unmap sit under the identity as a pair or one ends up alone.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const AllMappedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => card(allMapped),
 };
