@@ -96,10 +96,14 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      // Work that never got a slot is abandoned with the card: its results
-      // would have nowhere to go.
-      pending.current = [];
     };
+    // Queued work is deliberately NOT discarded here. The card unmounts on a
+    // path the reader takes constantly: the first sample mints the profile,
+    // which swaps the empty state for the full card — so dropping the queue on
+    // unmount would silently lose every file after the first one a new owner
+    // selected. The work does not need this component (the ingest is a request
+    // whose result the server keeps); only the notices do, and those already
+    // check `mounted` before touching state.
   }, []);
 
   // Notices are keyed by source ref: re-adding the same file replaces its
@@ -193,6 +197,9 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
   // the notice is keyed by the label the reader chose it under.
   const runIntake = useCallback(
     (label: string, start: () => Promise<IntakeOutcome>) => {
+      // The counter is raised unconditionally and lowered only while mounted:
+      // work never starts on an unmounted card, and the whole count is
+      // discarded with the state when one goes away, so the pair cannot drift.
       const work = async (): Promise<void> => {
         setInFlight((count) => count + 1);
         try {
@@ -224,7 +231,9 @@ export function useVoiceIntake({ profileId, onChanged }: UseVoiceIntakeArgs) {
           running.current -= 1;
           return;
         }
-        setQueued(pending.current.length);
+        if (mounted.current) {
+          setQueued(pending.current.length);
+        }
         void next().finally(pump);
       };
 
