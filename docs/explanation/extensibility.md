@@ -265,7 +265,7 @@ validated to the full identifier budget, so a name chosen today stays valid for 
 - **Its own governed tools** — an `x-mcp-tool` verb on a declared operation, served through the same
   admission gate a core tool passes, at the tier and scope the contract declares.
 - **Its own scheduled jobs** — declared in a `jobs.yaml` fragment, dispatched as a fleet fan-out with a
-  workspace child per live tenant.
+  worker child per live tenant.
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
 - **Its own history and its own events** — `tx.Record(ctx, change, event)` writes the ledger row AND

@@ -114,7 +114,7 @@ func TestExtensionJobsRefusesTheShapesAFragmentMustNotPublish(t *testing.T) {
 			want: "no dispatcher fans out to",
 		},
 		{
-			name:  "a cadence on the workspace kind",
+			name:  "a cadence on the worker kind",
 			kinds: wellFormedPair + "    cadence: 1h\n",
 			want:  "declares a cadence",
 		},
@@ -171,7 +171,7 @@ func TestExtensionJobsRefusesTheShapesAFragmentMustNotPublish(t *testing.T) {
 			// suffix-stripped lookup finds an entry and the claim check passed
 			// — while the dispatcher loop, which only visits dispatchers, never
 			// enqueued it.
-			name:  "a workspace child hanging off a workspace kind",
+			name:  "a worker child hanging off a worker kind",
 			kinds: wellFormedPair + strings.ReplaceAll(wellFormedPair[strings.Index(wellFormedPair, "  ext_demo_refresh_ws:"):], "ext_demo_refresh_ws", "ext_demo_refresh_ws_ws"),
 			want:  "no dispatcher fans out to",
 		},

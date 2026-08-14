@@ -167,7 +167,7 @@ func timeoutLiteral(t timeoutDef) string {
 }
 
 // cadenceLiteral returns "" only for a kind that has no schedule to declare —
-// a workspace kind, which is enqueued by its dispatcher and never ticked. A
+// a worker, which is enqueued by its dispatcher and never ticked. A
 // dispatcher a human's confirm enqueues renders {OnDemand: true} instead: the
 // compiled table is what every consumer reads, and a dropped field would make
 // a deliberate absence indistinguishable from a schedule someone lost.

@@ -285,11 +285,11 @@ func (c contract) validateFanOut(name string, def kindDef) error {
 }
 
 // validateCadence holds the schedule to the role: a dispatcher is ticked and a
-// workspace kind is enqueued, and neither may claim the other's posture.
+// worker is enqueued, and neither may claim the other's posture.
 func (c contract) validateCadence(name string, def kindDef) error {
 	if def.Role != roleDispatcher {
 		if def.Cadence != nil {
-			return fmt.Errorf("kind %q: declares a cadence but its role is %q — a workspace kind is enqueued by its dispatcher, never ticked", name, def.Role)
+			return fmt.Errorf("kind %q: declares a cadence but its role is %q — an enqueued worker is never ticked", name, def.Role)
 		}
 		return nil
 	}

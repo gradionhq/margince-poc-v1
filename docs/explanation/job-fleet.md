@@ -8,7 +8,7 @@ That contract has two halves. Every job kind is **declared** in `backend/api/job
 exists in code — and the declaration is what the running system obeys, so a worker cannot choose its
 own timeout, its own queue or its own attempt cap. And every fleet-wide pass is **two** kinds: a
 dispatcher that enumerates the fleet (the "fleet" is every workspace on the installation) and
-enqueues, plus a workspace kind that carries exactly one tenant's work.
+enqueues, plus a worker that carries exactly one unit's work.
 
 This is the deep reference. To *add* a job, jump to [how-to/add-a-job.md](../how-to/add-a-job.md);
 for the operator's reading of the same fleet, see
@@ -80,7 +80,7 @@ Five fields are declared for **every** kind:
 Three more are **conditional on what the kind is**, and generation refuses the mismatch in both
 directions — a field owed and absent fails, and a field declared where it means nothing fails too:
 
-- **`cadence`** — required on a dispatcher, refused on a workspace kind (*"a workspace kind is
+- **`cadence`** — required on a dispatcher, refused on an enqueued worker (*"an enqueued worker is
   enqueued by its dispatcher, never ticked"*). Exactly one of a duration, `{operator: Field}` naming
   the `JobRunnerConfig` dial the number comes from, or `on_demand`. `on_demand` is a *declaration*,
   not an absence: `embed_reindex` is enqueued by a human's confirm and by no clock, and an absent

@@ -572,7 +572,7 @@ func TestEmitRendersTheDeclarationsAConsumerReads(t *testing.T) {
 	}
 
 	if block := specBlock(t, src, "a_workspace"); strings.Contains(block, "Cadence{") {
-		t.Errorf("a_workspace rendered as:\n%s\na workspace kind is enqueued by its dispatcher and never ticked, so it must carry no cadence at all", block)
+		t.Errorf("a_workspace rendered as:\n%s\na worker enqueued by a dispatcher is never ticked, so it must carry no cadence at all", block)
 	}
 }
 
