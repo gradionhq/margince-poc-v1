@@ -434,16 +434,28 @@ func TestADemotedMemberLandsNothingFromTheNextCallOn(t *testing.T) {
 }
 
 // A member of ANOTHER workspace is not a member here, and the answer says
-// nothing about whether they exist — existence-hiding, exactly as every other
-// row-scope miss answers.
+// nothing about whether they exist.
+//
+// The CLASS is asserted rather than non-nil-ness, because the sentence above is
+// a claim about which refusal comes back and a non-nil check cannot see it: an
+// unwired pool, or any later failure, satisfies `err != nil` just as well while
+// the property this test is named for goes untested.
+//
+// ErrForbidden is the existence-hiding answer HERE, which is the reverse of the
+// usual reading and so is worth stating. It is reached before anything looks
+// the member up: what it reports is that no credential is on deposit with THIS
+// unit under that id, which is equally true of a member of another workspace,
+// an archived one, and an id belonging to nobody at all. A not-found would be
+// the DISCLOSING answer, because only a lookup can tell those three apart.
 func TestAMemberOfAnotherWorkspaceCannotBeActedFor(t *testing.T) {
 	e := setupIngress(t)
 	rt := e.ingestingRuntime()
 
 	_, err := rt.Ingest(context.Background(), extension.UserID(ids.NewV7().String()),
 		aProviderRecord("ws-7:5001", "outside@example.test"))
-	if err == nil {
-		t.Fatal("an ingest ran as somebody who is not a member of this workspace")
+	if !errors.Is(err, extension.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden — an ingest either ran as somebody who is not a member "+
+			"of this workspace, or answered something about whether they exist", err)
 	}
 }
 

@@ -194,6 +194,24 @@ func TestAnAccountAnswerWithoutAWorkspaceIsRefused(t *testing.T) {
 	}
 }
 
+// An account with no ADDRESS is refused for a different reason than the one
+// above, and it is the reason worth a second test: the two ids only key the
+// records, while the address is a PARTY of every one of them. The core reads
+// the set of parties to decide whether a message is only colleagues talking,
+// and a party it cannot read is one it silently skips — so an addressless
+// member would not fail that gate, it would quietly narrow it, once per
+// record, for as long as the connection lived.
+func TestAnAccountAnswerWithoutAnAddressIsRefused(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"provider-member","workspace_id":"ws-7","email":"   "}`))
+	}))
+	defer server.Close()
+
+	if _, err := testClient(t, server).me(context.Background()); !errors.Is(err, errProvider) {
+		t.Fatalf("err = %v, want an account with no address refused", err)
+	}
+}
+
 // The token rides every request, which is what makes https and the absence of
 // credentials in the URL load-bearing rather than tidy.
 func TestEveryRequestCarriesTheMembersToken(t *testing.T) {

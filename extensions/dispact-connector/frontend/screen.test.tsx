@@ -167,6 +167,32 @@ describe("the Dispact connector screen", () => {
     });
   });
 
+  // A failed connect is ANNOUNCED, not merely rendered. It appears after the
+  // press that caused it, so a member not looking at this element — a
+  // screen-reader user, who has just moved off the button — otherwise hears
+  // nothing and is left believing the account connected. The read failures
+  // QueryStates renders already carry role="alert"; these are the same
+  // obligation on the way back from a write.
+  it("announces a failed connect as an alert", async () => {
+    // /connect is deliberately unscripted, so the stub answers 503 — a real
+    // refusal shape rather than a thrown fetch, which no server produces.
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => ({ connected: false }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Dispact URL"), "https://workspace.example.com");
+    await user.type(screen.getByLabelText("Access token"), "pat_secret");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "The account may not have been connected. Check the state above before trying again.",
+    );
+  });
+
   // No operation returns the token, and the screen must not display one it was
   // handed anyway: a body carrying a credential is a body this screen ignores.
   it("never renders a token, whatever the server sends back", async () => {

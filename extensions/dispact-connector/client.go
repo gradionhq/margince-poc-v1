@@ -284,6 +284,15 @@ func (c *client) me(ctx context.Context) (providerUser, error) {
 	if user.ID == "" || user.WorkspaceID == "" {
 		return providerUser{}, fmt.Errorf("%w: the account answer names no user or no workspace", errProvider)
 	}
+	// The address is checked HERE, once per connection, rather than per record.
+	// Every record this connection builds names the member as a party, and the
+	// core reads that party to decide whether a message is only colleagues
+	// talking. A member with no address is a party that decision cannot weigh,
+	// so the CONNECTION is refused — once, with a sentence naming the account —
+	// rather than each of the records it would go on to build.
+	if strings.TrimSpace(user.Email) == "" {
+		return providerUser{}, fmt.Errorf("%w: the account answer names no address for this member, and every record names them as a party", errProvider)
+	}
 	return user, nil
 }
 

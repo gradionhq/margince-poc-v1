@@ -146,6 +146,12 @@ actions:
                     version: { type: integer }
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
+          # Declared because this operation genuinely answers it: a base URL
+          # that is not https, names an address rather than a host, or carries
+          # credentials is refused before any request is made with the token,
+          # and so is an empty or oversized one. `extension.ErrInvalid` is what
+          # the unit raises and 422 is what the seam maps it to.
+          '422': { $ref: '#/components/responses/ValidationError' }
 
   - target: $.paths['/ext/dispact-connector/status']
     update:

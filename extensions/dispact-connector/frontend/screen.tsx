@@ -219,7 +219,13 @@ function ConnectionCard() {
           >
             {t("extDispactConnector.connection.connect")}
           </Button>
-          {connect.isError ? <p>{t("extDispactConnector.connection.connectFailed")}</p> : null}
+          {/* role="alert", as QueryStates gives a read failure: a mutation
+              failure appears AFTER the press that caused it, so a screen
+              reader that is not on this element announces nothing and the
+              member is left believing the account connected. */}
+          {connect.isError ? (
+            <p role="alert">{t("extDispactConnector.connection.connectFailed")}</p>
+          ) : null}
         </>
       ) : null}
 
@@ -233,7 +239,7 @@ function ConnectionCard() {
             {t("extDispactConnector.connection.disconnect")}
           </Button>
           {disconnect.isError ? (
-            <p>{t("extDispactConnector.connection.disconnectFailed")}</p>
+            <p role="alert">{t("extDispactConnector.connection.disconnectFailed")}</p>
           ) : null}
         </>
       ) : null}

@@ -136,7 +136,43 @@ func TestDecodeArgsWalksArrayElements(t *testing.T) {
 	type withStrings struct {
 		Tags []string `json:"tags"`
 	}
-	if _, err := extension.DecodeArgs[withStrings](json.RawMessage(`{"tags":["a","a"]}`)); err != nil {
-		t.Fatalf("a repeated VALUE in an array was refused: %v — only member names may not repeat", err)
+	// Both arrangements, because only the second one can fail: a scan that
+	// reads a string as a member name whenever a value follows it accepts
+	// ["a","a"] — the repeat is LAST, so nothing follows it — and refuses the
+	// same repeat with an element after it. One case is not this rule.
+	for _, doc := range []string{`{"tags":["a","a"]}`, `{"tags":["a","a","b"]}`} {
+		if _, err := extension.DecodeArgs[withStrings](json.RawMessage(doc)); err != nil {
+			t.Errorf("a repeated VALUE in an array was refused: %s: %v — only member names may not repeat", doc, err)
+		}
+	}
+}
+
+// A member's VALUE may spell a member name, in its own object or a sibling's,
+// because a name and a value arrive as the same token and only the position
+// they arrive in tells them apart.
+func TestDecodeArgsAcceptsAValueThatSpellsAMemberName(t *testing.T) {
+	type message struct {
+		Kind string `json:"kind"`
+		Body string `json:"body"`
+	}
+	if _, err := extension.DecodeArgs[message](json.RawMessage(`{"kind":"body","body":"x"}`)); err != nil {
+		t.Fatalf("a value equal to a declared name was read as a second copy of that name: %v", err)
+	}
+	type nested struct {
+		Config json.RawMessage `json:"config"`
+		Label  string          `json:"label"`
+	}
+	if _, err := extension.DecodeArgs[nested](json.RawMessage(`{"config":{"label":"label"},"label":"config"}`)); err != nil {
+		t.Fatalf("a nested value repeating an outer name was refused: %v", err)
+	}
+	// And the property that costs: a name genuinely repeated one level down is
+	// still refused, in either position within its object.
+	for _, doc := range []string{
+		`{"config":{"a":"1","a":"2"},"label":"x"}`,
+		`{"config":{"a":"1","a":"2","b":"3"},"label":"x"}`,
+	} {
+		if _, err := extension.DecodeArgs[nested](json.RawMessage(doc)); err == nil {
+			t.Errorf("a nested member repeated was accepted: %s", doc)
+		}
 	}
 }

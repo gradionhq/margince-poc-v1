@@ -74,6 +74,13 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 		"an address over the cap": func(r *extension.Record) {
 			r.Addresses = []string{strings.Repeat("a", extension.MaxAddressLength+1)}
 		},
+		// The two that DISABLE the internal-message gate rather than failing
+		// it: over an empty set the gate answers "not internal" and keeps the
+		// record, and a blank element is a party it skips.
+		"no addresses at all": func(r *extension.Record) { r.Addresses = nil },
+		"a blank address among real ones": func(r *extension.Record) {
+			r.Addresses = []string{"sender@acme.test", "  "}
+		},
 		"a thread key over the cap": func(r *extension.Record) {
 			r.ThreadKey = strings.Repeat("t", extension.MaxThreadKeyLength+1)
 		},

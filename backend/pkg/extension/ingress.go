@@ -212,16 +212,20 @@ type Record struct {
 	Counterparty Counterparty
 
 	// Addresses is EVERY party this record names, including the connected
-	// member's own.
+	// member's own. At least one, and none of them blank.
 	//
-	// It is not optional in practice, and the reason is easy to get wrong: the
-	// core decides whether a message is purely internal — colleagues talking,
-	// which is not evidence of a customer relationship — by asking whether
-	// every party is on the installation's own domains. An EMPTY set is read as
-	// "this connector could not enumerate the parties", which is a different
-	// statement from "there were none", and it fails toward keeping the
-	// message. So a unit that leaves this empty has not opted out of that gate;
-	// it has silently disabled it.
+	// REQUIRED, and the reason is easy to get wrong: the core decides whether a
+	// message is purely internal — colleagues talking, which is not evidence of
+	// a customer relationship — by asking whether every party is on the
+	// installation's own domains, and that question has no answer over an empty
+	// set. It resolves to "not internal", so an empty set does not opt OUT of
+	// the gate, it silently disables it and every record lands, colleagues
+	// included. A blank ELEMENT is the same hole one party at a time, because
+	// the gate skips what it cannot read.
+	//
+	// Which is why the grammar refuses both rather than describing them: a
+	// connector that cannot enumerate the parties of a message cannot land it
+	// honestly, and a refusal it can see beats a gate it cannot.
 	Addresses []string
 
 	// Raw is the provider's record as received, kept as evidence.
@@ -267,11 +271,17 @@ func (r Record) validateKey() error {
 }
 
 func (r Record) validateAddresses() error {
+	if len(r.Addresses) == 0 {
+		return errors.New("extension: the record names no addresses — the internal-message gate reads every party from this set, and over an empty one it answers \"not internal\" and keeps the record, so leaving it empty disables the gate rather than passing it")
+	}
 	if len(r.Addresses) > MaxAddresses {
 		return fmt.Errorf("extension: the record names %d addresses, over the cap of %d", len(r.Addresses), MaxAddresses)
 	}
 	for _, addr := range r.Addresses {
-		if len(addr) > MaxAddressLength {
+		switch {
+		case strings.TrimSpace(addr) == "":
+			return errors.New("extension: the record names a blank address — the internal-message gate skips a party it cannot read, so a blank one is a party the gate never judges")
+		case len(addr) > MaxAddressLength:
 			return fmt.Errorf("extension: an address is %d bytes, over the %d-byte cap", len(addr), MaxAddressLength)
 		}
 	}

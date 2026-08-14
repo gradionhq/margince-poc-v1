@@ -17,6 +17,7 @@ package dispact
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -280,13 +281,29 @@ func scanInto(dest, values []any) error {
 		return errWidth{want: len(dest), got: len(values)}
 	}
 	for i, value := range values {
+		// Every assertion is CHECKED. An unchecked one answers the handler with
+		// a zero value instead of the mistake — a fixture that scripts an int
+		// where the projection scans a string reads back "" and the assertion
+		// under test passes for a reason the test never states.
 		switch target := dest[i].(type) {
 		case *string:
-			*target, _ = value.(string)
+			got, ok := value.(string)
+			if !ok {
+				return errScripted{at: i, want: "string", got: value}
+			}
+			*target = got
 		case *int:
-			*target, _ = value.(int)
+			got, ok := value.(int)
+			if !ok {
+				return errScripted{at: i, want: "int", got: value}
+			}
+			*target = got
 		case *int64:
-			*target, _ = value.(int64)
+			got, ok := value.(int64)
+			if !ok {
+				return errScripted{at: i, want: "int64", got: value}
+			}
+			*target = got
 		case **time.Time:
 			// A TIME, because the column is timestamptz and the driver refuses
 			// to scan one into a string. The fake takes the same type the
@@ -297,10 +314,13 @@ func scanInto(dest, values []any) error {
 				*target = nil
 				continue
 			}
-			copied, _ := value.(time.Time)
+			copied, ok := value.(time.Time)
+			if !ok {
+				return errScripted{at: i, want: "time.Time", got: value}
+			}
 			*target = &copied
 		default:
-			return errWidth{want: len(dest), got: len(values)}
+			return errScripted{at: i, want: "a type the projection scans", got: dest[i]}
 		}
 	}
 	return nil
@@ -309,7 +329,22 @@ func scanInto(dest, values []any) error {
 type errWidth struct{ want, got int }
 
 func (e errWidth) Error() string {
-	return "the scripted row is the wrong width for the projection"
+	return fmt.Sprintf("the scripted row is the wrong width for the projection: it scans %d columns and the row has %d — the order is connectionColumns", e.want, e.got)
+}
+
+// errScripted is a fixture that scripted the wrong TYPE for a column. It names
+// the position rather than the column, because that is what a caller can act
+// on: the scripted rows are built in connectionColumns order, so the position
+// is the column.
+type errScripted struct {
+	at   int
+	want string
+	got  any
+}
+
+func (e errScripted) Error() string {
+	return fmt.Sprintf("column %d of the scripted row is a %T, and the projection scans it as %s — count along connectionColumns to find it",
+		e.at+1, e.got, e.want)
 }
 
 // connectionRow scripts one row of connectionColumns, in that order, so a

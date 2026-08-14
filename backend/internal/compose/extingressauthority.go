@@ -84,8 +84,13 @@ func declaredUserSecretKeys(unit string) []string {
 // credential is on deposit, and unsealing one to answer it would spend the
 // custodian and hand this path a secret it has no use for.
 //
-// Runs on a workspace-bound transaction, so the tenant policy on
-// extension_secret answers for the scope rather than a predicate written here.
+// The workspace predicate is WRITTEN, not inherited. Being on a
+// workspace-bound transaction sets the GUC and nothing more: ADR-0091 §8
+// retired row-level security across the whole schema, and §4 names this exact
+// cost — a query that leaves its scope to a policy now returns other rows
+// instead of no rows, and nothing fails to say so. It is the same predicate
+// extsecrets writes over the same table (its whereScope), which is where the
+// spelling comes from.
 func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit string, member ids.UUID) (bool, error) {
 	if pool == nil {
 		return false, errExtensionRuntimeUnwired
@@ -102,7 +107,10 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM extension_secret
-				WHERE extension_name = $1 AND user_id = $2 AND key = ANY($3)
+				WHERE extension_name = $1
+				  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+				  AND user_id = $2
+				  AND key = ANY($3)
 			)`, unit, member, declared).Scan(&consented)
 	})
 	if err != nil {

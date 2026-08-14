@@ -135,11 +135,11 @@ func checkArgumentObject[T any](in json.RawMessage) error {
 // nested type could judge; that limit is stated on the type-driven check.
 func refuseRepeatedMembers(in json.RawMessage) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
-	// A stack of the member sets of the objects currently open. An array
-	// pushes nothing: its elements are positional, and only an object can
-	// repeat a name — but its elements still stream through this loop, so a
-	// repetition inside one is caught.
-	var open []map[string]bool
+	// A stack of the containers currently open. An ARRAY is pushed too, and
+	// that is what keeps its elements from being read as the enclosing
+	// object's member names: a name and a value are both string tokens, so
+	// only the frame they arrive in tells them apart.
+	var open []*jsonFrame
 	for {
 		token, err := dec.Token()
 		if err != nil {
@@ -151,40 +151,68 @@ func refuseRepeatedMembers(in json.RawMessage) error {
 			open = trackContainer(open, delim)
 			continue
 		}
-		name, ok := token.(string)
-		if !ok || len(open) == 0 {
-			continue
-		}
-		// A string token is a member NAME when the innermost open container is
-		// an object and a value follows it, which is what dec.More() answers.
-		if err := claimMember(open[len(open)-1], name, dec.More()); err != nil {
+		if err := claimScalar(open, token); err != nil {
 			return err
 		}
 	}
 }
 
-// trackContainer opens a member set for an object and closes it again, leaving
-// the stack unchanged for arrays.
-func trackContainer(open []map[string]bool, delim json.Delim) []map[string]bool {
-	switch {
-	case delim == '{':
-		return append(open, map[string]bool{})
-	case delim == '}' && len(open) > 0:
-		return open[:len(open)-1]
-	}
-	return open
+// jsonFrame is one open container: an object tracks the member names it has
+// claimed and whether the next token is a name, an array tracks neither.
+type jsonFrame struct {
+	// members is nil for an array — the field that says which kind this is.
+	members map[string]bool
+	// wantName is true in an object between a value and the next name.
+	wantName bool
 }
 
-// claimMember records one member name and refuses the second sighting of it.
-func claimMember(members map[string]bool, name string, isName bool) error {
-	if !isName {
+// trackContainer opens a frame per container and closes it again, telling the
+// parent that a complete value went past when a nested one ends.
+func trackContainer(open []*jsonFrame, delim json.Delim) []*jsonFrame {
+	switch delim {
+	case '{':
+		return append(open, &jsonFrame{members: map[string]bool{}, wantName: true})
+	case '[':
+		return append(open, &jsonFrame{})
+	default: // '}' or ']' — the container just closed was a value in its parent
+		if len(open) > 0 {
+			open = open[:len(open)-1]
+		}
+		valueRead(open)
+		return open
+	}
+}
+
+// claimScalar reads one non-delimiter token: a member name if the innermost
+// container is an object expecting one, and a value otherwise.
+func claimScalar(open []*jsonFrame, token json.Token) error {
+	if len(open) == 0 {
 		return nil
 	}
-	if members[name] {
+	frame := open[len(open)-1]
+	if frame.members == nil || !frame.wantName {
+		valueRead(open)
+		return nil
+	}
+	name, ok := token.(string)
+	if !ok {
+		// A non-string member name is not JSON; the decoder says so.
+		return nil
+	}
+	if frame.members[name] {
 		return fmt.Errorf("extension: the arguments are not the declared shape: field %q appears twice — which copy wins is a decoder's choice, not the contract's", name)
 	}
-	members[name] = true
+	frame.members[name] = true
+	frame.wantName = false
 	return nil
+}
+
+// valueRead records that a complete value went past: inside an object the next
+// token is the next member NAME, and inside an array it is another element.
+func valueRead(open []*jsonFrame) {
+	if n := len(open); n > 0 && open[n-1].members != nil {
+		open[n-1].wantName = true
+	}
 }
 
 // declaredJSONNames reads T's json tags.
