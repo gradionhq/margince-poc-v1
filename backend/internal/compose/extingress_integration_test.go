@@ -314,6 +314,19 @@ func TestAFreemailSenderMintsThePerson(t *testing.T) {
 		`SELECT count(*) FROM person_email WHERE email = $1`, "someone@gmail.com"); got != 1 {
 		t.Errorf("person rows = %d, want the one the freemail arm creates", got)
 	}
+	// The SUPPRESSED half, which the person count cannot see. Capture withholds
+	// a company rather than creating one, so what a corporate domain leaves
+	// behind is the domain row and the OPEN QUESTION about it — and gmail.com
+	// must leave neither. Without these the arm reads as asserted while a
+	// change that started minting a company from a consumer mailbox passes.
+	if got := e.countAsWorkspace(t,
+		`SELECT count(*) FROM organization_domain WHERE domain = $1`, "gmail.com"); got != 0 {
+		t.Errorf("organization domain rows for gmail.com = %d, want none — a consumer mailbox is not a company", got)
+	}
+	if got := e.countAsWorkspace(t,
+		`SELECT count(*) FROM organization_domain_disposition WHERE domain = $1`, "gmail.com"); got != 0 {
+		t.Errorf("triage rows for gmail.com = %d, want none — the domain answers the question itself, so nothing is queued", got)
+	}
 }
 
 // The SKIP arm, which the port calls load-bearing and which nothing exercised
@@ -424,8 +437,12 @@ func TestADemotedMemberLandsNothingFromTheNextCallOn(t *testing.T) {
 
 	_, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
 		aProviderRecord("ws-7:4002", "outside@example.test"))
-	if err == nil {
-		t.Fatal("a demoted member's connection still landed a record")
+	// The class, not merely an error: an unwired pool or any later fault
+	// satisfies `err != nil` just as well, and the live-authority ceiling this
+	// test is named for would go untested. ErrForbidden is what the ceiling
+	// answers — the member still exists, and no longer may.
+	if !errors.Is(err, extension.ErrForbidden) {
+		t.Fatalf("err = %v, want ErrForbidden — a demoted member's connection still landed a record", err)
 	}
 	if got := e.countAsWorkspace(t,
 		`SELECT count(*) FROM raw_capture WHERE source_id = $1`, "ws-7:4002"); got != 0 {

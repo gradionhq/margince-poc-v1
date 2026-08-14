@@ -82,18 +82,30 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension
 	return fn(ctx, r.tx)
 }
 
-// Ingest records what the unit handed the core, and refuses from inside a
-// transaction exactly as the real port does.
+// Ingest records what the unit handed the core, applies the same record grammar
+// the real port applies, and refuses from inside a transaction exactly as it
+// does.
+//
+// The grammar is here for the reason the nesting refusal is, and it is the
+// lesson this unit already paid for once: a fake that accepts what the core
+// refuses lets a unit's whole suite agree with a bug, and the only thing that
+// disagrees is production. `Record.Validate` is published, so this costs one
+// call rather than a second copy of the rules.
 func (r *fakeRuntime) Ingest(_ context.Context, on extension.UserID, rec extension.Record) (extension.Result, error) {
 	if r.tx.open {
 		return extension.Result{}, extension.ErrNestedIngest
 	}
 	r.ingestCalls++
+	// Recorded BEFORE any refusal: what the unit HANDED the core is the thing
+	// under test, and a record dropped here is one a failing test cannot show.
+	r.ingested = append(r.ingested, rec)
+	r.ingestedOn = append(r.ingestedOn, on)
+	if err := rec.Validate(); err != nil {
+		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err)
+	}
 	if r.ingestErr != nil && r.ingestCalls >= r.ingestFrom {
 		return extension.Result{}, r.ingestErr
 	}
-	r.ingested = append(r.ingested, rec)
-	r.ingestedOn = append(r.ingestedOn, on)
 	return extension.Result{Disposition: extension.DispositionAccepted}, nil
 }
 
