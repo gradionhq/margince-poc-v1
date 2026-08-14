@@ -187,7 +187,8 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 			return fmt.Errorf("telegram_ingest: normalized record carries %T, want telegram.ActivityFields", rec.Fields)
 		}
 		rec.Fields = capture.ActivityFields{
-			Kind: fields.Kind, Body: fields.Body, OccurredAt: fields.OccurredAt, Direction: fields.Direction,
+			Kind: fields.Kind, ChannelProvider: fields.ChannelProvider,
+			Body: fields.Body, OccurredAt: fields.OccurredAt, Direction: fields.Direction,
 		}
 		if _, err := w.sink.Upsert(actorCtx, rec); err != nil {
 			if errors.Is(err, connector.ErrSkip) {

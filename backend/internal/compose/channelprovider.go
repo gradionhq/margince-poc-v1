@@ -3,11 +3,16 @@
 
 package compose
 
-// The boot-time reconcile for the derived channel vocabulary (DESIGN-SP4 §4):
-// the ONE place activity_kind and channel_provider are written, and the ONE
-// place activities.SetChannelProviders and comms.SetChannelProviders are
-// called — so the DB registry and both packages' in-memory snapshots cannot
-// be set two different ways.
+// The boot-time reconcile for the derived channel vocabulary: the ONE place
+// channel_provider is written, and the ONE place
+// activities.SetChannelProviders and comms.SetChannelProviders are called — so
+// the DB registry and both packages' in-memory snapshots cannot be set two
+// different ways.
+//
+// It does NOT write activity_kind. A provider names a transport; an activity
+// kind names what sort of interaction happened. Those are different axes, and
+// the vocabulary of interaction kinds is fixed by the contract and seeded by
+// the core migration, so boot has nothing to add to it.
 //
 // Called from NewCaptureRegistry, which this codebase already constructs more
 // than once per process (a role-specific alternate wiring path, the worker's
@@ -25,10 +30,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
-// reconcileChannelProviders inserts an activity_kind row and a matching
-// channel_provider row (transport='core') for every name in providers not
-// already present, then sets both packages' in-memory snapshots to exactly
-// the composed set passed in.
+// reconcileChannelProviders inserts a channel_provider row (transport='core')
+// for every name in providers not already present, then sets both packages'
+// in-memory snapshots to exactly the composed set passed in.
 //
 // It runs over database.WithInfraTx, not the workspace-bound database.DB.Tx:
 // activity_kind and channel_provider carry no workspace_id, so binding a
@@ -37,12 +41,10 @@ import (
 // with no organization bootstrapped yet, which is exactly when a process
 // first constructs this registry.
 //
-// activity_kind is inserted FIRST, in the same transaction: channel_provider
-// FKs into it, so a provider this binary just compiled in but that the core
-// migration's fixed seed never anticipated (a future core channel connector
-// beyond telegram) would otherwise fail this very insert with a foreign-key
-// violation — the exact deployment fact this reconcile exists to establish,
-// self-inflicted.
+// A provider name has to satisfy channel_provider's own grammar constraint,
+// which is where an unusable name is refused — not here. The alternative, a
+// check in Go beside the insert, would be a second spelling of the rule that
+// could disagree with the column's.
 //
 // It never DELETEs. A provider whose supplier is gone on a later boot keeps
 // its row — activity and person_channel_identity rows still reference it, the
@@ -51,11 +53,6 @@ import (
 func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, providers []string) error {
 	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
 		for _, provider := range providers {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO activity_kind (kind) VALUES ($1)
-				ON CONFLICT (kind) DO NOTHING`, provider); err != nil {
-				return err
-			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO channel_provider (provider, transport) VALUES ($1, 'core')
 				ON CONFLICT (provider) DO NOTHING`, provider); err != nil {
