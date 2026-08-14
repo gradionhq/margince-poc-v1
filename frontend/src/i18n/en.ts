@@ -4477,11 +4477,11 @@ export const en = {
     "Pressing send delivers this message from your own mailbox.",
   "person.composer.purpose": "Consent purpose",
   "person.composer.blockedLead":
-    "You cannot send under this purpose. What works:",
-  "person.composer.blockedSwitch": "Send as {purpose} instead",
-  "person.composer.blockedOpenConsent": "Open their consent record",
-  "person.composer.blockedWaitForReply":
-    "Or wait — business correspondence opens by itself once they write to you.",
+    "This message cannot go out under this purpose.",
+  "person.composer.blockedRewrite":
+    "A message sent under another purpose has to BE that kind of message — relabelling this one does not make it so.",
+  "person.composer.blockedRecordConsent":
+    "If you have a basis for writing, record the consent decision on their contact record.",
   "person.composer.consentPickPurpose":
     "Choose what this message is for — consent is decided per purpose.",
   "person.composer.intent": "What should it be about?",

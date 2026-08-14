@@ -4450,12 +4450,11 @@ export const vi = {
   "person.composer.sendNote":
     "Khi bấm gửi, thư sẽ đi từ hộp thư của chính bạn.",
   "person.composer.purpose": "Mục đích đồng ý",
-  "person.composer.blockedLead":
-    "Bạn không thể gửi với mục đích này. Những cách khả thi:",
-  "person.composer.blockedSwitch": "Gửi với mục đích {purpose}",
-  "person.composer.blockedOpenConsent": "Mở hồ sơ đồng ý của họ",
-  "person.composer.blockedWaitForReply":
-    "Hoặc chờ — thư từ công việc sẽ tự mở khi họ viết cho bạn.",
+  "person.composer.blockedLead": "Thư này không thể gửi với mục đích đã chọn.",
+  "person.composer.blockedRewrite":
+    "Thư gửi với mục đích khác thì phải THỰC SỰ là loại thư đó — đổi nhãn không làm nó thành như vậy.",
+  "person.composer.blockedRecordConsent":
+    "Nếu bạn có cơ sở để viết, hãy ghi nhận quyết định đồng ý trên hồ sơ liên hệ.",
   "person.composer.consentPickPurpose":
     "Hãy chọn mục đích của thư này — sự đồng ý được xét theo từng mục đích.",
   "person.composer.intent": "Nội dung nên nói về điều gì?",

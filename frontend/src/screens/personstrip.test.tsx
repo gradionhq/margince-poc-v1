@@ -19,7 +19,11 @@ type Person360 = components["schemas"]["Person360"];
 // — a participant row, a thread the person appears on — is what would split
 // them.
 
-function viewWith(directions: readonly string[]): Person360 {
+// The three directions the contract admits (Activity.direction), so the
+// fixture cannot drift into values the server never sends.
+type Direction = "inbound" | "outbound" | "internal";
+
+function viewWith(directions: readonly Direction[]): Person360 {
   return {
     person: { id: "p1", full_name: "Marine Raucoules" },
     activities: {
@@ -63,12 +67,12 @@ describe("the reciprocity reading", () => {
     expect(screen.getByText("0 in · 0 out")).toBeTruthy();
   });
 
-  // A row whose direction is neither is not evidence that they wrote: a note,
-  // a task, an internal record. Counting "not outbound" as inbound is the
-  // shape that would make the strip claim a message the consent gate cannot
-  // see — which is exactly the contradiction this pins.
-  it("counts a directionless row as neither", () => {
-    renderStrip(viewWith(["outbound", "internal", ""]));
+  // "internal" is a real direction the contract admits, and it is not evidence
+  // that they wrote to us. Counting "not outbound" as inbound is the shape that
+  // would make the strip claim a message the consent gate cannot see — which is
+  // exactly the contradiction this pins.
+  it("counts an internal row as neither", () => {
+    renderStrip(viewWith(["outbound", "internal"]));
 
     expect(screen.getByText("0 in · 1 out")).toBeTruthy();
   });
