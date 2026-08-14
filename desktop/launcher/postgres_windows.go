@@ -66,25 +66,16 @@ func newPostgres(l layout) (*postgres, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The port is ephemeral like the bus's and the api's: nothing outside this
-	// installation addresses the database, and a fixed one would collide with
-	// whatever else on the machine already answers on it.
-	port, err := freePort()
-	if err != nil {
-		return nil, err
-	}
 
 	return &postgres{
 		cluster: cluster{
-			layout:   l,
-			connArgs: []string{"-h", loopbackHost, "-p", strconv.Itoa(port), "-U", ownerRole},
-			connEnv:  []string{"PGPASSWORD=" + ownerPassword},
+			layout:  l,
+			connEnv: []string{"PGPASSWORD=" + ownerPassword},
 			// A single-quoted SQL literal is safe here because the generator
 			// emits base64url — letters, digits, '-' and '_' — so the value
 			// cannot contain a quote or a backslash to break out with.
 			appRoleOptions: " PASSWORD '" + appPassword + "'",
 		},
-		port:          port,
 		ownerPassword: ownerPassword,
 		appPassword:   appPassword,
 	}, nil
@@ -203,6 +194,21 @@ func (p *postgres) start(ctx context.Context) error {
 	if err := os.MkdirAll(p.layout.logs(), 0o700); err != nil {
 		return fmt.Errorf("create log directory: %w", err)
 	}
+
+	// The port is ephemeral like the bus's and the api's: nothing outside this
+	// installation addresses the database, and a fixed one would collide with
+	// whatever else on the machine already answers there.
+	//
+	// It is reserved HERE and not in newPostgres, because a reserved port is
+	// only nominally free — the window between releasing it and pg_ctl binding
+	// it is the window something else can take it. Choosing it before initdb
+	// would stretch that window across the whole first-run cluster creation.
+	port, err := freePort()
+	if err != nil {
+		return err
+	}
+	p.port = port
+	p.connArgs = []string{"-h", loopbackHost, "-p", strconv.Itoa(port), "-U", ownerRole}
 
 	// listen_addresses is pinned to loopback: the database must be reachable
 	// by this installation's own processes and by nothing on the network.
