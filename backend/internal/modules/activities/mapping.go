@@ -117,16 +117,31 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 		return LogActivityInput{}, err
 	}
 	in := LogActivityInput{
-		Kind:         string(req.Kind),
-		Subject:      req.Subject,
-		Body:         req.Body,
-		OccurredAt:   req.OccurredAt,
-		DueAt:        req.DueAt,
-		RemindAt:     req.RemindAt,
-		SourceSystem: req.SourceSystem,
-		SourceID:     req.SourceId,
-		Source:       req.Source,
-		AssigneeID:   idArg[ids.UserKind](req.AssigneeId),
+		Kind: string(req.Kind),
+		// A caller naming a kind that IS a registered transport is naming the
+		// transport, and the row records it. The contract has no provider field
+		// yet, so this is the only place that intent can be read — and without it
+		// a hand-logged or agent-logged channel activity would store no transport,
+		// which would make it unrepliable while an identical row written before the
+		// column existed stayed repliable, because the migration backfilled that
+		// one. Same data, different behaviour decided by write date.
+		//
+		// This is a translation of a legacy input shape, not a rule: it holds only
+		// while kind still carries provider names, and it goes away when the
+		// contract gains a provider of its own and kind narrows to the interaction
+		// vocabulary. It is NOT the derivation the send path used to do — that one
+		// read a stored kind back as a provider at reply time, long after any
+		// caller could say what they meant.
+		ChannelProvider: ChannelProviderForKind(string(req.Kind)),
+		Subject:         req.Subject,
+		Body:            req.Body,
+		OccurredAt:      req.OccurredAt,
+		DueAt:           req.DueAt,
+		RemindAt:        req.RemindAt,
+		SourceSystem:    req.SourceSystem,
+		SourceID:        req.SourceId,
+		Source:          req.Source,
+		AssigneeID:      idArg[ids.UserKind](req.AssigneeId),
 	}
 	if req.Direction != nil {
 		d := string(*req.Direction)

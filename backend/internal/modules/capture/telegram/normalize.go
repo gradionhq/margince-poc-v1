@@ -22,17 +22,18 @@ import (
 )
 
 // ActivityFields is the pure Telegram-side mirror of capture.ActivityFields
-// (Kind/Body/OccurredAt/Direction) — a duplicate shape, not an oversight:
-// package capture already imports capture/telegram (channelconn.go's Bot API
-// client for Connect), so this package importing capture back would cycle.
-// The ingest worker (compose, which legitimately imports both) converts this
-// 1:1 into capture.ActivityFields immediately before handing the record to
+// (Kind/ChannelProvider/Body/OccurredAt/Direction) — a duplicate shape, not an
+// oversight: package capture already imports capture/telegram (channelconn.go's
+// Bot API client for Connect), so this package importing capture back would
+// cycle. The ingest worker (compose, which legitimately imports both) converts
+// this 1:1 into capture.ActivityFields immediately before handing the record to
 // the Sink, which is the one place that type actually has to exist.
 type ActivityFields struct {
-	Kind       string
-	Body       string
-	OccurredAt time.Time
-	Direction  string
+	Kind            string
+	ChannelProvider string
+	Body            string
+	OccurredAt      time.Time
+	Direction       string
 }
 
 // Provider is the source_system / NaturalKey namespace every Telegram record
@@ -196,10 +197,17 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: Provider, SourceID: naturalID},
 		Fields: ActivityFields{
-			Kind:       Provider,
-			Body:       messageBody(msg),
-			OccurredAt: time.Unix(msg.Date, 0).UTC(),
-			Direction:  connector.DirectionInbound,
+			// Kind and ChannelProvider are both Provider here, and that is a
+			// coincidence of this connector rather than a rule: telegram is
+			// spelled the same in the kind vocabulary and the provider registry.
+			// A connector whose provider is not also a kind sets only
+			// ChannelProvider, which is the whole reason the two are separate
+			// fields.
+			Kind:            Provider,
+			ChannelProvider: Provider,
+			Body:            messageBody(msg),
+			OccurredAt:      time.Unix(msg.Date, 0).UTC(),
+			Direction:       connector.DirectionInbound,
 		},
 		Source:     Provider + ":" + naturalID,
 		CapturedBy: CapturedByTelegram,

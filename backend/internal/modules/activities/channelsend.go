@@ -72,6 +72,28 @@ func SetChannelProviders(providers []string) {
 	channelProvidersMu.Unlock()
 }
 
+// ChannelProviderForKind answers which transport a caller naming this kind is
+// naming, and empty when the kind names none.
+//
+// It exists because the two vocabularies still overlap: while a channel is spelled
+// the same as a kind, a caller who says `kind: "telegram"` is stating a transport
+// and has no other field to state it in. Recording it at the write is what keeps a
+// hand-logged channel activity repliable, and what keeps every channel row's
+// transport non-NULL — the invariant the kind-narrowing slice's CHECK will depend
+// on already being true.
+//
+// Exported because the extension-ingress bridge in the composition root has the
+// same input shape to translate, and one spelling of this rule is the point.
+//
+// It disappears with that slice: once the contract carries a provider of its own,
+// the caller says it directly and nothing infers it.
+func ChannelProviderForKind(kind string) string {
+	if IsChannelKind(kind) {
+		return kind
+	}
+	return ""
+}
+
 // IsChannelKind reports whether an activity kind names a messaging-channel
 // conversation this module can answer.
 //
@@ -257,9 +279,21 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 	if strings.TrimSpace(in.Body) == "" {
 		return crmcontracts.Activity{}, errEmptyMessageBody
 	}
-	provider := string(anchor.Kind)
-	if !IsChannelKind(provider) {
-		return crmcontracts.Activity{}, &NotAChannelConversationError{Kind: provider}
+	// The transport is READ, not recovered by reading the anchor's kind back as a
+	// provider name. Those are two vocabularies that coincide for every channel
+	// shipped so far, and the coincidence is not a rule: a transport that names
+	// no interaction kind makes the old derivation answer "not a channel
+	// conversation" for a conversation that plainly is one. An empty provider is
+	// the anchor saying it never travelled on a channel.
+	provider, err := s.channelProviderOf(ctx, anchorID)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	if provider == "" {
+		// Reported by the anchor's KIND, which is what a rep recognises — being
+		// told "a note is not a messaging-channel conversation" names the mistake,
+		// where an empty provider would name the storage.
+		return crmcontracts.Activity{}, &NotAChannelConversationError{Kind: string(anchor.Kind)}
 	}
 	// The bot binding is the workspace's, and its absence is knowable now: a
 	// send accepted without one can only park where the rep never sees it.
@@ -311,16 +345,31 @@ type channelConversation struct {
 	recipient connector.ChannelIdentity
 }
 
-// resolveConversation resolves both, in one read transaction, and refuses rather
-// than guessing when the conversation does not reach exactly one account.
+// channelProviderOf reads which messaging transport carried an activity, and
+// returns empty when it carried none.
 //
-// Reachability is checked HERE and not again inside the write transaction, which
-// is deliberate and bounded: a block that lands between this read and the commit
-// leaves a staged message the provider itself refuses — Telegram answers a
-// definite error for a chat that blocked the bot, so the delivery fails visibly
-// instead of arriving. That is the same fail-fast split the consent gate makes,
-// where transmission-time is the authority and the request-time check exists to
-// answer the rep while they are still looking at the screen.
+// It is a read of a record, so it carries the row-scope gate for the reason
+// resolveConversation states below: an out-of-scope anchor reads as ErrNotFound,
+// the same answer a missing one gives, so the send path cannot become an
+// existence oracle for activities the caller may not see.
+func (s *Store) channelProviderOf(ctx context.Context, anchorID ids.ActivityID) (string, error) {
+	var provider string
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureActivityVisible(ctx, tx, anchorID.UUID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT coalesce(channel_provider, '') FROM activity WHERE id = $1`, anchorID).Scan(&provider); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return apperrors.ErrNotFound
+			}
+			return err
+		}
+		return nil
+	})
+	return provider, err
+}
+
 func (s *Store) resolveConversation(ctx context.Context, anchorID ids.ActivityID, provider string) (channelConversation, error) {
 	var out channelConversation
 	err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -404,11 +453,18 @@ type outboundChannelMessage struct {
 func (m outboundChannelMessage) activity() LogActivityInput {
 	direction := "outbound"
 	return LogActivityInput{
-		Kind:      m.provider,
-		Body:      &m.in.Body,
-		Direction: &direction,
-		Links:     m.links,
-		Source:    sourceManual,
+		// Kind and ChannelProvider are both the provider here only because every
+		// channel this path can reach today is spelled the same in both
+		// vocabularies. ChannelProvider is the one the NEXT send resolves from;
+		// Kind is what the timeline calls it. Capture's reply-match still reads
+		// kind — moving it is the kind-narrowing slice's work, because until then
+		// kind is what separates a channel thread from a mail one.
+		Kind:            m.provider,
+		ChannelProvider: m.provider,
+		Body:            &m.in.Body,
+		Direction:       &direction,
+		Links:           m.links,
+		Source:          sourceManual,
 		// The same conversation the anchor is filed under: capture's
 		// reply-detection joins an inbound message against outbound activities
 		// on this key, so a reply filed anywhere else is a reply that
