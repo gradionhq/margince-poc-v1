@@ -395,7 +395,7 @@ carries a tenant is refused — it has no honest answer for whose data the tick 
 
 Which half declares what is a rule, not a convention, and the composer refuses the other spellings:
 
-- **`role` is `dispatcher` or `workspace`, exactly.** A mistyped third value used to match neither
+- **`role` is `dispatcher` or `worker`, exactly.** A mistyped third value used to match neither
   arm of the pairing and quietly *un-declare* the kind: no registration, no manifest entry, no error.
 - **Governance is the dispatcher's.** `tier` and `scope` go on the dispatcher and nowhere else — the
   pair resolves as one governed job, so a second copy on the child is a line an author writes, a

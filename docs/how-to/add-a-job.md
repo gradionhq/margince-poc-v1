@@ -17,7 +17,7 @@ worker that does the work. Declare both.
 1. **Declare the kind** — `backend/api/jobs.yaml`, under `kinds:`, alphabetically. Five fields are
    required of every kind:
 
-   - **`role`** — `dispatcher` or `workspace`.
+   - **`role`** — `dispatcher` or `worker`.
    - **`go_type`** — the compose args struct that returns this kind; must match
      `^[A-Z][A-Za-z0-9]*Args$` and be unique across the file (one args struct is one River kind).
    - **`queue`** — must name an entry in the file's own `queues:` block. Reuse `default` unless the

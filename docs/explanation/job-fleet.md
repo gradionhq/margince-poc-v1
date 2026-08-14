@@ -63,7 +63,7 @@ Five fields are declared for **every** kind:
 
 | Field | Meaning |
 |---|---|
-| `role` | `dispatcher` or `workspace` — §4. Held to the Go marker interface by a generated assertion |
+| `role` | `dispatcher` or `worker` — §4. Held to the Go marker interface by a generated assertion |
 | `go_type` | the compose args struct that returns this kind (`^[A-Z][A-Za-z0-9]*Args$`). Carried as data, not as an import, so a gate can assert the kind↔type pairing still holds |
 | `queue` | must name an entry in the file's own `queues:` block; every non-`default` queue owes a `reason` for having been split out of the default pool |
 | `timeout` | the whole-job wall clock — §3. There is **no default** |
@@ -216,8 +216,8 @@ type FleetWide interface {
 }
 ```
 
-The contract declares **fifty-five** kinds today — twenty-four dispatchers and thirty-one
-workspace-scoped — and there is no third role. A third would be a change to what a job *is*, not
+The contract declares **sixty-two** kinds today — twenty-seven dispatchers and thirty-five
+workers — and there is no third role. A third would be a change to what a job *is*, not
 data: both operational surfaces read `Role` to decide whether a null `args->>'workspace_id'` is
 correct or a defect.
 
