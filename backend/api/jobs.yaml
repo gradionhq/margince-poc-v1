@@ -1160,20 +1160,18 @@ kinds:
       Deferrals are hours long, so a fifteen-minute scan is prompt without being
       busywork.
 
+  # One job, not a dispatcher and a child (ADR-0103 §1). It keeps the
+  # dispatcher's KIND and CADENCE — the name an operator alerts on, the interval
+  # an operator sets — and the child's QUEUE, TIMEOUT and ATTEMPT CAP, which
+  # describe the sweep rather than the enumeration that used to precede it.
+  #
+  # opts_owner is `args` rather than `caller` so the cap stays declared: the
+  # periodic insert supplies uniqueness and no attempt policy, so a caller-owned
+  # collapse would silently trade three attempts for River's 25-rung default
+  # against a 26-minute timeout.
   webhook_retry:
-    role: dispatcher
-    go_type: WebhookRetryArgs
-    queue: default
-    timeout: 2m
-    opts_owner: caller
-    cadence: {operator: WebhookRetry.Interval, schedule_when_positive: WebhookRetry.Interval}
-    registration: {when: [WebhookRetry.Deliverer], absent: registers_nothing}
-    fans_out_to: webhook_retry_workspace
-    fan_out_unit: workspace
-
-  webhook_retry_workspace:
     role: worker
-    go_type: WebhookRetryWorkspaceArgs
+    go_type: WebhookRetryArgs
     queue: webhook_retry
     timeout:
       derived: webhookRetrySweepTimeout
@@ -1183,7 +1181,6 @@ kinds:
         times its per-attempt bound — and the margin covers the per-delivery
         database round trips between attempts.
     max_attempts: 3
-    opts_owner: fan_out
+    opts_owner: args
+    cadence: {operator: WebhookRetry.Interval, schedule_when_positive: WebhookRetry.Interval}
     registration: {when: [WebhookRetry.Deliverer], absent: registers_nothing}
-    args:
-      Workspace: id

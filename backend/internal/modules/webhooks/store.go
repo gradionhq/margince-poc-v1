@@ -76,26 +76,25 @@ type BadInputError struct {
 
 func (e *BadInputError) Error() string { return e.Field + ": " + e.Reason }
 
-const subscriptionColumns = `id, workspace_id, owner_id, target_url, event_types, state, version, created_at, updated_at, archived_at`
+const subscriptionColumns = `id, owner_id, target_url, event_types, state, version, created_at, updated_at, archived_at`
 
 // Subscription is the metadata view of a subscription — the signing
 // secret is deliberately absent: it exists on the wire exactly once.
 type Subscription struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
-	OwnerID     ids.UUID
-	TargetURL   string
-	EventTypes  []string
-	State       string
-	Version     int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
+	ID         ids.UUID
+	OwnerID    ids.UUID
+	TargetURL  string
+	EventTypes []string
+	State      string
+	Version    int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	ArchivedAt *time.Time
 }
 
 func scanSubscription(r pgx.Row) (Subscription, error) {
 	var s Subscription
-	err := r.Scan(&s.ID, &s.WorkspaceID, &s.OwnerID, &s.TargetURL, &s.EventTypes,
+	err := r.Scan(&s.ID, &s.OwnerID, &s.TargetURL, &s.EventTypes,
 		&s.State, &s.Version, &s.CreatedAt, &s.UpdatedAt, &s.ArchivedAt)
 	return s, err
 }
@@ -181,8 +180,8 @@ func (s *Store) CreateSubscription(ctx context.Context, in CreateSubscriptionInp
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO webhook_subscription
-			  (workspace_id, owner_id, target_url, event_types, signing_secret_ref, state)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'active')
+			  (owner_id, target_url, event_types, signing_secret_ref, state)
+			VALUES ($1, $2, $3, $4, 'active')
 			RETURNING `+subscriptionColumns,
 			ownerID, in.TargetURL, in.EventTypes, sealed)
 		var err error

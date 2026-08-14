@@ -18,7 +18,7 @@ import (
 // one is a change to what a job IS, and it has to land in both places at once.
 const (
 	roleDispatcher = "dispatcher"
-	roleWorker  = "worker"
+	roleWorker     = "worker"
 
 	unitWorkspace  = "workspace"
 	unitConnection = "connection"
@@ -144,8 +144,14 @@ func (c contract) validateKind(name string, def kindDef) error {
 		return fmt.Errorf("kind %q: opts_owner is fan_out but no max_attempts is declared — the fan-out helper reads this number and nothing else supplies it, so its absence is River's silent 25-rung ladder in place of the dispatcher's tick", name)
 	}
 	if def.MaxAttempts != nil {
-		if def.OptsOwner != optsFanOut {
-			return fmt.Errorf("kind %q: max_attempts is declared but opts_owner is %q — the file governs the attempt cap only for a fan-out child, and publishing one it does not enforce is the declared-vs-actual drift this contract exists to remove",
+		// Two owners can actually APPLY the number, so two may declare it: the
+		// fan-out helper reads it off the spec, and an args type carries it in
+		// its own InsertOpts (held equal to this declaration by
+		// TestArgsOwnedAttemptCapsMatchTheirDeclaration). A caller-owned kind
+		// may not, because nothing would enforce what the file published, which
+		// is the declared-vs-actual drift this contract exists to remove.
+		if def.OptsOwner != optsFanOut && def.OptsOwner != optsArgs {
+			return fmt.Errorf("kind %q: max_attempts is declared but opts_owner is %q — only a fan-out child or an args-owned kind applies the number the file publishes, and publishing one nothing enforces is the declared-vs-actual drift this contract exists to remove",
 				name, def.OptsOwner)
 		}
 		if *def.MaxAttempts <= 0 {
@@ -284,12 +290,29 @@ func (c contract) validateFanOut(name string, def kindDef) error {
 	return nil
 }
 
-// validateCadence holds the schedule to the role: a dispatcher is ticked and a
-// worker is enqueued, and neither may claim the other's posture.
+// isFannedOutTo reports whether some dispatcher enqueues this kind. It is the
+// difference between a worker that carries its own clock and one whose clock is
+// its dispatcher's.
+func (c contract) isFannedOutTo(name string) bool {
+	for _, def := range c.Kinds {
+		if def.FansOutTo == name {
+			return true
+		}
+	}
+	return false
+}
+
+// validateCadence holds the schedule to how the kind is REACHED, which is not
+// the same question as its role. A dispatcher is always ticked. A worker is
+// ticked when it is scheduled in its own right and enqueued when a dispatcher
+// fans out to it — and the manifest already says which, because a fanned-out
+// worker is named by exactly one `fans_out_to`. So the refusal is narrow: an
+// ENQUEUED worker may not also carry a clock, because two things would then
+// decide when it runs.
 func (c contract) validateCadence(name string, def kindDef) error {
 	if def.Role != roleDispatcher {
-		if def.Cadence != nil {
-			return fmt.Errorf("kind %q: declares a cadence but its role is %q — an enqueued worker is never ticked", name, def.Role)
+		if def.Cadence != nil && c.isFannedOutTo(name) {
+			return fmt.Errorf("kind %q: declares a cadence and is fanned out to by a dispatcher — a worker is reached one way or the other, never both", name)
 		}
 		return nil
 	}

@@ -165,13 +165,8 @@ func (s *Store) matchingSubscriptions(ctx context.Context, eventType string) ([]
 	var out []subCandidate
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			-- The workspace predicate is the fan-out's own, and it is the one
-			-- that matters most in this file: the caller creates a delivery
-			-- for every subscription this returns, so an unscoped match sends
-			-- one tenant's event payload to another tenant's target_url.
 			SELECT id, owner_id FROM webhook_subscription
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND state = 'active' AND archived_at IS NULL
+			WHERE state = 'active' AND archived_at IS NULL
 			  AND event_types @> ARRAY[$1]::text[]`, eventType)
 		if err != nil {
 			return err
@@ -208,9 +203,8 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 				WHERE id = ANY($4::uuid[]) AND state = 'active' AND archived_at IS NULL
 			), created AS (
 				INSERT INTO webhook_delivery
-				  (workspace_id, subscription_id, event_id, event_type, payload, status)
-				SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				       m.id, $2, $1, $3::text, 'pending'
+				  (subscription_id, event_id, event_type, payload, status)
+				SELECT m.id, $2, $1, $3::text, 'pending'
 				FROM matched m
 				ON CONFLICT (subscription_id, event_id) DO NOTHING
 				RETURNING id, subscription_id
@@ -243,13 +237,8 @@ func (s *Store) dueRetries(ctx context.Context, now time.Time, limit int) ([]ids
 		rows, err := tx.Query(ctx, `
 			SELECT d.id
 			FROM webhook_delivery d
-			JOIN webhook_subscription s
-			  ON s.workspace_id = d.workspace_id AND s.id = d.subscription_id
-			-- The workspace predicate is the scan's own: tenant isolation used
-			-- to bound it, so a sweep saw only its own tenant's parked
-			-- deliveries without saying so (ADR-0091 §8 phase A).
-			WHERE d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND d.status = 'retrying' AND d.next_retry_at <= $1
+			JOIN webhook_subscription s ON s.id = d.subscription_id
+			WHERE d.status = 'retrying' AND d.next_retry_at <= $1
 			  AND s.state = 'active' AND s.archived_at IS NULL
 			ORDER BY d.next_retry_at
 			LIMIT $2`, now, limit)
@@ -271,7 +260,7 @@ func (s *Store) dueRetries(ctx context.Context, now time.Time, limit int) ([]ids
 
 // loadTarget rehydrates a delivery into an attemptTarget for retry/replay:
 // the stored body plus the subscription's current target URL and sealed
-// secret (so a rotation between attempts takes effect). Runs in-workspace.
+// secret (so a rotation between attempts takes effect).
 func (s *Store) loadTarget(ctx context.Context, deliveryID ids.UUID) (attemptTarget, error) {
 	var t attemptTarget
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -279,13 +268,8 @@ func (s *Store) loadTarget(ctx context.Context, deliveryID ids.UUID) (attemptTar
 			SELECT d.id, d.subscription_id, s.target_url, s.signing_secret_ref,
 			       d.event_type, d.event_id, d.payload, d.attempts
 			FROM webhook_delivery d
-			JOIN webhook_subscription s
-			  ON s.workspace_id = d.workspace_id AND s.id = d.subscription_id
-			-- Scoped as well as keyed: a delivery id from another workspace
-			-- must answer not-found rather than hand back that tenant's
-			-- target_url and sealed signing secret.
-			WHERE d.id = $1
-			  AND d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, deliveryID).
+			JOIN webhook_subscription s ON s.id = d.subscription_id
+			WHERE d.id = $1`, deliveryID).
 			Scan(&t.deliveryID, &t.subID, &t.targetURL, &t.sealedSecret,
 				&t.eventType, &t.eventID, &t.payload, &t.priorAttempts)
 	})

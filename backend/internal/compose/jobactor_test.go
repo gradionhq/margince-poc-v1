@@ -43,12 +43,18 @@ import (
 var jobActorUnbound = gatekit.Waive(map[string]string{
 	"privacyRetentionWorkspaceWorker": "retention sweep; whether its writes are gated is #1127's question",
 	"timeScanWorkspaceWorker":         "automation time-scan; same audit",
-	"webhookRetryWorkspaceWorker":     "webhook delivery retry; same audit",
+	"webhookRetryWorker":              "webhook delivery retry; same audit",
 })
 
-// storeBuilders are the per-workspace store constructors. A Work method that
-// calls one is about to reach an RBAC-gated entry point.
-var storeBuilders = regexp.MustCompile(`(providerRunStore|workspaceJobDB)\(`)
+// storeBuilders are the handle constructors a store is built on. A Work method
+// that calls one is about to reach an RBAC-gated entry point.
+//
+// InstallationDB belongs here for the same reason workspaceJobDB does, and it
+// had to be added rather than assumed: a pass that collapses out of the
+// per-tenant fan-out (ADR-0103 §1) stops calling workspaceJobDB and starts
+// calling this one, so a regex naming only the old constructor would let every
+// collapsed worker slip out of this gate's sight while reading as green.
+var storeBuilders = regexp.MustCompile(`(providerRunStore|workspaceJobDB|InstallationDB)\(`)
 
 // actorBinders are the ways a worker legitimately names its principal: the
 // helper in this package, or principal.WithActor directly.

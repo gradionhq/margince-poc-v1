@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "bae6430067d6228e1df86e7194ca073cee82ec501a0421fb7e604f7baebcddff"
+const JobContractHash = "c0476c093a374625d793aa469f0b9b3e74bde63b3012fded767b528220c9bbb3"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -670,25 +670,13 @@ var specs = map[string]Spec{
 	"webhook_retry": {
 		Kind:         "webhook_retry",
 		GoType:       "WebhookRetryArgs",
-		Role:         Dispatcher,
-		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit:   FanOutWorkspace,
-		FanOutTo:     "webhook_retry_workspace",
-		OptsOwner:    OptsCaller,
-		Cadence:      Cadence{OperatorField: "WebhookRetry.Interval", ScheduleWhenPositive: "WebhookRetry.Interval"},
-		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
-	},
-	"webhook_retry_workspace": {
-		Kind:         "webhook_retry_workspace",
-		GoType:       "WebhookRetryWorkspaceArgs",
 		Role:         Worker,
 		Queue:        "webhook_retry",
 		Timeout:      TimeoutPolicy{Fixed: 1580 * time.Second, DerivedFrom: "webhookRetrySweepTimeout"},
 		MaxAttempts:  3,
-		OptsOwner:    OptsFanOut,
+		OptsOwner:    OptsArgs,
+		Cadence:      Cadence{OperatorField: "WebhookRetry.Interval", ScheduleWhenPositive: "WebhookRetry.Interval"},
 		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
-		Args:         []ArgField{{Name: "Workspace"}},
 	},
 }
 
