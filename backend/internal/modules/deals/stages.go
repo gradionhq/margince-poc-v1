@@ -257,16 +257,23 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageI
 	}
 	var out crmcontracts.Stage
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The pipeline row first, then the stage's own: a reorder and a
+		// removal both reshape this list, and taking the same row first
+		// on both paths is what keeps them queueing rather than
+		// deadlocking (lockStageConfig).
+		pipelineID, err := lockStageConfig(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		// The row lock makes the version read and the update below one
 		// race-free unit.
 		if _, err := storekit.LockRow(ctx, tx, "stage", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		var version int64
-		var pipelineID ids.PipelineID
-		err := tx.QueryRow(ctx,
-			`SELECT version, pipeline_id FROM stage WHERE id = $1 AND archived_at IS NULL`, id).
-			Scan(&version, &pipelineID)
+		err = tx.QueryRow(ctx,
+			`SELECT version FROM stage WHERE id = $1 AND archived_at IS NULL`, id).
+			Scan(&version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}

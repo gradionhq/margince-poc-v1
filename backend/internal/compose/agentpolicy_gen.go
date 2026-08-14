@@ -121,6 +121,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/relationships/{id}":                                      {Op: "archiveRelationship", Access: "tool", Tool: "archive_record", RecordType: "relationship", Tier: "confirmation_required", Scope: "write"},
 	"DELETE /v1/retention-policies/{id}":                                 {Op: "deleteRetentionPolicy", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/signals/{id}":                                            {Op: "archiveSignal", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"DELETE /v1/stages/{id}":                                             {Op: "archiveStage", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/tags/{id}":                                               {Op: "archiveTag", Access: "tool", Tool: "archive_record", RecordType: "tag", Tier: "confirmation_required", Scope: "write"},
 	"DELETE /v1/views/{id}":                                              {Op: "archiveSavedView", Access: "tool", Tool: "archive_record", RecordType: "saved_view", Tier: "confirmation_required", Scope: "write"},
 	"DELETE /v1/voice-profiles/{id}":                                     {Op: "deleteVoiceProfile", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

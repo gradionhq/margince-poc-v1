@@ -2081,6 +2081,11 @@ export const en = {
   "stage.semOpen": "Open",
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
+  "stage.remove": "Remove",
+  "stage.removeConfirm": "Remove stage",
+  "stage.removeTitle": "Remove this stage?",
+  "stage.removeBody":
+    "“{name}” leaves the pipeline and the stages after it move up. Past stage changes stay readable. Deals still sitting on it have to move first.",
 
   "ob.read": "Read",
   "ob.confirm": "Confirm",
