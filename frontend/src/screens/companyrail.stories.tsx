@@ -76,6 +76,13 @@ const populated = {
       reason: "Two open deals, neither stalled.",
     },
     payment: { rating: "good", reason: "Nothing overdue." },
+    // The counts block under the three meters reads these four fields
+    // straight off health, not off any other section, so Populated needs
+    // all four or the block never renders at all.
+    days_since_last_inbound: 3,
+    reply_balance: 0.7,
+    active_contacts: 4,
+    open_commitments: 2,
   },
   tags: [{ id: "t-1", workspace_id: "w-1", name: "Key account" }],
   list_memberships: [
@@ -101,8 +108,31 @@ const withheld = {
 
 function Rail({ view }: Readonly<{ view: View }>) {
   installFetchStub({
+    // Payment is the third health meter, sourced from usePaymentHealth off
+    // this endpoint rather than off view.health. A no_connection reply
+    // leaves payment undefined and the meter never draws, so every story in
+    // this file needs a connected summary to show the full three-meter card.
     "GET /organizations/o-1/finance-summary": () =>
-      jsonResponse({ organization_id: "o-1", state: "no_connection" }),
+      jsonResponse({
+        organization_id: "o-1",
+        state: "connected",
+        provider: "offline_demo",
+        last_synced_at: "2026-08-10T06:00:00Z",
+        net_invoiced: { amount_minor: 1_864_200, currency: "EUR" },
+        open_balance: { amount_minor: 240_000, currency: "EUR" },
+        overdue: { amount_minor: 89_000, currency: "EUR" },
+        median_days_after_due: 4,
+        recent_invoices: [],
+      }),
+    // Without this, useCan("organization","update") fails closed (useMe's
+    // no-authorization fallback) and canEdit is false for every field the
+    // DetailsGrid draws, contradicting this file's own claim that every
+    // seeded demo account grants full RBAC.
+    "GET /me": () =>
+      jsonResponse({
+        user: { id: "u-1", display_name: "Mira Voss" },
+        authorization: { objects: { organization: { update: true } } },
+      }),
     "GET /users": () =>
       jsonResponse({
         data: [{ id: "u-1", display_name: "Mira Voss" }],
