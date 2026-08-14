@@ -137,6 +137,12 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 //     so a row recording no declaration (NULL — mirrored before the column
 //     existed) compares as different rather than as unknown, which would
 //     refuse exactly the rows nothing has verified.
+//     A landed row also clears reprojection_failed_for (the declaration a
+//     re-projection could not reach, projectionstaleness.go): a row that lands
+//     a projection is not failing to reach one, and the ingest that landed it
+//     is the single writer of that fact — clearing it anywhere else would put
+//     two writers on one column and leave a row marked failing against a
+//     declaration it is already holding.
 //   - no-clobber-dirty (… AND sync_state <> 'pending_sync'): a row with
 //     an un-drained local write (branch 2) is not blindly overwritten by
 //     an inbound incumbent change; it is held for the conflict path
@@ -150,7 +156,8 @@ WHERE NOT EXISTS (SELECT 1 FROM overlay_tombstone t
 ON CONFLICT (object_class, external_id) DO UPDATE
    SET fields=EXCLUDED.fields, updated_at_baseline=EXCLUDED.updated_at_baseline,
        owner_external_id=EXCLUDED.owner_external_id,
-       projection_fingerprint=EXCLUDED.projection_fingerprint, last_synced_at=now()
+       projection_fingerprint=EXCLUDED.projection_fingerprint,
+       reprojection_failed_for=NULL, last_synced_at=now()
    WHERE overlay_mirror.sync_state <> 'pending_sync'
      AND (EXCLUDED.updated_at_baseline > overlay_mirror.updated_at_baseline
           OR (EXCLUDED.updated_at_baseline = overlay_mirror.updated_at_baseline

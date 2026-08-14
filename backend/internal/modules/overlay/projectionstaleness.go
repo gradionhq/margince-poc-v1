@@ -166,6 +166,33 @@ func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, lim
 	return externalIDs, nil
 }
 
+// recordReprojectionFailureSQL notes, on one row, the declaration fingerprint a
+// re-projection could not reach. It is deliberately unconditional on the row's
+// current fingerprint: the caller has just failed to reach `fingerprint`, and
+// whether the row moved underneath it in the meantime does not change that.
+const recordReprojectionFailureSQL = `
+UPDATE overlay_mirror SET reprojection_failed_for = $3
+WHERE object_class = $1 AND external_id = $2`
+
+// RecordReprojectionFailure marks that this row could not be brought to
+// fingerprint — the incumbent still holds the record but this build cannot map
+// it, so re-reading it spends an incumbent call that can never land.
+//
+// The fingerprint is the value recorded, not a flag, so a repaired declaration
+// (which has a different fingerprint) orphans the record and the row returns to
+// the set the sweep re-fetches, with no operator action.
+//
+// The row keeps counting stale for the flip: this stops the waste, never the
+// guard.
+func (s *MirrorStore) RecordReprojectionFailure(ctx context.Context, objectClass, externalID, fingerprint string) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, recordReprojectionFailureSQL, objectClass, externalID, fingerprint); err != nil {
+			return fmt.Errorf("overlay: recording the re-projection failure for %s/%s: %w", objectClass, externalID, err)
+		}
+		return nil
+	})
+}
+
 // mirrorIDNamespace renders the external-id prefix that picks out the mirror
 // rows the declaration reading incumbentClass produced, as opposed to a sibling
 // declaration's. The mirror is keyed by the CANONICAL class, and several

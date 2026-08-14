@@ -285,6 +285,81 @@ func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
 	}
 }
 
+// The record names the declaration the row failed to reach, so a repaired
+// declaration orphans it and the row is retried. A bare flag could not express
+// that, and a row stuck against a mapping nobody is going to fix would be
+// indistinguishable from one stuck against a mapping somebody just repaired.
+func TestRecordReprojectionFailureStoresTheFingerprintItFailedToReach(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass, externalID = "person", "10"
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Ada"},
+		ModifiedAt:            time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC),
+		ProjectionFingerprint: "old-declaration",
+	}); err != nil {
+		t.Fatalf("seed ingest: %v", err)
+	}
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "current-declaration"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+
+	var recorded *string
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
+			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&recorded)
+	}); err != nil {
+		t.Fatalf("reading the record back: %v", err)
+	}
+	if recorded == nil || *recorded != "current-declaration" {
+		t.Errorf("reprojection_failed_for = %v, want the fingerprint the re-projection was reaching for", recorded)
+	}
+}
+
+// A row that successfully lands a projection is not failing any more. Clearing
+// it anywhere but the ingest that landed the payload would put two writers on
+// one fact.
+func TestIngestClearsAReprojectionFailureRecord(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass, externalID = "person", "11"
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields: map[string]any{"first_name": "Ada"}, ModifiedAt: baseline,
+		ProjectionFingerprint: "old-declaration",
+	}); err != nil {
+		t.Fatalf("seed ingest: %v", err)
+	}
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "current-declaration"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+	// The same baseline: a re-projection re-fetches a record the incumbent has
+	// not touched, which is exactly the write the staleness guard admits only
+	// because the fingerprint differs.
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields: map[string]any{"first_name": "Ada", "title": "CTO"}, ModifiedAt: baseline,
+		ProjectionFingerprint: "current-declaration",
+	}); err != nil {
+		t.Fatalf("re-projection ingest: %v", err)
+	}
+
+	var recorded *string
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
+			WHERE object_class=$1 AND external_id=$2`, objectClass, externalID).Scan(&recorded)
+	}); err != nil {
+		t.Fatalf("reading the record back: %v", err)
+	}
+	if recorded != nil {
+		t.Errorf("reprojection_failed_for = %q, want NULL — the row landed a projection, so it is not failing", *recorded)
+	}
+}
+
 // seedTombstone inserts the fixture the tombstone-guard test asserts
 // against, through the same tenant-scoped transaction helper the store
 // itself uses — the fixture must be workspace-visible to the guard's own
