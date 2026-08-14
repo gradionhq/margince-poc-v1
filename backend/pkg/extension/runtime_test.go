@@ -20,10 +20,11 @@ import (
 // Runtime answers ErrRuntimeExpired from Tx, not just from Secrets.
 
 type fakeRuntime struct {
-	secrets Secrets
-	live    bool
-	rows    [][]string
-	caller  Caller
+	secrets  Secrets
+	live     bool
+	rows     [][]string
+	caller   Caller
+	ingested []ingestCall
 }
 
 func (r *fakeRuntime) Secrets() Secrets { return r.secrets }
@@ -39,6 +40,25 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, Tx) error
 		return ErrRuntimeExpired
 	}
 	return fn(ctx, &fakeTx{rows: r.rows})
+}
+
+// Ingest records what it was asked to land and answers as the core would for a
+// new record. The lifetime check comes first for the same reason it does on Tx:
+// a released Runtime refuses every capability, not only the ones that open
+// something.
+func (r *fakeRuntime) Ingest(_ context.Context, on UserID, rec Record) (Result, error) {
+	if !r.live {
+		return Result{}, ErrRuntimeExpired
+	}
+	r.ingested = append(r.ingested, ingestCall{on: on, rec: rec})
+	return Result{Ref: Ref{Type: "activity", ID: "00000000-0000-7000-8000-000000000001"}, Disposition: DispositionAccepted}, nil
+}
+
+// ingestCall is one recorded Ingest, so a test can assert WHAT was handed over
+// rather than only that something was.
+type ingestCall struct {
+	on  UserID
+	rec Record
 }
 
 type fakeTx struct {

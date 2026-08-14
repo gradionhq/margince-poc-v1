@@ -65,6 +65,13 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension
 	return fn(ctx, r.tx)
 }
 
+// Ingest refuses, because notes declares no ingress source and the core refuses
+// exactly that way. A fake answering something friendlier would let a handler
+// that wrongly reached for capture pass this suite and fail at boot.
+func (r *fakeRuntime) Ingest(context.Context, extension.UserID, extension.Record) (extension.Result, error) {
+	return extension.Result{}, extension.ErrIngressNotDeclared
+}
+
 // noteRow scripts one row of noteColumns, in that order.
 //
 // It exists so that a column added to the projection is ONE edit in the
@@ -113,8 +120,8 @@ type fakeTx struct {
 	// its rows once and never again, because the first run is what stopped them
 	// matching. A fake that answered the same rows forever could not tell a
 	// handler that is idempotent from one that is not.
-	rows [][]any
-	row      []any   // what QueryRow scans into dest
+	rows     [][]any
+	row      []any // what QueryRow scans into dest
 	affected int64
 	err      error
 	// failFrom is the 1-based statement the error starts at; 0 fails every

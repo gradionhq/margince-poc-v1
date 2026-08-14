@@ -29,6 +29,7 @@ coverage.out
 !/extensions/notes
 !/extensions/de
 !/extensions/yogi
+!/extensions/dispact-connector
 # A unit's installed frontend dependencies. Its package.json and the workspace
 # lockfile are what ship; node_modules is what pnpm makes from them, and it is
 # per-member now that a unit's frontend layer is a workspace package.

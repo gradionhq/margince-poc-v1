@@ -173,12 +173,13 @@ func extensionRouteHandler(v extension.Verb, implemented bool, invoke toolInvoke
 		// before getting here.
 		out, err := invoke(r.Context(), v.Tool, args)
 		if err != nil {
-			// Straight through httperr: Invoke's refusals are already the
-			// product's own problem+json vocabulary (an admission denial, a
-			// staged approval, a validation error), and re-wrapping them here
-			// would give an extension route a different refusal shape from the
-			// core route beside it.
-			httperr.Write(w, r, err)
+			// The core's OWN refusals (an admission denial, a staged approval,
+			// a validation error) are already the product's problem+json
+			// vocabulary and pass through untouched — re-wrapping them would
+			// give an extension route a different refusal shape from the core
+			// route beside it. What does not pass through is a refusal the UNIT
+			// raised: see unitRefusal.
+			httperr.Write(w, r, unitRefusal(err))
 			return
 		}
 		// The DECLARED payload, not the governed-tool envelope Invoke sealed it

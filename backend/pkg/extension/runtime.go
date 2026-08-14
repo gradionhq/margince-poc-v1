@@ -103,6 +103,44 @@ type Runtime interface {
 	// A job tick has no human behind it and answers the zero Caller
 	// (CallerSystem, empty UserID); see Job.
 	Caller() Caller
+
+	// Ingest hands ONE record the unit pulled from its provider to the
+	// installation's capture pipeline, on behalf of the member whose credential
+	// produced it.
+	//
+	// What the core does with it is everything a captured mail gets: the write
+	// is idempotent on the record's natural key, the counterparty goes through
+	// the same disposition ladder, the provider's original is kept as evidence,
+	// and the audit row and the outbox event commit with the row. A unit
+	// therefore does not — and cannot — assemble a timeline entry itself.
+	//
+	// IT IS NOT TRANSACTIONAL WITH ANYTHING THE UNIT IS DOING. The pipeline
+	// opens its own transaction, so this must be called with none of the unit's
+	// held (Tx nesting answers ErrNestedIngest rather than hanging), and a
+	// unit's bookkeeping about what it has ingested is a separate commit.
+	//
+	// THE RULE THAT FOLLOWS, and the one worth getting right: advance your
+	// cursor only AFTER Ingest returns, and only past records it has answered
+	// for. The asymmetry is what makes that safe — a cursor not advanced past a
+	// record that landed costs one deduplicated retry, because the natural key
+	// makes a replay a no-op, while a cursor advanced past a record that did
+	// not land costs the record permanently.
+	//
+	// EVERY Disposition IS A SUCCESS, including Skipped: the core drops a
+	// wholly-internal message deliberately and commits a breadcrumb saying so,
+	// and treating that as a failure would retry a deliberate drop forever.
+	//
+	// on names the member whose credential produced the record. It must be a
+	// live member who currently holds one of this unit's user-scoped secrets —
+	// depositing a credential with a unit is the act that says "act for me
+	// here" — and the record is landed on that member's LIVE authority, so
+	// demoting them narrows what their connection can land from the next call
+	// onward.
+	//
+	// It is refused on an invocation that HAS a caller (ErrAttendedIngest): an
+	// unattended run is the only one where the member above is the single
+	// authority in play. A unit offering an on-demand sync enqueues its job.
+	Ingest(ctx context.Context, on UserID, rec Record) (Result, error)
 }
 
 // CallerType is which kind of principal an invocation is running as. It mirrors

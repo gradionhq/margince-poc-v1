@@ -155,6 +155,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/identity:RedeemPasswordReset":   "pre-principal by design (A74): possession of the single-use emailed token IS the authority being verified",
 	"internal/modules/identity:EffectiveRBAC":         "this LOADS the merged role policy the auth gate enforces — gating it on itself would recurse",
 	"internal/modules/identity:SeatType":              "seat-tier lookup feeding the auth gate (scope ∧ tier); same layer as EffectiveRBAC, not above it",
+	"internal/modules/identity:EffectiveAuthority":    "the two above, read in ONE snapshot; it is the same layer as both and gating it on itself would recurse for the same reason",
 	"internal/modules/identity:IssuePassport":         "gated by the explicit Identity parameter (the authenticated session): a passport is minted for that identity only, capped by validScopes",
 	"internal/modules/identity:ListPassports":         "gated by the explicit Identity parameter: the query is pinned to on_behalf_of = the caller (admin sees the workspace's)",
 	"internal/modules/identity:RevokePassport":        "gated by the explicit Identity parameter: owner-or-admin is checked against the passport's on_behalf_of before revoking",

@@ -55,6 +55,15 @@
 //     currently infers foreign types (openapi-fetch) into the published shape.
 //     Replacing those with core-owned interfaces changes the exported types.
 //
+//   - Runtime.Ingest, and its `on UserID` parameter above all. Ingress is
+//     OFFERED rather than enforced — a unit lands what it chooses to hand over
+//     — and naming the member the record belongs to is a stand-in for a
+//     first-class per-member connection concept the tier does not have yet. If
+//     one arrives, `on` becomes that connection's identity and every unit's
+//     poll changes with it. What will NOT change is the pair of facts behind
+//     it: the member has to have deposited a credential with the unit, and the
+//     landing runs on their live authority.
+//
 // A unit written against today's surface will need editing when either lands.
 // That is acceptable precisely because the composed set is the trust boundary:
 // every unit is first-party or otherwise reviewed, and they migrate together.
@@ -228,6 +237,20 @@ type Extension struct {
 	// from a tool: no caller, and so no permissions a core write could be
 	// checked against. See EventHandler.
 	Subscriptions []Subscription
+
+	// Ingress are the providers this unit brings records IN from, and the
+	// record kinds it lands through the core's own capture pipeline.
+	//
+	// Like a Tool's tier this is a request an operator can see before anything
+	// runs — and unlike a tier it is also load-bearing while it runs: the core
+	// stamps a landed record's provenance from the System declared here, so a
+	// unit never spells its own, and an ingest naming an undeclared source is
+	// refused rather than admitted under an invented namespace.
+	//
+	// Presence is the enablement, as everywhere in this tier. A unit declaring
+	// none cannot reach capture at all, which is the state every unit was in
+	// before this field existed.
+	Ingress []IngressSource
 
 	// Migrations is the unit's SQL schema layer: a read-only filesystem
 	// holding the MigrationsDir directory of NNNN_name.up.sql/.down.sql
