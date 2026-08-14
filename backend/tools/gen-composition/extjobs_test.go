@@ -40,7 +40,7 @@ const wellFormedPair = `
     scope: read
   ext_demo_refresh_ws:
     job: refresh
-    role: workspace
+    role: worker
     queue: default
     timeout: 5m
     max_attempts: 3
@@ -106,7 +106,7 @@ func TestExtensionJobsRefusesTheShapesAFragmentMustNotPublish(t *testing.T) {
 			kinds: `
   ext_demo_orphan_ws:
     job: orphan
-    role: workspace
+    role: worker
     queue: default
     timeout: 5m
     max_attempts: 3
@@ -212,7 +212,7 @@ func TestExtensionJobsAttributesAKindToTheLongestOwnedNamespace(t *testing.T) {
     scope: read
   ext_a_b_refresh_ws:
     job: refresh
-    role: workspace
+    role: worker
     queue: default
     timeout: 5m
     max_attempts: 3

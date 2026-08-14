@@ -124,7 +124,7 @@ func roleConst(role string) string {
 	if role == roleDispatcher {
 		return "Dispatcher"
 	}
-	return "Workspace"
+	return "Worker"
 }
 
 func unitConst(unit string) string {

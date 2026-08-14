@@ -33,7 +33,7 @@ func TestParseRejectsAWorkspaceKindWithNoTimeout(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     opts_owner: fan_out
@@ -54,7 +54,7 @@ kinds:
     fans_out_to: foo_workspace
     fan_out_unit: workspace
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -89,7 +89,7 @@ kinds:
     fans_out_to: foo_workspace
     fan_out_unit: workspace
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -101,7 +101,7 @@ func TestParseRejectsMaxAttemptsOnAKindTheFileDoesNotGovern(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -119,7 +119,7 @@ func TestParseRejectsAFanOutChildWithNoMaxAttempts(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -160,7 +160,7 @@ kinds:
     cadence: 24h
     fans_out_to: foo_workspace
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -195,7 +195,7 @@ kinds:
     fans_out_to: shared_child
     fan_out_unit: connection
   shared_child:
-    role: workspace
+    role: worker
     go_type: SharedChildArgs
     queue: default
     timeout: 2m
@@ -227,7 +227,7 @@ kinds:
     fans_out_to: shared_child
     fan_out_unit: workspace
   shared_child:
-    role: workspace
+    role: worker
     go_type: SharedChildArgs
     queue: default
     timeout: 2m
@@ -248,7 +248,7 @@ kinds:
     fans_out_to: foo_workspace
     fan_out_unit: tenant
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -260,13 +260,13 @@ func TestParseRejectsADuplicateKindString(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
     opts_owner: caller
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: OtherWorkspaceArgs
     queue: default
     timeout: 5m
@@ -294,7 +294,7 @@ func TestParseRejectsAnUnknownKeyInsideACustomDecodedBlock(t *testing.T) {
 			src: `
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -308,7 +308,7 @@ kinds:
 			src: `
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: {none: true, resaon: bounded by a backlog, not a wall clock}
@@ -321,7 +321,7 @@ kinds:
 			src: `
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -354,7 +354,7 @@ kinds:
     fans_out_to: foo_workspace
     fan_out_unit: workspace
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -370,7 +370,7 @@ func TestParseRejectsASecondDocument(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -378,7 +378,7 @@ kinds:
 ---
 kinds:
   bar_workspace:
-    role: workspace
+    role: worker
     go_type: BarWorkspaceArgs
     queue: default
     timeout: 2m
@@ -390,13 +390,13 @@ func TestParseRejectsTwoKindsSharingOneGoType(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
     opts_owner: caller
   bar_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: 2m
@@ -408,7 +408,7 @@ func TestParseRejectsADerivedTimeoutWithNoValue(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo_workspace:
-    role: workspace
+    role: worker
     go_type: FooWorkspaceArgs
     queue: default
     timeout: {derived: fooPassTimeout}
@@ -437,25 +437,25 @@ kinds:
 const fourForms = validQueues + `
 kinds:
   a_workspace:
-    role: workspace
+    role: worker
     go_type: AWorkspaceArgs
     queue: default
     timeout: 90s
     opts_owner: caller
   b_workspace:
-    role: workspace
+    role: worker
     go_type: BWorkspaceArgs
     queue: default
     timeout: {derived: bPassTimeout, value: 26m20s}
     opts_owner: caller
   c_workspace:
-    role: workspace
+    role: worker
     go_type: CWorkspaceArgs
     queue: default
     timeout: {operator: SomeCaps}
     opts_owner: caller
   d_workspace:
-    role: workspace
+    role: worker
     go_type: DWorkspaceArgs
     queue: default
     timeout: {none: true, reason: "bounded by a backlog, not a wall clock"}
@@ -589,7 +589,7 @@ kinds:
     fans_out_to: a_kind
     fan_out_unit: workspace
   a_kind:
-    role: workspace
+    role: worker
     go_type: AKindArgs
     queue: default
     timeout: 2m
@@ -632,7 +632,7 @@ func TestParseRejectsAFaultWaiverWithNoRationale(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m
@@ -647,7 +647,7 @@ func TestParseRejectsAScalarArgsFieldWithNoReason(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m
@@ -663,7 +663,7 @@ func TestParseRejectsAnEmptyArgsFieldMapping(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m
@@ -681,7 +681,7 @@ func TestParseAcceptsAReasonOnAnIdField(t *testing.T) {
 	c, err := parseContract([]byte(validQueues + `
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m
@@ -709,7 +709,7 @@ func TestParseRejectsAnUnexportedArgsFieldName(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m
@@ -726,7 +726,7 @@ func TestParseAcceptsTheIdShorthandAndAnArguedScalar(t *testing.T) {
 	c, err := parseContract([]byte(validQueues + `
 kinds:
   foo:
-    role: workspace
+    role: worker
     go_type: FooArgs
     queue: default
     timeout: 2m

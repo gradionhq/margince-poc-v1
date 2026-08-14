@@ -165,7 +165,7 @@ The failures you are most likely to meet, in the order you would meet them:
 | Where | Message | What it means |
 |---|---|---|
 | `make gen` | `kind "x": declares no timeout — an absent one is River's silent 1-minute default, which is what this contract removes` | Pick one of the four `timeout` forms. There is no default and absence is not one of them |
-| `make gen` | `kind "x": is a dispatcher that fans out to nothing` / `fans_out_to "y", whose role is "dispatcher"` | A dispatcher must declare `fans_out_to` + `fan_out_unit`, and the child must be `role: workspace` |
+| `make gen` | `kind "x": is a dispatcher that fans out to nothing` / `fans_out_to "y", whose role is "dispatcher"` | A dispatcher must declare `fans_out_to` + `fan_out_unit`, and the child must be `role: worker` |
 | `make gen` | `kind "x": declares a cadence but its role is "workspace"` | A workspace kind is enqueued by its dispatcher, never ticked. Move the cadence to the dispatcher |
 | `make gen` | `kind "x": opts_owner is fan_out but no max_attempts is declared` | The fan-out helper reads that number and nothing else supplies it; its absence is River's silent 25-rung ladder |
 | `make gen` | `kind "x": args field "F" is declared a scalar with no reason` | A value that is not an id must say why it is safe in a table Art. 17 erasure never reaches |

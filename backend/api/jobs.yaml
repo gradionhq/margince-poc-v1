@@ -156,7 +156,7 @@ kinds:
     fan_out_unit: workspace
 
   agent_scheduler_workspace:
-    role: workspace
+    role: worker
     go_type: AgentSchedulerWorkspaceArgs
     queue: agent_scheduler
     timeout:
@@ -180,7 +180,7 @@ kinds:
       hasten it.
 
   ai_model_rate_refresh:
-    role: workspace
+    role: worker
     go_type: AiModelRateRefreshArgs
     queue: rate_refresh
     timeout: 20m
@@ -211,7 +211,7 @@ kinds:
       day into it.
 
   capture_auto_enrich_workspace:
-    role: workspace
+    role: worker
     go_type: CaptureAutoEnrichWorkspaceArgs
     queue: default
     timeout: 5m
@@ -243,7 +243,7 @@ kinds:
       is what it calls stale.
 
   finance_sync:
-    role: workspace
+    role: worker
     go_type: FinanceSyncArgs
     queue: default
     timeout: 5m
@@ -260,7 +260,7 @@ kinds:
       on the next sweep.
 
   capture_backfill:
-    role: workspace
+    role: worker
     go_type: CaptureBackfillArgs
     queue: default
     timeout: 8m
@@ -298,7 +298,7 @@ kinds:
       the backlog index makes a caught-up tenant one cheap probe.
 
   capture_classify_workspace:
-    role: workspace
+    role: worker
     go_type: CaptureClassifyWorkspaceArgs
     queue: ai_capture
     timeout: 15m
@@ -331,7 +331,7 @@ kinds:
       before the tick.
 
   capture_counterparty_verdict_workspace:
-    role: workspace
+    role: worker
     go_type: CounterpartyVerdictWorkspaceArgs
     queue: ai_capture
     timeout: 20m
@@ -360,7 +360,7 @@ kinds:
       a missed night, so a morning is never silently empty.
 
   capture_digest_workspace:
-    role: workspace
+    role: worker
     go_type: CaptureDigestWorkspaceArgs
     queue: default
     timeout: 5m
@@ -389,7 +389,7 @@ kinds:
       dispatcher lands.
 
   capture_enrich_workspace:
-    role: workspace
+    role: worker
     go_type: CaptureEnrichWorkspaceArgs
     queue: ai_capture
     timeout: 20m
@@ -404,7 +404,7 @@ kinds:
       The nightly cycle picks up whatever a stopped pass did not reach.
 
   capture_sync:
-    role: workspace
+    role: worker
     go_type: CaptureSyncArgs
     queue: default
     timeout: 8m
@@ -448,7 +448,7 @@ kinds:
     fan_out_unit: workspace
 
   close_date_workspace:
-    role: workspace
+    role: worker
     go_type: CloseDateWorkspaceArgs
     queue: default
     timeout: 5m
@@ -464,7 +464,7 @@ kinds:
       River's ladder spans minutes at these rungs — comfortably inside one tick.
 
   comms_send_email:
-    role: workspace
+    role: worker
     go_type: SendEmailArgs
     queue: default
     timeout: 5m
@@ -500,7 +500,7 @@ kinds:
       registers neither embed_drift kind.
 
   embed_drift_workspace:
-    role: workspace
+    role: worker
     go_type: EmbedDriftWorkspaceArgs
     queue: default
     timeout:
@@ -549,7 +549,7 @@ kinds:
       insert-many.
 
   embed_reindex_workspace:
-    role: workspace
+    role: worker
     go_type: EmbedReindexWorkspaceArgs
     queue: ai_capture
     timeout:
@@ -594,7 +594,7 @@ kinds:
     fan_out_unit: workspace
 
   follow_up_workspace:
-    role: workspace
+    role: worker
     go_type: FollowUpWorkspaceArgs
     queue: default
     timeout: 5m
@@ -609,7 +609,7 @@ kinds:
       would cost a workspace a full day over a transient blip.
 
   fx_rate_refresh:
-    role: workspace
+    role: worker
     go_type: FxRateRefreshArgs
     queue: rate_refresh
     timeout: 10m
@@ -650,7 +650,7 @@ kinds:
     fan_out_unit: connection
 
   gmail_watch_renew_connection:
-    role: workspace
+    role: worker
     go_type: GmailWatchRenewArgs
     queue: default
     timeout: 2m
@@ -680,7 +680,7 @@ kinds:
       loosening the cadence without amending the migration makes it a lie.
 
   graph_edge_workspace:
-    role: workspace
+    role: worker
     go_type: GraphEdgeWorkspaceArgs
     queue: default
     timeout: 15m
@@ -711,7 +711,7 @@ kinds:
       expired personal data sitting past its purpose.
 
   agent_task_retention_workspace:
-    role: workspace
+    role: worker
     go_type: AgentTaskRetentionWorkspaceArgs
     queue: default
     timeout: 5m
@@ -739,7 +739,7 @@ kinds:
       expired personal data sitting past its purpose.
 
   idempotency_retention_workspace:
-    role: workspace
+    role: worker
     go_type: IdempotencyRetentionWorkspaceArgs
     queue: default
     timeout: 5m
@@ -768,7 +768,7 @@ kinds:
       the morning should not wait until tomorrow to see it on an account.
 
   linkedin_rematch_workspace:
-    role: workspace
+    role: worker
     go_type: LinkedInRematchWorkspaceArgs
     queue: default
     timeout: 10m
@@ -796,7 +796,7 @@ kinds:
       this one weighs.
 
   org_name_promotion_workspace:
-    role: workspace
+    role: worker
     go_type: OrgNamePromotionWorkspaceArgs
     queue: default
     timeout: 5m
@@ -828,7 +828,7 @@ kinds:
       scan and the sweep is swept under its CURRENT identity.
 
   overlay_reconcile_workspace:
-    role: workspace
+    role: worker
     go_type: OverlayReconcileWorkspaceArgs
     queue: overlay_reconcile
     timeout: 20m
@@ -865,7 +865,7 @@ kinds:
       the retry.
 
   overlay_refetch:
-    role: workspace
+    role: worker
     go_type: OverlayRefetchArgs
     queue: default
     timeout: 2m
@@ -901,7 +901,7 @@ kinds:
       restore or an import can reintroduce unattributed rows.
 
   participant_backfill_workspace:
-    role: workspace
+    role: worker
     go_type: ParticipantBackfillWorkspaceArgs
     queue: default
     timeout: 10m
@@ -926,7 +926,7 @@ kinds:
     fan_out_unit: workspace
 
   privacy_retention_workspace:
-    role: workspace
+    role: worker
     go_type: PrivacyRetentionWorkspaceArgs
     queue: privacy_retention
     timeout:
@@ -942,7 +942,7 @@ kinds:
       Workspace: id
 
   provider_run_submit:
-    role: workspace
+    role: worker
     go_type: ProviderRunSubmitArgs
     queue: default
     timeout: 2m
@@ -976,7 +976,7 @@ kinds:
       partial index.
 
   provider_run_poll:
-    role: workspace
+    role: worker
     go_type: ProviderRunPollArgs
     queue: default
     timeout: 2m
@@ -1010,7 +1010,7 @@ kinds:
       workspace.
 
   signal_scan_workspace:
-    role: workspace
+    role: worker
     go_type: SignalScanWorkspaceArgs
     queue: ai_capture
     timeout: 20m
@@ -1030,7 +1030,7 @@ kinds:
       every reading it paid for and the next tick resumes on the backlog.
 
   site_deep_read:
-    role: workspace
+    role: worker
     go_type: SiteDeepReadArgs
     queue: deep_read
     timeout: {operator: DeepReadCaps}
@@ -1056,7 +1056,7 @@ kinds:
       registration.
 
   telegram_ingest:
-    role: workspace
+    role: worker
     go_type: TelegramIngestArgs
     queue: default
     timeout: 2m
@@ -1071,7 +1071,7 @@ kinds:
       database-only, one update at a time, with no provider call in it at all.
 
   telegram_poll:
-    role: workspace
+    role: worker
     go_type: TelegramPollArgs
     queue: default
     timeout: {derived: telegramPollJobTimeout, value: 2m}
@@ -1112,7 +1112,7 @@ kinds:
     fan_out_unit: workspace
 
   time_scan_workspace:
-    role: workspace
+    role: worker
     go_type: TimeScanWorkspaceArgs
     queue: default
     timeout: 10m
@@ -1127,7 +1127,7 @@ kinds:
       matched set is a tenant's standing automations rather than a batch bound.
 
   voice_build:
-    role: workspace
+    role: worker
     go_type: VoiceBuildArgs
     queue: default
     timeout: {derived: voiceBuildTimeout, value: 10m}
@@ -1172,7 +1172,7 @@ kinds:
     fan_out_unit: workspace
 
   webhook_retry_workspace:
-    role: workspace
+    role: worker
     go_type: WebhookRetryWorkspaceArgs
     queue: webhook_retry
     timeout:

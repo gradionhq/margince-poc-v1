@@ -32,7 +32,7 @@ backend/api/jobs.yaml
         │  enumerate the fleet — compose/dispatch.go, the ONE scan
         │  dispatchPerWorkspace | dispatchWith | dispatchOne
         ▼  one child per fan-out UNIT, one InsertMany, tagged `sweep`
-   WORKSPACE row × N         role: workspace    ·   jobs.WorkspaceScoped
+   WORKER row × N            role: worker       ·   jobs.WorkspaceScoped
         │  workspaceJobCtx binds args.WorkspaceID() → app.workspace_id (RLS)
         │  Work(…) ──► jobs.FaultContext(ctx, err)
         ▼
@@ -88,7 +88,7 @@ directions — a field owed and absent fails, and a field declared where it mean
   third posture — the workers stay registered and only the tick goes away.
 - **`fans_out_to` + `fan_out_unit`** — one declaration, never one without the other. Required on a
   dispatcher (*"a dispatcher that fans out to nothing … does no work at all"*), refused elsewhere,
-  and the named child must itself be `role: workspace`. The unit is `workspace`, `connection` or
+  and the named child must itself be `role: worker`. The unit is `workspace`, `connection` or
   `build`, and it is what makes a child row readable: a `gmail_watch_renew_connection` row is one
   *connection's* renewal, not one tenant's. The unit is declared on the **dispatcher**, beside the
   edge it names, because that is where the fan-out decision is made.
@@ -221,7 +221,7 @@ workspace-scoped — and there is no third role. A third would be a change to wh
 data: both operational surfaces read `Role` to decide whether a null `args->>'workspace_id'` is
 correct or a defect.
 
-**The biconditional.** `role: workspace` ⟺ the args type implements `jobs.WorkspaceScoped`, and
+**The biconditional.** `role: worker` ⟺ the args type implements `jobs.WorkspaceScoped`, and
 `role: dispatcher` ⟺ it implements `jobs.FleetWide`. Generation emits one `var _ jobs.FleetWide =
 XArgs{}` / `var _ jobs.WorkspaceScoped = XArgs{}` line per kind, so a *declared* kind's role is the
 compiler's to check. Two halves the generated assertions provably cannot reach are gates instead: a

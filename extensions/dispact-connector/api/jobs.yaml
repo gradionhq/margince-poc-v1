@@ -42,7 +42,7 @@ actions:
   - target: $.kinds['ext_dispact_connector_poll_inbox_ws']
     update:
       job: poll_inbox
-      role: workspace
+      role: worker
       queue: default
       timeout: 300s
       # Small on purpose, like every other fan-out child's: the real retry

@@ -68,7 +68,7 @@ type extJobKind struct {
 
 const (
 	extRoleDispatcher = "dispatcher"
-	extRoleWorkspace  = "workspace"
+	extRoleWorker  = "worker"
 )
 
 // extensionJobs reads every enabled unit's scheduled jobs out of the merged
@@ -151,8 +151,8 @@ func extensionKindEntries(kinds *yaml.Node, owners map[string]string) ([]namedEx
 		// mistyped `role: dispatchr` is not refused by either — it falls out of
 		// both loops and the kind vanishes: no registration, no manifest entry,
 		// no error. A misspelling must not be able to un-declare a job.
-		if def.Role != extRoleDispatcher && def.Role != extRoleWorkspace {
-			return nil, fmt.Errorf("kind %s declares role %q — an extension job kind is %q or %q, and any other value would leave the kind declared by the contract and registered by nothing", kind, def.Role, extRoleDispatcher, extRoleWorkspace)
+		if def.Role != extRoleDispatcher && def.Role != extRoleWorker {
+			return nil, fmt.Errorf("kind %s declares role %q — an extension job kind is %q or %q, and any other value would leave the kind declared by the contract and registered by nothing", kind, def.Role, extRoleDispatcher, extRoleWorker)
 		}
 		out = append(out, namedExtKind{kind: kind, unit: unit, def: def})
 	}
@@ -197,8 +197,8 @@ func pairExtensionKinds(entries []namedExtKind, queues []string) ([]extension.Jo
 		if !ok {
 			return nil, fmt.Errorf("kind %s is a dispatcher but nothing declares %s — a scheduled job is a cadenced dispatcher AND the workspace child it fans out to, because a cadence on a workspace-role kind is refused", e.kind, childKind)
 		}
-		if child.def.Role != extRoleWorkspace {
-			return nil, fmt.Errorf("kind %s declares role %q — the child of a dispatcher carries one tenant's pass and its role is %q", childKind, child.def.Role, extRoleWorkspace)
+		if child.def.Role != extRoleWorker {
+			return nil, fmt.Errorf("kind %s declares role %q — the child of a dispatcher does the work for one unit and its role is %q", childKind, child.def.Role, extRoleWorker)
 		}
 		d, err := declarationFrom(e, child, queues)
 		if err != nil {
@@ -209,7 +209,7 @@ func pairExtensionKinds(entries []namedExtKind, queues []string) ([]extension.Jo
 	// Every child must have been claimed by the loop above; one that was not is
 	// a worker nothing schedules.
 	for _, e := range entries {
-		if e.def.Role != extRoleWorkspace {
+		if e.def.Role != extRoleWorker {
 			continue
 		}
 		// The parent must exist AND be a dispatcher. Existence alone is not the

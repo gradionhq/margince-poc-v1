@@ -76,7 +76,7 @@ func TestTheCatalogueNamesEveryDeclaredKindsRole(t *testing.T) {
 		series := infoSeriesFor(t, out, kind)
 		want := map[jobs.Role]string{
 			jobs.Dispatcher: `role="dispatcher"`,
-			jobs.Workspace:  `role="workspace"`,
+			jobs.Worker:     `role="worker"`,
 		}[spec.Role]
 		if want == "" {
 			t.Fatalf("%s carries role %d, which the declaration does not define", kind, spec.Role)
@@ -420,7 +420,7 @@ func TestAComposedExtensionKindIsNotUnrecognised(t *testing.T) {
 	if err := jobs.RegisterComposed([]jobs.Spec{{
 		Kind:      kind,
 		GoType:    "extJobWorkspaceArgs",
-		Role:      jobs.Workspace,
+		Role:      jobs.Worker,
 		Queue:     "default",
 		Timeout:   jobs.TimeoutPolicy{Fixed: 5 * time.Minute},
 		OptsOwner: jobs.OptsFanOut,

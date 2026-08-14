@@ -188,7 +188,7 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 
 	declared := 0
 	for kind, spec := range jobs.Declared() {
-		if spec.Role != jobs.Workspace {
+		if spec.Role != jobs.Worker {
 			continue
 		}
 		declared++
@@ -202,7 +202,7 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	}
 	for kind := range refusals {
 		spec, declaredKind := jobs.SpecFor(kind)
-		if !declaredKind || spec.Role != jobs.Workspace {
+		if !declaredKind || spec.Role != jobs.Worker {
 			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace kind by that name — the suite is pinning something the fleet does not run", kind)
 		}
 	}

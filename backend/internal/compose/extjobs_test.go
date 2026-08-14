@@ -143,7 +143,7 @@ func TestComposedJobSpecsDeclareBothKindsAndTheEdgeBetweenThem(t *testing.T) {
 	if dispatcher.Cadence.Fixed != d.Cadence || dispatcher.Timeout.Duration(0) != d.DispatcherTimeout {
 		t.Fatalf("dispatcher mechanics = %+v", dispatcher)
 	}
-	if child.Kind != d.ChildKind() || child.Role != jobs.Workspace || child.OptsOwner != jobs.OptsFanOut {
+	if child.Kind != d.ChildKind() || child.Role != jobs.Worker || child.OptsOwner != jobs.OptsFanOut {
 		t.Fatalf("child spec = %+v", child)
 	}
 	if child.MaxAttempts != d.MaxAttempts || child.Timeout.Duration(0) != d.Timeout || child.Queue != d.Queue {
