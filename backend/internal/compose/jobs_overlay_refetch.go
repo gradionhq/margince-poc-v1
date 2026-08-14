@@ -62,7 +62,11 @@ func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // on one mirror state. A dropped job is not a lost record either way: a signal
 // this lane drops is healed by the poller's next watermark pass, and a
 // re-projection it drops is named again by the next sweep's re-projection
-// phase, since the row keeps the declaration it was projected under.
+// phase, since the row keeps the declaration it was projected under — unless
+// the read failed in a way no retry changes, in which case the row records the
+// declaration it could not reach and is spared until that declaration is
+// repaired, because re-reading it would spend an incumbent call on an answer
+// that cannot change.
 type overlayRefetchWorker struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
