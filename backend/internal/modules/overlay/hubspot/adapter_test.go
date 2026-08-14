@@ -61,9 +61,7 @@ func TestAdapterDeletionsMapsArchivedRecords(t *testing.T) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write([]byte(archivedContactsJSON)); err != nil {
-			t.Errorf("writing response body: %v", err)
-		}
+		mustWrite(t, w, archivedContactsJSON)
 	}))
 	defer srv.Close()
 
@@ -115,7 +113,7 @@ func TestAdapterModifiedUsesLastModifiedDateWatermarkForContacts(t *testing.T) {
 			t.Fatalf("decoding request body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(searchModifiedContactsJSON))
+		mustWrite(t, w, searchModifiedContactsJSON)
 	}))
 	defer srv.Close()
 
@@ -201,11 +199,11 @@ func TestAdapterBackfillPagesViaListCursor(t *testing.T) {
 			t.Fatalf("after = %q, want 50 (the cursor Backfill was called with)", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
+		mustWrite(t, w, `{
 			"results": [ { "id": "1", "properties": { "hs_object_id": "1", "firstname": "A", "lastname": "B",
 			  "lastmodifieddate": "2026-01-01T00:00:00.000Z" } } ],
 			"paging": { "next": { "after": "51" } }
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -232,9 +230,9 @@ func TestAdapterGetFetchesViaBatchRead(t *testing.T) {
 			t.Fatalf("path = %q, want /crm/v3/objects/contacts/batch/read", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"100214862042","properties":{
+		mustWrite(t, w, `{"results":[{"id":"100214862042","properties":{
 			"hs_object_id":"100214862042","firstname":"Christian","lastname":"Mueller",
-			"lastmodifieddate":"2026-05-13T06:44:38.727Z"}}]}`))
+			"lastmodifieddate":"2026-05-13T06:44:38.727Z"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -258,7 +256,7 @@ func TestAdapterGetFetchesViaBatchRead(t *testing.T) {
 func TestAdapterGetNoResultsErrorsCleanly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[]}`))
+		mustWrite(t, w, `{"results":[]}`)
 	}))
 	defer srv.Close()
 
@@ -280,7 +278,7 @@ func TestAdapterGetDoesNotCallAnEmptyBatchResultUnmappable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMultiStatus)
-		_, _ = w.Write([]byte(`{"results":[],"numErrors":1}`))
+		mustWrite(t, w, `{"results":[],"numErrors":1}`)
 	}))
 	defer srv.Close()
 
@@ -305,9 +303,9 @@ func TestAdapterGetDoesNotCallAnEmptyBatchResultUnmappable(t *testing.T) {
 func TestAdapterGetCallsARecordItCannotProjectUnmappable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"100214862042","properties":{
+		mustWrite(t, w, `{"results":[{"id":"100214862042","properties":{
 			"hs_object_id":"100214862042","firstname":"Christian",
-			"lastmodifieddate":"not a timestamp"}}]}`))
+			"lastmodifieddate":"not a timestamp"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -317,6 +315,30 @@ func TestAdapterGetCallsARecordItCannotProjectUnmappable(t *testing.T) {
 	if !errors.Is(err, hubspot.ErrUnmappable) {
 		t.Fatalf("Get = %v, want it marked unprojectable — without that mark the sweep re-reads this record every tick "+
 			"for an answer only a new declaration can change", err)
+	}
+}
+
+// The same verdict for the other half of the projection, and the half a real
+// portal reaches first: the record arrives whole and a FIELD will not project —
+// a deal amount that is not a decimal the declaration's currency scaling can
+// convert. The declaration and the record are both fixed, so no retry reaches a
+// different answer, and a caller may retire the row on it.
+func TestAdapterGetCallsAFieldItCannotProjectUnmappable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(t, w, `{"results":[{"id":"14795354824","properties":{
+			"hs_object_id":"14795354824","dealname":"Rollout",
+			"amount":"twelve thousand","deal_currency_code":"EUR",
+			"hs_lastmodifieddate":"2026-05-13T06:44:38.727Z"}}]}`)
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+
+	_, err := adapter.Get(t.Context(), "deals", "14795354824")
+	if !errors.Is(err, hubspot.ErrUnmappable) {
+		t.Fatalf("Get = %v, want it marked unprojectable — a field this declaration cannot convert is as fixed as a "+
+			"baseline it cannot parse, and re-reading the deal every tick buys the same answer", err)
 	}
 }
 
@@ -330,14 +352,14 @@ func TestAdapterEnrichLeadsDerivesContactFields(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/crm/v3/objects/leads":
-			_, _ = w.Write([]byte(`{"results":[{"id":"7701","properties":{
+			mustWrite(t, w, `{"results":[{"id":"7701","properties":{
 				"hs_object_id":"7701","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z",
-				"hs_lead_name":"Erika Musterfrau","hubspot_owner_id":"owner-3"}}]}`))
+				"hs_lead_name":"Erika Musterfrau","hubspot_owner_id":"owner-3"}}]}`)
 		case "/crm/v4/objects/leads/7701/associations/contacts":
-			_, _ = w.Write([]byte(`{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`))
+			mustWrite(t, w, `{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`)
 		case "/crm/v3/objects/contacts/batch/read":
-			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{
-				"email":"Erika@Example.DE","company":"Musterfrau Consulting"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"555","properties":{
+				"email":"Erika@Example.DE","company":"Musterfrau Consulting"}}]}`)
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
@@ -372,12 +394,12 @@ func TestAdapterGetEnrichesLeadContactFields(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/crm/v3/objects/leads/batch/read":
-			_, _ = w.Write([]byte(`{"results":[{"id":"7701","properties":{
-				"hs_object_id":"7701","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"Erika Musterfrau"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"7701","properties":{
+				"hs_object_id":"7701","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"Erika Musterfrau"}}]}`)
 		case "/crm/v4/objects/leads/7701/associations/contacts":
-			_, _ = w.Write([]byte(`{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`))
+			mustWrite(t, w, `{"results":[{"toObjectId":"555","associationTypes":[{"category":"HUBSPOT_DEFINED","typeId":1}]}]}`)
 		case "/crm/v3/objects/contacts/batch/read":
-			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"email":"erika@example.de","company":"Musterfrau Consulting"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"555","properties":{"email":"erika@example.de","company":"Musterfrau Consulting"}}]}`)
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
@@ -405,9 +427,9 @@ func TestAdapterEnrichLeadsLeavesFieldsAbsentWithoutAssociation(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/crm/v3/objects/leads":
-			_, _ = w.Write([]byte(`{"results":[{"id":"7702","properties":{"hs_object_id":"7702","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"No Contact"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"7702","properties":{"hs_object_id":"7702","hs_lastmodifieddate":"2026-06-03T00:00:00.000Z","hs_lead_name":"No Contact"}}]}`)
 		case r.URL.Path == "/crm/v4/objects/leads/7702/associations/contacts":
-			_, _ = w.Write([]byte(`{"results":[]}`))
+			mustWrite(t, w, `{"results":[]}`)
 		case strings.HasSuffix(r.URL.Path, "/batch/read"):
 			t.Errorf("batch/read must not be called when a lead has no contact association")
 		default:
@@ -443,10 +465,10 @@ func TestAdapterAssociationsNamespacesEngagementEndpoints(t *testing.T) {
 			t.Fatalf("path = %q, want the RAW from id /crm/v4/objects/calls/123/associations/meetings", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
+		mustWrite(t, w, `{
 			"results": [ { "toObjectId": 456,
 			  "associationTypes": [ {"category":"HUBSPOT_DEFINED","typeId":9,"label":"Related"} ] } ]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -480,10 +502,10 @@ func TestAdapterAssociationsPopulatesForwardDirection(t *testing.T) {
 			t.Fatalf("path = %q, want /crm/v4/objects/deals/123/associations/companies", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
+		mustWrite(t, w, `{
 			"results": [ { "toObjectId": 61655665850,
 			  "associationTypes": [ {"category":"HUBSPOT_DEFINED","typeId":5,"label":"Primary"} ] } ]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -519,7 +541,7 @@ func TestAdapterOwnerEmailResolvesViaOwnersAPI(t *testing.T) {
 			t.Fatalf("path = %q, want /crm/v3/owners/1197833249", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"1197833249","email":"christian@example.de"}`))
+		mustWrite(t, w, `{"id":"1197833249","email":"christian@example.de"}`)
 	}))
 	defer srv.Close()
 
@@ -546,9 +568,9 @@ func TestAdapterOwnersPagesTheDirectory(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("after") {
 		case "":
-			_, _ = w.Write([]byte(`{"results":[{"id":"1","email":"alice@example.com"}],"paging":{"next":{"after":"p2"}}}`))
+			mustWrite(t, w, `{"results":[{"id":"1","email":"alice@example.com"}],"paging":{"next":{"after":"p2"}}}`)
 		case "p2":
-			_, _ = w.Write([]byte(`{"results":[{"id":"2","email":"bob@example.com"}]}`))
+			mustWrite(t, w, `{"results":[{"id":"2","email":"bob@example.com"}]}`)
 		default:
 			t.Fatalf("unexpected after cursor %q", r.URL.Query().Get("after"))
 		}
