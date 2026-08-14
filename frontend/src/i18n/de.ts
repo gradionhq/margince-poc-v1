@@ -223,7 +223,9 @@ export const de = {
   "share.expiry.day": "Läuft in 24 Stunden ab",
   "share.expiry.week": "Läuft in 7 Tagen ab",
   "share.expiry.month": "Läuft in 30 Tagen ab",
-  "share.expiryConsequence":
+  "share.expiryConsequence.one":
+    "Der Zugriff endet automatisch in {days} Tag. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequence.other":
     "Der Zugriff endet automatisch in {days} Tagen. Sie können ihn jederzeit früher widerrufen.",
   "share.expiryConsequenceNone":
     "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",

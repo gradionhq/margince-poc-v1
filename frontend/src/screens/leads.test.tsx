@@ -917,7 +917,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     await waitFor(() => expect(screen.getByText("You")).toBeTruthy());
   });
 
-  it("names an owner who is not the viewer, and never shows their raw id", async () => {
+  it("names an owner who is not the viewer, rather than printing their id", async () => {
     stubFetchWithMe(async (url) => {
       if (url.includes("/users")) {
         return jsonResponse({
@@ -930,7 +930,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
 
     await waitFor(() => expect(screen.getByText("Dana Fischer")).toBeTruthy());
     // The defect this replaced: an owner who was not the viewer rendered as a
-    // bare uuid, which names nobody a reader can recognize.
+    // bare uuid, which names nobody a reader can recognize. The id survives as
+    // the `title` (and as the fallback face until the roster lands), so what is
+    // asserted is that no id is left standing as the visible TEXT.
     expect(screen.queryByText("u-42")).toBeNull();
   });
 

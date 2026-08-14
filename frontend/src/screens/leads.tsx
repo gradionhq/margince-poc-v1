@@ -352,10 +352,14 @@ function LeadOwner({
   onAssign: (ownerId: string) => void;
 }>) {
   const t = useT();
+  const pickerId = useId();
   const [picking, setPicking] = useState(false);
   const roster = useRoster("user", picking);
+  // The viewer is excluded as well as the current owner: "Assign to me" sits
+  // right beside this picker, and offering the same person under a second
+  // label would run one mutation from two controls that read differently.
   const candidates = (roster.data ?? []).filter(
-    (entry) => entry.id !== lead.owner_id,
+    (entry) => entry.id !== lead.owner_id && entry.id !== meId,
   );
 
   return (
@@ -387,51 +391,59 @@ function LeadOwner({
             {t("lead.assignToMe")}
           </Button>
         )}
-        <Button small disabled={pending} onClick={() => setPicking(!picking)}>
+        <Button
+          small
+          disabled={pending}
+          aria-expanded={picking}
+          aria-controls={pickerId}
+          onClick={() => setPicking(!picking)}
+        >
           {t("lead.assignToSomeone")}
         </Button>
       </div>
 
-      {picking &&
-        (roster.isPending ? (
-          <span className="t-caption">{t("share.rosterLoading")}</span>
-        ) : roster.isError ? (
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-2)",
-              alignItems: "center",
-            }}
-          >
-            <span className="t-caption share-error">
-              {t("share.rosterErrorUsers")}
-            </span>
-            <Button small onClick={() => roster.refetch()}>
-              {t("common.retry")}
-            </Button>
-          </div>
-        ) : candidates.length === 0 ? (
-          <span className="t-caption">{t("lead.assignNobodyElse")}</span>
-        ) : (
-          <Select
-            aria-label={t("lead.assignTo")}
-            placeholder={t("lead.assignChoose")}
-            value=""
-            disabled={pending}
-            options={candidates.map((entry) => ({
-              value: entry.id,
-              // A user with no display name still has to be pickable, so the
-              // id stands in rather than rendering a blank row.
-              label:
-                ("display_name" in entry ? entry.display_name : null) ??
-                entry.id,
-            }))}
-            onChange={(value) => {
-              onAssign(value);
-              setPicking(false);
-            }}
-          />
-        ))}
+      <div id={pickerId}>
+        {picking &&
+          (roster.isPending ? (
+            <span className="t-caption">{t("share.rosterLoading")}</span>
+          ) : roster.isError ? (
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                alignItems: "center",
+              }}
+            >
+              <span className="t-caption share-error">
+                {t("share.rosterErrorUsers")}
+              </span>
+              <Button small onClick={() => roster.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : candidates.length === 0 ? (
+            <span className="t-caption">{t("lead.assignNobodyElse")}</span>
+          ) : (
+            <Select
+              aria-label={t("lead.assignTo")}
+              placeholder={t("lead.assignChoose")}
+              value=""
+              disabled={pending}
+              options={candidates.map((entry) => ({
+                value: entry.id,
+                // A user with no display name still has to be pickable, so the
+                // id stands in rather than rendering a blank row.
+                label:
+                  ("display_name" in entry ? entry.display_name : null) ??
+                  entry.id,
+              }))}
+              onChange={(value) => {
+                onAssign(value);
+                setPicking(false);
+              }}
+            />
+          ))}
+      </div>
     </div>
   );
 }

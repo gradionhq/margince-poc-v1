@@ -233,7 +233,9 @@ export const en = {
   "share.expiry.day": "Expires in 24 hours",
   "share.expiry.week": "Expires in 7 days",
   "share.expiry.month": "Expires in 30 days",
-  "share.expiryConsequence":
+  "share.expiryConsequence.one":
+    "Access auto-revokes in {days} day. You can revoke it sooner at any time.",
+  "share.expiryConsequence.other":
     "Access auto-revokes in {days} days. You can revoke it sooner at any time.",
   "share.expiryConsequenceNone":
     "Access lasts until you revoke it — it will not end on its own.",

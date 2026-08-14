@@ -231,7 +231,11 @@ export const vi = {
   "share.expiry.day": "Hết hạn sau 24 giờ",
   "share.expiry.week": "Hết hạn sau 7 ngày",
   "share.expiry.month": "Hết hạn sau 30 ngày",
-  "share.expiryConsequence":
+  // Vietnamese does not inflect the noun for number, so both plural arms read
+  // identically — they exist for key parity with the other locales.
+  "share.expiryConsequence.one":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequence.other":
     "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
   "share.expiryConsequenceNone":
     "Quyền truy cập kéo dài đến khi bạn thu hồi — nó không tự kết thúc.",

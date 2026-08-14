@@ -550,7 +550,12 @@ function ShareScreenBody({
               is the default, and the one case that does NOT end says so. */}
           <p className="t-caption" data-testid="share-expiry-consequence">
             {expiryDays > 0
-              ? t("share.expiryConsequence", { days: expiryDays })
+              ? t(
+                  expiryDays === 1
+                    ? "share.expiryConsequence.one"
+                    : "share.expiryConsequence.other",
+                  { days: expiryDays },
+                )
               : t("share.expiryConsequenceNone")}
           </p>
 
