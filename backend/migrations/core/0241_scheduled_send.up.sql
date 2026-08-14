@@ -1,4 +1,4 @@
--- 0240: a message a rep chose to send later.
+-- 0241: a message a rep chose to send later.
 --
 -- ADR-0104/A155. This is NOT a due-date column on comms_outbound, and the
 -- reason is worth stating where the schema is, because the column is the
