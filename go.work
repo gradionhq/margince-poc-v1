@@ -6,7 +6,7 @@
 // module's go.mod. cli/craft is the code-craftsmanship gate (ADR-0045);
 // stdlib-only, run pre-push via .githooks/pre-push. The local dev stack is a
 // plain shell script (scripts/dev.sh, `make dev`) — no Go module of its own.
-go 1.26.5
+go 1.26.6
 
 use (
 	./backend
