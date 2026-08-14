@@ -257,12 +257,9 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 	switch p.Op {
 	case OpExists:
 		// exists carries a boolean operand: true → the value is present.
-		present, ok := p.Value.(bool)
-		if !ok {
-			return "", &PredicateError{
-				Field: p.Field, Code: CodeFilterValueInvalid,
-				Message: "exists takes true or false",
-			}
+		present, err := existsOperand(p)
+		if err != nil {
+			return "", err
 		}
 		if present {
 			return field.Expr + " IS NOT NULL", nil
@@ -312,12 +309,9 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 	negate := false
 	switch p.Op {
 	case OpExists:
-		present, ok := p.Value.(bool)
-		if !ok {
-			return "", &PredicateError{
-				Field: p.Field, Code: CodeFilterValueInvalid,
-				Message: "exists takes true or false",
-			}
+		present, err := existsOperand(p)
+		if err != nil {
+			return "", err
 		}
 		inner, negate = "TRUE", !present
 	case OpIn:
@@ -327,15 +321,16 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 		}
 		inner = fmt.Sprintf("%s = ANY($%d)", field.Expr, arg(values))
 	case OpEq, OpNeq:
-		value, err := scalarOperand(p.Value, field, p.Field, OpEq)
+		value, err := scalarOperand(p.Value, field, p.Field, p.Op)
 		if err != nil {
 			return "", err
 		}
 		inner, negate = fmt.Sprintf("%s = $%d", field.Expr, arg(value)), p.Op == OpNeq
 	default:
-		// Unreachable while the operator matrix gates this path; stated rather
-		// than fallen through, so a widened matrix fails loudly here instead of
-		// compiling a comparison this shape cannot express.
+		// An operator that the link shape cannot express: the comparison
+		// builds inside an EXISTS subquery where only certain operators make
+		// sense. Reachable only if the field's operator set includes operators
+		// beyond {eq,neq,in,exists}, which the link template cannot support.
 		return "", &PredicateError{
 			Field: p.Field, Code: CodeFilterOpNotAllowed,
 			Message: fmt.Sprintf("operator %q does not apply to the linked field %q", p.Op, p.Field),
@@ -352,6 +347,20 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 // only reaches it after the operator passed the typed matrix.
 var comparisonSQL = map[string]string{
 	OpEq: "=", OpNeq: "<>", OpGt: ">", OpGte: ">=", OpLt: "<", OpLte: "<=",
+}
+
+// existsOperand validates the operand of an exists operator: must be
+// a boolean. Returns the decoded value or a PredicateError with
+// CodeFilterValueInvalid.
+func existsOperand(p Predicate) (bool, error) {
+	present, ok := p.Value.(bool)
+	if !ok {
+		return false, &PredicateError{
+			Field: p.Field, Code: CodeFilterValueInvalid,
+			Message: "exists takes true or false",
+		}
+	}
+	return present, nil
 }
 
 // inOperand validates an `in` list: a non-empty, bounded array of

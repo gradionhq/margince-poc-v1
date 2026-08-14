@@ -323,6 +323,22 @@ func TestLinkLeafRejectsAMalformedID(t *testing.T) {
 	}
 }
 
+func TestLinkLeafNeqErrorNamesCorrectOperator(t *testing.T) {
+	// The error message must name the operator the caller used, not a
+	// hardcoded alternative. This test pins the fix for an error that names
+	// "eq" when the user sent "neq".
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	_, err := CompilePredicate(leaf("tag", OpNeq, "not-a-uuid"), tagFields, arg)
+	var perr *PredicateError
+	if !errors.As(err, &perr) || perr.Code != CodeFilterValueInvalid {
+		t.Fatalf("err = %v, want a PredicateError with code %s", err, CodeFilterValueInvalid)
+	}
+	if !strings.Contains(perr.Message, "neq") {
+		t.Errorf("message = %q, must name operator neq, not eq", perr.Message)
+	}
+}
+
 // A link leaf composes inside AND/OR like any other, because the wrapper is
 // self-contained: no join is hoisted to the outer query and no row is duplicated.
 func TestLinkLeafNestsInsideAGroup(t *testing.T) {
