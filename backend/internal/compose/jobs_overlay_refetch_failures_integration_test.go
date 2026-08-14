@@ -14,8 +14,13 @@ package compose
 // worker proofs in jobs_overlay_worker_integration_test.go.
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -196,6 +202,67 @@ type getFailingIncumbent struct {
 
 func (g getFailingIncumbent) Get(context.Context, string, string) (overlay.Record, error) {
 	return overlay.Record{}, g.err
+}
+
+// retiredIncumbentClass is an object class this build declares no mapping for.
+// A queued re-fetch can still name one: river_job outlives a deploy, so a job
+// enqueued while a mapping was declared is worked by the build that retired it.
+const retiredIncumbentClass = "tickets"
+
+// undeclaredClassReadError is what a real adapter answers for a class this
+// build declares no mapping for: it refuses at its own declaration lookup,
+// before any incumbent call, which is why such a read reaches the disposal
+// carrying no unprojectable mark. Taken from the adapter rather than spelled
+// out here, so the worker is judged against the error production hands it.
+func undeclaredClassReadError(t *testing.T) error {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Errorf("the adapter called the incumbent for %s, a class it declares no mapping for", retiredIncumbentClass)
+	}))
+	defer srv.Close()
+
+	_, err := hubspot.NewAdapter(hubspot.NewClient("eu1", "tok", hubspot.WithBaseURL(srv.URL))).
+		Get(context.Background(), retiredIncumbentClass, "c-1")
+	if err == nil {
+		t.Fatalf("Get(%s) succeeded, so this build declares that class after all and the case below is not the one under test",
+			retiredIncumbentClass)
+	}
+	if errors.Is(err, hubspot.ErrUnmappable) {
+		t.Fatalf("Get(%s) = %v, already marked unprojectable — the case under test is the one settled before that mark is read",
+			retiredIncumbentClass, err)
+	}
+	return err
+}
+
+// TestOverlayRefetchWorkerReportsAClassNoDeclarationCovers proves the disposal
+// of a read that failed because this build declares no mapping for the class it
+// named — a job enqueued before a build retired that mapping, since river_job
+// outlives a deploy. Nothing can project such a record, so there is no
+// declaration to record and none to record it against: the worker stops
+// cleanly, writes nothing, and names the class, which is the only trace an
+// outcome that writes nothing can leave for whoever finds the rows standing
+// still.
+func TestOverlayRefetchWorkerReportsAClassNoDeclarationCovers(t *testing.T) {
+	f := newRefetchFixture(t)
+	var logged bytes.Buffer
+	w := f.worker(t, getFailingIncumbent{Adapter: seededPortal(), err: undeclaredClassReadError(t)})
+	w.log = slog.New(slog.NewTextHandler(&logged, nil))
+
+	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: OverlayRefetchArgs{
+		Workspace: f.e.WS, IncumbentClass: retiredIncumbentClass, ExternalID: "c-1",
+	}}); err != nil {
+		t.Fatalf("a class no declaration covers must not be retried — no attempt reaches a mapping that is not in the "+
+			"binary — got: %v", err)
+	}
+	if f.mirrored(t) {
+		t.Error("a read that never came back must ingest nothing")
+	}
+	if !strings.Contains(logged.String(), retiredIncumbentClass) ||
+		!strings.Contains(logged.String(), "no mapping declaration for this object class") {
+		t.Fatalf("the worker logged %q, want it naming %s and saying no declaration covers it — reported as a record the "+
+			"incumbent withheld, the job reads as one the next pass will heal, and nothing ever will",
+			logged.String(), retiredIncumbentClass)
+	}
 }
 
 // TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure is the other side

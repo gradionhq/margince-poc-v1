@@ -219,7 +219,28 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 // An archived record (apperrors.ErrNotFound) is terminal too, but recording it
 // would be moot: the deletion feed purges the row, and a record on a row that
 // is about to be deleted spares nothing.
+//
+// A class this build declares no mapping for is settled before either of those
+// questions: nothing can project such a record, so there is no declaration to
+// record and none to record it against, whatever the read failure was.
 func (w *overlayRefetchWorker) dropFailedRead(ctx context.Context, ms *overlay.MirrorStore, args OverlayRefetchArgs, readErr error) {
+	// The declaration is resolved for EVERY failed read, not only the one that
+	// records, because a class this build declares no mapping for is the case
+	// where there is no declaration to record and none to record it against,
+	// whatever the read failure was. A job naming such a class is not exotic:
+	// river_job outlives a deploy, so a re-fetch enqueued under a mapping a
+	// later build retires arrives here, and the read that brought it here failed
+	// at the adapter's own declaration lookup rather than at the incumbent.
+	// Reported rather than dropped silently, for the reason the sweep's own
+	// lookup reports (jobs_overlay_sweep.go): the classes the webhook lane
+	// recognises and the declared mappings are separate lists, and a row nothing
+	// re-fetches and nothing reports is invisible.
+	m, declared := hubspot.Mapping(args.IncumbentClass)
+	if !declared {
+		w.log.WarnContext(ctx, "overlay refetch: no mapping declaration for this object class, so nothing can project this record and there is no declaration a re-projection could have failed to reach",
+			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID, "err", readErr)
+		return
+	}
 	if !errors.Is(readErr, hubspot.ErrUnmappable) {
 		w.log.WarnContext(ctx, "overlay refetch: the incumbent did not hand back this record; the mirror keeps what it holds and the next re-projection pass names the row again",
 			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID, "err", readErr)
@@ -229,17 +250,6 @@ func (w *overlayRefetchWorker) dropFailedRead(ctx context.Context, ms *overlay.M
 	// never the incumbent's own name for it, and the fingerprint recorded is
 	// the one StaleProjections derives its comparison from — so the record and
 	// the skip agree by construction.
-	m, declared := hubspot.Mapping(args.IncumbentClass)
-	if !declared {
-		// Unreachable while a projection failure can only follow a declaration
-		// that was found, and handled rather than assumed away for the reason
-		// the sweep's own lookup is (jobs_overlay_sweep.go): the two lists are
-		// separate, and a silent return here would be a row nothing re-fetches
-		// and nothing reports.
-		w.log.WarnContext(ctx, "overlay refetch: no mapping declaration for this object class, so there is no declaration a re-projection could have failed to reach",
-			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID, "err", readErr)
-		return
-	}
 	fingerprint := overlay.Fingerprint(m)
 	// Bookkeeping, not the job's purpose: this read has already failed in a way
 	// no retry changes, and failing the job to report that the note could not be
