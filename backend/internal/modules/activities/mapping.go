@@ -26,6 +26,11 @@ func (e *RequiredFieldError) FieldFault() (field, code, message string) {
 	return e.Field, "required", e.Error()
 }
 
+// fieldBody names the activity body field in a FieldFault, the one spelling
+// every 422 that refuses something about it shares (mirrors activity.go's
+// fieldKind).
+const fieldBody = "body"
+
 // transcriptSourceSystem is the ADR-0058 marker: a `logActivity` call
 // carrying it identifies its body as pasted/uploaded transcript text rather
 // than ordinary meeting notes, which is what routes it through

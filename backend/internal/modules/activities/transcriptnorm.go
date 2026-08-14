@@ -44,7 +44,7 @@ func (e blankTranscriptError) Error() string {
 }
 
 func (blankTranscriptError) FieldFault() (field, code, message string) {
-	return "body", "blank_transcript", "transcript text is blank; paste the transcript, or omit source_system: transcript to log the meeting without one"
+	return fieldBody, "blank_transcript", "transcript text is blank; paste the transcript, or omit source_system: transcript to log the meeting without one"
 }
 
 // ErrBlankTranscript is the comparable sentinel a caller matches with
@@ -61,7 +61,7 @@ func (e oversizedTranscriptError) Error() string {
 }
 
 func (e oversizedTranscriptError) FieldFault() (field, code, message string) {
-	return "body", "transcript_too_large", fmt.Sprintf(
+	return fieldBody, "transcript_too_large", fmt.Sprintf(
 		"transcript text is %d bytes, over the %d-byte limit; split it into more than one activity", e.bytes, maxTranscriptBytes)
 }
 
