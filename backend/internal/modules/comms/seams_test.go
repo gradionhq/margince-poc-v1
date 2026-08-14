@@ -53,7 +53,10 @@ func TestSendScopeForSeparatesScopedSendersFromProvidersThatCannotSend(t *testin
 // again, and it falls back to CannotSend. The mail arm is untouched by either
 // call — gmail is not, and never will be, an activity_kind.
 func TestSendScopeForChannelArmIsDerivedFromSetChannelProviders(t *testing.T) {
-	defer SetChannelProviders(nil)
+	// Restored to the pre-registry default, not nil/empty: a later test in
+	// this package (or compose's drift test) that assumes telegram is still
+	// sendable must not see the set this test leaves behind.
+	defer SetChannelProviders([]string{"telegram"})
 
 	SetChannelProviders([]string{"telegram", "fake-unit-provider"})
 	if _, capability := SendScopeFor("fake-unit-provider"); capability != SendsWithoutScope {

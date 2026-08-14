@@ -154,7 +154,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// a degraded mode: an installation that cannot confirm its own channel
 	// registry has no business answering "can I send" for anything.
 	if pool != nil {
-		if err := reconcileChannelProviders(context.Background(), db, r.ChannelProviders()); err != nil {
+		if err := reconcileChannelProviders(context.Background(), pool, r.ChannelProviders()); err != nil {
 			//craft:ignore panic-in-domain composition-time boot failure, mirrors capture.Registry.Register's own panic posture for a wiring defect the process cannot recover from
 			panic(fmt.Sprintf("compose: reconciling the channel-provider registry: %v", err))
 		}

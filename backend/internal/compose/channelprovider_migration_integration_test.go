@@ -12,7 +12,10 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 )
@@ -63,7 +66,9 @@ func TestActivityKindFKRefusesAnUnregisteredKind(t *testing.T) {
 	_, err := integration.OwnerConn(t).Exec(ctx, `
 		INSERT INTO activity (workspace_id, kind, source, captured_by)
 		VALUES ($1, 'dispact', 'manual', 'test')`, e.WS)
-	if err == nil {
-		t.Fatal("expected the activity_kind FK to refuse an unregistered kind, got nil error")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "activity_kind_fkey" {
+		t.Fatalf("insert failed with %v, want a foreign_key_violation on activity_kind_fkey specifically — "+
+			"any other failure (a bad column, an RLS refusal) would pass this test for the wrong reason", err)
 	}
 }

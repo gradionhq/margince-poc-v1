@@ -11,7 +11,12 @@ import "testing"
 // proves the fixed case (telegram is a channel) would pass even if the map
 // went back to a hardcoded literal under the hood.
 func TestIsChannelKindIsDerivedFromSetChannelProviders(t *testing.T) {
-	defer SetChannelProviders(nil) // leave no cross-test residue
+	// Restored to the pre-registry default, not nil/empty: a later test in
+	// this package that assumes telegram is still a channel kind (the
+	// compose-level drift test does exactly that) must not see the set this
+	// test leaves behind — including on a t.Fatal, which is why this is a
+	// defer rather than a final call.
+	defer SetChannelProviders([]string{"telegram"})
 
 	SetChannelProviders([]string{"telegram", "fake-unit-provider"})
 	if !IsChannelKind("fake-unit-provider") {
