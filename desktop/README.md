@@ -17,8 +17,10 @@ Each platform builds on itself: the macOS lane compiles Postgres and Valkey
 with the Xcode tools, and the Windows lane needs MSVC for pgvector and MSYS2
 for Redis. Neither cross-builds from the other.
 
-The macOS folder cannot run from `build/desktop/` — that path already exceeds
-the 103-byte unix socket limit. Copy it somewhere shorter, then start it:
+The macOS folder usually cannot run from `build/desktop/`: the socket path is
+capped at 103 bytes and a repo checkout is normally deep enough to blow it —
+though whether it does depends on where you cloned. The launcher measures the
+path and says so. Copy it somewhere shorter, then start it:
 
 ```
 cp -R build/desktop/margince ~/Margince

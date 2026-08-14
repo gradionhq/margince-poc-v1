@@ -84,23 +84,32 @@ func (b *backend) baseURL() string { return fmt.Sprintf("http://%s:%d", loopback
 // the owner DSN — the app role deliberately cannot alter the schema it is
 // bound by.
 func (b *backend) migrate() error {
-	cmd := exec.Command(b.layout.appBin("migrate"), "up", "-dsn", b.pg.ownerDSN())
+	cmd := exec.Command(b.layout.appBin("migrate"), "up")
+	cmd.Env = append(os.Environ(), "MARGINCE_OWNER_DSN="+b.pg.ownerDSN())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("migrate failed: %w\n%s", err, out)
 	}
 	return nil
 }
 
-// childEnv is the environment both roles inherit: the user's settings first,
-// then the deployment posture.
+// childEnv is the environment a role inherits: the user's settings first, then
+// the values this launcher decides and the user may not.
 //
-// MARGINCE_ENV is appended last so it cannot be overridden from margince.env.
-// A desktop installation holds a real customer's records and takes the
-// production posture, which keeps the dev-only destructive switches (today,
-// the admin data-reset endpoint) off. That is not a setting to expose beside
-// an API key.
-func (b *backend) childEnv() []string {
-	return append(append([]string{}, b.userEnv...), "MARGINCE_ENV=production")
+// EVERY DSN travels here rather than on the command line. A Windows DSN
+// carries the database password, and any local process can read another
+// process's arguments — which is the same reason initdb is handed its password
+// in a file (postgres_windows.go). An environment is not secret either, but
+// reading another process's takes more than `ps`.
+//
+// Order is the enforcement: these come after the user's settings, so nothing
+// in margince.env can override them. MARGINCE_ENV is one of them because a
+// desktop installation holds real records and takes the production posture,
+// which keeps the dev-only destructive switches (today, the admin data-reset
+// endpoint) off. That is not a setting to expose beside an API key.
+func (b *backend) childEnv(launcherOwned ...string) []string {
+	env := append([]string{}, b.userEnv...)
+	env = append(env, launcherOwned...)
+	return append(env, "MARGINCE_ENV=production")
 }
 
 // aiFlags decides how the AI surfaces are driven.
@@ -134,18 +143,21 @@ func (b *backend) start(ctx context.Context) error {
 	}
 	b.port = port
 
-	env := b.childEnv()
 	apiArgs := append([]string{
 		"--addr", fmt.Sprintf("%s:%d", loopbackHost, port),
-		"--dsn", b.pg.appDSN(),
-		// The owner pool is what makes the custom-fields schema operations
-		// answer rather than 501; a desktop install has no DBA to run them.
-		"--schema-dsn", b.pg.ownerDSN(),
 		"--config", b.layout.configPath(),
 		"--redis", b.bus.addr(),
 	}, b.aiFlags()...)
 
-	api, err := startChild("api", b.layout.appBin("api"), apiArgs, env, b.layout.root, b.layout.logs())
+	// The owner pool is what makes the custom-fields schema operations answer
+	// rather than 501; a desktop install has no DBA to run them. The worker
+	// below is not given it — it has no schema work to do.
+	apiEnv := b.childEnv(
+		"MARGINCE_DSN="+b.pg.appDSN(),
+		"MARGINCE_SCHEMA_DSN="+b.pg.ownerDSN(),
+	)
+
+	api, err := startChild("api", b.layout.appBin("api"), apiArgs, apiEnv, b.layout.root, b.layout.logs())
 	if err != nil {
 		return err
 	}
@@ -161,13 +173,13 @@ func (b *backend) start(ctx context.Context) error {
 	// api's inline relay and the worker's standalone relay coexist because
 	// outbox rows are claimed FOR UPDATE SKIP LOCKED.
 	workerArgs := append([]string{
-		"--dsn", b.pg.appDSN(),
 		"--config", b.layout.configPath(),
 		"--redis", b.bus.addr(),
 		"--retention-interval", "24h",
 	}, b.aiFlags()...)
 
-	worker, err := startChild("worker", b.layout.appBin("worker"), workerArgs, env, b.layout.root, b.layout.logs())
+	workerEnv := b.childEnv("MARGINCE_DSN=" + b.pg.appDSN())
+	worker, err := startChild("worker", b.layout.appBin("worker"), workerArgs, workerEnv, b.layout.root, b.layout.logs())
 	if err != nil {
 		return err
 	}

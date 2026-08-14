@@ -95,18 +95,16 @@ func (p *postgres) ensureCluster() error {
 	// exist identically on every Mac; combined with UTF8 it gives byte-order
 	// collation. See the design note on collation before shipping: names with
 	// diacritics sort by byte value under this setting.
-	cmd := exec.Command(
-		p.layout.pgBin("initdb"),
-		"-D", p.layout.pgData(),
-		"-U", ownerRole,
-		"--no-locale",
-		"--encoding=UTF8",
-		"--auth=trust",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("initdb failed: %w\n%s", err, out)
-	}
-	return nil
+	return initCluster(p.layout, func(dataDir string) *exec.Cmd {
+		return exec.Command(
+			p.layout.pgBin("initdb"),
+			"-D", dataDir,
+			"-U", ownerRole,
+			"--no-locale",
+			"--encoding=UTF8",
+			"--auth=trust",
+		)
+	})
 }
 
 // start launches the postmaster and waits for it to accept connections.

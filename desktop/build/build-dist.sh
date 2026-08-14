@@ -99,11 +99,17 @@ verify_signed() {
 # than in a support conversation.
 verify_runnable_os() {
   log "verifying every binary runs on macOS $MACOS_MIN or newer"
-  local binaries=()
-  while IFS= read -r file; do binaries+=("$file"); done < <(
-    find "$DIST" -type f -perm -u+x
-    find "$DIST" -type f \( -name '*.dylib' -o -name '*.so' \)
-  )
+
+  # Mach-O by content, not by the executable bit: "Start Margince.command" is
+  # an executable shell script, vtool has nothing to say about it, and asking
+  # would fail this check on the one shipped file that has no OS requirement
+  # at all.
+  local binaries=() file
+  while IFS= read -r file; do
+    if file -b "$file" | grep -q 'Mach-O'; then
+      binaries+=("$file")
+    fi
+  done < <(find "$DIST" -type f)
   # An empty list would pass this check while examining nothing — the way a
   # verification step most often fails.
   if [ ${#binaries[@]} -eq 0 ]; then

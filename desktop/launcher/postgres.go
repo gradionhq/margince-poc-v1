@@ -54,9 +54,13 @@ type cluster struct {
 //
 // Both platforms run this on every start, so the question it answers is the
 // one that matters: the user's existing cluster must never be re-created.
-// PG_VERSION is the marker because initdb writes it last, so a run that died
-// half way leaves the directory looking un-initialised rather than looking
-// finished.
+//
+// PG_VERSION is a sound marker ONLY because initCluster below moves a finished
+// cluster into place in one step. initdb itself writes that file first, not
+// last — "Top level PG_VERSION is checked by bootstrapper, so make it first",
+// src/bin/initdb/initdb.c — so in a directory initdb wrote in place, its
+// presence would mean initdb *started*, and a run interrupted a second later
+// would leave a half-built cluster that this function called finished.
 func needsInitdb(l layout) (bool, error) {
 	versionFile := filepath.Join(l.pgData(), "PG_VERSION")
 	if _, err := os.Stat(versionFile); err == nil {
@@ -65,6 +69,36 @@ func needsInitdb(l layout) (bool, error) {
 		return false, fmt.Errorf("stat %s: %w", versionFile, err)
 	}
 	return true, nil
+}
+
+// pgDataStaging is where a new cluster is built before it becomes the real one.
+// It is always this launcher's own scratch space and never the user's data.
+func (l layout) pgDataStaging() string { return l.pgData() + ".incomplete" }
+
+// initCluster runs initdb into a staging directory and moves it into place
+// only after it succeeds, so the data directory either does not exist or holds
+// a cluster initdb finished.
+//
+// The alternative — initdb straight into data/pg — has no way to tell a
+// finished cluster from one whose creation was interrupted by a closed lid or
+// a power cut, and the failure surfaces later as a database that will not
+// start, at which point the user is asked to interpret a bootstrap error.
+// A rename within one directory is atomic, so the ambiguity never exists.
+func initCluster(l layout, build func(dataDir string) *exec.Cmd) error {
+	staging := l.pgDataStaging()
+	// Left behind by an interrupted run. Removing it is safe precisely because
+	// nothing has ever been moved into place from it.
+	if err := os.RemoveAll(staging); err != nil {
+		return fmt.Errorf("clear the incomplete database directory %s: %w", staging, err)
+	}
+
+	if out, err := build(staging).CombinedOutput(); err != nil {
+		return fmt.Errorf("initdb failed: %w\n%s", err, out)
+	}
+	if err := os.Rename(staging, l.pgData()); err != nil {
+		return fmt.Errorf("move the new database into place: %w", err)
+	}
+	return nil
 }
 
 // ensureSchema creates the runtime role and the database if they are absent.

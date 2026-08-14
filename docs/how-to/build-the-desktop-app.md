@@ -103,8 +103,9 @@ fails the build rather than silently using a cached download.
 
 **Copy the folder somewhere short first.** The database uses a unix socket
 inside the folder, and the path has a 103-byte system limit — the repo's own
-`build/desktop/margince/` is already 127 bytes and will refuse to start,
-naming the limit and telling you to move it.
+`build/desktop/margince/` is normally past it already — how far depends on
+where you cloned — and the launcher refuses to start, naming the limit and the
+measured length and telling you to move it.
 
 ```
 cp -R build/desktop/margince ~/Margince
@@ -172,19 +173,29 @@ Replace **the launcher, the starter script, and `runtime/`**. Leave
 `margince.yaml`, `margince.env` and `data/` alone — they are the user's, and
 `data/` is the database.
 
+**Quit it first**, so nothing is holding the database while its binaries are
+swapped. Then delete `runtime/` before copying the new one: copying over the
+top leaves behind any file the new version dropped, and a stale library beside
+a new binary is a failure with no obvious cause.
+
 ```
 # macOS
+rm -rf ~/Margince/runtime
 cp -R build/desktop/margince/runtime ~/Margince/
 cp build/desktop/margince/margince ~/Margince/
+cp "build/desktop/margince/Start Margince.command" ~/Margince/
 ```
 
 ```powershell
 # Windows
-Copy-Item -Recurse -Force build\desktop\margince-windows\runtime $HOME\Margince\
+Remove-Item -Recurse -Force $HOME\Margince\runtime
+Copy-Item -Recurse build\desktop\margince-windows\runtime $HOME\Margince\
 Copy-Item -Force build\desktop\margince-windows\margince.exe $HOME\Margince\
+Copy-Item -Force "build\desktop\margince-windows\Start Margince.cmd" $HOME\Margince\
 ```
 
-Replacing the whole folder would destroy the records.
+Those are the only three things an update replaces. Replacing the whole folder
+would destroy the records.
 
 ## Start over
 
@@ -217,14 +228,14 @@ writes its own file.
 | AI answers look canned | No key or routing file, so the offline fake is driving the AI surfaces |
 | Dates and times look wrong on Windows | The first run defaulted to `UTC`. Set `timezone` in `margince.yaml` |
 
-To stop a stuck instance on macOS, kill it by PID rather than by name — it is
-started as `./margince`, so a `pkill -f` on the full path will not match it:
+To stop a stuck instance, find it by the port it listens on rather than by
+name — on macOS it is started as `./margince`, so a `pkill -f` on the full path
+will not match it. **Substitute your own port** if `margince.env` sets
+`MARGINCE_PORT`; 8800 is only the default.
 
 ```
 kill -INT "$(lsof -nP -iTCP:8800 -sTCP:LISTEN -t)"
 ```
-
-On Windows, find the same listener and end it:
 
 ```powershell
 Stop-Process -Id (Get-NetTCPConnection -LocalPort 8800 -State Listen).OwningProcess

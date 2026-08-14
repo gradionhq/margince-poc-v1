@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -36,6 +37,17 @@ type child struct {
 	name string
 	cmd  *exec.Cmd
 	log  *os.File
+
+	// done carries the process's exit, and gone reports that it has happened.
+	//
+	// Exactly ONE goroutine calls Wait, started with the process, because Wait
+	// is what populates the exit state and it may only be called once. Reading
+	// cmd.ProcessState instead would report "still running" until something
+	// called Wait — so a service that died a second after starting looked
+	// alive until its readiness timeout expired, and the user waited two
+	// minutes for an error the launcher already had.
+	done chan error
+	gone atomic.Bool
 }
 
 // startChild launches bin in workDir and streams its output to
@@ -74,7 +86,16 @@ func startChild(name, bin string, args, env []string, workDir, logDir string) (*
 		}
 		return nil, fmt.Errorf("start %s: %w", name, err)
 	}
-	return &child{name: name, cmd: cmd, log: logFile}, nil
+
+	c := &child{name: name, cmd: cmd, log: logFile, done: make(chan error, 1)}
+	go func() {
+		err := cmd.Wait()
+		// gone is set before done is sent, so a reader that sees the send has
+		// necessarily seen the flag too.
+		c.gone.Store(true)
+		c.done <- err
+	}()
+	return c, nil
 }
 
 // stop asks the process to quit and waits for it to exit, giving up after
@@ -90,28 +111,41 @@ func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return nil
 	}
-	if err := c.requestStop(sig); err != nil {
-		return err
+	// A process that has already exited needs no asking, and asking anyway is
+	// how the request fails: Windows has no process group left to address once
+	// the last member is gone.
+	var requestErr error
+	if !c.gone.Load() {
+		requestErr = c.requestStop(sig)
 	}
-
-	exited := make(chan error, 1)
-	go func() { exited <- c.cmd.Wait() }()
 
 	var stopErr error
 	select {
-	case err := <-exited:
-		// A service that quit because we asked it to exited as instructed;
-		// only an unexpected failure is worth surfacing.
+	case err := <-c.done:
+		// The process is gone, which is the whole point of stop(). A request
+		// that failed and was followed by a clean exit asked something of a
+		// process that had already left — not a fault, and not worth putting
+		// in front of a user who is quitting. Only how it exited matters.
 		if err != nil && !isExpectedStopExit(err, sig) {
 			stopErr = fmt.Errorf("%s exited: %w", c.name, err)
 		}
 	case <-time.After(grace):
-		if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			stopErr = fmt.Errorf("kill %s after %s: %w", c.name, grace, err)
-		} else {
+		// The kill happens either way: a process still running after the grace
+		// period has to go, and a failed request is the likeliest reason it
+		// never heard us — a reason to report, not a reason to leave it alive.
+		killErr := c.cmd.Process.Kill()
+		if killErr != nil && errors.Is(killErr, os.ErrProcessDone) {
+			killErr = nil
+		}
+		switch {
+		case killErr != nil:
+			stopErr = fmt.Errorf("kill %s after %s: %w", c.name, grace, killErr)
+		case requestErr != nil:
+			stopErr = fmt.Errorf("%s could not be asked to stop and was killed after %s: %w", c.name, grace, requestErr)
+		default:
 			stopErr = fmt.Errorf("%s did not exit within %s and was killed", c.name, grace)
 		}
-		<-exited
+		<-c.done
 	}
 
 	if err := c.log.Close(); err != nil && stopErr == nil {
@@ -124,7 +158,7 @@ func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 // fail immediately with the real reason instead of polling a dead service
 // until its timeout expires.
 func (c *child) exited() bool {
-	return c.cmd.ProcessState != nil
+	return c.gone.Load()
 }
 
 // waitUntil polls probe until it succeeds, the context ends, or timeout

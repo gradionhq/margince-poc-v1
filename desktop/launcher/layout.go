@@ -29,11 +29,14 @@ import (
 // two platforms keep one layout so the documentation, the update gesture and
 // this file describe both.
 //
-// The 0700 modes below are the macOS half of that shared layout and are
-// inert on Windows, where a mode bit is not the access control. What protects
-// data/ there is the credential inside it: the database authenticates with
-// scram-sha-256 over loopback rather than trusting whoever can reach a socket
-// (postgres_windows.go).
+// The 0700 and 0600 modes below are the macOS half of that shared layout. On
+// Windows Go maps the mode to the read-only attribute and nothing else — no
+// DACL is set — so a file inherits the permissions of the directory it lands
+// in, and what actually protects the folder is where the user put it. Under a
+// user profile that is already per-account; somewhere like C:\Margince it is
+// not, and every local account can read margince.env and the database
+// password beside it. That limit is real and recorded in
+// docs/explanation/desktop-distribution.md rather than papered over here.
 type layout struct {
 	root string
 }
@@ -147,10 +150,37 @@ func (l layout) ensureAdminPassword() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("generate the admin password: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(password), 0o600); err != nil {
-		return "", fmt.Errorf("write %s: %w", path, err)
+	if err := writeNewSecret(path, password); err != nil {
+		return "", err
 	}
 	return password, nil
+}
+
+// writeNewSecret creates path and refuses to touch it if it already exists.
+//
+// os.WriteFile opens O_CREATE|O_TRUNC, so a stat-then-write would overwrite a
+// credential written between the two calls — by a second launcher started
+// while the first was mid-bootstrap. The generated password would then be
+// announced on one screen while a different one sat in the file, and the
+// installation would be locked out of the account it just created. O_EXCL
+// makes the create itself the check.
+func writeNewSecret(path, secret string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	if _, err := file.WriteString(secret); err != nil {
+		// The close error cannot matter once the write has already failed, but
+		// the file must still be released before the failure is reported.
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("write %s: %w (and closing it failed: %v)", path, err, closeErr)
+		}
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", path, err)
+	}
+	return nil
 }
 
 // generateSecret mints one credential.

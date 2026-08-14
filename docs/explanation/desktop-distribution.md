@@ -280,8 +280,18 @@ installation has no deployment to set it. Two rules hold:
   skipping a mistyped setting is how a user concludes a feature is broken.
 
 Secrets live in this file at `0600`, not in the Keychain or the Windows
-Credential Manager. On Windows a mode bit is not the access control, and the
-file's protection is whatever the user's profile directory gives it.
+Credential Manager.
+
+**On Windows that mode is close to meaningless**, and it is worth being exact
+rather than reassuring: Go maps the permission argument to the read-only
+attribute and sets no DACL, so `margince.env`, `data/admin-password` and the
+generated database passwords all inherit the permissions of the directory they
+land in. Under a user profile that is already per-account and the files are
+private. Somewhere like `C:\Margince` it is not, and every local account on
+the machine can read them — including the database password that
+postgres_windows.go treats as the access control. **Keep a Windows
+installation inside your own user folder.** Setting an explicit DACL would fix
+this properly and is not something the stdlib does; see the known limits.
 
 ## Known limits
 
@@ -297,6 +307,12 @@ file's protection is whatever the user's profile directory gives it.
 - **Neither build is signed for distribution.** macOS is ad-hoc signed and
   needs a Developer ID plus notarization, without which a downloaded copy is
   quarantined; Windows is unsigned and warns through SmartScreen.
+- **Windows file permissions are the folder's, not the file's.** The `0600`
+  the launcher asks for sets no DACL there, so the secrets are only as private
+  as the directory the user chose. An installation under the user's own
+  profile is private; one in a shared location is readable by every local
+  account. Fixing it means setting an explicit DACL, which the stdlib does not
+  expose and this stdlib-only launcher therefore does not do.
 - **One architecture per build, and it is the builder's.** An Apple-silicon
   bundle will not start on an Intel Mac; an Intel one runs on Apple silicon
   only under Rosetta 2. Windows is x64 with no ARM build. Shipping to a mixed

@@ -99,8 +99,19 @@ func readOrCreateSecret(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("generate the database password: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(secret), 0o600); err != nil {
-		return "", fmt.Errorf("write %s: %w", path, err)
+	if err := writeNewSecret(path, secret); err != nil {
+		// A second launcher racing this one wins the create; its value is the
+		// one the cluster was built with, so read that rather than fail.
+		// errors.Is walks the chain, so this does not depend on how deeply
+		// writeNewSecret wraps.
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+		existing, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return "", fmt.Errorf("read %s: %w", path, readErr)
+		}
+		return string(existing), nil
 	}
 	return secret, nil
 }
@@ -133,19 +144,17 @@ func (p *postgres) ensureCluster() (err error) {
 	// --no-locale gives byte-order collation, matching the macOS bundle so the
 	// two platforms sort identically. scram-sha-256 rather than trust because
 	// the connection is TCP: see the note at the top of this file.
-	cmd := exec.Command(
-		p.layout.pgBin("initdb"),
-		"-D", p.layout.pgData(),
-		"-U", ownerRole,
-		"--no-locale",
-		"--encoding=UTF8",
-		"--auth=scram-sha-256",
-		"--pwfile="+pwFile,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("initdb failed: %w\n%s", err, out)
-	}
-	return nil
+	return initCluster(p.layout, func(dataDir string) *exec.Cmd {
+		return exec.Command(
+			p.layout.pgBin("initdb"),
+			"-D", dataDir,
+			"-U", ownerRole,
+			"--no-locale",
+			"--encoding=UTF8",
+			"--auth=scram-sha-256",
+			"--pwfile="+pwFile,
+		)
+	})
 }
 
 // pgCtl builds a pg_ctl invocation against this installation's data directory.
