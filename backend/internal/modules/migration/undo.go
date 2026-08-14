@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
@@ -109,15 +111,15 @@ func (s *RunStore) Undo(ctx context.Context, id RunID, w UndoWriters) (UndoRepor
 			return UndoReport{}, err
 		}
 		for _, r := range rows {
-			switch {
-			case touched[r.nativeID]:
-				rep.Kept = append(rep.Kept, KeptRow{Object: r.object, ID: r.nativeID})
-			default:
-				if err := w.Reverse(ctx, r.object, r.nativeID); err != nil {
-					rep.Errored = append(rep.Errored, ErroredRow{Object: r.object, ID: r.nativeID, Reason: reversalRefusalReason(err)})
-				} else {
-					rep.ReversedCount++
+			if unreachable := reverseOneRow(ctx, w, r, touched[r.nativeID], &rep); unreachable != nil {
+				// The estate itself could not be reached (a dropped
+				// connection, a timeout) — not a fact about this one row.
+				// Persist what this page already did and leave the run
+				// resumable rather than final.
+				if cpErr := s.advanceUndoCheckpoint(ctx, id, processed, rep); cpErr != nil {
+					return UndoReport{}, cpErr
 				}
+				return UndoReport{}, fmt.Errorf("import run %s undo: reversing %s %s: %w", id, r.object, r.nativeID, unreachable)
 			}
 			processed++
 		}
@@ -133,6 +135,41 @@ func (s *RunStore) Undo(ctx context.Context, id RunID, w UndoWriters) (UndoRepor
 		return UndoReport{}, err
 	}
 	return rep, nil
+}
+
+// reverseOneRow decides and records one row's fate: kept (a human has
+// touched it), reversed, or errored (a refusal that belongs to the row
+// itself). Returns non-nil only when Reverse failed for a reason that is
+// NOT a row refusal — the estate could not be reached at all — which the
+// caller must treat as fatal to the current pass rather than recording.
+func reverseOneRow(ctx context.Context, w UndoWriters, r mapRow, touched bool, rep *UndoReport) error {
+	if touched {
+		rep.Kept = append(rep.Kept, KeptRow{Object: r.object, ID: r.nativeID})
+		return nil
+	}
+	err := w.Reverse(ctx, r.object, r.nativeID)
+	switch {
+	case err == nil:
+		rep.ReversedCount++
+		return nil
+	case isRowRefusal(err):
+		rep.Errored = append(rep.Errored, ErroredRow{Object: r.object, ID: r.nativeID, Reason: reversalRefusalReason(err)})
+		return nil
+	default:
+		return err
+	}
+}
+
+// isRowRefusal separates a refusal that belongs to one record — an RBAC
+// grant that no longer covers it, a row-scope miss, a business rule
+// protecting it — from a failure that means the estate could not be
+// reached at all. Only the former is safe to record as errored and move
+// past; the latter must stop the run rather than mislabel every remaining
+// row as individually unreversible.
+func isRowRefusal(err error) bool {
+	return errors.Is(err, apperrors.ErrPermissionDenied) ||
+		errors.Is(err, apperrors.ErrNotFound) ||
+		errors.Is(err, apperrors.ErrConflict)
 }
 
 // reversalRefusalReason turns a Reverse error into the operator-facing
@@ -179,15 +216,30 @@ func (s *RunStore) claimUndo(ctx context.Context, id RunID) (func(), error) {
 		conn.Release()
 		return nil, fmt.Errorf("import run %s: an undo is already under way for this run: %w", id, apperrors.ErrConflict)
 	}
+	var once sync.Once
 	//nolint:contextcheck // deliberately context.Background() below, not the caller's ctx: the caller's
 	// request may already be cancelled by the time this runs, and the unlock must still happen so a
 	// later caller is not wedged behind a lock nobody will ever release.
 	return func() {
-		// Best-effort: the lock also dies with the connection when it is
-		// released back to the pool, which is the backstop if this
-		// explicit unlock ever fails.
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1, hashtext($2::text))`, undoLockClass, id.String())
-		conn.Release()
+		once.Do(func() {
+			if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1, hashtext($2::text))`, undoLockClass, id.String()); err != nil {
+				// A session-level lock lives exactly as long as its session,
+				// and Release hands this connection back to the pool with
+				// that session intact — so a failed unlock would leave the
+				// claim held by an idle pooled connection and wedge every
+				// later undo of this run (the same reasoning claimFlip
+				// already established). Destroy the session instead; the
+				// lock cannot outlive it.
+				slog.Warn("import undo: releasing the undo lock failed; closing the connection so the claim cannot outlive it", "run_id", id.String(), "err", err)
+				if hijacked := conn.Hijack(); hijacked != nil {
+					if cerr := hijacked.Close(context.Background()); cerr != nil {
+						slog.Warn("import undo: closing the hijacked undo-lock connection failed", "run_id", id.String(), "err", cerr)
+					}
+				}
+				return
+			}
+			conn.Release()
+		})
 	}, nil
 }
 

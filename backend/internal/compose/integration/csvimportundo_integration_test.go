@@ -86,7 +86,7 @@ func TestCSVImportUndoReversesUntouchedAndKeepsEdited(t *testing.T) {
 		FullName string `json:"full_name"`
 	}
 	if status := e.Call(t, http.MethodPatch, "/v1/leads/"+edited.ID,
-		map[string]any{"full_name": "Grace M. Hopper"}, nil, &patched); status != http.StatusOK {
+		apptest.AnyMap{"full_name": "Grace M. Hopper"}, nil, &patched); status != http.StatusOK {
 		t.Fatalf("editing the lead as a human → %d, want 200", status)
 	}
 

@@ -508,7 +508,9 @@ describe("the import card", () => {
         await screen.findByText("The import was undone."),
       ).toBeInTheDocument();
       expect(screen.getByText("3 rows reversed.")).toBeInTheDocument();
-      expect(screen.queryByText("import.undoKeptLead")).toBeNull();
+      expect(
+        screen.queryByText("Kept — you edited these since the import:"),
+      ).toBeNull();
     });
 
     it("names a human-edited row as kept rather than reversing it", async () => {

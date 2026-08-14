@@ -7036,9 +7036,12 @@ export interface paths {
         put?: never;
         /**
          * Reverse a completed CSV import run.
-         * @description IEM-WIRE-9 (A93; S-E15.4c). Valid **only** from `complete`, and only
-         *     for the `csv` connector — undoing a run that is still in flight, has
-         *     already failed, or was never approved is a conflict, and the
+         * @description IEM-WIRE-9 (A93; S-E15.4c). Valid from `complete` (starting a fresh
+         *     reversal) or `undoing` (resuming one already under way, from its
+         *     persisted checkpoint) — and only for the `csv` connector. Undoing a
+         *     run that is still in flight, was never approved, has already failed,
+         *     or has already finished undoing is a conflict, as is a run whose
+         *     `undoing` state carries no recorded progress to resume; the
          *     `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
          *     path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
          *     import; `hubspot`/`salesforce` are unbuilt).
@@ -7052,11 +7055,14 @@ export interface paths {
          *     `errored` with why, rather than aborting every row after it.
          *
          *     Checkpointed and resumable on the same run record's `checkpoint`
-         *     field the forward commit already uses (IEM-WIRE-5) — an undo over
-         *     thousands of rows is the same shape of bulk write the import itself
-         *     is, and paged the same way. Undoing an already-`undone` run is a
-         *     conflict, not a no-op; a second call while one is already under way
-         *     for the same run is a conflict too, not a second concurrent pass.
+         *     field the forward commit already uses (IEM-WIRE-5), though the two
+         *     count different things once a run is undoing: source-row offset for
+         *     the forward commit, `import_record_map` row offset for the reversal.
+         *     An undo over thousands of rows is the same shape of bulk write the
+         *     import itself is, and paged the same way. Undoing an already-`undone`
+         *     run is a conflict, not a no-op; a second call while one is already
+         *     under way for the same run is a conflict too, not a second
+         *     concurrent pass.
          */
         post: operations["undoImportRun"];
         delete?: never;
@@ -8377,7 +8383,7 @@ export interface components {
          *     import-created row lands in exactly one of three buckets: reversed,
          *     kept because a human edited it since (the "kept — you edited these"
          *     list S-E15.4c requires, not a diff of what changed), or errored
-         *     because it could not be reversed — a single unreversible row never
+         *     because it could not be reversed — a single irreversible row never
          *     aborts the rest of the run.
          */
         ImportUndoReport: {
@@ -8416,7 +8422,7 @@ export interface components {
             connector: "csv" | "hubspot" | "salesforce" | "bundle" | "mirror";
             object: components["schemas"]["ImportObject"];
             status: components["schemas"]["ImportRunStatus"];
-            /** @description Absolute offset into the source's rows; 0 = not started. What a resume continues from. */
+            /** @description Absolute offset into the source's rows for a forward run (`running`/`failed`), or into import_record_map's rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from. */
             checkpoint: number;
             /** @description Why a failed run stopped, in the uploader's terms. Never a driver or SQL message. */
             error?: string | null;

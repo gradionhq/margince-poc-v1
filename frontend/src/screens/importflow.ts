@@ -143,6 +143,7 @@ export function useImportFlow() {
     generation.current += 1;
     validate.reset();
     commit.reset();
+    undo.reset();
     setProfile(null);
     setMapping({});
     setRun(null);

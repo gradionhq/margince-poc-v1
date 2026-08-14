@@ -180,7 +180,8 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 	// twice the rows the file holds — and the stored report DOES carry both,
 	// because a run's own report is merged into the dry run's so a resumed
 	// attempt keeps what the earlier one already achieved.
-	committed := run.Status == migration.StatusComplete || run.Status == migration.StatusFailed
+	committed := run.Status == migration.StatusComplete || run.Status == migration.StatusFailed ||
+		run.Status == migration.StatusUndoing || run.Status == migration.StatusUndone
 	seen := map[int]bool{}
 	for _, o := range run.Report.Objects {
 		out.RowsRead += o.MirrorCount

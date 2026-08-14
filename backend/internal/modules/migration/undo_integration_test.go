@@ -8,6 +8,7 @@ package migration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -23,16 +24,25 @@ import (
 // the lifecycle gates.
 type fakeUndoWriters struct {
 	reversed map[ids.UUID]bool
-	// failAlways, if set, errors every time this native id is reversed —
-	// a deterministic per-row refusal (a business rule, a row-scope miss)
-	// that must land in the errored bucket and never stop the rest of the
-	// run.
+	// failAlways, if set, refuses every time this native id is reversed —
+	// wrapped in apperrors.ErrConflict, a deterministic per-ROW refusal (a
+	// business rule, a row-scope miss) that must land in the errored
+	// bucket and never stop the rest of the run.
 	failAlways ids.UUID
+	// failUnreachable, if set, errors every time this native id is
+	// reversed with a plain (unclassified) error — simulating the estate
+	// itself being unreachable (a dropped connection, a timeout), which
+	// must abort the pass and leave the run resumable rather than land in
+	// errored.
+	failUnreachable ids.UUID
 }
 
 func (w *fakeUndoWriters) Reverse(_ context.Context, _ string, nativeID ids.UUID) error {
 	if nativeID == w.failAlways {
-		return errors.New("simulated reversal refusal")
+		return fmt.Errorf("simulated business-rule refusal: %w", apperrors.ErrConflict)
+	}
+	if nativeID == w.failUnreachable {
+		return errors.New("simulated infrastructure failure")
 	}
 	if w.reversed == nil {
 		w.reversed = map[ids.UUID]bool{}
@@ -195,6 +205,45 @@ func TestUndoRecordsAnUnreversibleRowAndContinues(t *testing.T) {
 	}
 	if got.Status != StatusUndone {
 		t.Fatalf("status = %q, want undone — one unreversible row must not wedge the whole run", got.Status)
+	}
+}
+
+// An error that is NOT a row refusal — the estate itself unreachable, not a
+// fact about one record — must abort the pass and leave the run resumable,
+// never landing in errored (which would misreport every row after it as
+// individually unreversible) and never completing the run as `undone` (which
+// would make it unrecoverable).
+func TestUndoStopsResumableOnAnUnclassifiedFailure(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
+	run := completeCSVRun(ctx, t, s)
+
+	unreachable := landLead(ctx, t, s, run.ID, "row-1")
+
+	w := &fakeUndoWriters{failUnreachable: unreachable}
+	if _, err := s.Undo(ctx, run.ID, w); err == nil {
+		t.Fatal("Undo with an unreachable-estate error returned nil, want the error")
+	}
+	got, err := s.GetStaged(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetStaged: %v", err)
+	}
+	if got.Status != StatusUndoing {
+		t.Fatalf("status = %q, want undoing — the run must stay resumable, not finish as undone", got.Status)
+	}
+	if got.UndoReport != nil && len(got.UndoReport.Errored) != 0 {
+		t.Fatalf("errored = %+v, want the unreachable row NOT recorded as an individual refusal", got.UndoReport.Errored)
+	}
+
+	// A later call with a writer that can reach the estate resumes and
+	// reverses the row the first attempt never got to record either way.
+	resumed := &fakeUndoWriters{}
+	rep, err := s.Undo(ctx, run.ID, resumed)
+	if err != nil {
+		t.Fatalf("resumed Undo: %v", err)
+	}
+	if rep.ReversedCount != 1 || !resumed.reversed[unreachable] {
+		t.Fatalf("resumed undo report = %+v, want the row reversed", rep)
 	}
 }
 

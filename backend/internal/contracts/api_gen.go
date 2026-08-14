@@ -13150,7 +13150,7 @@ type ImportRun struct {
 	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
-	// Checkpoint Absolute offset into the source's rows; 0 = not started. What a resume continues from.
+	// Checkpoint Absolute offset into the source's rows for a forward run (`running`/`failed`), or into import_record_map's rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from.
 	Checkpoint int `json:"checkpoint"`
 
 	// Connector The two beyond the migrate-in set are the flip's own sources (OVA-WIRE-8).
@@ -13260,7 +13260,7 @@ type ImportSourceProfile struct {
 // import-created row lands in exactly one of three buckets: reversed,
 // kept because a human edited it since (the "kept — you edited these"
 // list S-E15.4c requires, not a diff of what changed), or errored
-// because it could not be reversed — a single unreversible row never
+// because it could not be reversed — a single irreversible row never
 // aborts the rest of the run.
 type ImportUndoReport struct {
 	// Errored Import-created rows the reversal could not archive (a business

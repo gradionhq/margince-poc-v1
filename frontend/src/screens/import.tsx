@@ -325,10 +325,7 @@ function UndoSection({
             ? t("import.undoing")
             : undoInterrupted
               ? t("import.continueUndo")
-              : undoLabel(
-                  t,
-                  report.disposition.created + report.disposition.updated,
-                )}
+              : undoLabel(t, report.disposition.created)}
         </Button>
       ) : null}
       {undoError ? (
