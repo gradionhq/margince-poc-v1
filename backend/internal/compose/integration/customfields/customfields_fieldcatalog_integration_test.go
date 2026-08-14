@@ -121,3 +121,62 @@ func TestActiveColumns_NoActiveFields_ReturnsEmptyNotError(t *testing.T) {
 		t.Fatalf("got %v, want empty", cols)
 	}
 }
+
+func hasColumn(cols []fieldcatalog.Column, name string) bool {
+	for _, c := range cols {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// A retired field's column survives retirement (retirement is a status change,
+// not a DROP), and a saved segment filtering on it must keep evaluating. So the
+// FILTER vocabulary sees it while the WRITE vocabulary does not: two questions,
+// two methods, and conflating them would let a retired field become writable.
+func TestFilterableColumnsSeesRetiredFieldsAndActiveColumnsDoesNot(t *testing.T) {
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, integration.CustomFieldAdminPerms)
+
+	live, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Still live", Type: customfieldsmod.TypeText, Source: "ui",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone, err := svc.Create(ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: "Long gone", Type: customfieldsmod.TypeText, Source: "ui",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Retire(ctx, ids.UUID(gone.Id)); err != nil {
+		t.Fatalf("Retire: %v", err)
+	}
+
+	active, err := svc.ActiveColumns(ctx, "person")
+	if err != nil {
+		t.Fatalf("ActiveColumns: %v", err)
+	}
+	filterable, err := svc.FilterableColumns(ctx, "person")
+	if err != nil {
+		t.Fatalf("FilterableColumns: %v", err)
+	}
+
+	if hasColumn(active, *gone.ColumnName) {
+		t.Error("ActiveColumns returned a retired column; a retired field must not become writable")
+	}
+	if !hasColumn(filterable, *gone.ColumnName) {
+		t.Error("FilterableColumns omitted a retired column, so a saved segment on it would 422")
+	}
+	if !hasColumn(filterable, *live.ColumnName) {
+		t.Error("FilterableColumns omitted an active column")
+	}
+	if !sort.SliceIsSorted(filterable, func(i, j int) bool {
+		return filterable[i].Name < filterable[j].Name
+	}) {
+		t.Error("FilterableColumns is unordered; the vocabulary must be deterministic")
+	}
+}

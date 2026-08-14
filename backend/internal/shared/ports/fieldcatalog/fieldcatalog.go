@@ -54,3 +54,13 @@ type Column struct {
 type Reader interface {
 	ActiveColumns(ctx context.Context, object string) ([]Column, error)
 }
+
+// FilterableReader answers the columns a FILTER may name, which is a different
+// question from the ones a write may set: a retired field keeps its column and
+// its values, so a saved segment built on it must keep evaluating, while nothing
+// may write to it again. It is its own interface rather than a second method on
+// Reader because a consumer of one has no use for the other — collections filters
+// and never writes cf_* values, and the record stores write and never filter.
+type FilterableReader interface {
+	FilterableColumns(ctx context.Context, object string) ([]Column, error)
+}

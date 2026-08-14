@@ -58,3 +58,37 @@ func (s *Service) ActiveColumns(ctx context.Context, object string) ([]fieldcata
 	})
 	return cols, err
 }
+
+// FilterableColumns answers every cf_* column that physically exists for one
+// object — active and retired — ordered by column_name like its sibling.
+//
+// Retirement is a status change and never a DROP COLUMN (lifecycle.go), so a
+// retired field's column and values are still there to be filtered on. Excluding
+// it here would turn every saved segment naming it into a 422 at read time, which
+// is a worse answer than a stale one — the same reasoning the retired
+// `classification` field carries in the collections vocabulary.
+//
+// Runs no auth.Require, for the reason ActiveColumns states: which columns exist
+// is schema, and the calling engine's own row-scope clause is what protects the
+// values in them.
+func (s *Service) FilterableColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
+	var cols []fieldcatalog.Column
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT column_name, type FROM custom_field WHERE object = $1 ORDER BY column_name`,
+			object)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var c fieldcatalog.Column
+			if err := rows.Scan(&c.Name, &c.Type); err != nil {
+				return err
+			}
+			cols = append(cols, c)
+		}
+		return rows.Err()
+	})
+	return cols, err
+}
