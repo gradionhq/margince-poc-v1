@@ -175,6 +175,16 @@ var piiTables = map[string]piiHandling{
 	"preference_token": {erasureWrite: true, sarForbidden: true},
 }
 
+// sarAssemblyFiles are the files whose SQL literals make up the Art. 15
+// package. Listed rather than globbed: the gate asks what the EXPORT reads, and
+// a glob over the package would read erasure's DELETE statements as disclosures.
+// A new file carrying SAR sections joins this list; the section-count assertion
+// below is what fails if one is forgotten.
+var sarAssemblyFiles = []string{
+	"internal/modules/privacy/sar.go",
+	"internal/modules/privacy/sarmessages.go",
+}
+
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are
 // SELECTs, invisible to sqlWriteTargets.
 var fromJoinRe = regexp.MustCompile(`(?is)\b(?:from|join)\s+([a-z_][a-z0-9_]*)`)
@@ -275,10 +285,17 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 			}
 		}
 	}
+	// The files the SAR assembly is SPLIT ACROSS, not one named file and not
+	// the whole package. One filename reports a section missing the moment
+	// somebody moves it — a rename passing itself off as an Art. 15 gap — and
+	// the whole package sweeps in erasure's own DELETE ... FROM statements,
+	// which fromJoinRe cannot tell from a SELECT.
 	reads := map[string]bool{}
-	for _, lit := range sqlLiterals(t, "internal/modules/privacy/sar.go") {
-		for _, m := range fromJoinRe.FindAllStringSubmatch(lit, -1) {
-			reads[m[1]] = true
+	for _, path := range sarAssemblyFiles {
+		for _, lit := range sqlLiterals(t, path) {
+			for _, m := range fromJoinRe.FindAllStringSubmatch(lit, -1) {
+				reads[m[1]] = true
+			}
 		}
 	}
 
