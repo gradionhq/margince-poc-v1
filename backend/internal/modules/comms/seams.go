@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 
@@ -289,33 +290,65 @@ const (
 	SendsWithoutScope
 )
 
+// channelProviders mirrors activities.SetChannelProviders/channelProviders —
+// a SEPARATE package-level set, because comms and activities are siblings
+// under internal/modules and neither may import the other. Both are set from
+// the SAME boot-time reconcile in internal/compose (DESIGN-SP4 §4), which is
+// what keeps the two from drifting apart independently, even though each
+// package still holds its own copy.
+var (
+	channelProvidersMu sync.RWMutex
+	channelProviders   = map[string]bool{"telegram": true}
+)
+
+// SetChannelProviders replaces the derived channel-provider set wholesale.
+// Last-write-wins, not once-only: see activities.SetChannelProviders's doc for
+// why a plain settable var is the right shape here, not a register-and-panic
+// one.
+func SetChannelProviders(providers []string) {
+	next := make(map[string]bool, len(providers))
+	for _, p := range providers {
+		next[p] = true
+	}
+	channelProvidersMu.Lock()
+	channelProviders = next
+	channelProvidersMu.Unlock()
+}
+
 // SendScopeFor answers whether a provider can transmit and, when its grant must
-// carry an OAuth scope to do so, which scope. A switch rather than a registry:
-// two providers is not a registry, and one with two entries is an abstraction
-// with no third caller.
+// carry an OAuth scope to do so, which scope.
 //
 // It is exported so the request-time pre-flight — which refuses a send this
 // installation already knows cannot leave — asks the SAME question as the
 // authority gate. Two spellings of "may this grant send" could disagree, and a
 // pre-flight that accepted what the gate then parks is worse than none.
 //
-// Both literals below are SECOND spellings of strings a capture provider
-// already declares — Gmail's OAuth consent requests that same scope constant
-// rather than a copy, and capture.ProviderTelegram names that provider once —
-// and they have to be: this module must not import a capture provider. compose
-// imports both sides and holds them against each other
-// (compose/sendscope_test.go), because drift here is silent: a misspelled scope
-// parks every send as ungranted, which reads as a user who declined consent,
-// and a misspelled provider reads a live channel as capture-only.
+// The MAIL arm is a literal, unchanged: gmail is not, and never will be, an
+// activity_kind (DESIGN-SP4 §4 — the channel_provider table FKs into
+// activity_kind, and gmail names no activity kind), so there is no registry
+// for it to derive from. The scope string is a SECOND spelling of one a
+// capture provider already declares — Gmail's OAuth consent requests that
+// same scope constant rather than a copy — and it has to be: this module must
+// not import a capture provider. compose imports both sides and holds them
+// against each other (compose/sendscope_test.go), because drift here is
+// silent: a misspelled scope parks every send as ungranted, which reads as a
+// user who declined consent.
+//
+// The CHANNEL arm derives from channelProviders — the same registry
+// activities.IsChannelKind reads — so a provider clearing it is answerable
+// for both "is this a channel conversation" and "can this installation send
+// on it" in one boot-time act.
 func SendScopeFor(provider string) (string, SendCapability) {
-	switch provider {
-	case "gmail":
+	if provider == "gmail" {
 		return "https://www.googleapis.com/auth/gmail.send", SendsWithScope
-	case "telegram":
-		return "", SendsWithoutScope
-	default:
-		return "", CannotSend
 	}
+	channelProvidersMu.RLock()
+	isChannel := channelProviders[provider]
+	channelProvidersMu.RUnlock()
+	if isChannel {
+		return "", SendsWithoutScope
+	}
+	return "", CannotSend
 }
 
 // rfc8058Post derives the List-Unsubscribe-Post header from its partner. RFC
