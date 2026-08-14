@@ -147,14 +147,14 @@ func agentSchedule(in agents.SendEmailArgs) (*activities.SendSchedule, error) {
 		return nil, nil //nolint:nilnil // "send now" IS the answer for an optional schedule, not a missing value.
 	}
 	if in.ScheduledAt == "" {
-		return nil, &activities.InvalidScheduleError{Field: "scheduled_at", Reason: "is required when a zone is given"}
+		return nil, &activities.InvalidScheduleError{Field: activities.FieldScheduledAt, Reason: "is required when a zone is given"}
 	}
 	if in.ScheduledTZ == "" {
-		return nil, &activities.InvalidScheduleError{Field: "scheduled_tz", Reason: "is required when a moment is given"}
+		return nil, &activities.InvalidScheduleError{Field: activities.FieldScheduledTZ, Reason: "is required when a moment is given"}
 	}
 	at, err := time.Parse(time.RFC3339, in.ScheduledAt)
 	if err != nil {
-		return nil, &activities.InvalidScheduleError{Field: "scheduled_at", Reason: "is not an RFC3339 instant"}
+		return nil, &activities.InvalidScheduleError{Field: activities.FieldScheduledAt, Reason: "is not an RFC3339 instant"}
 	}
 	return &activities.SendSchedule{At: at, TZ: in.ScheduledTZ}, nil
 }

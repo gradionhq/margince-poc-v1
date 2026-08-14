@@ -95,10 +95,13 @@ func scheduledSendResponse(row ScheduledSend) crmcontracts.ScheduledSend {
 		ScheduledAt: row.ScheduledAt,
 		ScheduledTz: row.ScheduledTZ,
 		Subject:     row.Subject,
-		To:          emailList(row.Recipients),
-		Version:     row.Version,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		// The To LINE, derived the way the send derives it. row.Recipients is
+		// the merged consent superset — every To, Cc AND Bcc — so rendering it
+		// raw would put blind copies in a field the rep reads as visible.
+		To:        emailList(toRecipients(row.Recipients, row.Cc, row.Bcc)),
+		Version:   row.Version,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
 	}
 	if cc := emailList(row.Cc); len(cc) > 0 {
 		out.Cc = &cc
@@ -149,10 +152,10 @@ func scheduleFrom(at *time.Time, tz *string) (*SendSchedule, error) {
 		return nil, nil //nolint:nilnil // "send now" IS the answer for an optional schedule, not a missing value.
 	}
 	if at == nil {
-		return nil, &InvalidScheduleError{Field: fieldScheduledAt, Reason: "is required when a zone is given"}
+		return nil, &InvalidScheduleError{Field: FieldScheduledAt, Reason: "is required when a zone is given"}
 	}
 	if tz == nil {
-		return nil, &InvalidScheduleError{Field: fieldScheduledTZ, Reason: "is required when a moment is given"}
+		return nil, &InvalidScheduleError{Field: FieldScheduledTZ, Reason: "is required when a moment is given"}
 	}
 	return &SendSchedule{At: *at, TZ: *tz}, nil
 }

@@ -224,16 +224,23 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, userID ids.UUID, kind 
 	if !ok {
 		return nil, false, errors.New("comms_scheduled_send: firing outside workspace context")
 	}
-	rbac, err := w.authority.EffectiveRBAC(ctx, ws, userID)
+	// ONE snapshot of grants and seat. Read separately they can compose an
+	// authority the member never held — permissions from before a role change
+	// with a seat from after it — which is the exact hazard EffectiveAuthority
+	// exists to close, and both are ceilings on this same act.
+	rbac, seat, err := w.authority.EffectiveAuthority(ctx, ws, userID)
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return nil, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("comms_scheduled_send: reading the sender's grants: %w", err)
+		return nil, false, fmt.Errorf("comms_scheduled_send: reading the sender's authority: %w", err)
 	}
-	seat, err := w.authority.SeatType(ctx, ws, userID)
-	if err != nil {
-		return nil, false, fmt.Errorf("comms_scheduled_send: reading the sender's seat: %w", err)
+	if !seat.CanMutate() {
+		// A read seat may not transmit, and the dispatcher would refuse this
+		// message at the far end anyway. Holding here means the rep is told
+		// their seat is the problem, rather than finding a released row whose
+		// delivery silently parked.
+		return nil, true, nil
 	}
 
 	actor := principal.Principal{

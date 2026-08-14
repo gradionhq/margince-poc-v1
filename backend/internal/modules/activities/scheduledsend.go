@@ -31,9 +31,12 @@ const payloadVersionCurrent = 1
 // The scheduling fields, named once. They are a wire contract, an audit key and
 // a refusal's field name at the same time, so a typo in any one spelling would
 // answer the caller about a field they did not send.
+// Exported because compose names the same two fields — the agent door's
+// refusals and the replay discriminator — and a second spelling of a wire field
+// is a second thing to get wrong.
 const (
-	fieldScheduledAt = "scheduled_at"
-	fieldScheduledTZ = "scheduled_tz"
+	FieldScheduledAt = "scheduled_at"
+	FieldScheduledTZ = "scheduled_tz"
 )
 
 // ScheduleTimer wakes a scheduled send when it comes due. It is the seam
@@ -290,8 +293,8 @@ func (s *Store) scheduleSend(
 			return fmt.Errorf("scheduled send: recording the intention: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "schedule", "scheduled_send", row.ID, nil, map[string]any{
-			fieldScheduledAt: row.ScheduledAt,
-			fieldScheduledTZ: row.ScheduledTZ,
+			FieldScheduledAt: row.ScheduledAt,
+			FieldScheduledTZ: row.ScheduledTZ,
 			"subject":        row.Subject,
 		}); err != nil {
 			return err
@@ -307,17 +310,17 @@ func (s *Store) scheduleSend(
 // validateSchedule refuses a due moment the server will not honour.
 func validateSchedule(sched SendSchedule, now time.Time) error {
 	if sched.TZ == "" {
-		return &InvalidScheduleError{Field: fieldScheduledTZ, Reason: "is required when scheduling a send"}
+		return &InvalidScheduleError{Field: FieldScheduledTZ, Reason: "is required when scheduling a send"}
 	}
 	// A zone NAME, resolved against the IANA database — never a numeric offset,
 	// which would be frozen against the DST rules of the day it was written
 	// (AC-DS-TZ4).
 	if _, err := time.LoadLocation(sched.TZ); err != nil {
-		return &InvalidScheduleError{Field: fieldScheduledTZ, Reason: "is not an IANA time zone name"}
+		return &InvalidScheduleError{Field: FieldScheduledTZ, Reason: "is not an IANA time zone name"}
 	}
 	if sched.At.Sub(now) > scheduleCeiling {
 		return &InvalidScheduleError{
-			Field:  fieldScheduledAt,
+			Field:  FieldScheduledAt,
 			Reason: fmt.Sprintf("is further ahead than the %d-day scheduling limit", int(scheduleCeiling.Hours()/24)),
 		}
 	}

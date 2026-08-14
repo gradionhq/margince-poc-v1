@@ -113,6 +113,12 @@ func readScheduledSendTx(ctx context.Context, tx pgx.Tx, id ids.UUID) (Scheduled
 // Time only. The content is what the approval bound to, so changing it is
 // cancel-and-recompose, which re-enters every gate from the top (ADR-0104 §5).
 //
+// A HELD message is rescheduled by the same call, and that is the point of the
+// held state: it is where a rep recovers from a refusal, having fixed whatever
+// caused it. The move clears the hold reason and arms a fresh timer, and the
+// gates that refused will be asked again when it fires — a rep who has not
+// actually fixed the problem gets held a second time rather than a send.
+//
 // The expected version is required rather than optional: two surfaces moving
 // one message must not silently resolve to whichever wrote last.
 func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched SendSchedule, expectedVersion int64, timer ScheduleTimer) (ScheduledSend, error) {
@@ -126,7 +132,7 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 		return ScheduledSend{}, err
 	}
 	if !sched.At.After(s.now()) {
-		return ScheduledSend{}, &InvalidScheduleError{Field: fieldScheduledAt, Reason: "is in the past"}
+		return ScheduledSend{}, &InvalidScheduleError{Field: FieldScheduledAt, Reason: "is in the past"}
 	}
 	current, err := s.GetScheduledSend(ctx, id)
 	if err != nil {
@@ -134,11 +140,15 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 	}
 
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// held_reason is cleared with the move: the row is pending again, and a
+		// stale reason would have the surface explain a hold that is over. The
+		// state-shape CHECK enforces the pairing, so this is not optional.
 		tag, err := tx.Exec(ctx, `
 			UPDATE scheduled_send
 			   SET scheduled_at = $1, scheduled_tz = $2,
+			       status = 'scheduled', held_reason = NULL,
 			       version = version + 1, updated_at = now()
-			 WHERE id = $3 AND status = 'scheduled' AND version = $4`,
+			 WHERE id = $3 AND status IN ('scheduled','held') AND version = $4`,
 			sched.At.UTC(), sched.TZ, id, expectedVersion)
 		if err != nil {
 			return fmt.Errorf("scheduled send: moving the due moment: %w", err)
@@ -150,8 +160,8 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 			return apperrors.ErrVersionSkew
 		}
 		if _, err := storekit.Audit(ctx, tx, "reschedule", "scheduled_send", id,
-			map[string]any{fieldScheduledAt: current.ScheduledAt, fieldScheduledTZ: current.ScheduledTZ},
-			map[string]any{fieldScheduledAt: sched.At.UTC(), fieldScheduledTZ: sched.TZ}); err != nil {
+			map[string]any{FieldScheduledAt: current.ScheduledAt, FieldScheduledTZ: current.ScheduledTZ},
+			map[string]any{FieldScheduledAt: sched.At.UTC(), FieldScheduledTZ: sched.TZ}); err != nil {
 			return err
 		}
 		// A FRESH timer for the new moment. The old one still wakes at the old
@@ -165,7 +175,8 @@ func (s *Store) RescheduleScheduledSend(ctx context.Context, id ids.UUID, sched 
 	return s.GetScheduledSend(ctx, id)
 }
 
-// CancelScheduledSend withdraws a message before it fires.
+// CancelScheduledSend withdraws a message before it fires, or gives up on one
+// already held.
 //
 // It does not touch the timer. The job wakes, reads a row that is no longer
 // scheduled, and does nothing — which is also what happens if the process dies
@@ -181,8 +192,9 @@ func (s *Store) CancelScheduledSend(ctx context.Context, id ids.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE scheduled_send
-			   SET status = 'cancelled', version = version + 1, updated_at = now()
-			 WHERE id = $1 AND status = 'scheduled'`, id)
+			   SET status = 'cancelled', held_reason = NULL,
+			       version = version + 1, updated_at = now()
+			 WHERE id = $1 AND status IN ('scheduled','held')`, id)
 		if err != nil {
 			return fmt.Errorf("scheduled send: cancelling: %w", err)
 		}
