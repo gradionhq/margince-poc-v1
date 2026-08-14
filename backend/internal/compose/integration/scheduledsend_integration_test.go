@@ -35,6 +35,7 @@ package integration
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,8 +44,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// uuidOf parses a harness-held id, failing the test rather than the assertion.
+func uuidOf(t *testing.T, raw string) ids.UUID {
+	t.Helper()
+	id, err := ids.Parse(raw)
+	if err != nil {
+		t.Fatalf("id %q: %v", raw, err)
+	}
+	return id
+}
 
 // scheduleFor issues a deferred send and returns the scheduled record's id.
 func (p *preflightEnv) scheduleFor(t *testing.T, at time.Time) ids.UUID {
@@ -281,6 +294,64 @@ func TestACancelledMessageIsNotSentWhenItsTimerFires(t *testing.T) {
 	}
 	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusCancelled {
 		t.Fatalf("a cancelled message reads %q after its timer fired, want %q", status, activities.ScheduledStatusCancelled)
+	}
+}
+
+func TestErasingARecipientEmptiesAndStopsTheirScheduledMail(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	// A message written the night before, addressed to the person who is about
+	// to exercise Art. 17.
+	id := p.scheduleFor(t, time.Now().Add(12*time.Hour))
+
+	personID, err := ids.Parse(p.personID)
+	if err != nil {
+		t.Fatalf("person id %q: %v", p.personID, err)
+	}
+	// Run under the bootstrapped admin this harness already signed in, rather
+	// than a synthetic principal: the eraser's own gates are part of what this
+	// asserts, and a hand-built unbounded actor would walk past them.
+	admin := principal.WithActor(
+		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), p.workspaceID(t)), ids.NewV7()),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + p.user,
+			UserID:   uuidOf(t, p.user),
+			SeatType: principal.SeatFull,
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"admin"},
+				Objects: map[string]principal.ObjectGrant{
+					"person":   {Create: true, Read: true, Update: true, Delete: true},
+					"activity": {Create: true, Read: true, Update: true, Delete: true},
+				},
+			},
+		})
+	if err := privacy.NewEraser(compose.InstallationDB(p.Pool)).ErasePerson(
+		admin, personID, "art-17"); err != nil {
+		t.Fatalf("erasing the recipient: %v", err)
+	}
+
+	// The payload must no longer name them, and the message must no longer be
+	// waiting to go out: a scheduled row survives with a live timer, so an
+	// emptied-but-pending one would still fire the morning after the erasure
+	// certified this person's data destroyed.
+	status, _ := p.scheduledStatus(t, id)
+	if status != activities.ScheduledStatusCancelled {
+		t.Fatalf("a scheduled message to an erased person reads %q, want %q — it still has a timer",
+			status, activities.ScheduledStatusCancelled)
+	}
+	var payload string
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT payload::text FROM scheduled_send WHERE id = $1`, id).Scan(&payload)
+	}); err != nil {
+		t.Fatalf("reading the frozen payload: %v", err)
+	}
+	if strings.Contains(payload, "buyer@preflight.test") {
+		t.Fatalf("the erased person's address survives in a scheduled message: %s", payload)
+	}
+	if strings.Contains(payload, "Written the night before.") {
+		t.Fatalf("the body of a message to an erased person survives: %s", payload)
 	}
 }
 

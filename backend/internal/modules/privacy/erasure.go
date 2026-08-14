@@ -128,6 +128,13 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := purgeRedactedActivityTraces(ctx, tx, activitiesRedacted, reason); err != nil {
 			return err
 		}
+		// The messages nobody has sent yet. They hold the subject's address and
+		// the body before any activity exists, so nothing above this line can
+		// reach them — and a scheduled one would otherwise fire the morning
+		// after this erasure certified the data destroyed.
+		if err := redactScheduledSends(ctx, tx, emails); err != nil {
+			return err
+		}
 		// Purge the subject's attachment bytes and rows together, inside the
 		// transaction (objects first). A failure here — including a
 		// misconfigured store — rolls the whole erasure back, so it stays
