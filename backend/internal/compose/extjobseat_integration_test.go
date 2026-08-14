@@ -37,11 +37,13 @@ func TestTheDispatcherResolvesTheSeatBootstrapMinted(t *testing.T) {
 	}
 
 	wsID, created, err := identity.NewService(e.Pool).BootstrapInstallation(ctx,
-		&identity.InstallationBootstrap{
-			OrganizationName: "seatjoin",
-			AdminEmail:       "admin@seatjoin.test",
-			AdminName:        "Admin",
-			AdminPassword:    "a bootstrap password!",
+		func() (identity.InstallationBootstrap, error) {
+			return identity.InstallationBootstrap{
+				OrganizationName: "seatjoin",
+				AdminEmail:       "admin@seatjoin.test",
+				AdminName:        "Admin",
+				AdminPassword:    "a bootstrap password!",
+			}, nil
 		}, nil)
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)

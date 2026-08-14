@@ -19,9 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// dbExists prints "true" or "false" — output, not exit code, so callers can
-// tell "absent" apart from "could not ask" (a connection failure still exits
-// non-zero).
+// dbExists answers whether a database of that name is present on the cluster.
 func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
 	if name == "" {
 		return errors.New("migrate db-exists: --name is required")
@@ -39,13 +37,9 @@ func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer
 	return nil
 }
 
-// orgExists reports whether this installation has been bootstrapped — whether an
-// active organization exists — as "true" or "false" on stdout, in the shape
-// dbExists above already answers a yes/no question.
-//
-// It exists so a deployment can tell the two states apart BEFORE the api boots,
-// which is what lets an entrypoint stop materializing a bootstrap credential an
-// already-provisioned installation will never read (ADR-0061 §2: bootstrap
+// orgExists answers whether this installation holds an active organization —
+// whether it is provisioned. A deployment asks before the api boots, to know
+// whether a bootstrap credential is still needed at all (ADR-0061 §2: bootstrap
 // values are consumed exactly once, and the section may be deleted once the
 // organization exists).
 //

@@ -5,11 +5,15 @@
 
 package main
 
+// The verbs a shell script depends on, pinned against a real Postgres so a
+// regression fails here rather than as a broken lane or a broken deployment.
+//
 // The database-lifecycle verbs are the integration lane's clone machinery
 // (scripts/lib-testdb.sh db_admin): recreate-db/drop-db own destructive
 // DROP/CREATE DATABASE, and db-exists prints the literal answer the lane's
-// ensure_template string-compares. These tests pin that contract against a
-// real Postgres so a regression fails here, not as a broken lane.
+// ensure_template string-compares. org-exists is the same kind of contract for
+// a different caller: scripts/deploy/api-entrypoint.sh branches on its answer
+// to decide whether a plaintext bootstrap credential is written at all.
 
 import (
 	"bytes"

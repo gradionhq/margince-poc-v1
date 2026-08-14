@@ -495,7 +495,23 @@ probe.
 migrate <up|down> --dsn <owner-dsn> [--steps n]
 migrate reset-password --dsn <owner-dsn> --email <user-email>
 migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db> [--template <db>]
+migrate org-exists --dsn <owner-dsn>
 ```
+
+`org-exists` prints `true` or `false`: whether this installation already holds an
+active organization. It takes no `--name` — it asks about the database the DSN
+names. A deployment asks before the api starts, to know whether a bootstrap
+credential is still needed; `scripts/deploy/api-entrypoint.sh` writes the
+`bootstrap_admin` password file only while the answer is `false`, because
+ADR-0061 §2 consumes bootstrap values exactly once and permits deleting that
+secret once the organization exists. The answer is **printed rather than
+signalled by exit status**, so a caller can tell "no" from "could not ask"; a
+failed probe exits non-zero and must not be read as "unprovisioned".
+
+**Once an installation is bootstrapped, remove the `bootstrap_admin` section from
+`margince.yaml` and unset `MARGINCE_ADMIN_PASSWORD`.** Leaving the section in
+place keeps the api reading a password file that is no longer written. Use
+`migrate reset-password` to change an existing user's password.
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
