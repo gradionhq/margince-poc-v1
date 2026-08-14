@@ -139,3 +139,95 @@ func TestCSVImportUndoRefusesBeforeTheRunCommits(t *testing.T) {
 		t.Fatalf("undo of an awaiting_approval run → %d, want 409", status)
 	}
 }
+
+const orgProspectCSV = "Company,Legal Name,Industry\n" +
+	"Initech,Initech GmbH,software\n" +
+	"Umbrella,Umbrella AG,biotech\n"
+
+func organizationRows(t *testing.T, e *apptest.AppEnv) []leadRowDTO {
+	t.Helper()
+	var orgs struct {
+		Data []leadRowDTO `json:"data"`
+	}
+	if status := e.Call(t, http.MethodGet, "/v1/organizations?limit=100", nil, nil, &orgs); status != http.StatusOK {
+		t.Fatalf("GET /v1/organizations → %d, want 200", status)
+	}
+	return orgs.Data
+}
+
+// Reverse's other object branch: an import of organizations undoes through
+// ArchiveOrganization exactly as a lead import undoes through DisqualifyLead.
+func TestCSVImportUndoReversesOrganizations(t *testing.T) {
+	e := setupImportApp(t)
+	before := len(organizationRows(t, e))
+
+	profile, _ := uploadCSV(t, e, "organization", orgProspectCSV)
+	mapping := map[string]string{"Company": "display_name", "Legal Name": "legal_name", "Industry": "industry"}
+	run, status := createRunWithMapping(t, e, "organization", profile.SourceRef, mapping)
+	if status != http.StatusAccepted {
+		t.Fatalf("create run → %d, want 202", status)
+	}
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("approve → %d, want 202", status)
+	}
+	if got := len(organizationRows(t, e)); got != before+2 {
+		t.Fatalf("organizations after approval = %d, want %d", got, before+2)
+	}
+
+	var undone importRunDTO
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/undo", nil, nil, &undone); status != http.StatusAccepted {
+		t.Fatalf("undo → %d, want 202", status)
+	}
+	var report importReportWithUndoDTO
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.ID+"/report", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("report after undo → %d, want 200", status)
+	}
+	if report.Undo == nil || report.Undo.ReversedCount != 2 || len(report.Undo.Kept) != 0 {
+		t.Fatalf("undo report = %+v, want both organizations reversed and none kept", report.Undo)
+	}
+	if got := len(organizationRows(t, e)); got != before {
+		t.Fatalf("organizations after undo = %d, want %d (both reversed)", got, before)
+	}
+}
+
+// A row already archived by the time undo reaches it (here: a human
+// disqualified the lead directly, outside the import) must not make Reverse
+// error — it is reversed to the same state it is already in, not skipped as
+// though a human had edited it. DisqualifyLead audits action='archive', not
+// 'update', so humanEditedSince does not catch this as a protected edit;
+// Reverse's own idempotence is what keeps it from erring on a live-only read
+// that no longer finds a live row.
+func TestCSVImportUndoIsIdempotentOnAnAlreadyArchivedRow(t *testing.T) {
+	e := setupImportApp(t)
+
+	profile, _ := uploadCSV(t, e, "lead", "Email,Full Name\nada@lovelace.example,Ada Lovelace\n")
+	run, status := createRunWithMapping(t, e, "lead", profile.SourceRef, profile.SuggestedMapping)
+	if status != http.StatusAccepted {
+		t.Fatalf("create run → %d, want 202", status)
+	}
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/approve", nil, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("approve → %d, want 202", status)
+	}
+	rows := leadRows(t, e)
+	if len(rows) != 1 {
+		t.Fatalf("leads after approval = %d, want 1", len(rows))
+	}
+
+	// Disqualify (archive) the lead directly — a human action, but not an
+	// 'update'.
+	if status := e.Call(t, http.MethodDelete, "/v1/leads/"+rows[0].ID, nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("disqualify → %d, want 200", status)
+	}
+
+	var undone importRunDTO
+	if status := e.Call(t, http.MethodPost, "/v1/imports/"+run.ID+"/undo", nil, nil, &undone); status != http.StatusAccepted {
+		t.Fatalf("undo → %d, want 202", status)
+	}
+	var report importReportWithUndoDTO
+	if status := e.Call(t, http.MethodGet, "/v1/imports/"+run.ID+"/report", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("report after undo → %d, want 200", status)
+	}
+	if report.Undo == nil || report.Undo.ReversedCount != 1 {
+		t.Fatalf("undo report = %+v, want the already-archived row counted as reversed, not erred on", report.Undo)
+	}
+}
