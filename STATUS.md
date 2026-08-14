@@ -701,6 +701,40 @@ workspace GUC; the agent scheduler's suite injects its fault through a trigger
 keyed on `NEW.workspace_id`. Privacy's retention sweep and search's re-embed
 fan-out are the same shape. Their tables go with the fleet loops (§5).
 
+**The vocabulary step is done (#1240); the first collapse hit one open
+question, and it is worth answering before writing code.** `role: worker` now
+exists and the generator accepts a worker that carries its own cadence — that
+much is settled. What stopped the webhook collapse is the **attempt cap**.
+
+`opts_owner` says who supplies River's insert options: `fan_out` (the dispatch
+helper reads `max_attempts` off the spec), `args` (the args type carries them),
+or `caller` (the scheduling code builds them). The manifest refuses a
+`max_attempts` unless the owner is `fan_out`, and it is right to: publishing a
+number nothing enforces is exactly the declared-versus-actual drift the file
+exists to remove.
+
+A collapsed pass is inserted by the periodic schedule, so its owner is `caller`
+or `args` — and today the periodic path (`sweepInsertOpts`) sets uniqueness and
+no cap at all. That was harmless for a dispatcher, whose retry IS its next tick.
+It is not harmless for the sweep it becomes: `webhook_retry_workspace` declared
+`max_attempts: 3` against a 26-minute timeout, and inheriting River's silent
+25-rung ladder instead would be a real change nobody chose.
+
+Three ways out, in the order they seem worth considering:
+
+1. **Let a worker declare `max_attempts` with `opts_owner: args`**, and gate that
+   the args type's `InsertOpts` actually carry the declared number. Keeps the cap
+   in the census, where the whole point of the manifest is that it is visible.
+2. **Set the cap in the caller** beside the periodic insert. Consistent with how
+   all 27 dispatchers work today, and it puts a materially different retry
+   ladder somewhere the census cannot see.
+3. **Give the periodic path a per-kind opts hook** — the general form of (2),
+   and probably more machinery than one number deserves.
+
+(1) looks right and is a small extension rather than a new concept, but it is a
+change to what the contract governs, so it wants deciding rather than
+discovering. Nothing else in the collapse is blocked on it.
+
 **The target shape is decided upstream — build against it, do not re-derive
 it.** ADR-0103 / DECISIONS **A154** (margince-foundation, PROPOSED 2026-08-14)
 settles what ADR-0091 §5 left open.
