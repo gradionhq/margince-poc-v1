@@ -42,8 +42,8 @@ func TestEvidenceRoundTripsThroughTheStoredShape(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("want one evidence element, got %d", len(got))
 	}
-	if got[0].EvidenceSnippet == nil || *got[0].EvidenceSnippet != "Priya: I'll send the revised pricing by Friday." {
-		t.Errorf("snippet did not survive the round trip: %+v", got[0].EvidenceSnippet)
+	if got[0].EvidenceSnippet != "Priya: I'll send the revised pricing by Friday." {
+		t.Errorf("snippet did not survive the round trip: %q", got[0].EvidenceSnippet)
 	}
 	if got[0].SourceType == nil || string(*got[0].SourceType) != "activity" {
 		t.Errorf("source_type did not survive the round trip: %+v", got[0].SourceType)
@@ -61,12 +61,12 @@ func TestEvidenceWithoutASourceOmitsThePointerInsteadOfNamingTheNilRecord(t *tes
 	if err != nil {
 		t.Fatalf("marshalling sourceless evidence: %v", err)
 	}
-	var stored []map[string]any
+	var stored []evidenceJSON
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatalf("stored evidence is not readable JSON: %v", err)
 	}
-	if stored[0]["source_id"] != nil || stored[0]["source_type"] != nil {
-		t.Errorf("evidence with no source must persist null, not the nil uuid which reads as a record that does not exist: %v", stored[0])
+	if stored[0].SourceID != nil || stored[0].SourceType != nil {
+		t.Errorf("evidence with no source must persist null, not the nil uuid which reads as a record that does not exist: %+v", stored[0])
 	}
 	if wired := wireEvidence(raw); wired == nil || (*wired)[0].SourceId != nil {
 		t.Error("a null source id must read back as absent")
@@ -87,7 +87,7 @@ func TestEvidenceRefusesCitationsAHumanCouldNotCheck(t *testing.T) {
 		},
 		{
 			name:     "snippet re-tells the record",
-			evidence: Evidence{Snippet: strings.Repeat("x", maxEvidenceSnippet+1)},
+			evidence: Evidence{Snippet: strings.Repeat("x", MaxEvidenceSnippet+1)},
 			wantMsg:  "over the",
 		},
 		{

@@ -10743,7 +10743,7 @@ type ApprovalBundleMemberOutcome string
 // ApprovalEvidence One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these.
 type ApprovalEvidence struct {
 	// EvidenceSnippet The fragment as it reads in the source, quoted rather than paraphrased.
-	EvidenceSnippet *string             `json:"evidence_snippet,omitempty"`
+	EvidenceSnippet string              `json:"evidence_snippet"`
 	SourceId        *openapi_types.UUID `json:"source_id,omitempty"`
 
 	// SourceLines 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed.

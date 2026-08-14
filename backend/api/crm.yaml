@@ -19696,6 +19696,7 @@ components:
         One claim's backing material, so confirming a proposal is a check rather
         than a vote of confidence in the model. Per claim, not per approval: a
         proposal asserting three things carries three of these.
+      required: [evidence_snippet]
       properties:
         evidence_snippet: { type: string, description: 'The fragment as it reads in the source, quoted rather than paraphrased.' }
         source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }

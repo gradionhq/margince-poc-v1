@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
@@ -154,11 +155,11 @@ func TestEvidenceQuotesTheTranscriptRatherThanTheModelsParaphrase(t *testing.T) 
 }
 
 func TestEvidenceTrimsAQuotationLongerThanTheApprovalsCapAccepts(t *testing.T) {
-	long := strings.Repeat("y", maxEvidenceSnippetChars*2)
+	long := strings.Repeat("y", approvals.MaxEvidenceSnippet*2)
 	evidence := stepEvidence(
 		proposedStep{Summary: "s", Owner: "o", SourceLines: []int{1}, Confidence: 1},
 		[]string{long}, ids.New[ids.ActivityKind]())
-	if len(evidence.Snippet) > maxEvidenceSnippetChars {
+	if len(evidence.Snippet) > approvals.MaxEvidenceSnippet {
 		t.Errorf("a long cited line must be trimmed here rather than refused at staging, got %d bytes", len(evidence.Snippet))
 	}
 }

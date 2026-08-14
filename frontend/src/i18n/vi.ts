@@ -1434,13 +1434,13 @@ export const vi = {
   "deepread.kindContact": "Liên hệ",
   "deepread.kindOther": "Khác",
 
-  "transcriptread.title": "Đọc bản ghi này",
+  "transcriptread.title": "Đọc bản chép lời này",
   "transcriptread.sub":
     "Tìm các bước tiếp theo và cam kết mà cuộc trò chuyện này nêu ra. Không có gì được ghi cho đến khi bạn xác nhận.",
-  "transcriptread.cta": "Đọc bản ghi",
+  "transcriptread.cta": "Đọc bản chép lời",
   "transcriptread.starting": "Đang bắt đầu…",
   "transcriptread.unavailable":
-    "Máy chủ này chưa cấu hình chức năng đọc bản ghi.",
+    "Máy chủ này chưa cấu hình chức năng đọc bản chép lời.",
   "transcriptread.statusQueued": "Đang xếp hàng",
   "transcriptread.statusRunning": "Đang đọc…",
   "transcriptread.statusDone": "Xong",

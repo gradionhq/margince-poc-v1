@@ -282,7 +282,7 @@ func wireEvidence(raw json.RawMessage) *[]crmcontracts.ApprovalEvidence {
 	}
 	out := make([]crmcontracts.ApprovalEvidence, 0, len(stored))
 	for _, e := range stored {
-		item := crmcontracts.ApprovalEvidence{EvidenceSnippet: &e.Snippet}
+		item := crmcontracts.ApprovalEvidence{EvidenceSnippet: e.Snippet}
 		if e.SourceType != nil {
 			t := crmcontracts.ApprovalEvidenceSourceType(*e.SourceType)
 			item.SourceType = &t

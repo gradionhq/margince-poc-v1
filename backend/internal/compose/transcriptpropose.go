@@ -293,11 +293,11 @@ func stepEvidence(step proposedStep, lines []string, activityID ids.ActivityID) 
 		quoted = append(quoted, lines[line-1])
 	}
 	snippet := strings.Join(quoted, "\n")
-	if len(snippet) > maxEvidenceSnippetChars {
+	if len(snippet) > approvals.MaxEvidenceSnippet {
 		// Trimmed on a rune boundary: cutting mid-sequence would replace the
 		// last character with U+FFFD, so a quotation of the transcript would
 		// end in a glyph the transcript does not contain.
-		snippet = strings.ToValidUTF8(snippet[:maxEvidenceSnippetChars], "")
+		snippet = strings.ToValidUTF8(snippet[:approvals.MaxEvidenceSnippet], "")
 	}
 	return approvals.Evidence{
 		Snippet:     snippet,
@@ -306,11 +306,6 @@ func stepEvidence(step proposedStep, lines []string, activityID ids.ActivityID) 
 		SourceLines: step.SourceLines,
 	}
 }
-
-// maxEvidenceSnippetChars mirrors the approvals module's own snippet cap, so a
-// long cited line is trimmed here with intent rather than refused there as a
-// staging error the rep can do nothing about.
-const maxEvidenceSnippetChars = 500
 
 // transcriptReadStore is the slice of the activities store this engine drives.
 // A narrow interface because the engine's whole relationship with the module is

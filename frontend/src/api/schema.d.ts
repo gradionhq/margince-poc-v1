@@ -14425,7 +14425,7 @@ export interface components {
         /** @description One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these. */
         ApprovalEvidence: {
             /** @description The fragment as it reads in the source, quoted rather than paraphrased. */
-            evidence_snippet?: string;
+            evidence_snippet: string;
             /** @enum {string|null} */
             source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
             /** Format: uuid */

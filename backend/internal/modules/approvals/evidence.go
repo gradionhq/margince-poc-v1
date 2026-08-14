@@ -29,10 +29,15 @@ var evidenceSourceTypes = map[string]bool{
 	"activity": true, "deal": true, "signal": true, "relationship": true, "page": true,
 }
 
-// maxEvidenceSnippet bounds one quoted fragment. Evidence is a pointer back to
+// MaxEvidenceSnippet bounds one quoted fragment. Evidence is a pointer back to
 // the source, not a copy of it — a snippet longer than this is being used to
 // re-tell the record rather than to locate a claim inside it.
-const maxEvidenceSnippet = 500
+//
+// Exported because a producer has to trim to it deliberately: staging REFUSES
+// an over-long snippet, and a refusal at that point is a staging error the rep
+// can do nothing about. One number, so a producer cannot trim to a different
+// one and still be refused here.
+const MaxEvidenceSnippet = 500
 
 // Evidence is one claim's backing material.
 type Evidence struct {
@@ -71,9 +76,9 @@ func validateEvidence(evidence []Evidence) error {
 		switch {
 		case e.Snippet == "":
 			return fmt.Errorf("crmapprovals: evidence[%d] has no snippet; quote the fragment the claim was read from", i)
-		case len(e.Snippet) > maxEvidenceSnippet:
+		case len(e.Snippet) > MaxEvidenceSnippet:
 			return fmt.Errorf("crmapprovals: evidence[%d] snippet is %d bytes, over the %d-byte cap; cite the fragment, do not re-tell the record",
-				i, len(e.Snippet), maxEvidenceSnippet)
+				i, len(e.Snippet), MaxEvidenceSnippet)
 		case e.SourceType != "" && !evidenceSourceTypes[e.SourceType]:
 			return fmt.Errorf("crmapprovals: evidence[%d] source_type %q is not one of activity, deal, signal, relationship, page", i, e.SourceType)
 		case e.SourceType == "" && !e.SourceID.IsZero():
