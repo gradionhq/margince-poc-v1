@@ -135,15 +135,35 @@ func (a commsAttachments) ReadForSend(
 		return nil, fmt.Errorf("comms: reading files for a send: %s", reason)
 	}
 	out := make([][]byte, 0, len(attachmentIDs))
+	total := int64(0)
 	for _, id := range attachmentIDs {
 		body, err := a.readOne(senderCtx, id)
 		if err != nil {
 			return nil, err
 		}
+		total += int64(len(body))
+		if total > maxSendBytes {
+			// The count is capped in the contract and the size per file at
+			// upload, and neither bounds their PRODUCT — ten files at the
+			// upload limit is a quarter of a gigabyte held at once, and the
+			// base64 encoding below doubles it. Refusing here is what keeps a
+			// worker that serves every send in the installation from dying of
+			// one message.
+			return nil, fmt.Errorf(
+				"comms: this message's files total more than %d MiB, which is more than a send may carry",
+				maxSendBytes>>20)
+		}
 		out = append(out, body)
 	}
 	return out, nil
 }
+
+// maxSendBytes caps what ONE message may carry in total.
+//
+// Below what mailbox providers accept (Gmail refuses past 25 MiB after
+// encoding), so a message this passes is one the provider will take rather than
+// one this product built and the wire refused.
+const maxSendBytes = 20 << 20
 
 // readOne reads one attachment fully, closing the object either way.
 func (a commsAttachments) readOne(ctx context.Context, id ids.UUID) ([]byte, error) {

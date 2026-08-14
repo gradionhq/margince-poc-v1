@@ -102,8 +102,13 @@ func writeMixed(b *strings.Builder, msg connector.EmailMessage) {
 // to assume it has none of, and any of them would end the part early.
 //
 // The filename rides in BOTH Content-Type and Content-Disposition because
-// clients disagree about which they read, and it is RFC 2047 encoded in each:
-// a German file name is otherwise mangled or rejected.
+// clients disagree about which they read.
+//
+// FormatMediaType renders each, rather than the RFC 2047 encoded-word the
+// subject line uses: an encoded word is for header TEXT, and a parameter needs
+// RFC 2231 — which is what this produces for a name carrying an umlaut, and
+// which also quotes a name carrying a quote instead of ending the parameter
+// early.
 func writeAttachment(b *strings.Builder, boundary string, file connector.OutboundFile) {
 	contentType := file.ContentType
 	if contentType == "" {
@@ -112,10 +117,11 @@ func writeAttachment(b *strings.Builder, boundary string, file connector.Outboun
 		// gibberish in the message body.
 		contentType = "application/octet-stream"
 	}
-	name := mime.QEncoding.Encode("utf-8", file.Filename)
 	b.WriteString("--" + boundary + "\r\n")
-	writeHeader(b, "Content-Type", contentType+`; name="`+name+`"`)
-	writeHeader(b, "Content-Disposition", `attachment; filename="`+name+`"`)
+	writeHeader(b, "Content-Type", mime.FormatMediaType(contentType,
+		map[string]string{"name": file.Filename}))
+	writeHeader(b, "Content-Disposition", mime.FormatMediaType("attachment",
+		map[string]string{"filename": file.Filename}))
 	writeHeader(b, "Content-Transfer-Encoding", "base64")
 	b.WriteString("\r\n")
 	b.WriteString(wrapBase64(base64.StdEncoding.EncodeToString(file.Body)))

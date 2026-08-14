@@ -16850,6 +16850,7 @@ components:
             appended to BOTH parts by the server, in each part's own syntax.
         attachment_ids:
           type: array
+          maxItems: 10
           items: { type: string, format: uuid }
           description: |
             Files already in the record library to send with this message, named by id
@@ -16898,6 +16899,7 @@ components:
             appended to BOTH parts by the server, in each part's own syntax.
         attachment_ids:
           type: array
+          maxItems: 10
           items: { type: string, format: uuid }
           description: |
             Files already in the record library to send with this message, named by id

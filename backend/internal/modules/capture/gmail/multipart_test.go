@@ -398,12 +398,38 @@ func TestANonASCIIFilenameIsEncoded(t *testing.T) {
 	msg := plainMessage()
 	msg.Files = []connector.OutboundFile{{Filename: "Größenänderung.pdf", Body: []byte("x")}}
 
-	raw := buildRFC822("rep@gradion.test", msg)
-	if strings.Contains(raw, "Größenänderung.pdf") {
-		t.Fatalf("a non-ASCII filename went out unencoded:\n%s", raw)
+	// Asserted through the parser rather than on the bytes: what matters is
+	// that a CLIENT recovers the name, not which legal spelling produced it.
+	// RFC 2231 is what a MIME parameter takes; the RFC 2047 encoded word this
+	// replaced is for header text and arrives literally in some clients.
+	recovered := filenameFromWire(t, buildRFC822("rep@gradion.test", msg))
+	if recovered != "Größenänderung.pdf" {
+		t.Fatalf("a client would see the filename as %q", recovered)
 	}
-	if !strings.Contains(raw, "=?utf-8?q?") {
-		t.Fatalf("the filename was not encoded at all:\n%s", raw)
+}
+
+// filenameFromWire reads the attachment's filename back the way a mail client
+// does: parse the part, parse its Content-Disposition, take the parameter.
+func filenameFromWire(t *testing.T, raw string) string {
+	t.Helper()
+	parsed := parseMail(t, raw)
+	_, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parsing the content type failed: %v", err)
+	}
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Fatalf("no attachment part carried a filename: %v", err)
+		}
+		_, disp, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		if err != nil {
+			continue
+		}
+		if name := disp["filename"]; name != "" {
+			return name
+		}
 	}
 }
 
@@ -416,5 +442,18 @@ func TestAFileWithNoTypeGetsOctetStream(t *testing.T) {
 
 	if !strings.Contains(buildRFC822("rep@gradion.test", msg), "application/octet-stream") {
 		t.Fatal("a typeless file went out with no content type")
+	}
+}
+
+// A filename that could break the parameter it sits in must not. A quote ends
+// the value early, and a client then shows a truncated name or none at all.
+func TestAFilenameWithAQuoteStaysOneParameter(t *testing.T) {
+	msg := plainMessage()
+	msg.Files = []connector.OutboundFile{
+		{Filename: `the "final" contract.pdf`, Body: []byte("x")},
+	}
+
+	if got := filenameFromWire(t, buildRFC822("rep@gradion.test", msg)); got != `the "final" contract.pdf` {
+		t.Fatalf("a client would see the filename as %q", got)
 	}
 }
