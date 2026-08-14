@@ -10,6 +10,7 @@ package gmail
 // blank, and only a parser can tell the two apart.
 
 import (
+	"encoding/base64"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -297,5 +298,123 @@ func TestNoSenderNameSendsABareAddress(t *testing.T) {
 				t.Fatalf("expected a bare address, got %q", got)
 			}
 		})
+	}
+}
+
+// A message carrying files is multipart/mixed whose FIRST part is the message
+// and whose rest are the attachments. A client shows the first part as the body
+// and offers the others, so a message whose files came first would open on an
+// attachment.
+func TestAMessageWithFilesIsMultipartMixed(t *testing.T) {
+	msg := plainMessage()
+	msg.Files = []connector.OutboundFile{
+		{Filename: "Vertrag.pdf", ContentType: "application/pdf", Body: []byte("%PDF-1.7 fake")},
+	}
+
+	parsed := parseMail(t, buildRFC822("rep@gradion.test", msg))
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parsing the content type failed: %v", err)
+	}
+	if mediaType != "multipart/mixed" {
+		t.Fatalf("expected multipart/mixed, got %q", mediaType)
+	}
+
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	first, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("reading the message part failed: %v", err)
+	}
+	if got := first.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+		t.Fatalf("the first part is %q, so a client would open on something other than the message", got)
+	}
+
+	attachment, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("reading the attachment part failed: %v", err)
+	}
+	if got := attachment.Header.Get("Content-Disposition"); !strings.Contains(got, "attachment") {
+		t.Fatalf("the file is not marked as an attachment: %q", got)
+	}
+	// NextPart hands back the part's raw bytes; decoding is the client's job
+	// and this is that step, so the assertion is on the file a recipient would
+	// actually reconstruct.
+	encoded, err := io.ReadAll(attachment)
+	if err != nil {
+		t.Fatalf("reading the attachment body failed: %v", err)
+	}
+	body, err := base64.StdEncoding.DecodeString(
+		strings.ReplaceAll(string(encoded), "\r\n", ""))
+	if err != nil {
+		t.Fatalf("the attachment is not valid base64: %v", err)
+	}
+	if string(body) != "%PDF-1.7 fake" {
+		t.Fatalf("the bytes did not survive the wire: %q", body)
+	}
+}
+
+// A file's bytes are base64, not 8bit like the text parts: a PDF contains the
+// line endings and boundary-looking sequences a text part may assume it has
+// none of, and any of them would end the part early.
+func TestAFilesBytesAreBase64Encoded(t *testing.T) {
+	msg := plainMessage()
+	msg.Files = []connector.OutboundFile{
+		{Filename: "raw.bin", Body: []byte("line\r\n--boundary-ish\r\nmore")},
+	}
+
+	raw := buildRFC822("rep@gradion.test", msg)
+	if !strings.Contains(raw, "Content-Transfer-Encoding: base64") {
+		t.Fatalf("a file went out unencoded:\n%s", raw)
+	}
+	if strings.Contains(raw, "--boundary-ish") {
+		t.Fatal("raw file bytes reached the wire, where a boundary-looking line would truncate the message")
+	}
+}
+
+// Markup AND files: the alternative pair nests inside the mixed envelope, so a
+// client still chooses between text and HTML while the files remain attached.
+func TestFilesAndMarkupNestCorrectly(t *testing.T) {
+	msg := plainMessage()
+	msg.HTMLBody = "<p>Anbei die Zahlen.</p>"
+	msg.Files = []connector.OutboundFile{{Filename: "z.pdf", Body: []byte("x")}}
+
+	parsed := parseMail(t, buildRFC822("rep@gradion.test", msg))
+	_, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parsing the content type failed: %v", err)
+	}
+	first, err := multipart.NewReader(parsed.Body, params["boundary"]).NextPart()
+	if err != nil {
+		t.Fatalf("reading the message part failed: %v", err)
+	}
+	if got := first.Header.Get("Content-Type"); !strings.HasPrefix(got, "multipart/alternative") {
+		t.Fatalf("the message part is %q, so the plain/markup choice was lost", got)
+	}
+}
+
+// A non-ASCII file name needs RFC 2047 encoding, exactly as the Subject does.
+// Raw, it is mangled or the message is rejected.
+func TestANonASCIIFilenameIsEncoded(t *testing.T) {
+	msg := plainMessage()
+	msg.Files = []connector.OutboundFile{{Filename: "Größenänderung.pdf", Body: []byte("x")}}
+
+	raw := buildRFC822("rep@gradion.test", msg)
+	if strings.Contains(raw, "Größenänderung.pdf") {
+		t.Fatalf("a non-ASCII filename went out unencoded:\n%s", raw)
+	}
+	if !strings.Contains(raw, "=?utf-8?q?") {
+		t.Fatalf("the filename was not encoded at all:\n%s", raw)
+	}
+}
+
+// A file with no declared type is octet-stream rather than nothing: a part with
+// no type is guessed at, and a client guessing wrong renders a PDF as gibberish
+// in the message body.
+func TestAFileWithNoTypeGetsOctetStream(t *testing.T) {
+	msg := plainMessage()
+	msg.Files = []connector.OutboundFile{{Filename: "unknown", Body: []byte("x")}}
+
+	if !strings.Contains(buildRFC822("rep@gradion.test", msg), "application/octet-stream") {
+		t.Fatal("a typeless file went out with no content type")
 	}
 }

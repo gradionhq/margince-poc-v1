@@ -182,7 +182,10 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs s
 		comms.NewStore(compose.InstallationDB(p.Pool), time.Now, activities.NewStore(compose.InstallationDB(p.Pool))),
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.Pool),
-		compose.NewSendAttachmentAuthority(p.Pool),
+		// nil object store: this lane sends no files, and a role wired without
+		// one still runs the gate — which reads rows — and only fails at the
+		// byte read a message with attachments would reach.
+		compose.NewSendAttachmentAuthority(p.Pool, nil),
 		consent.NewGate(consent.NewStore(compose.InstallationDB(p.Pool))),
 		nil, time.Now, 24*time.Hour, 10,
 	)

@@ -133,6 +133,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 // starved by another.
 func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, captureReg *capture.Registry, watchCfg compose.GmailWatchConfig, configuredVault keyvault.Vault, lanes workerLanes, rdb *redis.Client, overlayBudget overlaybudget.Config, modelPath compose.ModelPath, boundModels map[string]map[string]bool) (*jobs.Runner, error) {
 	return compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		// The send lane reads attachment bytes from the same object store
+		// capture writes them to; without it a message carrying files fails at
+		// the read rather than going out without them.
+		SendBlob: lanes.blob,
 		// The registry that resolves a staged delivery's mailbox: the SAME
 		// sweep registry the capture polls use, so the connector set that
 		// syncs a mailbox is the one that transmits from it.

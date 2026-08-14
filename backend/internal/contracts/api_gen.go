@@ -17550,6 +17550,18 @@ type SearchResultType string
 // SendAccountEmailRequest One account-started send. It is SendEmailRequest plus the `links` an anchor would
 // otherwise have supplied — the records this new conversation belongs to.
 type SendAccountEmailRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`
 	Cc   *[]openapi_types.Email `json:"cc,omitempty"`
@@ -17586,6 +17598,18 @@ type SendAccountEmailRequest struct {
 
 // SendEmailRequest defines model for SendEmailRequest.
 type SendEmailRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`
 	Cc   *[]openapi_types.Email `json:"cc,omitempty"`

@@ -11,12 +11,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -35,8 +37,15 @@ type commsAttachments struct {
 // hands a message with files to a provider.
 //
 //nolint:ireturn // returns the comms.AttachmentAuthority seam by design: the concrete type is unexported and every caller holds the interface
-func NewSendAttachmentAuthority(pool *pgxpool.Pool) comms.AttachmentAuthority {
-	return commsAttachments{authority: identity.NewService(pool), files: activities.NewStore(InstallationDB(pool))}
+func NewSendAttachmentAuthority(pool *pgxpool.Pool, blob blobstore.Store) comms.AttachmentAuthority {
+	return commsAttachments{
+		authority: identity.NewService(pool),
+		// WithBlobstore is what lets ReadForSend open the objects. A worker
+		// wired without one can still run the gate — that reads rows — and
+		// fails at the read, which is the fault this argument exists to make
+		// impossible to introduce by omission.
+		files: activities.NewStore(InstallationDB(pool)).WithBlobstore(blob),
+	}
 }
 
 // senderCtx rebuilds the sender's CURRENT authority on the worker's context.
@@ -99,4 +108,56 @@ func (a commsAttachments) EnsureTransmittable(
 		}
 	}
 	return true, "", nil
+}
+
+// ReadForSend opens each attachment's bytes for the transmit, in the order
+// asked, under the SENDER's own authority.
+//
+// OpenAttachment carries the scan gate as well as the row-scope one, so a file
+// quarantined between staging and now cannot be read here even though
+// EnsureTransmittable ran a moment earlier — two checks of the same fact, and
+// the cheaper one is not trusted to have been recent enough.
+//
+// A read that fails returns the error rather than a short set: the dispatcher
+// retries on error, and a message transmitted with fewer files than it claims
+// is the outcome this whole path exists to prevent.
+func (a commsAttachments) ReadForSend(
+	ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID,
+) ([][]byte, error) {
+	if len(attachmentIDs) == 0 {
+		return nil, nil
+	}
+	senderCtx, reason, err := a.senderCtx(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if reason != "" {
+		return nil, fmt.Errorf("comms: reading files for a send: %s", reason)
+	}
+	out := make([][]byte, 0, len(attachmentIDs))
+	for _, id := range attachmentIDs {
+		body, err := a.readOne(senderCtx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, body)
+	}
+	return out, nil
+}
+
+// readOne reads one attachment fully, closing the object either way.
+func (a commsAttachments) readOne(ctx context.Context, id ids.UUID) ([]byte, error) {
+	_, rc, err := a.files.OpenAttachment(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("comms: opening an attached file: %w", err)
+	}
+	defer func() {
+		//craft:ignore swallowed-errors the bytes are already read by the time this runs; failing a send because a reader would not close would refuse a message that is otherwise complete
+		_ = rc.Close()
+	}()
+	body, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, fmt.Errorf("comms: reading an attached file: %w", err)
+	}
+	return body, nil
 }

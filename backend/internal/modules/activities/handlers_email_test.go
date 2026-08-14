@@ -25,7 +25,7 @@ func emails(addresses ...string) []openapi_types.Email {
 
 func TestSendInputMergesEveryAddresseeForTheConsentGate(t *testing.T) {
 	cc := emails("boss@example.test")
-	in := sendInputFrom(emails("buyer@example.test"), &cc, "Pricing", "As discussed.", nil, "transactional", nil)
+	in := sendInputFrom(emails("buyer@example.test"), &cc, "Pricing", "As discussed.", nil, nil, "transactional", nil)
 
 	// The gate answers on Recipients, so a cc'd person must appear there or
 	// they receive mail nobody asked consent for.
@@ -48,7 +48,7 @@ func TestSendInputMergesEveryAddresseeForTheConsentGate(t *testing.T) {
 }
 
 func TestSendInputWithoutCcCarriesOnlyTheAddressees(t *testing.T) {
-	in := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "As discussed.", nil, "transactional", nil)
+	in := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "As discussed.", nil, nil, "transactional", nil)
 
 	if len(in.Recipients) != 1 || in.Recipients[0] != "buyer@example.test" {
 		t.Fatalf("Recipients = %v, want just the one addressee", in.Recipients)
@@ -62,13 +62,13 @@ func TestSendInputWithoutCcCarriesOnlyTheAddressees(t *testing.T) {
 // composed without a served draft resolves no learning signal, which the
 // empty string is how the send path is told.
 func TestSendInputResolvesNoDraftWhenNoneWasServed(t *testing.T) {
-	in := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "Body", nil, "transactional", nil)
+	in := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "Body", nil, nil, "transactional", nil)
 	if in.DraftRef != "" {
 		t.Fatalf("DraftRef = %q, want empty so no voice outcome is inferred", in.DraftRef)
 	}
 
 	ref := "draft-42"
-	withDraft := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "Body", nil, "transactional", &ref)
+	withDraft := sendInputFrom(emails("buyer@example.test"), nil, "Pricing", "Body", nil, nil, "transactional", &ref)
 	if withDraft.DraftRef != ref {
 		t.Fatalf("DraftRef = %q, want %q — the send closes the signal that draft opened", withDraft.DraftRef, ref)
 	}

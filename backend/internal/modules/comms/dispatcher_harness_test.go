@@ -288,11 +288,30 @@ type stubAttachments struct {
 	reason string
 	err    error
 	asked  []ids.UUID
+	// read records what the transmit actually opened, and readErr fails that
+	// read after the gate has passed — the window a scan or an outage lands in.
+	read    []ids.UUID
+	readErr error
 }
 
 func (s *stubAttachments) EnsureTransmittable(_ context.Context, _ ids.UserID, attachmentIDs []ids.UUID) (bool, string, error) {
 	s.asked = append(s.asked, attachmentIDs...)
 	return s.ok, s.reason, s.err
+}
+
+// ReadForSend answers with one body per id, naming the file it came from so a
+// test asserting on what reached the wire can tell them apart. readErr is how a
+// case makes the object store fail after the gate has already passed.
+func (s *stubAttachments) ReadForSend(_ context.Context, _ ids.UserID, attachmentIDs []ids.UUID) ([][]byte, error) {
+	if s.readErr != nil {
+		return nil, s.readErr
+	}
+	s.read = append(s.read, attachmentIDs...)
+	out := make([][]byte, 0, len(attachmentIDs))
+	for _, id := range attachmentIDs {
+		out = append(out, []byte("bytes-of-"+id.String()))
+	}
+	return out, nil
 }
 
 // dispatch runs one attempt and drops the postponement interval, which most
