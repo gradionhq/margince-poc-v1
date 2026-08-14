@@ -36,7 +36,7 @@ func (s *Store) RecomputeLeadScore(ctx context.Context, leadID ids.LeadID, now t
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		return recomputeLeadScoreTx(ctx, tx, leadID, now)
+		return recomputeLeadScoreTx(ctx, tx, leadID, now, false)
 	})
 }
 
@@ -47,7 +47,10 @@ func (s *Store) RecomputeLeadScore(ctx context.Context, leadID ids.LeadID, now t
 // human value is sticky (formulas §3.1, AC-S1) and the freshly machine
 // value is retained in score_computed instead. With no override, score
 // tracks the machine value directly (score_computed stays null).
-func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now time.Time) error {
+// clearedOverride tells this recompute it is the one a withdrawn
+// Commercial Judgement override triggered — the single case where an
+// unmoved score still has to be recorded (see below).
+func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now time.Time, clearedOverride bool) error {
 	var title, source, overrideReason *string
 	var currentScore int
 	var currentComputed *int
@@ -81,36 +84,36 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 
 	// Sticky override: the machine value moves score_computed, never score.
 	if overrideReason != nil {
-		if currentComputed != nil && *currentComputed == machine {
-			return nil
-		}
-		if _, err := tx.Exec(ctx, `UPDATE lead SET score_computed = $2 WHERE id = $1`, leadID, machine); err != nil {
-			return err
-		}
-		// The displayed score stays the human's; the factors explain the
-		// machine's. The entry carries both so the read can say which is
-		// which instead of presenting one as an account of the other.
-		if err := appendLeadScoreHistory(ctx, tx, leadID, currentScore, scored, overrideReason); err != nil {
-			return err
-		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,
-			map[string]any{"score_computed": currentComputed}, map[string]any{"score_computed": machine})
-		if err != nil {
-			return err
-		}
-		return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
-			ChangedFields: map[string]any{eventKeyDelta: map[string]any{"score_computed": machine}},
+		return recomputeUnderOverrideTx(ctx, tx, leadID, overrideUpdate{
+			displayed: currentScore, previousComputed: currentComputed,
+			reason: overrideReason, scored: scored,
 		})
 	}
 
 	// Unchanged score, no entry: history records the number MOVING, which is
 	// what a trend plots and what a rep asks about. Appending on every decay
 	// tick would bury that under drift nobody reads (ADR-0105 §5).
+	//
+	// The exception is the recompute that a CLEARED override triggers. That
+	// clear has already set score back to the retained machine value, so the
+	// number has not moved by the time this runs — yet the newest entry still
+	// carries the override's reason and its two divergent numbers. Left out,
+	// the series would say a withdrawn override is still in force.
 	if machine == currentScore {
-		return nil
+		if !clearedOverride {
+			return nil
+		}
+		return appendLeadScoreHistory(ctx, tx, leadID, machine, scored, nil)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lead SET score = $2 WHERE id = $1`, leadID, machine); err != nil {
+	// Same CAS, same reason: machine was computed from the score this run
+	// read, so a concurrent recompute that already moved it wins.
+	moved, err := tx.Exec(ctx,
+		`UPDATE lead SET score = $2 WHERE id = $1 AND score = $3`, leadID, machine, currentScore)
+	if err != nil {
 		return err
+	}
+	if moved.RowsAffected() == 0 {
+		return nil
 	}
 	if err := appendLeadScoreHistory(ctx, tx, leadID, machine, scored, nil); err != nil {
 		return err
@@ -122,6 +125,56 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 	}
 	return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
 		ChangedFields: map[string]any{"delta": map[string]any{"score": machine}},
+	})
+}
+
+// fieldKeyScoreComputed names the machine score on the audit trail and
+// the event delta, which must spell it identically.
+const fieldKeyScoreComputed = "score_computed"
+
+// overrideUpdate carries what the override arm needs to record one
+// recompute that ran while a human's number was in force.
+type overrideUpdate struct {
+	displayed        int     // the human's score, which this path never moves
+	previousComputed *int    // the machine value before this run, for the audit delta
+	reason           *string // the written reason keeping the override alive
+	scored           LeadScoring
+}
+
+// recomputeUnderOverrideTx refreshes the machine value beside a Commercial
+// Judgement override without disturbing the score on screen (A68/ADR-0053).
+func recomputeUnderOverrideTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, in overrideUpdate) error {
+	machine := in.scored.Score
+	if in.previousComputed != nil && *in.previousComputed == machine {
+		return nil
+	}
+	// CAS on the value this run read: the machine score was derived from a
+	// pre-read of score_computed, so a concurrent recompute that already
+	// moved it must not be overwritten with a number computed from the
+	// state before it landed. A lost race writes nothing and appends no
+	// entry, which is correct — the winner recorded the same recompute.
+	tag, err := tx.Exec(ctx,
+		`UPDATE lead SET score_computed = $2 WHERE id = $1 AND score_computed IS NOT DISTINCT FROM $3`,
+		leadID, machine, in.previousComputed)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	// The displayed score stays the human's; the factors explain the
+	// machine's. The entry carries both so the read can say which is which
+	// instead of presenting one as an account of the other.
+	if err := appendLeadScoreHistory(ctx, tx, leadID, in.displayed, in.scored, in.reason); err != nil {
+		return err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,
+		map[string]any{fieldKeyScoreComputed: in.previousComputed}, map[string]any{fieldKeyScoreComputed: machine})
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, leadID.UUID, crmcontracts.PublicEventLeadUpdated{
+		ChangedFields: map[string]any{eventKeyDelta: map[string]any{fieldKeyScoreComputed: machine}},
 	})
 }
 

@@ -325,6 +325,19 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		  -- keyed to the twin, which no later erasure would ever revisit.
 		  DELETE FROM ai_feedback
 		  WHERE subject_type = 'lead' AND subject_id IN (SELECT id FROM wiped)
+		), scores AS (
+		  -- The score's explanation is about the subject too: the retained
+		  -- series embeds the ids of activities they took part in, inside a
+		  -- JSON column no field-level scrub can reach. The UPDATE above
+		  -- anonymizes rather than deletes, so nothing cascades here.
+		  DELETE FROM lead_score_history
+		  WHERE lead_id IN (SELECT id FROM wiped)
+		), manual AS (
+		  -- A manual scoring signal is a colleague's written judgement ABOUT
+		  -- this subject, carrying their name. That is exactly why it cannot
+		  -- outlive the record it judges.
+		  DELETE FROM lead_manual_signal
+		  WHERE lead_id IN (SELECT id FROM wiped)
 		)
 		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
 		personID, lowercased(emails))

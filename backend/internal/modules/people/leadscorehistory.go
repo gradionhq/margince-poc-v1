@@ -14,6 +14,7 @@ package people
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -56,4 +57,42 @@ func appendLeadScoreHistory(
 		return fmt.Errorf("append lead score history: %w", err)
 	}
 	return nil
+}
+
+// appendOverrideScoreHistory records a Commercial Judgement override as its
+// own point in the series.
+//
+// Setting an override moves the DISPLAYED score and leaves the machine
+// value alone, so no recompute fires and nothing else would write this
+// down. The model's own numbers are carried forward unchanged from the
+// previous entry — the human overruled the score, not the arithmetic, and
+// re-deriving factors here would attribute today's decay to a computation
+// that never ran.
+//
+// A lead with no previous entry (scored before the series existed) simply
+// gets none now: fabricating a breakdown to sit under an override would
+// invent the very explanation this feature exists to make honest.
+func appendOverrideScoreHistory(ctx context.Context, tx pgx.Tx, leadID ids.LeadID) error {
+	var displayed int
+	var overrideReason *string
+	var previous LeadScoring
+	var encoded []byte
+	err := tx.QueryRow(ctx,
+		`SELECT l.score, l.score_override_reason, h.score_computed, h.factors, h.raw_sum, h.rounded_sum
+		   FROM lead l
+		   JOIN lead_score_history h ON h.lead_id = l.id
+		  WHERE l.id = $1
+		  ORDER BY h.computed_at DESC, h.id DESC
+		  LIMIT 1`, leadID).
+		Scan(&displayed, &overrideReason, &previous.Score, &encoded, &previous.RawSum, &previous.RoundedSum)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read previous lead score entry: %w", err)
+	}
+	if err := json.Unmarshal(encoded, &previous.Factors); err != nil {
+		return fmt.Errorf("decode previous lead score factors: %w", err)
+	}
+	return appendLeadScoreHistory(ctx, tx, leadID, displayed, previous, overrideReason)
 }

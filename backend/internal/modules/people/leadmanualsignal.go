@@ -127,7 +127,7 @@ func (s *Store) SetLeadManualSignal(ctx context.Context, leadID ids.LeadID, in S
 		}); err != nil {
 			return err
 		}
-		return recomputeLeadScoreTx(ctx, tx, leadID, time.Now().UTC())
+		return recomputeLeadScoreTx(ctx, tx, leadID, time.Now().UTC(), false)
 	})
 	if err != nil {
 		return crmcontracts.LeadManualSignal{}, err
@@ -171,7 +171,7 @@ func (s *Store) ClearLeadManualSignal(ctx context.Context, leadID ids.LeadID, fa
 		}); err != nil {
 			return err
 		}
-		return recomputeLeadScoreTx(ctx, tx, leadID, time.Now().UTC())
+		return recomputeLeadScoreTx(ctx, tx, leadID, time.Now().UTC(), false)
 	})
 }
 
