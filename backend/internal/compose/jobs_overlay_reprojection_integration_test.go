@@ -23,6 +23,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"testing"
@@ -380,9 +381,10 @@ func (r *reprojectionEnv) staleProjections(t *testing.T, m overlay.ObjectMapping
 }
 
 // A row that has already failed against the CURRENT declaration is not
-// re-fetched: the incumbent still holds a record this build cannot map, so the
-// same read returns the same answer, and every attempt spends one call from a
-// budget interactive force-fresh shares.
+// re-fetched: the incumbent serves the record whole and this declaration cannot
+// project it, so the same read returns the same answer while the declaration
+// stands, and every attempt spends one call from a budget interactive
+// force-fresh shares.
 func TestStaleProjectionsSkipARowThatFailedAgainstTheCurrentDeclaration(t *testing.T) {
 	r := setupReprojection(t)
 	m := r.mirrorContactsAndDeclaration(t)
@@ -403,7 +405,8 @@ func TestStaleProjectionsSkipARowThatFailedAgainstTheCurrentDeclaration(t *testi
 
 // The record names ONE declaration. A repaired declaration has a different
 // fingerprint, so the record stops applying and the row is retried — the exit
-// that fixes the data rather than discarding it, with no operator action.
+// that fixes the data rather than discarding it, with no record for anyone to
+// clear by hand.
 func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
 	r := setupReprojection(t)
 	m := r.mirrorContactsAndDeclaration(t)
@@ -416,9 +419,10 @@ func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
 			"the retry below would prove nothing if the row had never left the set", stale)
 	}
 
-	// The repair: an edit to the declaration, which is what an operator who
-	// fixes an unmappable record's mapping actually does. It re-fingerprints
-	// every row the old declaration projected, the recorded failure among them.
+	// The repair: a build that ships a changed declaration, which is the only
+	// thing that can fix a record this build cannot project — the declaration
+	// is Go source compiled into the binary. It re-fingerprints every row the
+	// old declaration projected, the recorded failure among them.
 	m.Const = map[string]any{"lifecycle_source": "repaired"}
 	want := []string{currentRowExternalID, staleRowExternalID}
 	if stale := r.staleProjections(t, m); !slices.Equal(stale, want) {
@@ -427,26 +431,19 @@ func TestStaleProjectionsRetryARowWhoseDeclarationChanged(t *testing.T) {
 	}
 }
 
-// Almost every row records no failure at all. The selection compares with IS
-// DISTINCT FROM because `NULL <> 'x'` is NULL, not true: a `<>` spelling would
-// drop every never-failed row from the set, stop re-projection across the whole
-// estate, and read as convergence while doing it.
-func TestStaleProjectionsStillNameARowThatNeverFailed(t *testing.T) {
-	r := setupReprojection(t)
-	m := r.mirrorContactsAndDeclaration(t)
+// errRecordThisBuildCannotProject is what the incumbent adapter answers for a
+// record it served whole that this build's declaration could not project
+// (hubspot.ErrUnmappable, as hubspot.mapRecord returns it). It is the ONE read
+// failure whose answer is fixed for as long as the declaration is, which is
+// what makes retiring the row from the sweep honest.
+var errRecordThisBuildCannotProject = fmt.Errorf("%w: mapping contacts record %s", hubspot.ErrUnmappable, staleRowExternalID)
 
-	if stale := r.staleProjections(t, m); !slices.Equal(stale, []string{staleRowExternalID}) {
-		t.Fatalf("StaleProjections reports %v, want [%s] — a row that has never failed records NULL, "+
-			"and dropping those rows would silently halt re-projection for every row in the estate", stale, staleRowExternalID)
-	}
-}
-
-// errRecordThisBuildCannotMap is what an incumbent answers for a record it
-// still holds but no declaration in this build can project. It is deliberately
-// not one of the connection-level sentinels: those are retried, and a read that
-// returns the same answer however many attempts it is given is the only failure
-// worth recording.
-var errRecordThisBuildCannotMap = errors.New("compose: the incumbent holds a record this build cannot map")
+// errRecordWithheldThisPass stands for every OTHER object-level read failure:
+// a batch read that came back with no results, a 409. Only the classification
+// matters here — it carries no sentinel this worker records on — and that the
+// real empty-batch error carries none is pinned where it is produced, by
+// hubspot's TestAdapterGetDoesNotCallAnEmptyBatchResultUnmappable.
+var errRecordWithheldThisPass = errors.New("hubspot: no contacts record with external id " + staleRowExternalID)
 
 // reprojectionFailureRecord answers the declaration a row records it could not
 // reach, read straight from the column. That is the direct evidence and the
@@ -468,12 +465,13 @@ func (r *reprojectionEnv) reprojectionFailureRecord(t *testing.T, canonicalClass
 	return *recorded
 }
 
-// The re-fetch the phase enqueues can fail for good: the incumbent still holds
-// the record but this build cannot map it, so the read returns the same answer
-// every time. The worker records the declaration it failed to reach, and that
-// record is what takes the row out of the stale set — without it the sweep
-// names the row again every tick, spending one reserved incumbent call from the
-// budget interactive force-fresh shares, forever, while the flip stays blocked.
+// The re-fetch the phase enqueues can fail for good: the incumbent serves the
+// record whole and this build's declaration cannot project it, so the read
+// returns the same answer every time until the declaration changes. The worker
+// records the declaration it failed to reach, and that record is what takes the
+// row out of the stale set — without it the sweep names the row again every
+// tick, spending one reserved incumbent call from the budget interactive
+// force-fresh shares, forever, while the flip stays blocked.
 func TestSweepReprojectionRecordsARefetchThatCannotLand(t *testing.T) {
 	r := setupReprojection(t)
 	m := r.mirrorContactsAndDeclaration(t)
@@ -491,7 +489,7 @@ func TestSweepReprojectionRecordsARefetchThatCannotLand(t *testing.T) {
 	// than being staged against the mirror by this file.
 	worker := registeredRefetchWorker(t, r.env.Pool, r.vault,
 		budgettest.Meter(t, budgettest.SmallConfig("hubspot")),
-		getFailingIncumbent{Adapter: fake.New(), err: errRecordThisBuildCannotMap})
+		getFailingIncumbent{Adapter: fake.New(), err: errRecordThisBuildCannotProject})
 	if err := worker.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: r.inc.enqueued[0]}); err != nil {
 		t.Fatalf("a read no retry can change must not fail the job: %v", err)
 	}
@@ -510,6 +508,50 @@ func TestSweepReprojectionRecordsARefetchThatCannotLand(t *testing.T) {
 	if len(r.inc.enqueued) != 0 {
 		t.Fatalf("the second sweep enqueued %v, want none — re-reading a row that just failed against this very declaration "+
 			"buys the same answer for one more live incumbent call", r.inc.enqueued)
+	}
+}
+
+// The other side of the same decision, and the one that costs an estate its
+// convergence if it goes wrong. Every read failure that is NOT the declaration
+// refusing the record can come back differently on the next tick — an empty
+// batch result is what HubSpot's partial-batch 207 produces for an object it
+// momentarily withheld, and a 409 is a passing state conflict. Recording one of
+// those retires the row from the sweep while it goes on counting stale for the
+// flip: the flip would stay blocked with nothing left re-fetching the row, and
+// the one-per-tick re-read that used to say so would be gone too.
+func TestSweepReprojectionKeepsARowWhoseRecordWasMerelyWithheld(t *testing.T) {
+	r := setupReprojection(t)
+	m := r.mirrorContactsAndDeclaration(t)
+	if !slices.Equal(r.inc.enqueued, []OverlayRefetchArgs{{
+		Workspace:      r.env.WS,
+		IncumbentClass: overlay.IncumbentClassContacts,
+		ExternalID:     staleRowExternalID,
+	}}) {
+		t.Fatalf("the first sweep enqueued %v, want the stale row alone — there is no re-fetch to fail otherwise", r.inc.enqueued)
+	}
+
+	worker := registeredRefetchWorker(t, r.env.Pool, r.vault,
+		budgettest.Meter(t, budgettest.SmallConfig("hubspot")),
+		getFailingIncumbent{Adapter: fake.New(), err: errRecordWithheldThisPass})
+	if err := worker.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: r.inc.enqueued[0]}); err != nil {
+		t.Fatalf("a read the next pass can retry must still not fail the job: %v", err)
+	}
+
+	if recorded := r.reprojectionFailureRecord(t, m.Target, staleRowExternalID); recorded != "" {
+		t.Fatalf("%s/%s records %q, want nothing — the incumbent answered this pass, not this declaration, and a record here "+
+			"retires the row from the sweep permanently while the flip goes on counting it stale",
+			m.Target, staleRowExternalID, recorded)
+	}
+
+	r.inc.enqueued = nil
+	r.sweep(t, overlay.IncumbentClassContacts)
+	if !slices.Equal(r.inc.enqueued, []OverlayRefetchArgs{{
+		Workspace:      r.env.WS,
+		IncumbentClass: overlay.IncumbentClassContacts,
+		ExternalID:     staleRowExternalID,
+	}}) {
+		t.Fatalf("the next sweep enqueued %v, want the stale row again — a row the incumbent withheld once is the sweep's "+
+			"to retry, and dropping it strands the flip on a row nothing re-fetches", r.inc.enqueued)
 	}
 }
 

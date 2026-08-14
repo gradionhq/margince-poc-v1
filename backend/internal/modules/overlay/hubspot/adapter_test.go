@@ -270,6 +270,56 @@ func TestAdapterGetNoResultsErrorsCleanly(t *testing.T) {
 	}
 }
 
+// TestAdapterGetDoesNotCallAnEmptyBatchResultUnmappable pins the discriminator
+// the re-projection sweep retires rows on. HubSpot answers a PARTIAL batch with
+// 207 MULTI_STATUS — a 2xx the client reads as success — so an empty results
+// array is as often one object momentarily withheld as a record that is gone.
+// Carrying ErrUnmappable here would let a caller conclude "no retry can change
+// this" from an answer the very next read can change.
+func TestAdapterGetDoesNotCallAnEmptyBatchResultUnmappable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`{"results":[],"numErrors":1}`))
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+
+	_, err := adapter.Get(t.Context(), "contacts", "100214862042")
+	if err == nil {
+		t.Fatal("Get: a batch that returned the record neither whole nor at all must be an error")
+	}
+	if errors.Is(err, hubspot.ErrUnmappable) {
+		t.Fatalf("Get = %v, which reports the record as unprojectable — a 207 partial is this pass's answer, "+
+			"and a caller that stops re-reading on it strands a record the next pass would have served", err)
+	}
+}
+
+// TestAdapterGetCallsARecordItCannotProjectUnmappable is the other side: the
+// record arrived WHOLE and the declaration could not turn it into a mirror row
+// — here its baseline property is not a timestamp, so the projection has no
+// watermark to store. Both the record and the declaration are fixed, so this is
+// the one read failure whose answer cannot change until a build ships a
+// different declaration, and the only one a caller may retire a row on.
+func TestAdapterGetCallsARecordItCannotProjectUnmappable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"id":"100214862042","properties":{
+			"hs_object_id":"100214862042","firstname":"Christian",
+			"lastmodifieddate":"not a timestamp"}}]}`))
+	}))
+	defer srv.Close()
+
+	adapter := hubspot.NewAdapter(hubspot.NewClient("us", "test-token", hubspot.WithBaseURL(srv.URL)))
+
+	_, err := adapter.Get(t.Context(), "contacts", "100214862042")
+	if !errors.Is(err, hubspot.ErrUnmappable) {
+		t.Fatalf("Get = %v, want it marked unprojectable — without that mark the sweep re-reads this record every tick "+
+			"for an answer only a new declaration can change", err)
+	}
+}
+
 // TestAdapterEnrichLeadsDerivesContactFields is the OVA-MAP-5 golden proof:
 // a lead's full_name comes from the real hs_lead_name property, and its
 // email/company_name are denormalized from the contact reached through the

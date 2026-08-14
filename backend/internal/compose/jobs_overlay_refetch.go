@@ -62,11 +62,11 @@ func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // on one mirror state. A dropped job is not a lost record either way: a signal
 // this lane drops is healed by the poller's next watermark pass, and a
 // re-projection it drops is named again by the next sweep's re-projection
-// phase, since the row keeps the declaration it was projected under — unless
-// the read failed in a way no retry changes, in which case the row records the
-// declaration it could not reach and is spared until that declaration is
-// repaired, because re-reading it would spend an incumbent call on an answer
-// that cannot change.
+// phase, since the row keeps the declaration it was projected under — with one
+// exception, dropFailedRead's: a record this build's declaration cannot project
+// records the declaration it could not reach and is spared until that
+// declaration changes, because re-reading it would spend an incumbent call on
+// an answer nothing but a new declaration can change.
 type overlayRefetchWorker struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
@@ -174,36 +174,14 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
 	if err != nil {
 		// A connection-level failure (rate-limit/auth/unreachable) is retryable
-		// — return it so River backs off and retries. A record the incumbent
-		// will not hand back is not: the same read returns the same answer,
-		// however many attempts it is given. What the mirror is left holding
-		// depends on why: an archived record is retired by the deletion feed,
-		// while a record the incumbent still holds but this build cannot map
-		// keeps its current payload and stays in the stale set — which is why
-		// the row records the declaration it could not reach, so the next
-		// re-projection pass does not spend one reserved REST unit and one live
-		// read on it every tick while force_fresh_incomplete holds the flip
-		// shut.
+		// — return it so River backs off and retries. Every other read failure
+		// leaves the mirror holding what it already held, and dropping the job
+		// costs nothing durable: the row stays in the stale set and the next
+		// re-projection pass names it again.
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay refetch: reading %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
 		}
-		w.log.WarnContext(wsCtx, "overlay refetch: reading the record failed in a way a retry cannot change; the mirror keeps what it holds",
-			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", err)
-		// The mirror is keyed by the CANONICAL class the declaration projects
-		// onto, never the incumbent's own name for it, and the fingerprint
-		// recorded is the one StaleProjections derives its comparison from — so
-		// the record and the skip agree by construction. A class this build
-		// declares no mapping for has no declaration to have failed.
-		if m, declared := hubspot.Mapping(job.Args.IncumbentClass); declared {
-			// Bookkeeping, not the job's purpose: this read has already failed
-			// in a way no retry changes, and failing the job to report that the
-			// note could not be written would turn a bounded waste into a
-			// retried one.
-			if recErr := ms.RecordReprojectionFailure(wsCtx, m.Target, job.Args.ExternalID, overlay.Fingerprint(m)); recErr != nil {
-				w.log.WarnContext(wsCtx, "overlay refetch: recording the re-projection failure failed; the row stays in the stale set and the next pass names it again",
-					"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", recErr)
-			}
-		}
+		w.dropFailedRead(wsCtx, ms, job.Args, err)
 		return nil
 	}
 	// WithFenceIdentity on conn's OWN connected_at: a signal that outlives a
@@ -219,4 +197,67 @@ func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn over
 		return fmt.Errorf("overlay refetch: ingesting %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
 	}
 	return nil
+}
+
+// dropFailedRead disposes of a single-record read that failed for a reason
+// other than connection health, and decides the one thing that disposal can
+// get wrong: whether to record the declaration the re-projection could not
+// reach. A record RETIRES the row from the re-projection sweep until this
+// class's declaration changes, so it may only be written when the answer is
+// fixed for as long as that declaration is — hubspot.ErrUnmappable, the read
+// that came back whole and could not be projected.
+//
+// Everything else is left unrecorded on purpose, because the same read can
+// come back differently: HubSpot answers a partial batch 207 MULTI_STATUS,
+// which is a success, so an empty result is as often one object momentarily
+// withheld as an absent record, and a 409 is a passing state conflict.
+// Recording on those would retire a row the incumbent would have served on the
+// next tick, and retire it invisibly — the row keeps counting stale, so the
+// flip stays blocked while nothing is left retrying it. Leaving them
+// unrecorded costs one re-fetch per sweep tick and self-heals.
+//
+// An archived record (apperrors.ErrNotFound) is terminal too, but recording it
+// would be moot: the deletion feed purges the row, and a record on a row that
+// is about to be deleted spares nothing.
+func (w *overlayRefetchWorker) dropFailedRead(ctx context.Context, ms *overlay.MirrorStore, args OverlayRefetchArgs, readErr error) {
+	if !errors.Is(readErr, hubspot.ErrUnmappable) {
+		w.log.WarnContext(ctx, "overlay refetch: the incumbent did not hand back this record; the mirror keeps what it holds and the next re-projection pass names the row again",
+			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID, "err", readErr)
+		return
+	}
+	// The mirror is keyed by the CANONICAL class the declaration projects onto,
+	// never the incumbent's own name for it, and the fingerprint recorded is
+	// the one StaleProjections derives its comparison from — so the record and
+	// the skip agree by construction.
+	m, declared := hubspot.Mapping(args.IncumbentClass)
+	if !declared {
+		// Unreachable while a projection failure can only follow a declaration
+		// that was found, and handled rather than assumed away for the reason
+		// the sweep's own lookup is (jobs_overlay_sweep.go): the two lists are
+		// separate, and a silent return here would be a row nothing re-fetches
+		// and nothing reports.
+		w.log.WarnContext(ctx, "overlay refetch: no mapping declaration for this object class, so there is no declaration a re-projection could have failed to reach",
+			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID, "err", readErr)
+		return
+	}
+	fingerprint := overlay.Fingerprint(m)
+	// Bookkeeping, not the job's purpose: this read has already failed in a way
+	// no retry changes, and failing the job to report that the note could not be
+	// written would turn a bounded waste into a retried one.
+	if recErr := ms.RecordReprojectionFailure(ctx, m.Target, args.ExternalID, fingerprint); recErr != nil {
+		w.log.WarnContext(ctx, "overlay refetch: recording the re-projection failure failed; the row stays in the stale set and the next pass names it again",
+			"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID,
+			"declaration", fingerprint, "read_err", readErr, "err", recErr)
+		return
+	}
+	// The only trace this outcome leaves. The row is not re-fetched again and
+	// the recorded declaration has no read surface, so a line that reported
+	// only the failure would leave an operator watching a blocked flip with
+	// nothing converging and nothing saying why. Counting these rows on the
+	// flip preflight and the sync status needs a contract field and is #1221.
+	w.log.WarnContext(ctx, "overlay refetch: this build's declaration cannot project the record the incumbent holds; "+
+		"the row keeps the projection it has and is not re-fetched again until this class's declaration changes, "+
+		"and it keeps counting stale meanwhile, so the flip stays blocked until a build ships a repaired declaration for this class",
+		"workspace", args.Workspace, "class", args.IncumbentClass, "id", args.ExternalID,
+		"declaration", fingerprint, "err", readErr)
 }

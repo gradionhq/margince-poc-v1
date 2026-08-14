@@ -130,8 +130,9 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 // as the write drains.
 //
 // A row that already failed against THIS declaration ($6) is left out for the
-// same reason: the incumbent holds a record this build cannot map, so a re-read
-// spends an incumbent call on an answer that cannot change. Only the failure
+// same reason: the incumbent serves the record whole and this declaration
+// cannot project it, so a re-read spends an incumbent call on an answer that
+// cannot change while the declaration stands. Only the failure
 // record is spared, never the staleness — the row still counts stale for the
 // flip preflight, which is the one thing this must not relax. The comparison is
 // IS DISTINCT FROM, matching ingestSQL's fingerprint guard for the identical
@@ -140,7 +141,8 @@ func (s *Service) fingerprintsFor(canonicalClass string) []string {
 // re-projection across the estate while reading as convergence.
 //
 // The record names the declaration, so a repaired one — a different fingerprint
-// — orphans it and the row returns to this set with no operator action.
+// — orphans it and the row returns to this set as soon as a build ships it,
+// with no record for anyone to clear by hand.
 const staleProjectionIDsSQL = `
 SELECT external_id FROM overlay_mirror
 WHERE object_class = $1
@@ -200,19 +202,25 @@ UPDATE overlay_mirror SET reprojection_failed_for = $3
 WHERE object_class = $1 AND external_id = $2`
 
 // RecordReprojectionFailure marks that this row could not be brought to
-// fingerprint — the incumbent still holds the record but this build cannot map
-// it, so re-reading it spends an incumbent call that can never land.
+// fingerprint: the incumbent handed the record back whole and the declaration
+// behind fingerprint could not project it. That is the only failure this may
+// record, because it is the only one fixed for as long as the declaration is —
+// re-reading buys the same answer, so the row is spared until the declaration
+// changes. A read that merely did not come back is a different fact and must
+// not reach here: recording it would retire a row the incumbent would have
+// served on the next tick.
 //
-// The fingerprint is the value recorded, not a flag, so a repaired declaration
-// (which has a different fingerprint) orphans the record and the row returns to
-// the set the sweep re-fetches, with no operator action.
+// The fingerprint is the value recorded, not a flag, so a build shipping a
+// repaired declaration (which has a different fingerprint) orphans the record
+// and the row returns to the set the sweep re-fetches, with no record for
+// anyone to clear by hand.
 //
 // The row keeps counting stale for the flip: this stops the waste, never the
 // guard.
 //
-// It matches no row when the row is gone — purged, or a class a future caller
-// mistyped — and that is not an error to raise: the fact being recorded is
-// about a row the sweep just read, and a row that no longer exists is one
+// It matches no row when the row is gone — purged between the sweep naming it
+// and this write — and that is not an error to raise: the fact being recorded
+// is about a row the sweep just read, and a row that no longer exists is one
 // nothing will re-fetch either.
 //
 // Unlike every other sweep write here (Ingest, RecordSweepFailure,
