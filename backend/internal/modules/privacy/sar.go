@@ -310,8 +310,10 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		// html_body rides beside body rather than instead of it: a message
 		// carrying both is ONE message the subject received in two renderings,
 		// and disclosing only the plain one withholds markup the system still
-		// holds about them.
-		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.recipients, o.cc, o.consent_purpose,
+		// holds about them. from_name joins them for the same reason: this
+		// projection discloses the message AS THE SUBJECT RECEIVED IT, and who
+		// it appeared to be from is part of what they were shown.
+		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.from_name, o.recipients, o.cc, o.consent_purpose,
 		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)

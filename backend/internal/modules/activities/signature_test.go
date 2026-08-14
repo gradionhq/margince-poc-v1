@@ -253,3 +253,54 @@ func TestAFailedSenderNameReadSurfaces(t *testing.T) {
 		t.Fatalf("expected the read error to surface, got %v", err)
 	}
 }
+
+// An agent send carries no name, for the same reason it carries no signature:
+// the approval authorizes the sending, it does not make the approver the author.
+// ActorIdentity resolves an agent to the human it acts for — right for a draft,
+// wrong for an envelope — so the refusal has to be made at this seam.
+func TestAnAgentSendCarriesNoSenderName(t *testing.T) {
+	reader := &stubSenderName{name: "Lars Jankowfsky"}
+	store := (&Store{}).WithSenderName(reader)
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:assistant", UserID: ids.NewV7(),
+	})
+
+	got, err := store.senderDisplayName(ctx)
+	if err != nil {
+		t.Fatalf("resolving the sender name failed: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("an agent send was named %q", got)
+	}
+}
+
+// The header and the sign-off must agree about authorship. A message naming a
+// human on the envelope while deliberately withholding their signature below
+// would be the same claim told louder, in the line the inbox shows first.
+func TestTheEnvelopeAndTheSignOffAgreeAboutAuthorship(t *testing.T) {
+	store := (&Store{}).
+		WithSenderName(&stubSenderName{name: "Lars Jankowfsky"}).
+		WithSignature(&stubSignature{body: "Lars Jankowfsky"})
+
+	for name, ctx := range map[string]context.Context{
+		"human": humanCtx(ids.NewV7()),
+		"agent": principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:assistant", UserID: ids.NewV7(),
+		}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			envelope, err := store.senderDisplayName(ctx)
+			if err != nil {
+				t.Fatalf("resolving the sender name failed: %v", err)
+			}
+			signed, err := store.signedBody(ctx, "Body")
+			if err != nil {
+				t.Fatalf("signing the body failed: %v", err)
+			}
+			named := envelope != ""
+			if signedOff := signed != "Body"; named != signedOff {
+				t.Fatalf("envelope named=%v but signed=%v — the two disagree", named, signedOff)
+			}
+		})
+	}
+}

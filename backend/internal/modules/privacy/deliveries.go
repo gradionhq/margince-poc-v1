@@ -77,7 +77,10 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 //
 // What deliberately STAYS is the proof that a message left: sent_at and
 // provider_message_id, plus the threading columns (message identities, like
-// the activity's own thread_key — not the subject's data). status stays too
+// the activity's own thread_key — not the subject's data). from_name stays for
+// the same reason: it names the workspace member who SENT the message, not the
+// person exercising erasure, and clearing it would destroy send-log evidence
+// while protecting nobody. status stays too
 // wherever it is already terminal: a message that went out did go out, and a
 // scrub that rewrote that would falsify the send log.
 //
