@@ -231,6 +231,14 @@ export const vi = {
   "share.expiry.day": "Hết hạn sau 24 giờ",
   "share.expiry.week": "Hết hạn sau 7 ngày",
   "share.expiry.month": "Hết hạn sau 30 ngày",
+  // Vietnamese does not inflect the noun for number, so both plural arms read
+  // identically — they exist for key parity with the other locales.
+  "share.expiryConsequence.one":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequence.other":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequenceNone":
+    "Quyền truy cập kéo dài đến khi bạn thu hồi — nó không tự kết thúc.",
   "share.reason": "Lý do",
   "share.grant": "Cấp quyền truy cập",
   "share.whoHasAccess": "Ai có quyền truy cập",
@@ -1173,11 +1181,15 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
-  "lead.owner": "Phụ trách: {owner}",
-  "lead.ownerYou": "bạn",
+  "lead.ownerLabel": "Phụ trách",
+  "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
   "lead.unassigned": "Chưa giao",
   "lead.assignToMe": "Giao cho tôi",
+  "lead.assignToSomeone": "Giao cho người khác",
+  "lead.assignTo": "Giao lead này cho",
+  "lead.assignChoose": "Chọn một đồng nghiệp",
+  "lead.assignNobodyElse": "Không có người nào khác để giao lead này.",
   "lead.saveOverride": "Lưu ghi đè",
   "lead.overrideScoreValue": "Điểm",
   "lead.promoteDialog": "Chuyển thành contact",

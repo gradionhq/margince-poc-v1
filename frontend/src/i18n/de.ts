@@ -223,6 +223,12 @@ export const de = {
   "share.expiry.day": "Läuft in 24 Stunden ab",
   "share.expiry.week": "Läuft in 7 Tagen ab",
   "share.expiry.month": "Läuft in 30 Tagen ab",
+  "share.expiryConsequence.one":
+    "Der Zugriff endet automatisch in {days} Tag. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequence.other":
+    "Der Zugriff endet automatisch in {days} Tagen. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequenceNone":
+    "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",
   "share.reason": "Grund",
   "share.grant": "Zugriff gewähren",
   "share.whoHasAccess": "Wer hat Zugriff",
@@ -1177,11 +1183,16 @@ export const de = {
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
-  "lead.owner": "Verantwortlich: {owner}",
+  "lead.ownerLabel": "Verantwortlich",
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
   "lead.unassigned": "Nicht zugewiesen",
   "lead.assignToMe": "Mir zuweisen",
+  "lead.assignToSomeone": "Jemand anderem zuweisen",
+  "lead.assignTo": "Diesen Lead zuweisen an",
+  "lead.assignChoose": "Kollegin oder Kollegen wählen",
+  "lead.assignNobodyElse":
+    "Es gibt niemanden sonst, dem dieser Lead zugewiesen werden kann.",
   "lead.saveOverride": "Überschreibung speichern",
   "lead.overrideScoreValue": "Score",
   "lead.promoteDialog": "Zum Kontakt machen",
