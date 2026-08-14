@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
@@ -232,5 +233,177 @@ describe("log activity from a 360", () => {
     expect(new Date(due_at).toISOString()).toBe(
       new Date("2026-07-10").toISOString(),
     );
+  });
+
+  it("keeps ordinary meeting notes as notes: unchecked, the field stays Details and no source_system is sent", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    // The checkbox is unchecked by default: this is still a note field, not
+    // a transcript field, even though the kind is "meeting" — typing here
+    // must never silently carry source_system: transcript.
+    expect(screen.queryByLabelText("Transcript")).toBeNull();
+    await userEvent.type(screen.getByLabelText("Subject *"), "Quick sync");
+    await userEvent.type(
+      screen.getByLabelText("Details"),
+      "discussed pricing, follow up Tuesday",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).not.toHaveProperty("source_system");
+    expect(post?.body).toMatchObject({
+      kind: "meeting",
+      body: "discussed pricing, follow up Tuesday",
+    });
+  });
+
+  it("posts source_system: transcript only once the writer checks 'this text is a transcript'", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    // The label swaps once checked — pasting is a transcript, not "details".
+    expect(screen.queryByLabelText("Details")).toBeNull();
+    await userEvent.type(screen.getByLabelText("Subject *"), "Kickoff call");
+    await userEvent.type(
+      screen.getByLabelText("Transcript"),
+      "Anna: hello\nBen: hi",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).toMatchObject({
+      kind: "meeting",
+      subject: "Kickoff call",
+      body: "Anna: hello\nBen: hi",
+      source_system: "transcript",
+      links: [{ entity_type: "deal", entity_id: "d1" }],
+    });
+  });
+
+  it("sends a checked transcript's text raw, not trimmed, so an agent posting the identical paste normalizes it the same way", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    await userEvent.type(screen.getByLabelText("Subject *"), "Kickoff call");
+    // fireEvent rather than userEvent.type: a leading space/newline is
+    // exactly the thing under test, and userEvent.type mangles literal
+    // leading whitespace in a textarea.
+    fireEvent.change(screen.getByLabelText("Transcript"), {
+      target: { value: "  Anna: hello" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).toMatchObject({ body: "  Anna: hello" });
+  });
+
+  it("reads an uploaded .txt transcript into the transcript field", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    const file = new File(["Anna: hello from a file"], "meeting.txt", {
+      type: "text/plain",
+    });
+    const input = screen.getByLabelText("Or upload a file") as HTMLInputElement;
+    await userEvent.upload(input, file);
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
+      ).toBe("Anna: hello from a file"),
+    );
+  });
+
+  it("rejects a non-.txt upload with a visible reason, and leaves the transcript field untouched", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    const file = new File(
+      ["WEBVTT\n\n00:00.000 --> 00:01.000\nhi"],
+      "meeting.vtt",
+      {
+        type: "text/vtt",
+      },
+    );
+    const input = screen.getByLabelText("Or upload a file") as HTMLInputElement;
+    // fireEvent rather than userEvent.upload: accept is advisory (a real
+    // browser's file picker can be switched to "All files"), and
+    // userEvent.upload refuses to fire a change event for a file it judges
+    // against `accept` itself — which would test user-event, not the
+    // component's own rejection path.
+    Object.defineProperty(input, "files", { value: [file] });
+    fireEvent.change(input);
+    await waitFor(() =>
+      expect(screen.getByText("Only a .txt file is accepted.")).toBeTruthy(),
+    );
+    expect(
+      (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+
+  it("surfaces a failed file read instead of leaving the writer guessing", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await pickOption(
+      userEvent.setup(),
+      screen.getByLabelText("Type"),
+      "Meeting",
+    );
+    await userEvent.click(screen.getByLabelText("This text is a transcript"));
+    const file = new File(["Anna: hello"], "meeting.txt", {
+      type: "text/plain",
+    });
+    vi.spyOn(file, "text").mockRejectedValue(new Error("unreadable"));
+    const input = screen.getByLabelText("Or upload a file") as HTMLInputElement;
+    await userEvent.upload(input, file);
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Could not read that file — try pasting the text instead.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      (screen.getByLabelText("Transcript") as HTMLTextAreaElement).value,
+    ).toBe("");
   });
 });

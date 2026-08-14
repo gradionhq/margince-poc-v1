@@ -1595,6 +1595,15 @@ export const de = {
   "log.kind": "Art",
   "log.kindNote": "Notiz",
   "log.kindTask": "Aufgabe",
+  "log.kindMeeting": "Meeting",
+  "log.transcriptLabel": "Transkript",
+  "log.transcriptHint":
+    "Aus Ihrem Meeting-Tool einfügen (Teams, Zoom, Meet …) — Sprecherkennzeichnungen bleiben, sofern vorhanden, erhalten.",
+  "log.asTranscript": "Dieser Text ist ein Transkript",
+  "log.transcriptUpload": "Oder eine Datei hochladen",
+  "log.transcriptUploadRejected": "Nur eine .txt-Datei wird akzeptiert.",
+  "log.transcriptUploadFailed":
+    "Die Datei konnte nicht gelesen werden — versuchen Sie stattdessen, den Text einzufügen.",
   "log.subject": "Betreff",
   "log.body": "Details",
   "log.dueAt": "Fällig am",

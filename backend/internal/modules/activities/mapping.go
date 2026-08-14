@@ -26,6 +26,35 @@ func (e *RequiredFieldError) FieldFault() (field, code, message string) {
 	return e.Field, "required", e.Error()
 }
 
+// fieldBody names the activity body field in a FieldFault, the one spelling
+// every 422 that refuses something about it shares (mirrors activity.go's
+// fieldKind).
+const fieldBody = "body"
+
+// transcriptSourceSystem is the ADR-0058 marker: a `logActivity` call
+// carrying it identifies its body as pasted/uploaded transcript text rather
+// than ordinary meeting notes, which is what routes it through
+// normalizeTranscript and what the activity/transcript retention selector
+// (privacy/retentionselectors.go) keys its sweep on.
+const transcriptSourceSystem = "transcript"
+
+// TranscriptKindError maps to 422: a transcript is a recording of a
+// conversation, so it only makes sense on the two activity kinds that ARE
+// one. The message never echoes the caller's kind — this fires before the
+// kind ever reaches the DB CHECK that would otherwise be the only
+// validation of it, so an unbounded value has no other floor here.
+type TranscriptKindError struct{ Kind string }
+
+func (e *TranscriptKindError) Error() string {
+	return "only a call or meeting activity may carry a transcript"
+}
+
+// FieldFault names the offending field; the caller's value is left to the
+// wire's own field pointer, not interpolated into the message.
+func (e *TranscriptKindError) FieldFault() (field, code, message string) {
+	return "kind", "invalid", e.Error()
+}
+
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed store surface (the route already
 // names the entity, so the assertion lives here, not in the store).
@@ -105,6 +134,20 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 				EntityID:   ids.UUID(link.EntityId),
 			})
 		}
+	}
+	if in.SourceSystem != nil && *in.SourceSystem == transcriptSourceSystem {
+		if in.Kind != string(crmcontracts.ActivityKindCall) && in.Kind != string(crmcontracts.ActivityKindMeeting) {
+			return LogActivityInput{}, &TranscriptKindError{Kind: in.Kind}
+		}
+		var body string
+		if in.Body != nil {
+			body = *in.Body
+		}
+		normalized, err := normalizeTranscript(body)
+		if err != nil {
+			return LogActivityInput{}, err
+		}
+		in.Body = &normalized
 	}
 	return in, nil
 }

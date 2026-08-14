@@ -1597,8 +1597,17 @@ export const en = {
   "log.kind": "Type",
   "log.kindNote": "Note",
   "log.kindTask": "Task",
+  "log.kindMeeting": "Meeting",
   "log.subject": "Subject",
   "log.body": "Details",
+  "log.transcriptLabel": "Transcript",
+  "log.transcriptHint":
+    "Paste it from your meeting tool (Teams, Zoom, Meet…) — speaker labels, if any, are kept.",
+  "log.asTranscript": "This text is a transcript",
+  "log.transcriptUpload": "Or upload a file",
+  "log.transcriptUploadRejected": "Only a .txt file is accepted.",
+  "log.transcriptUploadFailed":
+    "Could not read that file — try pasting the text instead.",
   "log.dueAt": "Due date",
   "log.save": "Log",
   "log.saving": "Logging…",
