@@ -374,3 +374,63 @@ describe("source_ref, the key the ingest is idempotent on", () => {
     ).toBeLessThanOrEqual(512);
   });
 });
+
+// source_ref is PERSISTED. Two earlier spellings are already in installations
+// that have been running, and the server upserts on an exact string match — so
+// a source whose row predates the current format has to be re-added under the
+// key it already has, or the ingest writes a second copy of the same writing
+// beside the first and the corpus counts those words twice.
+describe("source_ref, against rows written by earlier versions", () => {
+  it("reuses the content-only key a row already carries", () => {
+    // The earlier content-only spelling, `voice:upload:<fnv1a>-<length>` —
+    // the shape a real installation's rows carry today. Re-adding that same
+    // writing must update THAT row rather than start a second copy of it.
+    const content = "the words of a transcript already in the corpus";
+    const v2 = "voice:upload:a730dfa1-47";
+
+    expect(sourceRef("upload", "transcript.txt", content, new Set([v2]))).toBe(
+      v2,
+    );
+  });
+
+  it("reuses the name-only key a row already carries", () => {
+    // The oldest spellings: the surface plus the file name.
+    for (const legacy of [
+      "settings:upload:letter.txt",
+      "onboarding:upload:letter.txt",
+    ]) {
+      expect(
+        sourceRef("upload", "letter.txt", "words", new Set([legacy])),
+      ).toBe(legacy);
+    }
+  });
+
+  it("writes the current key when the profile holds nothing matching", () => {
+    const current = sourceRef("upload", "letter.txt", "words");
+    expect(
+      sourceRef(
+        "upload",
+        "letter.txt",
+        "words",
+        new Set(["voice:upload:somebody-else:entirely"]),
+      ),
+    ).toBe(current);
+  });
+
+  it("writes the current key when the caller cannot say what exists", () => {
+    // An empty set is "I looked and there is nothing", which is different from
+    // passing nothing at all; both must land on the current format.
+    const current = sourceRef("upload", "letter.txt", "words");
+    expect(sourceRef("upload", "letter.txt", "words", new Set())).toBe(current);
+    expect(sourceRef("upload", "letter.txt", "words")).toBe(current);
+  });
+
+  // A legacy key is only reused for the source it actually belongs to: the v1
+  // format names a file, so a DIFFERENT file's row must not be claimed.
+  it("does not claim a legacy row belonging to another file", () => {
+    const other = "settings:upload:someone-elses.txt";
+    expect(
+      sourceRef("upload", "letter.txt", "words", new Set([other])),
+    ).not.toBe(other);
+  });
+});

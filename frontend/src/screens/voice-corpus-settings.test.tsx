@@ -78,16 +78,37 @@ function stubApi(
   return bodies;
 }
 
-function render(ui: ReactNode) {
+function render(ui: ReactNode, client?: QueryClient) {
   return rtlRender(
     <QueryClientProvider
       client={
+        client ??
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+// A client whose corpus manifest is already populated, the way the card's own
+// query populates it before anyone drops a file.
+function clientHolding(refs: readonly string[]): QueryClient {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(["voice-sources", "vp-1"], {
+    sources: refs.map((source_ref, i) => ({
+      id: `vs-${i}`,
+      source_ref,
+      source_label: "already here",
+      word_count: 100,
+      included: true,
+      register: "general",
+    })),
+    summary: SUMMARY,
+  });
+  return client;
 }
 
 function fileOf(name: string, text: string): File {
@@ -147,6 +168,26 @@ describe("handing a file to the Settings voice card", () => {
     render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
     expect(screen.getByRole("button", { name: /Choose files/ })).toBeTruthy();
     expect(fileInput().accept).toBe(".txt,.md,.vtt,.srt,.json");
+  });
+
+  // source_ref is persisted, and two earlier spellings are already in
+  // installations that have been running. Re-adding a file that has a row
+  // under an older key must UPDATE that row — writing the current key instead
+  // would leave a duplicate sample and count its words twice.
+  it("re-adds a file under the key its existing row already carries", async () => {
+    const bodies = stubApi(PROSE);
+    const text = "Short sentences. Concrete nouns.";
+    // The earlier content-only spelling: no name half.
+    const existing = "voice:upload:d506ebb7-32";
+    render(
+      <VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />,
+      clientHolding([existing]),
+    );
+
+    await userEvent.upload(fileInput(), fileOf("letter.txt", text));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]?.source_ref).toBe(existing);
   });
 
   it("ingests single-author prose and reports what the server kept", async () => {

@@ -65,10 +65,33 @@ function contentKey(content: string): string {
   return `${hash.toString(16).padStart(8, "0")}-${content.length}`;
 }
 
-/** The key one source is known by: what it is called and what it says. The
- * label is hashed rather than embedded so a long filename cannot push the
- * content half of the key past the contract's 512-character cap. */
-export function sourceRef(
+// The key formats this client has written, oldest first. A source_ref is a
+// PERSISTED natural key: rows written under an earlier format are still in
+// every installation that has been running, and the server upserts on an exact
+// string match. Re-adding a file that already has a row under an older key
+// would therefore insert a SECOND row rather than update it — a duplicate
+// sample, double-counted words, and a voice weighted twice toward one source,
+// with nothing on screen to say so.
+//
+// Nothing joins on this key, so old rows read back and count normally; only
+// re-adding is affected. That makes recognising the old spellings the whole
+// fix — no data migration, and no server change.
+function legacyRefs(
+  kind: "upload" | "paste",
+  label: string,
+  content: string,
+): string[] {
+  return [
+    // The surface and the file's name, before content keying existed.
+    `settings:${kind}:${label}`,
+    `onboarding:${kind}:${label}`,
+    // Content alone, which files sharing their text collapsed into one row.
+    clamp(`voice:${kind}:${contentKey(content)}`, SOURCE_REF_MAX),
+  ];
+}
+
+/** The key one source WOULD be written under today. */
+function currentRef(
   kind: "upload" | "paste",
   label: string,
   content: string,
@@ -77,6 +100,36 @@ export function sourceRef(
     `voice:${kind}:${contentKey(label)}:${contentKey(content)}`,
     SOURCE_REF_MAX,
   );
+}
+
+/**
+ * The key to write this source under.
+ *
+ * `existing` is the set of source_refs the profile already holds (the manifest
+ * the surface has already fetched). When a row is already there under an older
+ * spelling of this same source, that row's key is reused so the ingest UPDATES
+ * it, exactly as re-adding a file has always done. Otherwise the current format
+ * is used.
+ *
+ * Passing no set is the honest answer for a caller that does not know what the
+ * profile holds — a first sample, which by definition has nothing to collide
+ * with.
+ */
+export function sourceRef(
+  kind: "upload" | "paste",
+  label: string,
+  content: string,
+  existing?: ReadonlySet<string>,
+): string {
+  if (existing !== undefined) {
+    const known = legacyRefs(kind, label, content).find((ref) =>
+      existing.has(ref),
+    );
+    if (known !== undefined) {
+      return known;
+    }
+  }
+  return currentRef(kind, label, content);
 }
 
 // What one previewed source honestly IS.
