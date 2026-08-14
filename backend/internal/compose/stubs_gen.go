@@ -1315,6 +1315,10 @@ func (stubs) CreateStage(w nethttp.ResponseWriter, r *nethttp.Request, params cr
 	httperr.NotImplemented(w, r, "CreateStage")
 }
 
+func (stubs) ArchiveStage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveStageParams) {
+	httperr.NotImplemented(w, r, "ArchiveStage")
+}
+
 func (stubs) GetStage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetStage")
 }

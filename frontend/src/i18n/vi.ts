@@ -2074,6 +2074,11 @@ export const vi = {
   "stage.semOpen": "Đang mở",
   "stage.semWon": "Thắng",
   "stage.semLost": "Thua",
+  "stage.remove": "Gỡ bỏ",
+  "stage.removeConfirm": "Gỡ giai đoạn",
+  "stage.removeTitle": "Gỡ giai đoạn này?",
+  "stage.removeBody":
+    "“{name}” sẽ rời khỏi pipeline và các giai đoạn sau dồn lên. Lịch sử chuyển giai đoạn vẫn đọc được. Các deal còn nằm ở đây phải chuyển đi trước.",
 
   "ob.read": "Đọc",
   "ob.confirm": "Xác nhận",

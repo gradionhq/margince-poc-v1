@@ -1496,6 +1496,73 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
   );
 }
 
+// The removal half of the bounded stage surface. Both refusals are the
+// server's — a stage still holding deals, and the terminal won/lost pair —
+// so this asks and then shows what it was told rather than pre-judging
+// from the row: the refusal names the deals standing in the way, which is
+// the part an admin acts on, and a board read a minute ago would name the
+// wrong ones.
+function StageRemove({ stage }: Readonly<{ stage: Stage }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  // Removal is pipeline:delete, not the pipeline:update everything else on
+  // this card runs on — the server gates it that way, so a principal who
+  // may add and rename stages but not remove one is not shown a control
+  // that could only ever answer 403. Read before the early return: the
+  // hooks a render performs must not depend on the answer.
+  const canRemove = useCanWrite("pipeline", "delete");
+  const remove = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.DELETE("/stages/{id}", {
+        params: { path: { id: stage.id } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+    },
+    onSuccess: async () => {
+      // The refetched pipelines FIRST, then the dialog: closing it hands
+      // focus back to a list that must no longer hold this row.
+      await queryClient.invalidateQueries({ queryKey: ["pipelines"] });
+      setOpen(false);
+    },
+  });
+  // A refusal is about the workspace's state, not the dialog's: reopening
+  // must ask again rather than reprint what the last attempt was told.
+  const close = () => {
+    remove.reset();
+    setOpen(false);
+  };
+  if (!canRemove) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        small
+        variant="danger"
+        data-testid={`remove-stage-${stage.id}`}
+        onClick={() => setOpen(true)}
+      >
+        {t("stage.remove")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={close}
+        title={t("stage.removeTitle")}
+        confirmLabel={t("stage.removeConfirm")}
+        confirmVariant="danger"
+        pending={remove.isPending}
+        error={remove.isError ? problemMessageOf(remove.error, t) : null}
+        onConfirm={() => remove.mutate()}
+      >
+        <p className="t-small">{t("stage.removeBody", { name: stage.name })}</p>
+      </ConfirmModal>
+    </>
+  );
+}
+
 function StageRow({
   stage,
   canEdit,
@@ -1520,29 +1587,38 @@ function StageRow({
       </Badge>
       <span className="t-mono t-small">{stage.win_probability}%</span>
       {canEdit && (
-        <EditAction
-          label={t("stage.edit")}
-          invalidate="pipelines"
-          recordKey="stage"
-          record={{
-            id: stage.id,
-            name: stage.name,
-            position: String(stage.position),
-            semantic: stage.semantic,
-            win_probability: String(stage.win_probability),
+        <span
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            alignItems: "center",
           }}
-          fields={stageFields(t)}
-          update={async (values) => {
-            const { data, error } = await api.PATCH("/stages/{id}", {
-              params: { path: { id: stage.id } },
-              body: mapStageBody(values),
-            });
-            if (error) {
-              throwProblem(error);
-            }
-            return data;
-          }}
-        />
+        >
+          <EditAction
+            label={t("stage.edit")}
+            invalidate="pipelines"
+            recordKey="stage"
+            record={{
+              id: stage.id,
+              name: stage.name,
+              position: String(stage.position),
+              semantic: stage.semantic,
+              win_probability: String(stage.win_probability),
+            }}
+            fields={stageFields(t)}
+            update={async (values) => {
+              const { data, error } = await api.PATCH("/stages/{id}", {
+                params: { path: { id: stage.id } },
+                body: mapStageBody(values),
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+          />
+          <StageRemove stage={stage} />
+        </span>
       )}
     </li>
   );

@@ -22170,6 +22170,16 @@ type CreateStageParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveStageParams defines parameters for ArchiveStage.
+type ArchiveStageParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateStageParams defines parameters for UpdateStage.
 type UpdateStageParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -29660,6 +29670,9 @@ type ServerInterface interface {
 	// Create a stage in a pipeline.
 	// (POST /stages)
 	CreateStage(w http.ResponseWriter, r *http.Request, params CreateStageParams)
+	// Remove a stage from its pipeline (soft delete; archive is the delete).
+	// (DELETE /stages/{id})
+	ArchiveStage(w http.ResponseWriter, r *http.Request, id Id, params ArchiveStageParams)
 	// Get a stage by id.
 	// (GET /stages/{id})
 	GetStage(w http.ResponseWriter, r *http.Request, id Id)
@@ -31739,6 +31752,12 @@ func (_ Unimplemented) ListStages(w http.ResponseWriter, r *http.Request, params
 // Create a stage in a pipeline.
 // (POST /stages)
 func (_ Unimplemented) CreateStage(w http.ResponseWriter, r *http.Request, params CreateStageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a stage from its pipeline (soft delete; archive is the delete).
+// (DELETE /stages/{id})
+func (_ Unimplemented) ArchiveStage(w http.ResponseWriter, r *http.Request, id Id, params ArchiveStageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -46499,6 +46518,62 @@ func (siw *ServerInterfaceWrapper) CreateStage(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ArchiveStage operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveStage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveStageParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveStage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStage operation middleware
 func (siw *ServerInterfaceWrapper) GetStage(w http.ResponseWriter, r *http.Request) {
 
@@ -49763,6 +49838,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/stages", wrapper.CreateStage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/stages/{id}", wrapper.ArchiveStage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/stages/{id}", wrapper.GetStage)

@@ -3206,6 +3206,37 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Pipelines]
+      operationId: archiveStage
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Remove a stage from its pipeline (soft delete; archive is the delete).
+      description: |
+        The removal half of the bounded stage-configuration surface (DEAL-WIRE-7). Archiving
+        rather than deleting is what keeps the stage-change history readable — a
+        `deal_stage_history` row references the stage a deal moved out of.
+
+        The surviving stages of the pipeline shift down so `position` stays contiguous, which
+        publishes ONE `pipeline.updated` reorder alongside `stage.archived`.
+
+        Two refusals, both `422` (DEAL-WIRE-10). Neither names a request field — the caller
+        sent the removal they meant and what refuses is the workspace's own state — so each
+        carries its machine code as the problem's `code` and its reason as `detail`:
+        * `stage_occupied` while live deals sit on the stage. The detail counts them and
+          names them (bounded, with "and N more" beyond the cap) so they can be moved
+          first; no `deal.stage_id` is ever left pointing at a removed stage.
+        * `terminal_stage_not_removable` on a `won`/`lost` stage: add and remove operate on
+          non-terminal stages only, so the pair the close semantics hang off survives.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Archived. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ---------------------------- /activities ---------------------------------
   /activities:
