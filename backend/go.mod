@@ -28,9 +28,9 @@ require (
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/riverqueue/river v0.42.0
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.42.0
-	github.com/riverqueue/river/rivertype v0.42.0
+	github.com/riverqueue/river v0.43.0
+	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.43.0
+	github.com/riverqueue/river/rivertype v0.43.0
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	github.com/tetratelabs/wazero v1.12.0
@@ -65,8 +65,8 @@ require (
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/riverqueue/river/riverdriver v0.42.0 // indirect
-	github.com/riverqueue/river/rivershared v0.42.0 // indirect
+	github.com/riverqueue/river/riverdriver v0.43.0 // indirect
+	github.com/riverqueue/river/rivershared v0.43.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
