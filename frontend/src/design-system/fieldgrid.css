@@ -29,6 +29,18 @@
   color: var(--textContent);
   min-width: 0;
 }
+/* A value is user data, and a legal name or a domain can arrive as one run with
+   no space in it to break at. `min-width: 0` above lets the COLUMN shrink; this
+   is what makes the text inside it give way too — without it the run sets the
+   value's width, and the row grows straight through the panel's padding and out
+   over the card's edge. It reaches the editable controls as well as the plain
+   text because that is what a value usually is here: the string sits inside
+   InlineText's or InlineChoice's button, which hugs its own content. */
+.fieldgrid-value,
+.fieldgrid-value .inlinetext,
+.fieldgrid-value .inline-editable {
+  overflow-wrap: anywhere;
+}
 
 /* The exception to the top edge, for a row whose value is not text: a badge or
    a chip is a BOX, taller than the line of text naming it, and a box hung from

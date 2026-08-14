@@ -1,0 +1,45 @@
+/* The tooltip that reveals a string its row could not fit.
+
+   Above the select popup (70) in the layering stack declared in atoms.css: a
+   tip explains what a reader is already pointing at, so it can never be the
+   thing another layer covers. */
+.tooltip {
+  position: fixed;
+  z-index: 80;
+  max-width: 320px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--textPrimary);
+  color: var(--bgCard);
+  font-size: var(--fs-meta);
+  line-height: 1.4;
+  /* The tip carries the string the row truncated, so it is the one place the
+     whole of it must fit: it wraps, and breaks a run with no spaces in it
+     rather than growing past its own max-width. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: var(--shadow-pop);
+  /* Not interactive and never in the way: a pointer that crosses the tip's box
+     on its way somewhere else passes straight through it. */
+  pointer-events: none;
+  /* The delay lives in CSS rather than a JS timer: the tip is in the DOM the
+     moment the pointer arrives — which is what a test asserts and a screen
+     reader announces — and only its paint waits, so a pointer crossing a row
+     on its way elsewhere never flashes a tip on the way past. */
+  opacity: 0;
+  animation: tooltip-in 90ms ease-out 150ms forwards;
+}
+@keyframes tooltip-in {
+  to {
+    opacity: 1;
+  }
+}
+/* Reduced motion takes the fade, not the delay: the delay is what keeps a tip
+   from flashing at every pointer that crosses the row, which is a comfort
+   rather than a decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+    opacity: 1;
+  }
+}

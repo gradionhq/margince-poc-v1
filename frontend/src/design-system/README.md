@@ -70,6 +70,7 @@ arrive through props, translated by the caller with `t()`.
 | `RecordView` | The record page shell: identity, readings, timeline | `composed.tsx` | ✅ |
 | `GroupedTimelineList` / `TimelineRow` / `MorningBriefItem` | The activity timeline, grouped, and one brief line | `composed.tsx` | via `RecordView` |
 | `ProviderMark` | A federated provider's own sign-in mark — the ONE file allowed literal colours, because another company's colours are not ours to tokenise | `provider-mark.tsx` | — |
+| `useTruncationTooltip` | The whole of a string its row had to truncate, on hover or focus — and nothing at all when the string already fits. Reach for it wherever user data of unbounded length is drawn on one line: a record name, a trail segment, a rail row's reading | `tooltip.tsx` | ✅ |
 | `usePrefersReducedMotion` / `useTypeStream` / `useDocumentIntro` | Motion, with one rule: reduced motion jumps to the END state, never to nothing | `motion.ts` | — |
 | `subscribeToWindowFocus` and friends | Whether this window has focus — one signal for the draw loop and the stylesheet alike | `window-focus.ts` | — |
 

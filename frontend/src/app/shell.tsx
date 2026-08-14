@@ -21,6 +21,7 @@ import {
 import type { components } from "../api/schema";
 import { Button, Modal } from "../design-system/atoms";
 import { Logomark } from "../design-system/logomark";
+import { useTruncationTooltip } from "../design-system/tooltip";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
@@ -597,16 +598,18 @@ const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
 // nothing.
 function RecordName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
   const name = useEntityName(kind, id);
-  if (name) {
-    return (
-      <span className="pagecrumb-name" title={name}>
-        {name}
-      </span>
-    );
-  }
+  // Truncated to keep the trail on one line, so the tooltip is what carries a
+  // name too long for it.
+  const text = name ?? id;
+  const tip = useTruncationTooltip<HTMLSpanElement>(text);
   return (
-    <span className="pagecrumb-name t-mono" title={id}>
-      {id}
+    <span
+      className={name ? "pagecrumb-name" : "pagecrumb-name t-mono"}
+      ref={tip.ref}
+      {...tip.trigger}
+    >
+      {text}
+      {tip.tip}
     </span>
   );
 }
