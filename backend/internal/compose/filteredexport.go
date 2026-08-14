@@ -81,6 +81,11 @@ func NewFilteredExportWriter(pool *pgxpool.Pool) *FilteredExportWriter {
 // named because the refusal and both transport branches must spell it the same.
 const codeInvalid = "invalid"
 
+// objectSourceField names the request's inline-object source field, which
+// every refusal naming it must spell identically: an unfilterable object
+// and a malformed source selection are both this field's fault.
+const objectSourceField = "object"
+
 // exportBadRequest is a client fault the transport maps to 422 (an
 // unsupported resource or format), distinct from an infrastructure error.
 type exportBadRequest struct {
@@ -284,7 +289,7 @@ func (h filteredExportHandlers) CreateFilteredExport(w http.ResponseWriter, r *h
 	}
 	if !ok {
 		httperr.Write(w, r, &exportBadRequest{
-			field:  "object",
+			field:  objectSourceField,
 			reason: fmt.Sprintf("%q is not a filter-exportable object", resource),
 		})
 		return
@@ -326,7 +331,7 @@ func (h filteredExportHandlers) resolveSource(ctx context.Context, req filteredE
 	}
 	if sources != 1 {
 		return "", storekit.Predicate{}, &exportBadRequest{
-			field:  "object",
+			field:  objectSourceField,
 			reason: "supply exactly one of object, view_id, or list_id",
 		}
 	}

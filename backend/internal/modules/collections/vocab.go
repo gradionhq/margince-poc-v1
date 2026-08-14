@@ -37,6 +37,16 @@ const (
 // once so the engine key, the table and the column prefix cannot drift.
 const projectEntity = "project"
 
+// tagFilterField is the one filter-vocabulary key every taggable entity's
+// segment engine exposes for its tag leaf — named once so the five
+// per-entity Fields maps below cannot drift onto a different spelling.
+const tagFilterField = "tag"
+
+// ownerIDField is the filter-vocabulary key every segment engine below
+// exposes for colOwnerID — the vocabulary's name for the field, as
+// distinct from colOwnerID itself (the SQL expression it compiles to).
+const ownerIDField = "owner_id"
+
 // The record types taggable.entity_type admits (LVS-DDL-2), named through the
 // contract's own enum rather than as strings where the enum has a member: a
 // renamed member fails to compile here instead of silently dropping a tag
@@ -81,8 +91,8 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     "person",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"owner_id": {Expr: colOwnerID, Type: storekit.FieldID},
-			"tag":      tagLinkFor("person"),
+			ownerIDField:   {Expr: colOwnerID, Type: storekit.FieldID},
+			tagFilterField: tagLinkFor("person"),
 		},
 	},
 	"organization": {
@@ -94,17 +104,17 @@ var segmentEngines = map[string]storekit.Query{
 		// export built on one can carry it.
 		BaseWhere: whereArchivedNull + " AND NOT t.is_anchor",
 		Fields: map[string]storekit.Field{
-			"owner_id":  {Expr: colOwnerID, Type: storekit.FieldID},
-			"industry":  {Expr: "t.industry", Type: storekit.FieldText},
-			"size_band": {Expr: "t.size_band", Type: storekit.FieldPicklist},
-			"lifecycle": {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
+			ownerIDField: {Expr: colOwnerID, Type: storekit.FieldID},
+			"industry":   {Expr: "t.industry", Type: storekit.FieldText},
+			"size_band":  {Expr: "t.size_band", Type: storekit.FieldPicklist},
+			"lifecycle":  {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
 			// RETIRED with the column (ADR-0079/A124), and kept here for the one
 			// release it survives: a saved segment written against it must keep
 			// evaluating until its author has moved it to lifecycle. Dropping the
 			// field would turn every such list into an error at read time, which
 			// is a worse answer than a stale one.
 			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
-			"tag":            tagLinkFor("organization"),
+			tagFilterField:   tagLinkFor("organization"),
 		},
 	},
 	"deal": {
@@ -113,13 +123,13 @@ var segmentEngines = map[string]storekit.Query{
 		Fields: map[string]storekit.Field{
 			"pipeline_id":       {Expr: "t.pipeline_id", Type: storekit.FieldID},
 			"stage_id":          {Expr: "t.stage_id", Type: storekit.FieldID},
-			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
 			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID},
 			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID},
 			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID},
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
-			"tag":               tagLinkFor("deal"),
+			tagFilterField:      tagLinkFor("deal"),
 		},
 	},
 	"lead": {
@@ -127,19 +137,19 @@ var segmentEngines = map[string]storekit.Query{
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
-			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
-			"tag":               tagLinkFor("lead"),
+			tagFilterField:      tagLinkFor("lead"),
 		},
 	},
 	projectEntity: {
 		Table:     projectEntity,
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"owner_id":        {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:      {Expr: colOwnerID, Type: storekit.FieldID},
 			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID},
 			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist},
-			"tag":             tagLinkFor(projectEntity),
+			tagFilterField:    tagLinkFor(projectEntity),
 		},
 	},
 }

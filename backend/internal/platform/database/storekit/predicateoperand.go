@@ -59,26 +59,48 @@ func inOperand(p Predicate, field Field) (any, error) {
 	}
 	switch field.Type {
 	case FieldNumber, FieldCurrency:
-		values := make([]float64, len(raw))
-		for i, v := range raw {
-			checked, err := scalarOperand(v, field, p.Field, OpIn)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = checked.(float64)
-		}
-		return values, nil
+		return inNumberOperand(raw, field, p.Field)
 	default: // text, picklist, id — string-valued types (dates take no `in`).
-		values := make([]string, len(raw))
-		for i, v := range raw {
-			checked, err := scalarOperand(v, field, p.Field, OpIn)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = checked.(string)
-		}
-		return values, nil
+		return inStringOperand(raw, field, p.Field)
 	}
+}
+
+// inNumberOperand is inOperand's number/currency branch: scalarOperand's
+// contract for these two types is always a float64, but the assertion is
+// checked rather than asserted blind — a scalarOperand that ever changed
+// that contract must fail loudly here, not hand pgx a mistyped bind slice.
+func inNumberOperand(raw []any, field Field, name string) ([]float64, error) {
+	values := make([]float64, len(raw))
+	for i, v := range raw {
+		checked, err := scalarOperand(v, field, name, OpIn)
+		if err != nil {
+			return nil, err
+		}
+		n, ok := checked.(float64)
+		if !ok {
+			return nil, fmt.Errorf("storekit: scalarOperand returned %T for a %s field, want float64", checked, field.Type)
+		}
+		values[i] = n
+	}
+	return values, nil
+}
+
+// inStringOperand is inOperand's text/picklist/id branch, checked the same
+// way inNumberOperand is.
+func inStringOperand(raw []any, field Field, name string) ([]string, error) {
+	values := make([]string, len(raw))
+	for i, v := range raw {
+		checked, err := scalarOperand(v, field, name, OpIn)
+		if err != nil {
+			return nil, err
+		}
+		s, ok := checked.(string)
+		if !ok {
+			return nil, fmt.Errorf("storekit: scalarOperand returned %T for a %s field, want string", checked, field.Type)
+		}
+		values[i] = s
+	}
+	return values, nil
 }
 
 // scalarOperand validates one scalar against the field type and returns
@@ -95,55 +117,99 @@ func scalarOperand(value any, field Field, name, op string) (any, error) {
 	}
 	switch field.Type {
 	case FieldText, FieldPicklist:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("a string")
-		}
-		return s, nil
+		return scalarStringOperand(value, invalid, "a string")
 	case FieldID:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("a UUID string")
-		}
-		if _, err := ids.Parse(s); err != nil {
-			return nil, invalid("a UUID string")
-		}
-		return s, nil
+		return scalarUUIDOperand(value, invalid)
 	case FieldNumber, FieldCurrency:
-		switch n := value.(type) {
-		case float64:
-			if math.IsNaN(n) || math.IsInf(n, 0) {
-				return nil, invalid("a finite number")
-			}
-			return n, nil
-		case int:
-			return float64(n), nil
-		case int64:
-			return float64(n), nil
-		default:
-			return nil, invalid("a number")
-		}
+		return scalarNumberOperand(value, invalid)
 	case FieldDate:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("an ISO date (YYYY-MM-DD)")
-		}
-		if _, err := time.Parse("2006-01-02", s); err != nil {
-			return nil, invalid("an ISO date (YYYY-MM-DD)")
-		}
-		return s, nil
+		return scalarDateOperand(value, invalid)
 	case FieldBoolean:
-		b, ok := value.(bool)
-		if !ok {
-			return nil, invalid("true or false")
-		}
-		return b, nil
+		return scalarBoolOperand(value, invalid)
 	default:
 		// A vocabulary entry with an unknown type is a programming error
 		// in the caller's field map, surfaced as a validation failure
 		// rather than reaching the SQL text.
 		return nil, invalid("a value of a known field type")
 	}
+}
+
+// scalarStringOperand is scalarOperand's text/picklist branch: any plain
+// string is a valid bind value, so there is nothing to validate beyond
+// the type itself.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarStringOperand(value any, invalid func(string) error, want string) (any, error) {
+	s, ok := value.(string)
+	if !ok {
+		return nil, invalid(want)
+	}
+	return s, nil
+}
+
+// scalarUUIDOperand is scalarOperand's id branch: the string must also
+// parse as a UUID, so a malformed reference fails validation (422) rather
+// than reaching the query as a value that can never match.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarUUIDOperand(value any, invalid func(string) error) (any, error) {
+	s, ok := value.(string)
+	if !ok {
+		return nil, invalid("a UUID string")
+	}
+	if _, err := ids.Parse(s); err != nil {
+		return nil, invalid("a UUID string")
+	}
+	return s, nil
+}
+
+// scalarNumberOperand is scalarOperand's number/currency branch: JSON
+// numbers arrive as float64, and a hand-built Go tree's int/int64 are
+// widened to match — a NaN or infinite float is refused, since neither
+// can ever equal, exceed, or fall short of anything in SQL.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarNumberOperand(value any, invalid func(string) error) (any, error) {
+	switch n := value.(type) {
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return nil, invalid("a finite number")
+		}
+		return n, nil
+	case int:
+		return float64(n), nil
+	case int64:
+		return float64(n), nil
+	default:
+		return nil, invalid("a number")
+	}
+}
+
+// scalarDateOperand is scalarOperand's date branch: an ISO calendar date,
+// parsed to prove it is a real one rather than passed through as an
+// arbitrary string.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarDateOperand(value any, invalid func(string) error) (any, error) {
+	s, ok := value.(string)
+	if !ok {
+		return nil, invalid("an ISO date (YYYY-MM-DD)")
+	}
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		return nil, invalid("an ISO date (YYYY-MM-DD)")
+	}
+	return s, nil
+}
+
+// scalarBoolOperand is scalarOperand's boolean branch.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarBoolOperand(value any, invalid func(string) error) (any, error) {
+	b, ok := value.(bool)
+	if !ok {
+		return nil, invalid("true or false")
+	}
+	return b, nil
 }
 
 // escapeLike makes a user string safe as a LIKE/ILIKE operand: the
