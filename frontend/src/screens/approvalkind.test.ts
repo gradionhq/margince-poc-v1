@@ -44,6 +44,7 @@ const STAGEABLE_KINDS = [
   "send_offer",
   "share_record",
   "site_lead",
+  "transcript_proposal",
   "update_record",
 ] as const;
 

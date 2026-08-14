@@ -40,6 +40,8 @@ export const en = {
   "trust.resolvedValue": "resolved value",
   "trust.editValue": "Edit {description}",
   "trust.evidenceFrom": "Evidence from {source}",
+  "trust.evidenceLine": "line {lines}",
+  "trust.evidenceLines": "lines {lines}",
 
   "history.created": "— created —",
   "history.oldValue": "Previous value",
@@ -927,6 +929,7 @@ export const en = {
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
   "approval.kind.lifecycle_change": "Account stage",
+  "approval.kind.transcript_proposal": "Add a next step from a transcript",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
   "approval.kind.ai_model_rate_proposal": "Refresh model prices",
   "co.assistant.title": "Ask about this account",
@@ -1439,6 +1442,26 @@ export const en = {
   "deepread.kindProducts": "Products",
   "deepread.kindContact": "Contact",
   "deepread.kindOther": "Other",
+
+  "transcriptread.title": "Read this transcript",
+  "transcriptread.sub":
+    "Find the next steps and commitments this conversation states. Nothing is written until you confirm.",
+  "transcriptread.cta": "Read transcript",
+  "transcriptread.starting": "Starting…",
+  "transcriptread.unavailable":
+    "Transcript reading is not configured on this server.",
+  "transcriptread.statusQueued": "Queued",
+  "transcriptread.statusRunning": "Reading…",
+  "transcriptread.statusDone": "Done",
+  "transcriptread.statusFailed": "Failed",
+  "transcriptread.lineCount.one": "{count} line read",
+  "transcriptread.lineCount.other": "{count} lines read",
+  "transcriptread.proposals": "{count} next steps waiting for your review",
+  "transcriptread.proposalsOne": "1 next step waiting for your review",
+  "transcriptread.nothingStated":
+    "Read in full. This conversation states no next steps.",
+  "transcriptread.failedFallback":
+    "This transcript could not be read. Nothing was staged.",
 
   "create.cancel": "Cancel",
   "create.multiselect.required": "Required — select at least one.",

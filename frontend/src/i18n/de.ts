@@ -43,6 +43,8 @@ export const de = {
   "trust.resolvedValue": "übernommener Wert",
   "trust.editValue": "{description} bearbeiten",
   "trust.evidenceFrom": "Beleg von {source}",
+  "trust.evidenceLine": "Zeile {lines}",
+  "trust.evidenceLines": "Zeilen {lines}",
 
   "history.created": "— angelegt —",
   "history.oldValue": "Vorheriger Wert",
@@ -913,6 +915,8 @@ export const de = {
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
   "approval.kind.lifecycle_change": "Account-Phase",
+  "approval.kind.transcript_proposal":
+    "Nächsten Schritt aus einem Transkript übernehmen",
   "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
   "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",
   "co.assistant.title": "Diesen Account befragen",
@@ -1436,6 +1440,27 @@ export const de = {
   "deepread.kindProducts": "Produkte",
   "deepread.kindContact": "Kontakt",
   "deepread.kindOther": "Sonstiges",
+
+  "transcriptread.title": "Dieses Transkript lesen",
+  "transcriptread.sub":
+    "Findet die nächsten Schritte und Zusagen, die dieses Gespräch nennt. Nichts wird geschrieben, bis du bestätigst.",
+  "transcriptread.cta": "Transkript lesen",
+  "transcriptread.starting": "Wird gestartet…",
+  "transcriptread.unavailable":
+    "Transkript-Lesen ist auf diesem Server nicht eingerichtet.",
+  "transcriptread.statusQueued": "In Warteschlange",
+  "transcriptread.statusRunning": "Wird gelesen…",
+  "transcriptread.statusDone": "Fertig",
+  "transcriptread.statusFailed": "Fehlgeschlagen",
+  "transcriptread.lineCount.one": "{count} Zeile gelesen",
+  "transcriptread.lineCount.other": "{count} Zeilen gelesen",
+  "transcriptread.proposals":
+    "{count} nächste Schritte warten auf deine Prüfung",
+  "transcriptread.proposalsOne": "1 nächster Schritt wartet auf deine Prüfung",
+  "transcriptread.nothingStated":
+    "Vollständig gelesen. Dieses Gespräch nennt keine nächsten Schritte.",
+  "transcriptread.failedFallback":
+    "Dieses Transkript konnte nicht gelesen werden. Es wurde nichts vorgemerkt.",
 
   "create.cancel": "Abbrechen",
   "create.multiselect.required":

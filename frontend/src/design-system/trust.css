@@ -68,6 +68,17 @@ button.evidence-chip:hover {
   transform: rotate(90deg);
 }
 
+/* The line reference reads as a pointer INTO the source, not as more of the
+   quote, so it carries the chip's border rather than its prose weight. */
+.evidence-lines {
+  flex: none;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 0 6px;
+  color: var(--textPrimary);
+  white-space: nowrap;
+}
+
 .evidence-chip-snippet {
   display: block;
   max-width: 100%;
