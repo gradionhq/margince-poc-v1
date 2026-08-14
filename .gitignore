@@ -29,6 +29,7 @@ coverage.out
 !/extensions/notes
 !/extensions/de
 !/extensions/yogi
+!/extensions/dispact-connector
 # A unit's installed frontend dependencies. Its package.json and the workspace
 # lockfile are what ship; node_modules is what pnpm makes from them, and it is
 # per-member now that a unit's frontend layer is a workspace package.
@@ -116,3 +117,8 @@ workspace/
 # inspection profiles), not a build input. Machine-local, so it never belongs
 # in a commit.
 /.idea/
+
+# Agent-tooling scratch: state a Claude Code plugin keeps for its own runs,
+# written into whichever tree it was invoked from. Machine-local and per-session,
+# same as the IDE state above.
+/.impeccable/

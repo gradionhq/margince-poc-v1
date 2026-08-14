@@ -146,7 +146,20 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// activity write, not inside comms. Both send transports stage through
 	// that one path and pass the activity id they just created, never an
 	// externally-supplied reference.
-	"comms_outbound.activity_id":                     "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
+	"comms_outbound.activity_id": "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
+	// A scheduled send names the conversation its reply will join, and that
+	// reference is CLIENT-SUPPLIED — the rep picks the thread. It is gated at
+	// the same moment an immediate reply's anchor is, by the same code:
+	// scheduleSend runs the whole of prepareSend before it freezes anything,
+	// and prepareSend resolves the origin through SendOrigin.resolve. A rep who
+	// cannot read the thread cannot schedule a reply to it, and learns that at
+	// the keyboard rather than at fire.
+	"scheduled_send.anchor_activity_id": "gated: SendOrigin.resolve inside prepareSend, which scheduleSend runs in full before writing the row — the same gate an immediate reply passes",
+	// The activity the fire PRODUCED, written by releaseInTx from the id
+	// sendPreparedTx just created in that same transaction. Never an
+	// externally-supplied reference: no caller can name it, because it does not
+	// exist until the send commits.
+	"scheduled_send.activity_id":                     "child row: written only inside the fire transaction, from the activity id that transaction just created",
 	"consent_event.person_id":                        "child row: written through the person's own gated paths",
 	"organization_domain.organization_id":            "child row: written through the organization's own gated paths",
 	"organization_relationship_type.organization_id": "child row: written through the organization's own gated paths (the patch that sets relationship types, and the partner upsert)",

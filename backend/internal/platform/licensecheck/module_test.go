@@ -19,9 +19,14 @@ var recordedDigest string
 // The bundled module is a binary nobody reviews by reading it, fetched from a
 // release this repository cannot rebuild. What CAN be reviewed is the digest
 // beside it, so the two are held together here: a blob that was swapped,
-// truncated, or refreshed without its pin fails the build gate rather than
-// booting and quietly trusting a different keyset than the one that was
-// reviewed.
+// truncated, or edited on one side alone fails the build gate rather than booting
+// and quietly trusting a different keyset than the one that was reviewed.
+//
+// What this does NOT hold is module/VERSION. The pin is not in the comparison, so
+// a refresh that replaced the blob and its digest while leaving the pin behind
+// passes — and every posture this process reports would then name the wrong
+// module. Binding the three is tracked on issue #1190; until then the pin is
+// only as good as the review of the commit that moved it.
 func TestBundledModuleMatchesItsRecordedDigest(t *testing.T) {
 	t.Parallel()
 	want, name, ok := strings.Cut(strings.TrimSpace(recordedDigest), " ")
@@ -36,7 +41,8 @@ func TestBundledModuleMatchesItsRecordedDigest(t *testing.T) {
 	sum := sha256.Sum256(bundledModule)
 	if got := hex.EncodeToString(sum[:]); got != want {
 		t.Errorf("the bundled module hashes to %s but module/licensecheck.wasm.module.sha256 records %s —\n"+
-			"if the module was refreshed on purpose, `make license-module` rewrites both together", got, want)
+			"re-install the pair with the publisher's tooling in margince-constellation, which rewrites the blob, "+
+			"the pin and this digest together; editing either file so they agree is not the fix", got, want)
 	}
 }
 

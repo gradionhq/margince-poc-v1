@@ -40,7 +40,7 @@ const filingSource = "extension:notes"
 // activity with it — a filed note that lost its note would be a timeline entry
 // nobody can trace back.
 func fileNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := decode[struct {
+	args, err := extension.DecodeArgs[struct {
 		Body        string `json:"body"`
 		SubjectType string `json:"subject_type"`
 		SubjectID   string `json:"subject_id"`
@@ -59,7 +59,7 @@ func fileNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (js
 		// than the set: the set is in the schema the caller was handed.
 		return nil, fmt.Errorf("notes: %q is not a record a note can be filed to", args.SubjectType)
 	}
-	if !isCanonicalUUID(args.SubjectID) {
+	if !extension.IsCanonicalUUID(args.SubjectID) {
 		return nil, fmt.Errorf("notes: %q is not a record id — an id is a canonical UUID, as the contract declares", args.SubjectID)
 	}
 

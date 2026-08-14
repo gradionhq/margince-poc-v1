@@ -58,6 +58,35 @@ func (s *Service) EffectiveRBAC(ctx context.Context, workspaceID, humanID ids.UU
 	return out, err
 }
 
+// EffectiveAuthority reads the human's grants AND their seat in ONE snapshot.
+//
+// The pair exists because reading them separately can compose an authority the
+// member never held: a role change and a seat change that cross between two
+// transactions leave a caller holding permissions from before with a seat from
+// after. Both are ceilings on the same act, so they have to be read together —
+// and liveUserTx already has both in hand, which is what makes this the cheap
+// answer rather than a new query.
+//
+// A caller that legitimately needs only one may still use EffectiveRBAC or
+// SeatType; what must not happen is one caller reading both, separately, and
+// treating the pair as a fact about one instant.
+func (s *Service) EffectiveAuthority(ctx context.Context, workspaceID, humanID ids.UUID) (authz.RBAC, principal.SeatType, error) {
+	var (
+		rbac authz.RBAC
+		seat principal.SeatType
+	)
+	err := s.liveUserTx(ctx, workspaceID, humanID, func(tx pgx.Tx, seatType string) error {
+		_, teams, perms, err := loadGrants(ctx, tx, ids.From[ids.UserKind](humanID))
+		if err != nil {
+			return err
+		}
+		rbac = authz.RBAC{Permissions: perms, TeamIDs: rawTeamIDs(teams)}
+		seat = principal.SeatType(seatType)
+		return nil
+	})
+	return rbac, seat, err
+}
+
 // SeatType reads the human's current seat — the A62/ADR-0047 licensing
 // ceiling the gate checks before any tier reasoning.
 func (s *Service) SeatType(ctx context.Context, workspaceID, humanID ids.UUID) (principal.SeatType, error) {

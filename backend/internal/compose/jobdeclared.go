@@ -91,8 +91,8 @@ func roleName(r jobs.Role) string {
 	switch r {
 	case jobs.Dispatcher:
 		return "dispatcher"
-	case jobs.Workspace:
-		return "workspace"
+	case jobs.Worker:
+		return "worker"
 	}
 	return "undeclared"
 }

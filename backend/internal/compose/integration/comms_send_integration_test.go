@@ -73,7 +73,7 @@ func (m stubMailbox) Resolve(context.Context, ids.UserID, string) (connector.Ema
 // shape branch read the wrong row. It refuses rather than answering, so that
 // mistake fails the run instead of quietly transmitting mail through a channel
 // seam.
-func (m stubMailbox) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+func (m stubMailbox) ResolveChannel(context.Context, ids.UserID, string) (connector.MessageSender, connector.Auth, error) {
 	return nil, nil, errors.New("stubMailbox: this suite stages mail deliveries only; a channel resolve here is a shape-branch defect")
 }
 
@@ -182,7 +182,10 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs s
 		comms.NewStore(compose.InstallationDB(p.Pool), time.Now, activities.NewStore(compose.InstallationDB(p.Pool))),
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.Pool),
-		compose.NewSendAttachmentAuthority(p.Pool),
+		// nil object store: this lane sends no files, and a role wired without
+		// one still runs the gate — which reads rows — and only fails at the
+		// byte read a message with attachments would reach.
+		compose.NewSendAttachmentAuthority(p.Pool, nil),
 		consent.NewGate(consent.NewStore(compose.InstallationDB(p.Pool))),
 		nil, time.Now, 24*time.Hour, 10,
 	)

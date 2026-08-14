@@ -395,15 +395,15 @@ carries a tenant is refused — it has no honest answer for whose data the tick 
 
 Which half declares what is a rule, not a convention, and the composer refuses the other spellings:
 
-- **`role` is `dispatcher` or `workspace`, exactly.** A mistyped third value used to match neither
+- **`role` is `dispatcher` or `worker`, exactly.** A mistyped third value used to match neither
   arm of the pairing and quietly *un-declare* the kind: no registration, no manifest entry, no error.
 - **Governance is the dispatcher's.** `tier` and `scope` go on the dispatcher and nowhere else — the
   pair resolves as one governed job, so a second copy on the child is a line an author writes, a
   reviewer reads, an operator resolves against, and the runtime never applies.
-- **`cadence` is the dispatcher's; `max_attempts` is the child's.** A cadence on a workspace kind and
+- **`cadence` is the dispatcher's; `max_attempts` is the child's.** A cadence on an enqueued worker and
   an attempt cap on a dispatcher are both refused; a dispatcher's retry *is* its next tick.
 - **Both halves share one queue**, and the child's kind is the dispatcher's name plus `_ws` — a
-  workspace kind no dispatcher fans out to is a worker no clock ever reaches.
+  worker no dispatcher fans out to is one no clock ever reaches.
 
 ```go
 Jobs: []extension.Job{{Name: "heartbeat", Handle: heartbeat}},

@@ -175,3 +175,30 @@ func StartTestJobRunner(t *testing.T, pool *pgxpool.Pool, cfg compose.JobRunnerC
 	})
 	return runner, completed, failed
 }
+
+// AwaitKindOutcome blocks until one row of the named kind reports either way,
+// and answers whether it succeeded. No polling, no sleep.
+//
+// The single-pass sibling of AwaitWorkspaceJobOutcomes, and it exists because a
+// collapsed pass has no tenant to key an outcome on (ADR-0103 §1): there is one
+// row, and the question is whether that row completed or failed. The same
+// caveat applies for the same reason — the FIRST report is taken, so a suite
+// planting a retryable fault would read the attempt rather than the verdict.
+// Every caller plants a permanent one.
+func AwaitKindOutcome(ctx context.Context, t *testing.T, completed, failed <-chan *river.Event, kind string) bool {
+	t.Helper()
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for a %s outcome: %v", kind, ctx.Err())
+		case ev := <-completed:
+			if ev.Job != nil && ev.Job.Kind == kind {
+				return true
+			}
+		case ev := <-failed:
+			if ev.Job != nil && ev.Job.Kind == kind {
+				return false
+			}
+		}
+	}
+}

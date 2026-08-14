@@ -256,14 +256,37 @@ func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crm
 		return
 	}
 
-	sent, err := h.store.SendEmail(r.Context(), FromAccount(links), sendInputFrom(
-		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.ConsentPurpose, req.DraftRef,
-	), h.consent, h.delivery)
+	sched, err := scheduleFrom(req.ScheduledAt, req.ScheduledTz)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusAccepted, sent)
+	out, err := h.store.SendOrSchedule(r.Context(), FromAccount(links), sendInputFrom(
+		req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.HtmlBody, req.AttachmentIds,
+		req.ConsentPurpose, req.DraftRef,
+	), sched, h.consent, h.delivery, h.timer)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeSendOutcome(w, out)
+}
+
+// writeSendOutcome answers a send with what actually happened: the activity
+// when it went now, the scheduled record when it will go later.
+//
+// Spelled once so both surfaces answer a deferred send identically — a 201
+// on one and a 202 on the other would make "did it send?" depend on which
+// button the rep pressed.
+func writeSendOutcome(w http.ResponseWriter, out SendOutcome) {
+	if out.Scheduled != nil {
+		// 201: a new scheduled-send resource exists. Nothing is on the
+		// timeline and nothing has reached a provider.
+		httperr.WriteJSON(w, http.StatusCreated, scheduledSendResponse(*out.Scheduled))
+		return
+	}
+	// 202: accepted for delivery, the activity is the durable fact.
+	httperr.WriteJSON(w, http.StatusAccepted, out.Activity)
 }
 
 // sendInputFrom builds the send's input from the fields both mail surfaces
@@ -271,7 +294,7 @@ func (h Handlers) SendAccountEmail(w http.ResponseWriter, r *http.Request, _ crm
 // a convenience: consent is owed to every addressee, so Recipients is To+Cc
 // and Cc is a subset of it. A second hand-rolled copy would eventually merge
 // one of them differently and mail somebody the gate never asked about.
-func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject, body string, htmlBody *string, purpose string, draftRef *string) SendEmailInput {
+func sendInputFrom(to []openapi_types.Email, cc, bcc *[]openapi_types.Email, subject, body string, htmlBody *string, attachments *[]openapi_types.UUID, purpose string, draftRef *string) SendEmailInput {
 	var ccAddresses []string
 	if cc != nil {
 		ccAddresses = make([]string, 0, len(*cc))
@@ -283,7 +306,12 @@ func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject,
 	for _, addr := range to {
 		recipients = append(recipients, string(addr))
 	}
+	bccAddresses := addressesOf(bcc)
+	// Every addressee joins the merged list. A blind copy is blind to the
+	// RECIPIENTS and never to the consent gate: they receive the message, so
+	// consent is owed to them exactly as it is to a To or a Cc.
 	recipients = append(recipients, ccAddresses...)
+	recipients = append(recipients, bccAddresses...)
 
 	ref := ""
 	if draftRef != nil {
@@ -293,12 +321,21 @@ func sendInputFrom(to []openapi_types.Email, cc *[]openapi_types.Email, subject,
 	if htmlBody != nil {
 		html = *htmlBody
 	}
+	var files []ids.UUID
+	if attachments != nil {
+		files = make([]ids.UUID, 0, len(*attachments))
+		for _, id := range *attachments {
+			files = append(files, ids.UUID(id))
+		}
+	}
 	return SendEmailInput{
 		Recipients:     recipients,
 		Cc:             ccAddresses,
+		Bcc:            bccAddresses,
 		Subject:        subject,
 		Body:           body,
 		HTMLBody:       html,
+		AttachmentIDs:  files,
 		ConsentPurpose: purpose,
 		DraftRef:       ref,
 	}
@@ -316,13 +353,30 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	// derived by the store, on the message, where the MCP send tool reaches
 	// it too. It belongs on the mail, not on this response to the API
 	// caller, who is not the recipient and has nothing to unsubscribe from.
-	sent, err := h.store.SendEmail(r.Context(), FromActivity(pathID[ids.ActivityKind](id)), sendInputFrom(
-		req.To, req.Cc, req.Subject, req.Body, req.HtmlBody, req.ConsentPurpose, req.DraftRef,
-	), h.consent, h.delivery)
+	sched, err := scheduleFrom(req.ScheduledAt, req.ScheduledTz)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	// 202: accepted for delivery, the activity is the durable fact.
-	httperr.WriteJSON(w, http.StatusAccepted, sent)
+	out, err := h.store.SendOrSchedule(r.Context(), FromActivity(pathID[ids.ActivityKind](id)), sendInputFrom(
+		req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.HtmlBody, req.AttachmentIds,
+		req.ConsentPurpose, req.DraftRef,
+	), sched, h.consent, h.delivery, h.timer)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	writeSendOutcome(w, out)
+}
+
+// addressesOf flattens an optional address list, which both cc and bcc are.
+func addressesOf(list *[]openapi_types.Email) []string {
+	if list == nil {
+		return nil
+	}
+	out := make([]string, 0, len(*list))
+	for _, addr := range *list {
+		out = append(out, string(addr))
+	}
+	return out
 }

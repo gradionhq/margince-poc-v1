@@ -81,6 +81,14 @@ type OutboundFile struct {
 type EmailMessage struct {
 	To []string
 	Cc []string
+	// Bcc receives the message and is rendered into NO header.
+	//
+	// The distinction lives here rather than in the renderer because it is a
+	// fact about the addressees, not about one wire format: a provider that
+	// takes an addressee list separately from the message (Graph, SES) needs
+	// the same separation, and a renderer that had to infer it would have to
+	// be told twice.
+	Bcc []string
 	// FromName is the sender's display name, or empty to send a bare address.
 	//
 	// A From header with no display name shows the address's LOCAL PART in every

@@ -982,8 +982,18 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
+  /* The row is a grid item, so its floor is its own min-content width — the
+     reason's longest line, which is set nowrap below. Without this the row
+     sizes the rail's whole column and the card overflows; the reason's own
+     min-width: 0 then only decides whether the ellipsis is reachable. */
+  min-width: 0;
 }
+/* min-width: 0 is what makes the ellipsis reachable: a flex item's floor is
+   its min-content width, so without this the longest reason sets the row's
+   width and spills past the rail instead of truncating. The full sentence
+   stays available on the element's title. */
 .co-health-meter-reason {
+  min-width: 0;
   font-size: var(--fs-meta);
   color: var(--textMeta);
   text-align: right;

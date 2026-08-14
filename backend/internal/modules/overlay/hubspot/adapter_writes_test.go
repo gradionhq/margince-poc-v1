@@ -28,12 +28,12 @@ func TestAdapterCreatePostsMappedProps(t *testing.T) {
 				t.Errorf("decoding POST body: %v", err)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"555"}`))
+			mustWrite(t, w, `{"id":"555"}`)
 		case r.URL.Path == "/crm/v3/objects/contacts/batch/read":
 			// Create re-reads the created record through the sync-read path.
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-				"firstname":"Ada","lastname":"Lovelace","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+				"firstname":"Ada","lastname":"Lovelace","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -72,8 +72,8 @@ func TestAdapterUpdateRefusesOnBaselineDrift(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/crm/v3/objects/contacts/batch/read":
 			w.Header().Set("Content-Type", "application/json")
 			// Current incumbent lastmodifieddate is AFTER the caller's baseline.
-			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-				"lastmodifieddate":"2026-06-01T00:00:00Z"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+				"lastmodifieddate":"2026-06-01T00:00:00Z"}}]}`)
 		case r.Method == http.MethodPatch:
 			patched = true
 			t.Error("PATCH must not be issued when the baseline has drifted")
@@ -108,11 +108,11 @@ func TestAdapterUpdateAppliesWhenBaselineFresh(t *testing.T) {
 			// the read AFTER the PATCH re-reads the applied state.
 			w.Header().Set("Content-Type", "application/json")
 			if patched {
-				_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-					"firstname":"Ada2","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+				mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+					"firstname":"Ada2","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 			} else {
-				_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-					"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+				mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+					"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 			}
 		case r.Method == http.MethodPatch && r.URL.Path == "/crm/v3/objects/contacts/555":
 			if err := json.NewDecoder(r.Body).Decode(&patchBody); err != nil {
@@ -120,7 +120,7 @@ func TestAdapterUpdateAppliesWhenBaselineFresh(t *testing.T) {
 			}
 			patched = true
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"555"}`))
+			mustWrite(t, w, `{"id":"555"}`)
 		default:
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -153,8 +153,8 @@ func TestAdapterArchiveDeletes(t *testing.T) {
 		case r.URL.Path == "/crm/v3/objects/contacts/batch/read":
 			// The drift anchor: current lastmodifieddate is at/before baseline.
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-				"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+				"lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 		case r.Method == http.MethodDelete:
 			deleted = r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
@@ -181,8 +181,8 @@ func TestAdapterArchiveRefusesOnDrift(t *testing.T) {
 			t.Error("a drifted archive must not DELETE")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-			"lastmodifieddate":"2026-07-01T00:00:00Z"}}]}`))
+		mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+			"lastmodifieddate":"2026-07-01T00:00:00Z"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -203,8 +203,8 @@ func TestAdapterArchiveActivityResolvesClassFromNamespacedID(t *testing.T) {
 		switch {
 		case r.URL.Path == "/crm/v3/objects/calls/batch/read":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"results":[{"id":"123","properties":{"hs_object_id":"123",
-				"hs_timestamp":"2026-05-01T00:00:00Z","hs_lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+			mustWrite(t, w, `{"results":[{"id":"123","properties":{"hs_object_id":"123",
+				"hs_timestamp":"2026-05-01T00:00:00Z","hs_lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 		case r.Method == http.MethodDelete:
 			deleted = r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
@@ -247,8 +247,8 @@ func TestAdapterUpdateNoOpWhenOnlyReadOnlyFields(t *testing.T) {
 			t.Error("a read-only-fields patch must not PATCH")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"555","properties":{"hs_object_id":"555",
-			"firstname":"Ada","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`))
+		mustWrite(t, w, `{"results":[{"id":"555","properties":{"hs_object_id":"555",
+			"firstname":"Ada","lastmodifieddate":"2026-05-01T00:00:00Z"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -291,7 +291,7 @@ func TestAdapterArchiveRejectsUnprefixedActivityID(t *testing.T) {
 func TestAdapterCreateSurfacesIncumbentError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"message":"boom","category":"INTERNAL"}`))
+		mustWrite(t, w, `{"message":"boom","category":"INTERNAL"}`)
 	}))
 	defer srv.Close()
 

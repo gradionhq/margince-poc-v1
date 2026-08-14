@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "58ac230e447ccec90881634f0fc20a69f635084026353a1564f38d56bb5147a9"
+const jobContractHash = "9ee2559073991e50f3f8f63f28afde9ab5c13152669799177c0bfe949b0d8547"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -44,6 +44,7 @@ type declaredJobArgs interface {
 		CaptureSyncArgs |
 		CloseDateSweepArgs |
 		CloseDateWorkspaceArgs |
+		ScheduledSendArgs |
 		SendEmailArgs |
 		EmbedDriftSweepArgs |
 		EmbedDriftWorkspaceArgs |
@@ -85,8 +86,7 @@ type declaredJobArgs interface {
 		TimeScanWorkspaceArgs |
 		VoiceBuildArgs |
 		VoiceBuildRetryArgs |
-		WebhookRetryArgs |
-		WebhookRetryWorkspaceArgs
+		WebhookRetryArgs
 }
 
 // addDeclaredWorker is the sanctioned registration path. Its type parameter
@@ -145,11 +145,10 @@ var (
 	_ jobs.FleetWide = TelegramPollSweepArgs{}
 	_ jobs.FleetWide = TimeScanArgs{}
 	_ jobs.FleetWide = VoiceBuildRetryArgs{}
-	_ jobs.FleetWide = WebhookRetryArgs{}
 )
 
-// The declared workspace-scoped kinds: each carries exactly one tenant's
-// pass and says which in its own args.
+// The declared tenant-scoped kinds: each says which workspace it is for
+// in its own args.
 var (
 	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = AgentTaskRetentionWorkspaceArgs{}
@@ -162,6 +161,7 @@ var (
 	_ jobs.WorkspaceScoped = CaptureEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = ScheduledSendArgs{}
 	_ jobs.WorkspaceScoped = SendEmailArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedReindexWorkspaceArgs{}
@@ -185,5 +185,4 @@ var (
 	_ jobs.WorkspaceScoped = TelegramPollArgs{}
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = VoiceBuildArgs{}
-	_ jobs.WorkspaceScoped = WebhookRetryWorkspaceArgs{}
 )

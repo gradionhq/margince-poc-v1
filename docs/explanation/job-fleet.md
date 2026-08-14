@@ -8,7 +8,7 @@ That contract has two halves. Every job kind is **declared** in `backend/api/job
 exists in code — and the declaration is what the running system obeys, so a worker cannot choose its
 own timeout, its own queue or its own attempt cap. And every fleet-wide pass is **two** kinds: a
 dispatcher that enumerates the fleet (the "fleet" is every workspace on the installation) and
-enqueues, plus a workspace kind that carries exactly one tenant's work.
+enqueues, plus a worker that carries exactly one unit's work.
 
 This is the deep reference. To *add* a job, jump to [how-to/add-a-job.md](../how-to/add-a-job.md);
 for the operator's reading of the same fleet, see
@@ -32,7 +32,7 @@ backend/api/jobs.yaml
         │  enumerate the fleet — compose/dispatch.go, the ONE scan
         │  dispatchPerWorkspace | dispatchWith | dispatchOne
         ▼  one child per fan-out UNIT, one InsertMany, tagged `sweep`
-   WORKSPACE row × N         role: workspace    ·   jobs.WorkspaceScoped
+   WORKER row × N            role: worker       ·   jobs.WorkspaceScoped
         │  workspaceJobCtx binds args.WorkspaceID() → app.workspace_id (RLS)
         │  Work(…) ──► jobs.FaultContext(ctx, err)
         ▼
@@ -63,7 +63,7 @@ Five fields are declared for **every** kind:
 
 | Field | Meaning |
 |---|---|
-| `role` | `dispatcher` or `workspace` — §4. Held to the Go marker interface by a generated assertion |
+| `role` | `dispatcher` or `worker` — §4. Held to the Go marker interface by a generated assertion |
 | `go_type` | the compose args struct that returns this kind (`^[A-Z][A-Za-z0-9]*Args$`). Carried as data, not as an import, so a gate can assert the kind↔type pairing still holds |
 | `queue` | must name an entry in the file's own `queues:` block; every non-`default` queue owes a `reason` for having been split out of the default pool |
 | `timeout` | the whole-job wall clock — §3. There is **no default** |
@@ -80,7 +80,7 @@ Five fields are declared for **every** kind:
 Three more are **conditional on what the kind is**, and generation refuses the mismatch in both
 directions — a field owed and absent fails, and a field declared where it means nothing fails too:
 
-- **`cadence`** — required on a dispatcher, refused on a workspace kind (*"a workspace kind is
+- **`cadence`** — required on a dispatcher, refused on an enqueued worker (*"an enqueued worker is
   enqueued by its dispatcher, never ticked"*). Exactly one of a duration, `{operator: Field}` naming
   the `JobRunnerConfig` dial the number comes from, or `on_demand`. `on_demand` is a *declaration*,
   not an absence: `embed_reindex` is enqueued by a human's confirm and by no clock, and an absent
@@ -88,7 +88,7 @@ directions — a field owed and absent fails, and a field declared where it mean
   third posture — the workers stay registered and only the tick goes away.
 - **`fans_out_to` + `fan_out_unit`** — one declaration, never one without the other. Required on a
   dispatcher (*"a dispatcher that fans out to nothing … does no work at all"*), refused elsewhere,
-  and the named child must itself be `role: workspace`. The unit is `workspace`, `connection` or
+  and the named child must itself be `role: worker`. The unit is `workspace`, `connection` or
   `build`, and it is what makes a child row readable: a `gmail_watch_renew_connection` row is one
   *connection's* renewal, not one tenant's. The unit is declared on the **dispatcher**, beside the
   edge it names, because that is where the fan-out decision is made.
@@ -216,12 +216,12 @@ type FleetWide interface {
 }
 ```
 
-The contract declares **fifty-five** kinds today — twenty-four dispatchers and thirty-one
-workspace-scoped — and there is no third role. A third would be a change to what a job *is*, not
+The contract declares **sixty-two** kinds today — twenty-seven dispatchers and thirty-five
+workers — and there is no third role. A third would be a change to what a job *is*, not
 data: both operational surfaces read `Role` to decide whether a null `args->>'workspace_id'` is
 correct or a defect.
 
-**The biconditional.** `role: workspace` ⟺ the args type implements `jobs.WorkspaceScoped`, and
+**The biconditional.** `role: worker` ⟺ the args type implements `jobs.WorkspaceScoped`, and
 `role: dispatcher` ⟺ it implements `jobs.FleetWide`. Generation emits one `var _ jobs.FleetWide =
 XArgs{}` / `var _ jobs.WorkspaceScoped = XArgs{}` line per kind, so a *declared* kind's role is the
 compiler's to check. Two halves the generated assertions provably cannot reach are gates instead: a

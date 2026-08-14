@@ -6,6 +6,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -62,12 +63,32 @@ type Store struct {
 	// (WithRecipientDirectory wires it). A reply never consults it — its
 	// addressees come from the captured conversation it answers.
 	recipients RecipientDirectory
+	// clock reads the current instant. Injected so the scheduling suites can
+	// pin a due moment and a missed window without sleeping (T11).
+	clock func() time.Time
 }
 
 // NewStore opens this module's store on a handle already bound to the
 // workspace it serves.
 func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
+}
+
+// WithClock returns a store reading time from the given function. It returns a
+// copy so the base store stays unchanged.
+func (s *Store) WithClock(now func() time.Time) *Store {
+	clone := *s
+	clone.clock = now
+	return &clone
+}
+
+// now is the store's clock, defaulting to the wall clock for every caller that
+// never injected one.
+func (s *Store) now() time.Time {
+	if s.clock == nil {
+		return time.Now()
+	}
+	return s.clock()
 }
 
 // WithBlobstore returns a store that backs the attachment endpoints with the

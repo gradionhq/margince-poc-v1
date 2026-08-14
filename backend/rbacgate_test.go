@@ -70,6 +70,7 @@ import (
 var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
 	// Reached only from worker sweeps, approvals effect executors, or a
 	// service that owns the gate above them. Each entry states which.
+	"internal/modules/activities:HoldScheduledSend":          "worker path: the scheduled-send timer hands a message back to a human when the sender no longer resolves or the ladder is exhausted, under the system principal — the human whose authority it WOULD have used is exactly the one that failed to resolve, so there is no actor to gate on",
 	"internal/modules/ai:CostReport":                         "aggregates this installation's ai_call rows into totals and returns no record; the cost surface above it takes the grant, and there is nothing here for object RBAC to narrow",
 	"internal/modules/ai:DueDeferredBuilds":                  "worker sweep: walks the fleet workspace-by-workspace for builds to re-offer, under the system principal — no human actor exists to gate",
 	"internal/modules/ai:RateFor":                            "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",
@@ -120,6 +121,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/overlay:LoadReconcileWatermark":        "reconcile-poller checkpoint read",
 	"internal/modules/overlay:PurgeRecord":                   "deletion-feed teardown from the reconcile sweep: removes a mirror row the incumbent reports gone, under the system principal",
 	"internal/modules/overlay:RecomputeForOwner":             "recomputes mirror_visibility for one incumbent owner after a mapping change; driven by the mapping writes above, which are themselves gated",
+	"internal/modules/overlay:RecordReprojectionFailure":     "the re-projection sweep's own bookkeeping about the pass it just failed, on the same worker system-principal path as Ingest and StaleProjections. It writes one column of the mirror row it was handed — the declaration fingerprint the re-fetch could not reach — and no incumbent payload, so it discloses nothing and returns no record. Both producers of the re-fetch it follows reach it over a workspace-bound handle, so the UPDATE is confined by RLS to this workspace's own mirror whatever id it is handed — the sweep's, which came from StaleProjections in the same bound transaction, and the webhook lane's, which came off the wire from the incumbent; there is no row whose visibility a gate could decide",
 	"internal/modules/overlay:RecordSweepFailure":            "the failure half of the same backoff bookkeeping",
 	"internal/modules/overlay:RecordSweepSuccess":            "sweep health bookkeeping (backoff state) written by the sweep about itself",
 	"internal/modules/overlay:RequestSweep":                  "MirrorStore.RequestSweep is the store half of the sanctioned Service-owns-the-gate shape (same as ListUserMap): the ONLY caller is Service.RequestSweep, which takes auth.Require(overlay_connection, ActionUpdate) and fences the store against a racing disconnect before delegating. The store method itself writes overlay_sync_state — a due-at and a failure ladder, not a record — and until this gate became receiver-aware the service's grant was silently answering for it",
@@ -155,6 +157,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/identity:RedeemPasswordReset":   "pre-principal by design (A74): possession of the single-use emailed token IS the authority being verified",
 	"internal/modules/identity:EffectiveRBAC":         "this LOADS the merged role policy the auth gate enforces — gating it on itself would recurse",
 	"internal/modules/identity:SeatType":              "seat-tier lookup feeding the auth gate (scope ∧ tier); same layer as EffectiveRBAC, not above it",
+	"internal/modules/identity:EffectiveAuthority":    "the two above, read in ONE snapshot; it is the same layer as both and gating it on itself would recurse for the same reason",
 	"internal/modules/identity:IssuePassport":         "gated by the explicit Identity parameter (the authenticated session): a passport is minted for that identity only, capped by validScopes",
 	"internal/modules/identity:ListPassports":         "gated by the explicit Identity parameter: the query is pinned to on_behalf_of = the caller (admin sees the workspace's)",
 	"internal/modules/identity:RevokePassport":        "gated by the explicit Identity parameter: owner-or-admin is checked against the passport's on_behalf_of before revoking",

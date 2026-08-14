@@ -10,6 +10,7 @@ export type ImportProfile = components["schemas"]["ImportSourceProfile"];
 export type ImportColumn = components["schemas"]["ImportColumn"];
 export type ImportRun = components["schemas"]["ImportRun"];
 export type ImportReport = components["schemas"]["ImportRunReport"];
+export type ImportUndoReport = components["schemas"]["ImportUndoReport"];
 
 // DONT_IMPORT is the mapping table's resting choice: a column nobody has
 // assigned a destination to is LEFT OUT, never guessed into a field. It is a

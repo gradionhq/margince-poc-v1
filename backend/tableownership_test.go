@@ -253,6 +253,7 @@ var tableOwners = map[string]string{
 	// comms (outbound delivery machinery; the activity row is the
 	// user-visible fact and stays owned by activities)
 	"comms_outbound": "internal/modules/comms",
+	"scheduled_send": "internal/modules/activities",
 	// overlay (the HubSpot mirror cluster, ADR-0017 custom namespace —
 	// design.md §4.2)
 	"incumbent_connection":        "internal/modules/overlay",
@@ -280,8 +281,14 @@ var tableOwners = map[string]string{
 	// reason: it is transport-owned operational state, not a domain record, and
 	// modules/agents declares the seam while owning no SQL.
 	"agent_task": "internal/compose",
-	"brief_run":  "internal/compose/briefs",
-	"brief_item": "internal/compose/briefs",
+	// The activity-kind and channel-provider registries (DESIGN-SP4 §4):
+	// derived from the composed connector/extension set at boot, so no domain
+	// module decides "which providers exist" — compose observes it, the same
+	// way it owns idempotency_key and agent_task.
+	"activity_kind":    "internal/compose",
+	"channel_provider": "internal/compose",
+	"brief_run":        "internal/compose/briefs",
+	"brief_item":       "internal/compose/briefs",
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	// The person view acknowledges visits into the SAME table (one baseline
@@ -405,6 +412,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/consent:retention_policy":             "bootstrap plants the DM-SEED-1..6 defaults inside the workspace-creation transaction, beside the consent purposes it ships with, so a new installation is compliant before it serves a request. Boot-time only and one row per scope — the table's store, its RBAC gate and every runtime write live in privacy, which owns it",
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
+	"internal/modules/privacy:scheduled_send":               "a message the rep chose to send later holds the subject's address, subject line and body BEFORE any activity exists, so the activity-keyed scrubs cannot reach it — Art. 17 empties the payload and cancels a pending one in the same transaction as the rest of the cascade, because a scheduled send that survived it would arrive the morning after the erasure certified the data destroyed",
 	"internal/modules/privacy:comms_outbound":               "the send log stores a second copy of an outbound message's recipients, subject and body, so Art. 17 erasure and the retention erase action scrub it in the SAME transaction that scrubs the activity it belongs to — routing it through comms would let the timeline row commit as a tombstone while the delivery still served the whole message",
 
 	// direct audit_log/event_outbox writers: these paths need columns

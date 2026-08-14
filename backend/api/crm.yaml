@@ -3288,6 +3288,26 @@ paths:
                   links:
                     - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
                   source: 'email:CAF=abc@mail.gmail.com'
+              transcript:
+                summary: 'A pasted or uploaded meeting transcript (ADR-0058)'
+                description: >-
+                  `source_system: transcript` on a `call`/`meeting` activity normalizes `body` server-side
+                  to ADR-0058's canonical form (newlines unified, control bytes other than tab stripped,
+                  trailing whitespace trimmed per line, capped at 256 KiB) — the same mapping every
+                  transport shares, so a pasted transcript and an agent-supplied one land identically. Only
+                  `call`/`meeting` accept it; any other `kind` is refused 422. There is no presigned
+                  file-upload path in V1 — a plain-text `.txt` file is read to text client-side and sent
+                  the same way a paste is.
+                value:
+                  kind: meeting
+                  body: |-
+                    Anna: Let's ship the proposal by Friday.
+                    Ben: Works for me, I'll review Thursday.
+                  occurred_at: '2026-05-02T16:00:00Z'
+                  source_system: transcript
+                  links:
+                    - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
+                  source: ui
       responses:
         '201':
           description: Created activity.
@@ -3556,6 +3576,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Activity' }
+        '201':
+          description: |
+            Scheduled, not sent (ADR-0104/A155). No activity and no delivery row exist yet;
+            the timeline stays silent until it fires.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledSend' }
         '403':
           description: Approval token missing for a 🟡 send, or RBAC denied.
           content:
@@ -3572,6 +3599,115 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /scheduled-sends:
+    get:
+      tags: [Activities]
+      operationId: listScheduledSends
+      summary: The caller's own messages waiting to be sent.
+      description: |
+        Scheduled mail is the SENDER's own (ADR-0104/A155). An unsent message's body and its
+        blind-copy list are not workspace-readable the way a sent activity is, so this lists
+        only what the caller scheduled.
+      x-agent-access: human-only
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [scheduled, released, cancelled, held] }
+          description: Omit for every state; supply one to filter.
+      responses:
+        '200':
+          description: The caller's scheduled messages, soonest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ScheduledSend' }
+
+  /scheduled-sends/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Activities]
+      operationId: getScheduledSend
+      summary: One of the caller's scheduled messages.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The scheduled message.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledSend' }
+        '404':
+          description: |
+            No such scheduled message for this caller. Somebody else's is not found rather
+            than forbidden — existence-hiding, as everywhere else.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    patch:
+      tags: [Activities]
+      operationId: rescheduleScheduledSend
+      summary: Move a scheduled message to a different moment.
+      description: |
+        Time only. The content is what the approval bound to, so changing it is
+        cancel-and-recompose, which re-enters every gate from the top (ADR-0104 §5).
+
+        Human-only: an agent may SCHEDULE through the 🟡 send tools, but moving or cancelling
+        a message a human approved is not an agent's decision.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleSendRequest' }
+      responses:
+        '200':
+          description: Moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledSend' }
+        '404':
+          description: No such scheduled message for this caller.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: |
+            It already fired, was cancelled, or somebody moved it first. All three are the same
+            answer: the row you saw is not the row that is there.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /scheduled-sends/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities]
+      operationId: cancelScheduledSend
+      summary: Withdraw a scheduled message before it fires.
+      description: |
+        Nothing is transmitted and nothing reaches the timeline. Human-only, for the same
+        reason rescheduling is.
+      x-agent-access: human-only
+      responses:
+        '204':
+          description: Cancelled.
+        '404':
+          description: No such scheduled message for this caller.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: It already fired or was already cancelled.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /activities/{id}/send-message:
     parameters:
@@ -10921,6 +11057,54 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }   # not awaiting_approval
 
+  /imports/{id}/undo:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Import]
+      operationId: undoImportRun
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Reverse a completed CSV import run.
+      description: |
+        IEM-WIRE-9 (A93; S-E15.4c). Valid from `complete` (starting a fresh
+        reversal) or `undoing` (resuming one already under way, from its
+        persisted checkpoint) — and only for the `csv` connector. Undoing a
+        run that is still in flight, was never approved, has already failed,
+        or has already finished undoing is a conflict, as is a run whose
+        `undoing` state carries no recorded progress to resume; the
+        `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
+        path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
+        import; `hubspot`/`salesforce` are unbuilt).
+
+        Reverses only the rows this run created that nobody has touched since
+        (A93): never an all-or-nothing hard rollback that clobbers a later
+        edit. A row a human touched after import is left exactly as they left
+        it and named in the report's `kept` list, not silently skipped — and
+        a row that cannot be reversed for any other reason (a business rule
+        refuses it, or it is no longer visible to the caller) is named in
+        `errored` with why, rather than aborting every row after it.
+
+        Checkpointed and resumable on the same run record's `checkpoint`
+        field the forward commit already uses (IEM-WIRE-5), though the two
+        count different things once a run is undoing: source-row offset for
+        the forward commit, `import_record_map` row offset for the reversal.
+        An undo over thousands of rows is the same shape of bulk write the
+        import itself is, and paged the same way. Undoing an already-`undone`
+        run is a conflict, not a no-op; a second call while one is already
+        under way for the same run is a conflict too, not a second
+        concurrent pass.
+      responses:
+        '202':
+          description: 'Undo accepted; reversal is under way (or complete — the run record says which).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }   # not complete/undoing, not csv, already undone, or undoing with no progress to resume
+
   /overlay/user-map:
     get:
       tags: [Overlay]
@@ -12694,14 +12878,57 @@ components:
         estimated_duration_seconds:
           type: [integer, 'null']
           description: 'A dry run''s estimate for the commit. Null when the run has already finished and the real duration is on the run record.'
+        undo:
+          allOf: [ { $ref: '#/components/schemas/ImportUndoReport' } ]
+          description: 'Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise.'
 
     ImportRunStatus:
       type: string
-      enum: [pending, validating, awaiting_approval, running, complete, failed]
+      enum: [pending, validating, awaiting_approval, running, complete, failed, undoing, undone]
       description: |
         IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
         carries the checkpoint it stopped at, and resuming continues from
-        there rather than re-reading the file from the top.
+        there rather than re-reading the file from the top. `undoing`/`undone`
+        (IEM-WIRE-9) are the reversal's own states, reachable only from
+        `complete` and only for the `csv` connector.
+
+    ImportUndoReport:
+      type: object
+      description: |
+        The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+        import-created row lands in exactly one of three buckets: reversed,
+        kept because a human edited it since (the "kept — you edited these"
+        list S-E15.4c requires, not a diff of what changed), or errored
+        because it could not be reversed — a single irreversible row never
+        aborts the rest of the run.
+      required: [run_id, status, reversed_count, kept, errored]
+      properties:
+        run_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/ImportRunStatus' }
+        reversed_count: { type: integer, minimum: 0, description: 'Import-created rows that were untouched since and have been reversed (archived).' }
+        kept:
+          type: array
+          description: 'Import-created rows a human edited since import, therefore left in place (A93).'
+          items:
+            type: object
+            required: [object, id]
+            properties:
+              object: { $ref: '#/components/schemas/ImportObject' }
+              id: { type: string, format: uuid }
+        errored:
+          type: array
+          description: |
+            Import-created rows the reversal could not archive (a business
+            rule refused it, or the caller's row scope no longer covers it) —
+            left exactly as they stood, named with why, rather than the
+            whole run aborting on one row it cannot process.
+          items:
+            type: object
+            required: [object, id, reason]
+            properties:
+              object: { $ref: '#/components/schemas/ImportObject' }
+              id: { type: string, format: uuid }
+              reason: { type: string, description: 'What kept it from reversing, in terms the operator can act on — never a database or driver message.' }
 
     ImportRun:
       type: object
@@ -12711,7 +12938,7 @@ components:
         connector:  { type: string, enum: [csv, hubspot, salesforce, bundle, mirror], description: 'The two beyond the migrate-in set are the flip''s own sources (OVA-WIRE-8).' }
         object:     { $ref: '#/components/schemas/ImportObject' }
         status:     { $ref: '#/components/schemas/ImportRunStatus' }
-        checkpoint: { type: integer, minimum: 0, description: 'Absolute offset into the source''s rows; 0 = not started. What a resume continues from.' }
+        checkpoint: { type: integer, minimum: 0, description: 'Absolute offset into the source''s rows for a forward run (`running`/`failed`), or into import_record_map''s rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from.' }
         error:      { type: [string, 'null'], description: 'Why a failed run stopped, in the uploader''s terms. Never a driver or SQL message.' }
         source:      { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
@@ -16848,8 +17075,37 @@ components:
             with the plain part first, so a client that cannot render HTML still
             receives the words. The sender's signature and the unsubscribe footer are
             appended to BOTH parts by the server, in each part's own syntax.
+        attachment_ids:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+          description: |
+            Files already in the record library to send with this message, named by id
+            — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+            archiving or superseding one later cannot rewrite what the timeline says a
+            sent message carried.
+
+            A message is transmitted with ALL its files or not at all. A connector whose
+            provider cannot carry them parks the delivery rather than sending the text
+            alone, and a file the scanner has since quarantined — or one the sender has
+            since lost the right to read — parks it too: a recipient seeing fewer files
+            than the record claims is a wrong record nobody is told about.
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
+        bcc:
+          type: array
+          items: { type: string, format: email }
+          description: |
+            Blind copies. They receive the message and are therefore owed consent
+            exactly as To and Cc are — the gate answers on every addressee, however
+            they were addressed — and they are absent from the headers the recipients
+            see, which is the whole of what "blind" means.
+
+            A message with a tokenized unsubscribe link may still have only ONE
+            addressee in total: that token is a bearer credential over one person's
+            consent record, so a bcc'd copy of a marketing send is refused 422
+            `shared_unsubscribe_token` rather than handing a stranger somebody else's
+            preference link.
         draft_ref:
           type: [string, 'null']
           description: |
@@ -16864,6 +17120,95 @@ components:
             The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
             The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
             `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+        scheduled_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Send this message at this instant instead of now (ADR-0104/A155). Absolute
+            and unambiguous; `scheduled_tz` records the zone the human picked it in.
+
+            A scheduled message writes NO activity and NO delivery row until it fires —
+            the timeline stays silent about a message nobody has sent. The response is
+            201 with the ScheduledSend rather than 202 with an activity.
+
+            Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+            while the sender is still at the keyboard, and again when it fires, against
+            the state that exists then. A message whose consent was withdrawn, whose
+            sender lost their seat, or whose attachment was archived in between is HELD
+            for a human rather than sent stale.
+
+            An instant already past sends immediately. Further ahead than 90 days is
+            refused 422.
+        scheduled_tz:
+          type: [string, 'null']
+          description: |
+            The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+            Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+            would freeze the DST rules of the day it was written (AC-DS-TZ4).
+
+    ScheduledSend:
+      type: object
+      required: [id, status, scheduled_at, scheduled_tz, subject, to, version, created_at, updated_at]
+      description: |
+        One message waiting for its moment (ADR-0104/A155). It is not an activity and not a
+        delivery: nothing is on the timeline and nothing has been handed to a provider.
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [scheduled, released, cancelled, held]
+          description: |
+            `scheduled` — waiting; the rep may move or cancel it.
+            `released` — it fired: the activity, the delivery row and the dispatch job exist.
+            Deliberately NOT "sent": the provider has not been called yet and the delivery can
+            still park or fail, so delivery truth lives on the outbound record, not here.
+            `cancelled` — withdrawn before it fired; nothing was transmitted.
+            `held` — a gate refused at fire, or the window was missed. It will not send itself;
+            a human reschedules or cancels it.
+        scheduled_at: { type: string, format: date-time }
+        scheduled_tz:
+          type: string
+          description: The IANA zone the human picked the moment in, kept so it re-renders as meant.
+        subject: { type: string }
+        to: { type: array, items: { type: string, format: email } }
+        cc: { type: array, items: { type: string, format: email } }
+        bcc:
+          type: array
+          items: { type: string, format: email }
+          description: |
+            Visible to the SENDER, who is the only person this record is readable by. A scheduled
+            message's blind-copy list is not workspace-readable the way a sent activity is.
+        body: { type: string }
+        anchor_activity_id:
+          type: [string, 'null']
+          format: uuid
+          description: The conversation this reply will join; null for an account-started message.
+        activity_id:
+          type: [string, 'null']
+          format: uuid
+          description: The timeline activity this produced, once released.
+        held_reason:
+          type: [string, 'null']
+          enum: [consent_withdrawn, sender_inactive, missed_window, timer_exhausted, send_refused, null]
+          description: |
+            Why a human has to look at it. `consent_withdrawn` — a recipient withdrew consent
+            after it was scheduled. `sender_inactive` — the scheduler lost their seat or mailbox.
+            `missed_window` — it came due while nothing was running and is now too late to be the
+            message that was written. `timer_exhausted` — the job that wakes it ran out of
+            attempts. `send_refused` — a gate refused for another reason at fire.
+        version: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RescheduleSendRequest:
+      type: object
+      required: [scheduled_at, scheduled_tz]
+      description: |
+        A new moment for a message already scheduled. TIME ONLY — the content is what the
+        approval bound to, so changing it is cancel-and-recompose (ADR-0104 §5).
+      properties:
+        scheduled_at: { type: string, format: date-time }
+        scheduled_tz: { type: string }
 
     SendAccountEmailRequest:
       type: object
@@ -16882,6 +17227,21 @@ components:
             with the plain part first, so a client that cannot render HTML still
             receives the words. The sender's signature and the unsubscribe footer are
             appended to BOTH parts by the server, in each part's own syntax.
+        attachment_ids:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+          description: |
+            Files already in the record library to send with this message, named by id
+            — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+            archiving or superseding one later cannot rewrite what the timeline says a
+            sent message carried.
+
+            A message is transmitted with ALL its files or not at all. A connector whose
+            provider cannot carry them parks the delivery rather than sending the text
+            alone, and a file the scanner has since quarantined — or one the sender has
+            since lost the right to read — parks it too: a recipient seeing fewer files
+            than the record claims is a wrong record nobody is told about.
         to:
           type: array
           minItems: 1
@@ -16890,6 +17250,20 @@ components:
             anything is staged — `cc` alone does not make a message addressed to anyone.
           items: { type: string, format: email }
         cc: { type: array, items: { type: string, format: email } }
+        bcc:
+          type: array
+          items: { type: string, format: email }
+          description: |
+            Blind copies. They receive the message and are therefore owed consent
+            exactly as To and Cc are — the gate answers on every addressee, however
+            they were addressed — and they are absent from the headers the recipients
+            see, which is the whole of what "blind" means.
+
+            A message with a tokenized unsubscribe link may still have only ONE
+            addressee in total: that token is a bearer credential over one person's
+            consent record, so a bcc'd copy of a marketing send is refused 422
+            `shared_unsubscribe_token` rather than handing a stranger somebody else's
+            preference link.
         draft_ref:
           type: [string, 'null']
           description: |
@@ -16901,6 +17275,31 @@ components:
             The consent purpose this send falls under. Default-deny per purpose (A22/ADR-0011):
             suppressed 409 `consent_not_granted` unless every recipient has an active `granted`
             `person_consent` for THIS purpose.
+        scheduled_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Send this message at this instant instead of now (ADR-0104/A155). Absolute
+            and unambiguous; `scheduled_tz` records the zone the human picked it in.
+
+            A scheduled message writes NO activity and NO delivery row until it fires —
+            the timeline stays silent about a message nobody has sent. The response is
+            201 with the ScheduledSend rather than 202 with an activity.
+
+            Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+            while the sender is still at the keyboard, and again when it fires, against
+            the state that exists then. A message whose consent was withdrawn, whose
+            sender lost their seat, or whose attachment was archived in between is HELD
+            for a human rather than sent stale.
+
+            An instant already past sends immediately. Further ahead than 90 days is
+            refused 422.
+        scheduled_tz:
+          type: [string, 'null']
+          description: |
+            The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+            Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+            would freeze the DST rules of the day it was written (AC-DS-TZ4).
         links:
           type: array
           minItems: 1
@@ -17931,7 +18330,7 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }

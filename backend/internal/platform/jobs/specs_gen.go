@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "58ac230e447ccec90881634f0fc20a69f635084026353a1564f38d56bb5147a9"
+const JobContractHash = "9ee2559073991e50f3f8f63f28afde9ab5c13152669799177c0bfe949b0d8547"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -33,7 +33,7 @@ var specs = map[string]Spec{
 	"agent_scheduler_workspace": {
 		Kind:         "agent_scheduler_workspace",
 		GoType:       "AgentSchedulerWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "agent_scheduler",
 		Timeout:      TimeoutPolicy{Fixed: 65 * time.Minute, DerivedFrom: "agentSchedulerPassTimeout"},
 		MaxAttempts:  1,
@@ -55,7 +55,7 @@ var specs = map[string]Spec{
 	"agent_task_retention_workspace": {
 		Kind:        "agent_task_retention_workspace",
 		GoType:      "AgentTaskRetentionWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
@@ -65,7 +65,7 @@ var specs = map[string]Spec{
 	"ai_model_rate_refresh": {
 		Kind:      "ai_model_rate_refresh",
 		GoType:    "AiModelRateRefreshArgs",
-		Role:      Workspace,
+		Role:      Worker,
 		Queue:     "rate_refresh",
 		Timeout:   TimeoutPolicy{Fixed: 20 * time.Minute},
 		OptsOwner: OptsCaller,
@@ -85,7 +85,7 @@ var specs = map[string]Spec{
 	"capture_auto_enrich_workspace": {
 		Kind:        "capture_auto_enrich_workspace",
 		GoType:      "CaptureAutoEnrichWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
@@ -95,7 +95,7 @@ var specs = map[string]Spec{
 	"capture_backfill": {
 		Kind:         "capture_backfill",
 		GoType:       "CaptureBackfillArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 8 * time.Minute},
 		OptsOwner:    OptsCaller,
@@ -118,7 +118,7 @@ var specs = map[string]Spec{
 	"capture_classify_workspace": {
 		Kind:         "capture_classify_workspace",
 		GoType:       "CaptureClassifyWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "ai_capture",
 		Timeout:      TimeoutPolicy{Fixed: 15 * time.Minute},
 		MaxAttempts:  3,
@@ -140,7 +140,7 @@ var specs = map[string]Spec{
 	"capture_counterparty_verdict_workspace": {
 		Kind:        "capture_counterparty_verdict_workspace",
 		GoType:      "CounterpartyVerdictWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "ai_capture",
 		Timeout:     TimeoutPolicy{Fixed: 20 * time.Minute},
 		MaxAttempts: 3,
@@ -162,7 +162,7 @@ var specs = map[string]Spec{
 	"capture_digest_workspace": {
 		Kind:         "capture_digest_workspace",
 		GoType:       "CaptureDigestWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts:  3,
@@ -185,7 +185,7 @@ var specs = map[string]Spec{
 	"capture_enrich_workspace": {
 		Kind:         "capture_enrich_workspace",
 		GoType:       "CaptureEnrichWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "ai_capture",
 		Timeout:      TimeoutPolicy{Fixed: 20 * time.Minute},
 		MaxAttempts:  3,
@@ -196,7 +196,7 @@ var specs = map[string]Spec{
 	"capture_sync": {
 		Kind:         "capture_sync",
 		GoType:       "CaptureSyncArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 8 * time.Minute},
 		MaxAttempts:  25,
@@ -219,17 +219,27 @@ var specs = map[string]Spec{
 	"close_date_workspace": {
 		Kind:        "close_date_workspace",
 		GoType:      "CloseDateWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 5,
 		OptsOwner:   OptsFanOut,
 		Args:        []ArgField{{Name: "Workspace"}},
 	},
+	"comms_scheduled_send": {
+		Kind:         "comms_scheduled_send",
+		GoType:       "ScheduledSendArgs",
+		Role:         Worker,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 5 * time.Minute},
+		OptsOwner:    OptsCaller,
+		Registration: Registration{When: []string{"SendRegistry"}},
+		Args:         []ArgField{{Name: "ScheduledSendID"}, {Name: "Workspace"}},
+	},
 	"comms_send_email": {
 		Kind:         "comms_send_email",
 		GoType:       "SendEmailArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 5 * time.Minute},
 		OptsOwner:    OptsCaller,
@@ -251,7 +261,7 @@ var specs = map[string]Spec{
 	"embed_drift_workspace": {
 		Kind:         "embed_drift_workspace",
 		GoType:       "EmbedDriftWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{None: true},
 		MaxAttempts:  3,
@@ -275,7 +285,7 @@ var specs = map[string]Spec{
 	"embed_reindex_workspace": {
 		Kind:         "embed_reindex_workspace",
 		GoType:       "EmbedReindexWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "ai_capture",
 		Timeout:      TimeoutPolicy{None: true},
 		MaxAttempts:  5,
@@ -286,7 +296,7 @@ var specs = map[string]Spec{
 	"finance_sync": {
 		Kind:        "finance_sync",
 		GoType:      "FinanceSyncArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
@@ -318,7 +328,7 @@ var specs = map[string]Spec{
 	"follow_up_workspace": {
 		Kind:        "follow_up_workspace",
 		GoType:      "FollowUpWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 5,
@@ -328,7 +338,7 @@ var specs = map[string]Spec{
 	"fx_rate_refresh": {
 		Kind:      "fx_rate_refresh",
 		GoType:    "FxRateRefreshArgs",
-		Role:      Workspace,
+		Role:      Worker,
 		Queue:     "rate_refresh",
 		Timeout:   TimeoutPolicy{Fixed: 10 * time.Minute},
 		OptsOwner: OptsCaller,
@@ -361,7 +371,7 @@ var specs = map[string]Spec{
 	"gmail_watch_renew_connection": {
 		Kind:         "gmail_watch_renew_connection",
 		GoType:       "GmailWatchRenewArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		MaxAttempts:  3,
@@ -383,7 +393,7 @@ var specs = map[string]Spec{
 	"graph_edge_workspace": {
 		Kind:        "graph_edge_workspace",
 		GoType:      "GraphEdgeWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 15 * time.Minute},
 		MaxAttempts: 3,
@@ -404,7 +414,7 @@ var specs = map[string]Spec{
 	"idempotency_retention_workspace": {
 		Kind:        "idempotency_retention_workspace",
 		GoType:      "IdempotencyRetentionWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
@@ -425,7 +435,7 @@ var specs = map[string]Spec{
 	"linkedin_rematch_workspace": {
 		Kind:        "linkedin_rematch_workspace",
 		GoType:      "LinkedInRematchWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
@@ -446,7 +456,7 @@ var specs = map[string]Spec{
 	"org_name_promotion_workspace": {
 		Kind:        "org_name_promotion_workspace",
 		GoType:      "OrgNamePromotionWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
@@ -468,7 +478,7 @@ var specs = map[string]Spec{
 	"overlay_reconcile_workspace": {
 		Kind:         "overlay_reconcile_workspace",
 		GoType:       "OverlayReconcileWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "overlay_reconcile",
 		Timeout:      TimeoutPolicy{Fixed: 20 * time.Minute},
 		MaxAttempts:  1,
@@ -480,7 +490,7 @@ var specs = map[string]Spec{
 	"overlay_refetch": {
 		Kind:         "overlay_refetch",
 		GoType:       "OverlayRefetchArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner:    OptsCaller,
@@ -501,7 +511,7 @@ var specs = map[string]Spec{
 	"participant_backfill_workspace": {
 		Kind:        "participant_backfill_workspace",
 		GoType:      "ParticipantBackfillWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
@@ -522,7 +532,7 @@ var specs = map[string]Spec{
 	"privacy_retention_workspace": {
 		Kind:        "privacy_retention_workspace",
 		GoType:      "PrivacyRetentionWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "privacy_retention",
 		Timeout:     TimeoutPolicy{Fixed: 305 * time.Minute, DerivedFrom: "privacyRetentionPassTimeout"},
 		MaxAttempts: 3,
@@ -532,7 +542,7 @@ var specs = map[string]Spec{
 	"provider_run_poll": {
 		Kind:         "provider_run_poll",
 		GoType:       "ProviderRunPollArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		MaxAttempts:  3,
@@ -555,7 +565,7 @@ var specs = map[string]Spec{
 	"provider_run_submit": {
 		Kind:         "provider_run_submit",
 		GoType:       "ProviderRunSubmitArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner:    OptsArgs,
@@ -576,7 +586,7 @@ var specs = map[string]Spec{
 	"signal_scan_workspace": {
 		Kind:        "signal_scan_workspace",
 		GoType:      "SignalScanWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "ai_capture",
 		Timeout:     TimeoutPolicy{Fixed: 20 * time.Minute},
 		MaxAttempts: 3,
@@ -586,7 +596,7 @@ var specs = map[string]Spec{
 	"site_deep_read": {
 		Kind:         "site_deep_read",
 		GoType:       "SiteDeepReadArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "deep_read",
 		Timeout:      TimeoutPolicy{OperatorField: "DeepReadCaps"},
 		OptsOwner:    OptsCaller,
@@ -596,7 +606,7 @@ var specs = map[string]Spec{
 	"telegram_ingest": {
 		Kind:      "telegram_ingest",
 		GoType:    "TelegramIngestArgs",
-		Role:      Workspace,
+		Role:      Worker,
 		Queue:     "default",
 		Timeout:   TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner: OptsCaller,
@@ -605,7 +615,7 @@ var specs = map[string]Spec{
 	"telegram_poll": {
 		Kind:         "telegram_poll",
 		GoType:       "TelegramPollArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute, DerivedFrom: "telegramPollJobTimeout"},
 		OptsOwner:    OptsArgs,
@@ -638,7 +648,7 @@ var specs = map[string]Spec{
 	"time_scan_workspace": {
 		Kind:        "time_scan_workspace",
 		GoType:      "TimeScanWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
@@ -648,7 +658,7 @@ var specs = map[string]Spec{
 	"voice_build": {
 		Kind:         "voice_build",
 		GoType:       "VoiceBuildArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "default",
 		Timeout:      TimeoutPolicy{Fixed: 10 * time.Minute, DerivedFrom: "voiceBuildTimeout"},
 		OptsOwner:    OptsCaller,
@@ -670,25 +680,13 @@ var specs = map[string]Spec{
 	"webhook_retry": {
 		Kind:         "webhook_retry",
 		GoType:       "WebhookRetryArgs",
-		Role:         Dispatcher,
-		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit:   FanOutWorkspace,
-		FanOutTo:     "webhook_retry_workspace",
-		OptsOwner:    OptsCaller,
-		Cadence:      Cadence{OperatorField: "WebhookRetry.Interval", ScheduleWhenPositive: "WebhookRetry.Interval"},
-		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
-	},
-	"webhook_retry_workspace": {
-		Kind:         "webhook_retry_workspace",
-		GoType:       "WebhookRetryWorkspaceArgs",
-		Role:         Workspace,
+		Role:         Worker,
 		Queue:        "webhook_retry",
 		Timeout:      TimeoutPolicy{Fixed: 1580 * time.Second, DerivedFrom: "webhookRetrySweepTimeout"},
 		MaxAttempts:  3,
-		OptsOwner:    OptsFanOut,
+		OptsOwner:    OptsArgs,
+		Cadence:      Cadence{OperatorField: "WebhookRetry.Interval", ScheduleWhenPositive: "WebhookRetry.Interval"},
 		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
-		Args:         []ArgField{{Name: "Workspace"}},
 	},
 }
 

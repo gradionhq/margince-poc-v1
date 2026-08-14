@@ -51,14 +51,13 @@ func TestAttemptRefusesWithoutAUsableSecret(t *testing.T) {
 func TestWireSubscriptionMapsEveryFieldAndHidesNoSecret(t *testing.T) {
 	archived := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	s := Subscription{
-		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
-		OwnerID:     ids.NewV7(),
-		TargetURL:   "https://ok.example/hook",
-		EventTypes:  []string{"deal.created"},
-		State:       "active",
-		Version:     3,
-		ArchivedAt:  &archived,
+		ID:         ids.NewV7(),
+		OwnerID:    ids.NewV7(),
+		TargetURL:  "https://ok.example/hook",
+		EventTypes: []string{"deal.created"},
+		State:      "active",
+		Version:    3,
+		ArchivedAt: &archived,
 	}
 	got := wireSubscription(s)
 	if got.TargetUrl != s.TargetURL || string(got.State) != s.State || got.Version != s.Version {

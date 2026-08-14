@@ -123,6 +123,27 @@ func (r *Registry) Connectors() []connector.Descriptor {
 	return out
 }
 
+// ChannelProviders lists the registered connectors that can transmit on a
+// messaging channel — the ones implementing connector.MessageSender, distinct
+// from connector.EmailSender's mail senders by method set alone, so no second
+// marker is needed to tell them apart.
+//
+// This is the composed-set half of the derived channel-provider registry
+// (DESIGN-SP4 §4): compose calls this once at boot to reconcile
+// channel_provider against what this binary actually has compiled in.
+func (r *Registry) ChannelProviders() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []string
+	for name, c := range r.connectors {
+		if _, sends := c.(connector.MessageSender); sends {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // SyncOnce runs one incremental sync for a connection: builds the
 // connector principal from the granting human's live authority, hands
 // the connector the sink, and advances the stored cursor only when the

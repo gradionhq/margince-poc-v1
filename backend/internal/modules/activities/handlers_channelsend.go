@@ -61,7 +61,7 @@ func (h Handlers) SendMessage(w http.ResponseWriter, r *http.Request, id crmcont
 // reach exactly one person.
 func writeChannelSendErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, errEmptyMessageBody) {
-		httperr.Write(w, r, httperr.Validation("body", "empty_message_body", errEmptyMessageBody.Error()))
+		httperr.Write(w, r, httperr.Validation(fieldBody, "empty_message_body", errEmptyMessageBody.Error()))
 		return
 	}
 	writeStoreErr(w, r, err)

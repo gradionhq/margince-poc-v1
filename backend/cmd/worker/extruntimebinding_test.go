@@ -3,8 +3,9 @@
 
 package main
 
-// The one structural fact about this role's boot that a wiring change can break
-// silently: WHERE the extension tier's per-call Runtime is bound.
+// The structural facts about this role's boot that a wiring change can break
+// silently: WHERE the extension tier's per-call Runtime is bound, and where the
+// capture pipeline its ingress lands through is.
 //
 // It is asserted over the source rather than by booting a worker because the
 // failure it guards is a POSITION, not a value. The regression it exists to
@@ -30,13 +31,20 @@ import (
 	"testing"
 )
 
-// bindCall is the selector this file is about.
-const bindPkg, bindFn = "compose", "BindExtensionRuntime"
+// The selectors this file is about: the per-call Runtime's binding, and the
+// capture pipeline an unattended run ingests through. Both are positional facts
+// about this role's boot with the same failure mode — a capability that refuses
+// forever while nothing looks broken.
+const (
+	bindPkg      = "compose"
+	bindFn       = "BindExtensionRuntime"
+	bindCaptureF = "BindExtensionCapture"
+)
 
-// bindingSites reports, per enclosing function in this package, how many
-// compose.BindExtensionRuntime calls it makes and how many of those sit inside
-// a conditional or a loop body.
-func bindingSites(t *testing.T) (calls map[string]int, guarded map[string]int) {
+// bindingSites reports, per enclosing function in this package, how many calls
+// to compose.<fn> it makes and how many of those sit inside a conditional or a
+// loop body.
+func bindingSites(t *testing.T, bindName string) (calls map[string]int, guarded map[string]int) {
 	t.Helper()
 	fset := token.NewFileSet()
 	// Every .go file in this directory, parsed one by one rather than through
@@ -72,7 +80,7 @@ func bindingSites(t *testing.T) (calls map[string]int, guarded map[string]int) {
 				}
 				switch node := n.(type) {
 				case *ast.CallExpr:
-					if isBindCall(node) {
+					if isBindCall(node, bindName) {
 						calls[fn.Name.Name]++
 						if depth > 0 {
 							guarded[fn.Name.Name]++
@@ -114,9 +122,9 @@ func children(n ast.Node) []ast.Node {
 	return out
 }
 
-func isBindCall(call *ast.CallExpr) bool {
+func isBindCall(call *ast.CallExpr, bindName string) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || sel.Sel.Name != bindFn {
+	if !ok || sel.Sel.Name != bindName {
 		return false
 	}
 	pkg, ok := sel.X.(*ast.Ident)
@@ -130,7 +138,7 @@ func isBindCall(call *ast.CallExpr) bool {
 // there, and it has to be reached on every path through it. A guard of any kind
 // around this call is the exact shape that left the lane unbound before.
 func TestTheJobLaneBindsTheExtensionRuntimeUnconditionally(t *testing.T) {
-	calls, guarded := bindingSites(t)
+	calls, guarded := bindingSites(t, bindFn)
 	if calls["startJobRunner"] == 0 {
 		t.Fatalf("startJobRunner does not bind the extension runtime — a worker with no model configured then runs composed extension jobs against an unbound process, and every tick refuses with errExtensionRuntimeUnwired forever")
 	}
@@ -144,7 +152,7 @@ func TestTheJobLaneBindsTheExtensionRuntimeUnconditionally(t *testing.T) {
 // window. It is allowed to be guarded — it sits after the AgentLoop return, and
 // that is fine now that it is not the only site.
 func TestTheRunnerLaneStillBindsToo(t *testing.T) {
-	calls, _ := bindingSites(t)
+	calls, _ := bindingSites(t, bindFn)
 	if calls["startRunnerLane"] == 0 {
 		t.Fatal("startRunnerLane no longer binds the extension runtime — a Surface-B run resumed before startJobRunner would refuse every extension tool call")
 	}
@@ -156,7 +164,7 @@ func TestTheRunnerLaneStillBindsToo(t *testing.T) {
 // change what every extension secret read resolves against, silently, depending
 // on which lane bound last.
 func TestTheRoleBindsFromExactlyTheTwoKnownSites(t *testing.T) {
-	calls, _ := bindingSites(t)
+	calls, _ := bindingSites(t, bindFn)
 	known := map[string]bool{"startJobRunner": true, "startRunnerLane": true}
 	for fn, n := range calls {
 		if !known[fn] {
@@ -198,6 +206,43 @@ func TestSubscriptionsStartAfterTheRuntimeIsBound(t *testing.T) {
 	if sites[subscriptions][0].pos < sites[runner][0].pos {
 		t.Fatalf("%s is called before %s — a delivery arriving in that window reaches an unbound runtime, and the entry then waits out the subscriber's whole reclaim interval",
 			subscriptions, runner)
+	}
+}
+
+// TestTheJobLaneBindsTheCapturePipelineUnconditionally is the ingress twin of
+// the runtime binding, and it needs its own gate for the same reason rather
+// than riding on that one: they are separate calls, and a refactor that keeps
+// the runtime binding while dropping this leaves a worker where every unit
+// capability works except the one a connector exists for.
+//
+// It belongs on THIS lane specifically. A record is ingested by unattended work
+// only — a job tick or a subscription delivery — and both run through
+// startJobRunner's path on every worker, model configured or not. Unbound, an
+// ingest answers errIngressUnwired, which is a clean refusal that repeats every
+// poll and breaks nothing else.
+func TestTheJobLaneBindsTheCapturePipelineUnconditionally(t *testing.T) {
+	calls, guarded := bindingSites(t, bindCaptureF)
+	if calls["startJobRunner"] == 0 {
+		t.Fatalf("startJobRunner does not call %s — a unit's ingress then refuses with errIngressUnwired on every tick, while every other extension capability on the same worker works", bindCaptureF)
+	}
+	if guarded["startJobRunner"] > 0 {
+		t.Fatalf("startJobRunner's %s call sits behind a conditional — the job lane runs on every worker, so a guarded binding leaves some of them unable to ingest", bindCaptureF)
+	}
+}
+
+// TestTheCapturePipelineIsBoundFromExactlyOneSite: a second site would be a
+// second opinion about the deployment's capture config — the suppression lists
+// and the attachment store — and whichever bound last would silently decide
+// which one a unit's captured message is held to.
+func TestTheCapturePipelineIsBoundFromExactlyOneSite(t *testing.T) {
+	calls, _ := bindingSites(t, bindCaptureF)
+	for fn, n := range calls {
+		if fn != "startJobRunner" {
+			t.Errorf("%s makes %d %s call(s) — the role binds the capture pipeline from startJobRunner alone, where the deployment's capture config is assembled", fn, n, bindCaptureF)
+		}
+		if n > 1 {
+			t.Errorf("%s binds the capture pipeline %d times", fn, n)
+		}
 	}
 }
 

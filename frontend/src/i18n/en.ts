@@ -233,6 +233,12 @@ export const en = {
   "share.expiry.day": "Expires in 24 hours",
   "share.expiry.week": "Expires in 7 days",
   "share.expiry.month": "Expires in 30 days",
+  "share.expiryConsequence.one":
+    "Access auto-revokes in {days} day. You can revoke it sooner at any time.",
+  "share.expiryConsequence.other":
+    "Access auto-revokes in {days} days. You can revoke it sooner at any time.",
+  "share.expiryConsequenceNone":
+    "Access lasts until you revoke it — it will not end on its own.",
   "share.reason": "Reason",
   "share.grant": "Grant access",
   "share.whoHasAccess": "Who has access",
@@ -717,8 +723,10 @@ export const en = {
   "co.health.payment.onTime": "Pays on time.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
-  "co.health.activeContacts": "{count} people here have ever interacted",
-  "co.health.openCommitments": "{count} open commitment(s)",
+  "co.health.activeContacts.one": "{count} person here has ever interacted",
+  "co.health.activeContacts.other": "{count} people here have ever interacted",
+  "co.health.openCommitments.one": "{count} open commitment",
+  "co.health.openCommitments.other": "{count} open commitments",
   "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
@@ -1211,11 +1219,15 @@ export const en = {
   "lead.clearOverride": "Clear override",
   "lead.overrideReason": "Reason",
   "lead.machineComputed": "Machine-computed score",
-  "lead.owner": "Owner: {owner}",
-  "lead.ownerYou": "you",
+  "lead.ownerLabel": "Owner",
+  "lead.ownerYou": "You",
   "lead.overriddenBadge": "overridden",
   "lead.unassigned": "Unassigned",
   "lead.assignToMe": "Assign to me",
+  "lead.assignToSomeone": "Assign to someone else",
+  "lead.assignTo": "Assign this lead to",
+  "lead.assignChoose": "Choose a colleague",
+  "lead.assignNobodyElse": "No other user to assign this lead to.",
   "lead.saveOverride": "Save override",
   "lead.overrideScoreValue": "Score",
   "lead.promoteDialog": "Promote to contact",
@@ -1610,8 +1622,17 @@ export const en = {
   "log.kind": "Type",
   "log.kindNote": "Note",
   "log.kindTask": "Task",
+  "log.kindMeeting": "Meeting",
   "log.subject": "Subject",
   "log.body": "Details",
+  "log.transcriptLabel": "Transcript",
+  "log.transcriptHint":
+    "Paste it from your meeting tool (Teams, Zoom, Meet…) — speaker labels, if any, are kept.",
+  "log.asTranscript": "This text is a transcript",
+  "log.transcriptUpload": "Or upload a file",
+  "log.transcriptUploadRejected": "Only a .txt file is accepted.",
+  "log.transcriptUploadFailed":
+    "Could not read that file — try pasting the text instead.",
   "log.dueAt": "Due date",
   "log.save": "Log",
   "log.saving": "Logging…",
@@ -1646,6 +1667,10 @@ export const en = {
   "compose.purpose": "Consent purpose",
   "compose.purposeHint":
     "The send is allowed only if every recipient has granted consent for this purpose.",
+  "compose.sendLaterLabel": "Send later (optional)",
+  "compose.sendLaterHint":
+    "Leave empty to send now. A scheduled message stays off the timeline until it goes out, and the consent and mailbox checks run again at that moment — if one refuses, the message is held for you instead of sent.",
+  "compose.scheduledToast": "Scheduled. It will go out at the time you picked.",
   "compose.send": "Send",
   "compose.sendConfirmTitle": "Send this email?",
   "compose.sendBody":
@@ -1856,6 +1881,18 @@ export const en = {
     "The import stopped after {checkpoint} rows. Resuming continues from there rather than starting again.",
   "import.resume": "Resume the import",
   "import.another": "Import another file",
+  "import.undo.one": "Undo this import (1 row)",
+  "import.undo.other": "Undo this import ({rows} rows)",
+  "import.undoing": "Undoing…",
+  "import.undoInterrupted":
+    "The undo was interrupted partway through. Continuing picks up where it stopped, not from the start.",
+  "import.continueUndo": "Continue the undo",
+  "import.undone": "The import was undone.",
+  "import.undoReversed.one": "1 row reversed.",
+  "import.undoReversed.other": "{rows} rows reversed.",
+  "import.undoKeptLead": "Kept — you edited these since the import:",
+  "import.undoErroredLead":
+    "Could not be reversed — left exactly as they stood:",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
     "Non-production only — irreversible on this installation.",
@@ -4534,7 +4571,16 @@ export const en = {
   "person.composer.title": "Draft follow-up · {name}",
   "person.composer.to": "To",
   "person.composer.subject": "Subject",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "One address per line — they receive the message and no other recipient sees them",
   "person.composer.body": "Message",
+  "richtext.bold": "Bold",
+  "richtext.italic": "Italic",
+  "richtext.bulletList": "Bulleted list",
+  "richtext.numberList": "Numbered list",
+  "richtext.link": "Link",
+  "richtext.linkPrompt": "Web address for this link (leave empty to remove it)",
   "person.composer.drafting": "Writing a draft…",
   "person.composer.why": "Why this draft",
   "person.composer.consentUnknown":

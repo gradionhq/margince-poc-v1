@@ -47,6 +47,32 @@ func TestSendScopeForSeparatesScopedSendersFromProvidersThatCannotSend(t *testin
 	}
 }
 
+// The channel arm is derived the same way activities.IsChannelKind is
+// (mirror-tested against the SAME defect class): register a provider nobody
+// shipped with, and SendScopeFor answers SendsWithoutScope for it; drop it
+// again, and it falls back to CannotSend. The mail arm is untouched by either
+// call — gmail is not, and never will be, an activity_kind.
+func TestSendScopeForChannelArmIsDerivedFromSetChannelProviders(t *testing.T) {
+	// Restored to the pre-registry default, not nil/empty: a later test in
+	// this package (or compose's drift test) that assumes telegram is still
+	// sendable must not see the set this test leaves behind.
+	defer SetChannelProviders([]string{"telegram"})
+
+	SetChannelProviders([]string{"telegram", "fake-unit-provider"})
+	if _, capability := SendScopeFor("fake-unit-provider"); capability != SendsWithoutScope {
+		t.Fatalf("SendScopeFor(\"fake-unit-provider\") capability = %v, want SendsWithoutScope", capability)
+	}
+
+	SetChannelProviders([]string{"telegram"})
+	if _, capability := SendScopeFor("fake-unit-provider"); capability != CannotSend {
+		t.Fatalf("SendScopeFor(\"fake-unit-provider\") capability = %v, want CannotSend once deregistered", capability)
+	}
+
+	if scope, capability := SendScopeFor("gmail"); capability != SendsWithScope || scope == "" {
+		t.Fatalf("SendScopeFor(\"gmail\") = (%q, %v), want an unchanged SendsWithScope with a real scope", scope, capability)
+	}
+}
+
 // The gate's subject list is derived from the delivery's SHAPE, and a channel
 // delivery has to arrive as a channel recipient. Flattened to an address list it
 // would arrive empty, and a default-deny gate asked about nobody refuses nobody.

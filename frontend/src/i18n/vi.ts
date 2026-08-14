@@ -231,6 +231,14 @@ export const vi = {
   "share.expiry.day": "Hết hạn sau 24 giờ",
   "share.expiry.week": "Hết hạn sau 7 ngày",
   "share.expiry.month": "Hết hạn sau 30 ngày",
+  // Vietnamese does not inflect the noun for number, so both plural arms read
+  // identically — they exist for key parity with the other locales.
+  "share.expiryConsequence.one":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequence.other":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequenceNone":
+    "Quyền truy cập kéo dài đến khi bạn thu hồi — nó không tự kết thúc.",
   "share.reason": "Lý do",
   "share.grant": "Cấp quyền truy cập",
   "share.whoHasAccess": "Ai có quyền truy cập",
@@ -692,8 +700,10 @@ export const vi = {
   "co.health.payment.onTime": "Thanh toán đúng hạn.",
   "co.health.sinceInbound": "Họ viết lần cuối cách đây {days} ngày",
   "co.health.replyBalance": "{percent}% lượt trao đổi đến từ họ",
-  "co.health.activeContacts": "{count} người ở đây đã từng tương tác",
-  "co.health.openCommitments": "{count} cam kết đang mở",
+  "co.health.activeContacts.one": "{count} người ở đây đã từng tương tác",
+  "co.health.activeContacts.other": "{count} người ở đây đã từng tương tác",
+  "co.health.openCommitments.one": "{count} cam kết đang mở",
+  "co.health.openCommitments.other": "{count} cam kết đang mở",
   "co.health.singleThreaded": "Cả tài khoản này chỉ dựa vào một contact",
   "org.partnerSetUp": "Thiết lập chương trình đối tác",
   // The classification values a reader sees. The column stores the enum;
@@ -1189,11 +1199,15 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
-  "lead.owner": "Phụ trách: {owner}",
-  "lead.ownerYou": "bạn",
+  "lead.ownerLabel": "Phụ trách",
+  "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
   "lead.unassigned": "Chưa giao",
   "lead.assignToMe": "Giao cho tôi",
+  "lead.assignToSomeone": "Giao cho người khác",
+  "lead.assignTo": "Giao lead này cho",
+  "lead.assignChoose": "Chọn một đồng nghiệp",
+  "lead.assignNobodyElse": "Không có người nào khác để giao lead này.",
   "lead.saveOverride": "Lưu ghi đè",
   "lead.overrideScoreValue": "Điểm",
   "lead.promoteDialog": "Chuyển thành contact",
@@ -1589,6 +1603,15 @@ export const vi = {
   "log.kind": "Loại",
   "log.kindNote": "Ghi chú",
   "log.kindTask": "Công việc",
+  "log.kindMeeting": "Cuộc họp",
+  "log.transcriptLabel": "Bản chép lời",
+  "log.transcriptHint":
+    "Dán từ công cụ họp của bạn (Teams, Zoom, Meet…) — nhãn người nói, nếu có, sẽ được giữ nguyên.",
+  "log.asTranscript": "Đây là một bản chép lời",
+  "log.transcriptUpload": "Hoặc tải lên một tệp",
+  "log.transcriptUploadRejected": "Chỉ chấp nhận tệp .txt.",
+  "log.transcriptUploadFailed":
+    "Không thể đọc tệp đó — hãy thử dán văn bản thay vào đó.",
   "log.subject": "Tiêu đề",
   "log.body": "Nội dung",
   "log.dueAt": "Ngày đến hạn",
@@ -1626,6 +1649,11 @@ export const vi = {
   "compose.purpose": "Mục đích chấp thuận",
   "compose.purposeHint":
     "Lượt gửi chỉ được phép nếu mọi người nhận đều đã chấp thuận cho mục đích này.",
+  "compose.sendLaterLabel": "Gửi sau (tùy chọn)",
+  "compose.sendLaterHint":
+    "Để trống để gửi ngay. Thư đã lên lịch không xuất hiện trên dòng thời gian cho đến khi được gửi đi, và các kiểm tra về chấp thuận và hộp thư sẽ chạy lại vào đúng thời điểm đó — nếu một kiểm tra từ chối, thư sẽ được giữ lại chờ bạn thay vì được gửi.",
+  "compose.scheduledToast":
+    "Đã lên lịch. Thư sẽ được gửi vào thời điểm bạn chọn.",
   "compose.send": "Gửi",
   "compose.sendConfirmTitle": "Gửi email này?",
   "compose.sendBody":
@@ -1832,6 +1860,17 @@ export const vi = {
     "Lần nhập dừng sau {checkpoint} dòng. Tiếp tục sẽ chạy tiếp từ đó thay vì làm lại từ đầu.",
   "import.resume": "Tiếp tục nhập",
   "import.another": "Nhập tệp khác",
+  "import.undo.one": "Hoàn tác lần nhập này (1 dòng)",
+  "import.undo.other": "Hoàn tác lần nhập này ({rows} dòng)",
+  "import.undoing": "Đang hoàn tác…",
+  "import.undoInterrupted":
+    "Việc hoàn tác đã bị gián đoạn giữa chừng. Tiếp tục sẽ chạy tiếp từ đó, không làm lại từ đầu.",
+  "import.continueUndo": "Tiếp tục hoàn tác",
+  "import.undone": "Lần nhập đã được hoàn tác.",
+  "import.undoReversed.one": "Đã hoàn tác 1 dòng.",
+  "import.undoReversed.other": "Đã hoàn tác {rows} dòng.",
+  "import.undoKeptLead": "Giữ nguyên — các dòng này đã được sửa sau khi nhập:",
+  "import.undoErroredLead": "Không thể hoàn tác — giữ nguyên như cũ:",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
     "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",
@@ -4500,7 +4539,16 @@ export const vi = {
   "person.composer.title": "Soạn thư tiếp theo · {name}",
   "person.composer.to": "Đến",
   "person.composer.subject": "Chủ đề",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "Mỗi dòng một địa chỉ — họ nhận được thư và không người nhận nào khác thấy họ",
   "person.composer.body": "Nội dung",
+  "richtext.bold": "Đậm",
+  "richtext.italic": "Nghiêng",
+  "richtext.bulletList": "Danh sách dấu đầu dòng",
+  "richtext.numberList": "Danh sách đánh số",
+  "richtext.link": "Liên kết",
+  "richtext.linkPrompt": "Địa chỉ web cho liên kết này (để trống để gỡ bỏ)",
   "person.composer.drafting": "Đang soạn bản nháp…",
   "person.composer.why": "Vì sao có bản nháp này",
   "person.composer.consentUnknown":

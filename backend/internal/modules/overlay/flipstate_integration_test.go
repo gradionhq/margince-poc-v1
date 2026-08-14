@@ -195,6 +195,45 @@ func TestFlipChecksRefuseAProjectionAnOlderDeclarationProduced(t *testing.T) {
 	}
 }
 
+// TestFlipChecksBlockOnARowWhoseReprojectionFailed is the line the sweep's
+// skip must not cross. Recording that a row could not be re-projected spares it
+// the incumbent call a re-read would waste; it says nothing about the payload,
+// which is still one the current declaration would never produce and which the
+// flip would write as a durable native row. The record removes the waste, never
+// the guard.
+func TestFlipChecksBlockOnARowWhoseReprojectionFailed(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	seedOverlayWorkspace(ctx, t, pool)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	svc := flipServiceJudgingContacts(db)
+	ms := NewMirrorStore(db, nil)
+	recordSweepSuccess(ctx, t, pool)
+	markBackfillDone(ctx, t, pool, IncumbentClassContacts)
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	ingestMirrorRow(ctx, t, ms, "person", "p-unmappable", oldContactsDeclaration, baseline)
+	if err := ms.RecordReprojectionFailure(ctx, "person", "p-unmappable", currentContactsDeclaration); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+	// A row holding the old declaration already blocks the flip on its own, so
+	// the assertion below is only about the SKIP if the row provably carries
+	// the record: read it back before asking. Without this the test passes
+	// unchanged against a no-op record, or one that landed on another row.
+	if recorded := reprojectionFailureRecord(ctx, t, pool, "p-unmappable"); recorded != currentContactsDeclaration {
+		t.Fatalf("the row records %q, want %q — the flip assertion below would be made against a row the sweep has NOT given up on",
+			recorded, currentContactsDeclaration)
+	}
+
+	checks, err := svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if checks.ForceFreshDone {
+		t.Fatal("force-fresh reported done for a row the sweep has given up re-fetching — " +
+			"it still holds a projection the current declaration would never produce, and the flip makes it permanent")
+	}
+}
+
 // TestFlipChecksCountARowThatRecordsNoDeclarationAsStale covers the rows the
 // fingerprint column arrived after: they record NULL, which the read paths
 // coalesce to the empty string. Neither is a current declaration,

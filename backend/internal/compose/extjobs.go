@@ -191,7 +191,7 @@ func composedJobSpecs(set []composedJob) []jobs.Spec {
 			jobs.Spec{
 				Kind:        j.decl.ChildKind(),
 				GoType:      "extJobWorkspaceArgs",
-				Role:        jobs.Workspace,
+				Role:        jobs.Worker,
 				Queue:       j.decl.Queue,
 				Timeout:     jobs.TimeoutPolicy{Fixed: j.decl.Timeout},
 				MaxAttempts: j.decl.MaxAttempts,

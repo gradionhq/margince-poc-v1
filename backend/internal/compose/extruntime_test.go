@@ -140,29 +140,51 @@ func TestRuntimeIsScopedToTheInvokingUnit(t *testing.T) {
 	rt := reflect.TypeOf((*extension.Runtime)(nil)).Elem()
 	for i := range rt.NumMethod() {
 		m := rt.Method(i)
-		if named := stringParam(m.Type); named != "" {
-			t.Fatalf("extension.Runtime.%s takes a %s — a unit name is a string, so this is a parameter "+
-				"through which a handler could ask to be re-scoped", m.Name, named)
+		for _, named := range stringParams(m.Type) {
+			if !nameableByAMember[named] {
+				t.Errorf("extension.Runtime.%s takes a %s — a unit name is a string, so this is a parameter "+
+					"through which a handler could ask to be re-scoped", m.Name, named)
+			}
 		}
 	}
 }
 
-// stringParam reports the first string-kinded parameter of fn, descending one
-// level into a callback parameter (Tx hands the unit a func, and a unit name
-// could arrive there just as easily). It returns the type's name, or "".
-func stringParam(fn reflect.Type) string {
+// nameableByAMember is the one reviewed exception to the rule above, and it is
+// narrow on purpose: a parameter naming a MEMBER of this installation, never a
+// unit.
+//
+// Ingest takes one because a connector poll acts for the member whose
+// credential produced the record, and that member has to be named. What keeps
+// it from being the re-scoping parameter this test refuses is that the name is
+// not TRUSTED: the core checks the member currently holds one of this unit's
+// user-scoped secrets — depositing a credential is the consent act — and then
+// resolves what they may do right now, so naming a colleague buys a unit
+// nothing it could not already do for the members who asked it to.
+//
+// A bare string stays refused. The exception is by TYPE, so a future parameter
+// that means something else cannot arrive under it.
+var nameableByAMember = map[string]bool{"extension.UserID": true}
+
+// stringParams reports EVERY string-kinded parameter of fn, by type name,
+// descending into a callback parameter (Tx hands the unit a func, and a unit
+// name could arrive there just as easily).
+//
+// Every one, not the first one, and the difference is the whole check: a method
+// whose first string parameter is the allowed extension.UserID would otherwise
+// answer for the ones after it, so `Method(on extension.UserID, unit string)`
+// — the exact shape this test exists to refuse — would read as reviewed.
+func stringParams(fn reflect.Type) []string {
+	var named []string
 	for i := range fn.NumIn() {
 		switch in := fn.In(i); in.Kind() {
 		case reflect.String:
-			return in.String()
+			named = append(named, in.String())
 		case reflect.Func:
-			if named := stringParam(in); named != "" {
-				return named
-			}
+			named = append(named, stringParams(in)...)
 		default:
 		}
 	}
-	return ""
+	return named
 }
 
 // TestRuntimeRefusesBeforeTouchingAnUnwiredPool: a role that never bound the

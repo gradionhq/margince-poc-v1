@@ -38,7 +38,9 @@ type outboundMessage struct {
 	// fromName is who the recipient sees this is from. Resolved at send time
 	// from the authenticated sender rather than at transmit, so a rename
 	// between attempts cannot change a message already in flight.
-	fromName        string
+	fromName string
+	// files is what this message carries, already snapshotted.
+	files           []OutboundFile
 	listUnsubscribe string
 	to              []string
 	links           []ActivityLinkInput
@@ -95,10 +97,12 @@ func (m outboundMessage) delivery(activityID ids.UUID, chain threading) Delivery
 		MessageID:       m.messageID,
 		Recipients:      m.to,
 		Cc:              m.in.Cc,
+		Bcc:             m.in.Bcc,
 		Subject:         m.in.Subject,
 		Body:            m.body,
 		HTMLBody:        m.htmlBody,
 		FromName:        m.fromName,
+		Attachments:     m.files,
 		ConsentPurpose:  m.in.ConsentPurpose,
 		InReplyTo:       chain.inReplyTo,
 		References:      chain.references,

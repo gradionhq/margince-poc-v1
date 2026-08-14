@@ -223,6 +223,12 @@ export const de = {
   "share.expiry.day": "Läuft in 24 Stunden ab",
   "share.expiry.week": "Läuft in 7 Tagen ab",
   "share.expiry.month": "Läuft in 30 Tagen ab",
+  "share.expiryConsequence.one":
+    "Der Zugriff endet automatisch in {days} Tag. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequence.other":
+    "Der Zugriff endet automatisch in {days} Tagen. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequenceNone":
+    "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",
   "share.reason": "Grund",
   "share.grant": "Zugriff gewähren",
   "share.whoHasAccess": "Wer hat Zugriff",
@@ -703,8 +709,10 @@ export const de = {
   "co.health.payment.onTime": "Zahlt pünktlich.",
   "co.health.sinceInbound": "Sie schrieben zuletzt vor {days} Tagen",
   "co.health.replyBalance": "{percent}% des Austauschs kam von ihnen",
-  "co.health.activeContacts": "{count} Personen hier hatten je Kontakt",
-  "co.health.openCommitments": "{count} offene Zusage(n)",
+  "co.health.activeContacts.one": "{count} Person hier hatte je Kontakt",
+  "co.health.activeContacts.other": "{count} Personen hier hatten je Kontakt",
+  "co.health.openCommitments.one": "{count} offene Zusage",
+  "co.health.openCommitments.other": "{count} offene Zusagen",
   "co.health.singleThreaded": "Ein Kontakt trägt diesen Account",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
@@ -1198,11 +1206,16 @@ export const de = {
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
-  "lead.owner": "Verantwortlich: {owner}",
+  "lead.ownerLabel": "Verantwortlich",
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
   "lead.unassigned": "Nicht zugewiesen",
   "lead.assignToMe": "Mir zuweisen",
+  "lead.assignToSomeone": "Jemand anderem zuweisen",
+  "lead.assignTo": "Diesen Lead zuweisen an",
+  "lead.assignChoose": "Kollegin oder Kollegen wählen",
+  "lead.assignNobodyElse":
+    "Es gibt niemanden sonst, dem dieser Lead zugewiesen werden kann.",
   "lead.saveOverride": "Überschreibung speichern",
   "lead.overrideScoreValue": "Score",
   "lead.promoteDialog": "Zum Kontakt machen",
@@ -1603,6 +1616,15 @@ export const de = {
   "log.kind": "Art",
   "log.kindNote": "Notiz",
   "log.kindTask": "Aufgabe",
+  "log.kindMeeting": "Meeting",
+  "log.transcriptLabel": "Transkript",
+  "log.transcriptHint":
+    "Aus Ihrem Meeting-Tool einfügen (Teams, Zoom, Meet …) — Sprecherkennzeichnungen bleiben, sofern vorhanden, erhalten.",
+  "log.asTranscript": "Dieser Text ist ein Transkript",
+  "log.transcriptUpload": "Oder eine Datei hochladen",
+  "log.transcriptUploadRejected": "Nur eine .txt-Datei wird akzeptiert.",
+  "log.transcriptUploadFailed":
+    "Die Datei konnte nicht gelesen werden — versuchen Sie stattdessen, den Text einzufügen.",
   "log.subject": "Betreff",
   "log.body": "Details",
   "log.dueAt": "Fällig am",
@@ -1639,6 +1661,11 @@ export const de = {
   "compose.purpose": "Einwilligungszweck",
   "compose.purposeHint":
     "Der Versand ist nur erlaubt, wenn jeder Empfänger für diesen Zweck eingewilligt hat.",
+  "compose.sendLaterLabel": "Später senden (optional)",
+  "compose.sendLaterHint":
+    "Leer lassen, um sofort zu senden. Eine geplante Nachricht taucht erst im Verlauf auf, wenn sie rausgeht. Einwilligung und Postfach werden zum Sendezeitpunkt erneut geprüft – wird dabei etwas abgelehnt, bleibt die Nachricht liegen und wartet auf Sie, statt rauszugehen.",
+  "compose.scheduledToast":
+    "Geplant. Die Nachricht geht zur gewählten Zeit raus.",
   "compose.send": "Senden",
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
@@ -1847,6 +1874,19 @@ export const de = {
     "Der Import hat nach {checkpoint} Zeilen gestoppt. Fortsetzen macht dort weiter, statt neu zu beginnen.",
   "import.resume": "Import fortsetzen",
   "import.another": "Weitere Datei importieren",
+  "import.undo.one": "Diesen Import rückgängig machen (1 Zeile)",
+  "import.undo.other": "Diesen Import rückgängig machen ({rows} Zeilen)",
+  "import.undoing": "Wird rückgängig gemacht…",
+  "import.undoInterrupted":
+    "Das Rückgängigmachen wurde unterbrochen. Fortsetzen macht dort weiter, wo es aufgehört hat, nicht von vorn.",
+  "import.continueUndo": "Rückgängigmachen fortsetzen",
+  "import.undone": "Der Import wurde rückgängig gemacht.",
+  "import.undoReversed.one": "1 Zeile rückgängig gemacht.",
+  "import.undoReversed.other": "{rows} Zeilen rückgängig gemacht.",
+  "import.undoKeptLead":
+    "Beibehalten — diese wurden seit dem Import bearbeitet:",
+  "import.undoErroredLead":
+    "Konnte nicht rückgängig gemacht werden — unverändert belassen:",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
     "Nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen.",
@@ -4524,7 +4564,17 @@ export const de = {
   "person.composer.title": "Follow-up entwerfen · {name}",
   "person.composer.to": "An",
   "person.composer.subject": "Betreff",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "Eine Adresse pro Zeile – sie erhalten die Nachricht, kein anderer Empfänger sieht sie",
   "person.composer.body": "Nachricht",
+  "richtext.bold": "Fett",
+  "richtext.italic": "Kursiv",
+  "richtext.bulletList": "Aufzählung",
+  "richtext.numberList": "Nummerierte Liste",
+  "richtext.link": "Link",
+  "richtext.linkPrompt":
+    "Webadresse für diesen Link (leer lassen zum Entfernen)",
   "person.composer.drafting": "Entwurf wird geschrieben…",
   "person.composer.why": "Warum dieser Entwurf",
   "person.composer.consentUnknown":

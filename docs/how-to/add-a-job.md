@@ -10,14 +10,14 @@ file has never heard of does not compile. For *why* it works this way, see
 writes through, see [explanation/write-backbone.md](../explanation/write-backbone.md).
 
 Most new work is **two** kinds, not one: a dispatcher that enumerates the fleet and enqueues, and a
-workspace kind that does one tenant's work. Declare both.
+worker that does the work. Declare both.
 
 ## Steps
 
 1. **Declare the kind** — `backend/api/jobs.yaml`, under `kinds:`, alphabetically. Five fields are
    required of every kind:
 
-   - **`role`** — `dispatcher` or `workspace`.
+   - **`role`** — `dispatcher` or `worker`.
    - **`go_type`** — the compose args struct that returns this kind; must match
      `^[A-Z][A-Za-z0-9]*Args$` and be unique across the file (one args struct is one River kind).
    - **`queue`** — must name an entry in the file's own `queues:` block. Reuse `default` unless the
@@ -46,12 +46,12 @@ workspace kind that does one tenant's work. Declare both.
    two files (never hand-edit either): `backend/internal/platform/jobs/specs_gen.go`, the Spec table every
    reader walks, and `backend/internal/compose/jobkinds_gen.go`, the closed `declaredJobArgs` union plus one
    compile-time role assertion per kind. This step fails loudly on a contract that cannot hold — a
-   missing timeout, a fan-out to a kind nobody declares, a cadence on a workspace kind.
+   missing timeout, a fan-out to a kind nobody declares, a cadence on an enqueued worker.
 
    The build does **not** compile yet: the generated assertions name args types you have not written.
 
 3. **Write the args type** — in the matching `backend/internal/compose/jobs_<concern>.go` (create one for a
-   new concern). A workspace kind carries its tenant in a field named `Workspace`, because Go forbids
+   new concern). A tenant-scoped worker carries its tenant in a field named `Workspace`, because Go forbids
    a method and a field of the same name, and the wire key is fixed:
 
    ```go
@@ -165,8 +165,8 @@ The failures you are most likely to meet, in the order you would meet them:
 | Where | Message | What it means |
 |---|---|---|
 | `make gen` | `kind "x": declares no timeout — an absent one is River's silent 1-minute default, which is what this contract removes` | Pick one of the four `timeout` forms. There is no default and absence is not one of them |
-| `make gen` | `kind "x": is a dispatcher that fans out to nothing` / `fans_out_to "y", whose role is "dispatcher"` | A dispatcher must declare `fans_out_to` + `fan_out_unit`, and the child must be `role: workspace` |
-| `make gen` | `kind "x": declares a cadence but its role is "workspace"` | A workspace kind is enqueued by its dispatcher, never ticked. Move the cadence to the dispatcher |
+| `make gen` | `kind "x": is a dispatcher that fans out to nothing` / `fans_out_to "y", whose role is "dispatcher"` | A dispatcher must declare `fans_out_to` + `fan_out_unit`, and the child must be `role: worker` |
+| `make gen` | `kind "x": declares a cadence but its role is "worker"` | An enqueued worker is never ticked. Move the cadence to the dispatcher |
 | `make gen` | `kind "x": opts_owner is fan_out but no max_attempts is declared` | The fan-out helper reads that number and nothing else supplies it; its absence is River's silent 25-rung ladder |
 | `make gen` | `kind "x": args field "F" is declared a scalar with no reason` | A value that is not an id must say why it is safe in a table Art. 17 erasure never reaches |
 | `go build` | `CloseDateWorkspaceArgs does not satisfy declaredJobArgs` | The kind is not in `api/jobs.yaml`, or you have not run `make gen` since declaring it |

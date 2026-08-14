@@ -193,8 +193,12 @@
   margin: 0;
   justify-content: flex-end;
 }
+/* min-width: 0 is what keeps a long name inside the header: a flex item's
+   floor is otherwise its min-content width, so the name would set the
+   identity block's width and push the controls column off the row. */
 .record-head .record-id {
   flex: 1;
+  min-width: 0;
 }
 /* The name and its one standing badge, on the SAME baseline — the badge
    reads as part of naming the record, not as one more fact under it. */
@@ -218,11 +222,21 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
+/* One line, cut with an ellipsis. A name long enough to wrap would push the
+   record's standing, its verbs and the whole page below it down the screen,
+   and the reader came for the record rather than for its full legal name —
+   which the Details rail spells out in a place that does wrap. Shrinkable
+   (min-width: 0) but not grown: at its natural width a short name keeps the
+   standing badge beside it on the same row. */
 .record-head h1 {
   font-family: var(--f-display);
   font-size: 22px;
   font-weight: 600;
   color: var(--textPrimary);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* The RECORD page's identity block, at the scale the mockups draw it: the name
    is the largest thing on the page and the mark beside it is a logo rather

@@ -543,6 +543,10 @@ func (stubs) GetImportRunReport(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "GetImportRunReport")
 }
 
+func (stubs) UndoImportRun(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UndoImportRun")
+}
+
 func (stubs) GetInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetInstallationSettings")
 }
@@ -1237,6 +1241,22 @@ func (stubs) ListRoles(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) SetRoleObjectGrant(w nethttp.ResponseWriter, r *nethttp.Request, key string, object string, params crmcontracts.SetRoleObjectGrantParams) {
 	httperr.NotImplemented(w, r, "SetRoleObjectGrant")
+}
+
+func (stubs) ListScheduledSends(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListScheduledSendsParams) {
+	httperr.NotImplemented(w, r, "ListScheduledSends")
+}
+
+func (stubs) GetScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetScheduledSend")
+}
+
+func (stubs) RescheduleScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RescheduleScheduledSendParams) {
+	httperr.NotImplemented(w, r, "RescheduleScheduledSend")
+}
+
+func (stubs) CancelScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "CancelScheduledSend")
 }
 
 func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SearchParams) {

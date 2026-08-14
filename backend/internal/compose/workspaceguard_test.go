@@ -160,9 +160,6 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		PrivacyRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&privacyRetentionWorkspaceWorker{}).Work(ctx, &river.Job[PrivacyRetentionWorkspaceArgs]{})
 		},
-		WebhookRetryWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&webhookRetryWorkspaceWorker{}).Work(ctx, &river.Job[WebhookRetryWorkspaceArgs]{})
-		},
 		ProviderRunPollArgs{}.Kind(): func(ctx context.Context) error {
 			return (&providerRunPollWorker{}).Work(ctx, &river.Job[ProviderRunPollArgs]{})
 		},
@@ -172,6 +169,16 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 			// insert carries.
 			return (&providerRunSubmitWorker{}).Work(ctx, &river.Job[ProviderRunSubmitArgs]{
 				Args: ProviderRunSubmitArgs{RunID: ids.NewV7().String()},
+			})
+		},
+
+		// The scheduled-send alarm parses its row id before it binds the
+		// workspace, so a real id is what gets the call as far as the binding
+		// this test is about — a malformed one would refuse for the wrong
+		// reason and prove nothing.
+		ScheduledSendArgs{}.Kind(): func(ctx context.Context) error {
+			return (&scheduledSendWorker{}).Work(ctx, &river.Job[ScheduledSendArgs]{
+				Args: ScheduledSendArgs{ScheduledSendID: ids.NewV7().String()},
 			})
 		},
 
@@ -188,7 +195,7 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 
 	declared := 0
 	for kind, spec := range jobs.Declared() {
-		if spec.Role != jobs.Workspace {
+		if !bindsAWorkspace(spec) {
 			continue
 		}
 		declared++
@@ -202,8 +209,8 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	}
 	for kind := range refusals {
 		spec, declaredKind := jobs.SpecFor(kind)
-		if !declaredKind || spec.Role != jobs.Workspace {
-			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace kind by that name — the suite is pinning something the fleet does not run", kind)
+		if !declaredKind || !bindsAWorkspace(spec) {
+			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace-binding kind by that name — the suite is pinning something the fleet does not run", kind)
 		}
 	}
 
@@ -234,4 +241,18 @@ func TestTheWorkspaceGuardBindsTheWorkspaceTheArgsDeclare(t *testing.T) {
 	if got != want {
 		t.Fatalf("the guard bound %s, want the %s its args declared", got, want)
 	}
+}
+
+// bindsAWorkspace reads the obligation off the ARGS rather than off the role.
+// A worker binds a tenant while its args still name one, and ADR-0091 §8 is
+// removing those a module at a time — so a collapsed pass that no longer
+// carries a workspace has nothing to refuse, and demanding a refusal from it
+// would be demanding a guard against a field that does not exist.
+func bindsAWorkspace(spec jobs.Spec) bool {
+	for _, arg := range spec.Args {
+		if arg.Name == "Workspace" {
+			return true
+		}
+	}
+	return false
 }

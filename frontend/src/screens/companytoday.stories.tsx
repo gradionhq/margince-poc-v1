@@ -149,6 +149,55 @@ export const SectionWithheld: Story = {
   render: () => <Brief view={withheld} />,
 };
 
+// waiting_on_them is one of only two engagement states ENGAGEMENT_TONE
+// (company360.tsx) colours "warn" — the ball is in their court, not ours —
+// and the one state that also draws a silence note (companytoday.tsx's own
+// `silenceNote`, gated on this exact state plus a `last_outbound_at` to
+// count from). populated above never reaches either: its engagement is
+// waiting_on_us, the one state that carries no tone at all.
+export const WaitingOnThem: Story = {
+  render: () => (
+    <Brief
+      view={
+        {
+          ...populated,
+          state_strip: {
+            ...populated.state_strip,
+            engagement: {
+              state: "waiting_on_them",
+              last_inbound_at: null,
+              last_outbound_at: "2026-06-25T09:00:00Z",
+            },
+          },
+        } as unknown as View
+      }
+    />
+  ),
+};
+
+// dormant: the other warn-toned engagement state, but the one that carries no
+// silence note of its own — silenceNote only ever fires for waiting_on_them,
+// so a dormant account's warning is the strip's tone and nothing else.
+export const Dormant: Story = {
+  render: () => (
+    <Brief
+      view={
+        {
+          ...populated,
+          state_strip: {
+            ...populated.state_strip,
+            engagement: {
+              state: "dormant",
+              last_inbound_at: "2026-04-02T09:00:00Z",
+              last_outbound_at: "2026-04-10T09:00:00Z",
+            },
+          },
+        } as unknown as View
+      }
+    />
+  ),
+};
+
 export const Loading: Story = { render: () => <Brief loading /> };
 
 export const Failed: Story = { render: () => <Brief failed /> };

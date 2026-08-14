@@ -11,6 +11,7 @@ import {
   SurfaceState,
   sectionState,
 } from "../design-system/surfacestate";
+import { useTruncationTooltip } from "../design-system/tooltip";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemCodeOf, throwProblem } from "./common";
@@ -119,6 +120,37 @@ const HEALTH_BADGE_TONE: Record<HealthRating, "danger" | "warn" | "success"> = {
   strong: "success",
 };
 
+// One named dimension: the label, the sentence the rating was read from, and
+// the rating as a bar under both. The reason is server-written prose of no
+// bounded length in a rail this narrow, so it truncates and its tooltip carries
+// the rest — which is also why this is a component and not markup inlined in
+// the map below: the tooltip is a hook, and there is one per dimension.
+function HealthMeter({
+  label,
+  rating,
+  reason,
+}: Readonly<{ label: string; rating: HealthRating; reason?: string }>) {
+  const tip = useTruncationTooltip<HTMLSpanElement>(reason ?? "");
+  return (
+    <div className="co-health-meter">
+      <span className="co-health-meter-head">
+        <span className="t-caption">{label}</span>
+        <span className="co-health-meter-reason" ref={tip.ref} {...tip.trigger}>
+          {reason}
+          {tip.tip}
+        </span>
+      </span>
+      <Meter
+        value={HEALTH_RANK.indexOf(rating) + 1}
+        max={HEALTH_RANK.length}
+        tone={HEALTH_METER_TONE[rating]}
+        flat={!(rating in HEALTH_METER_TONE)}
+        label={label}
+      />
+    </div>
+  );
+}
+
 /**
  * HealthSection is the account's health as one verdict over three named
  * dimensions, each drawn as a meter rather than the badge-and-sentence row
@@ -153,12 +185,22 @@ function HealthSection({
   }
   if (health?.active_contacts != null) {
     lines.push(
-      t("co.health.activeContacts", { count: health.active_contacts }),
+      t(
+        health.active_contacts === 1
+          ? "co.health.activeContacts.one"
+          : "co.health.activeContacts.other",
+        { count: health.active_contacts },
+      ),
     );
   }
   if (health?.open_commitments != null && health.open_commitments > 0) {
     lines.push(
-      t("co.health.openCommitments", { count: health.open_commitments }),
+      t(
+        health.open_commitments === 1
+          ? "co.health.openCommitments.one"
+          : "co.health.openCommitments.other",
+        { count: health.open_commitments },
+      ),
     );
   }
   const state = sectionState(
@@ -192,23 +234,12 @@ function HealthSection({
         <PanelBody>
           {dimensions.map(([name, dimension]) =>
             dimension?.rating ? (
-              <div className="co-health-meter" key={name}>
-                <span className="co-health-meter-head">
-                  <span className="t-caption">
-                    {t(HEALTH_DIMENSION_LABEL[name])}
-                  </span>
-                  <span className="co-health-meter-reason">
-                    {dimension.reason}
-                  </span>
-                </span>
-                <Meter
-                  value={HEALTH_RANK.indexOf(dimension.rating) + 1}
-                  max={HEALTH_RANK.length}
-                  tone={HEALTH_METER_TONE[dimension.rating]}
-                  flat={!(dimension.rating in HEALTH_METER_TONE)}
-                  label={t(HEALTH_DIMENSION_LABEL[name])}
-                />
-              </div>
+              <HealthMeter
+                key={name}
+                label={t(HEALTH_DIMENSION_LABEL[name])}
+                rating={dimension.rating}
+                reason={dimension.reason}
+              />
             ) : null,
           )}
           {lines.length > 0 && (

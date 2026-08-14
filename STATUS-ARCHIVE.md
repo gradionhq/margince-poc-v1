@@ -21,6 +21,68 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-14 — a committed CSV import can be undone, and one review pass wasn't enough (PR #1231)
+
+Issue #723, wave 5 of `.tmp/capability-roadmap`, picked up the moment #690
+(CSV import) shipped a day earlier. Contract-first: **IEM-WIRE-9**, the wire
+ticket IEM-GAP-2's ratification minted five siblings for but left out, went
+upstream across four small `margince-foundation` PRs (#1289 mints
+`undoImportRun`; #1290 a codegen-shape fix; #1291 adds a third report bucket,
+see below; #1292 doc clarity) — all merged before the build PR.
+
+`POST /imports/{id}/undo` reverses a completed CSV run's created rows (csv
+connector only — hubspot/salesforce unbuilt, mirror/bundle are the ADR-0071
+overlay flip, not a customer import). Every row lands in exactly one of
+three buckets: reversed, kept (a human has touched it since — A93, never an
+all-or-nothing hard rollback), or errored (could not be reversed for some
+other reason, named with why). Checkpointed and paged like the forward
+commit; a second concurrent `undo` call on the same run is refused via a
+session-scoped Postgres advisory lock, not raced.
+
+**Worth recording as a pattern, not just a shipped feature**: a
+craftsmanship review, an adversarial security review, and an independent
+second-opinion pass — run in parallel against the first cut, which was
+already green on `make check` and `craft-static` — each surfaced real bugs,
+including two that composed into the same failure from different angles:
+
+- The human-touch reference instant was the *run's* completion time, not
+  each *row's* own creation time (security review) — a row created early in
+  a long-running import could be edited by a human before the run finished
+  and still get silently reversed.
+- A single row `Reverse` could not process (an RBAC mismatch, a business
+  rule, a row-scope miss) aborted every row after it and wedged the run in
+  `undoing` permanently — the exact "resumable, not a dead end" promise the
+  ticket made turned out not to hold for the one failure mode that actually
+  mattered. All three reviews (plus CodeRabbit's automated pass afterward)
+  caught variants of this independently. Fixed by adding a third report
+  bucket (`errored`) rather than a point patch on the abort — spec PR #1291.
+- `beginUndo`'s row lock covered only its own transaction; the reversal
+  spans many. Two concurrent `undo` calls on the same run both passed the
+  lifecycle check and both looped over the same rows.
+
+CodeRabbit's pass, run *after* all three fixes landed, still found four more
+real issues on top (infra errors misclassified into `errored` rather than
+staying resumable, a lock-cleanup connection leak, a stale `committed` check
+that showed dry-run counts for an undone run, a button that counted rows
+undo never touches) — evidence that stacking review passes keeps paying off
+past the point any single one looks sufficient.
+
+**Deferred rather than fixed**: [#1233](https://github.com/gradionhq/margince-poc-v1/issues/1233) —
+the human-touch check and the archive aren't atomic (a small TOCTOU window).
+Closing it properly means changing `DisqualifyLead`/`ArchiveOrganization`'s
+signatures, shared across `modules/people` — real cross-module scope, not a
+contained fix. Two more gaps, unrelated to this feature, surfaced during
+manual UAT and were filed rather than fixed: [#1229](https://github.com/gradionhq/margince-poc-v1/issues/1229)
+(the import screen's completed-run state isn't durable across navigation —
+pre-existing, affects the forward-resume flow too) and
+[#1230](https://github.com/gradionhq/margince-poc-v1/issues/1230) (an
+unrelated raw error leak on the Home page's Morning brief widget).
+
+SonarCloud's new-code coverage gate (80%) came in at 79.3% on the first
+review-fixed push — short by a handful of lines in `undo.go`'s pure
+classification helpers, which the integration suite only exercised
+partially. A small database-free unit test closed it to 80.3%.
+
 ## 2026-08-13 — phase A: RLS is gone, and it was holding up nineteen queries (PRs #1053, #1067)
 
 ADR-0091 §8 phase A. All 139 tenant-isolation policies and both flags dropped,

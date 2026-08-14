@@ -125,6 +125,12 @@ func SetupAppWithOriginOptions(t *testing.T, opts func(origin string) []compose.
 	allOpts := append([]compose.Option{
 		compose.WithPublicBaseURL("https://mail.example.test"),
 		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
+		// The alarm a deferred send is accepted against, on the same inserter
+		// as the delivery. A role that can promise a send can promise a later
+		// one; without it every scheduling request refuses as a wiring fault,
+		// which is correct in production and useless in a lane testing the
+		// feature.
+		compose.WithScheduleTimer(compose.NewScheduleTimer(sendInserter)),
 		// This harness serves no Redis, and a meter that cannot reach its
 		// counter fails CLOSED — correct in production, and it would refuse
 		// every agent read in a lane that is testing something else. Declaring

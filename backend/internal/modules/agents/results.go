@@ -354,12 +354,24 @@ type UpdateWithStagedApprovalResult struct {
 }
 
 // SendEmailResult is what send_email answers once a human has released it.
+//
+// It answers for two outcomes, and the caller tells them apart by Status
+// rather than by guessing from which id is populated. A message sent now has an
+// activity and no scheduled id; a message sent LATER has the reverse, because
+// no activity exists for a message nobody has sent yet (ADR-0104).
 type SendEmailResult struct {
 	// ActivityID is the thread the sent message landed on — the same id
-	// draft_email echoed, so a caller can follow the conversation.
-	ActivityID ids.UUID `json:"activity_id"`
-	// Status is what the delivery path accepted, not what the recipient did:
-	// "accepted" means it left, never that it arrived.
+	// draft_email echoed, so a caller can follow the conversation. Zero for a
+	// scheduled send: there is nothing on the timeline to follow.
+	ActivityID ids.UUID `json:"activity_id,omitempty"`
+	// ScheduledSendID names the standing intention a deferred send created, so
+	// a caller can read, move or cancel it. Zero for a message sent now.
+	ScheduledSendID ids.UUID `json:"scheduled_send_id,omitempty"`
+	// ScheduledAt is when a deferred message is due. Empty for one sent now.
+	ScheduledAt string `json:"scheduled_at,omitempty"`
+	// Status is what the path accepted, not what the recipient did: "accepted"
+	// means it left, "scheduled" means it will leave at ScheduledAt and every
+	// gate will be asked again then. Neither means it arrived.
 	Status string `json:"status"`
 }
 

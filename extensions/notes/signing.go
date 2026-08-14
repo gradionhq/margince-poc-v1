@@ -66,7 +66,7 @@ const (
 // new value is durable, so a key rotated on a schedule does not accumulate
 // blobs the core can no longer name.
 func storeSigningKey(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := decode[struct {
+	args, err := extension.DecodeArgs[struct {
 		Key string `json:"key"`
 	}](in)
 	if err != nil {
@@ -111,7 +111,7 @@ func signingKeyStatus(ctx context.Context, rt extension.Runtime, _ json.RawMessa
 
 // signPayload returns the HMAC-SHA256 of a payload under the stored key.
 func signPayload(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := decode[struct {
+	args, err := extension.DecodeArgs[struct {
 		Payload string `json:"payload"`
 	}](in)
 	if err != nil {

@@ -787,8 +787,10 @@
   margin: 0;
   font-family: var(--f-display);
   line-height: 1.15;
-  /* A record name is user data of unbounded length; it wraps rather than
-     pushing the agent strip off the row. */
+  /* This heading names a SECTION, never a record — a record route prints the
+     trail below instead, and truncates the name it carries. Section titles
+     are translated strings, so wrapping here is a guard against a long
+     translation, not against user data. */
   overflow-wrap: anywhere;
 }
 /* The trail on a record route, standing where the heading stands on every other
@@ -805,6 +807,21 @@
 }
 .pagecrumb > span[aria-hidden] {
   color: var(--borderStrong);
+}
+/* The trail names where you were and where you are; only the second half is
+   user data of unbounded length, so it is the half that gives way. It takes
+   what the row has left and truncates, keeping the trail one line and the
+   agent strip in its place — the record's own name at full size is the next
+   thing down the page, and the title attribute carries it here. */
+.pagecrumb > .pageback,
+.pagecrumb > span[aria-hidden] {
+  flex: none;
+}
+.pagecrumb-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* The way back to the list — quieter still than the record it leads away from,
    because it names where you were, not where you are. */

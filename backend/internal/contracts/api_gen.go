@@ -957,6 +957,7 @@ const (
 	AuditLogEntryActionApprove            AuditLogEntryAction = "approve"
 	AuditLogEntryActionArchive            AuditLogEntryAction = "archive"
 	AuditLogEntryActionAssign             AuditLogEntryAction = "assign"
+	AuditLogEntryActionCancel             AuditLogEntryAction = "cancel"
 	AuditLogEntryActionConnect            AuditLogEntryAction = "connect"
 	AuditLogEntryActionConsentGrant       AuditLogEntryAction = "consent_grant"
 	AuditLogEntryActionConsentWithdraw    AuditLogEntryAction = "consent_withdraw"
@@ -966,6 +967,7 @@ const (
 	AuditLogEntryActionDisqualify         AuditLogEntryAction = "disqualify"
 	AuditLogEntryActionErase              AuditLogEntryAction = "erase"
 	AuditLogEntryActionExport             AuditLogEntryAction = "export"
+	AuditLogEntryActionHold               AuditLogEntryAction = "hold"
 	AuditLogEntryActionImport             AuditLogEntryAction = "import"
 	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
 	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
@@ -974,8 +976,11 @@ const (
 	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare      AuditLogEntryAction = "record_unshare"
 	AuditLogEntryActionReject             AuditLogEntryAction = "reject"
+	AuditLogEntryActionRelease            AuditLogEntryAction = "release"
+	AuditLogEntryActionReschedule         AuditLogEntryAction = "reschedule"
 	AuditLogEntryActionResetData          AuditLogEntryAction = "reset_data"
 	AuditLogEntryActionRestore            AuditLogEntryAction = "restore"
+	AuditLogEntryActionSchedule           AuditLogEntryAction = "schedule"
 	AuditLogEntryActionSendEmail          AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate             AuditLogEntryAction = "update"
 )
@@ -997,6 +1002,8 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionAssign:
 		return true
+	case AuditLogEntryActionCancel:
+		return true
 	case AuditLogEntryActionConnect:
 		return true
 	case AuditLogEntryActionConsentGrant:
@@ -1015,6 +1022,8 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionExport:
 		return true
+	case AuditLogEntryActionHold:
+		return true
 	case AuditLogEntryActionImport:
 		return true
 	case AuditLogEntryActionImportUndo:
@@ -1031,9 +1040,15 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionReject:
 		return true
+	case AuditLogEntryActionRelease:
+		return true
+	case AuditLogEntryActionReschedule:
+		return true
 	case AuditLogEntryActionResetData:
 		return true
 	case AuditLogEntryActionRestore:
+		return true
+	case AuditLogEntryActionSchedule:
 		return true
 	case AuditLogEntryActionSendEmail:
 		return true
@@ -3847,6 +3862,8 @@ const (
 	ImportRunStatusFailed           ImportRunStatus = "failed"
 	ImportRunStatusPending          ImportRunStatus = "pending"
 	ImportRunStatusRunning          ImportRunStatus = "running"
+	ImportRunStatusUndoing          ImportRunStatus = "undoing"
+	ImportRunStatusUndone           ImportRunStatus = "undone"
 	ImportRunStatusValidating       ImportRunStatus = "validating"
 )
 
@@ -3862,6 +3879,10 @@ func (e ImportRunStatus) Valid() bool {
 	case ImportRunStatusPending:
 		return true
 	case ImportRunStatusRunning:
+		return true
+	case ImportRunStatusUndoing:
+		return true
+	case ImportRunStatusUndone:
 		return true
 	case ImportRunStatusValidating:
 		return true
@@ -7131,6 +7152,60 @@ func (e SavedViewSharedScope) Valid() bool {
 	}
 }
 
+// Defines values for ScheduledSendHeldReason.
+const (
+	ScheduledSendHeldReasonConsentWithdrawn ScheduledSendHeldReason = "consent_withdrawn"
+	ScheduledSendHeldReasonLessThannil      ScheduledSendHeldReason = "<nil>"
+	ScheduledSendHeldReasonMissedWindow     ScheduledSendHeldReason = "missed_window"
+	ScheduledSendHeldReasonSendRefused      ScheduledSendHeldReason = "send_refused"
+	ScheduledSendHeldReasonSenderInactive   ScheduledSendHeldReason = "sender_inactive"
+	ScheduledSendHeldReasonTimerExhausted   ScheduledSendHeldReason = "timer_exhausted"
+)
+
+// Valid indicates whether the value is a known member of the ScheduledSendHeldReason enum.
+func (e ScheduledSendHeldReason) Valid() bool {
+	switch e {
+	case ScheduledSendHeldReasonConsentWithdrawn:
+		return true
+	case ScheduledSendHeldReasonLessThannil:
+		return true
+	case ScheduledSendHeldReasonMissedWindow:
+		return true
+	case ScheduledSendHeldReasonSendRefused:
+		return true
+	case ScheduledSendHeldReasonSenderInactive:
+		return true
+	case ScheduledSendHeldReasonTimerExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ScheduledSendStatus.
+const (
+	ScheduledSendStatusCancelled ScheduledSendStatus = "cancelled"
+	ScheduledSendStatusHeld      ScheduledSendStatus = "held"
+	ScheduledSendStatusReleased  ScheduledSendStatus = "released"
+	ScheduledSendStatusScheduled ScheduledSendStatus = "scheduled"
+)
+
+// Valid indicates whether the value is a known member of the ScheduledSendStatus enum.
+func (e ScheduledSendStatus) Valid() bool {
+	switch e {
+	case ScheduledSendStatusCancelled:
+		return true
+	case ScheduledSendStatusHeld:
+		return true
+	case ScheduledSendStatusReleased:
+		return true
+	case ScheduledSendStatusScheduled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SearchResultTrustTier.
 const (
 	SearchResultTrustTierAuthoritative SearchResultTrustTier = "authoritative"
@@ -8309,25 +8384,25 @@ func (e VoiceBuildStage) Valid() bool {
 
 // Defines values for VoiceBuildStatus.
 const (
-	Deferred  VoiceBuildStatus = "deferred"
-	Failed    VoiceBuildStatus = "failed"
-	Queued    VoiceBuildStatus = "queued"
-	Running   VoiceBuildStatus = "running"
-	Succeeded VoiceBuildStatus = "succeeded"
+	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
+	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
+	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
+	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
+	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
 func (e VoiceBuildStatus) Valid() bool {
 	switch e {
-	case Deferred:
+	case VoiceBuildStatusDeferred:
 		return true
-	case Failed:
+	case VoiceBuildStatusFailed:
 		return true
-	case Queued:
+	case VoiceBuildStatusQueued:
 		return true
-	case Running:
+	case VoiceBuildStatusRunning:
 		return true
-	case Succeeded:
+	case VoiceBuildStatusSucceeded:
 		return true
 	default:
 		return false
@@ -8336,31 +8411,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -9786,6 +9861,30 @@ func (e ListRelationshipsParamsKind) Valid() bool {
 	case ProjectStakeholder:
 		return true
 	case ReferredBy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListScheduledSendsParamsStatus.
+const (
+	Cancelled ListScheduledSendsParamsStatus = "cancelled"
+	Held      ListScheduledSendsParamsStatus = "held"
+	Released  ListScheduledSendsParamsStatus = "released"
+	Scheduled ListScheduledSendsParamsStatus = "scheduled"
+)
+
+// Valid indicates whether the value is a known member of the ListScheduledSendsParamsStatus enum.
+func (e ListScheduledSendsParamsStatus) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Held:
+		return true
+	case Released:
+		return true
+	case Scheduled:
 		return true
 	default:
 		return false
@@ -13144,7 +13243,7 @@ type ImportRun struct {
 	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
-	// Checkpoint Absolute offset into the source's rows; 0 = not started. What a resume continues from.
+	// Checkpoint Absolute offset into the source's rows for a forward run (`running`/`failed`), or into import_record_map's rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from.
 	Checkpoint int `json:"checkpoint"`
 
 	// Connector The two beyond the migrate-in set are the flip's own sources (OVA-WIRE-8).
@@ -13166,7 +13265,9 @@ type ImportRun struct {
 
 	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 	// carries the checkpoint it stopped at, and resuming continues from
-	// there rather than re-reading the file from the top.
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
 	Status    ImportRunStatus `json:"status"`
 	UpdatedAt time.Time       `json:"updated_at"`
 }
@@ -13205,13 +13306,20 @@ type ImportRunReport struct {
 
 	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 	// carries the checkpoint it stopped at, and resuming continues from
-	// there rather than re-reading the file from the top.
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
 	Status ImportRunStatus `json:"status"`
+
+	// Undo Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise.
+	Undo *ImportUndoReport `json:"undo,omitempty"`
 }
 
 // ImportRunStatus IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
 // carries the checkpoint it stopped at, and resuming continues from
-// there rather than re-reading the file from the top.
+// there rather than re-reading the file from the top. `undoing`/`undone`
+// (IEM-WIRE-9) are the reversal's own states, reachable only from
+// `complete` and only for the `csv` connector.
 type ImportRunStatus string
 
 // ImportSourceProfile What one uploaded file looks like, plus the mapping proposed for it.
@@ -13239,6 +13347,57 @@ type ImportSourceProfile struct {
 
 	// Targets Every field this object can receive, custom fields included — the closed set a mapping may name.
 	Targets []string `json:"targets"`
+}
+
+// ImportUndoReport The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+// import-created row lands in exactly one of three buckets: reversed,
+// kept because a human edited it since (the "kept — you edited these"
+// list S-E15.4c requires, not a diff of what changed), or errored
+// because it could not be reversed — a single irreversible row never
+// aborts the rest of the run.
+type ImportUndoReport struct {
+	// Errored Import-created rows the reversal could not archive (a business
+	// rule refused it, or the caller's row scope no longer covers it) —
+	// left exactly as they stood, named with why, rather than the
+	// whole run aborting on one row it cannot process.
+	Errored []struct {
+		Id openapi_types.UUID `json:"id"`
+
+		// Object What the file's rows are. `lead` — not `person` — is what a bulk
+		// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+		// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+		// asserts it by number (`0 person, N lead`). A file of people already
+		// known to the business is imported as leads and promoted, not smuggled
+		// past the qualification step by the choice of an enum value.
+		Object ImportObject `json:"object"`
+
+		// Reason What kept it from reversing, in terms the operator can act on — never a database or driver message.
+		Reason string `json:"reason"`
+	} `json:"errored"`
+
+	// Kept Import-created rows a human edited since import, therefore left in place (A93).
+	Kept []struct {
+		Id openapi_types.UUID `json:"id"`
+
+		// Object What the file's rows are. `lead` — not `person` — is what a bulk
+		// prospect file creates: ADR-0008's anti-pollution rule is that machine-
+		// sourced rows land as leads and are promoted by a human, and IEM-AC-7
+		// asserts it by number (`0 person, N lead`). A file of people already
+		// known to the business is imported as leads and promoted, not smuggled
+		// past the qualification step by the choice of an enum value.
+		Object ImportObject `json:"object"`
+	} `json:"kept"`
+
+	// ReversedCount Import-created rows that were untouched since and have been reversed (archived).
+	ReversedCount int                `json:"reversed_count"`
+	RunId         openapi_types.UUID `json:"run_id"`
+
+	// Status IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+	// carries the checkpoint it stopped at, and resuming continues from
+	// there rather than re-reading the file from the top. `undoing`/`undone`
+	// (IEM-WIRE-9) are the reversal's own states, reachable only from
+	// `complete` and only for the `csv` connector.
+	Status ImportRunStatus `json:"status"`
 }
 
 // IngestVoiceCorpusSourceRequest defines model for IngestVoiceCorpusSourceRequest.
@@ -17332,6 +17491,13 @@ type RequestAccessResponse struct {
 	Requested bool `json:"requested"`
 }
 
+// RescheduleSendRequest A new moment for a message already scheduled. TIME ONLY — the content is what the
+// approval bound to, so changing it is cancel-and-recompose (ADR-0104 §5).
+type RescheduleSendRequest struct {
+	ScheduledAt time.Time `json:"scheduled_at"`
+	ScheduledTz string    `json:"scheduled_tz"`
+}
+
 // RetentionAction What happens to a record past its window. One action per policy row — a ladder is separate
 // rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
 // `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
@@ -17519,6 +17685,64 @@ type SavedViewListResponse struct {
 	Page PageInfo    `json:"page"`
 }
 
+// ScheduledSend One message waiting for its moment (ADR-0104/A155). It is not an activity and not a
+// delivery: nothing is on the timeline and nothing has been handed to a provider.
+type ScheduledSend struct {
+	// ActivityId The timeline activity this produced, once released.
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+	// AnchorActivityId The conversation this reply will join; null for an account-started message.
+	AnchorActivityId *openapi_types.UUID `json:"anchor_activity_id,omitempty"`
+
+	// Bcc Visible to the SENDER, who is the only person this record is readable by. A scheduled
+	// message's blind-copy list is not workspace-readable the way a sent activity is.
+	Bcc       *[]openapi_types.Email `json:"bcc,omitempty"`
+	Body      *string                `json:"body,omitempty"`
+	Cc        *[]openapi_types.Email `json:"cc,omitempty"`
+	CreatedAt time.Time              `json:"created_at"`
+
+	// HeldReason Why a human has to look at it. `consent_withdrawn` — a recipient withdrew consent
+	// after it was scheduled. `sender_inactive` — the scheduler lost their seat or mailbox.
+	// `missed_window` — it came due while nothing was running and is now too late to be the
+	// message that was written. `timer_exhausted` — the job that wakes it ran out of
+	// attempts. `send_refused` — a gate refused for another reason at fire.
+	HeldReason  *ScheduledSendHeldReason `json:"held_reason,omitempty"`
+	Id          openapi_types.UUID       `json:"id"`
+	ScheduledAt time.Time                `json:"scheduled_at"`
+
+	// ScheduledTz The IANA zone the human picked the moment in, kept so it re-renders as meant.
+	ScheduledTz string `json:"scheduled_tz"`
+
+	// Status `scheduled` — waiting; the rep may move or cancel it.
+	// `released` — it fired: the activity, the delivery row and the dispatch job exist.
+	// Deliberately NOT "sent": the provider has not been called yet and the delivery can
+	// still park or fail, so delivery truth lives on the outbound record, not here.
+	// `cancelled` — withdrawn before it fired; nothing was transmitted.
+	// `held` — a gate refused at fire, or the window was missed. It will not send itself;
+	// a human reschedules or cancels it.
+	Status    ScheduledSendStatus   `json:"status"`
+	Subject   string                `json:"subject"`
+	To        []openapi_types.Email `json:"to"`
+	UpdatedAt time.Time             `json:"updated_at"`
+	Version   int64                 `json:"version"`
+}
+
+// ScheduledSendHeldReason Why a human has to look at it. `consent_withdrawn` — a recipient withdrew consent
+// after it was scheduled. `sender_inactive` — the scheduler lost their seat or mailbox.
+// `missed_window` — it came due while nothing was running and is now too late to be the
+// message that was written. `timer_exhausted` — the job that wakes it ran out of
+// attempts. `send_refused` — a gate refused for another reason at fire.
+type ScheduledSendHeldReason string
+
+// ScheduledSendStatus `scheduled` — waiting; the rep may move or cancel it.
+// `released` — it fired: the activity, the delivery row and the dispatch job exist.
+// Deliberately NOT "sent": the provider has not been called yet and the delivery can
+// still park or fail, so delivery truth lives on the outbound record, not here.
+// `cancelled` — withdrawn before it fired; nothing was transmitted.
+// `held` — a gate refused at fire, or the window was missed. It will not send itself;
+// a human reschedules or cancels it.
+type ScheduledSendStatus string
+
 // SearchResponse defines model for SearchResponse.
 type SearchResponse struct {
 	Data []SearchResult `json:"data"`
@@ -17550,6 +17774,30 @@ type SearchResultType string
 // SendAccountEmailRequest One account-started send. It is SendEmailRequest plus the `links` an anchor would
 // otherwise have supplied — the records this new conversation belongs to.
 type SendAccountEmailRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
+	// Bcc Blind copies. They receive the message and are therefore owed consent
+	// exactly as To and Cc are — the gate answers on every addressee, however
+	// they were addressed — and they are absent from the headers the recipients
+	// see, which is the whole of what "blind" means.
+	//
+	// A message with a tokenized unsubscribe link may still have only ONE
+	// addressee in total: that token is a bearer credential over one person's
+	// consent record, so a bcc'd copy of a marketing send is refused 422
+	// `shared_unsubscribe_token` rather than handing a stranger somebody else's
+	// preference link.
+	Bcc *[]openapi_types.Email `json:"bcc,omitempty"`
+
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`
 	Cc   *[]openapi_types.Email `json:"cc,omitempty"`
@@ -17576,8 +17824,30 @@ type SendAccountEmailRequest struct {
 	// operation exists to close. Each target is row-scope probed, so an id the caller
 	// cannot see is refused 404 — and each probe is its own query, so the list is bounded
 	// at 25 (a message about more records than that is about none of them).
-	Links   []ActivityLinkInput `json:"links"`
-	Subject string              `json:"subject"`
+	Links []ActivityLinkInput `json:"links"`
+
+	// ScheduledAt Send this message at this instant instead of now (ADR-0104/A155). Absolute
+	// and unambiguous; `scheduled_tz` records the zone the human picked it in.
+	//
+	// A scheduled message writes NO activity and NO delivery row until it fires —
+	// the timeline stays silent about a message nobody has sent. The response is
+	// 201 with the ScheduledSend rather than 202 with an activity.
+	//
+	// Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+	// while the sender is still at the keyboard, and again when it fires, against
+	// the state that exists then. A message whose consent was withdrawn, whose
+	// sender lost their seat, or whose attachment was archived in between is HELD
+	// for a human rather than sent stale.
+	//
+	// An instant already past sends immediately. Further ahead than 90 days is
+	// refused 422.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+
+	// ScheduledTz The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+	// Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+	// would freeze the DST rules of the day it was written (AC-DS-TZ4).
+	ScheduledTz *string `json:"scheduled_tz,omitempty"`
+	Subject     string  `json:"subject"`
 
 	// To At least one addressee. A send whose To: line is empty is refused 422 before
 	// anything is staged — `cc` alone does not make a message addressed to anyone.
@@ -17586,6 +17856,30 @@ type SendAccountEmailRequest struct {
 
 // SendEmailRequest defines model for SendEmailRequest.
 type SendEmailRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
+	// Bcc Blind copies. They receive the message and are therefore owed consent
+	// exactly as To and Cc are — the gate answers on every addressee, however
+	// they were addressed — and they are absent from the headers the recipients
+	// see, which is the whole of what "blind" means.
+	//
+	// A message with a tokenized unsubscribe link may still have only ONE
+	// addressee in total: that token is a bearer credential over one person's
+	// consent record, so a bcc'd copy of a marketing send is refused 422
+	// `shared_unsubscribe_token` rather than handing a stranger somebody else's
+	// preference link.
+	Bcc *[]openapi_types.Email `json:"bcc,omitempty"`
+
 	// Body The (possibly edited) final body that is sent.
 	Body string                 `json:"body"`
 	Cc   *[]openapi_types.Email `json:"cc,omitempty"`
@@ -17607,9 +17901,31 @@ type SendEmailRequest struct {
 	// with the plain part first, so a client that cannot render HTML still
 	// receives the words. The sender's signature and the unsubscribe footer are
 	// appended to BOTH parts by the server, in each part's own syntax.
-	HtmlBody *string               `json:"html_body,omitempty"`
-	Subject  string                `json:"subject"`
-	To       []openapi_types.Email `json:"to"`
+	HtmlBody *string `json:"html_body,omitempty"`
+
+	// ScheduledAt Send this message at this instant instead of now (ADR-0104/A155). Absolute
+	// and unambiguous; `scheduled_tz` records the zone the human picked it in.
+	//
+	// A scheduled message writes NO activity and NO delivery row until it fires —
+	// the timeline stays silent about a message nobody has sent. The response is
+	// 201 with the ScheduledSend rather than 202 with an activity.
+	//
+	// Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+	// while the sender is still at the keyboard, and again when it fires, against
+	// the state that exists then. A message whose consent was withdrawn, whose
+	// sender lost their seat, or whose attachment was archived in between is HELD
+	// for a human rather than sent stale.
+	//
+	// An instant already past sends immediately. Further ahead than 90 days is
+	// refused 422.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+
+	// ScheduledTz The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+	// Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+	// would freeze the DST rules of the day it was written (AC-DS-TZ4).
+	ScheduledTz *string               `json:"scheduled_tz,omitempty"`
+	Subject     string                `json:"subject"`
+	To          []openapi_types.Email `json:"to"`
 }
 
 // SendMessageRequest One channel reply. It carries no subject and no addressee list, and that absence is the
@@ -21597,6 +21913,25 @@ type SetRoleObjectGrantParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListScheduledSendsParams defines parameters for ListScheduledSends.
+type ListScheduledSendsParams struct {
+	// Status Omit for every state; supply one to filter.
+	Status *ListScheduledSendsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListScheduledSendsParamsStatus defines parameters for ListScheduledSends.
+type ListScheduledSendsParamsStatus string
+
+// RescheduleScheduledSendParams defines parameters for RescheduleScheduledSend.
+type RescheduleScheduledSendParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // SearchParams defines parameters for Search.
 type SearchParams struct {
 	// Q The search query.
@@ -22503,6 +22838,9 @@ type UpdateRetentionSettingsJSONRequestBody = UpdateRetentionSettingsRequest
 
 // SetRoleObjectGrantJSONRequestBody defines body for SetRoleObjectGrant for application/json ContentType.
 type SetRoleObjectGrantJSONRequestBody = SetRoleObjectGrantRequest
+
+// RescheduleScheduledSendJSONRequestBody defines body for RescheduleScheduledSend for application/json ContentType.
+type RescheduleScheduledSendJSONRequestBody = RescheduleSendRequest
 
 // CreateSignalJSONRequestBody defines body for CreateSignal for application/json ContentType.
 type CreateSignalJSONRequestBody = CreateSignalRequest
@@ -28661,6 +28999,9 @@ type ServerInterface interface {
 	// Read the run's report — what will happen, or what did.
 	// (GET /imports/{id}/report)
 	GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Reverse a completed CSV import run.
+	// (POST /imports/{id}/undo)
+	UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// The installation's own settings.
 	// (GET /installation/settings)
 	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
@@ -29183,6 +29524,18 @@ type ServerInterface interface {
 	// Set one role's CRUD grant on one RBAC object. Admin-only, human-only.
 	// (PATCH /roles/{key}/objects/{object})
 	SetRoleObjectGrant(w http.ResponseWriter, r *http.Request, key string, object string, params SetRoleObjectGrantParams)
+	// The caller's own messages waiting to be sent.
+	// (GET /scheduled-sends)
+	ListScheduledSends(w http.ResponseWriter, r *http.Request, params ListScheduledSendsParams)
+	// One of the caller's scheduled messages.
+	// (GET /scheduled-sends/{id})
+	GetScheduledSend(w http.ResponseWriter, r *http.Request, id Id)
+	// Move a scheduled message to a different moment.
+	// (PATCH /scheduled-sends/{id})
+	RescheduleScheduledSend(w http.ResponseWriter, r *http.Request, id Id, params RescheduleScheduledSendParams)
+	// Withdraw a scheduled message before it fires.
+	// (POST /scheduled-sends/{id}/cancel)
+	CancelScheduledSend(w http.ResponseWriter, r *http.Request, id Id)
 	// Cross-object search (people, orgs, deals, activities, leads).
 	// (GET /search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
@@ -30137,6 +30490,12 @@ func (_ Unimplemented) ApproveImportRun(w http.ResponseWriter, r *http.Request, 
 // Read the run's report — what will happen, or what did.
 // (GET /imports/{id}/report)
 func (_ Unimplemented) GetImportRunReport(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reverse a completed CSV import run.
+// (POST /imports/{id}/undo)
+func (_ Unimplemented) UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31181,6 +31540,30 @@ func (_ Unimplemented) ListRoles(w http.ResponseWriter, r *http.Request) {
 // Set one role's CRUD grant on one RBAC object. Admin-only, human-only.
 // (PATCH /roles/{key}/objects/{object})
 func (_ Unimplemented) SetRoleObjectGrant(w http.ResponseWriter, r *http.Request, key string, object string, params SetRoleObjectGrantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The caller's own messages waiting to be sent.
+// (GET /scheduled-sends)
+func (_ Unimplemented) ListScheduledSends(w http.ResponseWriter, r *http.Request, params ListScheduledSendsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One of the caller's scheduled messages.
+// (GET /scheduled-sends/{id})
+func (_ Unimplemented) GetScheduledSend(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Move a scheduled message to a different moment.
+// (PATCH /scheduled-sends/{id})
+func (_ Unimplemented) RescheduleScheduledSend(w http.ResponseWriter, r *http.Request, id Id, params RescheduleScheduledSendParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Withdraw a scheduled message before it fires.
+// (POST /scheduled-sends/{id}/cancel)
+func (_ Unimplemented) CancelScheduledSend(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36888,6 +37271,38 @@ func (siw *ServerInterfaceWrapper) GetImportRunReport(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetImportRunReport(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UndoImportRun operation middleware
+func (siw *ServerInterfaceWrapper) UndoImportRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoImportRun(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45077,6 +45492,173 @@ func (siw *ServerInterfaceWrapper) SetRoleObjectGrant(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListScheduledSends operation middleware
+func (siw *ServerInterfaceWrapper) ListScheduledSends(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListScheduledSendsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListScheduledSends(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetScheduledSend operation middleware
+func (siw *ServerInterfaceWrapper) GetScheduledSend(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetScheduledSend(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RescheduleScheduledSend operation middleware
+func (siw *ServerInterfaceWrapper) RescheduleScheduledSend(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RescheduleScheduledSendParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RescheduleScheduledSend(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelScheduledSend operation middleware
+func (siw *ServerInterfaceWrapper) CancelScheduledSend(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelScheduledSend(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Search operation middleware
 func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
 
@@ -48384,6 +48966,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/imports/{id}/report", wrapper.GetImportRunReport)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/imports/{id}/undo", wrapper.UndoImportRun)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)
 	})
 	r.Group(func(r chi.Router) {
@@ -48904,6 +49489,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/roles/{key}/objects/{object}", wrapper.SetRoleObjectGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/scheduled-sends", wrapper.ListScheduledSends)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/scheduled-sends/{id}", wrapper.GetScheduledSend)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/scheduled-sends/{id}", wrapper.RescheduleScheduledSend)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/scheduled-sends/{id}/cancel", wrapper.CancelScheduledSend)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/search", wrapper.Search)
