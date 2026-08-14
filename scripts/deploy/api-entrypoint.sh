@@ -51,7 +51,12 @@ margince-migrate up
 # different path changes it in margince.yaml and here together, and one knob is
 # fewer things to keep in agreement than two.
 admin_password_file="/app/secrets/admin-password"
-if [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ]; then
+# Either condition is worth a probe. The variable being set may mean a
+# credential must be WRITTEN; the file already existing may mean a spent one
+# must be RETIRED. Gating on the variable alone would strand a file left by an
+# earlier boot the moment an operator follows the advice below and unsets it —
+# the exact sequence this block asks for.
+if [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ] || [ -e "$admin_password_file" ]; then
     # Capture the probe's own exit status rather than testing its output
     # directly: inside an `if` condition a command substitution is exempt from
     # `set -e`, so a failed probe would read as empty, miss the "true" branch,
@@ -68,14 +73,23 @@ if [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ]; then
         # ignored must not look like one that was applied. Removing bootstrap_admin
         # from margince.yaml is the action that actually retires it — unsetting only
         # this variable leaves the api reading a file nothing writes.
-        echo "entrypoint: MARGINCE_ADMIN_PASSWORD is set, but this installation already has an organization, so the bootstrap credential is neither written nor read. Remove the bootstrap_admin section from margince.yaml and unset MARGINCE_ADMIN_PASSWORD; use 'margince-migrate reset-password' to change an existing user's password." >&2
+        if [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ]; then
+            echo "entrypoint: MARGINCE_ADMIN_PASSWORD is set, but this installation already has an organization, so the bootstrap credential is neither written nor read. Remove the bootstrap_admin section from margince.yaml and unset MARGINCE_ADMIN_PASSWORD; use 'margince-migrate reset-password' to change an existing user's password." >&2
+        fi
         # Any copy left by an earlier boot is retired here. The invariant is that
         # no plaintext bootstrap credential is at rest once the organization
         # exists — not merely that this start did not add one.
+        #
+        # A failed removal warns and continues rather than refusing to start. The
+        # file is spent: nothing reads it, so its presence is a hygiene defect,
+        # not an escalation — while a read-only /app/secrets (how a Kubernetes
+        # secret projection mounts by default) would turn every start of a
+        # healthy installation into an outage. Refusing here would trade the
+        # failure this change just removed for another one.
         if [ -e "$admin_password_file" ] && ! rm -f "$admin_password_file"; then
             echo "entrypoint: WARNING could not remove the spent bootstrap credential at $admin_password_file — remove it by hand; it is plaintext and nothing reads it now" >&2
         fi
-    else
+    elif [ -n "${MARGINCE_ADMIN_PASSWORD:-}" ]; then
         ( umask 077
           mkdir -p "$(dirname "$admin_password_file")"
           printf '%s' "$MARGINCE_ADMIN_PASSWORD" > "$admin_password_file" )
