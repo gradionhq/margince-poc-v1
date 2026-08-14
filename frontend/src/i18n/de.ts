@@ -1190,9 +1190,11 @@ export const de = {
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
   "lead.scoreLoading": "Begründung wird geladen…",
-  "lead.scoreNotYetExplained": "Dieser Score stammt aus der Zeit vor der Aufschlüsselung. Die nächste Aktualisierung erklärt ihn.",
+  "lead.scoreNotYetExplained":
+    "Dieser Score stammt aus der Zeit vor der Aufschlüsselung. Die nächste Aktualisierung erklärt ihn.",
   "lead.scoreNoFactors": "Bisher zahlt nichts auf diesen Score ein.",
-  "lead.scoreFactorsExplainMachine": "Sie haben diesen Score selbst gesetzt. Die Faktoren unten erklären den Wert des Modells: {score}.",
+  "lead.scoreFactorsExplainMachine":
+    "Sie haben diesen Score selbst gesetzt. Die Faktoren unten erklären den Wert des Modells: {score}.",
   "lead.scoreDecayed": "aus {base}, mit der Zeit abgeklungen",
   "lead.scoreReconciles": "{raw} in Summe, gerundet {rounded}, Score {score}",
   "lead.factor.decision_maker_title": "Position mit Entscheidungsbefugnis",

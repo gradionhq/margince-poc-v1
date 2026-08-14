@@ -359,9 +359,7 @@ function ScoreBreakdown({ id }: Readonly<{ id: string }>) {
   }
   if (explain.isError) {
     return (
-      <span className="t-caption">
-        {problemMessageOf(explain.error, t)}
-      </span>
+      <span className="t-caption">{problemMessageOf(explain.error, t)}</span>
     );
   }
   const current = explain.data?.current;

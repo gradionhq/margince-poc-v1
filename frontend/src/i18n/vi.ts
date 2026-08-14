@@ -1188,9 +1188,11 @@ export const vi = {
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
   "lead.scoreLoading": "Đang tải lý do…",
-  "lead.scoreNotYetExplained": "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",
+  "lead.scoreNotYetExplained":
+    "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",
   "lead.scoreNoFactors": "Chưa có gì cộng vào điểm này.",
-  "lead.scoreFactorsExplainMachine": "Bạn đã tự đặt điểm này. Các yếu tố bên dưới giải thích giá trị của mô hình: {score}.",
+  "lead.scoreFactorsExplainMachine":
+    "Bạn đã tự đặt điểm này. Các yếu tố bên dưới giải thích giá trị của mô hình: {score}.",
   "lead.scoreDecayed": "từ {base}, giảm dần theo thời gian",
   "lead.scoreReconciles": "tổng {raw}, làm tròn {rounded}, điểm {score}",
   "lead.factor.decision_maker_title": "Chức danh có quyền quyết định",
