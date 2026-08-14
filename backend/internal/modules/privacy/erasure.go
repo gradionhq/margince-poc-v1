@@ -295,56 +295,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if err := deletePreferenceToken(ctx, tx, personID); err != nil {
 		return nil, err
 	}
-	// Anonymize the lead twins and drop their field-level provenance in
-	// one pass: the provenance rows describe WHO captured WHICH of the
-	// subject's fields from WHERE — subject-linked metadata that must not
-	// outlive the fields it annotates. The CTE runs the UPDATE first and
-	// feeds the touched lead ids to the DELETE, so the email match still
-	// sees the pre-anonymize addresses; the same ids flow back out for
-	// the per-twin tombstones.
-	leadCustom, err := subjectCustomColumns(ctx, tx, "lead")
-	if err != nil {
-		return nil, err
-	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		WITH wiped AS (
-		  UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
-		    company_name = NULL, candidate_org_key = NULL, raw = NULL,
-		    archived_at = coalesce(archived_at, now())%s
-		  WHERE promoted_person_id = $1
-		     OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
-		     OR (email IS NOT NULL AND lower(email) = ANY($2))
-		  RETURNING id
-		), pruned AS (
-		  DELETE FROM field_provenance
-		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
-		), verdicts AS (
-		  -- The correction ledger accepts a lead as a subject, and a lead twin
-		  -- is the same human as the person being erased. Deleting only the
-		  -- person's verdicts would leave a human-typed value about them
-		  -- keyed to the twin, which no later erasure would ever revisit.
-		  DELETE FROM ai_feedback
-		  WHERE subject_type = 'lead' AND subject_id IN (SELECT id FROM wiped)
-		), scores AS (
-		  -- The score's explanation is about the subject too: the retained
-		  -- series embeds the ids of activities they took part in, inside a
-		  -- JSON column no field-level scrub can reach. The UPDATE above
-		  -- anonymizes rather than deletes, so nothing cascades here.
-		  DELETE FROM lead_score_history
-		  WHERE lead_id IN (SELECT id FROM wiped)
-		), manual AS (
-		  -- A manual scoring signal is a colleague's written judgement ABOUT
-		  -- this subject, carrying their name. That is exactly why it cannot
-		  -- outlive the record it judges.
-		  DELETE FROM lead_manual_signal
-		  WHERE lead_id IN (SELECT id FROM wiped)
-		)
-		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
-		personID, lowercased(emails))
-	if err != nil {
-		return nil, err
-	}
-	wiped, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	wiped, err := anonymizeLeadTwins(ctx, tx, personID, emails)
 	if err != nil {
 		return nil, err
 	}
@@ -497,4 +448,52 @@ func collectStrings(ctx context.Context, tx pgx.Tx, query string, args ...any) (
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// anonymizeLeadTwins wipes the subject's segregated lead rows and everything
+// keyed to them, answering with the twins it touched. One CTE on purpose:
+// the UPDATE runs first and feeds the touched ids to every DELETE, so the
+// email match still sees the pre-anonymize addresses; split into separate
+// statements, the second would match nothing.
+//
+// The dependents are not incidental. Field provenance says WHO captured
+// WHICH field from WHERE. The correction ledger holds human verdicts about
+// the twin. The score history embeds the ids of activities the subject took
+// part in, inside JSON no field-level scrub reaches. A manual scoring signal
+// carries a colleague's name and their written judgement about them. This is
+// an ANONYMIZE, so the lead row survives and nothing cascades — each has to
+// be named here or it outlives the erasure (ADR-0105).
+func anonymizeLeadTwins(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
+	leadCustom, err := subjectCustomColumns(ctx, tx, "lead")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		WITH wiped AS (
+		  UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
+		    company_name = NULL, candidate_org_key = NULL, raw = NULL,
+		    archived_at = coalesce(archived_at, now())%s
+		  WHERE promoted_person_id = $1
+		     OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+		     OR (email IS NOT NULL AND lower(email) = ANY($2))
+		  RETURNING id
+		), pruned AS (
+		  DELETE FROM field_provenance
+		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
+		), verdicts AS (
+		  DELETE FROM ai_feedback
+		  WHERE subject_type = 'lead' AND subject_id IN (SELECT id FROM wiped)
+		), scores AS (
+		  DELETE FROM lead_score_history
+		  WHERE lead_id IN (SELECT id FROM wiped)
+		), manual AS (
+		  DELETE FROM lead_manual_signal
+		  WHERE lead_id IN (SELECT id FROM wiped)
+		)
+		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
+		personID, lowercased(emails))
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
 }
