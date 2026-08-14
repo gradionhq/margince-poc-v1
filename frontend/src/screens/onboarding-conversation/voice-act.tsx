@@ -1,9 +1,10 @@
 import type { ChangeEvent, Dispatch, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import type { components } from "../../api/schema";
 import { useT } from "../../i18n";
 import { problemMessageOf } from "../common";
-import { VOICE_MIN_WORDS } from "../onboarding";
+import { useFileDrop } from "../use-file-drop";
+import { VOICE_MIN_WORDS } from "../voice-intake-core";
 import type {
   ConversationEvent,
   ConversationState,
@@ -48,7 +49,6 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   machine.current = state;
   const corpus = useVoiceCorpus({ state, dispatch, initialSummary });
   const build = useVoiceBuild({ dispatch, machine });
-  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const collecting =
@@ -66,50 +66,16 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   };
 
   // The scene promises "drop files anywhere in this conversation", so the
-  // WHOLE window is the drop target — a file landing on the rail, the
-  // artifact panel, or a layout gap must feed the corpus, and outside the
-  // collecting phases a stray drop must still be neutralized: the browser's
-  // default is to NAVIGATE to the dropped file, which would tear the user
-  // out of the onboarding mid-act.
-  const { addFiles } = corpus;
-  useEffect(() => {
-    // Only FILE drags are claimed: dragging selected text elsewhere on the
-    // page is a native interaction this act must not swallow.
-    const isFileDrag = (event: globalThis.DragEvent) =>
-      event.dataTransfer?.types.includes("Files") ?? false;
-    const onDragOver = (event: globalThis.DragEvent) => {
-      if (!isFileDrag(event)) {
-        return;
-      }
-      event.preventDefault();
-      setDragOver(collecting);
-    };
-    const onDragLeave = (event: globalThis.DragEvent) => {
-      // relatedTarget is null only when the drag exits the window; moving
-      // between elements inside it must not flicker the affordance off.
-      if (event.relatedTarget === null) {
-        setDragOver(false);
-      }
-    };
-    const onDrop = (event: globalThis.DragEvent) => {
-      if (!isFileDrag(event)) {
-        return;
-      }
-      event.preventDefault();
-      setDragOver(false);
-      if (collecting) {
-        addFiles(Array.from(event.dataTransfer?.files ?? []));
-      }
-    };
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("dragleave", onDragLeave);
-    window.addEventListener("drop", onDrop);
-    return () => {
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("dragleave", onDragLeave);
-      window.removeEventListener("drop", onDrop);
-    };
-  }, [collecting, addFiles]);
+  // WHOLE window is the drop target (container null) — a file landing on the
+  // rail, the artifact panel, or a layout gap must feed the corpus. Outside
+  // the collecting phases a stray drop is still neutralized: the browser's
+  // default is to NAVIGATE to the dropped file, which would tear the user out
+  // of the onboarding mid-act.
+  const { dragOver } = useFileDrop({
+    container: null,
+    active: collecting,
+    onFiles: corpus.addFiles,
+  });
 
   const handleAnswer = (questionId: string, value: string) => {
     dispatch({ type: "QUESTION_ANSWERED", questionId, value });

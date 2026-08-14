@@ -13,10 +13,10 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 38 |
 | Resources | 8 |
-| Tool catalog | 105.9 KB |
+| Tool catalog | 106.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 27894 |
-| Largest tool | `run_report` (4.1 KB) |
+| Approx. wire tokens | 27910 |
+| Largest tool | `run_report` (4.2 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
 Those are the WIRE bytes: they carry each tool's output schema and the governance
@@ -30,9 +30,9 @@ budget in `agenttooldescriptions_test.go`.
 |---|---:|---:|---|
 | Output schemas | 44.9 KB | 42% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 28.5 KB | 26% | Yes, every step |
-| Input schemas | 24.4 KB | 23% | Yes, every step |
+| Input schemas | 24.5 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 8.1 KB | 7% | Partly |
-| **Description + input schema** | **52.9 KB** | **49%** | **the recurring cost** |
+| **Description + input schema** | **53.0 KB** | **50%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -5598,7 +5598,7 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
       "type": "array"
     },
     "report": {
-      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: pipeline_id, stage_id, status, win_probability; filters: owner_id, pipeline_id, status; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category. open-deals-per-company — group_by: organization_id, owner_id; filters: owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
+      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category. open-deals-per-company — group_by: organization_id, owner_id; filters: owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
       "enum": [
         "activities-by-kind",
         "deals-by-stage",

@@ -54,7 +54,13 @@ type FlipChecks struct {
 	// the OVA-AC-6(a) incumbent-unreachable block.
 	ConnectionStatus string
 	// ForceFreshDone: a sweep has succeeded, no mirror row is stale, and
-	// every mirrored class's backfill has genuinely converged.
+	// every mirrored class's backfill has genuinely converged. A row counts
+	// as stale two ways: its sync_state says so, or its payload was
+	// projected by a declaration that is no longer current — including a row
+	// that records no declaration at all (projectionstaleness.go). The flip
+	// writes durable native rows from the frozen mirror, so a projection
+	// nothing has re-checked against the current mapping would become
+	// permanent.
 	ForceFreshDone bool
 	// PendingSyncCount: rows with un-drained local writes — the flip
 	// waits until they drain (AC-mode-flip-4).
@@ -102,13 +108,22 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 			return fmt.Errorf("overlay: reading the connection status for the flip preflight: %w", err)
 		}
 
+		classes, err := mirroredClasses(ctx, tx)
+		if err != nil {
+			return err
+		}
+		currentFingerprints, err := s.currentProjectionFingerprints(classes)
+		if err != nil {
+			return err
+		}
+
 		var pending, stale int
 		var lastSynced *time.Time
 		if err := tx.QueryRow(ctx, `
 			SELECT count(*) FILTER (WHERE sync_state = $1),
-			       count(*) FILTER (WHERE sync_state = $2),
+			       count(*) FILTER (WHERE sync_state = $2 OR `+staleProjectionSQL+`),
 			       count(*), max(last_synced_at)
-			FROM overlay_mirror`, syncStatePendingSync, syncStateStale,
+			FROM overlay_mirror`, syncStatePendingSync, syncStateStale, currentFingerprints,
 		).Scan(&pending, &stale, &checks.MirrorRows, &lastSynced); err != nil {
 			return fmt.Errorf("overlay: aggregating mirror state for the flip preflight: %w", err)
 		}
@@ -118,7 +133,7 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 		}
 
 		var lastSweep *time.Time
-		err := tx.QueryRow(ctx, `SELECT last_success_at FROM overlay_sync_state`).Scan(&lastSweep)
+		err = tx.QueryRow(ctx, `SELECT last_success_at FROM overlay_sync_state`).Scan(&lastSweep)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("overlay: reading sweep state for the flip preflight: %w", err)
 		}
@@ -127,7 +142,7 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 			checks.LastSweepAt = *lastSweep
 		}
 
-		backfilled, err := s.allMirroredClassesBackfilled(ctx, tx)
+		backfilled, err := s.allMirroredClassesBackfilled(ctx, tx, classes)
 		if err != nil {
 			return err
 		}
@@ -141,20 +156,12 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 }
 
 // allMirroredClassesBackfilled answers whether every object class the
-// mirror holds has a genuinely converged backfill (backfillCompleteFor's
-// done-and-not-truncated, per incumbent class). An empty mirror answers
-// true — convergence on an empty incumbent object set is a valid
-// force-fresh state; the sweep-success check beside it keeps "never
-// synced at all" from slipping through as ready.
-func (s *Service) allMirroredClassesBackfilled(ctx context.Context, tx pgx.Tx) (bool, error) {
-	rows, err := tx.Query(ctx, `SELECT DISTINCT object_class FROM overlay_mirror ORDER BY object_class`)
-	if err != nil {
-		return false, fmt.Errorf("overlay: listing mirrored classes for the flip preflight: %w", err)
-	}
-	classes, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return false, fmt.Errorf("overlay: collecting mirrored classes for the flip preflight: %w", err)
-	}
+// mirror holds (classes, read once by the caller) has a genuinely converged
+// backfill (backfillCompleteFor's done-and-not-truncated, per incumbent
+// class). An empty mirror answers true — convergence on an empty incumbent
+// object set is a valid force-fresh state; the sweep-success check beside it
+// keeps "never synced at all" from slipping through as ready.
+func (s *Service) allMirroredClassesBackfilled(ctx context.Context, tx pgx.Tx, classes []string) (bool, error) {
 	for _, class := range classes {
 		complete, err := s.backfillCompleteFor(ctx, tx, class)
 		if err != nil {

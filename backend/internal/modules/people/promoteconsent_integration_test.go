@@ -81,8 +81,8 @@ func setupPromoteConsent(t *testing.T) *promoteConsentEnv {
 	}
 	for id, key := range map[ids.UUID]string{e.newsletter: "newsletter", e.updates: "product_updates"} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO consent_purpose (id, workspace_id, key, label) VALUES ($1, $2, $3, $3)`,
-			id, e.ws, key); err != nil {
+			`INSERT INTO consent_purpose (id, key, label) VALUES ($1, $2, $2)`,
+			id, key); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -126,15 +126,15 @@ func (e *promoteConsentEnv) seedLeadConsent(t *testing.T, lead ids.LeadID, purpo
 	t.Helper()
 	now := time.Now().UTC()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person_consent (workspace_id, lead_id, purpose_id, state, captured_at, source)
-		 VALUES ($1, $2, $3, $4, $5, 'form')`,
-		e.ws, lead, purpose, state, now); err != nil {
+		`INSERT INTO person_consent (lead_id, purpose_id, state, captured_at, source)
+		 VALUES ($1, $2, $3, $4, 'form')`,
+		lead, purpose, state, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO consent_event (workspace_id, lead_id, purpose_id, new_state, source, policy_text, policy_version, captured_at, captured_by)
-		 VALUES ($1, $2, $3, $4, 'form', 'seeded wording', 'v1', $5, 'human:x')`,
-		e.ws, lead, purpose, state, now); err != nil {
+		`INSERT INTO consent_event (lead_id, purpose_id, new_state, source, policy_text, policy_version, captured_at, captured_by)
+		 VALUES ($1, $2, $3, 'form', 'seeded wording', 'v1', $4, 'human:x')`,
+		lead, purpose, state, now); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -222,8 +222,8 @@ func TestPromotionMergeAppliesWithdrawalWinsAndStateStands(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person_consent (workspace_id, person_id, purpose_id, state, captured_at, source)
-		 VALUES ($1, $2, $3, 'granted', now(), 'manual')`, e.ws, personID, e.newsletter); err != nil {
+		`INSERT INTO person_consent (person_id, purpose_id, state, captured_at, source)
+		 VALUES ($1, $2, 'granted', now(), 'manual')`, personID, e.newsletter); err != nil {
 		t.Fatal(err)
 	}
 

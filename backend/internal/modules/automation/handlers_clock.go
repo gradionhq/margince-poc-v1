@@ -186,7 +186,7 @@ func anchorReminderTaskEffect(ev workflow.Event, subject string) (workflow.Effec
 // redundant pass), and only a NEW anchor re-arms it.
 //
 // The entity is part of the key because the claim is UNIQUE on
-// (workspace_id, handler, idempotency_key) alone. Two records can share
+// (handler, idempotency_key) alone. Two records can share
 // one anchor instant — one captured mail linked to a person and to their
 // employer gives both the identical last touch — and an anchor-only key
 // would let the first of them claim the row while the second silently
@@ -408,38 +408,19 @@ func renewalAnchor(ev workflow.Event) (time.Time, error) {
 // past is overdue (task_overdue's own trigger, not this one's), and a
 // date further out than N days is not yet "approaching".
 //
-// Deferred candidate source: TimeScanner has no enumerator wired for
-// this handler today (timescan.go's activityScanHandlers carries no
-// renewalReminderName entry). Sourcing "which records have this custom
-// field's value inside a date range" needs a range query over an
-// arbitrary cf_* column, and neither existing cross-module read seam
-// reaches that:
-//
-//   - fieldcatalog.Reader (shared/ports/fieldcatalog) answers CATALOG
-//     METADATA only — a column's name and type, never a row's value
-//     (its own doc: "a record store has no business with" more than that).
-//   - The one facility that DOES run typed range predicates over a
-//     record table (collections.SegmentEngine / storekit.Query, the
-//     engine compose/filteredexport.go drives) is deliberately closed to
-//     a static, compile-time field vocabulary per resource
-//     (collections/vocab.go's segmentEngines doc: "Only expressions from
-//     this map ever reach the query text") — cf_* columns are excluded
-//     by design. Widening that to a per-workspace dynamic column is real
-//     customfields/collections engineering, not a thin adapter over an
-//     existing seam.
-//   - datasource.SystemOfRecordProvider is FROZEN at V1 (its own doc: a
-//     new verb needs a versioned V2 interface plus a capability probe),
-//     so growing it here is not a smaller lift either.
-//
-// This is the SAME honest-out-of-scope posture ApplyActions' notify case
-// already carries for a workspace with no channel wired
-// (ErrNoNotificationTransport, seams.go): the template is seeded
-// regardless of whether any workspace has configured a renewal-date
-// field (spec §3.5), and a workspace that hasn't simply never surfaces a
-// candidate — never a bug, never a fabricated read. Match, Plan, and
-// IdempotencyKey below are fully correct against whatever anchor a real
-// enumeration would eventually carry, proven directly against hand-built
-// payloads exactly like the two ActivityScan handlers' own unit tests.
+// Candidate source: TimeScanner draws this handler's candidates through
+// the DateFieldScan seam (seams.go), keyed by name in
+// timescan.go's dateFieldScanHandlers — the (object, date_field,
+// recurs_yearly) knobs configuring that read are validated at save time
+// by automations_catalog.go's validateRenewalReminderParams. A recurring
+// field's candidate source projects the anchor onto the CURRENT scan
+// window's year before it ever reaches here (DateFieldAnchor's own doc,
+// seams.go) — which is exactly why Match, Plan, and IdempotencyKey below
+// need no knowledge of recurrence at all: they are fully correct against
+// whatever anchor arrives, one-time or freshly re-projected, the same
+// property TestRenewalReminderRecurringAnchorReArmsEachYear
+// (handlers_clock_test.go) proves directly against hand-built payloads
+// exactly like the two ActivityScan handlers' own unit tests.
 type renewalReminder struct {
 	ex Executors
 }
@@ -452,6 +433,17 @@ func (renewalReminder) Spec() workflow.Spec {
 	}
 }
 
+// Match compares at DATE granularity, in UTC — never against ev.OccurredAt's
+// own wall-clock time or location. anchor is a DATE column's value (no
+// time-of-day, scanned as UTC midnight by candidates.go's DateFieldCandidates);
+// ev.OccurredAt is the scanner's real clock, which carries whatever
+// time-of-day and location time.Now() returns. Comparing them directly
+// would make "today" fail its own match: at any hour past midnight,
+// today's UTC-midnight anchor is "before" a same-day OccurredAt carrying
+// a later time-of-day, so a renewal due TODAY would never fire — the
+// same bug candidates.go's DATE-only SQL bounds exist to avoid on the
+// scan side. today truncates OccurredAt to its own UTC calendar date so
+// both sides of the comparison agree on what "today" means.
 func (renewalReminder) Match(_ context.Context, ev workflow.Event) (bool, error) {
 	anchor, err := renewalAnchor(ev)
 	if err != nil {
@@ -461,8 +453,9 @@ func (renewalReminder) Match(_ context.Context, ev workflow.Event) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	horizon := ev.OccurredAt.AddDate(0, 0, days)
-	return !anchor.Before(ev.OccurredAt) && !anchor.After(horizon), nil
+	today := ev.OccurredAt.UTC().Truncate(24 * time.Hour)
+	horizon := today.AddDate(0, 0, days)
+	return !anchor.Before(today) && !anchor.After(horizon), nil
 }
 
 func (renewalReminder) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {

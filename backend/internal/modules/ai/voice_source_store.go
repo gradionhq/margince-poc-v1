@@ -118,11 +118,10 @@ func (s *VoiceStore) persistPreparedSource(ctx context.Context, tx pgx.Tx, profi
 	var sourceID ids.UUID
 	row := tx.QueryRow(ctx, `
 			INSERT INTO voice_corpus_source
-			  (workspace_id, voice_profile_id, origin, kind, register, weight, source_label,
+			  (voice_profile_id, origin, kind, register, weight, source_label,
 			   source_ref, content, content_hash, word_count, excluded, exclusion_reason,
 			   extractor_version, occurred_at, source, captured_by, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, 'manual', $2, $3, $4, $5, $6, $7, $8, $9,
+			VALUES ($1, 'manual', $2, $3, $4, $5, $6, $7, $8, $9,
 			        false, NULL, 'voice-v1', $10, 'ui', $11, $12)
 			ON CONFLICT (voice_profile_id, source_ref) DO UPDATE SET
 			  origin = 'manual',

@@ -346,6 +346,8 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		Cc:              in.Cc,
 		Subject:         in.Subject,
 		Body:            in.Body,
+		HTMLBody:        in.HTMLBody,
+		FromName:        in.FromName,
 		ConsentPurpose:  in.ConsentPurpose,
 		InReplyTo:       in.InReplyTo,
 		References:      in.References,

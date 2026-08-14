@@ -145,12 +145,11 @@ func persistDerivedVoiceVersion(ctx context.Context, tx pgx.Tx, build derivedPro
 	var versionID ids.UUID
 	err := tx.QueryRow(ctx, `
 			INSERT INTO voice_profile_version
-			  (workspace_id, voice_profile_id, profile_version, status, voice_profile_md,
+			  (voice_profile_id, profile_version, status, voice_profile_md,
 			   profile_json, stats_json, source_hash, source_count, reason, predecessor_version,
 			   model_provider, model_name, builder_version, activation_policy_version,
 			   evaluation_json, activated_at, source, captured_by, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, 'active', $3, $4, '{}'::jsonb, $5, $6, 'manual', $7,
+			VALUES ($1, $2, 'active', $3, $4, '{}'::jsonb, $5, $6, 'manual', $7,
 			        'internal', $8, 'legacy-set-derived', '1', $9, $10, 'ui', $11, $10)
 			RETURNING id`, build.profileID, build.nextVersion, build.voiceProfileMD,
 		storekit.JSONArg(map[string]any{voiceKeyDocument: build.voiceProfileMD}), build.sourceHash,
@@ -187,10 +186,9 @@ func insertDerivedProfileDelta(ctx context.Context, tx pgx.Tx, build derivedProf
 	}
 	_, err := tx.Exec(ctx, `
 			INSERT INTO voice_profile_delta
-			  (workspace_id, voice_profile_id, from_version, to_version, classification,
+			  (voice_profile_id, from_version, to_version, classification,
 			   activation_outcome, delta_json)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, 'routine', 'manually_activated', $4)`,
+			VALUES ($1, $2, $3, 'routine', 'manually_activated', $4)`,
 		build.profileID, build.predecessorVersion, build.nextVersion, storekit.JSONArg(delta))
 	return err
 }

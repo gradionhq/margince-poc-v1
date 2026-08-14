@@ -98,7 +98,13 @@ function rowFor(name: string) {
   return row;
 }
 
-function backend(calls: { method: string; url: string; body?: unknown }[]) {
+// `roles` defaults to the admin this suite is mostly about; a caller naming
+// another role gets the same routed backend, so a non-admin case differs from an
+// admin one by the principal alone and not by a second hand-rolled stub.
+function backend(
+  calls: { method: string; url: string; body?: unknown }[],
+  me: { roles: string[] } = { roles: ["admin"] },
+) {
   // openapi-fetch calls fetch(request) with a Request object, so read the
   // method + body off it rather than a separate init.
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -107,7 +113,7 @@ function backend(calls: { method: string; url: string; body?: unknown }[]) {
     if (req.url.endsWith("/v1/me")) {
       return jsonResponse({
         user: { email: "admin@acme.test" },
-        roles: ["admin"],
+        roles: me.roles,
         teams: [],
         // The installation CAN mint set-password links. Without this the card
         // withholds that action from every row, and any assertion that one
@@ -160,35 +166,30 @@ afterEach(() => {
 });
 
 describe("UsersAdminCard", () => {
-  it("shows an admin-only notice and no roster to a non-admin", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const req =
-          input instanceof Request ? input : new Request(String(input), init);
-        if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "rep@acme.test" },
-            roles: ["rep"],
-            teams: [],
-          });
-        }
-        // A non-admin must never reach the roster — any other request is a
-        // regression, so fail loudly rather than serving fixture data.
-        throw new Error(`unexpected request: ${req.method} ${req.url}`);
-      }),
-    );
+  it("gives a non-admin the roster and withholds only the controls that change it", async () => {
+    vi.stubGlobal("fetch", backend([], { roles: ["rep"] }));
     render(<UsersAdminCard />);
-    // The notice renders only after /me resolves (the card gates on that query),
-    // so this cannot pass on the loading render.
-    await waitFor(() => expect(screen.getByText(/admins only/i)).toBeTruthy());
-    expect(screen.queryByText("Ada Active")).toBeNull();
-    // The notice is the WHOLE surface a non-admin gets: neither admin card is
-    // rendered, so there is no invite form and no roster heading to reach.
+
+    // The roster itself is NOT admin surface: `GET /users` answers 200 to any
+    // authenticated principal, and who is on the team is not an admin's private
+    // question. So a rep reads the list.
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+    expect(screen.getByRole("heading", { name: /^Members$/ })).toBeTruthy();
+
+    // A role they cannot change is a FACT, so it reads as text rather than as a
+    // picker that could only be refused, and no row offers a status verb.
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /deactivate/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reactivate/i })).toBeNull();
+
+    // Inviting IS the admin's, and it is withheld rather than absent: the page
+    // opens for every seat, so a missing invite card would read as "this
+    // installation cannot add people".
     expect(
-      screen.queryByRole("heading", { name: /invite a member/i }),
-    ).toBeNull();
-    expect(screen.queryByRole("heading", { name: /^Members$/ })).toBeNull();
+      screen.getByRole("heading", { name: /invite a member/i }),
+    ).toBeTruthy();
+    expect(screen.getByText(/admins only/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/work email/i)).toBeNull();
   });
 
   it("splits inviting and the roster into their own cards", async () => {
@@ -335,6 +336,60 @@ describe("UsersAdminCard", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  // The confirm's own trigger does not survive the action it confirms: a
+  // deactivated row offers Reactivate in its place. Handing focus back to the
+  // removed button is a silent no-op that leaves focus on <body>, from where the
+  // operator's next Tab restarts at the top of the page.
+  it("returns focus to the member's row after deactivating, never to the document", async () => {
+    let deactivated = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const req =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (req.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { email: "admin@acme.test" },
+            roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/users") && req.method === "GET") {
+          // The roster the server would really answer with once the seat is off,
+          // which is what removes the Deactivate button. A stub that kept
+          // reporting the member as active would leave the opener in place and
+          // prove nothing about the case.
+          return jsonResponse({
+            ...ROSTER,
+            data: ROSTER.data.map((member) =>
+              member.id === "u-active" && deactivated
+                ? { ...member, status: "deactivated" }
+                : member,
+            ),
+          });
+        }
+        deactivated = true;
+        return jsonResponse({});
+      }),
+    );
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const row = rowFor("Ada Active");
+    await userEvent.click(within(row).getByText("Deactivate"));
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: /deactivate/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(within(row).getByText("Reactivate")).toBeTruthy(),
+    );
+    expect(document.activeElement).toBe(row);
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it("reads back each member's current role", async () => {

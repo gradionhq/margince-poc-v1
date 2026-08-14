@@ -42,7 +42,20 @@ const CORE_SCREENS = [
   "inbox",
   "reports",
   "settings",
-  "automations",
+  // The automations editor is configuration on the AI settings page now, not a
+  // destination of its own. Sweeping `#/automations` after the route retired
+  // would measure the fallback screen and report it as coverage, so the sweeps
+  // follow the surface to where it actually lives.
+  "settings/ai",
+  // Settings is TWELVE pages behind one route, and a bare `settings` resolves to
+  // Account — the shortest of them. Sweeping that alone and calling settings
+  // covered is how the widest page in the product went unmeasured: `data-model`
+  // carries two full list surfaces with their own toolbars, `integrations` four
+  // installation-wide cards, `people` a roster of rows that each end in two
+  // buttons. These are where a narrow viewport actually breaks.
+  "settings/data-model",
+  "settings/integrations",
+  "settings/people",
 ];
 
 /**
@@ -62,9 +75,11 @@ function accountTrigger(page: Page) {
 }
 
 // The canonical ten, in order: Home alone, then records / work / intelligence.
-// A72 (ADR-0035 Am.1) promoted Automations into primary nav. Two labels differ
-// from their route ids on purpose — `deals` presents as Pipeline and `inbox` as
-// Approvals — so this asserts what a person reads, not what the router matches.
+// Ten rows, but not upstream's ten: Duplicates is a destination here (the queue
+// had no address outside a home digest card) while Automations is not (it is
+// set-and-forget configuration on Settings → AI). Two labels differ from their
+// route ids on purpose — `deals` presents as Pipeline and `inbox` as Approvals
+// — so this asserts what a person reads, not what the router matches.
 test("AC-shell-1: the rail renders the canonical 10 items in order", async ({
   page,
 }) => {
@@ -85,11 +100,11 @@ test("AC-shell-1: the rail renders the canonical 10 items in order", async ({
     "Kontakte",
     "Firmen",
     "Leads",
+    "Duplikate",
     "Pipeline",
     "Aufgaben",
     "Freigaben",
     "Berichte",
-    "Automatisierungen",
     "Margince fragen",
   ]);
 });
@@ -137,7 +152,7 @@ test("AC-shell-1k: one h1 per railed page, and on a record it is the record's ow
   await page.goto("/#/settings/privacy");
   const settingsHeading = page.getByRole("heading", { level: 1 });
   await expect(settingsHeading).toHaveCount(1);
-  await expect(settingsHeading).toHaveText("Datenschutz & Einwilligung");
+  await expect(settingsHeading).toHaveText("Datenschutz & Audit");
   await expect(page.locator(".rail .navtitle")).toHaveText("Einstellungen");
   await expect(page.locator("main")).not.toContainText("privacy");
 });
@@ -187,12 +202,15 @@ test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", asyn
   await expect(page.locator(".askfab")).toHaveCount(0);
 });
 
-// The account block carries the three things it is FOR — this person's own
-// account, the installation's settings, and the way out — and nothing that
-// changes a setting in place: theme and language are preferences and live on
-// Settings → Account. A menu offering a control would put a per-person setting
-// in the one place a reader goes to LEAVE.
-test("features/10 §7: the account menu offers its two surfaces and the way out, and no preferences", async ({
+// The account block carries the two things it is FOR — this person's own account
+// and the way out — and nothing that changes a setting in place: theme and
+// language are preferences and live on Settings → Account. A menu offering a
+// control would put a per-person setting in the one place a reader goes to LEAVE.
+//
+// And no second row into settings generally: it landed on the same page the
+// account row does, since settings opens on its first entry, while the rail
+// already carries that door.
+test("features/10 §7: the account menu offers this person's surface and the way out, and no preferences", async ({
   page,
 }) => {
   await page.goto("/#/home");
@@ -202,9 +220,7 @@ test("features/10 §7: the account menu offers its two surfaces and the way out,
     "href",
     "#/settings/account",
   );
-  await expect(
-    menu.getByRole("link", { name: "Einstellungen" }),
-  ).toHaveAttribute("href", "#/settings");
+  await expect(menu.getByRole("link")).toHaveCount(1);
   await expect(menu.getByRole("button", { name: "Abmelden" })).toBeVisible();
   await expect(menu.getByRole("combobox")).toHaveCount(0);
 });
@@ -312,16 +328,25 @@ test("AC-book: the booking page renders rail-less with live slots", async ({
 test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enable is the deliberate second step", async ({
   page,
 }) => {
-  await page.goto("/#/automations");
-  await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
-  await page.getByRole("button", { name: "Vorlage verwenden" }).first().click();
+  // Automations are configuration, not a destination: the editor is a section
+  // of the AI settings page, so every assertion below is scoped to that section
+  // rather than to a page that is now shared with the AI spend cards.
+  await page.goto("/#/settings/ai");
+  const automations = page.locator("[data-automations-admin]");
+  await expect(automations.getByText("Stillstands-Erinnerung")).toBeVisible();
+  await automations
+    .getByRole("button", { name: "Vorlage verwenden" })
+    .first()
+    .click();
   // the schema default arrives in the one parameter field
   await expect(
-    page.getByRole("spinbutton", { name: "due_in_days" }),
+    automations.getByRole("spinbutton", { name: "due_in_days" }),
   ).toHaveValue("3");
-  await page.getByRole("button", { name: "Anlegen" }).click();
+  await automations.getByRole("button", { name: "Anlegen" }).click();
   await expect(
-    page.getByText("Pausiert angelegt — es läuft nichts, bis du aktivierst."),
+    automations.getByText(
+      "Pausiert angelegt — es läuft nichts, bis du aktivierst.",
+    ),
   ).toBeVisible();
   const row = page.locator('[data-automation="au-2"]');
   await expect(row.getByText("pausiert")).toBeVisible();
@@ -332,23 +357,32 @@ test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enab
 test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, no user-defined trigger", async ({
   page,
 }) => {
-  await page.goto("/#/automations");
-  await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
-  await page.getByRole("button", { name: "Vorlage verwenden" }).first().click();
-  await expect(page.locator("textarea")).toHaveCount(0);
+  // The anti-DSL claim is about the automations surface, so it is asserted over
+  // that surface: the editor now shares a settings page with cards whose inputs
+  // have nothing to do with rule authoring, and counting those in would say
+  // something else entirely.
+  await page.goto("/#/settings/ai");
+  const automations = page.locator("[data-automations-admin]");
+  await expect(automations.getByText("Stillstands-Erinnerung")).toBeVisible();
+  await automations
+    .getByRole("button", { name: "Vorlage verwenden" })
+    .first()
+    .click();
+  await expect(automations.locator("textarea")).toHaveCount(0);
   // exactly the instance name plus the schema-derived parameter
-  await expect(page.getByRole("textbox")).toHaveCount(1);
-  await expect(page.getByRole("spinbutton")).toHaveCount(1);
+  await expect(automations.getByRole("textbox")).toHaveCount(1);
+  await expect(automations.getByRole("spinbutton")).toHaveCount(1);
 });
 
 test("AC-settings-16: the audit log renders attributed entries, filters live, and loads more", async ({
   page,
 }) => {
-  // The audit log lives on the Audit tab of the settings section layout, and
-  // renders attribution in human terms (AuditEntryLine): the signed-in human
-  // (u1) reads as "Du", agents/connectors show their readable slug — never the
-  // raw `type:uuid`.
-  await page.goto("/#/settings/audit");
+  // The audit log is the last card on the Privacy & audit entry — the trail
+  // that proves the consent, retention and DSR surfaces above it were honoured
+  // — and it renders attribution in human terms (AuditEntryLine): the signed-in
+  // human (u1) reads as "Du", agents/connectors show their readable slug —
+  // never the raw `type:uuid`.
+  await page.goto("/#/settings/privacy");
   await expect(page.getByText("Du", { exact: true })).toBeVisible();
   await expect(page.getByText("runner", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Mehr laden" }).click();
@@ -362,8 +396,10 @@ test("AC-settings-16: the audit log renders attributed entries, filters live, an
 test("AC-settings: the passport list is metadata-only and strikes revoked rows", async ({
   page,
 }) => {
-  // Agent passports live on the AI & autonomy tab of the settings layout.
-  await page.goto("/#/settings/ai");
+  // Agent passports are a credential the PERSON holds, so they live on the
+  // "Your agents" entry beside autonomy and the tool catalog — not on the
+  // organization's AI page, which is spend, model prices and automations.
+  await page.goto("/#/settings/agents");
   await expect(page.getByText("Marcus' Claude", { exact: true })).toBeVisible();
   const revoked = page.locator('[data-passport="pp-2"]');
   await expect(revoked.getByText("widerrufen")).toBeVisible();
@@ -517,18 +553,18 @@ test.describe("B-EP09.23: overlay mode", () => {
     await mockApi(page, { sor: "overlay" });
     await page.reload();
     const chip = page.getByRole("link", {
-      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/overlay");
+    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/overlay");
+    await page.goto("/#/settings/integrations");
     await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
     await expect(page.getByText(/eu1/)).toBeVisible();
     // Per-object sync rows: person + organization landed fresh; deal is still
@@ -650,7 +686,7 @@ test.describe("B-EP09.23: overlay mode", () => {
 
   test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/overlay");
+    await page.goto("/#/settings/integrations");
     await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
     await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
     // Distinct from the per-object "Backfill abgeschlossen" copy already on
@@ -663,7 +699,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/overlay");
+    await page.goto("/#/settings/integrations");
     // The chip is the only accent badge that is a link; the mapping card on
     // this tab wears the same badge on the row for the signed-in user, so an
     // unqualified `.badge-accent` would be counting two different things.
@@ -703,7 +739,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     // nothing, which is the one way a mapping workflow must not be able to
     // look correct.
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/overlay");
+    await page.goto("/#/settings/integrations");
 
     // Seeded state: the admin's own seat, matched to a HubSpot owner by email.
     await expect(page.getByText("Über E-Mail zugeordnet")).toBeVisible();

@@ -58,7 +58,17 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		WithPublicBooking(people.NewStore(InstallationDB(pool)), bookingConsentAdapter{store: consent.NewStore(InstallationDB(pool))}).
 		// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
 		// preference token behind the List-Unsubscribe URL.
-		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))})
+		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(InstallationDB(pool))}).
+		// The sender's own sign-off (core 0235). people owns the row because
+		// it owns the person the seat belongs to; activities appends it because
+		// it owns the one send. The edge is injected here rather than imported,
+		// like every other cross-module edge on this path.
+		WithSignature(people.NewStore(InstallationDB(pool))).
+		// The name on the envelope. identity owns who the acting human is —
+		// including the human an agent acts on behalf of — and that resolution
+		// must be the same one the audit log records, so it is injected rather
+		// than re-derived here.
+		WithSenderName(identity.NewServiceFor(InstallationDB(pool)))
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture
@@ -135,6 +145,9 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// floor.
 	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
 	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
+	// The importer maps only core columns (see importTargets for why custom
+	// fields are not among them), so it needs no field catalog of its own.
+	s.importHandlers = importHandlers{db: InstallationDB(pool)}
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
@@ -148,9 +161,11 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// options rather than one.
 	s.orgDossierSvc = orgdossier.NewService(pool, s.peopleStore, nil, "", time.Now)
 	s.orgGrowthFitSvc = orgdossier.NewGrowthFitService(
-		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now)
+		pool, s.peopleStore, offeringConfirmed(s.peopleStore), nil, "", time.Now,
+	)
 	s.orgDossierHandlers = orgdossier.NewHandlers(
-		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay)
+		s.orgDossierSvc, s.orgGrowthFitSvc, s.sorDispatch.isOverlay,
+	)
 	// AFTER the dossier service exists: the drafter takes it as a dependency,
 	// and a nil *Service handed through the interface is not the nil INTERFACE
 	// the drafter guards against — it would pass the guard and panic on the
@@ -163,7 +178,8 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.accountDraftHandlers = accountdraft.NewHandlers(
 		accountdraft.NewService(s.org360Svc, nil).
 			WithEnvelope(draftEnvelope(pool, s.log)).
-			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay)
+			WithDossier(s.orgDossierSvc), s.sorDispatch.isOverlay,
+	)
 	s.org360Handlers = org360.NewHandlers(
 		s.org360Svc,
 		s.sorDispatch.isOverlay,

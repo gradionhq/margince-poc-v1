@@ -203,4 +203,64 @@ describe("RecordPicker", () => {
     await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
     expect(screen.queryByText("Anna Weber")).toBeNull();
   });
+
+  // A NEW searchTargets is a new search SPACE, and the candidates on screen
+  // answered the old one. Discarding the in-flight search is not enough: the
+  // rows already rendered stay clickable through the next debounce and its
+  // round trip, and a caller that changed the space — notes' filing control
+  // changes it with the record TYPE — would take a pick of the wrong kind.
+  it("drops the rendered candidates when the search space changes", async () => {
+    const people = vi
+      .fn()
+      .mockResolvedValue([{ id: "p-1", name: "Anna Weber" }]);
+    const companies = vi
+      .fn()
+      .mockResolvedValue([{ id: "o-1", name: "Weber GmbH" }]);
+    const { rerender } = rtlRender(
+      <RecordPicker label="Search…" searchTargets={people} onPick={vi.fn()} />,
+    );
+
+    await userEvent.type(screen.getByRole("searchbox"), "weber");
+    await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
+
+    rerender(
+      <RecordPicker
+        label="Search…"
+        searchTargets={companies}
+        onPick={vi.fn()}
+      />,
+    );
+
+    // Gone immediately — before the new search has answered, which is the
+    // window a person can click in.
+    expect(screen.queryByText("Anna Weber")).toBeNull();
+    expect(companies).not.toHaveBeenCalled();
+
+    // The TERM survives, so the new space is searched for the same words and
+    // the list refills without anybody retyping.
+    expect(screen.getByRole<HTMLInputElement>("searchbox").value).toBe("weber");
+    await waitFor(() => expect(screen.getByText("Weber GmbH")).toBeTruthy());
+  });
+
+  // A failed search that is then made in a new space must not leave its line
+  // behind: it described a question nobody is asking any more.
+  it("drops a failed search's message when the search space changes", async () => {
+    const failing = vi.fn().mockRejectedValue(new Error("search unavailable"));
+    const working = vi
+      .fn()
+      .mockResolvedValue([{ id: "o-1", name: "Weber GmbH" }]);
+    const { rerender } = rtlRender(
+      <RecordPicker label="Search…" searchTargets={failing} onPick={vi.fn()} />,
+    );
+
+    await userEvent.type(screen.getByRole("searchbox"), "weber");
+    await waitFor(() =>
+      expect(screen.getByText(/search unavailable/)).toBeTruthy(),
+    );
+
+    rerender(
+      <RecordPicker label="Search…" searchTargets={working} onPick={vi.fn()} />,
+    );
+    expect(screen.queryByText(/search unavailable/)).toBeNull();
+  });
 });

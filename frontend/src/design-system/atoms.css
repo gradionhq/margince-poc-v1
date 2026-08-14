@@ -912,6 +912,10 @@
   overflow-wrap: anywhere;
 }
 
+.stat-card-good {
+  color: var(--success);
+}
+
 .stat-card-warn {
   color: var(--warn);
 }
@@ -930,6 +934,9 @@
   margin-right: 0.35rem;
   border-radius: 50%;
 }
+.stat-card-dot-good {
+  background: var(--success);
+}
 .stat-card-dot-warn {
   background: var(--warn);
 }
@@ -938,8 +945,8 @@
 }
 
 /* The whole-tile variant: the slot itself is bad news, not just its figure —
-   see StatCard's `alert` docblock. Two classes deliberately, so this beats
-   `.co-strip > *`'s own background reset regardless of stylesheet order. */
+   see StatCard's `alert` docblock. Two classes deliberately, so this beats a
+   strip's own `> *` background reset regardless of stylesheet order. */
 .stat-card.stat-card-alert {
   background: var(--dangerBg);
 }

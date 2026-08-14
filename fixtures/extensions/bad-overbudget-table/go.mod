@@ -1,3 +1,3 @@
 module example.invalid/margince/fixtures/bad-overbudget-table
 
-go 1.26.5
+go 1.26.6

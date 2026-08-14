@@ -81,6 +81,9 @@ func New() extension.Extension {
 		Jobs: []extension.Job{
 			{Name: "heartbeat", Handle: heartbeat},
 		},
+		Subscriptions: []extension.Subscription{
+			{Name: "withdraw_filing", Events: []string{"activity.archived"}, Handle: withdrawFiling},
+		},
 		Migrations: migrations,
 	}
 }
@@ -89,7 +92,11 @@ func New() extension.Extension {
 // package writes it through this constant: the ext schema is on no search_path
 // the app connects with, so an unqualified name would resolve to a public table
 // the unit does not own.
-const noteTable = "ext.ext_notes_note"
+//
+// The LEDGER names the same table without the schema (noteEntity), because
+// audit_log.entity_type names a kind of record rather than a path to one. One
+// is derived from the other so the two spellings cannot drift into two tables.
+const noteTable = "ext." + noteEntity
 
 // callerWorkspace is the tenant the invocation is pinned to, as SQL sees it.
 //

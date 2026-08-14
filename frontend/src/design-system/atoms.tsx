@@ -324,7 +324,10 @@ export function StatCard({
   label: string;
   value: string;
   detail?: string;
-  tone?: "warn" | "danger";
+  // `good` is not "no tone": a slot whose reading is a VERDICT says so in both
+  // directions, and a verdict that is fine reads as fine rather than as one
+  // nobody has judged yet.
+  tone?: "good" | "warn" | "danger";
   // Where the figure came from, named on the card that shows it. A money
   // reading a reader cannot trace is one they have to go and verify
   // elsewhere, which is the trip the badge saves them.
@@ -526,6 +529,7 @@ export function Modal({
   labelledBy,
   size = "default",
   placement = "center",
+  returnFocusTo,
   children,
 }: Readonly<{
   open: boolean;
@@ -540,9 +544,29 @@ export function Modal({
   // With size="wide" it takes the roomier clamp and a sticky header/footer,
   // for the surfaces a rep works IN rather than glances at.
   placement?: "center" | "right";
+  // Where focus should land instead of the opener, for a dialog whose OWN
+  // mutation removes the control that opened it — a Deactivate button that
+  // becomes Reactivate, a row the delete drops from the list.
+  //
+  // A callback rather than a ref because the resting place frequently does not
+  // exist while the dialog is open: it is produced by the very mutation the
+  // dialog performs, and the opener is detached by the time anything could ask
+  // about it. Resolving at restore time is the only moment the answer is known.
+  // A caller that does hold a ref passes `() => ref.current`, so the ref form
+  // is a subset of this one rather than a second API.
+  returnFocusTo?: () => HTMLElement | null;
   children: ReactNode;
 }>) {
   const dialog = useRef<HTMLDivElement | null>(null);
+  // Held in a ref so the restore below calls the CURRENT resolver. The focus
+  // effect is keyed on `open` alone — re-running it whenever an inline callback
+  // changes identity would drag focus back to the dialog's first stop on every
+  // render of the page behind it — so the closure it captures is otherwise the
+  // one from the render that opened the dialog.
+  const returnFocus = useRef(returnFocusTo);
+  useEffect(() => {
+    returnFocus.current = returnFocusTo;
+  }, [returnFocusTo]);
   useEffect(() => {
     if (!open) {
       return;
@@ -571,7 +595,22 @@ export function Modal({
     const stops = dialog.current ? focusableWithin(dialog.current) : [];
     (stops[0] ?? dialog.current)?.focus();
     return () => {
-      if (opener instanceof HTMLElement) {
+      // A named target outranks the opener even while the opener is still
+      // attached: a caller names one precisely because the mutation this dialog
+      // just performed unmakes that control, and the unmaking usually lands
+      // with the refetch a moment AFTER this runs. Handing focus back to a
+      // button that is about to be removed drops the reader on <body> a tick
+      // later, which is the failure this whole escape hatch exists to prevent.
+      const named = returnFocus.current?.() ?? null;
+      if (named?.isConnected) {
+        named.focus();
+        return;
+      }
+      // focus() on a node the mutation already detached is a silent no-op and
+      // leaves focus on <body>, from where the next Tab restarts at the top of
+      // the document. Asking first is what keeps that case from looking like a
+      // restore that worked.
+      if (opener instanceof HTMLElement && opener.isConnected) {
         opener.focus();
       }
     };

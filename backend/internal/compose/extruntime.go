@@ -18,9 +18,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -63,6 +63,40 @@ var extensionRuntimeDeps struct {
 type extensionRuntimeBinding struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
+	// captureSink is the ONE fully-guarded capture pipeline a unit's ingress
+	// lands through, bound separately by BindExtensionCapture.
+	//
+	// It IS a binding, unlike the core port above, and the difference is that
+	// this dependency is not derivable from the pool: newCaptureSink attaches
+	// the file keeper, the merge stager and the counterparty ensurer — three
+	// cross-module adapters — plus the deployment's suppression config. A sink
+	// built here from the pool alone would compile, run, land activities and
+	// silently create no people, which is the failure this field exists to make
+	// impossible. Nil on a role that composed no capture, and the port then
+	// refuses by name rather than half-working.
+	captureSink *capture.Sink
+}
+
+// BindExtensionCapture records the capture pipeline a unit's ingress lands
+// through. A role that runs unattended extension work — a job tick, a
+// subscription delivery — calls it once at boot with the same deployment
+// capture config its own connectors run on.
+//
+// It takes the CONFIG and assembles the sink here rather than accepting one,
+// which is the whole point of the signature: newCaptureSink is the one spelling
+// that attaches the file keeper, the merge stager and the counterparty ensurer,
+// and a parameter of type *capture.Sink would let a caller hand over a
+// hand-assembled pipeline that lands activities and silently creates no people.
+//
+// Separate from BindExtensionRuntime rather than a third parameter on it,
+// because the two answer different questions: every role has a pool and a
+// custodian, and only some run work that can ingest. A role that never calls
+// this leaves ingress refusing with errIngressUnwired, which is the honest
+// answer for a process that has nowhere to put a captured record.
+func BindExtensionCapture(pool *pgxpool.Pool, cfg CaptureConfig) {
+	extensionRuntimeDeps.mu.Lock()
+	defer extensionRuntimeDeps.mu.Unlock()
+	extensionRuntimeDeps.captureSink = newCaptureSink(pool, cfg)
 }
 
 // BindExtensionRuntime records what a governed extension tool's per-call
@@ -128,16 +162,39 @@ type callRuntime struct {
 	// are the published Runtime's and cannot grow a parameter for it.
 	callCtx context.Context //nolint:containedctx // the invocation's tenant scope IS this value's lifetime; see above.
 
-	// systemCaller forces Caller to answer the zero value whatever principal
-	// callCtx carries. Exactly one path sets it — a job tick — and the reason
-	// is in jobRuntimeFor.
-	systemCaller bool
+	// unattended forces Caller to answer the zero value whatever principal
+	// callCtx carries, and refuses the core port. Two paths set it — a job tick
+	// (jobRuntimeFor) and a bus delivery (deliveryRuntimeFor) — and they share
+	// the one fact that decides both: nobody is there, so there is no authority
+	// a core write could be checked against.
+	unattended bool
 
 	// mu orders live: it is read and written under the same lock, so release
 	// and a handler-spawned goroutine cannot race the FLAG. It does not order
 	// the WORK — see usable.
 	mu   sync.RWMutex
 	live bool
+
+	// txDepth counts the transactions this Runtime currently holds open, and it
+	// is a COUNTER rather than a flag on purpose. A handler may call Tx twice
+	// concurrently; with a boolean the first to return would clear it while the
+	// second still held a connection, and an ingest nested inside that second
+	// one would pass the check and then wait for a connection the same runtime
+	// is holding — which on a small pool does not fail, it hangs.
+	//
+	// It is deliberately per-RUNTIME, and so is its guarantee. Two DIFFERENT
+	// runtimes — one holding a transaction while the other ingests — are not
+	// visible to each other and can still deadlock a pool of one. No
+	// per-runtime mechanism sees that, and this is the ordinary distance
+	// between a shape check and a proof rather than a claim of safety.
+	txDepth int
+
+	// ingesting counts the ingests in flight, and it is what makes the
+	// transaction refusal a guarantee rather than a check-then-use race: an
+	// ingest claims this slot under the same lock that admits a transaction,
+	// so a sibling goroutine cannot open one in the window between the check
+	// and capture's own acquire.
+	ingesting int
 }
 
 var _ extension.Runtime = (*callRuntime)(nil)
@@ -169,8 +226,31 @@ func runtimeFor(ctx context.Context, unit, version, via string, deps extensionRu
 // call. Nothing else about the tick changes: the actor on callCtx is still the
 // one every capability and every policy sees.
 func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	return unattendedRuntimeFor(ctx, unit, version, via, deps)
+}
+
+// deliveryRuntimeFor mints the Runtime for one BUS DELIVERY — a subscription
+// hearing that something happened.
+//
+// It is unattended for a plainer reason than a tick's: a tick at least ran
+// because a schedule the installation configured said so, while a delivery ran
+// because a fact arrived. Neither has a person behind it, and this one's
+// principal is the system actor the subscriber binds (see extsubscribe.go),
+// which auth.Require does not check at all — so the unattended flag is what
+// keeps the governed core port shut for a caller nothing else would refuse.
+func deliveryRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
+	return unattendedRuntimeFor(ctx, unit, version, via, deps)
+}
+
+// unattendedRuntimeFor is what both of the above are: a Runtime for an
+// invocation with nobody behind it. They stay separate NAMES because the two
+// call sites are the two kinds of unattended work and a reader at either one
+// should see which it is — but the behaviour is one fact, spelled here, so a
+// later change to what "unattended" means cannot reach one kind and miss the
+// other.
+func unattendedRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
 	rt := runtimeFor(ctx, unit, version, via, deps)
-	rt.systemCaller = true
+	rt.unattended = true
 	return rt
 }
 
@@ -255,6 +335,17 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 	if correlation, bound := principal.CorrelationID(r.callCtx); bound {
 		ctx = principal.WithCorrelationID(ctx, correlation)
 	}
+	// The CAUSATION travels the same way, and it matters most where the
+	// invocation is a reaction: a bus delivery binds the event that triggered
+	// it, so what the unit publishes chains back to what caused it. Left to the
+	// handler's context it would be right only while the handler passed the
+	// context it was given — and wrong in the two ways a handler gets it wrong,
+	// each silently: a context built fresh publishes a reaction with no cause,
+	// and one retained from an earlier delivery publishes this reaction as
+	// caused by that earlier event.
+	if causation, bound := principal.CausationEvent(r.callCtx); bound {
+		ctx = principal.WithCausationEvent(ctx, causation)
+	}
 	// And WHAT carried the action, which is a second dimension beside who took
 	// it: every core write made under this context records the unit, its
 	// declared version and the surface the call arrived on. Bound here rather
@@ -276,33 +367,6 @@ func (r *callRuntime) Secrets() extension.Secrets {
 	return callSecrets{rt: r, inner: extsecrets.For(r.unit, r.deps.pool, r.deps.vault)}
 }
 
-// Tx opens ONE transaction, already pinned to the workspace the invocation
-// belongs to, and hands the callback the published seam over it.
-//
-// The pinning is database.WithWorkspaceTx — the same transaction-local
-// app.workspace_id GUC every core store binds, read by the same tenant
-// policies — rather than a second mechanism this surface invents. The
-// workspace comes from scoped, so it is the INVOCATION's and not whatever
-// tenant the handler's own ctx happens to carry: the pin is bound before fn
-// runs, and the tenant policies then hold whatever SQL fn issues.
-func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx extension.Tx) error) error {
-	ctx, err := r.scoped(ctx)
-	if err != nil {
-		return err
-	}
-	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
-		// Re-checked inside: opening a transaction is a round trip, and a
-		// Runtime released during it must not reach the callback with a live
-		// handle. Refusing here rolls the (empty) transaction back.
-		if err := r.usable(); err != nil {
-			return err
-		}
-		return fn(ctx, extensionTx{tx: tx, core: extensionCore{
-			tx: tx, tick: r.systemCaller, deps: r.deps, authority: r.scoped,
-		}})
-	})
-}
-
 // Caller answers who the invocation runs as, copied out of the principal the
 // call arrived under. It reads r.callCtx and nothing the handler supplies, for
 // the same reason Tx re-derives the tenant there: an identity a handler can
@@ -322,7 +386,7 @@ func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx ex
 // holds.
 func (r *callRuntime) Caller() extension.Caller {
 	actor, ok := principal.Actor(r.callCtx)
-	if !ok || r.systemCaller {
+	if !ok || r.unattended {
 		// No principal is the unauthenticated or unbound path, and the zero
 		// Caller is CallerSystem — the least authority, so a wiring gap reads
 		// as "nobody" rather than as a human whose id happens to be empty.

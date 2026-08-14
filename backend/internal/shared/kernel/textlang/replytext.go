@@ -239,6 +239,27 @@ func startsQuote(line []rune) bool {
 	return isAttributionLine(text)
 }
 
+// authoredText is the text above the first quoted or forwarded line — what the
+// sender wrote themselves, with everything they merely carried along removed.
+//
+// It differs from NewTextOnly in exactly one way, and that difference is its
+// whole reason to exist: a boundary at the very first line cuts to nothing here
+// rather than keeping the quote. NewTextOnly's caller asks what language a text
+// is in, where a quote is evidence worth reading; this one's caller asks what
+// our correspondent said that a draft may stand on, where a message that added
+// nothing of its own has no answer to give.
+//
+// It reuses startsQuote and signatureStart rather than scanning for '>' so a
+// marker this file learns about reaches every reading at once.
+func authoredText(text string) string {
+	runes := []rune(text)
+	offset := earliest(quoteStart(runes), signatureStart(runes))
+	if offset < 0 {
+		return text
+	}
+	return string(runes[:offset])
+}
+
 // isAttributionLine reports whether the line is a client's "On <date>, <name>
 // wrote:" header rather than a sentence that happens to begin the same way.
 func isAttributionLine(line string) bool {

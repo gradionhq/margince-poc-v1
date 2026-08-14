@@ -103,6 +103,44 @@ type Runtime interface {
 	// A job tick has no human behind it and answers the zero Caller
 	// (CallerSystem, empty UserID); see Job.
 	Caller() Caller
+
+	// Ingest hands ONE record the unit pulled from its provider to the
+	// installation's capture pipeline, on behalf of the member whose credential
+	// produced it.
+	//
+	// What the core does with it is everything a captured mail gets: the write
+	// is idempotent on the record's natural key, the counterparty goes through
+	// the same disposition ladder, the provider's original is kept as evidence,
+	// and the audit row and the outbox event commit with the row. A unit
+	// therefore does not — and cannot — assemble a timeline entry itself.
+	//
+	// IT IS NOT TRANSACTIONAL WITH ANYTHING THE UNIT IS DOING. The pipeline
+	// opens its own transaction, so this must be called with none of the unit's
+	// held (Tx nesting answers ErrNestedIngest rather than hanging), and a
+	// unit's bookkeeping about what it has ingested is a separate commit.
+	//
+	// THE RULE THAT FOLLOWS, and the one worth getting right: advance your
+	// cursor only AFTER Ingest returns, and only past records it has answered
+	// for. The asymmetry is what makes that safe — a cursor not advanced past a
+	// record that landed costs one deduplicated retry, because the natural key
+	// makes a replay a no-op, while a cursor advanced past a record that did
+	// not land costs the record permanently.
+	//
+	// EVERY Disposition IS A SUCCESS, including Skipped: the core drops a
+	// wholly-internal message deliberately and commits a breadcrumb saying so,
+	// and treating that as a failure would retry a deliberate drop forever.
+	//
+	// on names the member whose credential produced the record. It must be a
+	// live member who currently holds one of this unit's user-scoped secrets —
+	// depositing a credential with a unit is the act that says "act for me
+	// here" — and the record is landed on that member's LIVE authority, so
+	// demoting them narrows what their connection can land from the next call
+	// onward.
+	//
+	// It is refused on an invocation that HAS a caller (ErrAttendedIngest): an
+	// unattended run is the only one where the member above is the single
+	// authority in play. A unit offering an on-demand sync enqueues its job.
+	Ingest(ctx context.Context, on UserID, rec Record) (Result, error)
 }
 
 // CallerType is which kind of principal an invocation is running as. It mirrors
@@ -210,11 +248,43 @@ type Caller struct {
 type Tx interface {
 	// Core is the governed door onto the installation's own records, on THIS
 	// transaction: a unit's own row and the core record it files commit
-	// together or not at all. Everything the three verbs below are not —
+	// together or not at all. Everything the three SQL verbs below are not —
 	// authorized against the caller's live RBAC, audited, attributed, and
 	// published as an event — is a property of going through it rather than
 	// around it. See Core.
+	//
+	// It is the door onto the PRODUCT's records; Record below is the one onto
+	// the unit's own.
 	Core() Core
+
+	// Record writes the ledger row AND the event for a write to the unit's OWN
+	// tables, on this transaction: the unit's row, its history and its
+	// announcement commit together or not at all.
+	//
+	// BOTH, ALWAYS, and that is the point rather than an inconvenience. It is
+	// the product's own non-negotiable write shape — domain row + audit row +
+	// outbox event in one transaction — offered to a unit in the one call that
+	// makes the pairing impossible to get wrong. An event with no ledger row is
+	// unauditable; a ledger row with no event is a change nothing downstream is
+	// told about, and the core grants itself no such exemption either.
+	//
+	// The three verbs below cannot do this for a unit, for the reason their own
+	// doc gives: the core does not parse the SQL, so it has no entity, no id and
+	// no field images to derive from an Exec. What it CAN do — and does here —
+	// is stamp everything that must not be the unit's to choose: the actor the
+	// invocation arrived as, the workspace, the authorization rule, the
+	// attribution naming the unit and the surface the call came in on, the
+	// event's namespace, and the trace joining the event to the ledger row.
+	//
+	// Nothing checks the caller's permissions here, deliberately. The door that
+	// admitted this call already authorized it, and the row is the unit's own —
+	// there is no core object an RBAC vocabulary could name.
+	//
+	// It is offered, not enforced: a unit may still write its tables through
+	// Exec and record nothing, exactly as it could before. What this makes
+	// possible is a unit whose own history is as readable as the product's, out
+	// of the same table, under the same joins.
+	Record(ctx context.Context, ch Change, ev Event) error
 
 	// Exec runs a statement that returns no rows (INSERT, UPDATE, DELETE)
 	// and reports how many rows it affected — which is how a delete says

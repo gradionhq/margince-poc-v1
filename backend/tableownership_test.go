@@ -134,13 +134,14 @@ var tableOwners = map[string]string{
 	"graph_interaction_edge": "internal/modules/search",
 	// CG-DDL-2: LinkedIn ghosts. Owned by people because the work they exist
 	// for is identity matching — the same dedupe rules, the same chokepoint.
+	"email_signature":     "internal/modules/people",
 	"linkedin_account":    "internal/modules/people",
 	"linkedin_connection": "internal/modules/people",
 	"attachment":          "internal/modules/activities",
 	"booking_page":        "internal/modules/activities",
-	// approvals (workspace_signing_key backs the approval-token JWS)
-	"approval":              "internal/modules/approvals",
-	"workspace_signing_key": "internal/modules/approvals",
+	// approvals (signing_key backs the approval-token JWS)
+	"approval":    "internal/modules/approvals",
+	"signing_key": "internal/modules/approvals",
 	// consent (the DSR case queue and the retention-policy catalog are
 	// consent's; the engines that EXECUTE them live in privacy)
 	"consent_purpose":   "internal/modules/consent",

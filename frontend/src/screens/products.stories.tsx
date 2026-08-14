@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ProductsScreen } from "./products";
+import { meFixture } from "../app/mefixture";
+import { ProductsAdmin } from "./products";
 import {
   emptyPage,
   installFetchStub,
@@ -30,9 +31,20 @@ const product = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
+// Every story here needs a principal, because the screen's write affordances are
+// gated on product grants now. The stub's catch-all answers `GET /me` with an
+// empty page, which resolves to a caller holding no grant at all — so without
+// this the whole catalog captured the read-only posture and no story showed the
+// editor. Named once rather than repeated per story.
+const AUTHORING_ME = () =>
+  jsonResponse(
+    meFixture({ allow: { product: ["read", "create", "update", "delete"] } }),
+  );
+
 export const List: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": AUTHORING_ME,
       "GET /products": () =>
         jsonResponse({
           data: [product],
@@ -41,17 +53,20 @@ export const List: Story = {
     });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },
 };
 export const Empty: Story = {
   render: () => {
-    installFetchStub({ "GET /products": () => jsonResponse(emptyPage) });
+    installFetchStub({
+      "GET /me": AUTHORING_ME,
+      "GET /products": () => jsonResponse(emptyPage),
+    });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },
@@ -59,6 +74,7 @@ export const Empty: Story = {
 export const LoadError: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": AUTHORING_ME,
       "GET /products": () =>
         jsonResponse(
           { title: "server error", detail: "products unavailable" },
@@ -67,7 +83,7 @@ export const LoadError: Story = {
     });
     return (
       <StoryProviders>
-        <ProductsScreen />
+        <ProductsAdmin />
       </StoryProviders>
     );
   },

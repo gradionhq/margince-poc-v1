@@ -6,12 +6,12 @@ import {
   CheckSquare,
   Home,
   type LucideIcon,
+  Merge,
   ShieldCheck,
   Sparkles,
   Target,
   UserPlus,
   Users,
-  Zap,
 } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
 import { composedExtensions, EXTENSION_SCREEN } from "./extensions";
@@ -34,11 +34,17 @@ export type {
 } from "./subnav";
 export { navLevelHref, navLevelRoute } from "./subnav";
 
-// The canonical 10-item nav (00-design-language.md §nav, A72/ADR-0035 Am.1
-// promoted Automations to primary nav). Order is normative and shell.test.tsx
-// pins it. Home stands alone above three labeled groups; the groups are the
-// expanded sidebar's own structure and collapse to hairline rules at 64px, so
-// the collapsed rail is the flat 10-item list WDS-NAV-1 describes.
+// The primary nav. Order is normative and shell.test.tsx pins it. Home stands
+// alone above three labeled groups; the groups are the expanded sidebar's own
+// structure and collapse to hairline rules at 64px, so the collapsed rail is the
+// flat list WDS-NAV-1 describes.
+//
+// It carries ten rows against upstream's own ten, but not the SAME ten: Duplicates
+// is a destination here and Automations is not. Automations is set-and-forget
+// configuration and now lives inside Settings → AI, which is where the product
+// already offered a second door to it; the dedupe queue is work somebody has to
+// get through, and it had no address outside a home digest card. Both divergences
+// are the UI's to make and are on the founder's back-fill list.
 //
 // `screen` is the route id and never changes with a label: `deals` presents as
 // Pipeline (it routes to the pipeline surface) and `inbox` presents as
@@ -62,6 +68,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { screen: "contacts", labelKey: "nav.contacts", icon: Users },
       { screen: "companies", labelKey: "nav.companies", icon: Building2 },
       { screen: "leads", labelKey: "nav.leads", icon: UserPlus },
+      // Merging two records that are one is WORK on the records above it, not
+      // configuration — it was reachable only from a home digest card, which is
+      // no address at all for a queue somebody has to work through. It keeps that
+      // card; this is the destination the card now points into.
+      { screen: "dedupe", labelKey: "nav.dedupe", icon: Merge },
     ],
   },
   {
@@ -78,7 +89,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     headingKey: "nav.group.intelligence",
     items: [
       { screen: "reports", labelKey: "nav.reports", icon: BarChart3 },
-      { screen: "automations", labelKey: "nav.automations", icon: Zap },
       { screen: "ai", labelKey: "nav.ai", icon: Sparkles },
     ],
   },

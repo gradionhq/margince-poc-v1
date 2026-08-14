@@ -26,6 +26,7 @@ export function ConfirmModal({
   error,
   size,
   placement,
+  returnFocusTo,
   children,
 }: Readonly<{
   open: boolean;
@@ -53,6 +54,11 @@ export function ConfirmModal({
   onConfirm: () => void;
   pending?: boolean;
   error?: string | null;
+  // Passed through to Modal. A confirm whose action destroys its own trigger —
+  // deactivating a member, ending a connection, closing a request — names the
+  // place focus should land instead, since the trigger will not be there to
+  // take it back.
+  returnFocusTo?: () => HTMLElement | null;
   children: ReactNode;
 }>) {
   const t = useT();
@@ -64,6 +70,7 @@ export function ConfirmModal({
       labelledBy={headingId}
       size={size}
       placement={placement}
+      returnFocusTo={returnFocusTo}
     >
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {tier && (

@@ -63,6 +63,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	cfg, deployCfg, logger := boot.cfg, boot.deploy, boot.log
 
+	// Before a pool exists, because the license needs no database and an
+	// operator mistake must not leave a worker running on a license the api
+	// refuses to boot on. The RUNNING posture is the api's to watch: it is the
+	// role that serves it, and two roles re-resolving one calendar answer would
+	// report the same lapse twice.
+	if _, err := compose.EnsureLicense(ctx, logger, deployCfg); err != nil {
+		return err
+	}
+
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
 		return err
@@ -122,6 +131,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer stopJobs()
+	// AFTER the job runner, because that is where this role's unconditional
+	// BindExtensionRuntime happens and a delivery needs it: a unit's handler
+	// reaches the installation through the per-call Runtime, which refuses
+	// while nothing is bound. Started earlier, a retained entry redelivered in
+	// that window would fail on the wiring and then wait out the subscriber's
+	// whole reclaim interval before anyone tried again — on a worker with no
+	// model configured, which never reaches the runner lane's own binding.
+	// The context is the LANES', which is this function's own ctx with their
+	// cancel around it (startEventLanes) — carried on the value rather than
+	// re-derived here, so this lane ends when its siblings do instead of
+	// outliving them under a second shutdown.
+	startExtensionSubscriptionLanes(lanes.ctx, pool, rdb, lanes.background, logger, stdout) //nolint:contextcheck // the lanes' ctx IS derived from this one; see above.
 	// Every phase a replica needs to do work has returned; /readyz may say so.
 	started.complete()
 	// Deferred AFTER complete, so LIFO runs it FIRST: readiness goes false at
@@ -221,14 +242,26 @@ func runResumeSubscriber(ctx context.Context, rdb *redis.Client, svc *compose.Ru
 // reclaim window for a group whose handler runs longer than the default;
 // zero keeps it.
 func runSubscriber(ctx context.Context, rdb *redis.Client, groupName string, handler events.Handler, log *slog.Logger, minIdle time.Duration) {
-	var group kevents.Group
 	for _, g := range kevents.Groups() {
 		if g.Name == groupName {
-			group = g
+			runGroupSubscriber(ctx, rdb, g, handler, log, minIdle)
+			return
 		}
 	}
+	// A name no catalog group answers to is a typo in this role's wiring. Said
+	// out loud rather than run: the zero Group subscribes to no streams, so the
+	// lane would come up, log nothing, and deliver nothing forever.
+	log.Error("worker: no such consumer group, so this lane delivers nothing", "group", groupName)
+}
+
+// runGroupSubscriber consumes one consumer group, whether the catalog declared
+// it or a composed extension subscription did (compose.ComposedSubscription
+// builds its own, over the streams its declared types route to). Everything
+// after the group is identical for both, which is the point: a unit's listener
+// is an ordinary consumer, not a second delivery mechanism.
+func runGroupSubscriber(ctx context.Context, rdb *redis.Client, group kevents.Group, handler events.Handler, log *slog.Logger, minIdle time.Duration) {
 	sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, handler), log).WithMinIdle(minIdle)
 	if err := sub.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("subscriber "+groupName, "err", err)
+		log.Error("subscriber "+group.Name, "err", err)
 	}
 }

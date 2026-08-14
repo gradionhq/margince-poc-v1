@@ -35,18 +35,34 @@
 //     required to write.
 //
 //     This entry USED to say Tx would be removed and replaced by a governed
-//     mutation returning change descriptors. It is now joined by one instead:
-//     Tx.Core() is the governed door, and it makes the core's own write — the
-//     RBAC check, the audit row, the outbox event, the attribution — rather
-//     than describing a change for the core to make. Tx's three SQL verbs stay
-//     for the unit's OWN tables, which is what they were always the right
-//     shape for. What remains unstable is their reach: a unit's SQL runs on the
-//     shared application role today, and narrowing it to a per-unit database
-//     role (issue #628) is a change every unit's SQL feels.
+//     mutation returning change descriptors. It is now joined by two doors
+//     instead. Tx.Core() makes the core's own write onto the product's records
+//     — the RBAC check, the audit row, the outbox event, the attribution — and
+//     Tx.Record writes the ledger row and the bus event for what the unit's own
+//     SQL did. Between them a unit's write can carry everything a core write
+//     carries, which is what the descriptor design was reaching for; Tx's three
+//     SQL verbs stay for the unit's OWN tables, which is what they were always
+//     the right shape for.
+//
+//     What remains unstable is their REACH: a unit's SQL runs on the shared
+//     application role today, and narrowing it to a per-unit database role
+//     (issue #628) is a change every unit's SQL feels. And Record is OFFERED,
+//     not enforced — a unit may still write its tables and record nothing — so
+//     a later release that makes recording mandatory would be felt by any unit
+//     that had not adopted it.
 //
 //   - The frontend surface a unit screen imports, whose exported client type
 //     currently infers foreign types (openapi-fetch) into the published shape.
 //     Replacing those with core-owned interfaces changes the exported types.
+//
+//   - Runtime.Ingest, and its `on UserID` parameter above all. Ingress is
+//     OFFERED rather than enforced — a unit lands what it chooses to hand over
+//     — and naming the member the record belongs to is a stand-in for a
+//     first-class per-member connection concept the tier does not have yet. If
+//     one arrives, `on` becomes that connection's identity and every unit's
+//     poll changes with it. What will NOT change is the pair of facts behind
+//     it: the member has to have deposited a credential with the unit, and the
+//     landing runs on their live authority.
 //
 // A unit written against today's surface will need editing when either lands.
 // That is acceptable precisely because the composed set is the trust boundary:
@@ -206,6 +222,35 @@ type Extension struct {
 	// outbound scope (autonomous outbound authority on a clock), where the
 	// served-tool seam refuses the same two shapes for weaker reasons.
 	Jobs []Job
+
+	// Subscriptions are the events the unit reacts to: named listeners over the
+	// installation's own event bus, each naming the types it wants and the
+	// function one delivery runs.
+	//
+	// Like a Job this pairs a declaration with behavior, and unlike a Job the
+	// declaration is HERE rather than in a contract fragment — there is no HTTP
+	// surface, no cadence and no queue to spell, only which facts the unit
+	// listens for. That list is derived into manifest.generated.json, so what a
+	// unit consumes is visible to an operator without reading its source.
+	//
+	// A delivery has NOBODY behind it, which is what separates a subscription
+	// from a tool: no caller, and so no permissions a core write could be
+	// checked against. See EventHandler.
+	Subscriptions []Subscription
+
+	// Ingress are the providers this unit brings records IN from, and the
+	// record kinds it lands through the core's own capture pipeline.
+	//
+	// Like a Tool's tier this is a request an operator can see before anything
+	// runs — and unlike a tier it is also load-bearing while it runs: the core
+	// stamps a landed record's provenance from the System declared here, so a
+	// unit never spells its own, and an ingest naming an undeclared source is
+	// refused rather than admitted under an invented namespace.
+	//
+	// Presence is the enablement, as everywhere in this tier. A unit declaring
+	// none cannot reach capture at all, which is the state every unit was in
+	// before this field existed.
+	Ingress []IngressSource
 
 	// Migrations is the unit's SQL schema layer: a read-only filesystem
 	// holding the MigrationsDir directory of NNNN_name.up.sql/.down.sql

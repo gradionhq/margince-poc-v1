@@ -264,6 +264,8 @@ func (r *unitReader) readExtension(fn *ast.FuncDecl, file *ast.File) (unitManife
 		}
 		return m.Secrets[i].Scope < m.Secrets[j].Scope
 	})
+	sort.Slice(m.Subscriptions, func(i, j int) bool { return m.Subscriptions[i].Name < m.Subscriptions[j].Name })
+	sort.Slice(m.Ingress, func(i, j int) bool { return m.Ingress[i].System < m.Ingress[j].System })
 	return m, nil
 }
 
@@ -335,6 +337,18 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		secrets, err = r.readSecrets(kv.Value, file)
 		if err == nil {
 			m.Secrets = append(m.Secrets, secrets...)
+		}
+	case "Subscriptions":
+		var subs []subscriptionRequest
+		subs, err = r.readSubscriptions(kv.Value, file)
+		if err == nil {
+			m.Subscriptions = append(m.Subscriptions, subs...)
+		}
+	case "Ingress":
+		var sources []ingressSource
+		sources, err = r.readIngress(kv.Value, file)
+		if err == nil {
+			m.Ingress = append(m.Ingress, sources...)
 		}
 	default:
 		// Fail closed: a field this generator does not recognize could be a

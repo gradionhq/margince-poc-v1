@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
@@ -36,6 +37,15 @@ type Handlers struct {
 // NewHandlers wires the transport over the installation-bound pool.
 func NewHandlers(db *database.DB) Handlers {
 	return Handlers{automations: NewAutomationStore(db)}
+}
+
+// WithFieldCatalog wires the workspace custom-field catalog into the
+// transport's store (see AutomationStore.WithFieldCatalog); compose
+// injects modules/customfields' Service here, the same edge
+// deals.Handlers/people.Handlers already wire.
+func (h Handlers) WithFieldCatalog(catalog fieldcatalog.Reader) Handlers {
+	h.automations = h.automations.WithFieldCatalog(catalog)
+	return h
 }
 
 // ListAutomationCatalog implements (GET /automations/catalog).

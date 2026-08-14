@@ -99,6 +99,14 @@ export type BoardColumn = {
   currency: string;
   deals: BoardDeal[];
   /**
+   * The stage's true deal count, independent of how many `deals` (cards)
+   * loaded — a caller with a capped/paginated card fetch (the Kanban board)
+   * has a real count from a server aggregate that `deals.length` cannot
+   * give it. Falls back to `deals.length` when absent, which is correct for
+   * a caller whose card list IS the whole stage.
+   */
+  count?: number;
+  /**
    * The stage holds deals in more than one currency, so it has no total to
    * state — native minor units are never summed across currencies. The column
    * then reports how many deals it holds and no figure at all, rather than a
@@ -203,8 +211,9 @@ export function PipelineBoard({
             <span className="prob">{column.probabilityPct}%</span>
           </div>
           {/* The stage's total is the figure being scanned down the board, so it
-              leads with the deal count beside it; the weighted figure is derived
-              from it and reads underneath rather than competing on the line. */}
+              leads with the deal count beside it; the weighted figure is its own
+              server-sourced total (not derived from the raw total) and reads
+              underneath rather than competing on the line. */}
           <div className="board-col-sub">
             <span className="board-col-total">
               {!column.sumHidden && (
@@ -212,7 +221,11 @@ export function PipelineBoard({
                   {formatMoney(column.rawMinor, column.currency, locale)}
                 </span>
               )}
-              <span>{t("board.count", { count: column.deals.length })}</span>
+              <span>
+                {t("board.count", {
+                  count: column.count ?? column.deals.length,
+                })}
+              </span>
             </span>
             {!column.sumHidden && (
               <span className="board-col-weighted">

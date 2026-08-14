@@ -53,6 +53,7 @@ arrive through props, translated by the caller with `t()`.
 | `EmptyState` / `Skeleton` / `Kbd` | Page furniture: nothing-here, loading placeholder, key cap | `atoms.tsx` | ✅ |
 | `Panel` / `PanelBody` / `PanelRow` | The record page's titled-card shape, which `Card` does not offer: a fixed-height header (a title alone, or a title with a badge or a button, all the same height), full-bleed rows under it, and an optional footer band for a figure that belongs to the whole panel. `PanelBody` is its own component rather than a prop on `Panel`, because the header's rhythm, the body's padding and a row that wants to touch the panel's own edges are three different things living in one box: a caller needing both padded text and full-bleed rows nests `PanelBody` and `PanelRow` as siblings instead of fighting one slot that tries to be both. It is a `Card` with rows, not a rival surface — when `Card` grows a row and a footer band, this folds into it | `panel.tsx` | ✅ |
 | `StatCard` / `AttainmentRing` | One reading with the basis it was drawn from; the server's attainment band as an arc | `atoms.tsx` | ✅ |
+| **`StatStrip`** | **A record's readings as ONE plate of ruled slots rather than N free-standing cards — cards are read one at a time, a strip is read across as a single comparison. Takes `StatCard`s as children and owns only the plate: slot count (from the children actually drawn, so a conditional slot leaves no empty cell), the rules between slots, the fold when the row stops being legible, and the one type scale every slot shares. A slot sized to its own content stops the row reading as one comparison** | `statstrip.tsx` | ✅ |
 | `Meter` / `Sparkline` / `Chip` | A proportion as a bar (pass `value` and `max`, never a percentage), a short series as a bare polyline, and one attribute of a record as an icon pill — a `Chip` is a fact, a `Badge` is a status | `readings.tsx` | ✅ |
 | `DataTable` | A simple column/row table with optional row navigation | `atoms.tsx` | ✅ |
 | `EvidenceMark` | The ONE §4 provenance affordance: a dotted underline on a value a person did not type, opening to where it came from | `evidencemark.tsx` | ✅ |
@@ -79,6 +80,62 @@ token, never a new hex), `base.css`, and the per-component sheets a component
 imports itself. `interaction.stories.tsx` catalogues the colours the *browser*
 owns — caret, checkbox tick, scrollbar thumb, selection — which are set once at
 the document root and belong to no component.
+
+## Absent, disabled, or withheld — decided by CAUSE
+
+A surface a reader cannot use is in one of three states, and **which one is not a
+style choice — the cause picks it.** Getting this wrong is not a cosmetic bug: an
+absent card and an empty card make the same shape on screen and mean opposite
+things.
+
+| Cause | State | What the reader gets |
+|---|---|---|
+| It does not apply here — a posture, a rollout flag, a capability this installation does not have | **absent** | Nothing. There is no fact to report. |
+| A precondition the reader could fix is unmet — nothing selected yet, a write in flight, delivery not configured | **disabled** | The control, inert, **and what would make it live**. |
+| A **permission** denies it | **withheld** | The surface keeps its place and **says that it is withheld**. |
+
+The third row is the one that gets broken, because returning `null` on a denial
+is the shortest code and looks tidy in review. It is a false statement. A
+retention card that vanishes for an ops seat does not read as "not yours" — it
+reads as "this installation keeps nothing", and an absent audit trail reads as
+"nothing has happened here". Both are claims about the DATA, made by accident,
+in place of a claim about authority.
+
+Three consequences worth stating, because each was a real defect:
+
+- **A withheld card asks the server for nothing.** The answer is already known,
+  so keep `enabled: canRead` on the query. Withholding is about what the page
+  SAYS, not about issuing a request in order to be refused.
+- **Gate on the probe, not on its absence.** `/me` in flight is not a denial;
+  branching before it answers flashes the notice at every reader.
+- **A write affordance inside an otherwise readable surface may be absent**,
+  provided the surface states its read-only posture once (`auto.readOnly`,
+  `cf.noPermission` are the pattern). Withholding twelve buttons individually is
+  noise; withholding the page's one explanation is the defect.
+- **A surface that is only an ACTION may be absent on a denial.** The rule above
+  is about not making a false claim, and a card holding no fact cannot make one —
+  there is nothing for a reader to misread as "zero" or "nothing happened". The
+  danger zone is the case: an absent Reset-data card says nothing about the
+  installation, while "you may not reset this installation" is noise on every
+  page that renders it. A surface that reports anything at all is not this.
+
+Two things carry this properly today and are worth copying: `Switch`'s `reason`
+prop, which renders the explanation **and** points the control at it with
+`aria-describedby` — the only accessibility-wired denial in the tree — and
+`FieldGuard`, for a withheld VALUE rather than a withheld surface. Everything
+else hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as
+the card body, which is the shape to match until a primitive earns its place.
+
+`Switch` versus `Checkbox` follows from the same honesty: a `Checkbox` states an
+intent that something later submits, a `Switch` **is** the action. A control that
+writes when you flip it and announces itself as a checkbox has told the reader
+the wrong thing about what their next click does.
+
+That pairing is also the answer for a **stateful** control a permission denies —
+one that is the only place a reader can see the setting's current value. Absent
+would hide a granted read; withholding the surface would hide the fact. A
+disabled `Switch` carrying `reason` shows the state, refuses the change, and says
+why, with the explanation attached to the control rather than sitting beside it.
 
 ## Seeing them
 

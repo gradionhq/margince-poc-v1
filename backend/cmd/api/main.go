@@ -36,6 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 )
 
@@ -87,7 +88,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	deployCfg, err := bindInstallation(ctx, cfg, pool, logger)
+	deployCfg, license, err := bindInstallation(ctx, cfg, pool, logger)
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	opts, schemaPool, closeSchemaPool, err := baseComposeOptions(ctx, cfg, compose.CaptureConfigFromDeploy(deployCfg.Capture, logger), pool, logger, stdout)
+	opts, schemaPool, closeSchemaPool, err := baseComposeOptions(ctx, cfg, compose.CaptureConfigFromDeploy(deployCfg.Capture, logger), pool, logger, stdout, license)
 	if err != nil {
 		return err
 	}
@@ -223,8 +224,12 @@ func validateBareOrigin(flagName, raw string) error {
 // uses. The returned close func releases whatever this stage opened
 // (currently only the schema pool) and is always safe to call, even when
 // nothing was opened.
-func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, *pgxpool.Pool, func(), error) {
+func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer, license *licensecheck.Watcher) ([]compose.Option, *pgxpool.Pool, func(), error) {
 	var opts []compose.Option
+	// The posture bindInstallation resolved, read at scrape time rather than
+	// copied in: a license lapses on a calendar, and the watcher behind this
+	// function is still re-checking while the process serves.
+	opts = append(opts, compose.WithLicensePosture(license.Posture))
 	// Record the deployment's capture suppression-list config first, so the
 	// registry rebuilds in WithKeyvault/WithGraphCapture apply it too — not just
 	// the Gmail path WithGmailCapture threads it into (ADR-0072).

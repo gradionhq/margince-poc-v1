@@ -3,7 +3,10 @@
 
 package provenance
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Extension is the attribution a core write carries when an extension unit
 // made it: which unit, which version of it, and through which of its verbs.
@@ -28,6 +31,16 @@ type Extension struct {
 	// `route/POST /ext/notes/file` — so an audit reader can tell an agent's
 	// call from a person's without a second lookup.
 	Via string
+
+	// Detail is the unit's OWN free-form context about ONE write, and the only
+	// member of this entry a unit supplies. The three above are stamped per
+	// INVOCATION; this one is bound per write by the ledger port, because it
+	// describes a statement rather than a call.
+	//
+	// Raw JSON, because that is how it arrives from the published surface —
+	// already checked for validity there — and decoding it into a map here
+	// would only give this package a shape of its own to get wrong.
+	Detail json.RawMessage
 }
 
 // ExtensionEvidenceKey is the one audit-evidence member extension attribution
@@ -62,7 +75,17 @@ func ExtensionFrom(ctx context.Context) (Extension, bool) {
 
 // EvidenceEntry renders the attribution as the value its evidence member holds.
 //
+// Detail is nested UNDER this entry rather than placed beside it, so the whole
+// tier stays one member of the evidence namespace — the property that keeps a
+// unit from ever colliding with the ~20 bare keys the core's modules write. An
+// absent detail leaves the member out entirely: `"detail": null` would be a
+// unit saying something rather than a unit saying nothing.
+//
 //craft:ignore naked-any the audit evidence seam is jsonb; this is one member of it
 func (e Extension) EvidenceEntry() map[string]any {
-	return map[string]any{"unit": e.Unit, "version": e.Version, "via": e.Via}
+	entry := map[string]any{"unit": e.Unit, "version": e.Version, "via": e.Via}
+	if len(e.Detail) > 0 {
+		entry["detail"] = e.Detail
+	}
+	return entry
 }

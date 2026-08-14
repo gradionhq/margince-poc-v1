@@ -35,4 +35,5 @@ func (s Server) writeAIMetrics(w io.Writer) {
 func (s Server) writeMetricsSections(w io.Writer) {
 	s.writeAIMetrics(w)
 	s.writeMCPAppMetrics(w)
+	s.writeLicenseMetrics(w)
 }

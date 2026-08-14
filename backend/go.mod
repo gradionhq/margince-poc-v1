@@ -4,7 +4,7 @@ module github.com/gradionhq/margince/backend
 // `ON DELETE SET NULL (column_list)` semantics and current-toolchain
 // tooling. Contributors/operators need the 1.26 toolchain; this is a PoC
 // choice, revisit if broader portability becomes a goal.
-go 1.26.5
+go 1.26.6
 
 // The composed extension set (ADR-0069): a constant import path the role
 // binaries wire — api, worker and mcp today; migrate joins when the
@@ -17,6 +17,7 @@ require github.com/gradionhq/margince/composition v0.0.0
 replace github.com/gradionhq/margince/composition => ../composition
 
 require (
+	github.com/andybalholm/brotli v1.2.2
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/getkin/kin-openapi v0.146.0
@@ -32,6 +33,7 @@ require (
 	github.com/riverqueue/river/rivertype v0.42.0
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/image v0.44.0
 	golang.org/x/net v0.57.0

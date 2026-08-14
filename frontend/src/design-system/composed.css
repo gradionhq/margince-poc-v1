@@ -170,8 +170,8 @@
 .record-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 4px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
 }
 /* The company header carries a description, a chip row and a pulse line under
  * the name, which makes the identity block several times taller than the mark
@@ -357,10 +357,15 @@
    Its own gap is the one that sets the record's vertical rhythm, so it is
    stated here rather than left to whatever margins its children happen to
    carry. */
+/* The band is its own register between the identity above it and the work
+   below, so it is spaced off both rather than sitting against the header: the
+   readings belong to the record, not to the name. Both intervals come from the
+   space scale, so every record page opens with the same rhythm. */
 .record-band {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  margin-top: var(--space-4);
   margin-bottom: var(--space-5);
 }
 

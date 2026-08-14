@@ -231,7 +231,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 	// both read tables a mirrored record has no row in.
 	var staged int
 	if err := integration.OwnerConn(t).QueryRow(ctx,
-		`SELECT count(*) FROM approval WHERE workspace_id = $1`, overlayWS).Scan(&staged); err != nil {
+		`SELECT count(*) FROM approval`).Scan(&staged); err != nil {
 		t.Fatalf("counting staged approvals: %v", err)
 	}
 	if staged != 0 {

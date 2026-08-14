@@ -7,12 +7,15 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { Select } from "../design-system/select";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
+import { DateFieldSelect } from "./automations.datefield";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
@@ -28,10 +31,15 @@ type Automation = components["schemas"]["Automation"];
 
 export type ParamField = {
   key: string;
-  kind: "integer" | "string";
+  kind: "integer" | "string" | "boolean" | "date_field" | "enum";
   min?: number;
   max?: number;
   initial: string;
+  // Set only for kind "enum" — the schema's own closed value list (e.g.
+  // renewal_reminder's object property), rendered as a picker instead of
+  // a free-text box so a typo can't silently name a value the backend
+  // would refuse.
+  options?: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,20 +59,50 @@ function paramKind(type: unknown): ParamField["kind"] | null {
   if (type === "integer" || type === "number") {
     return "integer";
   }
+  if (type === "boolean") {
+    return "boolean";
+  }
   if (type === "string") {
     return "string";
   }
   return null;
 }
 
+// enumOptions reads a schema property's own closed value list, when it
+// has one — a string-typed "enum" array is the schema's way of saying
+// "pick one of these", which renders as a picker rather than free text
+// so a typo can't silently name a value the backend would refuse.
+function enumOptions(raw: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(raw.enum)) {
+    return undefined;
+  }
+  const values = raw.enum.filter((v): v is string => typeof v === "string");
+  return values.length > 0 ? values : undefined;
+}
+
 // The ONLY source of editable parameters: the catalog entry's JSON schema.
 export function paramFields(schema: Record<string, unknown>): ParamField[] {
   const properties = isRecord(schema.properties) ? schema.properties : {};
+  // renewal_reminder's date_field names a workspace's own cf_* column, not a
+  // fixed value — but nothing in the JSON schema type system marks a string
+  // as "this is a column reference". The schema DOES say which object owns
+  // it (its sibling `object` property), and only a schema declaring BOTH has
+  // enough context to resolve a column list, so that pairing — not the bare
+  // key name, which some future automation could reuse for something
+  // unrelated — is what selects the picker over a free-text box.
+  const isDateFieldPicker =
+    "object" in properties && "date_field" in properties;
   return Object.entries(properties).flatMap(([key, raw]) => {
     if (!isRecord(raw)) {
       return [];
     }
-    const kind = paramKind(raw.type);
+    const options = enumOptions(raw);
+    const kind: ParamField["kind"] | null =
+      key === "date_field" && isDateFieldPicker
+        ? "date_field"
+        : options
+          ? "enum"
+          : paramKind(raw.type);
     if (kind === null) {
       return [];
     }
@@ -75,6 +113,7 @@ export function paramFields(schema: Record<string, unknown>): ParamField[] {
         min: typeof raw.minimum === "number" ? raw.minimum : undefined,
         max: typeof raw.maximum === "number" ? raw.maximum : undefined,
         initial: scalarText(raw.default),
+        options,
       },
     ];
   });
@@ -87,8 +126,80 @@ function paramsFromValues(
   return Object.fromEntries(
     fields.map((field) => {
       const value = values[field.key] ?? field.initial;
-      return [field.key, field.kind === "integer" ? Number(value) : value];
+      if (field.kind === "integer") {
+        return [field.key, Number(value)];
+      }
+      if (field.kind === "boolean") {
+        return [field.key, value === "true"];
+      }
+      return [field.key, value];
     }),
+  );
+}
+
+// One schema-derived param's control, lifted out of AutomationForm so that
+// function stays a shape a reader can hold at once as this grows a third
+// input kind. A Checkbox carries its own label (the design system's own
+// Checkbox/Switch split: this STATES an intent the Save button below then
+// submits, so the field's usual heading span would just repeat it) — every
+// other kind keeps the heading span the rest of the form uses.
+function ParamFieldControl({
+  field,
+  formId,
+  value,
+  object,
+  onChange,
+}: Readonly<{
+  field: ParamField;
+  formId: string;
+  value: string;
+  object: string;
+  onChange: (value: string) => void;
+}>) {
+  if (field.kind === "boolean") {
+    return (
+      <div className="field" style={{ marginTop: "var(--space-2)" }}>
+        <Checkbox
+          label={field.key}
+          checked={value === "true"}
+          onChange={(event) =>
+            onChange(event.target.checked ? "true" : "false")
+          }
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="field" style={{ marginTop: "var(--space-2)" }}>
+      <span className="t-label" id={`${formId}-${field.key}`}>
+        {field.key}
+      </span>
+      {field.kind === "date_field" ? (
+        <DateFieldSelect
+          object={object}
+          value={value}
+          onChange={onChange}
+          labelId={`${formId}-${field.key}`}
+        />
+      ) : field.kind === "enum" ? (
+        <Select
+          aria-labelledby={`${formId}-${field.key}`}
+          options={(field.options ?? []).map((v) => ({ value: v, label: v }))}
+          value={value}
+          onChange={onChange}
+        />
+      ) : (
+        <TextInput
+          type={field.kind === "integer" ? "number" : "text"}
+          aria-labelledby={`${formId}-${field.key}`}
+          min={field.min}
+          max={field.max}
+          required
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -152,25 +263,16 @@ function AutomationForm({
         />
       </div>
       {fields.map((field) => (
-        <div className="field" key={field.key} style={{ marginTop: 8 }}>
-          <span className="t-label" id={`${formId}-${field.key}`}>
-            {field.key}
-          </span>
-          <TextInput
-            type={field.kind === "integer" ? "number" : "text"}
-            aria-labelledby={`${formId}-${field.key}`}
-            min={field.min}
-            max={field.max}
-            required
-            value={values[field.key] ?? ""}
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                [field.key]: event.target.value,
-              }))
-            }
-          />
-        </div>
+        <ParamFieldControl
+          key={field.key}
+          field={field}
+          formId={formId}
+          value={values[field.key] ?? field.initial}
+          object={values.object ?? ""}
+          onChange={(next) =>
+            setValues((current) => ({ ...current, [field.key]: next }))
+          }
+        />
       ))}
       <div className="approval-gate" style={{ marginTop: 10 }}>
         <Button type="submit" variant="primary" small disabled={pending}>
@@ -404,12 +506,17 @@ export function AutomationRow({
   );
 }
 
-export function AutomationsScreen() {
+// Set-and-forget configuration, so it lives inside Settings → AI rather than
+// on a nav destination of its own: this renders as one SECTION of that page.
+// The page owns the `.wrap` reading column and the h1 naming the tab, so this
+// contributes neither — a second `.wrap` would double the page padding and a
+// second h1 would give the document two page titles.
+export function AutomationsAdmin() {
   const t = useT();
   const queryClient = useQueryClient();
   const [template, setTemplate] = useState<CatalogEntry | null>(null);
   // Grants come from the session (/v1/me); until they arrive every predicate
-  // is false, so the screen shows no mutation affordance until one is confirmed.
+  // is false, so the section shows no mutation affordance until one is confirmed.
   const me = useMe();
   const canViewRuns = useCan("automation", "read");
   const canCreate = useCanWrite("automation", "create");
@@ -471,7 +578,9 @@ export function AutomationsScreen() {
     catalog.data?.data.find((entry) => entry.key === key);
 
   return (
-    <div className="wrap">
+    // One addressable region, so a reader — and a test — can say "the
+    // automations surface" rather than "the whole settings page".
+    <section data-automations-admin>
       <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
       {me.isSuccess && !canCreate && !canEdit && !canDelete && (
         <p className="t-caption" style={{ marginBottom: 10 }}>
@@ -580,6 +689,6 @@ export function AutomationsScreen() {
           </QueryGate>
         </Card>
       </div>
-    </div>
+    </section>
   );
 }

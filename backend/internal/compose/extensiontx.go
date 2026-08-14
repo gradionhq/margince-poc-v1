@@ -35,11 +35,20 @@ type extensionTx struct {
 	// has a caller, and what the role bound at boot, are facts about the call,
 	// not about the transaction.
 	core extensionCore
+	// ledger records what the unit's OWN SQL did — the audit row and the bus
+	// event the three verbs below cannot write for it. Built by the Runtime for
+	// the same reason core is: which unit is writing, and under whose identity,
+	// are facts about the invocation rather than about the transaction.
+	ledger extensionLedger
 }
 
 //nolint:ireturn // returning the published port IS the seam: a unit holds extension.Core, never a core type.
 func (t extensionTx) Core() extension.Core {
 	return t.core
+}
+
+func (t extensionTx) Record(ctx context.Context, ch extension.Change, ev extension.Event) error {
+	return t.ledger.Record(ctx, ch, ev)
 }
 
 func (t extensionTx) Exec(ctx context.Context, sql string, args ...any) (int64, error) {

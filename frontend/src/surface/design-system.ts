@@ -23,6 +23,37 @@ export {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+// RecordPicker, because the alternative is every unit that touches a core
+// record asking a person to paste a UUID.
+//
+// Picking a record is the one interaction a unit cannot avoid the moment it
+// writes anything the product owns, and it is not a control anybody should
+// rebuild: the debounce, a late answer ignored rather than rendered, the
+// candidates dropped when the search space changes, and the selected state are
+// four decisions each, and a unit getting one of them wrong is a screen that
+// looks like the product and behaves like a prototype.
+//
+// WHAT IT DOES NOT DO, because the difference costs a caller nothing to know
+// and everything to assume:
+//
+//   - It ignores a stale answer; it does not ABORT the request. Rapid typing
+//     still reaches the server, so a searchTargets that is expensive to answer
+//     needs a bound of its own.
+//   - Its failed-search line is the component's own English, from the caught
+//     error. A unit that needs that line translated cannot supply it here yet
+//     — the honest workaround is a searchTargets that resolves empty and says
+//     so in the unit's own copy.
+//   - It is a labelled field over a list of buttons, not a combobox: no
+//     role=combobox, no aria-expanded, no arrow-key navigation.
+//
+// It carries NO transport of its own — the caller supplies searchTargets — so
+// exporting it publishes a rendering promise and no data one. A unit reaches
+// its candidates through the api surface, under the caller's own RBAC, exactly
+// as a core screen does.
+export {
+  RecordPicker,
+  type RecordPickerCandidate,
+} from "../design-system/recordpicker";
 // Select and its option type, because a unit offering a CLOSED choice has no
 // other way to: check-native-controls refuses a bare <select> in
 // extensions/*/frontend exactly as it does in core, and a unit left with only

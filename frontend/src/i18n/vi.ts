@@ -88,7 +88,6 @@ export const vi = {
   "nav.reports": "Báo cáo",
   "nav.ai": "Hỏi Margince",
   "nav.settings": "Cài đặt",
-  "nav.design": "Hệ thống thiết kế",
   "nav.automations": "Tự động hoá",
   "nav.group.records": "Dữ liệu",
   "nav.group.work": "Công việc",
@@ -96,13 +95,12 @@ export const vi = {
   "nav.group.units": "Đơn vị",
   "nav.units.entry": "Đơn vị",
   "nav.dedupe": "Trùng lặp",
-  "nav.products": "Sản phẩm",
-  "nav.offerTemplates": "Mẫu báo giá",
   "nav.offers": "Báo giá",
   "nav.share": "Chia sẻ",
   "nav.search": "Kết quả tìm kiếm",
 
   "shell.railAria": "Điều hướng chính",
+  "shell.skipToContent": "Bỏ qua tới nội dung",
   "shell.logoAria": "Margince",
   "shell.search": "Tìm kiếm",
   "shell.signOutAria": "Đăng xuất",
@@ -319,6 +317,7 @@ export const vi = {
   "rel.startedAt": "Bắt đầu",
   "rel.endedAt": "Kết thúc",
   "rel.current": "hiện tại",
+  "rel.endedOn": "đến {when}",
   "rel.remove": "Gỡ",
   "rel.removeConfirm":
     "Bạn chắc chứ? Thao tác này gỡ quan hệ — không có nút hoàn tác.",
@@ -340,6 +339,7 @@ export const vi = {
   "common.retry": "Thử lại",
   "common.empty": "Chưa có gì ở đây.",
   "common.saving": "Đang lưu…",
+  "common.loading": "Đang tải…",
 
   "app.errorTitle": "Màn hình này đã ngừng hoạt động.",
   "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
@@ -394,7 +394,7 @@ export const vi = {
     "Không dùng được khi đang đọc từ HubSpot — hãy mở bên HubSpot",
   "overlay.chipLabel": "Đang đọc từ HubSpot",
   "overlay.chipAria":
-    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Overlay để quản lý kết nối.",
+    "Bản cài đặt này đọc bản ghi từ bản sao HubSpot thay vì các bảng gốc. Hãy mở Cài đặt → Tích hợp để quản lý kết nối.",
   "overlay.refused":
     "Không dùng được khi đang đọc từ HubSpot — bản sao không phục vụ được lượt ghi này.",
   "overlay.filterUnsupported":
@@ -413,7 +413,7 @@ export const vi = {
   "overlay.loadFailed": "Không tải được kết nối tới CRM đang dùng.",
   "overlay.empty":
     "Chưa kết nối CRM đang dùng nào. Hãy kết nối HubSpot để đọc bản ghi từ bản sao HubSpot.",
-  "overlay.adminOnly": "Bạn không có quyền kết nối HubSpot.",
+  "overlay.adminOnly": "Bạn không có quyền thay đổi kết nối HubSpot.",
   "overlay.region": "Khu vực",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "Hoa Kỳ",
@@ -1459,6 +1459,8 @@ export const vi = {
   "field.addLegalName": "Thêm tên pháp lý",
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
+  "field.addFullName": "Thêm họ và tên",
+  "field.addTitle": "Thêm chức danh",
   "field.addAddressLine1": "Thêm số nhà và tên đường",
   "field.addAddressLine2": "Thêm địa chỉ dòng 2",
   "field.addPostalCode": "Thêm mã bưu chính",
@@ -1687,9 +1689,18 @@ export const vi = {
     "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào tổ chức của bạn. Agent chỉ đọc được những gì bạn thấy được.",
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
-  "settings.identity": "Bạn",
+  "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
-  "settings.preferencesSub": "Giao diện và ngôn ngữ, cho trình duyệt này.",
+  "settings.signature": "Chữ ký email",
+  "settings.signatureSub":
+    "Được thêm dưới mỗi thư bạn gửi, phía trên phần hủy đăng ký.",
+  "settings.signatureLabel": "Lời kết của bạn",
+  "settings.signaturePlaceholder": "Nguyễn Minh Anh\nGradion · +84 28 123456",
+  "settings.signatureHint":
+    "Chỉ văn bản thuần. Để trống nghĩa là gửi không chữ ký. AI không bao giờ tự viết lời kết — chữ ký này mới là thứ được gửi đi.",
+  "settings.signatureSaving": "Đang lưu…",
+  "settings.preferencesSub":
+    "Giao diện được trình duyệt này ghi nhớ. Ngôn ngữ chỉ giữ trong phiên làm việc.",
   "role.admin": "Quản trị",
   "role.manager": "Quản lý",
   "role.rep": "Nhân viên kinh doanh",
@@ -1703,6 +1714,11 @@ export const vi = {
   "settings.passports": "Passport cho Agent",
   "settings.passportsSub":
     "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn — mỗi lần gọi đều kiểm tra lại phân quyền của bạn",
+  "passport.scope.read": "Đọc bản ghi",
+  "passport.scope.draft": "Soạn nháp tin nhắn",
+  "passport.scope.write": "Thay đổi bản ghi",
+  "passport.scope.send": "Gửi tin nhắn",
+  "passport.scope.enrich": "Mua dữ liệu liên hệ",
   "passport.select": "Passport",
   "passport.noneOption": "Không dùng passport",
   "settings.passportsLendHint":
@@ -1745,19 +1761,62 @@ export const vi = {
   "settings.tierAdvance": "Chuyển giai đoạn của deal — luôn xác nhận trước.",
   "settings.locked": "đã khoá",
   "settings.purposes": "Mục đích chấp thuận",
+  "settings.purposesSub":
+    "Bản cài đặt này xin chấp thuận cho những mục đích gì, và mỗi mục đích dựa trên cơ sở pháp lý nào.",
   "settings.created": "tạo {date}",
   "settings.expires": "hết hạn {date}",
   "settings.revoked": "đã thu hồi",
   "settings.revoke": "Thu hồi",
   "settings.revokeConfirm":
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
-  "settings.automations": "Tự động hoá",
-  "settings.automationsSub":
-    "danh mục khởi đầu có giới hạn — bật, đặt tham số, tạm dừng",
-  "settings.openAutomations": "Mở trình sửa tự động hoá",
+  "import.title": "Nhập tệp",
+  "import.sub":
+    "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
+  "import.objectLabel": "Các dòng là gì",
+  "import.object.lead": "Khách hàng tiềm năng",
+  "import.object.organization": "Công ty",
+  "import.objectHint.lead":
+    "Dữ liệu nhập hàng loạt vào dạng lead để người thẩm định — không bao giờ thành liên hệ.",
+  "import.objectHint.organization":
+    "Công ty được nhận diện theo tên bạn ánh xạ, nên tải lên lại sẽ sửa chứ không nhân đôi.",
+  "import.fileLabel": "Tệp CSV cần nhập",
+  "import.choose": "Chọn tệp",
+  "import.chooseAnother": "Chọn tệp khác",
+  "import.profiled": "Đọc từ {rows} dòng đầu của tệp.",
+  "import.col.column": "Cột",
+  "import.col.filled": "Có dữ liệu",
+  "import.col.samples": "Giá trị",
+  "import.col.destination": "Ánh xạ vào",
+  "import.dontImport": "Không nhập",
+  "import.noSamples": "trống",
+  "import.destinationFor": "{column} ánh xạ vào đâu",
+  "import.identifiedBy":
+    "Các dòng được nhận diện bằng {column}, nên nhập lại tệp này sẽ cập nhật chứ không nhân đôi.",
+  "import.needsIdentifier":
+    "Hãy ánh xạ một cột vào {field}. Thiếu nó thì không dòng nào được nhận ra ở lần tải lên sau, cũng không hoàn tác được.",
+  "import.validate": "Kiểm tra điều sẽ xảy ra",
+  "import.validating": "Đang kiểm tra…",
+  "import.previewTitle": "Lần nhập này sẽ làm gì",
+  "import.outcomeTitle": "Lần nhập này đã làm gì",
+  "import.count.created": "Tạo mới",
+  "import.count.updated": "Cập nhật",
+  "import.count.unchanged": "Không đổi",
+  "import.count.skipped": "Bỏ qua",
+  "import.rowsRead": "Đã đọc {rows} dòng, nhận diện bằng {column}.",
+  "import.issuesLead":
+    "Một số dòng không nhập được. Danh sách kèm số dòng để bạn mở trong tệp.",
+  "import.issueLine": "Dòng {line}:",
+  "import.commit.one": "Nhập 1 dòng",
+  "import.commit.other": "Nhập {rows} dòng",
+  "import.importing": "Đang nhập…",
+  "import.done": "Đã nhập xong.",
+  "import.failed":
+    "Lần nhập dừng sau {checkpoint} dòng. Tiếp tục sẽ chạy tiếp từ đó thay vì làm lại từ đầu.",
+  "import.resume": "Tiếp tục nhập",
+  "import.another": "Nhập tệp khác",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
-    "chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này",
+    "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",
   "settings.resetDataDesc":
     "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
   "settings.resetDataButton": "Xoá sạch dữ liệu…",
@@ -1770,7 +1829,49 @@ export const vi = {
     "Đã xoá {tables} bảng, {jobs} dòng tác vụ, {streams} luồng sự kiện, {keys} khoá bộ nhớ đệm và {objects} tệp đã lưu.",
   "settings.resetDataDrainWarning":
     "Khi bắt đầu xoá sạch, vẫn còn một tác vụ nền đang chạy. Tác vụ đó sẽ thất bại vì dữ liệu đã bị xoá — vô hại, nhưng sẽ có một lỗi trong nhật ký.",
-  "settings.audit": "Nhật ký kiểm toán",
+
+  "settings.jobs": "Tác vụ nền",
+  "settings.jobsSub": "Hàng đợi đang giữ gì, và công việc của ai đã thất bại.",
+  "jobs.adminOnly":
+    "Chỉ quản trị viên xem được tình trạng tác vụ nền. Báo cáo này bao trùm công việc của toàn bộ bản triển khai, nên không hiển thị rộng hơn.",
+  "jobs.empty":
+    "Không có gì trong hàng đợi nền — không có việc đang chờ, đang chạy, đang thử lại hay đã chết.",
+  "jobs.workspaceKinds": "Workspace này",
+  "jobs.workspaceEmpty":
+    "Không có công việc nền thuộc loại nào trong workspace này.",
+  "jobs.dispatcherKinds": "Bộ điều phối toàn hệ thống",
+  "jobs.dispatcherSub":
+    "Những dòng không thuộc workspace nào: bộ điều phối phân việc cho mọi workspace và tự nó không làm gì. Các con số này thuộc bản triển khai, không thuộc bạn.",
+  "jobs.dispatcherEmpty":
+    "Không có dòng điều phối nào. Các nhịp định kỳ sẽ thêm lại, nên danh sách trống nghĩa là hiện chưa có cái nào được lên lịch.",
+  "jobs.count.waiting": "{count} đang chờ",
+  "jobs.count.running": "{count} đang chạy",
+  "jobs.count.retrying": "{count} đang thử lại",
+  "jobs.count.dead": "{count} đã chết",
+  "jobs.queue": "hàng đợi {queue}",
+  "jobs.waitedSeconds.one": "cũ nhất đã chờ {count} giây",
+  "jobs.waitedSeconds.other": "cũ nhất đã chờ {count} giây",
+  "jobs.waitedMinutes.one": "cũ nhất đã chờ {count} phút",
+  "jobs.waitedMinutes.other": "cũ nhất đã chờ {count} phút",
+  "jobs.waitedHours.one": "cũ nhất đã chờ {count} giờ",
+  "jobs.waitedHours.other": "cũ nhất đã chờ {count} giờ",
+  "jobs.waitedDays.one": "cũ nhất đã chờ {count} ngày",
+  "jobs.waitedDays.other": "cũ nhất đã chờ {count} ngày",
+  "jobs.deadTitle": "Việc đã chết cần bạn ra tay",
+  "jobs.deadBody":
+    "{count} tác vụ đã bị loại bỏ hoặc bị huỷ: công việc đó sẽ không tự diễn ra nữa. Một tác vụ bị loại bỏ đã dùng hết mọi lần thử; một tác vụ bị huỷ là do có người chủ động dừng. Hãy đọc các lỗi bên dưới trước khi xếp lại vào hàng đợi.",
+  "jobs.failures": "Lỗi gần đây",
+  "jobs.failuresSub":
+    "Mới nhất trước, tối đa 50. Một danh sách có giới hạn, không phải nhật ký.",
+  "jobs.failuresEmpty": "Chưa ghi nhận lỗi nào.",
+  "jobs.state.retryable": "đang thử lại",
+  "jobs.state.discarded": "đã loại bỏ",
+  "jobs.state.cancelled": "đã huỷ",
+  "jobs.attempt": "lần thử {attempt} trên {max} · {when}",
+  "jobs.reasonVetted":
+    "Mỗi lý do là câu chữ của chính tầng tác vụ. Nguyên nhân thô từ worker không bao giờ được gửi tới đây, nên một lỗi mà tầng đó không diễn đạt được sẽ báo bằng một câu thay thế cố định.",
+  "jobs.generatedAt": "Đọc lúc {time}",
+
   "audit.you": "Bạn",
   "audit.teammate": "Một đồng nghiệp",
   "audit.system": "Hệ thống",
@@ -1778,8 +1879,10 @@ export const vi = {
   "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
+  "settings.auditAdminOnly":
+    "Chỉ quản trị viên đọc được toàn bộ dấu vết. Nó ghi lại mọi người thực hiện và mọi bản ghi họ chạm tới, nên không mở rộng hơn.",
   "settings.auditFilters": "Bộ lọc",
-  "settings.auditEntries": "Bản ghi",
+  "settings.auditEntries": "Nhật ký kiểm toán",
   "settings.auditActor": "Tác nhân",
   "settings.auditEntity": "Loại thực thể",
   "settings.auditEntityId": "ID thực thể",
@@ -1793,6 +1896,8 @@ export const vi = {
   "settings.privacySub": "yêu cầu của chủ thể dữ liệu kèm thời hạn luật định",
   "settings.due": "hạn {date}",
 
+  "privacy.purposesReadOnly":
+    "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thêm được mục đích.",
   "privacy.addPurpose": "Thêm mục đích",
   "privacy.purposeKey": "Khoá",
   "privacy.purposeLabel": "Nhãn",
@@ -1843,6 +1948,8 @@ export const vi = {
     "Khi bật, bản triển khai này không phá huỷ bất cứ gì: không ẩn danh hoá và không xoá, bất kể chính sách bên dưới nói gì. Việc lưu trữ vẫn chạy — bản ghi được lưu trữ là bản ghi vẫn còn.",
   "retention.adminOnly":
     "Chỉ quản trị viên hoặc ops mới có thể thay đổi việc lưu giữ.",
+  "retention.withheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được thang lưu giữ. Nó quyết định bản cài đặt này giữ lại những gì cho mọi người, nên không được hiển thị rộng hơn.",
   "retention.addPolicy": "Thêm chính sách",
   "retention.create": "Tạo chính sách",
   "retention.scope": "Áp dụng cho",
@@ -1886,7 +1993,10 @@ export const vi = {
   "retention.scopeAiCallPayloadContent": "Nội dung lời gọi AI",
 
   "settings.pipelines": "Pipeline",
-  "settings.pipelinesSub": "Cấu hình pipeline và các giai đoạn của chúng.",
+  "settings.pipelinesReadOnly":
+    "Chế độ chỉ đọc — bạn không thể thay đổi pipeline hay các giai đoạn.",
+  "settings.pipelinesSub":
+    "Các giai đoạn một deal đi qua — mỗi pipeline một thang.",
   "pipeline.new": "Pipeline mới",
   "pipeline.edit": "Sửa pipeline",
   "pipeline.name": "Tên",
@@ -2202,7 +2312,7 @@ export const vi = {
   "ob.s4.connectVerifying": "Đang xác nhận kết nối…",
   "ob.s4.connectLive": "Đang chạy và thu thập",
   "ob.s4.connectConfirmFailed": "Không xác nhận được kết nối.",
-  "ob.s4.connectRetry": "Hãy vào Cài đặt → Tích hợp để thử kết nối lại.",
+  "ob.s4.connectRetry": "Hãy vào Cài đặt → Kết nối để thử kết nối lại.",
   "ob.s4.connectDenied": "Bạn đã từ chối cấp quyền — không có gì được kết nối.",
   "ob.s4.googleBtn": "Cho phép truy cập Gmail của tôi",
   "ob.s4.soon": "Sắp có",
@@ -2327,7 +2437,7 @@ export const vi = {
     "Việc thu thập gặp một vấn đề chưa phân loại được. Chúng tôi sẽ tiếp tục thử lại.",
 
   // The OAuth return outcome (Task 2): the callback lands back on
-  // #/settings/integrations/{outcome} — a dismissible inline note driven by
+  // #/settings/connections/{outcome} — a dismissible inline note driven by
   // that route segment, never a claim the server hasn't confirmed.
   "connectors.oauthOk": "Đã kết nối. Hộp thư của bạn bắt đầu thu thập.",
   "connectors.oauthDenied":
@@ -3254,6 +3364,13 @@ export const vi = {
   "auto.delete": "Xoá",
   "auto.statusEnabled": "đang bật",
   "auto.statusPaused": "đang tạm dừng",
+  "auto.dateField.placeholder": "Chọn trường ngày",
+  "auto.dateField.needsObject":
+    "Chọn đối tượng trước để xem các trường ngày của nó.",
+  "auto.dateField.empty":
+    "Đối tượng này chưa có trường ngày nào đang hoạt động.",
+  "auto.dateField.loadError":
+    "Không tải được các trường ngày của đối tượng này. Vui lòng thử lại.",
 
   "auto.runs.open": "Lượt chạy",
   "auto.runs.title": "Lịch sử chạy",
@@ -3409,27 +3526,31 @@ export const vi = {
   "cf.propagate.list": "Thành một cột trong danh sách / báo cáo",
   "cf.propagate.export": "Trong bản xuất CSV",
   "cf.propagate.api": "Trên API REST / MCP công khai",
-  "nav.customFields": "Trường tuỳ chỉnh",
-  "settings.customFields": "Trường tuỳ chỉnh",
-  "settings.customFieldsSub":
-    "Thêm một trường có kiểu vào đối tượng lõi — không cần code, không cần triển khai.",
-  "settings.openCustomFields": "Mở trường tuỳ chỉnh",
+  // "Chung" thay vì "Tổ chức" cho mục đầu tiên: tiêu đề nhóm phía trên đã nói
+  // từ đó, và một dòng lặp lại tiêu đề của chính nó thì không gọi tên được gì.
   "settings.tab.account": "Tài khoản",
-  "settings.tab.company": "Bối cảnh công ty",
-  "settings.tab.ai": "AI & tự chủ",
-  "settings.tab.data": "Mô hình dữ liệu",
-  "settings.tab.catalog": "Danh mục",
-  "settings.tab.rates": "Tỷ giá & chi phí",
-  "settings.tab.privacy": "Quyền riêng tư & chấp thuận",
-  "settings.tab.audit": "Nhật ký kiểm toán",
-  "settings.tab.voice": "Voice DNA",
+  "settings.tab.voice": "Giọng viết",
+  "settings.tab.agents": "Tác nhân",
+  "settings.tab.connections": "Kết nối",
+  "settings.tab.general": "Chung",
+  "settings.tab.people": "Người dùng & quyền truy cập",
   "settings.tab.integrations": "Tích hợp",
-  "settings.tab.overlay": "Overlay",
+  "settings.tab.capture": "Thu thập",
+  "settings.tab.data-model": "Mô hình dữ liệu",
+  "settings.tab.ai": "AI",
+  "settings.tab.privacy": "Quyền riêng tư & kiểm toán",
+  "settings.tab.maintenance": "Bảo trì",
   "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
     "Tỷ giá quy đổi số tiền ngoại tệ về tiền tệ gốc của bạn. Tỷ giá mới có hiệu lực từ hôm nay trở đi; tỷ giá quá khứ không bao giờ bị sửa.",
+  "settings.rates.fxWithheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được tỷ giá. Mọi phép quy đổi trong bản cài đặt đều dựa trên chúng, nên không hiển thị rộng hơn.",
+  "settings.rates.modelWithheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được chi phí từng mô hình. Đây là thông tin vận hành, nên không hiển thị rộng hơn.",
+  "settings.rates.readOnly":
+    "Chế độ chỉ đọc — bạn không có quyền thay đổi tỷ giá.",
   "settings.rates.fxAdd": "Đặt tỷ giá",
   "settings.rates.fxEmpty": "Chưa có tỷ giá nào.",
   "settings.rates.fxModalTitle": "Đặt một tỷ giá",
@@ -3539,6 +3660,32 @@ export const vi = {
   "settings.voice.addSource": "Thêm mẫu văn",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
+  "settings.voice.browseFiles": "Chọn tệp",
+  "settings.voice.dropHint":
+    "Hoặc thả tệp .txt, .md, .vtt, .srt hay .json vào đây.",
+  "settings.voice.floorLabel": "Tiến độ tới bản dựng đầu tiên ({min} từ)",
+  "settings.voice.floorProgress": "{words} trên {min} từ tới bản dựng đầu tiên",
+  "settings.voice.speakerQuestion": "Bạn là người nói nào trong “{name}”?",
+  "settings.voice.speakerDetail": "{words} từ, {turns} lượt",
+  "settings.voice.speakerConfirm": "Đó là tôi",
+  "settings.voice.speakerDismiss": "Bỏ qua tệp này",
+  "settings.voice.noticeKept": "{name}: giữ {kept} trên {total} từ.",
+  "settings.voice.noticeSkippedType":
+    "Đã bỏ qua {name} — chỉ đọc được tệp văn bản.",
+  "settings.voice.noticeSkippedEmpty":
+    "Đã bỏ qua {name} — tệp không có nội dung.",
+  "settings.voice.noticeDismissed":
+    "Đã bỏ qua {name} — không phần nào trong đó quy được cho bạn.",
+  "settings.voice.noticeAskQueueFull":
+    "Chưa thêm {name} — hãy trả lời các câu hỏi người nói ở trên trước, rồi thêm lại tệp này.",
+  "settings.voice.noticeFailed": "Không thêm được {name}: {detail}",
+  "settings.voice.noticeUnexpected": "Không thêm được {name}.",
+  "settings.voice.refusalUnattributed":
+    "{name} là một cuộc trò chuyện, và không phần nào quy được cho bạn — nên không có gì được thêm vào.",
+  "settings.voice.refusalSpeaker":
+    "Không tìm thấy người nói đó trong {name}, nên không có gì được thêm vào.",
+  "settings.voice.refusalUnsupported":
+    "{name} có định dạng mà kho văn bản không đọc được.",
   "settings.voice.buildsTitle": "Bản dựng",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
@@ -3552,7 +3699,6 @@ export const vi = {
     "Đã xếp hàng — sẽ xong trong chốc lát và tự cập nhật.",
   "settings.voice.buildStatus.pending":
     "Vẫn đang dựng — việc này có thể mất một lát; xong sẽ tự cập nhật ở đây.",
-  "settings.tab.extensions": "Tiện ích mở rộng",
   "extAccess.title": "Tiện ích mở rộng & quyền truy cập",
   "extAccess.sub":
     "Mỗi đơn vị tiện ích đã ghép vào bản cài đặt này mang theo những gì, và vai trò nào được dùng. Chỉ dành cho quản trị viên.",
@@ -3586,7 +3732,6 @@ export const vi = {
   "extAccess.systemRole": "Vai trò dựng sẵn",
   "extAccess.nobodyReads":
     "Không vai trò nào được đọc {object}, nên mọi thành viên chỉ thấy màn hình trống ở nơi lẽ ra là tiện ích này. Hãy cấp quyền đọc cho ít nhất một vai trò bên dưới.",
-  "settings.tab.users": "Người dùng & vai trò",
   "users.title": "Người dùng & vai trò",
   "users.sub":
     "Mời thành viên, đặt vai trò và vô hiệu hoá quyền truy cập. Chỉ quản trị viên.",
@@ -3645,6 +3790,8 @@ export const vi = {
   "users.link.retry": "Thử lại",
   "users.link.done": "Xong",
   "settings.companyKicker": "Tri thức công ty",
+  "settings.companyReadOnly":
+    "Chế độ chỉ đọc — sửa hồ sơ công ty cần quyền ghi trên tổ chức.",
   "settings.companyTitle": "Những gì Margince biết về công ty bạn",
   "settings.companySub":
     "Giữ cho bối cảnh kinh doanh chung — nền cho soạn nháp, báo giá, tìm kiếm và Agent có kiểm soát — luôn chính xác. Mỗi nhận định đều gắn với ai đã cung cấp và nguồn từ đâu.",
@@ -3681,6 +3828,7 @@ export const vi = {
   "settings.companyClass.unchanged": "Không đổi",
   "settings.companyResolution.keep_current": "Giữ hiện tại",
   "settings.companyResolution.accept_proposal": "Nhận theo website",
+  "settings.companyResolution.useValueFor": "Giá trị giữ lại cho {field}",
   "settings.companyResolution.use_value": "Dùng giá trị tôi đã sửa",
   "settings.companyManualKicker": "Thiết lập thủ công, riêng tư",
   "settings.companyManualTitle": "Cho Margince biết những điều cốt lõi",
@@ -3688,9 +3836,9 @@ export const vi = {
     "Bản triển khai này không bật việc đọc website. Ba câu trả lời sau đã đủ để tạo bối cảnh công ty hữu ích, không gọi mô hình và không có yêu cầu ra bên ngoài.",
   "settings.companyCreateWorkspace": "Tạo bối cảnh công ty",
   "product.title": "Sản phẩm",
+  "product.readOnly": "Chế độ chỉ đọc — bạn không thể thay đổi sản phẩm.",
   "product.settingsSub":
     "Các mục bảng giá mà dòng báo giá chụp lại giá trị từ đó.",
-  "product.open": "Mở sản phẩm",
   "product.new": "Sản phẩm mới",
   "product.edit": "Sửa sản phẩm",
   "product.archive": "Lưu trữ sản phẩm",
@@ -3713,8 +3861,8 @@ export const vi = {
   "product.empty": "Chưa có sản phẩm nào.",
 
   "template.title": "Mẫu báo giá",
+  "template.readOnly": "Chế độ chỉ đọc — bạn không thể thay đổi mẫu báo giá.",
   "template.settingsSub": "Bố cục PDF DE/EN có thương hiệu cho báo giá.",
-  "template.open": "Mở mẫu báo giá",
   "template.new": "Mẫu mới",
   "template.edit": "Sửa mẫu",
   "template.archive": "Lưu trữ mẫu",
@@ -3746,6 +3894,8 @@ export const vi = {
   "tools.unreachable": "chưa được cấp phạm vi",
 
   "aiusage.title": "Mức dùng và hạn mức AI",
+  "aiusage.withheld":
+    "Chỉ người vận hành mới thấy được chi phí AI. Số liệu bao trùm cả bản cài đặt, nên không hiển thị rộng hơn.",
   "aiusage.sub":
     "Hoá đơn của chính bạn, hiện rõ — theo từng tác vụ và bậc, tính bằng token.",
   "aiusage.budget": "{spent} trên {budget} token · {pct}%",
@@ -3775,8 +3925,12 @@ export const vi = {
   "aibanner.dismiss": "Bỏ qua",
 
   "aicalls.title": "Dấu vết lượt gọi AI",
+  "aicalls.withheld":
+    "Chỉ người vận hành mới đọc được dấu vết từng lượt gọi. Nó ghi lại mọi lượt gọi mô hình của bản cài đặt, nên không hiển thị rộng hơn.",
   "aicalls.sub":
     "Mọi lượt gọi mô hình — danh tính định tuyến, token, số lần thử lại, nội dung đã ghi.",
+  "aicalls.col.detail": "Chi tiết",
+  "aicalls.expandCall": "Xem chuỗi lần thử của {task} lúc {when}",
   "aicalls.col.when": "Lúc",
   "aicalls.col.task": "Tác vụ",
   "aicalls.col.model": "Mô hình",
@@ -3887,9 +4041,7 @@ export const vi = {
   "quotas.archive.confirm":
     "Lưu trữ sẽ đưa chỉ tiêu này ra khỏi danh sách và ngừng theo dõi mức đạt. Chỉ tiêu đã lưu trữ thì không sửa được.",
 
-  "settings.tab.installation": "Cài đặt hệ thống",
-  "settings.tab.capture": "Thu thập",
-  "installationSettings.orgTitle": "Tổ chức",
+  "installationSettings.orgTitle": "Bản cài đặt",
   "installationSettings.orgSub":
     "Tên của bản cài đặt này và múi giờ dùng để tính mọi kỳ báo cáo.",
   "installationSettings.currencyTitle": "Tiền tệ",
@@ -3906,8 +4058,10 @@ export const vi = {
     "Mã ISO-4217 mà mọi số tiền được quy đổi về khi tổng hợp. Có thể thay đổi cho đến khi giao dịch đầu tiên được quy đổi theo nó.",
   "installationSettings.baseCurrencyLocked":
     "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
+  "installationSettings.readOnly":
+    "Chỉ quản trị viên hoặc ops mới có thể thay đổi các thiết lập này.",
   "installationSettings.save": "Lưu",
-  "captureSettings.title": "Thu thập",
+  "captureSettings.title": "Bổ sung thông tin",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",
   "captureSettings.autoEnrich.label":
@@ -3924,6 +4078,7 @@ export const vi = {
   "ownDomains.irreversible":
     "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó. Những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
   "ownDomains.fromCompany": "Từ hồ sơ công ty. Sửa tại đó:",
+  "ownDomains.openCompany": "Mở hồ sơ công ty",
   "ownDomains.empty":
     "Chưa đăng ký thêm tên miền nào. Hãy thêm nếu công ty bạn còn gửi thư từ một tên miền khác.",
   "ownDomains.confirmed": "đã xác nhận",
@@ -3934,6 +4089,8 @@ export const vi = {
   "ownDomains.remove": "Xóa {domain}",
 
   "webhooks.title": "Webhook",
+  "webhooks.readOnly":
+    "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thay đổi được đăng ký.",
   "webhooks.sub":
     "Các đăng ký gửi ra, nhận HTTP POST có chữ ký cho những sự kiện được chọn.",
   "webhooks.new": "Đăng ký mới",
@@ -3988,6 +4145,8 @@ export const vi = {
   "embedreindex.title": "Chỉ mục tìm kiếm",
   "embedreindex.sub":
     "Trạng thái dựng lại chỉ mục của kho embedding — chỉ quản trị và vận hành, kể cả việc xem.",
+  "embedreindex.withheld":
+    "Chỉ quản trị viên hoặc ops mới thấy được chỉ mục tìm kiếm. Dựng lại nó tiêu tốn token của cả bản cài đặt, nên trạng thái của nó không được hiển thị rộng hơn.",
   "embedreindex.loading": "Đang kiểm tra trạng thái chỉ mục…",
   "embedreindex.statusUnavailable": "Hiện chưa xem được trạng thái chỉ mục.",
   "embedreindex.statusIdle": "Đã cập nhật",
@@ -4154,6 +4313,24 @@ export const vi = {
   "person.page.ownerAssigned": "Đã giao",
   "person.page.ownerUnassigned": "Chưa giao",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Chi tiết",
+  "person.rail.contactMethodImmutable":
+    "Được thiết lập khi tạo liên hệ này. Email và số điện thoại không thể thay đổi tại đây.",
+  "person.rail.archivedReadOnly":
+    "Liên hệ này đã lưu trữ. Khôi phục để thay đổi bất kỳ thông tin nào tại đây.",
+  "person.rail.employmentVersionUnresolved":
+    "Không đọc lại được phiên bản hiện tại của dòng này để lưu. Hãy tải lại và thử lại.",
+  "person.rail.employmentTitle": "Công ty",
+  "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
+  "person.rail.addEmployment": "Thêm công ty",
+  "person.rail.employer": "Nơi làm việc",
+  "person.rail.allOrgsConnected":
+    "Mọi kết quả đều đã liên kết với người này rồi.",
+  "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
+  "person.rail.markEnded": "Đánh dấu đã kết thúc",
+  "person.rail.removeEmploymentTitle": "Gỡ liên kết với công ty này?",
+  "person.rail.removeEmploymentBody":
+    "Liên kết với {org} và toàn bộ lịch sử liên quan sẽ biến mất, không thể hoàn tác. Bản thân {org} vẫn được giữ lại. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
   "person.page.tabPlaceholder":
     "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
   "person.tab.overview": "Tổng quan",
@@ -4296,10 +4473,27 @@ export const vi = {
   "person.composer.why": "Vì sao có bản nháp này",
   "person.composer.consentUnknown":
     "Chưa có quyết định về sự đồng ý cho kênh này.",
-  "person.composer.confirmFirst":
-    "Việc gửi cần xác nhận trước. Bản nháp này chỉ được gửi sau khi bạn duyệt.",
-  "person.composer.reviewSend": "Xem lại & gửi",
-  "person.composer.staged": "Đã đưa vào chờ duyệt",
+  "person.composer.sendNote":
+    "Khi bấm gửi, thư sẽ đi từ hộp thư của chính bạn.",
+  "person.composer.purpose": "Mục đích đồng ý",
+  "person.composer.blockedLead": "Thư này không thể gửi với mục đích đã chọn.",
+  "person.composer.blockedRewrite":
+    "Thư gửi với mục đích khác thì phải THỰC SỰ là loại thư đó — đổi nhãn không làm nó thành như vậy.",
+  "person.composer.blockedRecordConsent":
+    "Nếu bạn có cơ sở để viết, hãy ghi nhận quyết định đồng ý trên hồ sơ liên hệ.",
+  "person.composer.consentPickPurpose":
+    "Hãy chọn mục đích của thư này — sự đồng ý được xét theo từng mục đích.",
+  "person.composer.intent": "Nội dung nên nói về điều gì?",
+  "person.composer.intentHint":
+    "Tùy chọn — ví dụ: xin một buổi hẹn trong tuần đầu tháng 9",
+  "person.composer.draftWithAi": "Soạn bằng AI",
+  "person.composer.intentAgenda": "đề xuất chương trình cho buổi hẹn sắp tới",
+  "person.composer.intentReply": "trả lời tin nhắn gần nhất của họ",
+  "person.composer.intentCommitment": "thực hiện điều chúng ta đã hứa",
+  "person.composer.intentFollowUp": "nhắc lại — đã lâu không có phản hồi",
+  "person.composer.send": "Gửi",
+  "person.composer.sending": "Đang gửi…",
+  "person.composer.sent": "Đã gửi",
   "person.composer.aiDisclosure": "Bản nháp có hỗ trợ AI · hãy đọc kỹ từng từ",
   "person.research.title": "Nghiên cứu sâu · {name}",
   "person.research.publicOnly": "Chỉ nguồn công khai",
@@ -4335,6 +4529,8 @@ export const vi = {
   // Nhà cung cấp dữ liệu liên hệ (ADR-0101). Hai màn hình dùng chung bộ từ
   // vựng này — thẻ Cài đặt và trang cá nhân — để một trạng thái luôn đọc
   // giống nhau ở mọi nơi.
+  "provider.readOnly":
+    "Chế độ chỉ đọc — kết nối nhà cung cấp tiêu tốn tiền, nên đây là hành động của quản trị viên hoặc ops.",
   "provider.title": "Dữ liệu liên hệ",
   "provider.sub":
     "Mua thông tin liên hệ đã được xác minh cho những người trong CRM. Bạn trả cho nhà cung cấp bằng tín dụng; phần đã dùng ở đây được hiển thị bên dưới.",

@@ -175,6 +175,39 @@ describe("the Demo Notepad screen", () => {
     expect(screen.getByText(/heartbeat — tick #7/)).toBeTruthy();
   });
 
+  it("marks a note as filed only while the row still names an activity", async () => {
+    // The badge is read from the ROW, which is what makes it survivable: a
+    // filing is withdrawn when the activity is archived on the timeline —
+    // nowhere near this screen — and the unit's subscription clears the
+    // column. A badge this component remembered would go on claiming a filing
+    // the notepad no longer has.
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/notes/list": () => ({
+        notes: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            body: "still filed",
+            filed_activity_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            created_at: "2026-08-09T09:14:00Z",
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            body: "filing withdrawn",
+            created_at: "2026-08-09T09:10:00Z",
+          },
+        ],
+      }),
+      "/ext/notes/signing-key/status": () => ({ stored: false }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    const filedRow = (await screen.findByText(/still filed/)).closest("li");
+    expect(filedRow?.textContent).toContain("Filed");
+    const withdrawnRow = screen.getByText(/filing withdrawn/).closest("li");
+    expect(withdrawnRow?.textContent).not.toContain("Filed");
+  });
+
   it("reports the signing key as absent, then present, without ever showing it", async () => {
     let stored = false;
     const { fetchStub, calls } = stubTransport(FULL_GRANT, {
@@ -426,6 +459,21 @@ const FILING_GRANT = {
 
 describe("filing a note to a record", () => {
   const listOnly = { "/ext/notes/list": () => ({ notes: [] }) };
+  // One candidate, from the product's own cross-object search. The picker
+  // debounces, so every case that picks one waits on findBy* rather than
+  // asserting straight after typing.
+  const searchAnswers = {
+    "/search": () => ({
+      data: [
+        {
+          type: "deal",
+          id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+          title: "Acme renewal",
+        },
+      ],
+      page: { has_more: false },
+    }),
+  };
 
   it("is absent for a seat that was not granted it", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, listOnly);
@@ -440,6 +488,7 @@ describe("filing a note to a record", () => {
   it("sends the note, the record kind and the record it was filed to", async () => {
     const { calls, fetchStub } = stubTransport(FILING_GRANT, {
       ...listOnly,
+      ...searchAnswers,
       "/ext/notes/file": () => ({
         id: "11111111-1111-4111-8111-111111111111",
         kind: "note",
@@ -456,15 +505,21 @@ describe("filing a note to a record", () => {
       await screen.findByLabelText("Note to file"),
       "a filed note",
     );
-    await user.type(
-      screen.getByLabelText("Record id"),
-      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-    );
     // Through the Select, not on its default: the narrowing that turns the
     // control's string back into the contract's enum is the code this case is
     // about, and a filing that never touches the control never runs it.
     await user.click(screen.getByLabelText("Record type"));
     await user.click(await screen.findByRole("option", { name: "Deal" }));
+    // The record is CHOSEN, by name. Nobody types the id — which is the whole
+    // point of the control — so the id in the request can only have come from
+    // the candidate the search answered with.
+    await user.type(
+      screen.getByLabelText("Find the record by name"),
+      "renewal",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    );
     await user.click(screen.getByRole("button", { name: "File to record" }));
 
     await waitFor(() => {
@@ -482,11 +537,155 @@ describe("filing a note to a record", () => {
     ).toBeTruthy();
   });
 
+  // The search is SCOPED to the record type the form is on. Unscoped, a query
+  // for "acme" while the form says Person would offer the Acme organization,
+  // and filing it would name a person id that is an organization's.
+  it("searches only the record type the form is on", async () => {
+    const { calls, fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      ...searchAnswers,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
+    await user.type(screen.getByLabelText("Find the record by name"), "acme");
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.path === "/search")).toBe(true);
+    });
+    const search = calls.find((call) => call.path === "/search");
+    expect(search?.query.types).toBe("deal");
+    expect(search?.query.q).toBe("acme");
+  });
+
+  // Changing the TYPE clears the pick. A contact chosen while the form said
+  // Person is not a deal, and a stale pick would file the note against
+  // whatever record happens to hold that id — or, far more often, against
+  // nothing, with a refusal nobody can read.
+  it("drops the picked record when the record type changes", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      ...searchAnswers,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Note to file"),
+      "a filed note",
+    );
+    await user.type(screen.getByLabelText("Find the record by name"), "acme");
+    await user.click(
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    );
+    // Filing is possible: a body and a record.
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "File to record" })
+        .disabled,
+    ).toBe(false);
+
+    await user.click(screen.getByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
+
+    // And is not any more, because the record it would have named is gone.
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "File to record" })
+        .disabled,
+    ).toBe(true);
+  });
+
+  // A hit the contract types as nullable-titled is DROPPED rather than
+  // rendered as an empty row: a candidate nobody can read is one nobody can
+  // choose on purpose.
+  //
+  // Two hits, one of each, because the assertion has to be about the FILTER.
+  // "No candidate appeared" is also what a search that never ran looks like,
+  // and a titled hit beside the titleless one is what tells them apart.
+  it("offers the hit that has a title and drops the one that does not", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      "/search": () => ({
+        data: [
+          {
+            type: "person",
+            id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            title: "Acme renewal",
+          },
+          {
+            type: "person",
+            id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            title: null,
+          },
+        ],
+        page: { has_more: false },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Find the record by name"),
+      "acme",
+    );
+
+    // The readable one is offered...
+    expect(
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    ).toBeTruthy();
+    // ...and it is the ONLY candidate: the titleless hit would render as a
+    // button with no accessible name, which is what this counts.
+    const candidates = screen
+      .getAllByRole("button")
+      .filter((button) => button.textContent?.trim() !== "");
+    expect(
+      candidates.filter((button) => button.textContent === "Acme renewal"),
+    ).toHaveLength(1);
+    expect(
+      screen
+        .queryAllByRole("button")
+        .filter((button) => button.textContent?.trim() === ""),
+    ).toHaveLength(0);
+  });
+
+  // The candidates already on SCREEN belong to the search space they came
+  // from. Switching the record type mid-search leaves the previous type's
+  // results rendered and clickable until the new search resolves — and picking
+  // one there files a person against a deal.
+  it("drops the candidates on screen when the record type changes", async () => {
+    const { fetchStub } = stubTransport(FILING_GRANT, {
+      ...listOnly,
+      ...searchAnswers,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    renderScreen();
+
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByLabelText("Find the record by name"),
+      "acme",
+    );
+    expect(
+      await screen.findByRole("button", { name: "Acme renewal" }),
+    ).toBeTruthy();
+
+    await user.click(screen.getByLabelText("Record type"));
+    await user.click(await screen.findByRole("option", { name: "Deal" }));
+
+    // Gone at once, rather than when the next search happens to answer.
+    expect(screen.queryByRole("button", { name: "Acme renewal" })).toBeNull();
+  });
+
   // The two grants are separate and the second one is the server's to check, so
   // the copy says what is true either way: nothing was written.
   it("says nothing was written when the server refuses", async () => {
     const { fetchStub } = stubTransport(FILING_GRANT, {
       ...listOnly,
+      ...searchAnswers,
       "/ext/notes/file": () => {
         throw new Error("refused");
       },
@@ -499,9 +698,9 @@ describe("filing a note to a record", () => {
       await screen.findByLabelText("Note to file"),
       "a filed note",
     );
-    await user.type(
-      screen.getByLabelText("Record id"),
-      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    await user.type(screen.getByLabelText("Find the record by name"), "acme");
+    await user.click(
+      await screen.findByRole("button", { name: "Acme renewal" }),
     );
     await user.click(screen.getByRole("button", { name: "File to record" }));
 

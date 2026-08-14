@@ -36,15 +36,14 @@ func seedRecipient(t *testing.T, e *Env, name, email string, owner *ids.UUID) {
 	}
 }
 
-// livePreferenceTokens counts the workspace's minted tokens. preference_token
-// is deliberately outside RLS (it IS the token→tenant resolver), so the app
-// pool reads it directly here — the assertion is that the refused mint wrote
-// NOTHING, which a scoped read could not distinguish from a hidden row.
+// livePreferenceTokens counts the minted tokens. The assertion resting on it
+// is that a refused mint wrote NOTHING, so it counts rows rather than the ones
+// some scope admits.
 func livePreferenceTokens(t *testing.T, e *Env) int {
 	t.Helper()
 	var n int
 	if err := e.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM preference_token WHERE workspace_id = $1`, e.WS).Scan(&n); err != nil {
+		`SELECT count(*) FROM preference_token`).Scan(&n); err != nil {
 		t.Fatalf("counting preference tokens: %v", err)
 	}
 	return n

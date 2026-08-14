@@ -5,7 +5,6 @@ package overlay
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -36,6 +34,12 @@ type Row struct {
 	OwnerExternalID   string
 	SyncState         string
 	LastSyncedAt      time.Time
+	// ProjectionFingerprint is the mapping declaration Fields was projected
+	// by, empty for a row that records none — either mirrored before the
+	// column existed or ingested from a Record that declared none. Empty
+	// therefore means "no declaration is known to have produced this", never
+	// "the current one did".
+	ProjectionFingerprint string
 }
 
 // MirrorStore owns the overlay_mirror / overlay_association tables: the
@@ -118,24 +122,39 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 //     never re-created — the sweep that would otherwise resurrect it
 //     never gets the chance to see the row at all.
 //   - staleness (ON CONFLICT … WHERE excluded.updated_at_baseline > …):
-//     an older incumbent read can never clobber a newer one, so ingest
-//     is safe to call with a stale poller page racing a fresher read of
-//     the same record.
+//     an older incumbent read can never clobber a newer one, so ingest is
+//     safe to call with a stale poller page racing a fresher read of the
+//     same record. A re-projection is admitted at the SAME baseline only:
+//     the incumbent has not touched the record, so its baseline does not
+//     advance, but the same record under a changed declaration is not an
+//     older read — refusing it would strand the row holding a payload the
+//     current mapping would never produce. An OLDER read stays refused
+//     whatever its fingerprint says, because a stale page carries a stale
+//     projection too, and admitting it on a fingerprint difference would
+//     let the sweep's own laggard pages overwrite fresher rows — which a
+//     declaration change makes likely, since it puts every row's
+//     fingerprint out of date at once. The comparison is IS DISTINCT FROM,
+//     so a row recording no declaration (NULL — mirrored before the column
+//     existed) compares as different rather than as unknown, which would
+//     refuse exactly the rows nothing has verified.
 //   - no-clobber-dirty (… AND sync_state <> 'pending_sync'): a row with
 //     an un-drained local write (branch 2) is not blindly overwritten by
 //     an inbound incumbent change; it is held for the conflict path
 //     (mirror.conflict, not implemented until branch 2's write path
 //     lands — see the ProjectOwnerVisibility seam note in Ingest below).
 const ingestSQL = `
-INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, updated_at_baseline, owner_external_id, last_synced_at, sync_state)
-SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, now(), 'fresh'
+INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, updated_at_baseline, owner_external_id, projection_fingerprint, last_synced_at, sync_state)
+SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, $6, now(), 'fresh'
 WHERE NOT EXISTS (SELECT 1 FROM overlay_tombstone t
     WHERE t.workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid AND t.object_class=$1 AND t.external_id=$2)
 ON CONFLICT (object_class, external_id) DO UPDATE
    SET fields=EXCLUDED.fields, updated_at_baseline=EXCLUDED.updated_at_baseline,
-       owner_external_id=EXCLUDED.owner_external_id, last_synced_at=now()
+       owner_external_id=EXCLUDED.owner_external_id,
+       projection_fingerprint=EXCLUDED.projection_fingerprint, last_synced_at=now()
    WHERE overlay_mirror.sync_state <> 'pending_sync'
-     AND EXCLUDED.updated_at_baseline > overlay_mirror.updated_at_baseline`
+     AND (EXCLUDED.updated_at_baseline > overlay_mirror.updated_at_baseline
+          OR (EXCLUDED.updated_at_baseline = overlay_mirror.updated_at_baseline
+              AND overlay_mirror.projection_fingerprint IS DISTINCT FROM EXCLUDED.projection_fingerprint))`
 
 // Ingest upserts one incumbent record into the mirror — the single entry
 // point every sync trigger calls (design.md §4.4: "push and pull
@@ -221,9 +240,22 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if rec.ObjectClass == "" || rec.ExternalID == "" {
 		return false, fmt.Errorf("overlay: ingest requires a non-empty object class and external id")
 	}
-	var ownerArg any
+	// A record naming no owner stores NULL rather than '': the column holds an
+	// incumbent owner reference, and the empty string is not one. A nil *string
+	// is the SQL NULL the column needs, stated in the type.
+	var ownerArg *string
 	if rec.OwnerExternalID != "" {
-		ownerArg = rec.OwnerExternalID
+		ownerArg = &rec.OwnerExternalID
+	}
+	// A record that declares no fingerprint stores NULL rather than '': the
+	// column's meaning is "the declaration known to have produced this row",
+	// and an empty string is not one. It also keeps the guard's comparison
+	// between two such records false, so a path that never fingerprints
+	// (a fixture, a hand-built Record) keeps the plain staleness behaviour
+	// instead of re-writing the row on every sweep.
+	var fingerprintArg *string
+	if rec.ProjectionFingerprint != "" {
+		fingerprintArg = &rec.ProjectionFingerprint
 	}
 	if err := s.assertFence(ctx, tx); err != nil {
 		return false, err
@@ -258,7 +290,7 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 
 	tag, err := tx.Exec(
 		ctx, ingestSQL,
-		rec.ObjectClass, rec.ExternalID, rec.Fields, rec.ModifiedAt, ownerArg,
+		rec.ObjectClass, rec.ExternalID, rec.Fields, rec.ModifiedAt, ownerArg, fingerprintArg,
 	)
 	if err != nil {
 		return false, fmt.Errorf("overlay: ingesting %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
@@ -334,7 +366,8 @@ func (s *MirrorStore) UpsertAssoc(ctx context.Context, a Assoc) error {
 // its tests.
 const selectRawMirrorRowSQL = `
 SELECT object_class, external_id, fields, updated_at_baseline,
-       coalesce(owner_external_id, ''), sync_state, last_synced_at
+       coalesce(owner_external_id, ''), sync_state, last_synced_at,
+       coalesce(projection_fingerprint, '')
 FROM overlay_mirror
 WHERE object_class = $1 AND external_id = $2`
 
@@ -343,7 +376,7 @@ func (s *MirrorStore) getRaw(ctx context.Context, objectClass, externalID string
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, selectRawMirrorRowSQL, objectClass, externalID).Scan(
 			&row.ObjectClass, &row.ExternalID, &row.Fields, &row.UpdatedAtBaseline,
-			&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt,
+			&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt, &row.ProjectionFingerprint,
 		)
 	})
 	if err != nil {
@@ -357,7 +390,8 @@ func (s *MirrorStore) getRaw(ctx context.Context, objectClass, externalID string
 
 const selectVisibleMirrorRowSQL = `
 SELECT m.object_class, m.external_id, m.fields, m.updated_at_baseline,
-       coalesce(m.owner_external_id, ''), m.sync_state, m.last_synced_at
+       coalesce(m.owner_external_id, ''), m.sync_state, m.last_synced_at,
+       coalesce(m.projection_fingerprint, '')
 FROM overlay_mirror m
 %s
 WHERE m.object_class = $2 AND m.external_id = $3`
@@ -379,7 +413,7 @@ func (s *MirrorStore) Get(ctx context.Context, objectClass, externalID string) (
 		query := fmt.Sprintf(selectVisibleMirrorRowSQL, joinClause)
 		return tx.QueryRow(ctx, query, args...).Scan(
 			&row.ObjectClass, &row.ExternalID, &row.Fields, &row.UpdatedAtBaseline,
-			&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt,
+			&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt, &row.ProjectionFingerprint,
 		)
 	})
 	if err != nil {
@@ -389,109 +423,4 @@ func (s *MirrorStore) Get(ctx context.Context, objectClass, externalID string) (
 		return Row{}, fmt.Errorf("overlay: reading mirror row %s/%s: %w", objectClass, externalID, err)
 	}
 	return row, nil
-}
-
-const (
-	defaultListLimit = 50
-	maxListLimit     = 200
-)
-
-// clampListLimit maps a caller's page size onto the bounds above: absent or
-// nonsensical takes the default, oversized takes the ceiling. Every paged read
-// in this package resolves it here, so a page's size cannot mean one thing on
-// the mirror walk and another on the user map.
-func clampListLimit(limit int) int {
-	switch {
-	case limit <= 0:
-		return defaultListLimit
-	case limit > maxListLimit:
-		return maxListLimit
-	default:
-		return limit
-	}
-}
-
-const selectVisibleMirrorPageSQL = `
-SELECT m.object_class, m.external_id, m.fields, m.updated_at_baseline,
-       coalesce(m.owner_external_id, ''), m.sync_state, m.last_synced_at
-FROM overlay_mirror m
-%s
-WHERE m.object_class = $2 AND m.external_id > $3
-ORDER BY m.external_id
-LIMIT $4`
-
-// List pages mirror rows for one object class in external_id order, a
-// stable (if not incumbent-numeric) keyset — the cursor only has to be a
-// consistent Margince-side ordering, not replicate HubSpot's own paging
-// scheme. Gated by the same mirror_visibility deny-join as Get (design.md
-// §4.6); an unmapped ctx principal answers apperrors.ErrNotFound before
-// the page query ever runs.
-func (s *MirrorStore) List(ctx context.Context, objectClass, cursor string, limit int) ([]Row, string, error) {
-	after, err := decodeMirrorCursor(cursor)
-	if err != nil {
-		return nil, "", err
-	}
-	limit = clampListLimit(limit)
-
-	var rows []Row
-	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		mirrorUserID, err := resolveActingMirrorUserID(ctx, tx)
-		if err != nil {
-			return err
-		}
-		joinClause, args := visibilityJoin(mirrorUserID)
-		args = append(args, objectClass, after, limit)
-		query := fmt.Sprintf(selectVisibleMirrorPageSQL, joinClause)
-		pgRows, err := tx.Query(ctx, query, args...)
-		if err != nil {
-			return fmt.Errorf("overlay: listing mirror rows for %s: %w", objectClass, err)
-		}
-		defer pgRows.Close()
-		for pgRows.Next() {
-			var row Row
-			if err := pgRows.Scan(
-				&row.ObjectClass, &row.ExternalID, &row.Fields, &row.UpdatedAtBaseline,
-				&row.OwnerExternalID, &row.SyncState, &row.LastSyncedAt,
-			); err != nil {
-				return fmt.Errorf("overlay: scanning mirror row for %s: %w", objectClass, err)
-			}
-			rows = append(rows, row)
-		}
-		return pgRows.Err()
-	})
-	if err != nil {
-		return nil, "", err
-	}
-
-	next := ""
-	if len(rows) == limit {
-		next = encodeMirrorCursor(rows[len(rows)-1].ExternalID)
-	}
-	return rows, next, nil
-}
-
-// encodeMirrorCursor/decodeMirrorCursor keep the List cursor opaque to
-// callers (a client must never construct or edit one by hand) while
-// staying a plain external_id underneath — there is no sort/direction
-// variance to encode, unlike storekit's general keyset cursor.
-func encodeMirrorCursor(externalID string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(externalID))
-}
-
-// decodeMirrorCursor answers storekit.MalformedCursorError, not a bare wrap:
-// the cursor is client-supplied input on every surface that pages this store,
-// so a token that does not decode is the caller's mistake and httperr must be
-// able to say so (422 malformed_cursor). An opaque wrap falls through to a 500
-// and sends an admin looking for an outage that is not there. The base64
-// cause is deliberately dropped — it tells the client nothing it can act on
-// beyond "the token is not one we minted".
-func decodeMirrorCursor(cursor string) (string, error) {
-	if cursor == "" {
-		return "", nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return "", &storekit.MalformedCursorError{}
-	}
-	return string(raw), nil
 }

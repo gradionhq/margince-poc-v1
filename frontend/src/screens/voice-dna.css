@@ -52,6 +52,73 @@
   flex-wrap: wrap;
 }
 
+/* The region a dropped file is actually accepted in. It is outlined only while
+   a file is over it, so the card does not carry a dashed box at rest. */
+.vdna-intake {
+  border: 1px dashed transparent;
+  border-radius: var(--r-sm);
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.vdna-intake-dragover {
+  border-color: var(--accent);
+  background: var(--bgHover);
+}
+
+.vdna-drophint {
+  color: var(--textMuted);
+}
+
+/* The distance to the first build, shown only below the floor. */
+.vdna-floor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vdna-floor progress {
+  flex: 0 0 8rem;
+}
+
+/* What just happened to each source the reader handed over. */
+.vdna-notices {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.vdna-notice-warn {
+  color: var(--warn);
+}
+
+/* The speaker question sits above the composer: until it is answered the file
+   it belongs to is not part of the corpus at all. */
+.vdna-speaker {
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--warnSurface);
+  padding: var(--space-3);
+  margin: var(--space-3) 0 0;
+  min-inline-size: 0; /* a fieldset otherwise refuses to shrink in a flex column */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.vdna-speaker-options {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 /* Wraps the build button so a tooltip has something that still receives
    pointer events while the button itself is disabled. */
 .vdna-build {

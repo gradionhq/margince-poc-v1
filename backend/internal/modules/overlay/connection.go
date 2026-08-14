@@ -133,8 +133,14 @@ type Service struct {
 	ms                 *MirrorStore
 	meter              *overlaybudget.Meter
 	toIncumbentClasses func(canonical string) (incumbentClasses []string, ok bool)
-	incumbent          func(region, token string) Incumbent
-	log                *slog.Logger
+	// projectionFingerprints is each INCUMBENT class's current declaration
+	// fingerprint, injected for the same reason toIncumbentClasses is: the
+	// mapping registry lives in the overlay/hubspot subpackage, which imports
+	// THIS package. Keyed by incumbent class because a canonical type can be
+	// backed by several declarations; projectionstaleness.go translates.
+	projectionFingerprints map[string]string
+	incumbent              func(region, token string) Incumbent
+	log                    *slog.Logger
 	// modeFlipped observes a committed x_sor_mode flip (Connect →
 	// overlay, Disconnect → native) so a mode-caching read dispatcher
 	// can drop its entry instead of serving the OLD mode for a cache

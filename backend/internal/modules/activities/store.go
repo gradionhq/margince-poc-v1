@@ -35,6 +35,13 @@ type Store struct {
 	// link resolves to — configured at boot, never taken from the request
 	// (WithPublicBaseURL wires it).
 	publicBaseURL string
+	// signature is the sender's own sign-off, appended to every message they
+	// send; nil means unsigned, which is what every role did before the
+	// signature existed (WithSignature wires it).
+	signature SignatureReader
+	// senderName resolves the display name the From header carries; nil sends a
+	// bare address (WithSenderName wires it).
+	senderName SenderNameReader
 	// sendAuthority pre-flights the credential behind the transport a send is
 	// about to use; nil skips the pre-flight (WithSendAuthority wires it) and
 	// the delivery path still refuses at transmission.

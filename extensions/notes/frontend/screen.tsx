@@ -12,12 +12,14 @@ import {
   Card,
   EmptyState,
   Field,
+  RecordPicker,
+  type RecordPickerCandidate,
   SectionHeader,
   Select,
   TextInput,
 } from "@margince/frontend/design-system";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 // #/ext/notes — "Demo Notepad", the reference extension's one screen.
 //
@@ -372,6 +374,49 @@ const SUBJECT_TYPES: readonly SubjectType[] = [
 ];
 
 /**
+ * The candidates for one subject type, through the product's own search.
+ *
+ * `/search` rather than the per-type list endpoints, and the reason is not
+ * convenience: `/deals` takes no `q`. A picker built on the list endpoints
+ * would cover person, organization and lead and leave `deal` typing a UUID,
+ * which is the state this control exists to remove. The cross-object search
+ * takes all four, scoped by `types` so a query for "acme" while the form says
+ * Person cannot offer the Acme organization.
+ *
+ * The results are the CALLER's: `/search` is RBAC-scoped, so a seat that
+ * cannot see a record is not offered it — the picker shows what filing would
+ * actually be allowed to name, rather than teaching somebody which records
+ * exist.
+ *
+ * A hit with no title is dropped rather than rendered as an empty row: the
+ * contract types `title` as nullable, and a candidate a person cannot read is
+ * one they cannot choose on purpose.
+ */
+async function searchSubjects(
+  type: SubjectType,
+  q: string,
+): Promise<RecordPickerCandidate[]> {
+  const { data, error, response } = await api.GET("/search", {
+    params: { query: { q, types: [type], limit: SUBJECT_CANDIDATES } },
+  });
+  if (error || !response.ok) {
+    throwProblem(error);
+  }
+  return data.data.flatMap((hit) =>
+    hit.title ? [{ id: hit.id, name: hit.title }] : [],
+  );
+}
+
+/**
+ * How many candidates one search offers.
+ *
+ * Ten is what fits above the fold under the field without the card growing a
+ * scroll region of its own. A person who cannot see their record in ten
+ * results types more of the name, which is faster than reading fifty.
+ */
+const SUBJECT_CANDIDATES = 10;
+
+/**
  * File a note to a record: the unit's own row and a core activity, together.
  *
  * This is the one card on this screen that writes something the PRODUCT owns,
@@ -391,14 +436,42 @@ function FilingCard() {
   // the four the operation admits, and a widened state is how a fifth value
   // reaches a request the schema refuses.
   const [subjectType, setSubjectType] = useState<SubjectType>("person");
-  const [subjectID, setSubjectID] = useState("");
+  // The PICKED record, not a typed id: the request needs the id and the person
+  // needs the name, and holding the candidate keeps the two from disagreeing.
+  const [subject, setSubject] = useState<RecordPickerCandidate | null>(null);
   const [filed, setFiled] = useState(false);
+  // Bound to the type the form is on, and MEMOISED on it — which is
+  // load-bearing rather than tidy. RecordPicker keys BOTH of its effects on
+  // this function: the debounce, and the one that empties the candidate list
+  // when the search space changes. This card re-renders whenever the note body
+  // is typed or the filing mutation flips state, so an unmemoised closure
+  // would be a new search space on each of those — clearing the candidates
+  // somebody is reading, and restarting the debounce under them.
+  const searchSubjectsFor = useCallback(
+    (q: string) => searchSubjects(subjectType, q),
+    [subjectType],
+  );
 
+  // The filing takes its values as mutation VARIABLES rather than closing over
+  // the form's state, and that is not style: a mutationFn is captured at
+  // render and its options are refreshed in a passive effect, so a close-run
+  // submit can invoke the function from a render where the record was still
+  // unpicked. Passed in, the request cannot name a record the person had not
+  // chosen — and the type below says so, which is why there is no `?? ""`
+  // fallback left to reason about.
   const file = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (filing: {
+      body: string;
+      subjectType: SubjectType;
+      subjectID: string;
+    }) => {
       setFiled(false);
       const { error, response } = await api.POST("/ext/notes/file", {
-        body: { body, subject_type: subjectType, subject_id: subjectID },
+        body: {
+          body: filing.body,
+          subject_type: filing.subjectType,
+          subject_id: filing.subjectID,
+        },
       });
       if (error || !response.ok) {
         throwProblem(error);
@@ -409,7 +482,7 @@ function FilingCard() {
     // they typed.
     onSuccess: () => {
       setBody("");
-      setSubjectID("");
+      setSubject(null);
       setFiled(true);
     },
     // onSettled, and the same key the notepad reads under — the two spellings
@@ -457,6 +530,13 @@ function FilingCard() {
               const picked = SUBJECT_TYPES.find((type) => type === value);
               if (picked) {
                 setSubjectType(picked);
+                // The pick goes with the type it was made under. A contact
+                // chosen while the form said Person is not a deal, and leaving
+                // it selected would file the note against whatever record
+                // happens to share that id — or, more often, against nothing,
+                // with a refusal nobody can read.
+                setSubject(null);
+                setFiled(false);
               }
             }}
             options={SUBJECT_TYPES.map((type) => ({
@@ -466,26 +546,33 @@ function FilingCard() {
           />
         )}
       </Field>
-      <Field label={t("extNotes.filing.subjectIdLabel")}>
-        {(control) => (
-          <TextInput
-            {...control}
-            value={subjectID}
-            onChange={(event) => {
-              // Trimmed at the edge: the contract declares format: uuid, and a
-              // pasted id with a stray space is a request the server refuses
-              // for a reason the person cannot see.
-              setSubjectID(event.target.value.trim());
-              setFiled(false);
-            }}
-          />
-        )}
-      </Field>
+      {/*
+        The record itself, by name. It is not wrapped in a Field: RecordPicker
+        renders its own labelled search input and takes no id, so a Field
+        around it would render a label pointing at an element that does not
+        exist — a dangling `htmlFor`, which is worse than the plain control.
+      */}
+      <RecordPicker
+        label={t("extNotes.filing.subjectSearchLabel")}
+        searchTargets={searchSubjectsFor}
+        selected={subject}
+        onPick={(candidate) => {
+          setSubject(candidate);
+          setFiled(false);
+        }}
+        disabled={file.isPending}
+      />
       <Button
-        disabled={
-          body.trim() === "" || subjectID.trim() === "" || file.isPending
-        }
-        onClick={() => file.mutate()}
+        disabled={body.trim() === "" || subject === null || file.isPending}
+        onClick={() => {
+          // Narrowed HERE rather than trusted from the disabled condition: the
+          // button's state is a rendering, and the request's argument is the
+          // fact.
+          if (subject === null) {
+            return;
+          }
+          file.mutate({ body, subjectType, subjectID: subject.id });
+        }}
       >
         {t("extNotes.filing.file")}
       </Button>
@@ -613,6 +700,17 @@ function NotesCard() {
             {notes.data?.map((item) => (
               <li key={item.id}>
                 {formatDateTime(item.created_at, locale, zone)} — {item.body}
+                {/* The filing, as the ROW reports it rather than as this screen
+                    remembers it. A note stops being filed when the activity it
+                    reached is archived — which happens on the timeline, not
+                    here, and reaches this unit through its subscription — so
+                    the column is the only rendering that stays true. */}
+                {item.filed_activity_id ? (
+                  <>
+                    {" "}
+                    <Badge tone="success">{t("extNotes.notes.filed")}</Badge>
+                  </>
+                ) : null}
                 {canRemove ? (
                   <Button
                     variant="ghost"

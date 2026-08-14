@@ -3,6 +3,34 @@
    tabs' own content: this sheet owns the cards, never the navigation between
    them. */
 
+/* EVERY settings page's vertical rhythm, owned in one place.
+   `.wrap > .card + .card` (app/shell.css) is the shell's default and it matches a
+   card FOLLOWING a card. After the eleven-entry merge most settings pages are no
+   longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
+   People holds two flex wrappers; Data model holds a block, a card and two
+   heading-plus-table pairs — so that rule silently missed and the gap between two
+   unrelated surfaces was ZERO. Two hairlines touching read as one card.
+
+   The gap is the same --space-4 the shell's rule gives, so a settings page and any
+   other page space alike. */
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* A section heading inside the stack separates SUBJECTS, so it needs more air
+   above it than the gap between two cards of one subject — and none below, or the
+   heading floats midway between the block it leaves and the table it names.
+   Margins do not collapse in a flex container, so these add to the gap rather
+   than competing with it: --space-4 above the heading on top of the --space-4 gap
+   reads as a new subject, while the heading sits --space-4 from its own content.
+   Without the reset the default (24 above, 12 below) gave 40 and 28 — a heading
+   barely closer to what it names than to what it follows. */
+.settings-stack > .section-header {
+  margin: var(--space-4) 0 0;
+}
+
 .company-context-shell {
   display: flex;
   flex-direction: column;
@@ -338,7 +366,8 @@
   max-width: 76ch;
 }
 
-/* Connected inboxes (Integrations tab): one row per live capture connection. */
+/* Connected inboxes (the personal Connections entry): one row per live capture
+   connection. A mailbox is per-user, which is why it is not on Integrations. */
 .connectors-list {
   list-style: none;
   margin: var(--space-3) 0 0;

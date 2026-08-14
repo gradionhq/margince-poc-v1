@@ -2423,6 +2423,30 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /organizations/{id}/site-reads/latest:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getLatestSiteRead
+      summary: The newest deep read on this account, so a crawl that failed after the rep navigated away is still visible.
+      description: |
+        A read id lives only in the browser tab that started the crawl, so a read that
+        ended after the rep left the page could not be found again. An account whose
+        crawl failed then looked exactly like one nobody had tried to enrich — no
+        industry, no description, no facts — and a draft written from it had nothing to
+        stand on. 404 when the account has never been read, which is the honest
+        difference between "never tried" and "tried and got nothing".
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The newest read's report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /organizations/{id}/site-reads/{readId}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -10272,6 +10296,55 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/email-signature:
+    get:
+      tags: [People]
+      operationId: getMyEmailSignature
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: The sign-off appended to mail you send.
+      description: |
+        Always the CALLER's own, never anybody else's. A signature is the words a
+        person signs their name with, and no seat — including admin — reads or
+        edits another member's through this API.
+
+        A member who has never written one has no row, and that is not an error:
+        `body` is empty and mail goes out unsigned, which is what happens today
+        for everyone.
+      responses:
+        '200':
+          description: The caller's signature.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailSignature' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [People]
+      operationId: saveMyEmailSignature
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Write or clear your own sign-off.
+      description: |
+        An empty `body` CLEARS the signature — a member emptying the field means
+        "send my mail unsigned", not "leave what was there".
+
+        Plain text only. The transport sends `text/plain` and the drafting
+        prompts forbid the model from writing a sign-off of its own, so what is
+        stored here is exactly what arrives under every message the caller sends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveEmailSignatureRequest' }
+      responses:
+        '200':
+          description: The saved signature.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailSignature' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/documents:
     get:
       tags: [Attachments]
@@ -10664,6 +10737,189 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
         '409': { $ref: '#/components/responses/Conflict' }   # overlay_flip_blocked
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  # =========================================================================
+  # IMPORT — the migrate-in surface (IEM-GAP-2's contract extension).
+  #
+  # The chapter pinned these by planned path and behaviour only (IEM-WIRE-3..6)
+  # and made minting them a ticket-gate (IEM-AC-OPEN-3): no implementation may
+  # cite an operationId that does not exist here first. Four of the five below
+  # are those pins. The fifth — `uploadImportSource` — is a disclosed spec-fill:
+  # IEM-WIRE-3 accepts a "source ref" and nothing in the chapter mints one, yet
+  # a column mapping cannot be authored before a header has been read. The
+  # order the product actually needs is upload → profile → map → dry run →
+  # approve, so the upload is an operation, not an implementation detail.
+  #
+  # Every one is human-only (IEM-WIRE-7 / A139): an import is the least
+  # reversible write in the product, and a confirm-first gate over a
+  # thousand-row dry-run report is a rubber stamp that manufactures evidence of
+  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (10 MB, import only).
+  # =========================================================================
+  /imports/sources:
+    post:
+      tags: [Import]
+      operationId: uploadImportSource
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Upload a file to import, and read back what its columns actually contain.
+      description: |
+        The first half of the migrate-in flow, and the reason it is a separate
+        operation: a mapping is a claim about columns, and nobody — a human at a
+        screen least of all — can make that claim before seeing the header, how
+        often each column is filled, and what its values look like.
+
+        The response profiles the file and proposes a mapping. The proposal is
+        deliberately timid: it matches on normalized names only, so `E-mail
+        Address` finds `email_address` and `Company` finds nothing. A confident
+        wrong guess costs more than a blank the human must fill, because the
+        blank is visible and the guess is not.
+
+        The uploaded bytes are durable and addressed by the returned
+        `source_ref`; nothing is imported, validated or written by this call.
+        A source that is never used by `createImportRun` expires unreferenced.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, object]
+              properties:
+                file:   { type: string, format: binary, description: 'The delimited file to import. UTF-8; the first row is the header.' }
+                object: { $ref: '#/components/schemas/ImportObject' }
+      responses:
+        '200':
+          description: The file's column profile and the mapping proposed for it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportSourceProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '413':
+          description: 'The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }   # unreadable file, duplicate header names, empty header row
+
+  /imports:
+    post:
+      tags: [Import]
+      operationId: createImportRun
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Create an import run from an uploaded source and a column mapping, and dry-run it.
+      description: |
+        IEM-WIRE-3. Takes the connector, the `source_ref` from
+        `uploadImportSource`, and the mapping the human settled on, and runs the
+        validation pass — which writes **no** domain rows (AC-M5). The run
+        arrives at `awaiting_approval` carrying the report
+        `getImportRunReport` reads.
+
+        Permission-gated as a workspace-wide bulk mutation of the estate: a rep
+        neither starts nor reads a migration run.
+
+        Mapping a source column to a field the object does not have is refused
+        here rather than at row 40,000: the mapping is validated against the
+        object's live field catalog, custom fields included.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateImportRunRequest' }
+      responses:
+        '202':
+          description: 'The run, validated and awaiting a human (dry run complete, zero rows written).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }          # no such source_ref
+        '422': { $ref: '#/components/responses/ValidationError' }   # a mapping the object cannot satisfy
+
+  /imports/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Import]
+      operationId: getImportRun
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Read one import run's lifecycle state.
+      description: |
+        IEM-WIRE-6. A run that stopped part-way reports `failed` **with its
+        checkpoint**, which is what makes it a resumable state rather than a
+        dead end — the distinction the chapter pins by name.
+
+        A run belonging to another installation answers not-found, never
+        forbidden: existence is not disclosed to someone who may not read it.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /imports/{id}/report:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Import]
+      operationId: getImportRunReport
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Read the run's report — what will happen, or what did.
+      description: |
+        IEM-WIRE-4. Available from `awaiting_approval` onward, and it is the
+        same shape before and after approval: the dry run reports what the
+        commit will do, the finished run reports what it did. One shape means a
+        human comparing the two is comparing like with like.
+
+        Skips and row-level errors are enumerated, never summarized away — a
+        file half-ignored under a success message is worse than a refusal.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRunReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }   # the validation pass has not produced a report yet
+
+  /imports/{id}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Import]
+      operationId: approveImportRun
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Approve a validated import run and commit it.
+      description: |
+        IEM-WIRE-5, and one of the three audited gates. Valid **only** from
+        `awaiting_approval`: approving a run that is already running, complete
+        or failed is a conflict, not a no-op, because each of those means the
+        approver is looking at a state that is not the one they judged.
+
+        The commit is checkpointed and idempotent on the source's own key, so a
+        re-run of the same file converges rather than duplicating (IEM-AC-9),
+        and a run interrupted mid-way resumes from its checkpoint.
+      responses:
+        '202':
+          description: 'Approved; the commit is under way (or complete — the run record says which).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }   # not awaiting_approval
 
   /overlay/user-map:
     get:
@@ -12322,6 +12578,145 @@ components:
             last_synced_at: { type: [string, 'null'], format: date-time }
             staleness_seconds: { type: integer, format: int64 }
             unverifiable_parity_notice: { type: string }
+
+    # ---- Import: the migrate-in surface (IEM-GAP-2) ----
+    ImportObject:
+      type: string
+      enum: [organization, lead]
+      description: |
+        What the file's rows are. `lead` — not `person` — is what a bulk
+        prospect file creates: ADR-0008's anti-pollution rule is that machine-
+        sourced rows land as leads and are promoted by a human, and IEM-AC-7
+        asserts it by number (`0 person, N lead`). A file of people already
+        known to the business is imported as leads and promoted, not smuggled
+        past the qualification step by the choice of an enum value.
+
+    ImportColumn:
+      type: object
+      description: One column of the uploaded file, described well enough to map it without opening the file elsewhere.
+      required: [header, fill_rate, samples]
+      properties:
+        header:    { type: string, description: 'The column name as the file spells it.' }
+        fill_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: 'Non-empty values ÷ rows profiled. A column at 0.02 is usually a mapping mistake waiting to happen, and the number is the only way to see that before committing.'
+        samples:
+          type: array
+          maxItems: 3
+          items: { type: string }
+          description: 'Up to three non-empty values, in file order. Values, not statistics — a human recognizes their own data.'
+
+    ImportSourceProfile:
+      type: object
+      description: |
+        What one uploaded file looks like, plus the mapping proposed for it.
+        Nothing here is stored against a run yet: the human may change every
+        line of `suggested_mapping` before `createImportRun` accepts one.
+      required: [source_ref, object, columns, rows_profiled, suggested_mapping, targets]
+      properties:
+        source_ref:    { type: string, description: 'Opaque handle to the stored upload. Supplied verbatim to `createImportRun`; never a path a client can construct.' }
+        object:        { $ref: '#/components/schemas/ImportObject' }
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/ImportColumn' }
+        rows_profiled:
+          type: integer
+          minimum: 0
+          description: 'Rows read to build this profile. May be fewer than the file holds — the profile is a sample, and saying so is what keeps `fill_rate` honest.'
+        suggested_mapping:
+          type: object
+          additionalProperties: { type: string }
+          description: 'Proposed `{source column → target field}`. Normalized-name matches only; an unmatched column is absent rather than guessed.'
+        targets:
+          type: array
+          items: { type: string }
+          description: 'Every field this object can receive, custom fields included — the closed set a mapping may name.'
+
+    CreateImportRunRequest:
+      type: object
+      required: [connector, object, source_ref, mapping]
+      properties:
+        connector:  { type: string, enum: [csv], description: 'The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).' }
+        object:     { $ref: '#/components/schemas/ImportObject' }
+        source_ref: { type: string, description: 'From `uploadImportSource`.' }
+        mapping:
+          type: object
+          additionalProperties: { type: string }
+          description: '`{source column → target field}`, as the human settled it. Validated against the object''s live field catalog before the run is created.'
+        source_key:
+          type: string
+          description: |
+            The source column holding the row's stable id, written to the row's
+            provenance so a re-uploaded file updates rather than duplicates
+            (IEM-AC-9) and an undo can find what one run created (S-E15.4c).
+            Absent means the mapped natural key is used instead; the report
+            says which was chosen rather than leaving it to be inferred.
+
+    ImportRunDisposition:
+      type: object
+      description: What the run will do, or did, counted per outcome. The four sum to the rows read — a disposition that does not add up is hiding something.
+      required: [created, updated, unchanged, skipped]
+      properties:
+        created:   { type: integer, minimum: 0 }
+        updated:   { type: integer, minimum: 0, description: 'Rows matched to an existing record whose mapped values differ. An editable source re-imported after a correction lands here — this is not the frozen-snapshot case, where a match can never differ.' }
+        unchanged: { type: integer, minimum: 0, description: 'Matched, and every mapped value already equal. Counted separately from `updated` because reporting work that never happened inflates both the report and the audit trail.' }
+        skipped:   { type: integer, minimum: 0 }
+
+    ImportRowIssue:
+      type: object
+      description: One row the import could not take, named by its line so a human can go fix it.
+      required: [line, reason]
+      properties:
+        line:   { type: integer, minimum: 1, description: 'The line in the uploaded file, counting the header as line 1.' }
+        column: { type: [string, 'null'], description: 'The offending column, when one is to blame.' }
+        reason: { type: string, description: 'What is wrong, in terms of the file the human uploaded — never a database or driver message.' }
+
+    ImportRunReport:
+      type: object
+      description: |
+        The same shape before and after approval: a dry run reports what the
+        commit will do, a finished run reports what it did.
+      required: [run_id, status, rows_read, disposition, issues, source_key_used]
+      properties:
+        run_id:    { type: string, format: uuid }
+        status:    { $ref: '#/components/schemas/ImportRunStatus' }
+        rows_read: { type: integer, minimum: 0 }
+        disposition: { $ref: '#/components/schemas/ImportRunDisposition' }
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/ImportRowIssue' }
+          description: 'Row-level refusals, enumerated. A file half-ignored under a success message is worse than a refusal.'
+        source_key_used:
+          type: string
+          description: 'Which column identified a row for idempotency — the request''s `source_key`, or the natural key chosen in its absence. Stated because the whole re-run guarantee rests on it.'
+        estimated_duration_seconds:
+          type: [integer, 'null']
+          description: 'A dry run''s estimate for the commit. Null when the run has already finished and the real duration is on the run record.'
+
+    ImportRunStatus:
+      type: string
+      enum: [pending, validating, awaiting_approval, running, complete, failed]
+      description: |
+        IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
+        carries the checkpoint it stopped at, and resuming continues from
+        there rather than re-reading the file from the top.
+
+    ImportRun:
+      type: object
+      required: [id, connector, object, status, checkpoint, source, captured_by, created_at, updated_at]
+      properties:
+        id:         { type: string, format: uuid }
+        connector:  { type: string, enum: [csv, hubspot, salesforce, bundle, mirror], description: 'The two beyond the migrate-in set are the flip''s own sources (OVA-WIRE-8).' }
+        object:     { $ref: '#/components/schemas/ImportObject' }
+        status:     { $ref: '#/components/schemas/ImportRunStatus' }
+        checkpoint: { type: integer, minimum: 0, description: 'Absolute offset into the source''s rows; 0 = not started. What a resume continues from.' }
+        error:      { type: [string, 'null'], description: 'Why a failed run stopped, in the uploader''s terms. Never a driver or SQL message.' }
+        source:      { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
+        created_at:  { type: string, format: date-time }
+        updated_at:  { type: string, format: date-time }
 
     OverlayUserMapEntry:
       type: object
@@ -15438,6 +15833,29 @@ components:
         our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
         risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
 
+    EmailSignature:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: |
+            The sign-off appended below every message this member sends, plain text.
+            Empty means unsigned, which is the state of every member who has not
+            written one.
+        updated_at: { type: [string, 'null'], format: date-time }
+    SaveEmailSignatureRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          description: |
+            Plain text. Empty clears the signature. The cap is what a signature is
+            FOR — a name, a role, a way to reach the sender — and past it a block
+            is a document riding on every message.
+
     LinkedInAccount:
       type: object
       required: [connected, connections]
@@ -16422,6 +16840,14 @@ components:
       properties:
         subject: { type: string }
         body: { type: string, description: The (possibly edited) final body that is sent. }
+        html_body:
+          type: [string, 'null']
+          description: |
+            The same message as markup, or omitted for a plain-text send. It never
+            REPLACES `body`: a message carrying both goes out as multipart/alternative
+            with the plain part first, so a client that cannot render HTML still
+            receives the words. The sender's signature and the unsubscribe footer are
+            appended to BOTH parts by the server, in each part's own syntax.
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
         draft_ref:
@@ -16448,6 +16874,14 @@ components:
       properties:
         subject: { type: string }
         body: { type: string, description: The (possibly edited) final body that is sent. }
+        html_body:
+          type: [string, 'null']
+          description: |
+            The same message as markup, or omitted for a plain-text send. It never
+            REPLACES `body`: a message carrying both goes out as multipart/alternative
+            with the plain part first, so a client that cannot render HTML still
+            receives the words. The sender's signature and the unsubscribe footer are
+            appended to BOTH parts by the server, in each part's own syntax.
         to:
           type: array
           minItems: 1

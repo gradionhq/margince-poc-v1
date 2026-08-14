@@ -682,7 +682,7 @@ function DraftBar({
 // failing. Anything outside this list keeps the server's own message on the
 // modal's generic error line: inventing copy for a condition this surface does
 // not understand would put words in the server's mouth.
-type Refusal = "consent" | "mailbox" | "sharedUnsubscribe" | null;
+export type Refusal = "consent" | "mailbox" | "sharedUnsubscribe" | null;
 
 // The consent gate is a sentinel-mapped 409 and names itself at the top level;
 // the two pre-flight refusals are 422s, where the top-level code is only ever
@@ -690,7 +690,7 @@ type Refusal = "consent" | "mailbox" | "sharedUnsubscribe" | null;
 // server asserted. Matching the field too keeps the copy tied to the input it
 // is about: "reconnect your mailbox" is an answer about `from`, and would be
 // wrong advice if some later rule refused `recipients` under the same code.
-function refusalOf(error: unknown): Refusal {
+export function refusalOf(error: unknown): Refusal {
   if (error instanceof ProblemError && isConsentNotGranted(error.problem)) {
     return "consent";
   }
@@ -711,7 +711,7 @@ function refusalOf(error: unknown): Refusal {
 // grant and the provider will not widen one in place, so reconnecting is the
 // whole fix. And a message carrying an unsubscribe link carries ONE recipient's
 // consent credential, so it may only ever have one addressee.
-function SendRefusal({
+export function SendRefusal({
   refusal,
   personId,
 }: Readonly<{ refusal: Refusal; personId?: string }>) {
@@ -737,7 +737,7 @@ function SendRefusal({
     return (
       <div className="compose-refusal" role="alert">
         <p className="t-body">{t("compose.mailboxNotSendCapable")}</p>
-        <a href="#/settings/integrations" className="link-button">
+        <a href="#/settings/connections" className="link-button">
           {t("compose.mailboxNotSendCapableGoto")}
         </a>
       </div>

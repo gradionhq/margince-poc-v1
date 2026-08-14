@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button, Modal } from "./atoms";
 
@@ -83,6 +83,121 @@ describe("a dialog holds the keyboard", () => {
 
   it("gives focus back to whatever opened it, so the reader keeps their place", async () => {
     render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Open" });
+    await userEvent.click(opener);
+    await userEvent.keyboard("{Escape}");
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
+// The case the plain restore above cannot serve: the dialog's own mutation
+// removes the control that opened it. focus() on a detached node is a silent
+// no-op, so focus lands on <body> and the next Tab restarts at the top of the
+// document — the reader's place is lost by the action succeeding.
+describe("a dialog whose mutation removes its own opener", () => {
+  // The member row shape this exists for: Deactivate is replaced by Reactivate,
+  // and the row survives both.
+  function RowHarness({ named }: Readonly<{ named: boolean }>) {
+    const [open, setOpen] = useState(false);
+    const [off, setOff] = useState(false);
+    const row = useRef<HTMLLIElement | null>(null);
+    return (
+      <ul>
+        <li ref={row} tabIndex={-1}>
+          Ada Active
+          {/* Two slots rather than one ternary, as the member row spells it: a
+              ternary would let React reuse the same <button> node for both, and
+              a reused node is never the detached opener this is about. */}
+          {!off && <Button onClick={() => setOpen(true)}>Deactivate</Button>}
+          {off && <Button onClick={() => setOff(false)}>Reactivate</Button>}
+        </li>
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          labelledBy="row-h"
+          returnFocusTo={named ? () => row.current : undefined}
+        >
+          <h2 id="row-h">Deactivate Ada Active?</h2>
+          <Button
+            onClick={() => {
+              setOff(true);
+              setOpen(false);
+            }}
+          >
+            Confirm
+          </Button>
+        </Modal>
+      </ul>
+    );
+  }
+
+  it("hands focus to the named target once the opener is gone", async () => {
+    render(<RowHarness named />);
+    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    const row = screen.getByRole("listitem");
+    expect(document.activeElement).toBe(row);
+    // Named, not merely "somewhere in the row": the row reads back the member
+    // and the status the confirm just changed, which is why it is the target.
+    expect(row.textContent).toContain("Ada Active");
+  });
+
+  it("drops focus to the document when nothing is named — the failure this fixes", async () => {
+    render(<RowHarness named={false} />);
+    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // Nothing here can honestly take focus back: the opener no longer exists,
+    // which is exactly the state a caller passes returnFocusTo to answer.
+    expect(screen.queryByRole("button", { name: "Deactivate" })).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  function PrecedenceHarness({
+    resolve,
+  }: Readonly<{ resolve: () => HTMLElement | null }>) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>Open</Button>
+        <Button>Elsewhere</Button>
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          labelledBy="prec-h"
+          returnFocusTo={resolve}
+        >
+          <h2 id="prec-h">Confirm</h2>
+          <Button>Confirm</Button>
+        </Modal>
+      </>
+    );
+  }
+
+  // A caller names a target because the mutation unmakes the opener, and the
+  // unmaking usually lands with the refetch a moment AFTER the dialog closes.
+  // Preferring a still-attached opener would restore focus to a button that is
+  // about to be removed, which is the same lost place one tick later.
+  it("prefers the named target over an opener that is still attached", async () => {
+    render(
+      <PrecedenceHarness
+        resolve={() => screen.getByRole("button", { name: "Elsewhere" })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    await userEvent.keyboard("{Escape}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Elsewhere" }),
+    );
+  });
+
+  it("falls back to the opener when the named target is not in the document", async () => {
+    // A resolver can answer with a node the DOM no longer holds — a row the
+    // refetch dropped. Focusing it would be the same silent no-op, so the
+    // opener, which is still there, gets the focus instead.
+    const detached = document.createElement("button");
+    render(<PrecedenceHarness resolve={() => detached} />);
     const opener = screen.getByRole("button", { name: "Open" });
     await userEvent.click(opener);
     await userEvent.keyboard("{Escape}");

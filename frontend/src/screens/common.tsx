@@ -184,7 +184,21 @@ export function QueryStates({
   const t = useT();
   if (query.isPending) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      // Shimmer bars carry no text, so a reader who cannot see them has nothing
+      // at all to go on: `aria-busy` on a status region is what states that this
+      // part of the page is still being fetched rather than empty, and the
+      // visually-hidden line is what gives that state something to SAY. Without
+      // it the region announces a busy nothing — machine-readable and silent.
+      <div
+        role="status"
+        aria-busy="true"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
+        }}
+      >
+        <span className="sr-only">{t("common.loading")}</span>
         <Skeleton width="60%" />
         <Skeleton width="90%" />
         <Skeleton width="75%" />
@@ -194,11 +208,25 @@ export function QueryStates({
   if (query.isError) {
     return (
       <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
-          {problemMessageOf(query.error, t)}
-        </p>
-        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
+        {/* role="alert" — the assertive live region — because this subtree
+            MOUNTS carrying its message: a polite region inserted together with
+            its text is frequently never announced, while an assertive one is
+            announced on insertion, which is why confirmmodal.tsx marks its
+            mutation failure the same way. Headline and cause share ONE region so
+            the reader hears a whole failure rather than two fragments; Retry
+            stays outside it, since a live region reads out its contents and the
+            button is something to reach, not something to hear. */}
+        <div role="alert">
+          <p>{t("common.error")}</p>
+          <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
+            {problemMessageOf(query.error, t)}
+          </p>
+        </div>
+        <Button
+          small
+          onClick={() => query.refetch()}
+          style={{ marginTop: "var(--space-3)" }}
+        >
           {t("common.retry")}
         </Button>
       </EmptyState>

@@ -126,9 +126,9 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled, tier)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true, 'auto_execute')`,
-		id, fx.ws, key)
+		INSERT INTO automation (id, key, name, trigger, action, params, enabled, tier)
+		VALUES ($1, $2, $2, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, true, 'auto_execute')`,
+		id, key)
 	return id
 }
 
@@ -140,9 +140,9 @@ func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner i
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
-		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled, tier)
-		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true, 'auto_execute')`,
-		id, fx.ws, key, owner)
+		INSERT INTO automation (id, key, name, trigger, action, params, owner_id, enabled, tier)
+		VALUES ($1, $2, $2, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $3, true, 'auto_execute')`,
+		id, key, owner)
 }
 
 // seedRun inserts one recorded firing for the automation, linked the way
@@ -154,9 +154,9 @@ func (fx *autoFixture) seedRun(t *testing.T, automationID ids.AutomationID, key,
 	t.Helper()
 	id := ids.NewV7()
 	fx.exec(t, `
-		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, status, detail, created_at)
-		VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6, $7, $8)`,
-		id, fx.ws, key, fmt.Sprintf("%s:%s@%s", key, id, automationID), ids.NewV7(), status, detail, at)
+		INSERT INTO workflow_run (id, handler, idempotency_key, trigger_event, planned, status, detail, created_at)
+		VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6, $7)`,
+		id, key, fmt.Sprintf("%s:%s@%s", key, id, automationID), ids.NewV7(), status, detail, at)
 }
 
 // scriptedWorkflow lets each engine test case pin one phase's behavior.
@@ -213,7 +213,7 @@ type recordedRun struct {
 func (fx *autoFixture) runsByHandler(t *testing.T) map[string]recordedRun {
 	t.Helper()
 	rows, err := fx.owner.Query(context.Background(),
-		`SELECT handler, status, detail, planned::text FROM workflow_run WHERE workspace_id = $1`, fx.ws)
+		`SELECT handler, status, detail, planned::text FROM workflow_run`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -60,6 +60,23 @@ type unitManifest struct {
 	// the tree predates this field, so an unconditional key would rewrite
 	// every one of them for a field they do not use.
 	Secrets []secretsRequest `json:"secrets,omitempty"`
+
+	// Subscriptions are the events the unit listens for (see
+	// extension.Subscription). They carry no tier and no scope — a listener has
+	// nothing an operator RESOLVES — so they sit apart from RiskTiers, and what
+	// they record is REACH: which of the installation's facts this unit
+	// consumes, readable without opening its source. omitempty for the reason
+	// Secrets has it: every manifest already in the tree predates the field.
+	Subscriptions []subscriptionRequest `json:"subscriptions,omitempty"`
+
+	// Ingress are the providers the unit brings records IN from (see
+	// extension.IngressSource). Like a subscription it carries no tier and no
+	// scope, and what it records is reach — but reach that leaves a permanent
+	// mark: the declared system becomes half of every landed record's
+	// provenance, so this list is also how an operator reads a timeline entry
+	// back to the unit that produced it. omitempty for the reason the two
+	// fields above have it.
+	Ingress []ingressSource `json:"ingress,omitempty"`
 }
 
 // secretsRequest is one declared secret key and scope (see
@@ -68,6 +85,23 @@ type unitManifest struct {
 type secretsRequest struct {
 	Key   string `json:"key"`
 	Scope string `json:"scope"`
+}
+
+// subscriptionRequest is one declared listener: its name and the event types it
+// wants, both sorted so the encoding does not depend on declaration order. The
+// handler is absent by design — it is behavior, and this file is read without
+// compiling the unit.
+type subscriptionRequest struct {
+	Name   string   `json:"name"`
+	Events []string `json:"events"`
+}
+
+// ingressSource is one declared provider a unit lands records from: the unit's
+// own key for it and the record kinds it produces, both sorted so the encoding
+// does not depend on declaration order.
+type ingressSource struct {
+	System string   `json:"system"`
+	Lands  []string `json:"lands"`
 }
 
 // riskTierRequest is one governed operation and the risk tier it requests,

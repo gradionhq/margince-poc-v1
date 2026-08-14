@@ -35,13 +35,13 @@ const (
 // than a failure.
 var ErrTerminal = errors.New("comms: delivery is already terminal")
 
-// ErrDuplicateMessage marks a second staging of a message identity this
-// workspace already staged. It is the (workspace_id, message_id) idempotency
-// key answering, phrased so the caller learns what to do without learning what
-// the database is called: a wrapped pgx violation carries the constraint and
-// table names, and a client is owed neither.
+// ErrDuplicateMessage marks a second staging of a message identity already
+// staged. It is the message_id idempotency key answering, phrased so the
+// caller learns what to do without learning what the database is called: a
+// wrapped pgx violation carries the constraint and table names, and a client
+// is owed neither.
 var ErrDuplicateMessage = fmt.Errorf(
-	"comms: this message identity is already staged for delivery in this workspace: %w", apperrors.ErrConflict)
+	"comms: this message identity is already staged for delivery: %w", apperrors.ErrConflict)
 
 // ErrNoAddressee marks a delivery staged with nobody to reach. A message with
 // neither a To nor a Cc address can only be refused later — the consent gate
@@ -95,6 +95,14 @@ type StageInput struct {
 	Cc         []string
 	Subject    string
 	Body       string // unsubscribe footer already applied
+	// HTMLBody is the same message as markup, NULL for a plain-text send. It
+	// never replaces Body: a retry rebuilds the message from this snapshot, so
+	// a shape stored here is the shape that goes out.
+	HTMLBody string
+	// FromName is the sender's display name at the moment of staging. Empty
+	// sends a bare address, which is what every message did before the name
+	// was available.
+	FromName string
 	// Attachments is the set this message will carry, snapshotted at staging.
 	// The dispatcher asks the resolved channel whether it can carry them before
 	// anything reaches the wire.
@@ -148,14 +156,14 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
-		  (id, workspace_id, activity_id, user_id, provider, message_id,
-		   recipients, cc, subject, body, consent_purpose, in_reply_to,
+		  (id, activity_id, user_id, provider, message_id,
+		   recipients, cc, subject, body, html_body, from_name, consent_purpose, in_reply_to,
 		   references_chain, thread_key, list_unsubscribe, status, created_at, attachments)
-		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5,
-		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
-		        NULLIF($14,''), 'pending', $15, $16)`,
+		VALUES ($1, $2, $3, $4, $5,
+		        $6, $7, $8, $9, NULLIF($10,''), NULLIF($11,''), $12, NULLIF($13,''), $14,
+		        NULLIF($15,''), NULLIF($16,''), 'pending', $17, $18)`,
 		id, in.ActivityID, userID, in.Provider, in.MessageID,
-		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
+		recipients, cc, in.Subject, in.Body, in.HTMLBody, in.FromName, in.ConsentPurpose,
 		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC(), files); err != nil {
 		// The idempotency key is an ANSWER, and it is mapped rather than
 		// wrapped: a raw violation carries the constraint and table names, and
@@ -233,12 +241,13 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			 WHERE id = $1 AND status = 'pending'
 			RETURNING id, activity_id, user_id, provider, coalesce(message_id, ''),
 			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
-			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
+			          coalesce(subject, ''), body, coalesce(html_body, ''), coalesce(from_name, ''),
+			          channel_user_id, consent_purpose,
 			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
 			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at,
 			          attachments`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
-			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
+			&recipients, &cc, &d.Subject, &d.Body, &d.HTMLBody, &d.FromName, &d.ChannelUserID, &d.ConsentPurpose,
 			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt,
 			&files)
 	})

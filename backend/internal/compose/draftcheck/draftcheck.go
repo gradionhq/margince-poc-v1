@@ -174,7 +174,11 @@ func Reasoning(labels []string, lang textlang.Lang, band convstate.Band) []Findi
 				})
 			}
 		}
-		findings = append(findings, Body(label, lang, band)...)
+		// A chip is checked as an unthreaded body whatever the draft beside it
+		// is. It is the product's own claim about what it wrote from, so a call
+		// named there is asserted by us rather than echoed from the
+		// counterparty's message — the reply surface's ground does not reach it.
+		findings = append(findings, Body(label, lang, band, false)...)
 	}
 	return findings
 }
@@ -231,11 +235,20 @@ var resolvedEvent = map[textlang.Lang][]string{
 
 // Body reads a draft body against the state it was written in.
 //
-// Nothing is checked at band fresh except the pleasantries: a live exchange may
-// legitimately say "as discussed", because the discussion is what both sides
-// are still holding. The same words at weeks or months are a claim about the
-// recipient's memory that nobody made.
-func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
+// Two lists ignore the band and the rest are gated by it, and the split is the
+// point. "As discussed" is a claim about the recipient's MEMORY, which a live
+// exchange supports and eight months of silence does not — so it is gated. A
+// call that never happened, or a sentence the recipient never said, is a claim
+// about the WORLD, and no length of silence makes it true or false.
+//
+// threaded is what those two ARE gated on instead, and it is a different
+// question from the band. A reply is written from the counterparty's own
+// message: if they wrote "as I mentioned on our call", a reply that answers the
+// call they named is grounded in text the drafter can actually see. A message
+// opening a new conversation has no such ground — whatever it says about a
+// call, it invented. So the world-claim rules run on unthreaded drafts, where
+// the claim cannot be sourced, and stand down on replies, where it can.
+func Body(body string, lang textlang.Lang, band convstate.Band, threaded bool) []Finding {
 	lowered := strings.ToLower(body)
 	var findings []Finding
 
@@ -252,6 +265,18 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 		}
 	}
 
+	if !threaded {
+		findings = append(findings, firstMatch(lowered, spokenExchange[lang],
+			"invented-conversation",
+			"this message opens a new conversation, so nothing in the input says a "+
+				"call or meeting took place — write from the messages on the record")...)
+
+		findings = append(findings, firstMatch(lowered, attributedClaim[lang],
+			"attributed-claim",
+			"the input says what a message was about, never who wrote it — "+
+				"name the topic instead of attributing it to the recipient")...)
+	}
+
 	if lang == textlang.German && mixedRegister(body) {
 		findings = append(findings, Finding{
 			Rule:   "mixed-register",
@@ -260,6 +285,15 @@ func Body(body string, lang textlang.Lang, band convstate.Band) []Finding {
 				"familiarly in another — pick the one the correspondence uses and hold it",
 		})
 	}
+
+	return append(findings, bandGated(lowered, lang, band)...)
+}
+
+// bandGated are the rules the length of the silence decides — every one of them
+// a claim about what the recipient still has in mind, which a live exchange
+// supports and a long gap does not.
+func bandGated(lowered string, lang textlang.Lang, band convstate.Band) []Finding {
+	var findings []Finding
 
 	if band == convstate.BandNone {
 		for _, phrase := range invention[lang] {
@@ -379,108 +413,17 @@ func boundary(text string, i int) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\''
 }
 
-// SubjectMaxRunes is where a subject line stops being read.
+// firstMatch reports the first phrase of a list the text carries, as one
+// finding or none.
 //
-// Mail clients truncate around here, and a subject that needs more than this
-// is a first sentence rather than a label. The number is the conventional one
-// rather than any client's exact cut, because every client's differs and the
-// point is to stay short of all of them.
-const SubjectMaxRunes = 70
-
-// replyPrefixes are the ways a client marks a subject as a reply, in the
-// languages this product writes.
-var replyPrefixes = []string{"re:", "aw:", "fwd:", "wg:", "antw:"}
-
-// Subject reads a draft's subject line against the correspondence it belongs to.
-//
-// Separate from Body because a subject fails differently: it is one line, it is
-// read before anything else, and its worst failure is a claim rather than a
-// phrase. "Re:" says a thread exists. A follow-up subject says there was a
-// previous message. Both are checkable facts the envelope already holds, which
-// is why they are refused here rather than explained in a prompt.
-func Subject(subject string, lang textlang.Lang, band convstate.Band, threaded bool) []Finding {
-	trimmed := strings.TrimSpace(subject)
-	lowered := strings.ToLower(trimmed)
-	var findings []Finding
-
-	if trimmed == "" {
-		return []Finding{{
-			Rule:   "empty-subject",
-			Phrase: "",
-			Why:    "a message with no subject line arrives looking like spam",
-		}}
-	}
-
-	for _, prefix := range replyPrefixes {
-		if !strings.HasPrefix(lowered, prefix) {
-			continue
-		}
-		if !threaded {
-			findings = append(findings, Finding{
-				Rule:   "unearned-reply-prefix",
-				Phrase: strings.TrimSuffix(prefix, ":"),
-				Why: "there is no inbound thread with this subject, so the prefix claims " +
-					"a message that was never received",
-			})
-		}
-		break
-	}
-
-	// A follow-up subject at band none says there was something before this.
-	// There was not: this is the first message.
-	if band == convstate.BandNone {
-		for _, phrase := range append(append([]string{},
-			assumedMemory[lang]...), firstTouchSubjects[lang]...) {
-			if contains(lowered, phrase) {
-				findings = append(findings, Finding{
-					Rule:   "invented-history-subject",
-					Phrase: phrase,
-					Why:    "this is a first message, so the subject cannot refer back to anything",
-				})
-				break
-			}
+// One rather than all, because the finding is fed back to the model as a
+// correction and a list of six ways it said the same wrong thing is not six
+// corrections. The first is enough to name what to stop doing.
+func firstMatch(lowered string, phrases []string, rule, why string) []Finding {
+	for _, phrase := range phrases {
+		if contains(lowered, phrase) {
+			return []Finding{{Rule: rule, Phrase: phrase, Why: why}}
 		}
 	}
-
-	if n := len([]rune(trimmed)); n > SubjectMaxRunes {
-		findings = append(findings, Finding{
-			Rule:   "long-subject",
-			Phrase: trimmed[:40] + "…",
-			Why: "a subject this long is truncated by the client that shows it, so the " +
-				"part that carries the meaning may never be read",
-		})
-	}
-	return findings
-}
-
-// firstTouchSubjects are the subject-line formulas that imply a previous
-// message. They overlap the body's assumed-memory list and are not the same:
-// a subject is a label, so "Follow-up" alone is a claim there where it needs a
-// sentence around it to be one in prose.
-var firstTouchSubjects = map[textlang.Lang][]string{
-	textlang.English:    {"follow-up", "follow up", "checking in", "touching base", "reminder"},
-	textlang.German:     {"nachfassen", "nachfrage", "erinnerung", "wiedervorlage"},
-	textlang.Vietnamese: {"nhắc lại", "tiếp theo"},
-}
-
-// Feedback turns findings into the correction a regeneration prompt carries.
-// One line per finding, naming the phrase and why it is wrong here, because a
-// model told only "try again" produces the same draft with different adjectives.
-func Feedback(findings []Finding) string {
-	if len(findings) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n\nThe previous draft was rejected. Rewrite it, and this time:\n")
-	for _, f := range findings {
-		b.WriteString("- Do not write \"" + f.Phrase + "\" or any synonym of it. " + f.Why + ".\n")
-	}
-	// A correction that only says what to delete gets the nearest synonym back:
-	// told to drop "circling back", the model returns "checking in", which is
-	// the same sentence. So the retry is told what to WRITE — a message with a
-	// reason to exist does not need a re-contact formula at all.
-	b.WriteString("Open on the substance instead. Name what the message is about " +
-		"in your own words and ask one question they can answer. A message that " +
-		"opens on why you are writing needs no phrase for the act of writing.\n")
-	return b.String()
+	return nil
 }

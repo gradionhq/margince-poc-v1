@@ -108,9 +108,9 @@ func seedVoiceProfile(t *testing.T, owner *pgx.Conn, workspace, ownerUser ids.UU
 	t.Helper()
 	var profile ids.UUID
 	if err := owner.QueryRow(context.Background(), `
-		INSERT INTO voice_profile (workspace_id, owner_id, scope, status, source, captured_by)
-		VALUES ($1, $2, 'user', 'ready', 'ui', $3) RETURNING id`,
-		workspace, ownerUser, "human:"+ownerUser.String()).Scan(&profile); err != nil {
+		INSERT INTO voice_profile (owner_id, scope, status, source, captured_by)
+		VALUES ($1, 'user', 'ready', 'ui', $2) RETURNING id`,
+		ownerUser, "human:"+ownerUser.String()).Scan(&profile); err != nil {
 		t.Fatalf("seeding the voice profile: %v", err)
 	}
 	return profile
@@ -126,10 +126,10 @@ func (e *voiceSendEnv) openDraft(t *testing.T) voiceDraft {
 	hash := sha256.Sum256([]byte(draft.ref))
 	if err := e.owner.QueryRow(context.Background(), `
 		INSERT INTO voice_learning_signal
-		  (workspace_id, voice_profile_id, draft_ref_hash, outcome, generated_original,
+		  (voice_profile_id, draft_ref_hash, outcome, generated_original,
 		   retention_until, source, captured_by)
-		VALUES ($1, $2, $3, 'drafted', $4, $5, 'draft', $6) RETURNING id`,
-		e.WS, draft.profile, hash[:], voiceDraftBody,
+		VALUES ($1, $2, 'drafted', $3, $4, 'draft', $5) RETURNING id`,
+		draft.profile, hash[:], voiceDraftBody,
 		time.Now().UTC().Add(180*24*time.Hour), "human:"+e.Rep1.String()).Scan(&draft.signal); err != nil {
 		t.Fatalf("seeding the drafted learning signal: %v", err)
 	}

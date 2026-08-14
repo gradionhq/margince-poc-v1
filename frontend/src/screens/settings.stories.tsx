@@ -13,19 +13,24 @@ import {
   StoryProviders,
 } from "./story-utils";
 
-// The settings tab layout (section nav + the active tab's cards) across its
-// real tabs. Each story installs the fetch stub the tab's cards read through,
-// so the render is deterministic and network-free — the same fixture shapes
-// the settings.test.tsx cases use.
+// The settings entries and the cards each one carries. Every story installs the
+// fetch stub those cards read through, so the render is deterministic and
+// network-free — the same fixture shapes the settings.test.tsx cases use.
+//
+// An organization entry is only reachable when the principal holds what its
+// cards ask for, and SettingsScreen falls back to Account for anything else. So
+// a story about such an entry has to name its grants: `me({...})` builds the
+// /me body that opens the entry the story is capturing.
 
-const me = () =>
-  jsonResponse({
-    // id matches the audit fixture's human actor so the AuditTab story reads
-    // "You" for the viewer's own entry (AuditEntryLine resolves it via meUserId).
-    user: { id: "u-mor", email: "ada@acme.test" },
-    roles: ["admin"],
-    teams: [],
-  });
+const me =
+  (allow: GrantSpec = {}) =>
+  () =>
+    jsonResponse({
+      ...meFixture({ roles: ["admin"], allow }),
+      // id matches the audit fixture's human actor so the Privacy story reads
+      // "You" for the viewer's own entry (ActorTag resolves it via meUserId).
+      user: { ...meFixture().user, id: "u-mor", email: "ada@acme.test" },
+    });
 
 const passports = () =>
   jsonResponse({
@@ -44,7 +49,8 @@ const passports = () =>
 
 // IT-1 governed tool console: two tools of differing tier/egress, plus a
 // read-only passport so the play() below can show the send_email row dim
-// (its "send" scope isn't in the selected passport's grant).
+// (its "send" scope isn't in the selected passport's grant). Both live on the
+// personal "Your agents" entry, which no grant gates.
 const tools = () =>
   jsonResponse({
     data: [
@@ -108,14 +114,14 @@ export default meta;
 type Story = StoryObj<typeof SettingsScreen>;
 
 export const AccountTab: Story = {
-  render: tab("account", { "GET /me": me }),
+  render: tab("account", { "GET /me": me() }),
 };
 
 // Theme and language sit on this tab because they belong to the person, not to
 // the sidebar. The play() opens the language listbox so the capture carries the
 // options rather than only the control's closed face.
 export const AccountPreferences: Story = {
-  render: tab("account", { "GET /me": me }),
+  render: tab("account", { "GET /me": me() }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
@@ -124,16 +130,18 @@ export const AccountPreferences: Story = {
   },
 };
 
-export const AiTab: Story = {
-  render: tab("ai", { "GET /me": me, "GET /passports": passports }),
+// The person's own agent authority: the autonomy table, the passports they have
+// minted, the clients holding one, and the tools those credentials reach.
+export const AgentsTab: Story = {
+  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
 };
 
-// AS-2 kill-switch: PassportCard (on the AI tab) revoke is a hard DELETE
-// behind a ConfirmModal. Mirrors share.stories' revoke play() — render the
-// card with a live (non-revoked) passport, click Revoke, leave the confirm
-// modal open so the guarded state is what the render gate captures.
+// AS-2 kill-switch: PassportCard revoke is a hard DELETE behind a ConfirmModal.
+// Mirrors share.stories' revoke play() — render the card with a live
+// (non-revoked) passport, click Revoke, leave the confirm modal open so the
+// guarded state is what the render gate captures.
 export const PassportRevokeConfirm: Story = {
-  render: tab("ai", { "GET /me": me, "GET /passports": passports }),
+  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const revokeButton = await canvas.findByRole("button", { name: "Revoke" });
@@ -145,9 +153,9 @@ export const PassportRevokeConfirm: Story = {
 // then dims the send_email row once the read-only "Scout" passport (whose
 // only granted scope is "read") is selected — its required "send" scope
 // is absent from that grant.
-export const AiToolConsole: Story = {
-  render: tab("ai", {
-    "GET /me": me,
+export const AgentToolConsole: Story = {
+  render: tab("agents", {
+    "GET /me": me(),
     "GET /passports": passports,
     "GET /agent-tools": tools,
   }),
@@ -164,23 +172,29 @@ export const AiToolConsole: Story = {
   },
 };
 
-export const DataTab: Story = {
-  render: tab("data", { "GET /me": me }),
+// The shape a record takes, on one page: the field editor, the pipeline
+// designer, the product list and the offer templates. The four surfaces used to
+// be three separate screens behind door-cards, and the doors are gone.
+//
+// The custom_field READ is what opens the entry — opening a page is reading it,
+// and `meFixture` grants only the verbs named here. A write-only fixture reaches
+// no entry at all and the story silently captures the Account fallback instead,
+// which is exactly what it did: nothing asserts on a story, so the gates stayed
+// green while the picture was of the wrong page. The writes stay so the builder
+// and the row actions render.
+export const DataModelTab: Story = {
+  render: tab("data-model", {
+    "GET /me": me({ custom_field: ["read", "create", "update"] }),
+  }),
 };
 
-export const CatalogTab: Story = {
-  render: tab("catalog", { "GET /me": me }),
-};
-
+// The consent registry and the audit trail on one page: the trail is what proves
+// the surfaces above it were honoured, so it moved here from a tab of its own.
 export const PrivacyTab: Story = {
-  render: tab("privacy", { "GET /me": me }),
+  render: tab("privacy", { "GET /me": me(), "GET /audit-log": auditLog }),
 };
 
-export const AuditTab: Story = {
-  render: tab("audit", { "GET /me": me, "GET /audit-log": auditLog }),
-};
-
-// PipelinesCard (D-8, on the Catalog tab) reads GET /me (roles →
+// PipelinesCard (D-8, on the Data model entry) reads GET /me (roles →
 // pipeline grant) and GET /pipelines. Rendered directly here so
 // the admin write affordances vs the rep read-only state each get a story.
 const pipelinesFixture = {

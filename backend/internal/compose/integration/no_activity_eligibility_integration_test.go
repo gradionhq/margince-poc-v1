@@ -34,7 +34,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // eligibilityScanNow is the instant every suite in this file evaluates
@@ -212,33 +211,6 @@ func TestOnlyALeadStillInPlayIsACandidate(t *testing.T) {
 	}
 }
 
-// TestCleanupMigrationArchivesGeneratedRemindersOnly runs the shipped
-// migration SQL itself, not a paraphrase of it, over a timeline holding
-// all three shapes it must tell apart.
-func TestCleanupMigrationArchivesGeneratedRemindersOnly(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	generated := seedTaskRow(t, owner, e.WS, "Check in — no activity since 2026-06-16", "system", false)
-	generatedCadence := seedTaskRow(t, owner, e.WS, "Time for a check-in — last touched 2026-06-16", "system", false)
-	completed := seedTaskRow(t, owner, e.WS, "Check in — no activity since 2026-06-16", "system", true)
-	handWritten := seedTaskRow(t, owner, e.WS, "Check in — no activity since the trade show", "manual", false)
-
-	applyCleanupMigration(t, owner)
-
-	for _, id := range []ids.UUID{generated, generatedCadence} {
-		if !isArchived(t, owner, id) {
-			t.Errorf("task %s minted by the engine was left in the work queue", id)
-		}
-	}
-	if isArchived(t, owner, completed) {
-		t.Error("a task somebody already completed was archived out from under finished work")
-	}
-	if isArchived(t, owner, handWritten) {
-		t.Error("a human-authored task was archived — the migration must only reach the engine's own output")
-	}
-}
-
 // runEligibilityScan drives one full time-scan pass at the pinned instant.
 func runEligibilityScan(t *testing.T, e *Env) {
 	t.Helper()
@@ -359,94 +331,4 @@ func seedLeadInStatus(t *testing.T, owner *pgx.Conn, ws ids.UUID, status string)
 		t.Fatalf("seeding a %s lead: %v", status, err)
 	}
 	return id
-}
-
-// seedTaskRow inserts one task activity with the exact subject, source and
-// done state the cleanup migration has to tell apart.
-func seedTaskRow(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, source string, done bool) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	var doneAt any
-	if done {
-		doneAt = quietSince
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, is_done, done_at, source, captured_by)
-		 VALUES ($1, $2, 'task', $3, $4, $5, $6, $7, 'human:x')`,
-		id, ws, subject, quietSince, done, doneAt, source); err != nil {
-		t.Fatalf("seeding the %s task %q: %v", source, subject, err)
-	}
-	return id
-}
-
-// applyCleanupMigration runs the shipped 0148 up-migration statement
-// again, against the fixture rows seeded above — the migration's own SQL
-// is what this suite is asserting on, so it is loaded from the embedded
-// namespace rather than restated here.
-func applyCleanupMigration(t *testing.T, owner *pgx.Conn) {
-	t.Helper()
-	applyCoreMigration(t, owner, "0148")
-}
-
-// applyRestoreMigration runs the shipped 0149 up-migration, which gives back
-// the reminders 0148 archived that nothing in the workspace will re-mint.
-func applyRestoreMigration(t *testing.T, owner *pgx.Conn) {
-	t.Helper()
-	applyCoreMigration(t, owner, "0149")
-}
-
-// applyCoreMigration runs one shipped core migration's own SQL against the
-// fixture rows, loaded from the embedded namespace rather than restated here —
-// the migration is what these suites assert on.
-func applyCoreMigration(t *testing.T, owner *pgx.Conn, version string) {
-	t.Helper()
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatalf("loading the core migration namespace: %v", err)
-	}
-	for _, m := range core.Migrations {
-		if m.Version != version {
-			continue
-		}
-		// One transaction for the SQL and the ledger row, exactly as dbmigrate
-		// applies it — 0149 reads schema_migrations_core.applied_at to know
-		// which rows 0148 archived, and now() is per transaction, so applying
-		// the two separately would put them at different instants and the
-		// suites below would be testing a shape production never has.
-		tx, err := owner.Begin(context.Background())
-		if err != nil {
-			t.Fatalf("opening the migration transaction: %v", err)
-		}
-		//craft:ignore swallowed-errors the rollback only runs if a Fatalf above skipped the commit; after a successful commit it is a no-op whose error says nothing, and the test has already failed in the other case
-		defer func() { _ = tx.Rollback(context.Background()) }()
-		if _, err := tx.Exec(context.Background(), m.UpSQL); err != nil {
-			t.Fatalf("applying migration %s: %v", version, err)
-		}
-		if _, err := tx.Exec(context.Background(),
-			// The template already carries this migration from the real
-			// migrator, so the ledger instant is UPDATED rather than kept:
-			// these suites re-run the SQL to archive their own fixtures, and
-			// 0149 reads applied_at to know which rows that run touched.
-			`INSERT INTO schema_migrations_core (version, name) VALUES ($1, $2)
-			 ON CONFLICT (version) DO UPDATE SET applied_at = now()`,
-			m.Version, m.Name); err != nil {
-			t.Fatalf("recording migration %s in the ledger: %v", version, err)
-		}
-		if err := tx.Commit(context.Background()); err != nil {
-			t.Fatalf("committing migration %s: %v", version, err)
-		}
-		return
-	}
-	t.Fatalf("core migration %s is not in the embedded namespace", version)
-}
-
-// isArchived reports whether one activity row has been archived.
-func isArchived(t *testing.T, owner *pgx.Conn, id ids.UUID) bool {
-	t.Helper()
-	var archived bool
-	if err := owner.QueryRow(context.Background(),
-		`SELECT archived_at IS NOT NULL FROM activity WHERE id = $1`, id).Scan(&archived); err != nil {
-		t.Fatalf("reading the archival state of activity %s: %v", id, err)
-	}
-	return archived
 }

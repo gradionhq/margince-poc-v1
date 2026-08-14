@@ -29,6 +29,7 @@ const (
 	DealRestored              SubscribableEventType = "deal.restored"
 	DealStageChanged          SubscribableEventType = "deal.stage_changed"
 	DealUpdated               SubscribableEventType = "deal.updated"
+	EmailSignatureChanged     SubscribableEventType = "email_signature.changed"
 	EngagementReply           SubscribableEventType = "engagement.reply"
 	IncumbentConnected        SubscribableEventType = "incumbent.connected"
 	IncumbentDisconnected     SubscribableEventType = "incumbent.disconnected"
@@ -124,6 +125,8 @@ func (e SubscribableEventType) Valid() bool {
 	case DealStageChanged:
 		return true
 	case DealUpdated:
+		return true
+	case EmailSignatureChanged:
 		return true
 	case EngagementReply:
 		return true
@@ -449,6 +452,12 @@ type PublicEventDealStageChanged struct {
 type PublicEventDealUpdated struct {
 	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// PublicEventEmailSignatureChanged Payload for email_signature.changed — a member wrote, edited or cleared the sign-off appended to every message they send (people/emailsignature.go's SaveMyEmailSignature). How a person is represented on outbound mail is a fact worth answering later, so the change is audited and published rather than written quietly. The signature TEXT is NOT in the payload: it is the member's own words about themselves, often carrying a direct line or an address, and a subscriber needs to know the sign-off moved rather than what it says.
+type PublicEventEmailSignatureChanged struct {
+	// HasSignature Whether mail from this member now carries a sign-off. False after a member empties the field, which is a deliberate "send unsigned".
+	HasSignature bool `json:"has_signature"`
 }
 
 // PublicEventEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sinkreply.go's emitReply).
@@ -1280,6 +1289,10 @@ func (PublicEventDealUpdated) EventType() string { return "deal.updated" }
 
 func (PublicEventDealUpdated) EntityType() string { return "deal" }
 
+func (PublicEventEmailSignatureChanged) EventType() string { return "email_signature.changed" }
+
+func (PublicEventEmailSignatureChanged) EntityType() string { return "user" }
+
 func (PublicEventEngagementReply) EventType() string { return "engagement.reply" }
 
 func (PublicEventEngagementReply) EntityType() string { return "activity" }
@@ -1524,6 +1537,7 @@ var PublicEventVersions = map[string]int{
 	"deal.restored":                1,
 	"deal.stage_changed":           1,
 	"deal.updated":                 1,
+	"email_signature.changed":      1,
 	"engagement.reply":             1,
 	"incumbent.connected":          1,
 	"incumbent.disconnected":       1,

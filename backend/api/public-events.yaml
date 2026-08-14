@@ -69,6 +69,7 @@ components:
         - activity.updated
         - engagement.reply
         - consent.changed
+        - email_signature.changed
         - linkedin_account.changed
         - linkedin_network.imported
         - linkedin_match.decided
@@ -1242,6 +1243,30 @@ components:
         new_state:
           type: string
           description: The state now on record (granted | withdrawn).
+      additionalProperties: false
+
+    PublicEventEmailSignatureChanged:
+      type: object
+      x-event-type: email_signature.changed
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for email_signature.changed — a member wrote, edited or cleared
+        the sign-off appended to every message they send
+        (people/emailsignature.go's SaveMyEmailSignature). How a person is
+        represented on outbound mail is a fact worth answering later, so the
+        change is audited and published rather than written quietly. The
+        signature TEXT is NOT in the payload: it is the member's own words about
+        themselves, often carrying a direct line or an address, and a subscriber
+        needs to know the sign-off moved rather than what it says.
+      required:
+        - has_signature
+      properties:
+        has_signature:
+          type: boolean
+          description: >-
+            Whether mail from this member now carries a sign-off. False after a
+            member empties the field, which is a deliberate "send unsigned".
       additionalProperties: false
 
     PublicEventLinkedinAccountChanged:

@@ -142,9 +142,9 @@ func TestMergeWithdrawalCarriesAConsentProofEvent(t *testing.T) {
 	srcID, tgtID := PersonIDOf(ids.UUID(src.Id)), PersonIDOf(ids.UUID(tgt.Id))
 
 	purpose := ids.NewV7()
-	e.WsExec(t, `INSERT INTO consent_purpose (id, workspace_id, key, label) VALUES ($1, $2, 'marketing_email', 'Marketing')`, purpose, e.WS)
-	e.WsExec(t, `INSERT INTO person_consent (id, workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, $4, 'withdrawn')`, ids.NewV7(), e.WS, srcID, purpose)
-	e.WsExec(t, `INSERT INTO person_consent (id, workspace_id, person_id, purpose_id, state) VALUES ($1, $2, $3, $4, 'granted')`, ids.NewV7(), e.WS, tgtID, purpose)
+	e.WsExec(t, `INSERT INTO consent_purpose (id, key, label) VALUES ($1, 'marketing_email', 'Marketing')`, purpose)
+	e.WsExec(t, `INSERT INTO person_consent (id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'withdrawn')`, ids.NewV7(), srcID, purpose)
+	e.WsExec(t, `INSERT INTO person_consent (id, person_id, purpose_id, state) VALUES ($1, $2, $3, 'granted')`, ids.NewV7(), tgtID, purpose)
 
 	if _, err := e.People.MergePerson(admin, srcID, tgtID); err != nil {
 		t.Fatalf("merge: %v", err)

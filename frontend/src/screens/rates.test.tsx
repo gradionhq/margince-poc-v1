@@ -11,11 +11,14 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
-import { RatesScreen } from "./rates";
+import { FxRatesCard, ModelCostsCard } from "./rates";
 
-// The rates editor renders both price sheets read-only for any role that
-// reaches the tab, and shows the write affordances (Set rate / Add model
-// rate) only for admin/ops — the server stays the authority regardless.
+// Each price sheet has three honest states, and a grant picks which one:
+// WITHHELD without the object's read grant (fx_rate and ai_model_rate are
+// admin/ops-only, so most roles land here), READ-ONLY with the read but no
+// upsert — the table plus one caption, write affordances simply absent — and
+// EDITABLE with a write verb on a full seat. The server stays the authority
+// regardless; these cases pin what the card SAYS.
 
 afterEach(() => {
   cleanup();
@@ -34,9 +37,19 @@ function jsonResponse(body: unknown, status = 200) {
 // either write grant and then demands the specific one inside the transaction,
 // so each card asks the same union — hence a `create`-only fixture and an
 // `update`-only one both have to open the card they name.
+//
+// The read rides along in every write fixture because the two are separate
+// grants and the card asks for each: a rate-setter who could not read the sheet
+// would get the withheld card, and there would be no table to assert against.
 const RATE_SETTER: GrantSpec = {
-  fx_rate: ["create"],
-  ai_model_rate: ["create"],
+  fx_rate: ["read", "create"],
+  ai_model_rate: ["read", "create"],
+};
+
+// Read on both objects, no write verb anywhere: the read-only state.
+const RATE_READER: GrantSpec = {
+  fx_rate: ["read"],
+  ai_model_rate: ["read"],
 };
 
 // The card a heading names, so an affordance can be attributed to ONE sheet.
@@ -51,11 +64,15 @@ function rateCard(title: string): HTMLElement {
   return card;
 }
 
-function ratesBackend(allow: GrantSpec) {
+// Every URL the cards asked for. A withheld card's defining property is that it
+// requests NOTHING — a settled denial needs no round trip to be rendered — and
+// no assertion about the DOM can show that; only the call log can.
+function ratesBackend(allow: GrantSpec, seat: "full" | "read", urls: string[]) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
+    urls.push(url);
     if (url.endsWith("/v1/me")) {
-      return jsonResponse(meFixture({ allow }));
+      return jsonResponse(meFixture({ allow, seat }));
     }
     if (url.includes("/v1/fx-rates")) {
       return jsonResponse({
@@ -99,14 +116,36 @@ function render(ui: ReactNode) {
   );
 }
 
-describe("RatesScreen", () => {
+// The two sheets are on different settings pages now (FX under Organization,
+// model prices under AI). They are rendered as a pair here because one fixture
+// backend answers both, and every case below asserts on one of them alone.
+function RateSheets() {
+  return (
+    <>
+      <FxRatesCard />
+      <ModelCostsCard />
+    </>
+  );
+}
+
+// One mount, and the request log it produced.
+function mount(
+  allow: GrantSpec,
+  seat: "full" | "read" = "full",
+): { urls: string[] } {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", ratesBackend(allow, seat, urls));
+  render(<RateSheets />);
+  return { urls };
+}
+
+describe("the rate sheets", () => {
   beforeEach(() => {
     globalThis.localStorage?.setItem("margince.workspaceSlug", "acme");
   });
 
   it("renders both price sheets with their current rows", async () => {
-    vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
-    render(<RatesScreen />);
+    mount(RATE_SETTER);
     // trimDecimal turns the numeric(20,10) value into a readable 0.92.
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByText("0.92")).toBeTruthy();
@@ -115,8 +154,7 @@ describe("RatesScreen", () => {
   });
 
   it("shows write affordances for an admin", async () => {
-    vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
-    render(<RatesScreen />);
+    mount(RATE_SETTER);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Set rate" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add model rate" })).toBeTruthy();
@@ -124,11 +162,12 @@ describe("RatesScreen", () => {
     expect(
       screen.getAllByRole("button", { name: "Refresh from sources" }),
     ).toHaveLength(2);
+    // And nothing about reading is withheld or read-only for them.
+    expect(screen.queryByText(/read-only view/i)).toBeNull();
   });
 
-  it("hides write affordances for a non-admin role", async () => {
-    vi.stubGlobal("fetch", ratesBackend({}));
-    render(<RatesScreen />);
+  it("hides write affordances for a role granted the read alone", async () => {
+    mount(RATE_READER);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
@@ -139,8 +178,7 @@ describe("RatesScreen", () => {
   // either way — so each case below grants exactly one and requires the OTHER
   // card to stay read-only.
   it("opens the FX sheet alone on an fx_rate create grant", async () => {
-    vi.stubGlobal("fetch", ratesBackend({ fx_rate: ["create"] }));
-    render(<RatesScreen />);
+    mount({ fx_rate: ["read", "create"], ai_model_rate: ["read"] });
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
 
     const fx = rateCard("Currency rates");
@@ -164,8 +202,7 @@ describe("RatesScreen", () => {
   it("opens the model sheet alone on an ai_model_rate update grant", async () => {
     // `update` and not `create`: the upsert admits either, so the mirror case
     // also proves the card asks the union rather than one hard-coded verb.
-    vi.stubGlobal("fetch", ratesBackend({ ai_model_rate: ["update"] }));
-    render(<RatesScreen />);
+    mount({ fx_rate: ["read"], ai_model_rate: ["read", "update"] });
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
 
     const model = rateCard("AI model costs");
@@ -188,11 +225,7 @@ describe("RatesScreen", () => {
     // A read grant is not an absent one: the object IS in the snapshot, with
     // every write verb false. A card that checked only for the object's
     // presence would open here.
-    vi.stubGlobal(
-      "fetch",
-      ratesBackend({ fx_rate: ["read"], ai_model_rate: ["read"] }),
-    );
-    render(<RatesScreen />);
+    mount(RATE_READER);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
 
@@ -201,5 +234,80 @@ describe("RatesScreen", () => {
     expect(
       screen.queryAllByRole("button", { name: "Refresh from sources" }),
     ).toEqual([]);
+
+    // The read-only posture is stated once per readable sheet, and the withheld
+    // reason is NOT: stacking both would explain one denial twice, in two
+    // mutually contradictory ways.
+    for (const title of ["Currency rates", "AI model costs"]) {
+      const card = rateCard(title);
+      expect(within(card).getByText(/read-only view/i)).toBeTruthy();
+    }
+    expect(screen.queryByText(/only an admin or ops can see/i)).toBeNull();
+  });
+
+  // Withheld, not absent. Currency rates sits on the Organization page a
+  // read_only seat now opens for its other cards, so a sheet that vanished
+  // would read as "this installation converts nothing" — and a sheet that
+  // fetched its list in order to render the 403 would read as a broken page
+  // with a Retry that can only be refused again.
+  it("withholds the FX sheet without fx_rate:read and requests no rates", async () => {
+    const { urls } = mount({ ai_model_rate: ["read"] });
+
+    // Awaited on the sibling's rows, which land after /me and therefore after
+    // the withheld notice: an assertion that stopped at the notice would judge
+    // the FX request log while the model list was still in flight.
+    expect(await screen.findByText("claude-opus-4-8")).toBeTruthy();
+    expect(
+      screen.getByText(/only an admin or ops can see the currency rates/i),
+    ).toBeTruthy();
+    const fx = rateCard("Currency rates");
+    expect(within(fx).queryByText("USD")).toBeNull();
+    // One explanation, not two: the read-only caption belongs to a sheet the
+    // reader may actually read.
+    expect(within(fx).queryByText(/read-only view/i)).toBeNull();
+    expect(urls.some((url) => url.includes("/v1/fx-rates"))).toBe(false);
+
+    // The model sheet is unaffected — the grants are per object, and a card that
+    // read the wrong one would fail here rather than pass by symmetry.
+    const model = rateCard("AI model costs");
+    expect(within(model).getByText("claude-opus-4-8")).toBeTruthy();
+    expect(urls.some((url) => url.includes("/v1/ai-model-rates"))).toBe(true);
+  });
+
+  it("withholds the model sheet without ai_model_rate:read and requests no rates", async () => {
+    const { urls } = mount({ fx_rate: ["read"] });
+
+    // Awaited on the readable sibling, for the same reason as above.
+    expect(await screen.findByText("USD")).toBeTruthy();
+    expect(
+      screen.getByText(/only an admin or ops can see what each model costs/i),
+    ).toBeTruthy();
+    const model = rateCard("AI model costs");
+    expect(within(model).queryByText("claude-opus-4-8")).toBeNull();
+    expect(within(model).queryByText(/read-only view/i)).toBeNull();
+    expect(urls.some((url) => url.includes("/v1/ai-model-rates"))).toBe(false);
+
+    const fx = rateCard("Currency rates");
+    expect(within(fx).getByText("USD")).toBeTruthy();
+    expect(urls.some((url) => url.includes("/v1/fx-rates"))).toBe(true);
+  });
+
+  // The read SEAT is a write ceiling, not a read one (A62/ADR-0047): the server
+  // clamps it on the HTTP method, so these grants still read both sheets. The
+  // card must therefore reach for the read grant alone when it decides whether
+  // to withhold — telling an admin looking at the table that only an admin may
+  // see it would be a lie about which permission ran out.
+  it("keeps both sheets readable for a rate-setter on a read seat", async () => {
+    mount(RATE_SETTER, "read");
+    await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
+    expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
+
+    expect(screen.queryByText(/only an admin or ops can see/i)).toBeNull();
+    for (const title of ["Currency rates", "AI model costs"]) {
+      const card = rateCard(title);
+      expect(within(card).getByText(/read-only view/i)).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add model rate" })).toBeNull();
   });
 });

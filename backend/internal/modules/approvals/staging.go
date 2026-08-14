@@ -211,9 +211,9 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	// re-evaluated, so a settled row is simply not found and the re-proposal
 	// creates the live member it meant to.
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
-			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3 AND diff_hash = $4
+			WHERE kind = $1 AND target_entity_id IS NOT DISTINCT FROM $2 AND diff_hash = $3
 			  AND status = 'pending' AND expires_at > now()
-			ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, wsID, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
+			ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, in.Kind, nullUUID(in.TargetID), in.DiffHash).Scan(&id)
 	switch {
 	case err == nil:
 		if err := s.rebundleJoinedInTx(ctx, tx, in, id); err != nil {
@@ -227,7 +227,7 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 		return ids.ApprovalID{}, fmt.Errorf("find pending approval identity: %w", err)
 	}
 	if len(in.Identity) > 0 {
-		if err := s.supersedePendingInTx(ctx, tx, wsID, in, id); err != nil {
+		if err := s.supersedePendingInTx(ctx, tx, in, id); err != nil {
 			return ids.ApprovalID{}, err
 		}
 	}
@@ -290,7 +290,7 @@ func (s *Service) rebundleJoinedInTx(ctx context.Context, tx pgx.Tx, in StageInp
 // inbox reads the row as expired on every surface (effectiveStatus, decide,
 // redeem). The status CHECK and the public ApprovalStatus enum stay closed; the
 // audit row carries the why and the survivor.
-func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) error {
+func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, in StageInput, survivor ids.ApprovalID) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
@@ -300,7 +300,7 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 	// which is nobody's order in particular — and a bundle decision walking the
 	// same rows in (created_at, id) is precisely the transaction on the other
 	// side of that. See lockOrder.
-	superseded, err := lockPendingUnderIdentity(ctx, tx, wsID, in, survivor)
+	superseded, err := lockPendingUnderIdentity(ctx, tx, in, survivor)
 	if err != nil {
 		return err
 	}
@@ -332,14 +332,14 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 // Split from the write because the order is the point: the predicate is the
 // one that used to sit on the UPDATE itself, and reading it under lockOrder
 // first is what stops this transaction taking those locks in scan order.
-func lockPendingUnderIdentity(ctx context.Context, tx pgx.Tx, wsID ids.UUID, in StageInput, survivor ids.ApprovalID) ([]ids.UUID, error) {
+func lockPendingUnderIdentity(ctx context.Context, tx pgx.Tx, in StageInput, survivor ids.ApprovalID) ([]ids.UUID, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id FROM approval
-		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id IS NOT DISTINCT FROM $3
+		 WHERE kind = $1 AND target_entity_id IS NOT DISTINCT FROM $2
 		   AND status = 'pending' AND expires_at > now()
-		   AND id <> $4 AND proposed_change @> $5
+		   AND id <> $3 AND proposed_change @> $4
 		 `+lockOrder+`
-		 FOR UPDATE`, wsID, in.Kind, nullUUID(in.TargetID), survivor, in.Identity)
+		 FOR UPDATE`, in.Kind, nullUUID(in.TargetID), survivor, in.Identity)
 	if err != nil {
 		return nil, fmt.Errorf("lock the proposals this one supersedes: %w", err)
 	}
@@ -426,7 +426,6 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 	if pinned {
 		in.TargetVersion = &current
 	}
-	wsID, _ := principal.WorkspaceID(ctx)
 	id := ids.New[ids.ApprovalKind]()
 	// Compute ONE absolute expiry and use it for BOTH the persisted row and
 	// the payload — deriving the row's expires_at from the DB now() while the
@@ -434,11 +433,11 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 	// from what the approval row actually stored.
 	expiresAt := s.now().UTC().Add(stagingTTL)
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
+		`INSERT INTO approval (id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
 			                       summary, proposed_change, diff_hash, expires_at, bundle_id)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		id, wsID, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		id, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
 		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt,
 		nullUUID(in.BundleID)); err != nil {

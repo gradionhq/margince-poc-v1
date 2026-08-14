@@ -51,8 +51,8 @@ func leadRoutingSchema() map[string]any {
 				schemaKeyDescription: "Round-robin pool of user ids, in rotation order.",
 			},
 			"cap_per_owner": map[string]any{
-				schemaKeyType:        "integer",
-				"minimum":            1,
+				schemaKeyType:        schemaTypeInteger,
+				schemaKeyMinimum:     1,
 				schemaKeyDescription: "Max open (new/working) leads an owner may hold; omitted = uncapped.",
 			},
 			"rules": map[string]any{
@@ -117,7 +117,7 @@ func validateRoutingOwners(value any) error {
 func validateRoutingCap(value any) error {
 	n, ok := value.(float64) // decoded JSON numbers arrive as float64
 	if !ok || n != math.Trunc(n) {
-		return &ParamError{Field: "params.cap_per_owner", Reason: "must be an integer"}
+		return &ParamError{Field: "params.cap_per_owner", Reason: reasonMustBeInteger}
 	}
 	if n < 1 {
 		return &ParamError{Field: "params.cap_per_owner", Reason: "must be at least 1"}

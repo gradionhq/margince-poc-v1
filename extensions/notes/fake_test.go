@@ -65,6 +65,13 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension
 	return fn(ctx, r.tx)
 }
 
+// Ingest refuses, because notes declares no ingress source and the core refuses
+// exactly that way. A fake answering something friendlier would let a handler
+// that wrongly reached for capture pass this suite and fail at boot.
+func (r *fakeRuntime) Ingest(context.Context, extension.UserID, extension.Record) (extension.Result, error) {
+	return extension.Result{}, extension.ErrIngressNotDeclared
+}
+
 // noteRow scripts one row of noteColumns, in that order.
 //
 // It exists so that a column added to the projection is ONE edit in the
@@ -105,9 +112,16 @@ type fakeTx struct {
 	statements []string
 	args       [][]any
 
-	core     *fakeCore
-	rows     [][]any // what Query hands back, one slice per row
-	row      []any   // what QueryRow scans into dest
+	core *fakeCore
+	// rows is what the NEXT Query hands back, one slice per row, and it is
+	// CONSUMED by that call. A second Query in the same test therefore matches
+	// nothing — which is what the database does to the statement these rows
+	// stand in for: `UPDATE … WHERE filed_activity_id = $1 RETURNING` returns
+	// its rows once and never again, because the first run is what stopped them
+	// matching. A fake that answered the same rows forever could not tell a
+	// handler that is idempotent from one that is not.
+	rows     [][]any
+	row      []any // what QueryRow scans into dest
 	affected int64
 	err      error
 	// failFrom is the 1-based statement the error starts at; 0 fails every
@@ -119,6 +133,15 @@ type fakeTx struct {
 	// lastRows is the cursor Query handed the handler, kept so a test can ask
 	// whether the handler closed it.
 	lastRows *fakeRows
+
+	// audited and published are what the handler recorded about its own write.
+	// recordErr is their own error script rather than failFrom's, because a
+	// ledger write is not a statement this fake counts — and because "the
+	// record failed" and "the third statement failed" are different failures a
+	// handler must propagate from different places.
+	audited   []extension.Change
+	published []extension.Event
+	recordErr error
 }
 
 func (t *fakeTx) record(sql string, args []any) {
@@ -130,6 +153,31 @@ func (t *fakeTx) record(sql string, args []any) {
 // file, which is the accurate answer for those: a handler that reached for the
 // core port when the test did not expect one panics rather than passing.
 func (t *fakeTx) Core() extension.Core { return t.core }
+
+// Record records the ledger row and the event a handler asked for.
+//
+// It runs the PUBLISHED Validate on both halves rather than accepting whatever
+// it is given, because that is the part of the real port a unit's own suite can
+// and should feel: an entity outside this unit's namespace, an id that is not a
+// UUID, an image that is not JSON, a verb that is not a verb are all refusals
+// the core would make, and a fake that waved them through would let a handler
+// ship a call the real port rejects. What it deliberately does NOT model is the
+// core's half — the actor, the workspace, the attribution, the namespace the
+// event type is built from — which is tested where it lives.
+func (t *fakeTx) Record(_ context.Context, ch extension.Change, ev extension.Event) error {
+	if err := ch.Validate(); err != nil {
+		return err
+	}
+	if err := ev.Validate(); err != nil {
+		return err
+	}
+	if t.recordErr != nil {
+		return t.recordErr
+	}
+	t.audited = append(t.audited, ch)
+	t.published = append(t.published, ev)
+	return nil
+}
 
 // fakeCore is the governed port as a filing test needs it: it records what the
 // unit asked the core to write, and answers with what the test scripted.
@@ -173,6 +221,7 @@ func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Ro
 		return nil, err
 	}
 	t.lastRows = &fakeRows{rows: t.rows}
+	t.rows = nil
 	return t.lastRows, nil
 }
 

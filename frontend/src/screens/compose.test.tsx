@@ -1258,7 +1258,7 @@ describe("ComposeModal send refusals", () => {
       screen
         .getByRole("link", { name: "Reconnect your mailbox" })
         .getAttribute("href"),
-    ).toBe("#/settings/integrations");
+    ).toBe("#/settings/connections");
     // The refusal replaces the generic line rather than joining it.
     expect(screen.queryByText("opaque server wording")).toBeNull();
     expect(onClose).not.toHaveBeenCalled();

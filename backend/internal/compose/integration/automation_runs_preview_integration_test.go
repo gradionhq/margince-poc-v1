@@ -91,9 +91,9 @@ func seedWorkflowRun(t *testing.T, e *apptest.AppEnv, wsID, automationID, status
 		plannedJSON = *planned
 	}
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, applied, status, detail, created_at)
-		VALUES ($1, $2, 'assign_lead_owner', $3, $4, $5, $6, $7, $8, $9)`,
-		runID, wsID, fmt.Sprintf("assign_lead_owner:%s@%s", runID, automationID),
+		INSERT INTO workflow_run (id, handler, idempotency_key, trigger_event, planned, applied, status, detail, created_at)
+		VALUES ($1, 'assign_lead_owner', $2, $3, $4, $5, $6, $7, $8)`,
+		runID, fmt.Sprintf("assign_lead_owner:%s@%s", runID, automationID),
 		ids.NewV7(), plannedJSON, applied, status, detail, at); err != nil {
 		t.Fatalf("seeding workflow_run: %v", err)
 	}

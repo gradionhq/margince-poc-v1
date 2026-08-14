@@ -74,17 +74,17 @@ func setupFinance(t *testing.T) *financeEnv {
 	}
 	if _, err := owner.Exec(ctx, `
 		INSERT INTO finance_connection
-		       (id, workspace_id, provider, status, credential_ref, source, captured_by)
-		VALUES ($1, $2, $3, 'active', 'offline://test', 'system', 'system:test')`,
-		connID, e.ws, OfflineProviderName); err != nil {
+		       (id, provider, status, credential_ref, source, captured_by)
+		VALUES ($1, $2, 'active', 'offline://test', 'system', 'system:test')`,
+		connID, OfflineProviderName); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `
 		INSERT INTO finance_customer_link
-		       (workspace_id, connection_id, organization_id, external_customer_id,
+		       (connection_id, organization_id, external_customer_id,
 		        sync_hash, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'seed', 'system', 'system:test')`,
-		e.ws, connID, e.org, e.external); err != nil {
+		VALUES ($1, $2, $3, 'seed', 'system', 'system:test')`,
+		connID, e.org, e.external); err != nil {
 		t.Fatal(err)
 	}
 

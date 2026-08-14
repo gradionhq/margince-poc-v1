@@ -69,13 +69,26 @@ func (a *Adapter) SeedAccountID(id string) { a.accountID = id }
 // bind" no-op a real adapter with no accessor would produce.
 func (a *Adapter) AccountID(context.Context) (string, error) { return a.accountID, nil }
 
+// ProjectionFingerprint is the declaration fingerprint every record this fake
+// produces carries. A real adapter stamps the digest of the mapping it
+// projected through; the fake projects through no mapping, so one constant is
+// the honest equivalent — what matters is that the fake stamps SOMETHING, as
+// the real one does, rather than leaving the field empty and making every
+// mirrored row read as projected by an unknown declaration.
+//
+// A test that wants a row projected by an older declaration sets the field on
+// the Record it seeds; Seed takes the Record whole, so no second constructor
+// is needed for it.
+const ProjectionFingerprint = "fake-projection-fingerprint"
+
 // Rec builds an overlay.Record for externalID carrying fields, stamped
 // with the current time as ModifiedAt.
 func Rec(externalID string, fields map[string]any) overlay.Record {
 	return overlay.Record{
-		ExternalID: externalID,
-		Fields:     fields,
-		ModifiedAt: time.Now(),
+		ExternalID:            externalID,
+		Fields:                fields,
+		ModifiedAt:            time.Now(),
+		ProjectionFingerprint: ProjectionFingerprint,
 	}
 }
 
@@ -289,10 +302,11 @@ func (a *Adapter) Create(_ context.Context, canonicalClass string, fields map[st
 		return overlay.WriteResult{}, fmt.Errorf("fake: cannot create a %s with no fields", canonicalClass)
 	}
 	rec := overlay.Record{
-		ExternalID:  a.nextWriteID(),
-		ObjectClass: canonicalClass,
-		Fields:      fields,
-		ModifiedAt:  writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
+		ExternalID:            a.nextWriteID(),
+		ObjectClass:           canonicalClass,
+		Fields:                fields,
+		ModifiedAt:            writeEpoch.Add(time.Duration(a.writeSeq) * time.Second),
+		ProjectionFingerprint: ProjectionFingerprint,
 	}
 	a.records[canonicalClass] = append(a.records[canonicalClass], rec)
 	// The fake does no incumbent mapping, so its "written properties" are the

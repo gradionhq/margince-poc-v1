@@ -46,6 +46,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 )
 
@@ -82,6 +83,7 @@ type Server struct {
 	installationSettingsHandlers
 	consumerMailDomainHandlers
 	blockedDomainHandlers
+	importHandlers
 	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
@@ -228,6 +230,13 @@ type Server struct {
 	// nil means an AI-less role reports no AI counters at all.
 	aiMetrics func(io.Writer)
 	aiState   string // the /readyz AI line (aistate.go); never a readiness gate
+
+	// licensePosture answers this installation's entitlement at scrape time,
+	// set by WithLicensePosture. A function rather than a value because the
+	// posture is re-resolved while the process runs — a license lapses on a
+	// calendar, not on a deploy — and nil means a role that resolved none
+	// reports no license section at all.
+	licensePosture func() licensecheck.Posture
 
 	// overlayMeter is this Server's REST-surface OVB meter — what
 	// contractAPI's Dispatcher force-fresh reads spend against and what
@@ -381,9 +390,13 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		integrationsHandlers: newIntegrationsHandlers(pool, nil, nil, nil),
 		signalsHandlers:      signals.NewHandlers(InstallationDB(pool), signalStrength{people: people.NewStore(InstallationDB(pool))}),
 		privacyHandlers:      privacy.NewHandlers(InstallationDB(pool), NewSettingsStore(pool)),
-		automationHandlers:   automation.NewHandlers(InstallationDB(pool)),
-		voiceHandlers:        ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
-		reportHandlers:       reportHandlers{engine: newReportEngine(pool)},
+		// The fieldcatalog seam lets renewal_reminder's preview validate a
+		// draft/stored (object, date_field) pair against the workspace's own
+		// live custom-field catalog before ever building SQL around it — the
+		// same edge dealsH wires above.
+		automationHandlers: automation.NewHandlers(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil)),
+		voiceHandlers:      ai.NewHandlers(InstallationDB(pool), NewSeatBudget(pool)),
+		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(InstallationDB(pool)))),

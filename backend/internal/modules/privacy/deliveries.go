@@ -77,7 +77,10 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 //
 // What deliberately STAYS is the proof that a message left: sent_at and
 // provider_message_id, plus the threading columns (message identities, like
-// the activity's own thread_key — not the subject's data). status stays too
+// the activity's own thread_key — not the subject's data). from_name stays for
+// the same reason: it names the workspace member who SENT the message, not the
+// person exercising erasure, and clearing it would destroy send-log evidence
+// while protecting nobody. status stays too
 // wherever it is already terminal: a message that went out did go out, and a
 // scrub that rewrote that would falsify the send log.
 //
@@ -96,7 +99,7 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
 		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, subject = $2,
-		       body = '', list_unsubscribe = NULL,
+		       body = '', html_body = NULL, list_unsubscribe = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $3 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NULL`,
@@ -105,7 +108,7 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
-		   SET channel_user_id = '', body = '',
+		   SET channel_user_id = '', body = '', html_body = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $2 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NOT NULL`,

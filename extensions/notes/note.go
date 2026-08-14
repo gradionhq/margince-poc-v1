@@ -10,13 +10,10 @@ package notes
 // SQL these functions write.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"reflect"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -184,7 +181,7 @@ func listNotes(ctx context.Context, rt extension.Runtime, in json.RawMessage) (j
 	// would make this the one operation of the three that accepts whatever it
 	// is sent. A closed schema that is closed in the contract and open in the
 	// code is worse than an open one, because a client is told otherwise.
-	if _, err := decode[struct{}](in); err != nil {
+	if _, err := extension.DecodeArgs[struct{}](in); err != nil {
 		return nil, err
 	}
 	var notes []note
@@ -238,7 +235,7 @@ func noteBody(raw string) (string, error) {
 
 // addNote writes one note and returns it as stored.
 func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := decode[struct {
+	args, err := extension.DecodeArgs[struct {
 		Body string `json:"body"`
 	}](in)
 	if err != nil {
@@ -267,7 +264,19 @@ func addNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (jso
 			`INSERT INTO `+noteTable+` (workspace_id, kind, body, author_user_id, author_is_agent)
 			 VALUES (`+callerWorkspace+`, $1, $2, $3::uuid, $4::boolean)
 			 RETURNING `+noteColumns, string(kindNote), body, authorID, authorIsAgent).Scan)
-		return scanErr
+		if scanErr != nil {
+			return scanErr
+		}
+		payload, err := notePayload(n)
+		if err != nil {
+			return err
+		}
+		// In the SAME transaction as the insert, which is the whole point of
+		// the ledger hanging off the transaction rather than the runtime: a
+		// note that exists with no ledger row, or a ledger row for a note the
+		// insert rolled back, would each be a history that disagrees with the
+		// notepad.
+		return recordNote(ctx, tx, extension.AuditCreate, eventNoteAdded, nil, &n, nil, payload)
 	})
 	if err != nil {
 		return nil, err
@@ -304,7 +313,7 @@ func callerAuthor(caller extension.Caller) (*string, *bool) {
 // such note here" and "no such note anywhere" are the same answer, and the one
 // this unit is entitled to give.
 func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := decode[struct {
+	args, err := extension.DecodeArgs[struct {
 		ID string `json:"id"`
 	}](in)
 	if err != nil {
@@ -321,148 +330,36 @@ func removeNote(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 	// documented `{"removed": …}`, and a refusal class this unit cannot express
 	// (issue #657) answers 500. An id that is well-formed and simply not here
 	// is still `removed: false`; that is a different question, answered below.
-	if !isCanonicalUUID(id) {
+	if !extension.IsCanonicalUUID(id) {
 		return nil, fmt.Errorf("notes: %q is not a note id — an id is a canonical UUID, as the contract declares", id)
 	}
-	var affected int64
+	var removed bool
 	err = rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		affected, err = tx.Exec(ctx, `DELETE FROM `+noteTable+` WHERE id = $1::uuid`, id)
-		return err
+		// RETURNING rather than a row count, because an erase's ledger row is
+		// the ONLY remaining trace of what was there: the row is gone, so a
+		// before-image read after the fact is impossible and one read before it
+		// would be a second answer that could differ from what was deleted.
+		gone, err := scanNote(tx.QueryRow(ctx,
+			`DELETE FROM `+noteTable+` WHERE id = $1::uuid RETURNING `+noteColumns, id).Scan)
+		if errors.Is(err, extension.ErrNoRows) {
+			// Not here, or not this workspace's — the policy makes those the
+			// same answer, and it is the one this unit is entitled to give.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		removed = true
+		payload, err := notePayload(gone)
+		if err != nil {
+			return err
+		}
+		return recordNote(ctx, tx, extension.AuditErase, eventNoteRemoved, &gone, nil, nil, payload)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(struct {
 		Removed bool `json:"removed"`
-	}{Removed: affected > 0})
-}
-
-// decode reads a handler's arguments strictly.
-//
-// DisallowUnknownFields, because the contract declares every request schema
-// with additionalProperties: false and nothing between the client and this
-// function enforces it: a caller sending `bdy` would otherwise write an empty
-// note and be told it succeeded.
-//
-// It is NOT sufficient on its own, which is why checkArgumentObject runs first.
-// encoding/json matches field names case-INSENSITIVELY, tolerates a repeated
-// member, accepts `null` where an object is declared, and stops reading after
-// the first value. Each of those admits a document the published schema does
-// not, and three of the four decide which value a mutation stores.
-func decode[T any](in json.RawMessage) (T, error) {
-	var out T
-	if err := checkArgumentObject[T](in); err != nil {
-		return out, err
-	}
-	dec := json.NewDecoder(strings.NewReader(string(in)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&out); err != nil {
-		return out, fmt.Errorf("notes: the arguments are not the declared shape: %w", err)
-	}
-	// EOF after the first value. encoding/json decodes ONE value and stops, so
-	// `{} {"body":"x"}` reads as the empty object and the rest is discarded —
-	// two documents where the contract declares one, with the operation acting
-	// on whichever the decoder happened to reach first.
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return out, errors.New("notes: the arguments carry a second JSON value — the contract declares one object")
-	}
-	return out, nil
-}
-
-// checkArgumentObject holds the two things encoding/json will not: that the
-// document IS an object, and that every member name is byte-for-byte one T
-// declares, appearing once.
-//
-// It scans tokens rather than unmarshalling into a map, and that is the whole
-// reason it exists rather than being three lines: a map COLLAPSES duplicates,
-// so `{"body":"first","body":"second"}` arrives as one entry and the check sees
-// nothing while encoding/json quietly keeps the last — a way to put one value
-// past a reviewer reading the first. The scan sees both.
-func checkArgumentObject[T any](in json.RawMessage) error {
-	if len(bytes.TrimSpace(in)) == 0 {
-		// Left to the decoder: "no arguments at all" is its error to give, and
-		// it words it better than a key check can.
-		return nil
-	}
-	dec := json.NewDecoder(bytes.NewReader(in))
-	open, err := dec.Token()
-	if err != nil {
-		return nil // not JSON; the decoder below says so about the shape
-	}
-	// `null` is a valid JSON document and unmarshals into a struct as a no-op,
-	// so an operation whose schema requires an object would accept it and act
-	// on the zero value.
-	if delim, ok := open.(json.Delim); !ok || delim != '{' {
-		return errors.New("notes: the arguments are not the declared shape: a JSON object is required")
-	}
-	declared, seen := declaredJSONNames[T](), map[string]bool{}
-	for dec.More() {
-		token, err := dec.Token()
-		if err != nil {
-			return nil // malformed; again the decoder's message, not this one's
-		}
-		key, ok := token.(string)
-		if !ok {
-			return nil
-		}
-		switch {
-		case !declared[key]:
-			return fmt.Errorf("notes: the arguments are not the declared shape: unknown field %q — a declared name is matched byte for byte, so a case-variant of one is not one of them", key)
-		case seen[key]:
-			return fmt.Errorf("notes: the arguments are not the declared shape: field %q appears twice — which copy wins is a decoder's choice, not the contract's", key)
-		}
-		seen[key] = true
-		// The value, whatever it is, so the next token read is the next KEY.
-		var skip json.RawMessage
-		if err := dec.Decode(&skip); err != nil {
-			return nil
-		}
-	}
-	return nil
-}
-
-// declaredJSONNames reads T's json tags. T is always a struct literal declared
-// a few lines above its call site, so a non-struct here is a programming error
-// that shows up as an empty set and a refusal of every key.
-func declaredJSONNames[T any]() map[string]bool {
-	names := map[string]bool{}
-	t := reflect.TypeFor[T]()
-	if t.Kind() != reflect.Struct {
-		return names
-	}
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			names[name] = true
-		}
-	}
-	return names
-}
-
-// isCanonicalUUID reports whether s is the hyphenated 8-4-4-4-12 hex form.
-//
-// Hand-written rather than a dependency: the tier's published surface is
-// stdlib-only and a unit that pulled in a UUID library to check thirty-six
-// bytes would be spending a supply-chain decision on it. Deliberately strict —
-// no braces, no urn: prefix, no uppercase-insensitivity beyond hex digits —
-// because the ids this unit hands out are the ones Postgres printed, and those
-// are exactly this shape.
-func isCanonicalUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i, c := range []byte(s) {
-		switch i {
-		case 8, 13, 18, 23:
-			if c != '-' {
-				return false
-			}
-		default:
-			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-			if !isHex {
-				return false
-			}
-		}
-	}
-	return true
+	}{Removed: removed})
 }

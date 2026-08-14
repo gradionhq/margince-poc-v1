@@ -118,7 +118,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	if n := fx.count(t, `SELECT count(*) FROM activity WHERE workspace_id = $1`, fx.ws); n != 0 {
 		t.Fatalf("preview minted %d activities — it must never apply the plan", n)
 	}
-	if n := fx.count(t, `SELECT count(*) FROM workflow_run WHERE workspace_id = $1`, fx.ws); n != 0 {
+	if n := fx.count(t, `SELECT count(*) FROM workflow_run`); n != 0 {
 		t.Fatalf("preview recorded %d runs — a dry-run is not a firing", n)
 	}
 }

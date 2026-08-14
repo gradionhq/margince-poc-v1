@@ -147,7 +147,7 @@ function ConsentGuide({
             url: reauthorizeUrl(params),
             clientName,
           });
-          navigate({ screen: "settings", id: "ai" });
+          navigate({ screen: "settings", id: "agents" });
         }}
       >
         {t("consent.emptyCta")}

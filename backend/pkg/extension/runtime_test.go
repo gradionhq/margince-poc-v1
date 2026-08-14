@@ -20,10 +20,11 @@ import (
 // Runtime answers ErrRuntimeExpired from Tx, not just from Secrets.
 
 type fakeRuntime struct {
-	secrets Secrets
-	live    bool
-	rows    [][]string
-	caller  Caller
+	secrets  Secrets
+	live     bool
+	rows     [][]string
+	caller   Caller
+	ingested []ingestCall
 }
 
 func (r *fakeRuntime) Secrets() Secrets { return r.secrets }
@@ -41,12 +42,52 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, Tx) error
 	return fn(ctx, &fakeTx{rows: r.rows})
 }
 
-type fakeTx struct{ rows [][]string }
+// Ingest records what it was asked to land and answers as the core would for a
+// new record. The lifetime check comes first for the same reason it does on Tx:
+// a released Runtime refuses every capability, not only the ones that open
+// something.
+func (r *fakeRuntime) Ingest(_ context.Context, on UserID, rec Record) (Result, error) {
+	if !r.live {
+		return Result{}, ErrRuntimeExpired
+	}
+	r.ingested = append(r.ingested, ingestCall{on: on, rec: rec})
+	return Result{Ref: Ref{Type: "activity", ID: "00000000-0000-7000-8000-000000000001"}, Disposition: DispositionAccepted}, nil
+}
+
+// ingestCall is one recorded Ingest, so a test can assert WHAT was handed over
+// rather than only that something was.
+type ingestCall struct {
+	on  UserID
+	rec Record
+}
+
+type fakeTx struct {
+	rows      [][]string
+	audited   []Change
+	published []Event
+}
 
 // Core is the port a fake transaction does not serve: these tests exercise the
 // three SQL verbs, and a Core here would be a second implementation of the seam
 // rather than a use of it.
 func (t *fakeTx) Core() Core { return nil }
+
+// Record records rather than writes. What these tests prove is the SHAPE a unit
+// compiles against — one call carrying both halves, so there is no way to
+// express a ledger row with no event or an event with no ledger row — which is
+// exactly the part the core's implementation cannot change without breaking
+// every unit.
+func (t *fakeTx) Record(_ context.Context, ch Change, ev Event) error {
+	if err := ch.Validate(); err != nil {
+		return err
+	}
+	if err := ev.Validate(); err != nil {
+		return err
+	}
+	t.audited = append(t.audited, ch)
+	t.published = append(t.published, ev)
+	return nil
+}
 
 func (t *fakeTx) Exec(_ context.Context, _ string, args ...any) (int64, error) {
 	return int64(len(args)), nil

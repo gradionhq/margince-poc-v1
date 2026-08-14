@@ -94,7 +94,7 @@ function DockPanel({
           </a>
         )}
         {tools.total > 0 && (
-          <a className="agentrow" href="#/settings/ai">
+          <a className="agentrow" href="#/settings/agents">
             <SlidersHorizontal size={15} aria-hidden />
             <span>{t("agent.toolsTitle")}</span>
             <span className="agentvalue">
