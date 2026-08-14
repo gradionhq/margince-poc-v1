@@ -158,8 +158,12 @@ deps:
     # in the product module, not tools.
     canUse: [pgx, oapi, fpdf]
   activities:
+    # xnet: the html parser behind the outbound markup allowlist. A mail body a
+    # caller supplies is filtered by PARSING it and re-emitting only what the
+    # allowlist admits — a regex over markup is the approach that always has one
+    # more case, and the tokenizer here is the same one webread already uses.
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi]
+    canUse: [pgx, oapi, xnet]
   approvals:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

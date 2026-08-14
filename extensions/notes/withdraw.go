@@ -31,7 +31,7 @@ import (
 // ledger row and publishes nothing. An audit trail of writes that did not
 // happen would be worse than no trail at all.
 func withdrawFiling(ctx context.Context, rt extension.Runtime, d extension.Delivery) error {
-	if d.Entity.Type != "activity" || !isCanonicalUUID(d.Entity.ID) {
+	if d.Entity.Type != "activity" || !extension.IsCanonicalUUID(d.Entity.ID) {
 		// A delivery this handler cannot act on is ACKED, not failed. Failing
 		// it would put it back in the pending set for the reclaim pass to hand
 		// over again, forever, at the cost of one wasted handler run per pass —

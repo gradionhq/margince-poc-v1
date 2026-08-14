@@ -75,6 +75,25 @@ type budgetWire struct {
 	Band     string  `json:"band"`
 }
 
+// asCurrentProjection stamps rec with the fingerprint of the declaration the
+// composed server projects incumbentClass through today (asked of compose,
+// which is the one package sanctioned to name the concrete incumbent). The
+// fake stands in for that adapter's OUTPUT, so a fixture that means "a row the
+// current mapping produced" must say so with the registry's own digest: the
+// server compares every mirror row against it, and a row no current
+// declaration accounts for reads as stale — which is the whole point of the
+// comparison, and would otherwise hold every flip fixture short of ready. A
+// fixture that means the opposite sets the field itself.
+func asCurrentProjection(t *testing.T, rec overlaymod.Record, incumbentClass string) overlaymod.Record {
+	t.Helper()
+	fingerprint, ok := compose.OverlayProjectionFingerprints()[incumbentClass]
+	if !ok {
+		t.Fatalf("no current declaration for incumbent class %q — the fixture names a class the registry never declared", incumbentClass)
+	}
+	rec.ProjectionFingerprint = fingerprint
+	return rec
+}
+
 // openAppPool opens a second, independent app-role pool over the SAME
 // real database the httptest server (env.ts) is backed by.
 func openAppPool(t *testing.T) *pgxpool.Pool {
@@ -210,7 +229,7 @@ func backfillOneMirroredContact(t *testing.T, pool *pgxpool.Pool, wsID, adminID 
 	rec := fake.Rec("555000111", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
 	rec.ObjectClass = "person"
 	rec.OwnerExternalID = "owner-1"
-	fakeInc.Seed(overlaymod.IncumbentClassContacts, rec)
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, asCurrentProjection(t, rec, overlaymod.IncumbentClassContacts))
 	if _, err := overlaymod.Backfill(adminCtx, fakeInc, mirror, overlaymod.IncumbentClassContacts, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's contacts: %v", err)
 	}

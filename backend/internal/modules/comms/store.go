@@ -47,6 +47,11 @@ var ErrDuplicateMessage = fmt.Errorf(
 // neither a To nor a Cc address can only be refused later — the consent gate
 // asks about an empty list and answers no — so it is refused here, where the
 // caller is still in the transaction that would have written the row.
+//
+// Bcc is deliberately NOT counted here, matching the contract: `to` carries
+// minItems 1 and a blind copy accompanies an addressed message rather than
+// replacing its addressee. A delivery that reached this with only blind copies
+// would have passed a guard the API layer already refuses.
 var ErrNoAddressee = errors.New("comms: a delivery needs at least one recipient or cc address")
 
 // Store is the comms_outbound seam: staging, loading with attempt-counting,
@@ -93,8 +98,19 @@ type StageInput struct {
 	MessageID  string // unbracketed
 	Recipients []string
 	Cc         []string
-	Subject    string
-	Body       string // unsubscribe footer already applied
+	// Bcc receives the message and is rendered into no header. It is stored so
+	// a retry addresses the same people the first attempt did.
+	Bcc     []string
+	Subject string
+	Body    string // unsubscribe footer already applied
+	// HTMLBody is the same message as markup, NULL for a plain-text send. It
+	// never replaces Body: a retry rebuilds the message from this snapshot, so
+	// a shape stored here is the shape that goes out.
+	HTMLBody string
+	// FromName is the sender's display name at the moment of staging. Empty
+	// sends a bare address, which is what every message did before the name
+	// was available.
+	FromName string
 	// Attachments is the set this message will carry, snapshotted at staging.
 	// The dispatcher asks the resolved channel whether it can carry them before
 	// anything reaches the wire.
@@ -135,6 +151,10 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding cc: %w", err)
 	}
+	bcc, err := marshalList(in.Bcc)
+	if err != nil {
+		return ids.UUID{}, fmt.Errorf("comms: encoding bcc: %w", err)
+	}
 	refs, err := marshalList(in.References)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding references: %w", err)
@@ -149,13 +169,13 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
 		  (id, activity_id, user_id, provider, message_id,
-		   recipients, cc, subject, body, consent_purpose, in_reply_to,
+		   recipients, cc, bcc, subject, body, html_body, from_name, consent_purpose, in_reply_to,
 		   references_chain, thread_key, list_unsubscribe, status, created_at, attachments)
 		VALUES ($1, $2, $3, $4, $5,
-		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
-		        NULLIF($14,''), 'pending', $15, $16)`,
+		        $6, $7, $8, $9, $10, NULLIF($11,''), NULLIF($12,''), $13, NULLIF($14,''), $15,
+		        NULLIF($16,''), NULLIF($17,''), 'pending', $18, $19)`,
 		id, in.ActivityID, userID, in.Provider, in.MessageID,
-		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
+		recipients, cc, bcc, in.Subject, in.Body, in.HTMLBody, in.FromName, in.ConsentPurpose,
 		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC(), files); err != nil {
 		// The idempotency key is an ANSWER, and it is mapped rather than
 		// wrapped: a raw violation carries the constraint and table names, and
@@ -225,7 +245,7 @@ func marshalList(values []string) ([]byte, error) {
 // of them NULL is the answer this scan needs rather than a value to substitute.
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
-	var recipients, cc, refs, files []byte
+	var recipients, cc, bcc, refs, files []byte
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			UPDATE comms_outbound
@@ -233,12 +253,14 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			 WHERE id = $1 AND status = 'pending'
 			RETURNING id, activity_id, user_id, provider, coalesce(message_id, ''),
 			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
-			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
+			          coalesce(bcc, '[]'::jsonb),
+			          coalesce(subject, ''), body, coalesce(html_body, ''), coalesce(from_name, ''),
+			          channel_user_id, consent_purpose,
 			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
 			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at,
 			          attachments`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
-			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
+			&recipients, &cc, &bcc, &d.Subject, &d.Body, &d.HTMLBody, &d.FromName, &d.ChannelUserID, &d.ConsentPurpose,
 			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt,
 			&files)
 	})
@@ -260,6 +282,9 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	}
 	if err := json.Unmarshal(cc, &d.Cc); err != nil {
 		return Delivery{}, fmt.Errorf("comms: decoding cc: %w", err)
+	}
+	if err := json.Unmarshal(bcc, &d.Bcc); err != nil {
+		return Delivery{}, fmt.Errorf("comms: decoding bcc: %w", err)
 	}
 	if err := json.Unmarshal(refs, &d.References); err != nil {
 		return Delivery{}, fmt.Errorf("comms: decoding references: %w", err)

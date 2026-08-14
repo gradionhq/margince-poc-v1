@@ -4,7 +4,7 @@ module github.com/gradionhq/margince/backend
 // `ON DELETE SET NULL (column_list)` semantics and current-toolchain
 // tooling. Contributors/operators need the 1.26 toolchain; this is a PoC
 // choice, revisit if broader portability becomes a goal.
-go 1.26.5
+go 1.26.6
 
 // The composed extension set (ADR-0069): a constant import path the role
 // binaries wire — api, worker and mcp today; migrate joins when the

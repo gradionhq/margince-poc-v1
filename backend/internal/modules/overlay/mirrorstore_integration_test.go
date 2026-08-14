@@ -111,6 +111,282 @@ func TestIngestHonorsStalenessAndTombstone(t *testing.T) {
 	}
 }
 
+// TestIngestAcceptsAReprojectionAtTheSameBaseline pins the one case the
+// staleness guard must NOT refuse. A re-projection re-fetches a record the
+// incumbent has not touched, so the baseline does not advance. The guard
+// exists to stop an older read clobbering a newer one — but a re-projection
+// is not older data, it is the same data projected by a declaration that has
+// since changed, and refusing it would leave the row holding a payload the
+// current mapping would never produce, with no way to converge.
+func TestIngestAcceptsAReprojectionAtTheSameBaseline(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass = "person"
+	const externalID = "1"
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	first := Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Ada"},
+		ModifiedAt:            baseline,
+		ProjectionFingerprint: "fingerprint-one",
+	}
+	if err := store.Ingest(ctx, first); err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+
+	second := first
+	second.Fields = map[string]any{"first_name": "Ada", "title": "CTO"}
+	second.ProjectionFingerprint = "fingerprint-two"
+	if err := store.Ingest(ctx, second); err != nil {
+		t.Fatalf("re-projection ingest: %v", err)
+	}
+
+	row, err := store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back after the re-projection: %v", err)
+	}
+	if row.ProjectionFingerprint != "fingerprint-two" {
+		t.Errorf("fingerprint = %q, want the re-projection's", row.ProjectionFingerprint)
+	}
+	if row.Fields["title"] != "CTO" {
+		t.Errorf("fields = %v, want the re-projected payload; the staleness guard refused a same-baseline re-projection", row.Fields)
+	}
+}
+
+// TestIngestAcceptsAReprojectionOverAnUnfingerprintedRow covers the rows the
+// fingerprint column arrived after: they record no declaration at all, which
+// is exactly the state a re-projection must be able to leave. The guard
+// compares with IS DISTINCT FROM rather than <> for this row and no other —
+// under <> the comparison answers NULL, which is not true, and the write the
+// row most needs is the one silently refused.
+func TestIngestAcceptsAReprojectionOverAnUnfingerprintedRow(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass = "person"
+	const externalID = "2"
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	unfingerprinted := Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:     map[string]any{"first_name": "Grace"},
+		ModifiedAt: baseline,
+	}
+	if err := store.Ingest(ctx, unfingerprinted); err != nil {
+		t.Fatalf("ingest of an unfingerprinted record: %v", err)
+	}
+	row, err := store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back the unfingerprinted row: %v", err)
+	}
+	if row.ProjectionFingerprint != "" {
+		t.Fatalf("fingerprint = %q, want none recorded for a record that declared none", row.ProjectionFingerprint)
+	}
+
+	reprojected := unfingerprinted
+	reprojected.Fields = map[string]any{"first_name": "Grace", "title": "Rear Admiral"}
+	reprojected.ProjectionFingerprint = "fingerprint-one"
+	if err := store.Ingest(ctx, reprojected); err != nil {
+		t.Fatalf("re-projection ingest: %v", err)
+	}
+
+	row, err = store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back after the re-projection: %v", err)
+	}
+	if row.ProjectionFingerprint != "fingerprint-one" {
+		t.Errorf("fingerprint = %q, want the re-projection's", row.ProjectionFingerprint)
+	}
+	if row.Fields["title"] != "Rear Admiral" {
+		t.Errorf("fields = %v, want the re-projected payload; a row recording no declaration was refused a re-projection", row.Fields)
+	}
+}
+
+// TestIngestStillRefusesAnOlderReadAtTheSameFingerprint holds the guard to its
+// original job. Admitting a re-projection widens what the ON CONFLICT clause
+// accepts, and the widening is bounded by the declaration having changed: with
+// the declaration unchanged, a stale poller page racing a fresher read of the
+// same record must still lose.
+func TestIngestStillRefusesAnOlderReadAtTheSameFingerprint(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass = "person"
+	const externalID = "3"
+	const fingerprint = "fingerprint-one"
+
+	newer := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Katherine"},
+		ModifiedAt:            newer,
+		ProjectionFingerprint: fingerprint,
+	}); err != nil {
+		t.Fatalf("newer ingest: %v", err)
+	}
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Stale"},
+		ModifiedAt:            newer.Add(-24 * time.Hour),
+		ProjectionFingerprint: fingerprint,
+	}); err != nil {
+		t.Fatalf("older ingest: %v", err)
+	}
+
+	row, err := store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back after the older ingest: %v", err)
+	}
+	if row.Fields["first_name"] != "Katherine" || !row.UpdatedAtBaseline.Equal(newer) {
+		t.Fatalf("an older read at the same fingerprint must not clobber the fresher row: got %+v", row)
+	}
+}
+
+// A stale page carries a stale projection too, so a differing fingerprint is
+// no reason to admit an older read. Letting one through would turn the
+// re-projection allowance into a hole in the staleness guard, and the sweep's
+// own laggard pages would overwrite fresher rows — which is precisely what a
+// declaration change makes likely, since it puts every row's fingerprint out
+// of date at once.
+func TestIngestRefusesAnOlderReadEvenAtADifferentFingerprint(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass = "person"
+	const externalID = "4"
+
+	newer := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Katherine"},
+		ModifiedAt:            newer,
+		ProjectionFingerprint: "fingerprint-one",
+	}); err != nil {
+		t.Fatalf("newer ingest: %v", err)
+	}
+
+	// The failure record the sweep leaves on a row it could not re-project. It
+	// is cleared in the DO UPDATE's SET list, which a refused write never
+	// reaches — the assertion below pins that, because moving the clear into
+	// the INSERT column list or a statement of its own would un-record the
+	// failure on every refused write with every other test still green, and the
+	// sweep would silently resume re-reading the row.
+	//
+	// The fingerprint recorded here is a third value, distinct from the one the
+	// refused write carries, so the assertion below reads the record itself
+	// rather than a value the refused ingest could equally have written.
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "fingerprint-three"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Stale"},
+		ModifiedAt:            newer.Add(-24 * time.Hour),
+		ProjectionFingerprint: "fingerprint-two",
+	}); err != nil {
+		t.Fatalf("older ingest at a different fingerprint: %v", err)
+	}
+
+	row, err := store.getRaw(ctx, objectClass, externalID)
+	if err != nil {
+		t.Fatalf("reading back after the older ingest: %v", err)
+	}
+	if row.Fields["first_name"] != "Katherine" || !row.UpdatedAtBaseline.Equal(newer) {
+		t.Fatalf("an older read must not clobber a fresher row whatever its fingerprint says: got %+v", row)
+	}
+	if row.ProjectionFingerprint != "fingerprint-one" {
+		t.Errorf("fingerprint = %q, want the fresher row's — a refused write must leave the column alone", row.ProjectionFingerprint)
+	}
+
+	if failedFor := reprojectionFailureRecord(ctx, t, pool, externalID); failedFor != "fingerprint-three" {
+		t.Errorf("reprojection_failed_for = %q, want the recorded fingerprint — a refused write lands nothing, "+
+			"so it must neither clear nor overwrite the record, or the sweep starts re-reading a row it still cannot project", failedFor)
+	}
+}
+
+// reprojectionFailureRecord answers the declaration the "person" row named by
+// externalID records it could not reach, read straight from the column, with a
+// NULL — the state of almost every row — rendered as the empty string the read
+// paths coalesce it to. That is the direct evidence and the only kind there is
+// here: a record written under an object class other than the canonical one
+// these fixtures mirror under updates zero rows, returns no error, and leaves
+// the mirror looking exactly as it does when nothing was recorded at all.
+func reprojectionFailureRecord(ctx context.Context, t *testing.T, pool *pgxpool.Pool, externalID string) string {
+	t.Helper()
+	var recorded *string
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT reprojection_failed_for FROM overlay_mirror
+			WHERE object_class='person' AND external_id=$1`, externalID).Scan(&recorded)
+	}); err != nil {
+		t.Fatalf("reading person/%s's re-projection failure record: %v", externalID, err)
+	}
+	if recorded == nil {
+		return ""
+	}
+	return *recorded
+}
+
+// The record names the declaration the row failed to reach, so a repaired
+// declaration orphans it and the row is retried. A bare flag could not express
+// that, and a row stuck against a mapping nobody is going to fix would be
+// indistinguishable from one stuck against a mapping somebody just repaired.
+func TestRecordReprojectionFailureStoresTheFingerprintItFailedToReach(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass, externalID = "person", "10"
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields:                map[string]any{"first_name": "Ada"},
+		ModifiedAt:            time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC),
+		ProjectionFingerprint: "old-declaration",
+	}); err != nil {
+		t.Fatalf("seed ingest: %v", err)
+	}
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "current-declaration"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+
+	if recorded := reprojectionFailureRecord(ctx, t, pool, externalID); recorded != "current-declaration" {
+		t.Errorf("reprojection_failed_for = %q, want the fingerprint the re-projection was reaching for", recorded)
+	}
+}
+
+// A row that successfully lands a projection is not failing any more. Clearing
+// it anywhere but the ingest that landed the payload would put two writers on
+// one fact.
+func TestIngestClearsAReprojectionFailureRecord(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	const objectClass, externalID = "person", "11"
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields: map[string]any{"first_name": "Ada"}, ModifiedAt: baseline,
+		ProjectionFingerprint: "old-declaration",
+	}); err != nil {
+		t.Fatalf("seed ingest: %v", err)
+	}
+	if err := store.RecordReprojectionFailure(ctx, objectClass, externalID, "current-declaration"); err != nil {
+		t.Fatalf("RecordReprojectionFailure: %v", err)
+	}
+	// The same baseline: a re-projection re-fetches a record the incumbent has
+	// not touched, which is exactly the write the staleness guard admits only
+	// because the fingerprint differs.
+	if err := store.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: externalID,
+		Fields: map[string]any{"first_name": "Ada", "title": "CTO"}, ModifiedAt: baseline,
+		ProjectionFingerprint: "current-declaration",
+	}); err != nil {
+		t.Fatalf("re-projection ingest: %v", err)
+	}
+
+	if recorded := reprojectionFailureRecord(ctx, t, pool, externalID); recorded != "" {
+		t.Errorf("reprojection_failed_for = %q, want none — the row landed a projection, so it is not failing", recorded)
+	}
+}
+
 // seedTombstone inserts the fixture the tombstone-guard test asserts
 // against, through the same tenant-scoped transaction helper the store
 // itself uses — the fixture must be workspace-visible to the guard's own

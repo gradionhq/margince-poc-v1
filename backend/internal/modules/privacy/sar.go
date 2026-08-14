@@ -307,12 +307,40 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		// addressee in channel_user_id, so a mail-only projection would hand a
 		// channel-only subject a message with no addressee — withholding the
 		// account id the row holds about them.
-		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
+		// html_body rides beside body rather than instead of it: a message
+		// carrying both is ONE message the subject received in two renderings,
+		// and disclosing only the plain one withholds markup the system still
+		// holds about them. from_name joins them for the same reason: this
+		// projection discloses the message AS THE SUBJECT RECEIVED IT, and who
+		// it appeared to be from is part of what they were shown.
+		//
+		// The address match spans bcc, and the DISCLOSURE of it is narrowed to
+		// the subject's own address.
+		//
+		// Both halves are required and they pull opposite ways. A person bcc'd
+		// on a message with no activity link would otherwise be absent from
+		// their own export of a message they received — and exporting the
+		// whole bcc array would hand one subject every other blind recipient's
+		// address, which is the disclosure a blind copy exists to prevent. So
+		// the row is FOUND on any addressee and the blind list is REDUCED to
+		// the asker.
+		//
+		// attachments too, and it is not covered by the attachment query
+		// below: that one finds files hanging off the subject or an activity
+		// linked to them, while a send may carry any file its sender could see
+		// — one attached to an organization or a deal reaches the subject
+		// without ever being attached TO them.
+		{&pkg.SentMessages, `SELECT o.subject, o.body, o.html_body, o.from_name, o.attachments, o.recipients, o.cc,
+		      (SELECT coalesce(jsonb_agg(addr), '[]'::jsonb)
+		         FROM jsonb_array_elements_text(coalesce(o.bcc, '[]'::jsonb)) AS addr
+		        WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1)) AS bcc,
+		      o.consent_purpose,
 		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)
 		      OR EXISTS (
-		           SELECT 1 FROM jsonb_array_elements_text(o.recipients || o.cc) AS addr
+		           SELECT 1 FROM jsonb_array_elements_text(
+		                          o.recipients || o.cc || coalesce(o.bcc, '[]'::jsonb)) AS addr
 		           WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1))`},
 	}
 }

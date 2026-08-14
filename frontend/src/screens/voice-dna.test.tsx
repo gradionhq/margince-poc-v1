@@ -114,6 +114,17 @@ function stubApi() {
           page: emptyPage.page,
         });
       }
+      // Every source is previewed before it is written, pasted text included:
+      // the server is the one that says whether writing carries speakers.
+      if (path === "/voice-profiles/vp-1/sources/preview") {
+        return jsonResponse({
+          detected_format: "txt",
+          total_words: 420,
+          speakers: [],
+          unattributed_words: 420,
+          ingestible_as_transcript: false,
+        });
+      }
       if (path === "/voice-profiles/vp-1/sources") {
         if (request.method === "POST") {
           return jsonResponse(

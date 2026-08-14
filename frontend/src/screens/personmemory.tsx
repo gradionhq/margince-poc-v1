@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type { components } from "../api/schema";
 import { Badge, SegmentedControl } from "../design-system/atoms";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
 
 // Conversation memory (concept §5.10, ADR-0097 D3).
@@ -33,9 +34,10 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
   const shown = rows.filter((row) => matches(row, filter));
 
   return (
-    <section className="pe-card pe-memory" data-testid="person-memory">
-      <h3 className="pe-card-title">{t("person.memory.title")}</h3>
-      <div className="pe-memory-filters">
+    <Panel
+      className="pe-memory"
+      title={t("person.memory.title")}
+      titleAction={
         <SegmentedControl
           options={FILTERS}
           value={filter}
@@ -48,12 +50,15 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
             notes: t("person.memory.notes"),
           }}
         />
-      </div>
+      }
+    >
       {shown.length === 0 && (
-        <p className="pe-prose">{t("person.memory.empty")}</p>
+        <PanelBody>
+          <p className="pe-prose">{t("person.memory.empty")}</p>
+        </PanelBody>
       )}
       {shown.map((row) => (
-        <div className="pe-memory-row" key={row.key}>
+        <PanelRow className="pe-memory-row" key={row.key}>
           <span className="pe-memory-date">{row.date}</span>
           <span className="pe-memory-channel">
             {channelIcon(row.channel)}
@@ -69,9 +74,9 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
             <span />
           )}
           <span className="pe-memory-time">{row.time}</span>
-        </div>
+        </PanelRow>
       ))}
-    </section>
+    </Panel>
   );
 }
 

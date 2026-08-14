@@ -15,13 +15,12 @@ package compose
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -64,6 +63,40 @@ var extensionRuntimeDeps struct {
 type extensionRuntimeBinding struct {
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
+	// captureSink is the ONE fully-guarded capture pipeline a unit's ingress
+	// lands through, bound separately by BindExtensionCapture.
+	//
+	// It IS a binding, unlike the core port above, and the difference is that
+	// this dependency is not derivable from the pool: newCaptureSink attaches
+	// the file keeper, the merge stager and the counterparty ensurer — three
+	// cross-module adapters — plus the deployment's suppression config. A sink
+	// built here from the pool alone would compile, run, land activities and
+	// silently create no people, which is the failure this field exists to make
+	// impossible. Nil on a role that composed no capture, and the port then
+	// refuses by name rather than half-working.
+	captureSink *capture.Sink
+}
+
+// BindExtensionCapture records the capture pipeline a unit's ingress lands
+// through. A role that runs unattended extension work — a job tick, a
+// subscription delivery — calls it once at boot with the same deployment
+// capture config its own connectors run on.
+//
+// It takes the CONFIG and assembles the sink here rather than accepting one,
+// which is the whole point of the signature: newCaptureSink is the one spelling
+// that attaches the file keeper, the merge stager and the counterparty ensurer,
+// and a parameter of type *capture.Sink would let a caller hand over a
+// hand-assembled pipeline that lands activities and silently creates no people.
+//
+// Separate from BindExtensionRuntime rather than a third parameter on it,
+// because the two answer different questions: every role has a pool and a
+// custodian, and only some run work that can ingest. A role that never calls
+// this leaves ingress refusing with errIngressUnwired, which is the honest
+// answer for a process that has nowhere to put a captured record.
+func BindExtensionCapture(pool *pgxpool.Pool, cfg CaptureConfig) {
+	extensionRuntimeDeps.mu.Lock()
+	defer extensionRuntimeDeps.mu.Unlock()
+	extensionRuntimeDeps.captureSink = newCaptureSink(pool, cfg)
 }
 
 // BindExtensionRuntime records what a governed extension tool's per-call
@@ -141,6 +174,27 @@ type callRuntime struct {
 	// the WORK — see usable.
 	mu   sync.RWMutex
 	live bool
+
+	// txDepth counts the transactions this Runtime currently holds open, and it
+	// is a COUNTER rather than a flag on purpose. A handler may call Tx twice
+	// concurrently; with a boolean the first to return would clear it while the
+	// second still held a connection, and an ingest nested inside that second
+	// one would pass the check and then wait for a connection the same runtime
+	// is holding — which on a small pool does not fail, it hangs.
+	//
+	// It is deliberately per-RUNTIME, and so is its guarantee. Two DIFFERENT
+	// runtimes — one holding a transaction while the other ingests — are not
+	// visible to each other and can still deadlock a pool of one. No
+	// per-runtime mechanism sees that, and this is the ordinary distance
+	// between a shape check and a proof rather than a claim of safety.
+	txDepth int
+
+	// ingesting counts the ingests in flight, and it is what makes the
+	// transaction refusal a guarantee rather than a check-then-use race: an
+	// ingest claims this slot under the same lock that admits a transaction,
+	// so a sibling goroutine cannot open one in the window between the check
+	// and capture's own acquire.
+	ingesting int
 }
 
 var _ extension.Runtime = (*callRuntime)(nil)
@@ -311,45 +365,6 @@ func (r *callRuntime) scoped(ctx context.Context) (context.Context, error) {
 //nolint:ireturn // returning the published port IS the seam: a unit holds extension.Secrets, never a core type.
 func (r *callRuntime) Secrets() extension.Secrets {
 	return callSecrets{rt: r, inner: extsecrets.For(r.unit, r.deps.pool, r.deps.vault)}
-}
-
-// Tx opens ONE transaction, already pinned to the workspace the invocation
-// belongs to, and hands the callback the published seam over it.
-//
-// The pinning is database.WithWorkspaceTx — the same transaction-local
-// app.workspace_id GUC every core store binds, read by the same tenant
-// policies — rather than a second mechanism this surface invents. The
-// workspace comes from scoped, so it is the INVOCATION's and not whatever
-// tenant the handler's own ctx happens to carry: the pin is bound before fn
-// runs, and the tenant policies then hold whatever SQL fn issues.
-func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx extension.Tx) error) error {
-	ctx, err := r.scoped(ctx)
-	if err != nil {
-		return err
-	}
-	// Derived BEFORE the transaction opens. The unit name was validated at
-	// registration, so an invalid one here is a composition that should never
-	// have booted — and learning that inside a transaction would only make the
-	// report harder to read than it needs to be.
-	namespace, err := extension.Name(r.unit).Namespace()
-	if err != nil {
-		return fmt.Errorf("compose: the invoking unit's name has no SQL namespace: %w", err)
-	}
-	return database.WithWorkspaceTx(ctx, r.deps.pool, func(tx pgx.Tx) error {
-		// Re-checked inside: opening a transaction is a round trip, and a
-		// Runtime released during it must not reach the callback with a live
-		// handle. Refusing here rolls the (empty) transaction back.
-		if err := r.usable(); err != nil {
-			return err
-		}
-		return fn(ctx, extensionTx{
-			tx: tx,
-			core: extensionCore{
-				tx: tx, unattended: r.unattended, deps: r.deps, authority: r.scoped,
-			},
-			ledger: extensionLedger{tx: tx, namespace: namespace, authority: r.scoped},
-		})
-	})
 }
 
 // Caller answers who the invocation runs as, copied out of the principal the

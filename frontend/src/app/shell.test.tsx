@@ -1005,10 +1005,11 @@ describe("PageHead", () => {
       <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
     );
     // In mono, so the reader can see it is an identifier and not somebody's
-    // name — and carrying the whole id in `title` when the line has to clip.
+    // name. An id too long for the trail is revealed by the truncation tooltip,
+    // which has its own suite (design-system/tooltip.test.tsx) — the trail's own
+    // promise is that the id is what stands here at all.
     const raw = container.querySelector(".pagecrumb .t-mono");
     expect(raw?.textContent).toBe("p-anna");
-    expect(raw?.getAttribute("title")).toBe("p-anna");
   });
 
   // An id segment that names no record is the screen's own state, not a record:

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"net/url"
 	"slices"
@@ -65,6 +64,17 @@ var _ connector.EmailSender = (*Connector)(nil)
 // concurrent attempts on the same delivery would both observe it pending and
 // both call SendEmail here — the one-job-per-delivery assumption, not this
 // lookup, is what keeps that from happening in practice.
+// CarriesAttachments declares that this connector transmits files
+// (connector.AttachmentCarrier).
+//
+// There is no default for this and that is the design: a message with files
+// staged against a connector that does not declare the capability PARKS rather
+// than going out stripped, because a recipient seeing fewer files than the
+// timeline records is a wrong record nobody is told about. Gmail takes a
+// complete RFC822 message, so the files ride in the multipart/mixed envelope
+// buildRFC822 renders — nothing is uploaded separately and nothing is linked.
+func (c *Connector) CarriesAttachments() bool { return true }
+
 func (c *Connector) SendEmail(ctx context.Context, auth connector.Auth, msg connector.EmailMessage) (connector.SendReceipt, error) {
 	// Before anything reaches Google: a message with no usable identity cannot
 	// be found again by the prior-send lookup above, so transmitting it would
@@ -171,40 +181,6 @@ func bracket(id string) string {
 		return ""
 	}
 	return "<" + strings.Trim(id, "<>") + ">"
-}
-
-// buildRFC822 renders the provider-neutral message as the wire format Gmail
-// accepts: header order follows RFC 5322's origination-first sequence, body is
-// text/plain UTF-8.
-func buildRFC822(from string, msg connector.EmailMessage) string {
-	var b strings.Builder
-	writeHeader(&b, "From", from)
-	writeHeader(&b, "To", addressList(msg.To))
-	if cc := addressList(msg.Cc); cc != "" {
-		writeHeader(&b, "Cc", cc)
-	}
-	// Encoded-word per RFC 2047 so a non-ASCII subject survives the wire.
-	writeHeader(&b, "Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
-	writeHeader(&b, "Message-ID", bracket(msg.MessageID))
-	if msg.InReplyTo != "" {
-		writeHeader(&b, "In-Reply-To", bracket(msg.InReplyTo))
-	}
-	if len(msg.References) > 0 {
-		refs := make([]string, 0, len(msg.References))
-		for _, r := range msg.References {
-			refs = append(refs, bracket(r))
-		}
-		writeHeader(&b, "References", strings.Join(refs, " "))
-	}
-	if msg.ListUnsubscribe != "" {
-		writeHeader(&b, "List-Unsubscribe", msg.ListUnsubscribe)
-		writeHeader(&b, "List-Unsubscribe-Post", msg.ListUnsubscribePost)
-	}
-	writeHeader(&b, "MIME-Version", "1.0")
-	writeHeader(&b, "Content-Type", `text/plain; charset="utf-8"`)
-	b.WriteString("\r\n")
-	b.WriteString(msg.Body)
-	return b.String()
 }
 
 // addressList renders one address header value: each address trimmed, empties

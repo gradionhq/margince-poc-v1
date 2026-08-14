@@ -540,6 +540,34 @@ func TestReconcileConnectionBackfillsTheWebhookPortalBinding(t *testing.T) {
 	}
 }
 
+// registeredRefetchWorker is the overlay_refetch worker THIS build wires: it
+// is taken out of the registry wireJobs assembles, so every dependency the
+// worker runs on is the one the registration puts there. A hand-built worker
+// proves nothing about that — a field the registration never fills reads as
+// filled, and this worker only reaches its store AFTER it has reserved the
+// budget and spent a live incumbent read, so the gap surfaces as a panic per
+// re-fetch rather than as a missing wire.
+//
+// Only the incumbent boundary is replaced, for the reason every sibling test
+// replaces it: the alternative is a live HubSpot portal. A nil meter is left
+// nil on purpose where a test wants the shed posture, because the registration
+// itself substitutes the fail-closed meter for a role wired without one.
+func registeredRefetchWorker(t *testing.T, pool *pgxpool.Pool, vault keyvault.Vault, meter *overlaybudget.Meter, inc overlay.Incumbent) *overlayRefetchWorker {
+	t.Helper()
+	reg, _ := wireJobs(pool, slog.New(slog.DiscardHandler), JobRunnerConfig{OverlayVault: vault, OverlayMeter: meter})
+	kind := OverlayRefetchArgs{}.Kind()
+	wired, registered := reg.wired[kind]
+	if !registered {
+		t.Fatalf("this build registers no %s worker, so nothing works the jobs the sweep and the webhook enqueue", kind)
+	}
+	w, isRefetch := wired.worker.(*overlayRefetchWorker)
+	if !isRefetch {
+		t.Fatalf("%s is worked by %T, want *overlayRefetchWorker", kind, wired.worker)
+	}
+	w.newIncumbent = func(_, _ string) overlay.Incumbent { return inc }
+	return w
+}
+
 // TestOverlayRefetchWorkerFreshensTheMirrorRecord is the webhook-signal
 // re-fetch worker's real-Postgres proof (OVA-WIRE-10): given an active HubSpot
 // overlay whose owner map the poller has already seeded, one Work call Gets a
@@ -593,11 +621,7 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 	restMeter := budgettest.Meter(t, budgettest.SmallConfig("hubspot"))
 	runRefetch := func(inc *fake.Adapter) {
 		t.Helper()
-		w := &overlayRefetchWorker{
-			pool: e.Pool, vault: vault, ms: ms, meter: restMeter,
-			log:          slog.New(slog.DiscardHandler),
-			newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
-		}
+		w := registeredRefetchWorker(t, e.Pool, vault, restMeter, inc)
 		if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
 			Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 		}); err != nil {
@@ -670,12 +694,10 @@ func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
 	// Spy on the incumbent so the test proves the live READ was skipped, not
 	// merely that nothing was ingested (the reserve gates before inc.Get).
 	spy := &getCountingIncumbent{Adapter: inc}
-	// failClosedOverlayMeter sheds every reservation (no window to account into).
-	w := &overlayRefetchWorker{
-		pool: e.Pool, vault: vault, ms: ms, meter: failClosedOverlayMeter(),
-		log:          slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent { return spy },
-	}
+	// A role wired with no meter at all, which the registration answers with
+	// failClosedOverlayMeter — it sheds every reservation, having no window to
+	// account into.
+	w := registeredRefetchWorker(t, e.Pool, vault, nil, spy)
 	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
 		Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 	}); err != nil {

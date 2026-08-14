@@ -231,6 +231,14 @@ export const vi = {
   "share.expiry.day": "Hết hạn sau 24 giờ",
   "share.expiry.week": "Hết hạn sau 7 ngày",
   "share.expiry.month": "Hết hạn sau 30 ngày",
+  // Vietnamese does not inflect the noun for number, so both plural arms read
+  // identically — they exist for key parity with the other locales.
+  "share.expiryConsequence.one":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequence.other":
+    "Quyền truy cập tự thu hồi sau {days} ngày. Bạn có thể thu hồi sớm hơn bất cứ lúc nào.",
+  "share.expiryConsequenceNone":
+    "Quyền truy cập kéo dài đến khi bạn thu hồi — nó không tự kết thúc.",
   "share.reason": "Lý do",
   "share.grant": "Cấp quyền truy cập",
   "share.whoHasAccess": "Ai có quyền truy cập",
@@ -317,6 +325,7 @@ export const vi = {
   "rel.startedAt": "Bắt đầu",
   "rel.endedAt": "Kết thúc",
   "rel.current": "hiện tại",
+  "rel.endedOn": "đến {when}",
   "rel.remove": "Gỡ",
   "rel.removeConfirm":
     "Bạn chắc chứ? Thao tác này gỡ quan hệ — không có nút hoàn tác.",
@@ -675,8 +684,10 @@ export const vi = {
   "co.health.payment.onTime": "Thanh toán đúng hạn.",
   "co.health.sinceInbound": "Họ viết lần cuối cách đây {days} ngày",
   "co.health.replyBalance": "{percent}% lượt trao đổi đến từ họ",
-  "co.health.activeContacts": "{count} người ở đây đã từng tương tác",
-  "co.health.openCommitments": "{count} cam kết đang mở",
+  "co.health.activeContacts.one": "{count} người ở đây đã từng tương tác",
+  "co.health.activeContacts.other": "{count} người ở đây đã từng tương tác",
+  "co.health.openCommitments.one": "{count} cam kết đang mở",
+  "co.health.openCommitments.other": "{count} cam kết đang mở",
   "co.health.singleThreaded": "Cả tài khoản này chỉ dựa vào một contact",
   "org.partnerSetUp": "Thiết lập chương trình đối tác",
   // The classification values a reader sees. The column stores the enum;
@@ -1172,11 +1183,15 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
-  "lead.owner": "Phụ trách: {owner}",
-  "lead.ownerYou": "bạn",
+  "lead.ownerLabel": "Phụ trách",
+  "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
   "lead.unassigned": "Chưa giao",
   "lead.assignToMe": "Giao cho tôi",
+  "lead.assignToSomeone": "Giao cho người khác",
+  "lead.assignTo": "Giao lead này cho",
+  "lead.assignChoose": "Chọn một đồng nghiệp",
+  "lead.assignNobodyElse": "Không có người nào khác để giao lead này.",
   "lead.saveOverride": "Lưu ghi đè",
   "lead.overrideScoreValue": "Điểm",
   "lead.promoteDialog": "Chuyển thành contact",
@@ -1458,6 +1473,8 @@ export const vi = {
   "field.addLegalName": "Thêm tên pháp lý",
   "field.addIndustry": "Thêm ngành",
   "field.addLinkedinUrl": "Thêm URL LinkedIn",
+  "field.addFullName": "Thêm họ và tên",
+  "field.addTitle": "Thêm chức danh",
   "field.addAddressLine1": "Thêm số nhà và tên đường",
   "field.addAddressLine2": "Thêm địa chỉ dòng 2",
   "field.addPostalCode": "Thêm mã bưu chính",
@@ -1811,6 +1828,17 @@ export const vi = {
     "Lần nhập dừng sau {checkpoint} dòng. Tiếp tục sẽ chạy tiếp từ đó thay vì làm lại từ đầu.",
   "import.resume": "Tiếp tục nhập",
   "import.another": "Nhập tệp khác",
+  "import.undo.one": "Hoàn tác lần nhập này (1 dòng)",
+  "import.undo.other": "Hoàn tác lần nhập này ({rows} dòng)",
+  "import.undoing": "Đang hoàn tác…",
+  "import.undoInterrupted":
+    "Việc hoàn tác đã bị gián đoạn giữa chừng. Tiếp tục sẽ chạy tiếp từ đó, không làm lại từ đầu.",
+  "import.continueUndo": "Tiếp tục hoàn tác",
+  "import.undone": "Lần nhập đã được hoàn tác.",
+  "import.undoReversed.one": "Đã hoàn tác 1 dòng.",
+  "import.undoReversed.other": "Đã hoàn tác {rows} dòng.",
+  "import.undoKeptLead": "Giữ nguyên — các dòng này đã được sửa sau khi nhập:",
+  "import.undoErroredLead": "Không thể hoàn tác — giữ nguyên như cũ:",
   "settings.dangerZone": "Vùng nguy hiểm",
   "settings.dangerZoneSub":
     "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",
@@ -3657,6 +3685,32 @@ export const vi = {
   "settings.voice.addSource": "Thêm mẫu văn",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
+  "settings.voice.browseFiles": "Chọn tệp",
+  "settings.voice.dropHint":
+    "Hoặc thả tệp .txt, .md, .vtt, .srt hay .json vào đây.",
+  "settings.voice.floorLabel": "Tiến độ tới bản dựng đầu tiên ({min} từ)",
+  "settings.voice.floorProgress": "{words} trên {min} từ tới bản dựng đầu tiên",
+  "settings.voice.speakerQuestion": "Bạn là người nói nào trong “{name}”?",
+  "settings.voice.speakerDetail": "{words} từ, {turns} lượt",
+  "settings.voice.speakerConfirm": "Đó là tôi",
+  "settings.voice.speakerDismiss": "Bỏ qua tệp này",
+  "settings.voice.noticeKept": "{name}: giữ {kept} trên {total} từ.",
+  "settings.voice.noticeSkippedType":
+    "Đã bỏ qua {name} — chỉ đọc được tệp văn bản.",
+  "settings.voice.noticeSkippedEmpty":
+    "Đã bỏ qua {name} — tệp không có nội dung.",
+  "settings.voice.noticeDismissed":
+    "Đã bỏ qua {name} — không phần nào trong đó quy được cho bạn.",
+  "settings.voice.noticeAskQueueFull":
+    "Chưa thêm {name} — hãy trả lời các câu hỏi người nói ở trên trước, rồi thêm lại tệp này.",
+  "settings.voice.noticeFailed": "Không thêm được {name}: {detail}",
+  "settings.voice.noticeUnexpected": "Không thêm được {name}.",
+  "settings.voice.refusalUnattributed":
+    "{name} là một cuộc trò chuyện, và không phần nào quy được cho bạn — nên không có gì được thêm vào.",
+  "settings.voice.refusalSpeaker":
+    "Không tìm thấy người nói đó trong {name}, nên không có gì được thêm vào.",
+  "settings.voice.refusalUnsupported":
+    "{name} có định dạng mà kho văn bản không đọc được.",
   "settings.voice.buildsTitle": "Bản dựng",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
@@ -4284,6 +4338,24 @@ export const vi = {
   "person.page.ownerAssigned": "Đã giao",
   "person.page.ownerUnassigned": "Chưa giao",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Chi tiết",
+  "person.rail.contactMethodImmutable":
+    "Được thiết lập khi tạo liên hệ này. Email và số điện thoại không thể thay đổi tại đây.",
+  "person.rail.archivedReadOnly":
+    "Liên hệ này đã lưu trữ. Khôi phục để thay đổi bất kỳ thông tin nào tại đây.",
+  "person.rail.employmentVersionUnresolved":
+    "Không đọc lại được phiên bản hiện tại của dòng này để lưu. Hãy tải lại và thử lại.",
+  "person.rail.employmentTitle": "Công ty",
+  "person.rail.noEmployment": "Chưa ghi nhận nơi làm việc.",
+  "person.rail.addEmployment": "Thêm công ty",
+  "person.rail.employer": "Nơi làm việc",
+  "person.rail.allOrgsConnected":
+    "Mọi kết quả đều đã liên kết với người này rồi.",
+  "person.rail.isCurrentEmployer": "Đây là nơi làm việc hiện tại của họ",
+  "person.rail.markEnded": "Đánh dấu đã kết thúc",
+  "person.rail.removeEmploymentTitle": "Gỡ liên kết với công ty này?",
+  "person.rail.removeEmploymentBody":
+    "Liên kết với {org} và toàn bộ lịch sử liên quan sẽ biến mất, không thể hoàn tác. Bản thân {org} vẫn được giữ lại. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
   "person.page.tabPlaceholder":
     "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
   "person.tab.overview": "Tổng quan",
@@ -4422,6 +4494,12 @@ export const vi = {
   "person.composer.to": "Đến",
   "person.composer.subject": "Chủ đề",
   "person.composer.body": "Nội dung",
+  "richtext.bold": "Đậm",
+  "richtext.italic": "Nghiêng",
+  "richtext.bulletList": "Danh sách dấu đầu dòng",
+  "richtext.numberList": "Danh sách đánh số",
+  "richtext.link": "Liên kết",
+  "richtext.linkPrompt": "Địa chỉ web cho liên kết này (để trống để gỡ bỏ)",
   "person.composer.drafting": "Đang soạn bản nháp…",
   "person.composer.why": "Vì sao có bản nháp này",
   "person.composer.consentUnknown":
@@ -4429,6 +4507,11 @@ export const vi = {
   "person.composer.sendNote":
     "Khi bấm gửi, thư sẽ đi từ hộp thư của chính bạn.",
   "person.composer.purpose": "Mục đích đồng ý",
+  "person.composer.blockedLead": "Thư này không thể gửi với mục đích đã chọn.",
+  "person.composer.blockedRewrite":
+    "Thư gửi với mục đích khác thì phải THỰC SỰ là loại thư đó — đổi nhãn không làm nó thành như vậy.",
+  "person.composer.blockedRecordConsent":
+    "Nếu bạn có cơ sở để viết, hãy ghi nhận quyết định đồng ý trên hồ sơ liên hệ.",
   "person.composer.consentPickPurpose":
     "Hãy chọn mục đích của thư này — sự đồng ý được xét theo từng mục đích.",
   "person.composer.intent": "Nội dung nên nói về điều gì?",

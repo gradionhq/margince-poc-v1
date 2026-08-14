@@ -10,13 +10,8 @@ import {
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  Modal,
-  Textarea,
-  TextInput,
-} from "../design-system/atoms";
+import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
+import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
@@ -201,6 +196,115 @@ function SendFailure({
   return <p className="pe-send-error">{problemMessageOf(error, t)}</p>;
 }
 
+// What to do about a send this person's consent state refuses.
+//
+// A verdict on its own is a dead end: the composer said why it would not send
+// and offered nothing, so a rep who hit it had to ask somebody. Three moves
+// exist and this names the ones that apply — switch to a purpose that IS
+// allowed for this person, open their consent record, or wait for them to
+// write, which lifts business correspondence on its own.
+//
+// It renders nothing until a purpose is chosen, because "no purpose picked" is
+// not a refusal and offering a way out of it would read as one.
+function ConsentWayOut({
+  purpose,
+  guard,
+}: Readonly<{
+  purpose: string;
+  guard: PersonConsentGuard | undefined;
+}>) {
+  const t = useT();
+  const entry = emailGuardFor(guard, purpose);
+  if (purpose === "" || entry === undefined || entry.verdict === "allowed") {
+    return null;
+  }
+  return (
+    <div className="pe-consent-wayout">
+      <p className="t-caption">{t("person.composer.blockedLead")}</p>
+      <ul className="pe-consent-moves">
+        <li className="t-caption">{t("person.composer.blockedRewrite")}</li>
+        <li className="t-caption">
+          {t("person.composer.blockedRecordConsent")}
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+// A plain-text draft as paragraphs, for the editor to open on.
+//
+// The drafting prompts forbid markup, so what arrives is text with blank lines
+// between paragraphs. Rendering it as one block would lose those breaks the
+// moment the rep touches the formatting toolbar.
+function paragraphsFrom(text: string): string {
+  const escaped = (line: string) =>
+    line
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block !== "")
+    .map((block) => `<p>${escaped(block).replaceAll("\n", "<br>")}</p>`)
+    .join("");
+}
+
+// The composer's own head: who it is to, and whether it may go at all.
+//
+// Its own component because the verdict line has three states a reader must be
+// able to tell apart — allowed, refused, and no purpose chosen yet — and the
+// composer around it is at the complexity ceiling.
+function ComposerHead({
+  name,
+  allowed,
+  reason,
+  purpose,
+  guard,
+  onClose,
+}: Readonly<{
+  name: string;
+  allowed: boolean;
+  reason: string | undefined;
+  purpose: string;
+  guard: PersonConsentGuard | undefined;
+  onClose: () => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="drawer-head">
+      <div className="pe-drawer-title">
+        <h2 id="person-composer-title">
+          {t("person.composer.title", { name })}
+        </h2>
+        <Button small onClick={onClose} aria-label={t("person.drawer.close")}>
+          <X size={16} aria-hidden="true" />
+        </Button>
+      </div>
+      {/* The consent verdict leads, with its reason. A rep about to write
+          needs to know whether they may send BEFORE they spend words on it —
+          and until a purpose is chosen the honest line is that the question
+          has not been asked yet, not a verdict borrowed from another purpose. */}
+      <div
+        className={
+          allowed
+            ? "pe-consent-line"
+            : "pe-consent-line pe-consent-line-blocked"
+        }
+      >
+        <Check size={15} aria-hidden="true" />
+        <span>
+          {reason ??
+            (purpose
+              ? t("person.composer.consentUnknown")
+              : t("person.composer.consentPickPurpose"))}
+        </span>
+      </div>
+      <ConsentWayOut purpose={purpose} guard={guard} />
+    </div>
+  );
+}
+
 export function PersonComposer({
   personId,
   view,
@@ -221,7 +325,10 @@ export function PersonComposer({
 }>) {
   const t = useT();
   const [subject, setSubject] = useState("");
+  // The two renderings of one message. body is what a text client receives and
+  // what every existing gate reads; html is the markup alternative beside it.
   const [body, setBody] = useState("");
+  const [html, setHtml] = useState("");
   // Keyed on the intent the caller supplied, so a SECOND moment action opening
   // the same composer replaces the first one's intent instead of leaving the
   // rep with the reason the previous button had. useState alone seeds once and
@@ -233,6 +340,26 @@ export function PersonComposer({
     setIntent(initialIntent ?? "");
   }
   const [purpose, setPurpose] = useState("");
+
+  // One spelling of "this composer holds no message", for the two moments that
+  // need it: the recipient changing, and a send succeeding.
+  const clearMessage = () => {
+    setSubject("");
+    setBody("");
+    setHtml("");
+    setPurpose("");
+  };
+
+  // The composer belongs to ONE recipient. The person page reuses this
+  // component when the contact changes — same element, new id — so without this
+  // the subject and both renderings written for A stay loaded while the To
+  // line, the links and the consent verdict all switch to B. A rep who pressed
+  // Send would disclose A's message to B.
+  const [wroteFor, setWroteFor] = useState(personId);
+  if (wroteFor !== personId) {
+    setWroteFor(personId);
+    clearMessage();
+  }
 
   // Drafting is a BUTTON, not something the drawer does to you. Opening a
   // composer to write two sentences yourself should not spend the workspace's
@@ -250,9 +377,16 @@ export function PersonComposer({
       return data;
     },
     onSuccess: (written) => {
-      if (written) {
+      // A draft arriving after the rep started writing must not replace their
+      // words: they asked for a suggestion, not for their own sentence to be
+      // taken away. An empty composer is the case this is for.
+      if (written && subject.trim() === "" && body.trim() === "") {
         setSubject(written.subject);
         setBody(written.body);
+        // The model writes PLAIN text by contract, so the markup alternative
+        // starts as that text in paragraphs rather than one run-on block. A
+        // rep formats from there; nothing is invented on their behalf.
+        setHtml(paragraphsFrom(written.body));
       }
     },
   });
@@ -272,6 +406,9 @@ export function PersonComposer({
         body: {
           subject,
           body,
+          // Omitted entirely when the rep formatted nothing: an empty markup
+          // part would make every plain send multipart for no reader's gain.
+          html_body: html.trim() === "" ? undefined : html,
           to: [recipient],
           consent_purpose: purpose,
           links: [{ entity_type: "person" as const, entity_id: personId }],
@@ -282,12 +419,14 @@ export function PersonComposer({
       }
       return data;
     },
+    // The message left. Clearing it readies the composer for the next one and
+    // is what stops the same words going out twice — send.isSuccess no longer
+    // gates the button, because it stays true for the life of the mutation and
+    // left a rep who sent one message unable to write another.
+    onSuccess: clearMessage,
   });
 
-  const sendable =
-    allowed &&
-    !send.isSuccess &&
-    canSend({ recipient, subject, body, purpose });
+  const sendable = allowed && canSend({ recipient, subject, body, purpose });
 
   return (
     <Modal
@@ -297,35 +436,14 @@ export function PersonComposer({
       size="wide"
       placement="right"
     >
-      <div className="drawer-head">
-        <div className="pe-drawer-title">
-          <h2 id="person-composer-title">
-            {t("person.composer.title", { name: view.person.full_name })}
-          </h2>
-          <Button small onClick={onClose} aria-label={t("person.drawer.close")}>
-            <X size={16} aria-hidden="true" />
-          </Button>
-        </div>
-        {/* The consent verdict leads, with its reason. A rep about to write
-            needs to know whether they may send BEFORE they spend words on it —
-            and until a purpose is chosen the honest line is that the question
-            has not been asked yet, not a verdict borrowed from another purpose. */}
-        <div
-          className={
-            allowed
-              ? "pe-consent-line"
-              : "pe-consent-line pe-consent-line-blocked"
-          }
-        >
-          <Check size={15} aria-hidden="true" />
-          <span>
-            {email?.reason ??
-              (purpose
-                ? t("person.composer.consentUnknown")
-                : t("person.composer.consentPickPurpose"))}
-          </span>
-        </div>
-      </div>
+      <ComposerHead
+        name={view.person.full_name}
+        allowed={allowed}
+        reason={email?.reason}
+        purpose={purpose}
+        guard={guard}
+        onClose={onClose}
+      />
 
       <div className="drawer-body">
         <label className="pe-field-label" htmlFor="composer-to">
@@ -355,11 +473,27 @@ export function PersonComposer({
         <label className="pe-field-label" htmlFor="composer-body">
           {t("person.composer.body")}
         </label>
-        <Textarea
+        {/* Both renderings travel. The wire sends multipart/alternative, so a
+            composer that kept only the markup would leave the plain part —
+            which a text client, a screen reader and a spam filter all read —
+            saying something else. */}
+        <RichText
           id="composer-body"
+          value={html}
+          onChange={(next) => {
+            setHtml(next.html);
+            setBody(next.text);
+          }}
+          label={t("person.composer.body")}
+          labels={{
+            bold: t("richtext.bold"),
+            italic: t("richtext.italic"),
+            bulletList: t("richtext.bulletList"),
+            numberList: t("richtext.numberList"),
+            link: t("richtext.link"),
+            linkPrompt: t("richtext.linkPrompt"),
+          }}
           rows={12}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
         />
 
         {/* Why this draft: the reasoning is a SIBLING of the body, never part
@@ -367,7 +501,11 @@ export function PersonComposer({
             before sending. */}
         {draft.data?.reasoning && draft.data.reasoning.length > 0 && (
           <section className="pe-why">
-            <h3 className="pe-card-title">{t("person.composer.why")}</h3>
+            {/* An h3, not the design system's SectionHeader: this block sits
+                INSIDE a dialog whose own title is the h2, and a heading at the
+                same level would read to a screen reader as a sibling of the
+                dialog rather than a part of it. */}
+            <h3 className="pe-section-title">{t("person.composer.why")}</h3>
             <ul className="pe-why-list">
               {draft.data.reasoning.map((reason) => (
                 <li key={`${reason.kind}-${reason.label}`}>{reason.label}</li>
@@ -624,7 +762,9 @@ export function PersonMeetingBrief({
         )}
         {brief.data?.sections.map((section) => (
           <section className="pe-brief-section" key={section.kind}>
-            <h3 className="pe-card-title">
+            {/* h3 for the same reason as the composer's own section above: the
+                dialog's title is the h2 these sit under. */}
+            <h3 className="pe-section-title">
               {t(`person.meeting.${section.kind}` as never)}
             </h3>
             {section.sentences.map((sentence) => (

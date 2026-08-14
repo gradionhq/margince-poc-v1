@@ -78,6 +78,69 @@ func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
 	}
 }
 
+// TestSyncStatusShowsWhichClassHoldsAnOlderProjection is how an operator sees
+// WHY the flip's force-fresh check will not clear: the same comparison the
+// preflight aggregates into one verdict, reported per class on the surface
+// that already exists — no new wire field. It also pins the two classes the
+// comparison must spare, which is what keeps the verdict clearable at all:
+// one whose declaration this deployment no longer holds, and one with no
+// declared mapping left.
+func TestSyncStatusShowsWhichClassHoldsAnOlderProjection(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	seedOverlayWorkspace(ctx, t, pool)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	store := NewMirrorStore(db, noOwnerEmails{})
+	svc := NewService(db, keyvault.NewMemory(), store).
+		WithIncumbentClassesTranslator(func(canonical string) ([]string, bool) {
+			switch canonical {
+			case "person":
+				return []string{IncumbentClassContacts}, true
+			case "organization":
+				return []string{IncumbentClassCompanies}, true
+			default:
+				return nil, false
+			}
+		}).
+		WithProjectionFingerprints(map[string]string{IncumbentClassContacts: "contacts-declaration-current"})
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	for _, row := range []struct{ objectClass, ext, fingerprint string }{
+		{"person", "p-legacy", "contacts-declaration-superseded"},
+		// companies has no current declaration injected, and widget has no
+		// mapping at all — neither class can be judged, so neither is stale.
+		{"organization", "org-1", "companies-declaration-retired"},
+		{"widget", "w-1", "widget-declaration-retired"},
+	} {
+		if err := store.Ingest(ctx, Record{
+			ObjectClass: row.objectClass, ExternalID: row.ext,
+			Fields:                map[string]any{"full_name": "Ingested Row"},
+			ModifiedAt:            baseline,
+			ProjectionFingerprint: row.fingerprint,
+		}); err != nil {
+			t.Fatalf("ingesting %s/%s: %v", row.objectClass, row.ext, err)
+		}
+	}
+
+	statuses, err := svc.SyncStatus(ctx)
+	if err != nil {
+		t.Fatalf("SyncStatus: %v", err)
+	}
+	states := make(map[string]string, len(statuses))
+	for _, s := range statuses {
+		states[s.Object] = s.State
+	}
+	want := map[string]string{
+		"person":       syncStateStale,
+		"organization": syncStateFresh,
+		"widget":       syncStateFresh,
+	}
+	for object, wantState := range want {
+		if states[object] != wantState {
+			t.Errorf("sync state for %s = %q, want %q (all states: %v)", object, states[object], wantState, states)
+		}
+	}
+}
+
 func TestSyncStatusAndBudgetRefuseANativeModeWorkspace(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t) // never flips to overlay mode
 	svc := NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), keyvault.NewMemory(), NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})).

@@ -233,6 +233,12 @@ export const en = {
   "share.expiry.day": "Expires in 24 hours",
   "share.expiry.week": "Expires in 7 days",
   "share.expiry.month": "Expires in 30 days",
+  "share.expiryConsequence.one":
+    "Access auto-revokes in {days} day. You can revoke it sooner at any time.",
+  "share.expiryConsequence.other":
+    "Access auto-revokes in {days} days. You can revoke it sooner at any time.",
+  "share.expiryConsequenceNone":
+    "Access lasts until you revoke it — it will not end on its own.",
   "share.reason": "Reason",
   "share.grant": "Grant access",
   "share.whoHasAccess": "Who has access",
@@ -319,6 +325,7 @@ export const en = {
   "rel.startedAt": "Started",
   "rel.endedAt": "Ended",
   "rel.current": "current",
+  "rel.endedOn": "until {when}",
   "rel.remove": "Remove",
   "rel.removeConfirm":
     "Are you sure? This removes the relationship — there is no undo control.",
@@ -691,8 +698,10 @@ export const en = {
   "co.health.payment.onTime": "Pays on time.",
   "co.health.sinceInbound": "They last wrote {days} days ago",
   "co.health.replyBalance": "{percent}% of the exchange came from them",
-  "co.health.activeContacts": "{count} people here have ever interacted",
-  "co.health.openCommitments": "{count} open commitment(s)",
+  "co.health.activeContacts.one": "{count} person here has ever interacted",
+  "co.health.activeContacts.other": "{count} people here have ever interacted",
+  "co.health.openCommitments.one": "{count} open commitment",
+  "co.health.openCommitments.other": "{count} open commitments",
   "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
@@ -1185,11 +1194,15 @@ export const en = {
   "lead.clearOverride": "Clear override",
   "lead.overrideReason": "Reason",
   "lead.machineComputed": "Machine-computed score",
-  "lead.owner": "Owner: {owner}",
-  "lead.ownerYou": "you",
+  "lead.ownerLabel": "Owner",
+  "lead.ownerYou": "You",
   "lead.overriddenBadge": "overridden",
   "lead.unassigned": "Unassigned",
   "lead.assignToMe": "Assign to me",
+  "lead.assignToSomeone": "Assign to someone else",
+  "lead.assignTo": "Assign this lead to",
+  "lead.assignChoose": "Choose a colleague",
+  "lead.assignNobodyElse": "No other user to assign this lead to.",
   "lead.saveOverride": "Save override",
   "lead.overrideScoreValue": "Score",
   "lead.promoteDialog": "Promote to contact",
@@ -1470,6 +1483,8 @@ export const en = {
   "field.addLegalName": "Add legal name",
   "field.addIndustry": "Add industry",
   "field.addLinkedinUrl": "Add LinkedIn URL",
+  "field.addFullName": "Add name",
+  "field.addTitle": "Add title",
   "field.addAddressLine1": "Add street and number",
   "field.addAddressLine2": "Add address line 2",
   "field.addPostalCode": "Add postal code",
@@ -1826,6 +1841,18 @@ export const en = {
     "The import stopped after {checkpoint} rows. Resuming continues from there rather than starting again.",
   "import.resume": "Resume the import",
   "import.another": "Import another file",
+  "import.undo.one": "Undo this import (1 row)",
+  "import.undo.other": "Undo this import ({rows} rows)",
+  "import.undoing": "Undoing…",
+  "import.undoInterrupted":
+    "The undo was interrupted partway through. Continuing picks up where it stopped, not from the start.",
+  "import.continueUndo": "Continue the undo",
+  "import.undone": "The import was undone.",
+  "import.undoReversed.one": "1 row reversed.",
+  "import.undoReversed.other": "{rows} rows reversed.",
+  "import.undoKeptLead": "Kept — you edited these since the import:",
+  "import.undoErroredLead":
+    "Could not be reversed — left exactly as they stood:",
   "settings.dangerZone": "Danger zone",
   "settings.dangerZoneSub":
     "Non-production only — irreversible on this installation.",
@@ -3678,6 +3705,31 @@ export const en = {
   "settings.voice.addSource": "Add sample",
   "settings.voice.addFirstLabel": "Your first writing sample",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
+  "settings.voice.browseFiles": "Choose files",
+  "settings.voice.dropHint":
+    "Or drop .txt, .md, .vtt, .srt or .json files here.",
+  "settings.voice.floorLabel": "Progress towards the first build ({min} words)",
+  "settings.voice.floorProgress": "{words} of {min} words to a first build",
+  "settings.voice.speakerQuestion": "Which speaker are you in “{name}”?",
+  "settings.voice.speakerDetail": "{words} words, {turns} turns",
+  "settings.voice.speakerConfirm": "That one is me",
+  "settings.voice.speakerDismiss": "Skip this file",
+  "settings.voice.noticeKept": "{name}: kept {kept} of {total} words.",
+  "settings.voice.noticeSkippedType":
+    "{name} was skipped — only text files can be read.",
+  "settings.voice.noticeSkippedEmpty": "{name} was skipped — it has no text.",
+  "settings.voice.noticeDismissed":
+    "{name} was skipped — nothing in it could be attributed to you.",
+  "settings.voice.noticeAskQueueFull":
+    "{name} was not added — answer the speaker questions above first, then add it again.",
+  "settings.voice.noticeFailed": "{name} could not be added: {detail}",
+  "settings.voice.noticeUnexpected": "{name} could not be added.",
+  "settings.voice.refusalUnattributed":
+    "{name} is a conversation, and none of it could be attributed to you — so none of it was added.",
+  "settings.voice.refusalSpeaker":
+    "That speaker was not found in {name}, so nothing was added.",
+  "settings.voice.refusalUnsupported":
+    "{name} is not a format the corpus can read.",
   "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",
@@ -4303,6 +4355,31 @@ export const en = {
   "person.page.ownerAssigned": "Assigned",
   "person.page.ownerUnassigned": "Unassigned",
   "person.page.linkedin": "LinkedIn",
+  // The rail's own details grid: the contact's own fields, at a glance above
+  // the six relationship sections below it.
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Set when this contact was added. Email and phone cannot be changed here.",
+  "person.rail.archivedReadOnly":
+    "This contact is archived. Restore them to change anything here.",
+  // Fired when an employment row's version could not be read back before a
+  // write — the row is not saved unpinned, so the reader is told to reload
+  // rather than left to think the edit landed.
+  "person.rail.employmentVersionUnresolved":
+    "This row's current version could not be read back to save against. Reload and try again.",
+  // The employers section: every employment edge this person holds, current
+  // one first — a person can work at more than one company at once.
+  "person.rail.employmentTitle": "Companies",
+  "person.rail.noEmployment": "No employment on record.",
+  "person.rail.addEmployment": "Add company",
+  "person.rail.employer": "Employer",
+  "person.rail.allOrgsConnected":
+    "Every match is already connected to this person.",
+  "person.rail.isCurrentEmployer": "This is their current employer",
+  "person.rail.markEnded": "Mark as ended",
+  "person.rail.removeEmploymentTitle": "Remove this company connection?",
+  "person.rail.removeEmploymentBody":
+    "The link to {org} and the history hanging off it disappear, and this cannot be undone. {org} itself stays. If they simply left, mark it ended instead.",
   "person.page.tabPlaceholder":
     "This tab is not built yet. The overview carries the relationship; this will carry {topic}.",
   "person.tab.overview": "Overview",
@@ -4441,6 +4518,12 @@ export const en = {
   "person.composer.to": "To",
   "person.composer.subject": "Subject",
   "person.composer.body": "Message",
+  "richtext.bold": "Bold",
+  "richtext.italic": "Italic",
+  "richtext.bulletList": "Bulleted list",
+  "richtext.numberList": "Numbered list",
+  "richtext.link": "Link",
+  "richtext.linkPrompt": "Web address for this link (leave empty to remove it)",
   "person.composer.drafting": "Writing a draft…",
   "person.composer.why": "Why this draft",
   "person.composer.consentUnknown":
@@ -4448,6 +4531,12 @@ export const en = {
   "person.composer.sendNote":
     "Pressing send delivers this message from your own mailbox.",
   "person.composer.purpose": "Consent purpose",
+  "person.composer.blockedLead":
+    "This message cannot go out under this purpose.",
+  "person.composer.blockedRewrite":
+    "A message sent under another purpose has to BE that kind of message — relabelling this one does not make it so.",
+  "person.composer.blockedRecordConsent":
+    "If you have a basis for writing, record the consent decision on their contact record.",
   "person.composer.consentPickPurpose":
     "Choose what this message is for — consent is decided per purpose.",
   "person.composer.intent": "What should it be about?",

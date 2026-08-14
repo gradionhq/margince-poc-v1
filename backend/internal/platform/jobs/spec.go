@@ -13,18 +13,19 @@ import (
 	"time"
 )
 
-// Role is what a declared kind DOES. A dispatcher enumerates and enqueues and
-// touches no tenant data; a workspace kind carries one tenant's pass and is
-// enqueued, never ticked. The zero value names neither — every Spec compiled
-// from the contract sets it, so a zero Role means a Spec nobody declared.
+// Role is what a declared kind DOES. A dispatcher enumerates a work unit and
+// enqueues one child per item, touching no record data itself; a worker does
+// the work — ticked by its own schedule, or enqueued by a dispatcher and
+// carrying the unit it stands for. The zero value names neither: every Spec
+// compiled from the contract sets it, so a zero Role means a Spec nobody
+// declared.
 type Role int
 
-// The two roles the fleet has. A third would be a change to what a job IS,
-// not data: both surfaces (the health report and the metrics) read this to
-// decide whether a null workspace_id is correct or a defect.
+// The two roles a job has. A third would be a change to what a job IS, not
+// data: the health report and the metrics both read this.
 const (
 	Dispatcher Role = iota + 1
-	Workspace
+	Worker
 )
 
 // FanOutUnit is what one child of a fan-out stands for. A dispatcher enqueues

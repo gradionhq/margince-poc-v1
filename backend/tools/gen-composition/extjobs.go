@@ -12,7 +12,7 @@ package main
 // and RequestedScope and must keep refusing inside a bare role binary.
 //
 // A scheduled job is TWO kinds. gen-jobs' validateCadence forbids a cadence on
-// a workspace-role kind, so a unit declares a cadenced DISPATCHER and the
+// a worker, so a unit declares a cadenced DISPATCHER and the
 // workspace CHILD it fans out to, and this reader pairs them by name:
 // ext_<ns>_<job> and ext_<ns>_<job>_ws.
 
@@ -68,7 +68,7 @@ type extJobKind struct {
 
 const (
 	extRoleDispatcher = "dispatcher"
-	extRoleWorkspace  = "workspace"
+	extRoleWorker  = "worker"
 )
 
 // extensionJobs reads every enabled unit's scheduled jobs out of the merged
@@ -151,8 +151,8 @@ func extensionKindEntries(kinds *yaml.Node, owners map[string]string) ([]namedEx
 		// mistyped `role: dispatchr` is not refused by either — it falls out of
 		// both loops and the kind vanishes: no registration, no manifest entry,
 		// no error. A misspelling must not be able to un-declare a job.
-		if def.Role != extRoleDispatcher && def.Role != extRoleWorkspace {
-			return nil, fmt.Errorf("kind %s declares role %q — an extension job kind is %q or %q, and any other value would leave the kind declared by the contract and registered by nothing", kind, def.Role, extRoleDispatcher, extRoleWorkspace)
+		if def.Role != extRoleDispatcher && def.Role != extRoleWorker {
+			return nil, fmt.Errorf("kind %s declares role %q — an extension job kind is %q or %q, and any other value would leave the kind declared by the contract and registered by nothing", kind, def.Role, extRoleDispatcher, extRoleWorker)
 		}
 		out = append(out, namedExtKind{kind: kind, unit: unit, def: def})
 	}
@@ -178,7 +178,7 @@ func namespaceOf(kind string, owners map[string]string) string {
 	return ""
 }
 
-// pairExtensionKinds joins each dispatcher to the workspace child it implies,
+// pairExtensionKinds joins each dispatcher to the worker child it implies,
 // and refuses every half-declared pair. A dispatcher with no child would tick
 // and enqueue rows of a kind nothing declares; a child with no dispatcher would
 // be a worker no clock ever reaches.
@@ -195,10 +195,10 @@ func pairExtensionKinds(entries []namedExtKind, queues []string) ([]extension.Jo
 		childKind := e.kind + extension.JobKindSuffix
 		child, ok := byKind[childKind]
 		if !ok {
-			return nil, fmt.Errorf("kind %s is a dispatcher but nothing declares %s — a scheduled job is a cadenced dispatcher AND the workspace child it fans out to, because a cadence on a workspace-role kind is refused", e.kind, childKind)
+			return nil, fmt.Errorf("kind %s is a dispatcher but nothing declares %s — a scheduled job is a cadenced dispatcher AND the worker child it fans out to, because a cadence on an enqueued worker is refused", e.kind, childKind)
 		}
-		if child.def.Role != extRoleWorkspace {
-			return nil, fmt.Errorf("kind %s declares role %q — the child of a dispatcher carries one tenant's pass and its role is %q", childKind, child.def.Role, extRoleWorkspace)
+		if child.def.Role != extRoleWorker {
+			return nil, fmt.Errorf("kind %s declares role %q — the child of a dispatcher does the work for one unit and its role is %q", childKind, child.def.Role, extRoleWorker)
 		}
 		d, err := declarationFrom(e, child, queues)
 		if err != nil {
@@ -209,18 +209,18 @@ func pairExtensionKinds(entries []namedExtKind, queues []string) ([]extension.Jo
 	// Every child must have been claimed by the loop above; one that was not is
 	// a worker nothing schedules.
 	for _, e := range entries {
-		if e.def.Role != extRoleWorkspace {
+		if e.def.Role != extRoleWorker {
 			continue
 		}
 		// The parent must exist AND be a dispatcher. Existence alone is not the
 		// question the loop above answers: `a_ws` and `a_ws_ws` are both
-		// workspace kinds, and the second one's suffix-stripped name resolves
+		// worker kinds, and the second one's suffix-stripped name resolves
 		// to the first — so it looks claimed here while the dispatcher loop,
 		// which only ever visits dispatchers, never enqueued it. The result is
 		// a kind the contract declares, the manifest omits and nothing works.
 		parent, ok := byKind[strings.TrimSuffix(e.kind, extension.JobKindSuffix)]
 		if !ok || !strings.HasSuffix(e.kind, extension.JobKindSuffix) || parent.def.Role != extRoleDispatcher {
-			return nil, fmt.Errorf("kind %s is a workspace kind that no dispatcher fans out to — name it <dispatcher>%s and declare the dispatcher, or delete it", e.kind, extension.JobKindSuffix)
+			return nil, fmt.Errorf("kind %s is a worker that no dispatcher fans out to — name it <dispatcher>%s and declare the dispatcher, or delete it", e.kind, extension.JobKindSuffix)
 		}
 	}
 	return decls, nil
@@ -258,7 +258,7 @@ func declarationFrom(dispatcher, child namedExtKind, queues []string) (extension
 		return extension.JobDeclaration{}, fmt.Errorf("kind %s: %w", child.kind, err)
 	}
 	if child.def.Cadence != "" {
-		return extension.JobDeclaration{}, fmt.Errorf("kind %s declares a cadence — a workspace kind is enqueued by its dispatcher, never ticked", child.kind)
+		return extension.JobDeclaration{}, fmt.Errorf("kind %s declares a cadence — an enqueued worker is never ticked", child.kind)
 	}
 	if dispatcher.def.MaxAttempts != 0 {
 		return fail("declares max_attempts — the attempt cap is the CHILD's, and a dispatcher's retry is its own next tick")

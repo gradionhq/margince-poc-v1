@@ -247,6 +247,17 @@ function stubApi(options: StubOptions = {}) {
       if (path.includes("/voice-profiles/") && path.endsWith("/versions")) {
         return jsonResponse({ data: options.voiceVersions ?? [], page: {} });
       }
+      // Every source is previewed before it is written, pasted text included:
+      // the server is the one that says whether writing carries speakers.
+      if (path.endsWith("/sources/preview")) {
+        return jsonResponse({
+          detected_format: "txt",
+          total_words: options.pasteWords ?? 0,
+          speakers: [],
+          unattributed_words: options.pasteWords ?? 0,
+          ingestible_as_transcript: false,
+        });
+      }
       if (
         path.includes("/voice-profiles/") &&
         path.endsWith("/sources") &&

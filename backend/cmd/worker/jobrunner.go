@@ -95,6 +95,18 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	// keyvault.FromEnv's, already nil where none is configured, and it is the
 	// same value startRunnerLane passes — so the two bindings are idempotent.
 	compose.BindExtensionRuntime(pool, vault)
+	// The capture pipeline a unit's ingress lands through, bound in the same
+	// breath and on the same terms. THIS role is the one that matters: a record
+	// is ingested by unattended work only — a job tick or a subscription
+	// delivery — and both of those run here. A worker that bound the runtime
+	// and not this would serve every other capability and answer
+	// errIngressUnwired to the one capability a connector unit exists for.
+	//
+	// It takes cfg.captureConfig, which is the same deployment config the sweep
+	// registry above is built from, blob store included: a unit's captured
+	// message and a mailbox's then reach one set of suppression lists and one
+	// attachment store rather than two that drift.
+	compose.BindExtensionCapture(pool, cfg.captureConfig)
 
 	runner, err := newJobRunner(pool, logger, cfg, captureReg, watchCfg, configuredVault, lanes, rdb, overlayBudget, modelPath, boundModels)
 	if err != nil {
@@ -121,6 +133,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 // starved by another.
 func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, captureReg *capture.Registry, watchCfg compose.GmailWatchConfig, configuredVault keyvault.Vault, lanes workerLanes, rdb *redis.Client, overlayBudget overlaybudget.Config, modelPath compose.ModelPath, boundModels map[string]map[string]bool) (*jobs.Runner, error) {
 	return compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		// The send lane reads attachment bytes from the same object store
+		// capture writes them to; without it a message carrying files fails at
+		// the read rather than going out without them.
+		SendBlob: lanes.blob,
 		// The registry that resolves a staged delivery's mailbox: the SAME
 		// sweep registry the capture polls use, so the connector set that
 		// syncs a mailbox is the one that transmits from it.

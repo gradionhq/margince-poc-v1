@@ -551,6 +551,75 @@ describe("CompanyRail", () => {
     expect(screen.getByText("Replying steadily.")).toBeInTheDocument();
   });
 
+  it("counts one contact and one commitment in the singular", () => {
+    stub();
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view({
+          health: {
+            relationship: { rating: "good", reason: "Replying steadily." },
+            active_contacts: 1,
+            open_commitments: 1,
+          },
+        })}
+        loading={false}
+        withPeople
+        composerOpen={false}
+      />,
+    );
+    expect(
+      screen.getByText("1 person here has ever interacted"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 open commitment")).toBeInTheDocument();
+  });
+
+  it("counts more than one contact in the plural", () => {
+    stub();
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view({
+          health: {
+            relationship: { rating: "good", reason: "Replying steadily." },
+            active_contacts: 3,
+            open_commitments: 2,
+          },
+        })}
+        loading={false}
+        withPeople
+        composerOpen={false}
+      />,
+    );
+    expect(
+      screen.getByText("3 people here have ever interacted"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 open commitments")).toBeInTheDocument();
+  });
+
+  // Zero contacts reads as a plural in English, so the count-of-one branch
+  // must not be reached by "not one".
+  it("counts no contacts in the plural", () => {
+    stub();
+    render(
+      <CompanyRail
+        orgId="o-1"
+        view={view({
+          health: {
+            relationship: { rating: "good", reason: "Replying steadily." },
+            active_contacts: 0,
+          },
+        })}
+        loading={false}
+        withPeople
+        composerOpen={false}
+      />,
+    );
+    expect(
+      screen.getByText("0 people here have ever interacted"),
+    ).toBeInTheDocument();
+  });
+
   it("marks a withheld section restricted instead of drawing it empty", () => {
     stub();
     render(

@@ -137,6 +137,19 @@ type AttachmentAuthority interface {
 	// reading "an attachment cannot be sent" leaves the sender guessing which
 	// of several to fix.
 	EnsureTransmittable(ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID) (ok bool, reason string, err error)
+
+	// ReadForSend returns the bytes of each attachment, in the order asked.
+	//
+	// Separate from EnsureTransmittable because they answer different
+	// questions at different costs: may this still be sent, and what is in it.
+	// The gate runs first and refuses for free; only a delivery that survives
+	// it pays to read the objects.
+	//
+	// It is called at TRANSMIT, not at staging. A delivery sits on a retry
+	// ladder for as long as the maximum age allows, and holding every
+	// attachment's bytes in the database for that long — duplicated per
+	// delivery — is a cost with no reader.
+	ReadForSend(ctx context.Context, userID ids.UserID, attachmentIDs []ids.UUID) ([][]byte, error)
 }
 
 // ErrNoMailbox marks a user with no connection to the provider a delivery is
@@ -213,16 +226,18 @@ func consentRecipients(del Delivery) []connector.Recipient {
 	return connector.EmailRecipients(addressees(del))
 }
 
-// addressees is every person this delivery reaches — To and Cc together, in
-// To-then-Cc order, deduplicated case- and space-insensitively the way a mail
+// addressees is every person this delivery reaches — To, Cc and Bcc together,
+// in that order, deduplicated case- and space-insensitively the way a mail
 // server treats an address.
 //
-// The delivery stores the two lists apart because the wire needs them apart,
+// The delivery stores the three lists apart because the wire needs them apart,
 // and consent is owed to EVERY addressee however they were addressed. Gating on
 // the To list alone would leave a Cc'd person no suppression at all: their
 // one-click unsubscribe, and an erasure of their record, would both land
 // between staging and transmit and change nothing about the message they
-// receive.
+// receive. A blind copy is the same person with less visibility, not less
+// standing — and the invisibility is exactly why omitting them here would go
+// unnoticed.
 //
 // It fills a slice of its own and never appends onto the delivery's, because
 // the wire rendering downstream reads Recipients and Cc as the separate lists
@@ -234,9 +249,10 @@ func consentRecipients(del Delivery) []connector.Recipient {
 // about one the gate cannot resolve — a legitimate send parked as "consent not
 // granted", which reads as a recipient who opted out.
 func addressees(del Delivery) []string {
-	all := make([]string, 0, len(del.Recipients)+len(del.Cc))
-	seen := make(map[string]bool, len(del.Recipients)+len(del.Cc))
-	for _, list := range [][]string{del.Recipients, del.Cc} {
+	size := len(del.Recipients) + len(del.Cc) + len(del.Bcc)
+	all := make([]string, 0, size)
+	seen := make(map[string]bool, size)
+	for _, list := range [][]string{del.Recipients, del.Cc, del.Bcc} {
 		for _, addr := range list {
 			key := strings.ToLower(strings.TrimSpace(addr))
 			if key == "" || seen[key] {

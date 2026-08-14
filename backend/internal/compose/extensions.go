@@ -177,6 +177,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightSubscriptions(e); err != nil {
 			return err
 		}
+		if err := preflightIngress(e); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -348,6 +351,29 @@ func preflightSecrets(e extension.Extension) error {
 			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
 		}
 		seen[req] = true
+	}
+	return nil
+}
+
+// preflightIngress validates one unit's declared ingress sources through the
+// same published IngressSource.Validate the manifest generator runs, and
+// rejects the same system declared twice.
+//
+// A duplicate is not harmless here the way a duplicate description would be:
+// the system key is half of every landed record's natural key, so two entries
+// naming one system are two declarations an operator resolves separately about
+// one provenance namespace — and if they ever disagree about Lands, which of
+// them the port answered from would be declaration order.
+func preflightIngress(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Ingress))
+	for _, source := range e.Ingress {
+		if err := source.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[source.System] {
+			return fmt.Errorf("compose: extension %q declares ingress source %q twice", e.Name, source.System)
+		}
+		seen[source.System] = true
 	}
 	return nil
 }

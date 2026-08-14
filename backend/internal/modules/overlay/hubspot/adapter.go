@@ -14,6 +14,7 @@ package hubspot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,17 @@ import (
 
 // pageSize is the fixed page size Backfill/Modified request per call.
 const pageSize = 100
+
+// ErrUnmappable marks the one incumbent failure a retry provably cannot
+// change: the record arrived WHOLE and this build's declaration could not
+// project it into a mirror row. Nothing about that answer depends on when it
+// is asked — the record's properties and the declaration are both fixed — so a
+// caller may stop re-reading it, which is a conclusion no other failure here
+// supports. An empty batch result does NOT carry it: HubSpot answers a partial
+// batch 207 MULTI_STATUS, which is a 2xx, so "no results" is as often one
+// object momentarily withheld as a record that is gone. Neither does a 409, a
+// rate limit, an auth rejection, or an unreachable host.
+var ErrUnmappable = errors.New("hubspot: this build's declaration cannot project the record")
 
 // directionForward labels every Assoc this adapter returns: HubSpot's v4
 // associations endpoint is inherently one-directional (it resolves edges
@@ -404,7 +416,7 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 
 	out, _, err := overlay.Apply(m, props)
 	if err != nil {
-		return overlay.Record{}, fmt.Errorf("hubspot: mapping %s record %s: %w", objectClass, raw.ID, err)
+		return overlay.Record{}, fmt.Errorf("%w: mapping %s record %s: %w", ErrUnmappable, objectClass, raw.ID, err)
 	}
 
 	externalID, _ := out["external_id"].(string)
@@ -419,7 +431,10 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 
 	modifiedAt, err := parseWatermark(out["last_synced_at"])
 	if err != nil {
-		return overlay.Record{}, fmt.Errorf("hubspot: %s record %s: %w", objectClass, raw.ID, err)
+		// The declaration's Baseline target landed on a value that is not a
+		// timestamp, so this projection has no watermark to store — the same
+		// dead end as a field that will not project, and the same verdict.
+		return overlay.Record{}, fmt.Errorf("%w: %s record %s: %w", ErrUnmappable, objectClass, raw.ID, err)
 	}
 
 	ownerID, _ := out["owner_id"].(string)
@@ -435,6 +450,10 @@ func mapRecord(m overlay.ObjectMapping, objectClass string, raw ObjectRecord) (o
 		Fields:          out,
 		ModifiedAt:      modifiedAt,
 		OwnerExternalID: ownerID,
+		// Stamped from the declaration that produced Fields just above, so the
+		// row the mirror stores names its own projection rather than whichever
+		// declaration is current when someone later asks.
+		ProjectionFingerprint: overlay.Fingerprint(m),
 	}, nil
 }
 

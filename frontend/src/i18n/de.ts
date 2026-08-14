@@ -223,6 +223,12 @@ export const de = {
   "share.expiry.day": "Läuft in 24 Stunden ab",
   "share.expiry.week": "Läuft in 7 Tagen ab",
   "share.expiry.month": "Läuft in 30 Tagen ab",
+  "share.expiryConsequence.one":
+    "Der Zugriff endet automatisch in {days} Tag. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequence.other":
+    "Der Zugriff endet automatisch in {days} Tagen. Sie können ihn jederzeit früher widerrufen.",
+  "share.expiryConsequenceNone":
+    "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",
   "share.reason": "Grund",
   "share.grant": "Zugriff gewähren",
   "share.whoHasAccess": "Wer hat Zugriff",
@@ -311,6 +317,7 @@ export const de = {
   "rel.startedAt": "Beginn",
   "rel.endedAt": "Ende",
   "rel.current": "aktuell",
+  "rel.endedOn": "bis {when}",
   "rel.remove": "Entfernen",
   "rel.removeConfirm":
     "Bist du sicher? Das entfernt die Beziehung — es gibt keine Rückgängig-Funktion.",
@@ -681,8 +688,10 @@ export const de = {
   "co.health.payment.onTime": "Zahlt pünktlich.",
   "co.health.sinceInbound": "Sie schrieben zuletzt vor {days} Tagen",
   "co.health.replyBalance": "{percent}% des Austauschs kam von ihnen",
-  "co.health.activeContacts": "{count} Personen hier hatten je Kontakt",
-  "co.health.openCommitments": "{count} offene Zusage(n)",
+  "co.health.activeContacts.one": "{count} Person hier hatte je Kontakt",
+  "co.health.activeContacts.other": "{count} Personen hier hatten je Kontakt",
+  "co.health.openCommitments.one": "{count} offene Zusage",
+  "co.health.openCommitments.other": "{count} offene Zusagen",
   "co.health.singleThreaded": "Ein Kontakt trägt diesen Account",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
@@ -1176,11 +1185,16 @@ export const de = {
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
-  "lead.owner": "Verantwortlich: {owner}",
+  "lead.ownerLabel": "Verantwortlich",
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
   "lead.unassigned": "Nicht zugewiesen",
   "lead.assignToMe": "Mir zuweisen",
+  "lead.assignToSomeone": "Jemand anderem zuweisen",
+  "lead.assignTo": "Diesen Lead zuweisen an",
+  "lead.assignChoose": "Kollegin oder Kollegen wählen",
+  "lead.assignNobodyElse":
+    "Es gibt niemanden sonst, dem dieser Lead zugewiesen werden kann.",
   "lead.saveOverride": "Überschreibung speichern",
   "lead.overrideScoreValue": "Score",
   "lead.promoteDialog": "Zum Kontakt machen",
@@ -1467,6 +1481,8 @@ export const de = {
   "field.addLegalName": "Rechtlichen Namen hinzufügen",
   "field.addIndustry": "Branche hinzufügen",
   "field.addLinkedinUrl": "LinkedIn-URL hinzufügen",
+  "field.addFullName": "Namen hinzufügen",
+  "field.addTitle": "Titel hinzufügen",
   "field.addAddressLine1": "Straße und Hausnummer hinzufügen",
   "field.addAddressLine2": "Adresszusatz hinzufügen",
   "field.addPostalCode": "Postleitzahl hinzufügen",
@@ -1821,6 +1837,19 @@ export const de = {
     "Der Import hat nach {checkpoint} Zeilen gestoppt. Fortsetzen macht dort weiter, statt neu zu beginnen.",
   "import.resume": "Import fortsetzen",
   "import.another": "Weitere Datei importieren",
+  "import.undo.one": "Diesen Import rückgängig machen (1 Zeile)",
+  "import.undo.other": "Diesen Import rückgängig machen ({rows} Zeilen)",
+  "import.undoing": "Wird rückgängig gemacht…",
+  "import.undoInterrupted":
+    "Das Rückgängigmachen wurde unterbrochen. Fortsetzen macht dort weiter, wo es aufgehört hat, nicht von vorn.",
+  "import.continueUndo": "Rückgängigmachen fortsetzen",
+  "import.undone": "Der Import wurde rückgängig gemacht.",
+  "import.undoReversed.one": "1 Zeile rückgängig gemacht.",
+  "import.undoReversed.other": "{rows} Zeilen rückgängig gemacht.",
+  "import.undoKeptLead":
+    "Beibehalten — diese wurden seit dem Import bearbeitet:",
+  "import.undoErroredLead":
+    "Konnte nicht rückgängig gemacht werden — unverändert belassen:",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
     "Nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen.",
@@ -3668,6 +3697,35 @@ export const de = {
   "settings.voice.addSource": "Probe hinzufügen",
   "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
+  "settings.voice.browseFiles": "Dateien auswählen",
+  "settings.voice.dropHint":
+    "Oder .txt-, .md-, .vtt-, .srt- oder .json-Dateien hier ablegen.",
+  "settings.voice.floorLabel":
+    "Fortschritt bis zum ersten Build ({min} Wörter)",
+  "settings.voice.floorProgress":
+    "{words} von {min} Wörtern bis zum ersten Build",
+  "settings.voice.speakerQuestion": "Wer bist du in „{name}“?",
+  "settings.voice.speakerDetail": "{words} Wörter, {turns} Beiträge",
+  "settings.voice.speakerConfirm": "Das bin ich",
+  "settings.voice.speakerDismiss": "Datei überspringen",
+  "settings.voice.noticeKept": "{name}: {kept} von {total} Wörtern übernommen.",
+  "settings.voice.noticeSkippedType":
+    "{name} wurde übersprungen – lesbar sind nur Textdateien.",
+  "settings.voice.noticeSkippedEmpty":
+    "{name} wurde übersprungen – die Datei enthält keinen Text.",
+  "settings.voice.noticeDismissed":
+    "{name} wurde übersprungen – nichts darin ließ sich dir zuordnen.",
+  "settings.voice.noticeAskQueueFull":
+    "{name} wurde nicht hinzugefügt – beantworte zuerst die offenen Fragen oben und füge die Datei dann erneut hinzu.",
+  "settings.voice.noticeFailed":
+    "{name} konnte nicht hinzugefügt werden: {detail}",
+  "settings.voice.noticeUnexpected": "{name} konnte nicht hinzugefügt werden.",
+  "settings.voice.refusalUnattributed":
+    "{name} ist ein Gespräch, und nichts darin ließ sich dir zuordnen – deshalb wurde nichts übernommen.",
+  "settings.voice.refusalSpeaker":
+    "Diese Person kommt in {name} nicht vor, es wurde nichts übernommen.",
+  "settings.voice.refusalUnsupported":
+    "{name} liegt in einem Format vor, das nicht gelesen werden kann.",
   "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",
@@ -4299,6 +4357,25 @@ export const de = {
   "person.page.ownerAssigned": "Zugewiesen",
   "person.page.ownerUnassigned": "Nicht zugewiesen",
   "person.page.linkedin": "LinkedIn",
+  "person.rail.detailsTitle": "Details",
+  "person.rail.contactMethodImmutable":
+    "Beim Anlegen dieses Kontakts festgelegt. E-Mail und Telefon können hier nicht geändert werden.",
+  "person.rail.archivedReadOnly":
+    "Dieser Kontakt ist archiviert. Stelle ihn wieder her, um hier etwas zu ändern.",
+  "person.rail.employmentVersionUnresolved":
+    "Die aktuelle Version dieser Zeile konnte nicht zum Speichern zurückgelesen werden. Lade neu und versuche es erneut.",
+  "person.rail.employmentTitle": "Unternehmen",
+  "person.rail.noEmployment": "Keine Beschäftigung erfasst.",
+  "person.rail.addEmployment": "Unternehmen hinzufügen",
+  "person.rail.employer": "Arbeitgeber",
+  "person.rail.allOrgsConnected":
+    "Jeder Treffer ist bereits mit dieser Person verknüpft.",
+  "person.rail.isCurrentEmployer": "Das ist der aktuelle Arbeitgeber",
+  "person.rail.markEnded": "Als beendet markieren",
+  "person.rail.removeEmploymentTitle":
+    "Diese Unternehmensverbindung entfernen?",
+  "person.rail.removeEmploymentBody":
+    "Die Verbindung zu {org} und die daran hängende Historie verschwinden, und das lässt sich nicht rückgängig machen. {org} selbst bleibt. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
   "person.page.tabPlaceholder":
     "Dieser Reiter ist noch nicht gebaut. Die Übersicht trägt die Beziehung; hier kommt {topic} hin.",
   "person.tab.overview": "Übersicht",
@@ -4437,6 +4514,13 @@ export const de = {
   "person.composer.to": "An",
   "person.composer.subject": "Betreff",
   "person.composer.body": "Nachricht",
+  "richtext.bold": "Fett",
+  "richtext.italic": "Kursiv",
+  "richtext.bulletList": "Aufzählung",
+  "richtext.numberList": "Nummerierte Liste",
+  "richtext.link": "Link",
+  "richtext.linkPrompt":
+    "Webadresse für diesen Link (leer lassen zum Entfernen)",
   "person.composer.drafting": "Entwurf wird geschrieben…",
   "person.composer.why": "Warum dieser Entwurf",
   "person.composer.consentUnknown":
@@ -4444,6 +4528,12 @@ export const de = {
   "person.composer.sendNote":
     "Mit dem Senden geht diese Nachricht aus Ihrem eigenen Postfach raus.",
   "person.composer.purpose": "Einwilligungszweck",
+  "person.composer.blockedLead":
+    "Unter diesem Zweck kann diese Nachricht nicht rausgehen.",
+  "person.composer.blockedRewrite":
+    "Eine Nachricht unter einem anderen Zweck muss auch diese Art von Nachricht SEIN — sie umzuetikettieren macht sie nicht dazu.",
+  "person.composer.blockedRecordConsent":
+    "Wenn Sie eine Rechtsgrundlage haben, erfassen Sie die Einwilligungsentscheidung am Kontakt.",
   "person.composer.consentPickPurpose":
     "Wählen Sie, wofür diese Nachricht ist — die Einwilligung gilt je Zweck.",
   "person.composer.intent": "Worum soll es gehen?",

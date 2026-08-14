@@ -68,6 +68,15 @@ type unitManifest struct {
 	// consumes, readable without opening its source. omitempty for the reason
 	// Secrets has it: every manifest already in the tree predates the field.
 	Subscriptions []subscriptionRequest `json:"subscriptions,omitempty"`
+
+	// Ingress are the providers the unit brings records IN from (see
+	// extension.IngressSource). Like a subscription it carries no tier and no
+	// scope, and what it records is reach — but reach that leaves a permanent
+	// mark: the declared system becomes half of every landed record's
+	// provenance, so this list is also how an operator reads a timeline entry
+	// back to the unit that produced it. omitempty for the reason the two
+	// fields above have it.
+	Ingress []ingressSource `json:"ingress,omitempty"`
 }
 
 // secretsRequest is one declared secret key and scope (see
@@ -85,6 +94,14 @@ type secretsRequest struct {
 type subscriptionRequest struct {
 	Name   string   `json:"name"`
 	Events []string `json:"events"`
+}
+
+// ingressSource is one declared provider a unit lands records from: the unit's
+// own key for it and the record kinds it produces, both sorted so the encoding
+// does not depend on declaration order.
+type ingressSource struct {
+	System string   `json:"system"`
+	Lands  []string `json:"lands"`
 }
 
 // riskTierRequest is one governed operation and the risk tier it requests,

@@ -14,9 +14,13 @@ package compose
 // worker proofs in jobs_overlay_worker_integration_test.go.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -66,14 +71,12 @@ func newRefetchFixture(t *testing.T) refetchFixture {
 	return refetchFixture{e: e, vault: vault, ms: ms, meter: budgettest.Meter(t, budgettest.SmallConfig("hubspot"))}
 }
 
-// worker builds the re-fetch worker over inc, exposed (rather than folded into
-// signal) so a test can vary one dependency — the vault, say — before the run.
-func (f refetchFixture) worker(inc overlay.Incumbent) *overlayRefetchWorker {
-	return &overlayRefetchWorker{
-		pool: f.e.Pool, vault: f.vault, ms: f.ms, meter: f.meter,
-		log:          slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
-	}
+// worker takes THIS build's registered re-fetch worker and points it at inc,
+// exposed (rather than folded into signal) so a test can vary one dependency —
+// the vault, say — before the run.
+func (f refetchFixture) worker(t *testing.T, inc overlay.Incumbent) *overlayRefetchWorker {
+	t.Helper()
+	return registeredRefetchWorker(t, f.e.Pool, f.vault, f.meter, inc)
 }
 
 // signal executes one coalesced webhook signal for contacts/c-1 — the record
@@ -125,7 +128,7 @@ func TestOverlayRefetchWorkerStopsCleanlyWhenTheWorkspaceDisconnected(t *testing
 	}
 
 	spy := &getCountingIncumbent{Adapter: seededPortal()}
-	if err := f.signal(f.worker(spy)); err != nil {
+	if err := f.signal(f.worker(t, spy)); err != nil {
 		t.Fatalf("a signal for a disconnected workspace must be a clean stop, got: %v", err)
 	}
 	if spy.gets != 0 {
@@ -156,7 +159,7 @@ func TestOverlayRefetchWorkerSkipsAHaltedMirror(t *testing.T) {
 	}
 
 	spy := &getCountingIncumbent{Adapter: seededPortal()}
-	if err := f.signal(f.worker(spy)); err != nil {
+	if err := f.signal(f.worker(t, spy)); err != nil {
 		t.Fatalf("a signal for a halted mirror must be a clean stop, got: %v", err)
 	}
 	if spy.gets != 0 {
@@ -169,10 +172,9 @@ func TestOverlayRefetchWorkerSkipsAHaltedMirror(t *testing.T) {
 
 // TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller proves the
 // worker distinguishes "gone" from "broken": a record the incumbent will not
-// return (archived between the webhook and the job, or unmappable) is not
-// retryable — retrying it forever would burn quota on a record that is never
-// coming back — so the worker stops cleanly and leaves reconciliation to the
-// poller's deletion feed.
+// return — archived between the signal and the job — is not retryable, since
+// the same read gives the same answer however many attempts it is given, so
+// the worker stops cleanly and leaves the row to the poller's deletion feed.
 func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	f := newRefetchFixture(t)
 	// A portal WITHOUT the signalled record: its Get fails with a plain
@@ -180,7 +182,7 @@ func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	empty := fake.New()
 	empty.SeedOwner("owner-1", "a@authz.test")
 
-	if err := f.signal(f.worker(empty)); err != nil {
+	if err := f.signal(f.worker(t, empty)); err != nil {
 		t.Fatalf("an unreadable record must not be retried, got: %v", err)
 	}
 	if f.mirrored(t) {
@@ -188,9 +190,11 @@ func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	}
 }
 
-// getFailingIncumbent fails the single-record read with a chosen error — the
-// only way to inject a rate-limited / auth-rejected / unreachable incumbent,
-// since none of those can be arranged against a real portal in a test.
+// getFailingIncumbent fails the single-record read with a chosen error, which
+// is the only way to put the worker in front of a specific read failure: a
+// rate-limited, auth-rejected or unreachable incumbent cannot be arranged
+// against a real portal here, and neither can a record the incumbent serves
+// whole that this build's declaration cannot project.
 type getFailingIncumbent struct {
 	*fake.Adapter
 	err error
@@ -200,13 +204,74 @@ func (g getFailingIncumbent) Get(context.Context, string, string) (overlay.Recor
 	return overlay.Record{}, g.err
 }
 
+// retiredIncumbentClass is an object class this build declares no mapping for.
+// A queued re-fetch can still name one: river_job outlives a deploy, so a job
+// enqueued while a mapping was declared is worked by the build that retired it.
+const retiredIncumbentClass = "tickets"
+
+// undeclaredClassReadError is what a real adapter answers for a class this
+// build declares no mapping for: it refuses at its own declaration lookup,
+// before any incumbent call, which is why such a read reaches the disposal
+// carrying no unprojectable mark. Taken from the adapter rather than spelled
+// out here, so the worker is judged against the error production hands it.
+func undeclaredClassReadError(t *testing.T) error {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Errorf("the adapter called the incumbent for %s, a class it declares no mapping for", retiredIncumbentClass)
+	}))
+	defer srv.Close()
+
+	_, err := hubspot.NewAdapter(hubspot.NewClient("eu1", "tok", hubspot.WithBaseURL(srv.URL))).
+		Get(context.Background(), retiredIncumbentClass, "c-1")
+	if err == nil {
+		t.Fatalf("Get(%s) succeeded, so this build declares that class after all and the case below is not the one under test",
+			retiredIncumbentClass)
+	}
+	if errors.Is(err, hubspot.ErrUnmappable) {
+		t.Fatalf("Get(%s) = %v, already marked unprojectable — the case under test is the one settled before that mark is read",
+			retiredIncumbentClass, err)
+	}
+	return err
+}
+
+// TestOverlayRefetchWorkerReportsAClassNoDeclarationCovers proves the disposal
+// of a read that failed because this build declares no mapping for the class it
+// named — a job enqueued before a build retired that mapping, since river_job
+// outlives a deploy. Nothing can project such a record, so there is no
+// declaration to record and none to record it against: the worker stops
+// cleanly, writes nothing, and names the class, which is the only trace an
+// outcome that writes nothing can leave for whoever finds the rows standing
+// still.
+func TestOverlayRefetchWorkerReportsAClassNoDeclarationCovers(t *testing.T) {
+	f := newRefetchFixture(t)
+	var logged bytes.Buffer
+	w := f.worker(t, getFailingIncumbent{Adapter: seededPortal(), err: undeclaredClassReadError(t)})
+	w.log = slog.New(slog.NewTextHandler(&logged, nil))
+
+	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{Args: OverlayRefetchArgs{
+		Workspace: f.e.WS, IncumbentClass: retiredIncumbentClass, ExternalID: "c-1",
+	}}); err != nil {
+		t.Fatalf("a class no declaration covers must not be retried — no attempt reaches a mapping that is not in the "+
+			"binary — got: %v", err)
+	}
+	if f.mirrored(t) {
+		t.Error("a read that never came back must ingest nothing")
+	}
+	if !strings.Contains(logged.String(), retiredIncumbentClass) ||
+		!strings.Contains(logged.String(), "no mapping declaration for this object class") {
+		t.Fatalf("the worker logged %q, want it naming %s and saying no declaration covers it — reported as a record the "+
+			"incumbent withheld, the job reads as one the next pass will heal, and nothing ever will",
+			logged.String(), retiredIncumbentClass)
+	}
+}
+
 // TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure is the other side
 // of the test above: a WHOLE-connection failure (auth here) is transient from
 // the job's point of view, so it must surface as an error for River to back off
 // and retry — swallowing it would silently drop the signal.
 func TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure(t *testing.T) {
 	f := newRefetchFixture(t)
-	err := f.signal(f.worker(getFailingIncumbent{Adapter: seededPortal(), err: apperrors.ErrPermissionDenied}))
+	err := f.signal(f.worker(t, getFailingIncumbent{Adapter: seededPortal(), err: apperrors.ErrPermissionDenied}))
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("a connection-level read failure = %v, want it surfaced so River retries", err)
 	}
@@ -221,7 +286,7 @@ func TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure(t *testing.T) {
 // failure worth retrying — not a record that stopped existing.
 func TestOverlayRefetchWorkerSurfacesAnUnresolvableToken(t *testing.T) {
 	f := newRefetchFixture(t)
-	w := f.worker(seededPortal())
+	w := f.worker(t, seededPortal())
 	w.vault = keyvault.NewMemory() // a vault that never held this connection's secret
 	if err := f.signal(w); err == nil {
 		t.Fatal("an unresolvable vaulted token must surface as an error, not a silent no-op")
@@ -263,7 +328,7 @@ func (r *revokeOnGetIncumbent) Get(ctx context.Context, objectClass, externalID 
 func TestOverlayRefetchWorkerStopsCleanlyOnADisconnectMidRefetch(t *testing.T) {
 	f := newRefetchFixture(t)
 	inc := &revokeOnGetIncumbent{Adapter: seededPortal(), pool: f.e.Pool}
-	if err := f.signal(f.worker(inc)); err != nil {
+	if err := f.signal(f.worker(t, inc)); err != nil {
 		t.Fatalf("a disconnect mid-refetch must be a clean stop, got: %v", err)
 	}
 	if f.mirrored(t) {

@@ -265,7 +265,7 @@ validated to the full identifier budget, so a name chosen today stays valid for 
 - **Its own governed tools** — an `x-mcp-tool` verb on a declared operation, served through the same
   admission gate a core tool passes, at the tier and scope the contract declares.
 - **Its own scheduled jobs** — declared in a `jobs.yaml` fragment, dispatched as a fleet fan-out with a
-  workspace child per live tenant.
+  worker child per live tenant.
 - **Its own secret namespace** — reached through `Runtime.Secrets()`, keyed by the unit's own bare names.
 - **Its own RBAC objects** — `ext_<name>_*`, registered into the vocabulary `/me` serves.
 - **Its own history and its own events** — `tx.Record(ctx, change, event)` writes the ledger row AND
@@ -285,6 +285,25 @@ validated to the full identifier budget, so a name chosen today stays valid for 
   caller is the zero `Caller` and `tx.Core()` refuses, while the unit's own tables stay writable,
   auditable and publishable. The declared type list derives into `manifest.generated.json`, so which
   of the installation's facts a unit consumes is readable without opening its source.
+
+- **Its own ingress into the product's records** — `Runtime.Ingest(ctx, on, record)` hands ONE record a
+  unit pulled from its provider to the installation's own capture pipeline, so a unit's captured message
+  gets exactly what a captured mail gets: an idempotent write on `(source_system, source_id)`, the
+  counterparty disposition ladder, the provider's original kept as evidence, and the audit row and the
+  outbox event committed with the row. The unit assembles no timeline entry and could not: it hands over
+  a record and the core decides what becomes of it.
+
+  It hangs off `Runtime` rather than `Tx`, inverting the core port's placement, because the pipeline
+  opens its own transaction — calling it from inside a unit's would take a second connection while
+  holding one, which on a small pool does not fail but hangs (`ErrNestedIngest` makes it a sentence).
+  The provenance is core-stamped from the unit and the source it DECLARED (`Ingress`, which derives into
+  `manifest.generated.json`), so a unit can attribute nothing to another unit or to a core connector, and
+  a landed row's `captured_by` names the member behind it as well.
+
+  Authority is the mirror image of `tx.Core()`'s: an ingest is refused from an ATTENDED invocation, and
+  it runs on the LIVE authority of the member named in `on` — who must currently hold one of this unit's
+  user-scoped secrets, because depositing a credential with a unit is the act that says "act for me
+  here". `extensions/dispact-connector` is the unit that exercises the path end to end.
 
 - **Its own frontend** — a `frontend/` directory whose screen is aliased into the SPA and rendered at
   the unit's route. Removing a unit is a one-place operation again: delete the unit directory. An
@@ -345,6 +364,10 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | A scheduled tick and a bus delivery write no core record at all: both run with no caller, and a core write is checked against the caller's own permissions | `internal/compose/extcore.go` (`refuseUnattended`), `extsubscribe_test.go`, `extledger_integration_test.go` |
 | A unit's ledger row names a table in that unit's own namespace, and its event a verb in that unit's own namespace — the namespace comes from the invocation, so neither is a string a unit can spell | `internal/compose/extledger.go`, `extledger_test.go` |
 | A unit's own write records BOTH its ledger row and its event, or neither — the same write shape the core holds itself to, in one call that cannot be half-made | `extension.Tx.Record`, `backend/writeshape_test.go`, `extledger_integration_test.go` |
+| A unit lands a record in the product only where an operator can see that it does: `source_system` is derived from a DECLARED ingress source, so a typo is a refusal rather than a second provenance namespace | `internal/compose/extingress.go` (`declaredIngress`), `internal/compose/extensions.go` (`preflightIngress`) |
+| An ingest runs on the named member's LIVE authority, and only for a member who currently holds one of that unit's user-scoped secrets — so a unit cannot act as a colleague who never asked it to | `internal/compose/extingressauthority.go`, `extingress_integration_test.go` |
+| An ingest is refused from an invocation that HAS a caller, and from inside a transaction the unit is holding — the second on a pool of one, where the alternative is a hang rather than a failure | `internal/compose/extingress.go`, `extingress_test.go`, `extingress_integration_test.go` |
+| The published record type cannot silently fall behind the core's capture envelope: every field is mirrored or waived with its reason | `internal/compose/extingressdrift_test.go` |
 | A unit's listener consumes only the streams its declared event types route to, and no core group consumes the extension stream | `internal/compose/extsubscribe.go`, `internal/shared/kernel/events/extensiontypes_test.go` |
 | A subscription naming an event type nothing can route is refused at boot, rather than registering a consumer group that never delivers | `internal/compose/extensions.go` (`preflightSubscriptions`) |
 | A core write is refused in an overlay workspace rather than landing in a native table nothing reads, resolved FRESH per write | `internal/compose/extcore.go` (`admit` → `overlayModeOf`) |

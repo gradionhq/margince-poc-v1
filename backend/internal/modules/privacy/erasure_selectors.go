@@ -155,7 +155,8 @@ var unlinkedSubjectMail = `
 	         SELECT 1 FROM comms_outbound d
 	         WHERE d.activity_id = m.id
 	           AND EXISTS (
-	             SELECT 1 FROM jsonb_array_elements_text(d.recipients || d.cc) AS addr
+	             SELECT 1 FROM jsonb_array_elements_text(
+	                            d.recipients || d.cc || coalesce(d.bcc, '[]'::jsonb)) AS addr
 	             WHERE lower(addr) = ANY($2))))
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o

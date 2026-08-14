@@ -296,7 +296,7 @@ func statsBySweep(ctx context.Context, pool *pgxpool.Pool) ([]SweepPass, error) 
 // The kind→key pairing arrives as two aligned arrays and is JOINED against
 // rather than spliced into the SQL, so a kind name and an args key never reach
 // the statement as text. The unnest join is also what bounds the scan to the
-// declared sub-workspace kinds: a row of any other kind matches no pair and is
+// declared sub-unit kinds: a row of any other kind matches no pair and is
 // not read.
 //
 // The workspace predicate is carried over from statsBySweep unchanged, for the

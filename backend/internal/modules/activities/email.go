@@ -60,15 +60,29 @@ var errNoDeliveryStager = errors.New("activities: send path has no delivery mach
 // SendEmailInput is one consented outbound send anchored to an
 // existing activity (the thread being replied to).
 type SendEmailInput struct {
-	// Recipients is the MERGED addressee list — every To AND Cc address —
+	// Recipients is the MERGED addressee list — every To, Cc AND Bcc address —
 	// because consent is owed to everyone who receives the message, however
-	// they were addressed. Cc below is a SUBSET of it, by design and not by
-	// accident: the delivery's To: line is what remains once the Cc
-	// addresses come out.
-	Recipients     []string
-	Cc             []string
-	Subject        string
-	Body           string
+	// they were addressed. Cc and Bcc below are SUBSETS of it, by design and
+	// not by accident: the delivery's To: line is what remains once both come
+	// out.
+	Recipients []string
+	Cc         []string
+	// Bcc receives the message and appears in no header the other recipients
+	// see. It is in Recipients like every other addressee — a blind copy is
+	// blind to the RECIPIENTS, never to the consent gate.
+	Bcc     []string
+	Subject string
+	Body    string
+	// HTMLBody is the same message as markup, empty for a plain-text send.
+	// It never replaces Body: both travel, and the wire renders them as
+	// multipart/alternative so a client that cannot show markup still receives
+	// the words.
+	HTMLBody string
+	// AttachmentIDs names files already in the record library. The send resolves
+	// each to a SNAPSHOT of its metadata rather than keeping the id, so
+	// superseding the document later cannot rewrite what the timeline says this
+	// message carried (ADR-0086/A131 §4).
+	AttachmentIDs  []ids.UUID
 	ConsentPurpose string
 	// DraftRef names the voice draft this message came from, so the send can
 	// close the learning signal that draft opened. Empty is the ordinary case:
@@ -96,13 +110,22 @@ type DeliveryStager interface {
 // the authenticated principal at the far side of this seam, never named by
 // a caller, exactly as captured_by is stamped everywhere else.
 type DeliveryRequest struct {
-	ActivityID     ids.ActivityID
-	Provider       string
-	MessageID      string
-	Recipients     []string // To: only — the merged consent list minus Cc
-	Cc             []string
-	Subject        string
-	Body           string // the unsubscribe footer, when there is one, is already applied
+	ActivityID ids.ActivityID
+	Provider   string
+	MessageID  string
+	Recipients []string // To: only — the merged consent list minus Cc and Bcc
+	Cc         []string
+	// Bcc is transmitted to but never rendered into a header the recipients
+	// read. The connector addresses it; the message does not name it.
+	Bcc      []string
+	Subject  string
+	Body     string // the unsubscribe footer, when there is one, is already applied
+	HTMLBody string // the markup alternative, empty for a plain-text send
+	// FromName is the sender's display name, snapshotted so a retry renders the
+	// same From header the first attempt did.
+	FromName string
+	// Attachments is what this message carries, snapshotted at staging.
+	Attachments    []OutboundFile
 	ConsentPurpose string
 	InReplyTo      string   // unbracketed; empty starts a conversation
 	References     []string // unbracketed ancestry, oldest first
@@ -149,7 +172,15 @@ func (s *Store) refuseUnsendable(ctx context.Context, in SendEmailInput, gate Co
 	// that named nobody at all. A FieldFault pointing at `to` is the difference
 	// between a caller who can fix their argument and one who goes looking for
 	// a consent record that was never the problem.
-	if len(toRecipients(in.Recipients, in.Cc)) == 0 {
+	//
+	// The check is on the VISIBLE addressee line, which is the contract's own
+	// rule: `to` carries minItems 1, and "cc alone does not make a message
+	// addressed to anyone" (crm.yaml). A bcc-only send is therefore not a
+	// shape this product offers — a blind copy accompanies a message that is
+	// addressed to somebody, rather than replacing the addressee — and
+	// loosening this in Go while the contract still refuses it would make the
+	// two disagree about what a valid send is.
+	if len(toRecipients(in.Recipients, in.Cc, in.Bcc)) == 0 {
 		return &NoRecipientsError{}
 	}
 	// The composition guards report a deployment defect, and a caller who may
@@ -219,13 +250,53 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
+	// The files, resolved to snapshots while the sender's own read gate still
+	// applies. It runs before the transaction for the same reason the body work
+	// does — the transaction holds writes only — and it refuses the whole send
+	// when one file cannot be resolved, because a message carrying fewer files
+	// than the sender attached is one nobody is told is wrong.
+	files, err := s.resolveAttachments(ctx, in.AttachmentIDs)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
+	// Caller markup is filtered BEFORE anything of ours is added to it, so the
+	// signature and the unsubscribe footer below are not themselves subject to
+	// a filter they would only ever pass — and so what the allowlist judges is
+	// exactly what the caller sent.
+	safeHTML, err := SanitizeOutboundHTML(in.HTMLBody)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
+	// The markup alternative gets the SAME sign-off and the same unsubscribe
+	// footer, in its own syntax. Two alternatives of one message that disagreed
+	// would be two messages, and which one the recipient reads is their client's
+	// decision rather than ours — including whether they can unsubscribe.
+	htmlBody, err := s.signedHTML(ctx, safeHTML, derived)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
+	// Who the recipient sees this is from. Resolved here, beside the signature
+	// and before the transaction, because both answer "who is sending this" and
+	// a message whose header and sign-off named different people would be one
+	// message telling two stories.
+	fromName, err := s.senderDisplayName(ctx)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
+		fromName:        fromName,
 		body:            derived.transmitted,
 		recordedBody:    derived.recorded,
+		htmlBody:        htmlBody,
+		files:           files,
 		listUnsubscribe: derived.listUnsubscribe,
-		to:              toRecipients(in.Recipients, in.Cc),
+		to:              toRecipients(in.Recipients, in.Cc, in.Bcc),
 		links:           links,
 	}
 
@@ -266,69 +337,6 @@ func (s *Store) SendEmail(ctx context.Context, origin SendOrigin, in SendEmailIn
 	return sent, nil
 }
 
-// outboundMessage is one send's derived facts, computed before the
-// transaction opens so the transaction holds writes only. The timeline row and
-// the delivery are two renderings of THIS value, which is why they are built
-// side by side: a field that disagreed between them would be a message whose
-// record and whose transmission say different things.
-type outboundMessage struct {
-	in        SendEmailInput
-	messageID string
-	// body is what the recipient receives; recordedBody is what the
-	// workspace keeps. They differ by exactly one thing — the live
-	// preference token the footer carries — because the timeline row is
-	// served back to any seat holding activity:read, and that token is a
-	// bearer credential over the recipient's consent record (see
-	// redactedToken). Only the delivery may read body.
-	body            string
-	recordedBody    string
-	listUnsubscribe string
-	to              []string
-	links           []ActivityLinkInput
-}
-
-// activity is the timeline row the send commits.
-func (m outboundMessage) activity(chain threading) LogActivityInput {
-	direction, sourceSystem := "outbound", SendProvider
-	return LogActivityInput{
-		Kind:         "email",
-		Subject:      &m.in.Subject,
-		Body:         &m.recordedBody,
-		Direction:    &direction,
-		Links:        m.links,
-		Source:       sourceManual,
-		SourceSystem: &sourceSystem,
-		SourceID:     &m.messageID,
-		ThreadKey:    chain.threadKey,
-		// This row IS the sent copy — its natural key is the one the provider's
-		// echo carries, so the echo's upsert will find it and write nothing.
-		// The correspondence evidence the echo used to bring therefore has to
-		// be written here or it is never written at all (ADR-0072 §1: an
-		// outbound activity to an address is what makes it
-		// correspondence-positive).
-		CounterpartyEmail:            primaryCounterparty(m.to, m.in.Recipients),
-		CounterpartyOutboundAttested: true,
-	}
-}
-
-// delivery is the same message as the delivery machinery receives it.
-func (m outboundMessage) delivery(activityID ids.UUID, chain threading) DeliveryRequest {
-	return DeliveryRequest{
-		ActivityID:      ids.From[ids.ActivityKind](activityID),
-		Provider:        SendProvider,
-		MessageID:       m.messageID,
-		Recipients:      m.to,
-		Cc:              m.in.Cc,
-		Subject:         m.in.Subject,
-		Body:            m.body,
-		ConsentPurpose:  m.in.ConsentPurpose,
-		InReplyTo:       chain.inReplyTo,
-		References:      chain.references,
-		ThreadKey:       chain.threadKey,
-		ListUnsubscribe: m.listUnsubscribe,
-	}
-}
-
 // messageIDDomain is the right-hand side of every minted Message-ID: the
 // host of the installation's configured public base URL, the one identity
 // this installation is boot-configured to own. A base URL that is unset or
@@ -351,12 +359,18 @@ func (s *Store) messageIDDomain() string {
 // (consent is owed to every addressee), so rendering it as To: would copy
 // every cc'd person twice. Addresses are matched case- and space-
 // insensitively, the way a mail server treats them.
-func toRecipients(recipients, cc []string) []string {
-	if len(cc) == 0 {
+func toRecipients(recipients, cc, bcc []string) []string {
+	if len(cc) == 0 && len(bcc) == 0 {
 		return recipients
 	}
-	copied := make(map[string]bool, len(cc))
+	// Both come out. A bcc address left in the To line is not a blind copy at
+	// all — it is the failure the feature exists to prevent, and it is visible
+	// to every other recipient the moment the message arrives.
+	copied := make(map[string]bool, len(cc)+len(bcc))
 	for _, addr := range cc {
+		copied[normalizeAddress(addr)] = true
+	}
+	for _, addr := range bcc {
 		copied[normalizeAddress(addr)] = true
 	}
 	to := make([]string, 0, len(recipients))

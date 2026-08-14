@@ -7023,6 +7023,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse a completed CSV import run.
+         * @description IEM-WIRE-9 (A93; S-E15.4c). Valid from `complete` (starting a fresh
+         *     reversal) or `undoing` (resuming one already under way, from its
+         *     persisted checkpoint) — and only for the `csv` connector. Undoing a
+         *     run that is still in flight, was never approved, has already failed,
+         *     or has already finished undoing is a conflict, as is a run whose
+         *     `undoing` state carries no recorded progress to resume; the
+         *     `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
+         *     path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
+         *     import; `hubspot`/`salesforce` are unbuilt).
+         *
+         *     Reverses only the rows this run created that nobody has touched since
+         *     (A93): never an all-or-nothing hard rollback that clobbers a later
+         *     edit. A row a human touched after import is left exactly as they left
+         *     it and named in the report's `kept` list, not silently skipped — and
+         *     a row that cannot be reversed for any other reason (a business rule
+         *     refuses it, or it is no longer visible to the caller) is named in
+         *     `errored` with why, rather than aborting every row after it.
+         *
+         *     Checkpointed and resumable on the same run record's `checkpoint`
+         *     field the forward commit already uses (IEM-WIRE-5), though the two
+         *     count different things once a run is undoing: source-row offset for
+         *     the forward commit, `import_record_map` row offset for the reversal.
+         *     An undo over thousands of rows is the same shape of bulk write the
+         *     import itself is, and paged the same way. Undoing an already-`undone`
+         *     run is a conflict, not a no-op; a second call while one is already
+         *     under way for the same run is a conflict too, not a second
+         *     concurrent pass.
+         */
+        post: operations["undoImportRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/user-map": {
         parameters: {
             query?: never;
@@ -8318,14 +8366,52 @@ export interface components {
             source_key_used: string;
             /** @description A dry run's estimate for the commit. Null when the run has already finished and the real duration is on the run record. */
             estimated_duration_seconds?: number | null;
+            /** @description Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise. */
+            undo?: components["schemas"]["ImportUndoReport"];
         };
         /**
          * @description IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
          *     carries the checkpoint it stopped at, and resuming continues from
-         *     there rather than re-reading the file from the top.
+         *     there rather than re-reading the file from the top. `undoing`/`undone`
+         *     (IEM-WIRE-9) are the reversal's own states, reachable only from
+         *     `complete` and only for the `csv` connector.
          * @enum {string}
          */
-        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed";
+        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed" | "undoing" | "undone";
+        /**
+         * @description The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+         *     import-created row lands in exactly one of three buckets: reversed,
+         *     kept because a human edited it since (the "kept — you edited these"
+         *     list S-E15.4c requires, not a diff of what changed), or errored
+         *     because it could not be reversed — a single irreversible row never
+         *     aborts the rest of the run.
+         */
+        ImportUndoReport: {
+            /** Format: uuid */
+            run_id: string;
+            status: components["schemas"]["ImportRunStatus"];
+            /** @description Import-created rows that were untouched since and have been reversed (archived). */
+            reversed_count: number;
+            /** @description Import-created rows a human edited since import, therefore left in place (A93). */
+            kept: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+            }[];
+            /**
+             * @description Import-created rows the reversal could not archive (a business
+             *     rule refused it, or the caller's row scope no longer covers it) —
+             *     left exactly as they stood, named with why, rather than the
+             *     whole run aborting on one row it cannot process.
+             */
+            errored: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+                /** @description What kept it from reversing, in terms the operator can act on — never a database or driver message. */
+                reason: string;
+            }[];
+        };
         ImportRun: {
             /** Format: uuid */
             id: string;
@@ -8336,7 +8422,7 @@ export interface components {
             connector: "csv" | "hubspot" | "salesforce" | "bundle" | "mirror";
             object: components["schemas"]["ImportObject"];
             status: components["schemas"]["ImportRunStatus"];
-            /** @description Absolute offset into the source's rows; 0 = not started. What a resume continues from. */
+            /** @description Absolute offset into the source's rows for a forward run (`running`/`failed`), or into import_record_map's rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from. */
             checkpoint: number;
             /** @description Why a failed run stopped, in the uploader's terms. Never a driver or SQL message. */
             error?: string | null;
@@ -11963,8 +12049,42 @@ export interface components {
             subject: string;
             /** @description The (possibly edited) final body that is sent. */
             body: string;
+            /**
+             * @description The same message as markup, or omitted for a plain-text send. It never
+             *     REPLACES `body`: a message carrying both goes out as multipart/alternative
+             *     with the plain part first, so a client that cannot render HTML still
+             *     receives the words. The sender's signature and the unsubscribe footer are
+             *     appended to BOTH parts by the server, in each part's own syntax.
+             */
+            html_body?: string | null;
+            /**
+             * @description Files already in the record library to send with this message, named by id
+             *     — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+             *     archiving or superseding one later cannot rewrite what the timeline says a
+             *     sent message carried.
+             *
+             *     A message is transmitted with ALL its files or not at all. A connector whose
+             *     provider cannot carry them parks the delivery rather than sending the text
+             *     alone, and a file the scanner has since quarantined — or one the sender has
+             *     since lost the right to read — parks it too: a recipient seeing fewer files
+             *     than the record claims is a wrong record nobody is told about.
+             */
+            attachment_ids?: string[];
             to: string[];
             cc?: string[];
+            /**
+             * @description Blind copies. They receive the message and are therefore owed consent
+             *     exactly as To and Cc are — the gate answers on every addressee, however
+             *     they were addressed — and they are absent from the headers the recipients
+             *     see, which is the whole of what "blind" means.
+             *
+             *     A message with a tokenized unsubscribe link may still have only ONE
+             *     addressee in total: that token is a bearer credential over one person's
+             *     consent record, so a bcc'd copy of a marketing send is refused 422
+             *     `shared_unsubscribe_token` rather than handing a stranger somebody else's
+             *     preference link.
+             */
+            bcc?: string[];
             /**
              * @description Opaque reference returned by the drafting operation. After a successful send, the
              *     server compares this protected original with the final body and records accepted or
@@ -11989,11 +12109,45 @@ export interface components {
             /** @description The (possibly edited) final body that is sent. */
             body: string;
             /**
+             * @description The same message as markup, or omitted for a plain-text send. It never
+             *     REPLACES `body`: a message carrying both goes out as multipart/alternative
+             *     with the plain part first, so a client that cannot render HTML still
+             *     receives the words. The sender's signature and the unsubscribe footer are
+             *     appended to BOTH parts by the server, in each part's own syntax.
+             */
+            html_body?: string | null;
+            /**
+             * @description Files already in the record library to send with this message, named by id
+             *     — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+             *     archiving or superseding one later cannot rewrite what the timeline says a
+             *     sent message carried.
+             *
+             *     A message is transmitted with ALL its files or not at all. A connector whose
+             *     provider cannot carry them parks the delivery rather than sending the text
+             *     alone, and a file the scanner has since quarantined — or one the sender has
+             *     since lost the right to read — parks it too: a recipient seeing fewer files
+             *     than the record claims is a wrong record nobody is told about.
+             */
+            attachment_ids?: string[];
+            /**
              * @description At least one addressee. A send whose To: line is empty is refused 422 before
              *     anything is staged — `cc` alone does not make a message addressed to anyone.
              */
             to: string[];
             cc?: string[];
+            /**
+             * @description Blind copies. They receive the message and are therefore owed consent
+             *     exactly as To and Cc are — the gate answers on every addressee, however
+             *     they were addressed — and they are absent from the headers the recipients
+             *     see, which is the whole of what "blind" means.
+             *
+             *     A message with a tokenized unsubscribe link may still have only ONE
+             *     addressee in total: that token is a bearer credential over one person's
+             *     consent record, so a bcc'd copy of a marketing send is refused 422
+             *     `shared_unsubscribe_token` rather than handing a stranger somebody else's
+             *     preference link.
+             */
+            bcc?: string[];
             /**
              * @description Opaque reference returned by the drafting operation, exactly as on `send_email`.
              *     Omit for independently composed mail.
@@ -28496,6 +28650,32 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Approved; the commit is under way (or complete — the run record says which). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    undoImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Undo accepted; reversal is under way (or complete — the run record says which). */
             202: {
                 headers: {
                     [name: string]: unknown;

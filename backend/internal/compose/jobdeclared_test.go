@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/riverqueue/river"
+
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
@@ -76,7 +78,7 @@ func TestTheCatalogueNamesEveryDeclaredKindsRole(t *testing.T) {
 		series := infoSeriesFor(t, out, kind)
 		want := map[jobs.Role]string{
 			jobs.Dispatcher: `role="dispatcher"`,
-			jobs.Workspace:  `role="workspace"`,
+			jobs.Worker:     `role="worker"`,
 		}[spec.Role]
 		if want == "" {
 			t.Fatalf("%s carries role %d, which the declaration does not define", kind, spec.Role)
@@ -420,7 +422,7 @@ func TestAComposedExtensionKindIsNotUnrecognised(t *testing.T) {
 	if err := jobs.RegisterComposed([]jobs.Spec{{
 		Kind:      kind,
 		GoType:    "extJobWorkspaceArgs",
-		Role:      jobs.Workspace,
+		Role:      jobs.Worker,
 		Queue:     "default",
 		Timeout:   jobs.TimeoutPolicy{Fixed: 5 * time.Minute},
 		OptsOwner: jobs.OptsFanOut,
@@ -460,4 +462,54 @@ func TestAnIdleFleetEmitsNoUnrecognisedExtensionKindSeries(t *testing.T) {
 	if strings.Contains(out, "margince_job_unrecognised_extension_kind") {
 		t.Errorf("a healthy fleet emitted an unrecognised-extension-kind family\ngot:\n%s", out)
 	}
+}
+
+// TestArgsOwnedAttemptCapsMatchTheirDeclaration is what earns an args-owned
+// kind the right to publish a `max_attempts` at all.
+//
+// The manifest refuses that number from a caller-owned kind, on the ground that
+// publishing a cap nothing applies is declared-versus-actual drift. An
+// args-owned kind escapes that refusal only because its own InsertOpts carry
+// the number — which is a promise about Go code the contract cannot see. This
+// is the sight: every declared cap is read back off the args type River will
+// actually insert with, so a manifest edit that forgets the Go side, or a Go
+// edit that quietly retunes the ladder, fails here rather than in production
+// three attempts later than anyone expected.
+func TestArgsOwnedAttemptCapsMatchTheirDeclaration(t *testing.T) {
+	checked := 0
+	for kind, spec := range jobs.Declared() {
+		if spec.OptsOwner != jobs.OptsArgs || spec.MaxAttempts == 0 {
+			continue
+		}
+		args, ok := argsForKind[kind]
+		if !ok {
+			t.Errorf("kind %q declares max_attempts %d but this test knows no args value for it — add one, "+
+				"or the declaration is unchecked", kind, spec.MaxAttempts)
+			continue
+		}
+		withOpts, ok := args.(river.JobArgsWithInsertOpts)
+		if !ok {
+			t.Errorf("kind %q declares max_attempts %d with opts_owner=args, but %T supplies no InsertOpts — "+
+				"nothing applies the number the contract publishes", kind, spec.MaxAttempts, args)
+			continue
+		}
+		if got := withOpts.InsertOpts().MaxAttempts; got != spec.MaxAttempts {
+			t.Errorf("kind %q: the contract declares max_attempts %d and %T inserts with %d",
+				kind, spec.MaxAttempts, args, got)
+		}
+		checked++
+	}
+	// A derivation that silently checks nothing passes every declaration, which
+	// is the one way this gate fails without failing.
+	if checked == 0 {
+		t.Fatal("no args-owned kind declares an attempt cap — either the vocabulary changed or this gate stopped finding them")
+	}
+}
+
+// argsForKind is the args value each checked kind inserts with. Hand-listed
+// rather than reflected: the contract names a Go TYPE, and a test that
+// constructed one from its name would be asserting against its own reflection
+// rather than against the type the runtime registers.
+var argsForKind = map[string]river.JobArgs{
+	WebhookRetryArgs{}.Kind(): WebhookRetryArgs{},
 }

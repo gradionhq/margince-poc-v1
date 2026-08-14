@@ -19,7 +19,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 const (
@@ -75,77 +74,53 @@ type WebhookRetryConfig struct {
 	Deliverer func(*database.DB) *webhooks.Deliverer
 }
 
-// addWebhookRetryJobs registers the retry workers and returns the dispatcher's
-// periodic schedule for the caller to append. A non-positive interval
-// registers the workers but no schedule — the posture the declaration states
-// and jobschedule.go resolves.
+// addWebhookRetryJobs registers the retry worker and returns its periodic
+// schedule for the caller to append. A non-positive interval registers the
+// worker but no schedule — the posture the declaration states and
+// jobschedule.go resolves.
 func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
-	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool})
-	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{pool: pool, deliverer: cfg.WebhookRetry.Deliverer})
+	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool, deliverer: cfg.WebhookRetry.Deliverer})
 	return periodicFor(cfg, WebhookRetryArgs{})
 }
 
-// WebhookRetryArgs schedules one fleet-wide pass over due retries.
+// WebhookRetryArgs is one pass over the installation's due retries.
+//
+// It used to be a dispatcher that enumerated live workspaces and enqueued one
+// child per tenant. Under one installation that enumeration reads a single row,
+// so the pair collapsed into this (ADR-0091 §5, ADR-0103 §1).
 type WebhookRetryArgs struct{}
 
-// Kind is the stable job identifier River persists in river_job.
+// Kind is the stable job identifier River persists in river_job. It is the
+// DISPATCHER's old kind, deliberately: it is the name operators alert on, and
+// the child's `_workspace` kind is the one that had to go.
 func (WebhookRetryArgs) Kind() string { return "webhook_retry" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
-func (WebhookRetryArgs) FleetWide() {}
+// InsertOpts carries the attempt cap the declaration publishes, because the
+// periodic insert supplies uniqueness and no attempt policy of its own. Without
+// it this pass would take River's silent 25-rung ladder against a 26-minute
+// timeout — three attempts is what the fan-out child was governed by, and the
+// number is held equal to api/jobs.yaml by
+// TestArgsOwnedAttemptCapsMatchTheirDeclaration.
+func (WebhookRetryArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue:       webhookRetryQueue,
+		MaxAttempts: 3,
+		UniqueOpts:  river.UniqueOpts{ByState: activeSweepStates},
+	}
+}
 
-// webhookRetryWorker is the dispatcher. It enumerates the LIVE workspaces
-// only: a delivery parked in an archived tenant belongs to a subscription
-// nobody is listening on any more, so re-attempting it spends outbound
-// attempts on work nobody wants.
+// webhookRetryWorker re-attempts the due deliveries.
 type webhookRetryWorker struct {
-	pool *pgxpool.Pool
-}
-
-func (w *webhookRetryWorker) Work(ctx context.Context, _ *river.Job[WebhookRetryArgs]) error {
-	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		// The dispatcher's tick is the real retry cadence for a failed
-		// workspace — it re-enqueues the tenant on the next pass — so River's
-		// ladder is here only to ride out a transient blip inside one tick.
-		workspaceSweepOpts(WebhookRetryWorkspaceArgs{}.Kind()),
-		func(ws ids.UUID) river.JobArgs { return WebhookRetryWorkspaceArgs{Workspace: ws} }))
-}
-
-// WebhookRetryWorkspaceArgs re-attempts one workspace's due deliveries.
-type WebhookRetryWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (WebhookRetryWorkspaceArgs) Kind() string { return "webhook_retry_workspace" }
-
-// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
-func (a WebhookRetryWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// webhookRetryWorkspaceWorker sweeps one workspace.
-type webhookRetryWorkspaceWorker struct {
 	pool      *pgxpool.Pool
 	deliverer func(*database.DB) *webhooks.Deliverer
 }
 
-// Work binds the tenant and nothing else: the sweep re-sends deliveries that
-// were already authorized against their owner's scope when they were enqueued,
-// so it resolves no principal and writes no audited row of its own.
-func (w *webhookRetryWorkspaceWorker) Work(ctx context.Context, job *river.Job[WebhookRetryWorkspaceArgs]) error {
-	wsCtx, err := workspaceJobCtx(ctx, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	// Built for the workspace THIS pass sweeps: the deliverer's store writes
-	// delivery rows, and a fleet pass cannot share one across the workspaces it
-	// re-attempts (ADR-0091 §9 step 3).
-	db, err := workspaceJobDB(w.pool, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, w.deliverer(db).SweepOnce(wsCtx))
+// Work resolves no principal and writes no audited row of its own: the sweep
+// re-sends deliveries that were already authorized against their owner's scope
+// when they were enqueued.
+func (w *webhookRetryWorker) Work(ctx context.Context, _ *river.Job[WebhookRetryArgs]) error {
+	return jobs.FaultContext(ctx, w.deliverer(InstallationDB(w.pool)).SweepOnce(ctx))
 }

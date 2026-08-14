@@ -191,7 +191,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		rec := fake.Rec(ext, fields)
 		rec.ObjectClass = canonicalClass
 		rec.OwnerExternalID = "owner-1"
-		fakeInc.Seed(incumbentClass, rec)
+		fakeInc.Seed(incumbentClass, asCurrentProjection(t, rec, incumbentClass))
 	}
 	// Child fields are seeded as COLLECTIONS carrying the attributes the
 	// mapping declares, the shape overlaymod.Apply actually lands them in
@@ -221,7 +221,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	// at every tier, while the mirror row was hidden from every seat).
 	unowned := fake.Rec("p-unowned", map[string]any{"full_name": "Unassigned Contact"})
 	unowned.ObjectClass = "person"
-	fakeInc.Seed(overlaymod.IncumbentClassContacts, unowned)
+	fakeInc.Seed(overlaymod.IncumbentClassContacts, asCurrentProjection(t, unowned, overlaymod.IncumbentClassContacts))
 	seed(overlaymod.IncumbentClassDeals, "deal", "d-open", map[string]any{
 		"name": "Packaging QA", "stage_id": "appointmentscheduled", "amount_minor": int64(21200000), "currency": "EUR",
 	})
@@ -807,5 +807,62 @@ func TestAFlipAdoptsAHalfLandedDealAndFinishesClosingIt(t *testing.T) {
 	}
 	if won != 1 {
 		t.Errorf("won deals for d-won = %d, want 1 — the adopted deal was left parked open and the estate's revenue is wrong", won)
+	}
+}
+
+// The preflight judges every mirror row against the projection fingerprints
+// the COMPOSED server carries — the ones compose/overlay.go injects from the
+// hubspot mapping registry — not against a map a test hands the service. The
+// fake incumbent stamps its own constant, which no hubspot declaration
+// produces, so a row it projected is exactly the case the guard exists for: a
+// payload the current mapping would never emit, which the flip would otherwise
+// write as a permanent native row. Without that injection the deployment can
+// judge no class at all, every row passes as current, and the first verdict
+// below comes back ready.
+func TestFlipRefusesAMirrorRowNoCurrentDeclarationProduced(t *testing.T) {
+	f := setupFlipEstate(t)
+
+	// Seeded through the mirror's own Ingest — the writer Backfill drives —
+	// so the row lands in the shape production stores, fingerprint included.
+	// The estate's own fixtures all pass through asCurrentProjection; this one
+	// deliberately keeps fake.ProjectionFingerprint.
+	byOlderDeclaration := fake.Rec("p-older-declaration", map[string]any{"full_name": "Older Declaration"})
+	byOlderDeclaration.ObjectClass = "person"
+	byOlderDeclaration.OwnerExternalID = "owner-1"
+	if byOlderDeclaration.ProjectionFingerprint != fake.ProjectionFingerprint {
+		t.Fatalf("fixture fingerprint = %q, want the fake's — the row must be one no hubspot declaration produced",
+			byOlderDeclaration.ProjectionFingerprint)
+	}
+	if err := f.mirror.Ingest(f.adminCtx, byOlderDeclaration); err != nil {
+		t.Fatalf("seeding the row projected by an older declaration: %v", err)
+	}
+	// After the ingest, never before: the export gate wants a bundle newer
+	// than the mirror's freshest row (exportCutoff), so a bundle written
+	// ahead of a mirror write would block on export_missing instead.
+	f.writePreflipExport(t)
+
+	var verdict crmcontracts.OverlayFlipPreflight
+	if code := f.e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
+		t.Fatalf("preflight = %d", code)
+	}
+	if verdict.Ready || len(verdict.Blocking) != 1 || !hasBlocking(verdict, "force_fresh_incomplete") {
+		t.Fatalf("verdict = %+v, want not-ready blocking on force_fresh_incomplete alone — the server judged a row no current declaration produced as fresh", verdict)
+	}
+	if verdict.Snapshot != nil {
+		t.Fatal("a blocked preflight must not leave a sealed snapshot")
+	}
+
+	// Re-projected through the declaration the server does produce, at the
+	// same incumbent baseline (the record is untouched upstream): the one
+	// blocker clears, and nothing else takes its place.
+	if err := f.mirror.Ingest(f.adminCtx, asCurrentProjection(t, byOlderDeclaration, overlaymod.IncumbentClassContacts)); err != nil {
+		t.Fatalf("re-projecting the row through the current declaration: %v", err)
+	}
+	f.writePreflipExport(t)
+	if code := f.e.Call(t, "POST", "/v1/overlay/flip:preflight", apptest.AnyMap{}, nil, &verdict); code != http.StatusOK {
+		t.Fatalf("preflight after the re-projection = %d", code)
+	}
+	if !verdict.Ready || len(verdict.Blocking) != 0 {
+		t.Fatalf("verdict = %+v, want ready once every mirror row carries a current declaration", verdict)
 	}
 }

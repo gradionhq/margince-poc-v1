@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
@@ -303,4 +304,43 @@ func (w *csvWriters) land(ctx context.Context, externalID string, create func(tx
 	}
 	w.nativeIDs[externalID] = id
 	return nil
+}
+
+var _ migration.UndoWriters = (*csvWriters)(nil)
+
+// Reverse archives the native row a csv import created (IEM-WIRE-9), through
+// each object's existing archive path — soft-delete only, per the contract's
+// own convention, never a hard delete. Idempotent: a resumed undo may replay
+// a row whose archive committed but whose checkpoint advance did not, and an
+// already-archived row is left exactly as it is rather than re-archived (or
+// erroring on a live-only read that no longer finds it).
+func (w *csvWriters) Reverse(ctx context.Context, object string, nativeID ids.UUID) error {
+	switch object {
+	case migration.ObjectLead:
+		lead, err := w.people.GetLead(ctx, ids.From[ids.LeadKind](nativeID), storekit.IncludeArchived)
+		if err != nil {
+			return fmt.Errorf("import undo: reading lead %s: %w", nativeID, err)
+		}
+		if lead.ArchivedAt != nil {
+			return nil
+		}
+		if _, err := w.people.DisqualifyLead(ctx, ids.From[ids.LeadKind](nativeID)); err != nil {
+			return fmt.Errorf("import undo: reversing lead %s: %w", nativeID, err)
+		}
+		return nil
+	case migration.ObjectOrganization:
+		org, err := w.people.GetOrganization(ctx, ids.From[ids.OrganizationKind](nativeID), storekit.IncludeArchived)
+		if err != nil {
+			return fmt.Errorf("import undo: reading organization %s: %w", nativeID, err)
+		}
+		if org.ArchivedAt != nil {
+			return nil
+		}
+		if _, err := w.people.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](nativeID)); err != nil {
+			return fmt.Errorf("import undo: reversing organization %s: %w", nativeID, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("import undo: %q is not a reversible object: %w", object, apperrors.ErrConflict)
+	}
 }

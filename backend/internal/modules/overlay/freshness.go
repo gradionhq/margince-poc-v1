@@ -61,10 +61,11 @@ type FreshnessReader struct {
 	//
 	// It is PLURAL because a canonical type can map to more than one
 	// incumbent class ("activity" ← the five v3 engagement classes,
-	// OVA-MAP-1). A single-record force-fresh needs exactly ONE class, so
-	// Read degrades a multi-source type to the mirror (the mirror row does
-	// not record which engagement class it came from — a tracked follow-up;
-	// no force-fresh caller exists yet).
+	// OVA-MAP-1). A single-record force-fresh needs exactly ONE class, and the
+	// canonical name alone names none of them, so Read degrades a multi-source
+	// type to the mirror rather than guessing one. The class is recorded per
+	// row — an engagement's mirror external_id is namespaced "<class>:<id>"
+	// (OVA-MAP-7) — for a caller that needs to resolve it.
 	toIncumbentClasses func(canonical string) (incumbentClasses []string, ok bool)
 }
 
@@ -223,9 +224,9 @@ func (f *FreshnessReader) reserveForceFreshUnit(ctx context.Context, inc Incumbe
 // given) declares no mapping for anything (ok=false, never a fabricated
 // pass-through of canonical itself). A canonical type backed by MORE than
 // one incumbent class ("activity" ← the five engagement classes) is
-// under-determined for a single-record fetch — the mirror row does not
-// record which class it came from — so it also answers ok=false and Read
-// degrades to the mirror rather than guessing a class.
+// under-determined for a single-record fetch — the canonical name names
+// none of them — so it also answers ok=false and Read degrades to the
+// mirror rather than guessing a class.
 func (f *FreshnessReader) incumbentClassFor(canonical string) (string, bool) {
 	if f.toIncumbentClasses == nil {
 		return "", false

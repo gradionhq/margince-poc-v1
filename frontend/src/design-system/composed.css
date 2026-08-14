@@ -170,8 +170,8 @@
 .record-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 4px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
 }
 /* The company header carries a description, a chip row and a pulse line under
  * the name, which makes the identity block several times taller than the mark
@@ -193,8 +193,12 @@
   margin: 0;
   justify-content: flex-end;
 }
+/* min-width: 0 is what keeps a long name inside the header: a flex item's
+   floor is otherwise its min-content width, so the name would set the
+   identity block's width and push the controls column off the row. */
 .record-head .record-id {
   flex: 1;
+  min-width: 0;
 }
 /* The name and its one standing badge, on the SAME baseline — the badge
    reads as part of naming the record, not as one more fact under it. */
@@ -218,11 +222,21 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
+/* One line, cut with an ellipsis. A name long enough to wrap would push the
+   record's standing, its verbs and the whole page below it down the screen,
+   and the reader came for the record rather than for its full legal name —
+   which the Details rail spells out in a place that does wrap. Shrinkable
+   (min-width: 0) but not grown: at its natural width a short name keeps the
+   standing badge beside it on the same row. */
 .record-head h1 {
   font-family: var(--f-display);
   font-size: 22px;
   font-weight: 600;
   color: var(--textPrimary);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* The RECORD page's identity block, at the scale the mockups draw it: the name
    is the largest thing on the page and the mark beside it is a logo rather
@@ -357,10 +371,15 @@
    Its own gap is the one that sets the record's vertical rhythm, so it is
    stated here rather than left to whatever margins its children happen to
    carry. */
+/* The band is its own register between the identity above it and the work
+   below, so it is spaced off both rather than sitting against the header: the
+   readings belong to the record, not to the name. Both intervals come from the
+   space scale, so every record page opens with the same rhythm. */
 .record-band {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  margin-top: var(--space-4);
   margin-bottom: var(--space-5);
 }
 

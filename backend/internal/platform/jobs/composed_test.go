@@ -26,7 +26,7 @@ func extSpec(kind string) Spec {
 	return Spec{
 		Kind:        kind,
 		GoType:      "extJobWorkspaceArgs",
-		Role:        Workspace,
+		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: time.Minute},
 		MaxAttempts: 3,

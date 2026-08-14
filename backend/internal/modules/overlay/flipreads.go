@@ -64,7 +64,8 @@ func (s *MirrorStore) FlipRows(ctx context.Context, objectClass string, offset, 
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT object_class, external_id, fields, updated_at_baseline,
-			       coalesce(owner_external_id, ''), sync_state, last_synced_at
+			       coalesce(owner_external_id, ''), sync_state, last_synced_at,
+			       coalesce(projection_fingerprint, '')
 			FROM overlay_mirror
 			WHERE object_class = $1
 			ORDER BY external_id
@@ -76,7 +77,7 @@ func (s *MirrorStore) FlipRows(ctx context.Context, objectClass string, offset, 
 		for rows.Next() {
 			var r Row
 			if err := rows.Scan(&r.ObjectClass, &r.ExternalID, &r.Fields, &r.UpdatedAtBaseline,
-				&r.OwnerExternalID, &r.SyncState, &r.LastSyncedAt); err != nil {
+				&r.OwnerExternalID, &r.SyncState, &r.LastSyncedAt, &r.ProjectionFingerprint); err != nil {
 				return fmt.Errorf("overlay: scanning a %s estate row for the flip: %w", objectClass, err)
 			}
 			out = append(out, r)
