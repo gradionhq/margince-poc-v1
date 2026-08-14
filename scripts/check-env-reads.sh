@@ -39,7 +39,11 @@ tagged_integration() {
 # Every way the standard library hands out the environment, not just the one
 # spelling in the tree today: a gate that matches os.Getenv alone is satisfied
 # by rewriting the call as os.LookupEnv, which reads the same value.
-ENV_READ='os\.(Getenv|LookupEnv|Environ)\('
+#
+# The leading boundary keeps the match to the `os` package itself. Without it a
+# receiver whose name merely ENDS in os — myos.Getenv(, _os.LookupEnv( — is read
+# as a violation, and a gate that cries wolf gets waived rather than fixed.
+ENV_READ='(^|[^[:alnum:]_.])os\.(Getenv|LookupEnv|Environ)\('
 
 report=""
 while IFS= read -r file; do
