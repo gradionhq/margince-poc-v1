@@ -32,13 +32,20 @@ func TestEveryTaggableTypeCanBeFilteredByTag(t *testing.T) {
 		if strings.Contains(field.Link, "workspace_id") {
 			t.Errorf("%s's tag field names taggable.workspace_id, which migration 0228 dropped", entity)
 		}
+		if count := strings.Count(field.Link, "%s"); count != 1 {
+			t.Errorf("%s's tag field has %d %%s verbs in its Link template, want exactly 1: %q", entity, count, field.Link)
+		}
 	}
 }
 
-// A project can hold a list membership but cannot hold a tag (taggable's own
-// CHECK omits it), so offering the filter would compile SQL that matches nothing.
-func TestProjectHasNoTagFilter(t *testing.T) {
-	if _, ok := segmentEngines[projectEntity].Fields["tag"]; ok {
-		t.Error("project carries a tag filter, but taggable does not admit projects")
+// A project is a taggable record (taggable's own CHECK admits it) and its
+// list membership must offer the same filter every other taggable type does.
+func TestProjectIsFilterableByTag(t *testing.T) {
+	field, ok := segmentEngines[projectEntity].Fields["tag"]
+	if !ok {
+		t.Fatal("project is taggable but carries no tag filter field")
+	}
+	if !strings.Contains(field.Link, "tg.entity_type = '"+projectEntity+"'") {
+		t.Errorf("project's tag field does not bind its own entity_type: %q", field.Link)
 	}
 }
