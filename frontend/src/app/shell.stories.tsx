@@ -31,18 +31,9 @@ const meta: Meta<typeof Shell> = {
   component: Shell,
   parameters: {
     layout: "fullscreen",
-    // The phone story at the foot of this file needs a WIDTH: the bottom-bar
-    // rules are viewport media queries. Named after the RULE rather than after a
-    // device, and the viewport tool ships inside Storybook 9 itself, so this
-    // adds no addon to `.storybook/main.ts`.
-    viewport: {
-      options: {
-        phone: {
-          name: "Phone (max 700px)",
-          styles: { width: "390px", height: "844px" },
-        },
-      },
-    },
+    // The `phone` viewport this file's last story selects is declared once for
+    // the whole catalog in .storybook/preview.tsx — it stopped being this
+    // file's private need the moment the settings pages wanted it too.
   },
 };
 export default meta;
