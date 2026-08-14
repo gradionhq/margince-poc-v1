@@ -71,6 +71,17 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		WithSenderName(identity.NewServiceFor(InstallationDB(pool)))
 }
 
+// newCollectionsHandlers builds the lists/tags/saved-views transport with the
+// same fieldcatalog seam wireExportSurface widens the export handler's
+// collections store with: dynamic-list create validation and the members
+// endpoint resolve a definition's vocabulary through collections.Store.
+// SegmentEngine exactly as export does, so a cf_* filter a saved list or a
+// membership check names cannot be refused here while an export of the same
+// list accepts it.
+func newCollectionsHandlers(pool *pgxpool.Pool) collectionsHandlers {
+	return collections.NewHandlers(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+}
+
 // wireCaptureSettingsSurface binds the workspace's own capture posture
 // controls.
 func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {

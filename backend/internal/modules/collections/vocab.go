@@ -190,6 +190,16 @@ func (s *Store) SegmentEngine(ctx context.Context, resource string) (storekit.Qu
 		return storekit.Query{}, false, fmt.Errorf("read the custom-field vocabulary for %s: %w", resource, err)
 	}
 	for _, column := range columns {
+		// The core vocabulary wins a name collision: `cf_` prefixing is a Go-side
+		// convention (customfields' engine, not a DDL CHECK), so a catalogue row
+		// named after a core column is a possibility the merge has to defend
+		// against, not one it can assume away. Letting the catalogue win would
+		// silently retype a core field (e.g. a uuid owner_id reading as free
+		// text) rather than fail loudly, which is a worse outcome than the
+		// colliding custom column simply never reaching the filter vocabulary.
+		if _, coreOwns := core.Fields[column.Name]; coreOwns {
+			continue
+		}
 		field, err := customField(column)
 		if err != nil {
 			return storekit.Query{}, false, err

@@ -14,6 +14,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // pathID asserts a contract path id as entity K's id — the widening
@@ -42,6 +43,20 @@ type Handlers struct {
 // NewHandlers wires the transport over the installation-bound pool.
 func NewHandlers(db *database.DB) Handlers {
 	return Handlers{store: NewStore(db)}
+}
+
+// WithFieldCatalog wires the workspace custom-field vocabulary into the
+// transport's store (see Store.WithFieldCatalog): dynamic-list create
+// validation and the members endpoint then compile a filter naming a cf_*
+// column against the same widened vocabulary the filtered-export handler
+// already resolves through this store's SegmentEngine — without it, a
+// cf_* filter that export accepts is refused here as an unknown field.
+// Compose injects modules/customfields' Service here; a caller that never
+// filters (the workflow adapter's list writes) needs no catalog and
+// passes none.
+func (h Handlers) WithFieldCatalog(catalog fieldcatalog.FilterableReader) Handlers {
+	h.store = h.store.WithFieldCatalog(catalog)
+	return h
 }
 
 func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmcontracts.ListListsParams) {

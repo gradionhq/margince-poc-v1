@@ -24,8 +24,16 @@ func TestFilteredExportResolvesItsVocabularyThroughCollections(t *testing.T) {
 		t.Fatalf("read filteredexport.go: %v", err)
 	}
 	src := string(body)
-	if strings.Contains(src, "collections.SegmentEngine(resource)") {
-		t.Error("filtered export looks the engine up statically; it must resolve through the store")
+	// Every package-qualified call counts, not just the one literal spelling
+	// the original regression had: "collections.SegmentEngine(" also matches
+	// "h.collections.SegmentEngine(", so a second static lookup added
+	// alongside the surviving store call — under any argument list, any
+	// helper name — still leaves this at zero once the store calls are
+	// subtracted out.
+	if pkgQualified, viaStore := strings.Count(src, "collections.SegmentEngine("), strings.Count(src, "h.collections.SegmentEngine("); pkgQualified != viaStore {
+		t.Errorf("filteredexport.go calls collections.SegmentEngine( %d times but only %d go through h.collections — "+
+			"resolve the vocabulary through the store instance on every call site, never a package-level lookup",
+			pkgQualified, viaStore)
 	}
 	if !strings.Contains(src, "h.collections.SegmentEngine(") {
 		t.Error("the export handler does not resolve its vocabulary through the collections store instance")

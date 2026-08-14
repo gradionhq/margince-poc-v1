@@ -153,6 +153,32 @@ func TestSegmentEngineHasNoEngineForAnUnknownResource(t *testing.T) {
 	}
 }
 
+// A catalogue row named after a core column is a Go-side convention violation
+// (cf_ prefixing), not a DDL impossibility — the merge has to survive one
+// without retyping the core field underneath it. owner_id is a real core
+// field on "person" (storekit.FieldID); a colliding catalogue entry typed
+// text would otherwise replace it, admitting a substring operator against a
+// uuid column.
+func TestSegmentEngineCoreFieldWinsACatalogNameCollision(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{Name: "owner_id", Type: fieldcatalog.TypeText}},
+	}})
+	engine, ok, err := store.SegmentEngine(context.Background(), "person")
+	if err != nil || !ok {
+		t.Fatalf("segmentEngine: ok=%v err=%v", ok, err)
+	}
+	field, present := engine.Fields["owner_id"]
+	if !present {
+		t.Fatal("owner_id was dropped from the vocabulary entirely, not just left as core's")
+	}
+	if field.Type != storekit.FieldID {
+		t.Errorf("owner_id typed as %q, want %q — the colliding catalogue column overrode the core field", field.Type, storekit.FieldID)
+	}
+	if field.Expr != colOwnerID {
+		t.Errorf("owner_id Expr = %q, want the core field's %q", field.Expr, colOwnerID)
+	}
+}
+
 // cf_* names cannot collide with a core field, but the guarantee is worth a test
 // rather than a convention: a collision would silently shadow a core column.
 func TestNoCoreFieldNameCanBeACustomColumnName(t *testing.T) {
