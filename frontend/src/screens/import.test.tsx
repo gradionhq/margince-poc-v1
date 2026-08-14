@@ -463,4 +463,172 @@ describe("the import card", () => {
 
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
+
+  // Undo (IEM-WIRE-9): offered only once the run is complete, reverses what
+  // nobody edited, and names what it kept — A93's "kept — you edited these".
+  describe("undo", () => {
+    it("offers undo once the run is complete, and reverses what nobody edited", async () => {
+      const sent = stubRoutes({
+        "POST /imports/019ff-run/undo": () =>
+          jsonResponse({ ...run, status: "undone" }, 202),
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({
+            ...dryRun,
+            status: "undone",
+            undo: {
+              run_id: run.id,
+              status: "undone",
+              reversed_count: 3,
+              kept: [],
+              errored: [],
+            },
+          }),
+      });
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+
+      const undoButton = screen.getByRole("button", {
+        name: "Undo this import (3 rows)",
+      });
+      await userEvent.click(undoButton);
+
+      await waitFor(() =>
+        expect(sent.some((s) => s.path.includes("/undo"))).toBe(true),
+      );
+      expect(
+        await screen.findByText("The import was undone."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("3 rows reversed.")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Kept — you edited these since the import:"),
+      ).toBeNull();
+    });
+
+    it("names a human-edited row as kept rather than reversing it", async () => {
+      stubRoutes({
+        "POST /imports/019ff-run/undo": () =>
+          jsonResponse({ ...run, status: "undone" }, 202),
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({
+            ...dryRun,
+            status: "undone",
+            undo: {
+              run_id: run.id,
+              status: "undone",
+              reversed_count: 2,
+              kept: [{ object: "lead", id: "019ff-kept-lead" }],
+              errored: [],
+            },
+          }),
+      });
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
+      );
+
+      expect(await screen.findByText("2 rows reversed.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Kept — you edited these since the import:"),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/019ff-kept-lead/)).toBeInTheDocument();
+    });
+
+    it("offers to continue an undo that was interrupted, not to restart it", async () => {
+      stubRoutes({
+        "POST /imports/019ff-run/undo": () =>
+          jsonResponse({ ...run, status: "undoing" }, 202),
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({ ...dryRun, status: "undoing" }),
+      });
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
+      );
+
+      expect(
+        await screen.findByText(/undo was interrupted partway through/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Continue the undo" }),
+      ).toBeInTheDocument();
+    });
+
+    it("names a row that could not be reversed, without hiding the rest of the outcome", async () => {
+      stubRoutes({
+        "POST /imports/019ff-run/undo": () =>
+          jsonResponse({ ...run, status: "undone" }, 202),
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({
+            ...dryRun,
+            status: "undone",
+            undo: {
+              run_id: run.id,
+              status: "undone",
+              reversed_count: 2,
+              kept: [],
+              errored: [
+                {
+                  object: "lead",
+                  id: "019ff-stuck-lead",
+                  reason: "the record refused the reversal",
+                },
+              ],
+            },
+          }),
+      });
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
+      );
+
+      expect(
+        await screen.findByText("The import was undone."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("2 rows reversed.")).toBeInTheDocument();
+      expect(screen.getByText(/Could not be reversed/)).toBeInTheDocument();
+      expect(screen.getByText(/019ff-stuck-lead/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/the record refused the reversal/),
+      ).toBeInTheDocument();
+    });
+  });
 });

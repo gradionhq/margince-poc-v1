@@ -58,7 +58,10 @@ type Run struct {
 	// file somebody chose the columns of.
 	Mapping *RunMapping
 	Report  *Report
-	Error   string
+	// UndoReport is set once a reversal has started (status undoing/undone) —
+	// nil on a run nobody has tried to undo.
+	UndoReport *UndoReport
+	Error      string
 	// CapturedBy is the authenticated principal that opened the run,
 	// server-stamped — the governance attribution every surface must carry.
 	// Empty on the reads that do not select it (the flip's own paths).

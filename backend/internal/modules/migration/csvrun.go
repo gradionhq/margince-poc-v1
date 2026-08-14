@@ -206,20 +206,21 @@ func (s *RunStore) GetStaged(ctx context.Context, id RunID) (Run, error) {
 		return Run{}, err
 	}
 	var (
-		run     Run
-		mapping []byte
-		report  []byte
-		runErr  *string
+		run        Run
+		mapping    []byte
+		report     []byte
+		undoReport []byte
+		runErr     *string
 	)
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, mapping, report, error, captured_by
+			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, mapping, report, undo_report, error, captured_by
 			-- Scoped as well as keyed, exactly as Get is: a run id from another
 			-- workspace owes the existence-hiding not-found, not its status,
 			-- its mapping and its report.
 			  FROM import_run WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id)
 		return row.Scan(&run.ID, &run.Connector, &run.Status, &run.SourceRef, &run.Checkpoint,
-			&run.CreatedAt, &run.UpdatedAt, &mapping, &report, &runErr, &run.CapturedBy)
+			&run.CreatedAt, &run.UpdatedAt, &mapping, &report, &undoReport, &runErr, &run.CapturedBy)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -248,6 +249,13 @@ func (s *RunStore) GetStaged(ctx context.Context, id RunID) (Run, error) {
 			return Run{}, fmt.Errorf("reading the report of import run %s: %w", id, err)
 		}
 		run.Report = &rep
+	}
+	if len(undoReport) > 0 {
+		var rep UndoReport
+		if err := json.Unmarshal(undoReport, &rep); err != nil {
+			return Run{}, fmt.Errorf("reading the undo report of import run %s: %w", id, err)
+		}
+		run.UndoReport = &rep
 	}
 	return run, nil
 }

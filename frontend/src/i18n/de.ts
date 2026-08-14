@@ -1824,6 +1824,19 @@ export const de = {
     "Der Import hat nach {checkpoint} Zeilen gestoppt. Fortsetzen macht dort weiter, statt neu zu beginnen.",
   "import.resume": "Import fortsetzen",
   "import.another": "Weitere Datei importieren",
+  "import.undo.one": "Diesen Import rückgängig machen (1 Zeile)",
+  "import.undo.other": "Diesen Import rückgängig machen ({rows} Zeilen)",
+  "import.undoing": "Wird rückgängig gemacht…",
+  "import.undoInterrupted":
+    "Das Rückgängigmachen wurde unterbrochen. Fortsetzen macht dort weiter, wo es aufgehört hat, nicht von vorn.",
+  "import.continueUndo": "Rückgängigmachen fortsetzen",
+  "import.undone": "Der Import wurde rückgängig gemacht.",
+  "import.undoReversed.one": "1 Zeile rückgängig gemacht.",
+  "import.undoReversed.other": "{rows} Zeilen rückgängig gemacht.",
+  "import.undoKeptLead":
+    "Beibehalten — diese wurden seit dem Import bearbeitet:",
+  "import.undoErroredLead":
+    "Konnte nicht rückgängig gemacht werden — unverändert belassen:",
   "settings.dangerZone": "Gefahrenzone",
   "settings.dangerZoneSub":
     "Nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen.",

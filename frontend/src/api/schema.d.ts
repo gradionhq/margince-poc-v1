@@ -7023,6 +7023,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse a completed CSV import run.
+         * @description IEM-WIRE-9 (A93; S-E15.4c). Valid from `complete` (starting a fresh
+         *     reversal) or `undoing` (resuming one already under way, from its
+         *     persisted checkpoint) — and only for the `csv` connector. Undoing a
+         *     run that is still in flight, was never approved, has already failed,
+         *     or has already finished undoing is a conflict, as is a run whose
+         *     `undoing` state carries no recorded progress to resume; the
+         *     `hubspot`/`salesforce`/`mirror`/`bundle` connectors have no reversal
+         *     path (`mirror`/`bundle` are the ADR-0071 overlay flip, not a customer
+         *     import; `hubspot`/`salesforce` are unbuilt).
+         *
+         *     Reverses only the rows this run created that nobody has touched since
+         *     (A93): never an all-or-nothing hard rollback that clobbers a later
+         *     edit. A row a human touched after import is left exactly as they left
+         *     it and named in the report's `kept` list, not silently skipped — and
+         *     a row that cannot be reversed for any other reason (a business rule
+         *     refuses it, or it is no longer visible to the caller) is named in
+         *     `errored` with why, rather than aborting every row after it.
+         *
+         *     Checkpointed and resumable on the same run record's `checkpoint`
+         *     field the forward commit already uses (IEM-WIRE-5), though the two
+         *     count different things once a run is undoing: source-row offset for
+         *     the forward commit, `import_record_map` row offset for the reversal.
+         *     An undo over thousands of rows is the same shape of bulk write the
+         *     import itself is, and paged the same way. Undoing an already-`undone`
+         *     run is a conflict, not a no-op; a second call while one is already
+         *     under way for the same run is a conflict too, not a second
+         *     concurrent pass.
+         */
+        post: operations["undoImportRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/user-map": {
         parameters: {
             query?: never;
@@ -8318,14 +8366,52 @@ export interface components {
             source_key_used: string;
             /** @description A dry run's estimate for the commit. Null when the run has already finished and the real duration is on the run record. */
             estimated_duration_seconds?: number | null;
+            /** @description Present once the run has been undone (`status: undone`, IEM-WIRE-9); absent otherwise. */
+            undo?: components["schemas"]["ImportUndoReport"];
         };
         /**
          * @description IEM-DDL-1's lifecycle. `failed` is resumable, not terminal: the run
          *     carries the checkpoint it stopped at, and resuming continues from
-         *     there rather than re-reading the file from the top.
+         *     there rather than re-reading the file from the top. `undoing`/`undone`
+         *     (IEM-WIRE-9) are the reversal's own states, reachable only from
+         *     `complete` and only for the `csv` connector.
          * @enum {string}
          */
-        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed";
+        ImportRunStatus: "pending" | "validating" | "awaiting_approval" | "running" | "complete" | "failed" | "undoing" | "undone";
+        /**
+         * @description The result of undoing a committed import run (IEM-WIRE-9; A93). Every
+         *     import-created row lands in exactly one of three buckets: reversed,
+         *     kept because a human edited it since (the "kept — you edited these"
+         *     list S-E15.4c requires, not a diff of what changed), or errored
+         *     because it could not be reversed — a single irreversible row never
+         *     aborts the rest of the run.
+         */
+        ImportUndoReport: {
+            /** Format: uuid */
+            run_id: string;
+            status: components["schemas"]["ImportRunStatus"];
+            /** @description Import-created rows that were untouched since and have been reversed (archived). */
+            reversed_count: number;
+            /** @description Import-created rows a human edited since import, therefore left in place (A93). */
+            kept: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+            }[];
+            /**
+             * @description Import-created rows the reversal could not archive (a business
+             *     rule refused it, or the caller's row scope no longer covers it) —
+             *     left exactly as they stood, named with why, rather than the
+             *     whole run aborting on one row it cannot process.
+             */
+            errored: {
+                object: components["schemas"]["ImportObject"];
+                /** Format: uuid */
+                id: string;
+                /** @description What kept it from reversing, in terms the operator can act on — never a database or driver message. */
+                reason: string;
+            }[];
+        };
         ImportRun: {
             /** Format: uuid */
             id: string;
@@ -8336,7 +8422,7 @@ export interface components {
             connector: "csv" | "hubspot" | "salesforce" | "bundle" | "mirror";
             object: components["schemas"]["ImportObject"];
             status: components["schemas"]["ImportRunStatus"];
-            /** @description Absolute offset into the source's rows; 0 = not started. What a resume continues from. */
+            /** @description Absolute offset into the source's rows for a forward run (`running`/`failed`), or into import_record_map's rows once the run is `undoing` (IEM-WIRE-9) — 0 = not started either way. What a resume continues from. */
             checkpoint: number;
             /** @description Why a failed run stopped, in the uploader's terms. Never a driver or SQL message. */
             error?: string | null;
@@ -28538,6 +28624,32 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Approved; the commit is under way (or complete — the run record says which). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    undoImportRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Undo accepted; reversal is under way (or complete — the run record says which). */
             202: {
                 headers: {
                     [name: string]: unknown;

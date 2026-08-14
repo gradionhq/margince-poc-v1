@@ -180,7 +180,8 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 	// twice the rows the file holds — and the stored report DOES carry both,
 	// because a run's own report is merged into the dry run's so a resumed
 	// attempt keeps what the earlier one already achieved.
-	committed := run.Status == migration.StatusComplete || run.Status == migration.StatusFailed
+	committed := run.Status == migration.StatusComplete || run.Status == migration.StatusFailed ||
+		run.Status == migration.StatusUndoing || run.Status == migration.StatusUndone
 	seen := map[int]bool{}
 	for _, o := range run.Report.Objects {
 		out.RowsRead += o.MirrorCount
@@ -216,7 +217,46 @@ func toContractImportReport(run migration.Run) crmcontracts.ImportRunReport {
 		out.RowsRead-out.Disposition.Created-out.Disposition.Updated-out.Disposition.Skipped,
 		0,
 	)
+	// Present once the run has been undone, not while undoing — a
+	// still-in-progress or interrupted reversal's partial counts are the
+	// run's own internal resume state, not a finished outcome to report.
+	if run.UndoReport != nil && run.Status == migration.StatusUndone {
+		out.Undo = toContractUndoReport(run.ID, run.Status, *run.UndoReport)
+	}
 	return out
+}
+
+// toContractUndoReport renders the reversal outcome (IEM-WIRE-9).
+func toContractUndoReport(id migration.RunID, status string, rep migration.UndoReport) *crmcontracts.ImportUndoReport {
+	kept := make([]struct {
+		Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Kept item shape
+		Object crmcontracts.ImportObject `json:"object"`
+	}, 0, len(rep.Kept))
+	for _, k := range rep.Kept {
+		kept = append(kept, struct {
+			Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Kept item shape
+			Object crmcontracts.ImportObject `json:"object"`
+		}{Id: openapi_types.UUID(k.ID), Object: crmcontracts.ImportObject(k.Object)})
+	}
+	errored := make([]struct {
+		Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Errored item shape
+		Object crmcontracts.ImportObject `json:"object"`
+		Reason string                    `json:"reason"`
+	}, 0, len(rep.Errored))
+	for _, e := range rep.Errored {
+		errored = append(errored, struct {
+			Id     openapi_types.UUID        `json:"id"` //nolint:staticcheck // matches the generated ImportUndoReport.Errored item shape
+			Object crmcontracts.ImportObject `json:"object"`
+			Reason string                    `json:"reason"`
+		}{Id: openapi_types.UUID(e.ID), Object: crmcontracts.ImportObject(e.Object), Reason: e.Reason})
+	}
+	return &crmcontracts.ImportUndoReport{
+		RunId:         openapi_types.UUID(id),
+		Status:        crmcontracts.ImportRunStatus(status),
+		ReversedCount: rep.ReversedCount,
+		Kept:          kept,
+		Errored:       errored,
+	}
 }
 
 // lineOf recovers the file line a skip named. The source records skips as
