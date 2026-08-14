@@ -3689,6 +3689,8 @@ export const de = {
     "{name} wurde übersprungen – die Datei enthält keinen Text.",
   "settings.voice.noticeDismissed":
     "{name} wurde übersprungen – nichts darin ließ sich dir zuordnen.",
+  "settings.voice.noticeAskQueueFull":
+    "{name} wurde nicht hinzugefügt – beantworte zuerst die offenen Fragen oben und füge die Datei dann erneut hinzu.",
   "settings.voice.noticeFailed":
     "{name} konnte nicht hinzugefügt werden: {detail}",
   "settings.voice.noticeUnexpected": "{name} konnte nicht hinzugefügt werden.",

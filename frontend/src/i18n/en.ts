@@ -3696,6 +3696,8 @@ export const en = {
   "settings.voice.noticeSkippedEmpty": "{name} was skipped — it has no text.",
   "settings.voice.noticeDismissed":
     "{name} was skipped — nothing in it could be attributed to you.",
+  "settings.voice.noticeAskQueueFull":
+    "{name} was not added — answer the speaker questions above first, then add it again.",
   "settings.voice.noticeFailed": "{name} could not be added: {detail}",
   "settings.voice.noticeUnexpected": "{name} could not be added.",
   "settings.voice.refusalUnattributed":

@@ -3676,6 +3676,8 @@ export const vi = {
     "Đã bỏ qua {name} — tệp không có nội dung.",
   "settings.voice.noticeDismissed":
     "Đã bỏ qua {name} — không phần nào trong đó quy được cho bạn.",
+  "settings.voice.noticeAskQueueFull":
+    "Chưa thêm {name} — hãy trả lời các câu hỏi người nói ở trên trước, rồi thêm lại tệp này.",
   "settings.voice.noticeFailed": "Không thêm được {name}: {detail}",
   "settings.voice.noticeUnexpected": "Không thêm được {name}.",
   "settings.voice.refusalUnattributed":

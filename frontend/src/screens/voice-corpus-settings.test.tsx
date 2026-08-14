@@ -94,6 +94,19 @@ function fileOf(name: string, text: string): File {
   return new File([text], name, { type: "text/plain" });
 }
 
+// A file that reports when its contents are read. Holding a file's text is
+// what the concurrency bound is protecting memory against, so the tests count
+// reads directly rather than inferring them from request traffic.
+function countingFileOf(name: string, text: string, onRead: () => void): File {
+  const file = fileOf(name, text);
+  return Object.assign(file, {
+    text: async () => {
+      onRead();
+      return text;
+    },
+  });
+}
+
 // The hidden input the "Choose files" button clicks. userEvent.upload needs
 // the input itself, which carries no accessible name by design.
 function fileInput(): HTMLInputElement {
@@ -306,6 +319,174 @@ describe("handing a file to the Settings voice card", () => {
     expect(
       await screen.findByText(/notes\.txt could not be added/),
     ).toBeTruthy();
+  });
+});
+
+// Intake is bounded so that selecting a large batch does not hand the server
+// one request per file at once, or hold every file's text in memory at the
+// same time. What the reader sees is unchanged: every file still lands, and
+// the ones past the bound simply wait their turn.
+describe("adding many files at once", () => {
+  // Which source an ingest names, read without asserting a shape onto parsed
+  // JSON: the body is whatever the client actually sent, so it is narrowed
+  // rather than cast.
+  function sourceLabelOf(rawBody: string): string {
+    const body: unknown = JSON.parse(rawBody);
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "source_label" in body &&
+      typeof body.source_label === "string"
+    ) {
+      return body.source_label;
+    }
+    throw new Error(`ingest body carried no source_label: ${rawBody}`);
+  }
+
+  // A stub whose previews stay open until the test releases them, so the
+  // number in flight can actually be counted rather than inferred.
+  function stubHeldPreviews(result: CorpusPreview) {
+    let inFlight = 0;
+    let peak = 0;
+    const ingested: string[] = [];
+    const release: (() => void)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/voice-profiles") {
+          return jsonResponse({
+            data: [{ id: "vp-1" }],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        if (path === "/voice-profiles/vp-1/sources/preview") {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await new Promise<void>((resolve) => release.push(resolve));
+          inFlight -= 1;
+          return jsonResponse(result);
+        }
+        if (path === "/voice-profiles/vp-1/sources") {
+          ingested.push(sourceLabelOf(await request.text()));
+          return jsonResponse(
+            { source: {}, summary: SUMMARY, ingest_stats: STATS },
+            201,
+          );
+        }
+        return jsonResponse({});
+      }),
+    );
+    return {
+      peak: () => peak,
+      ingested: () => ingested,
+      // Drains whatever is waiting, repeatedly: releasing the first batch is
+      // what lets the queue hand slots to the next one.
+      releaseAll: async () => {
+        for (let round = 0; round < 40 && release.length > 0; round++) {
+          release.shift()?.();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      },
+    };
+  }
+
+  it("previews at most three files at a time, and still gets through all of them", async () => {
+    const held = stubHeldPreviews(PROSE);
+    // Reads are counted as well as requests: the bound exists to stop nine
+    // files' worth of text being held at once, and a version that read every
+    // file up front while only previewing three would satisfy the request
+    // count alone.
+    let reads = 0;
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.upload(
+      fileInput(),
+      Array.from({ length: 9 }, (_, i) =>
+        countingFileOf(`s${i}.txt`, `Sample ${i}.`, () => {
+          reads += 1;
+        }),
+      ),
+    );
+    await waitFor(() => expect(held.peak()).toBe(3));
+    expect(reads).toBe(3);
+
+    // Releasing lets the queue hand its slots on. Every file still lands —
+    // the bound delays work, it never drops it. (The notices list is capped
+    // at six, so the ingests are what proves all nine got through.)
+    await held.releaseAll();
+    await waitFor(
+      () => {
+        expect(held.ingested().length).toBe(9);
+      },
+      { timeout: 4000 },
+    );
+    expect(new Set(held.ingested()).size).toBe(9);
+    expect(held.peak()).toBe(3);
+  });
+
+  // The card unmounts on a path the reader takes constantly: the first sample
+  // mints the profile, which swaps the empty state for the full card. Files
+  // still waiting for a slot at that moment must survive it — a new owner who
+  // selects six samples must not silently end up with the three that happened
+  // to start first.
+  it("finishes files still queued when the card is replaced mid-intake", async () => {
+    const held = stubHeldPreviews(PROSE);
+    const view = render(
+      <VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />,
+    );
+
+    await userEvent.upload(
+      fileInput(),
+      Array.from({ length: 6 }, (_, i) => fileOf(`q${i}.txt`, `Sample ${i}.`)),
+    );
+    await waitFor(() => expect(held.peak()).toBe(3));
+
+    // Three are running, three are still queued when the card goes away.
+    view.unmount();
+    await held.releaseAll();
+
+    await waitFor(
+      () => {
+        expect(held.ingested().length).toBe(6);
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  // Each unanswered question holds its source's whole text, and the reader
+  // answers them one at a time. Past the cap a file is declined out loud
+  // rather than queued into memory nobody will reach.
+  it("declines a conversational file once five questions are already waiting", async () => {
+    stubApi(CONVERSATION);
+    render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
+
+    await userEvent.upload(
+      fileInput(),
+      Array.from({ length: 7 }, (_, i) =>
+        fileOf(`talk${i}.vtt`, `Lars: turn ${i}. Sam: ok ${i}.`),
+      ),
+    );
+
+    // Five questions are held; the sixth and seventh are turned away with a
+    // notice that says what to do about it.
+    await waitFor(() => {
+      expect(screen.getAllByText(/was not added/).length).toBe(2);
+    });
+
+    // And the five that were kept are all still reachable: answering one
+    // brings up the next, five times over. Counting refusals alone would pass
+    // just as happily if questions had been dropped instead of queued.
+    for (let answered = 0; answered < 5; answered++) {
+      await screen.findByText(/Which speaker are you in/);
+      await userEvent.click(screen.getByRole("radio", { name: /^Lars/ }));
+      await userEvent.click(
+        screen.getByRole("button", { name: "That one is me" }),
+      );
+    }
+    await waitFor(() => {
+      expect(screen.queryByText(/Which speaker are you in/)).toBeNull();
+    });
   });
 });
 
