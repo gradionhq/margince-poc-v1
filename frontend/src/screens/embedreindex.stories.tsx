@@ -124,8 +124,10 @@ export const PreviewDialogWithEstimate: Story = {
     // The badge is the half of the disclosure a story cannot assert by
     // eyeballing a number: it renders only when the top-level
     // utilization_impact is present, so naming it here keeps the fixture
-    // honest to the contract.
-    await canvas.findByText("would enter economy mode");
+    // honest to the contract. It sits in the same portalled dialog the
+    // estimate does, so it is the same `screen` lookup — reaching for the
+    // canvas here rejected while the dialog above it was drawn correctly.
+    await screen.findByText("would enter economy mode");
   },
 };
 

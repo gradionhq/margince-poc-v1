@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { InboxScreen } from "./inbox";
 import { jsonResponse, StoryProviders } from "./story-utils";
@@ -210,7 +210,11 @@ export const TokenShown: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Accept" }),
     );
-    await canvas.findByText("example-approval-token");
+    // `screen`, not the canvas: the token is revealed in a Modal portalled to
+    // document.body, so a canvas-scoped lookup rejects even though the reveal
+    // is on screen — and a rejecting play() used to report after the render
+    // gate had already screenshotted and passed the story.
+    await screen.findByText("example-approval-token");
   },
 };
 

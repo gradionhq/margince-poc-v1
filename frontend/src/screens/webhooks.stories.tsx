@@ -79,18 +79,32 @@ function baseRoutes(
 
 // Drives a sequence of testid clicks against one render, returning a query
 // handle so a play function can chain a further assertion or a non-testid
-// interaction (a role-named Confirm button, a label lookup).
+// interaction (a role-named confirm button, a label lookup).
 //
 // The clicks are canvas-scoped — the testids are all on the card — but the
 // handle returned is `screen`, because what those clicks OPEN is a ConfirmModal
-// portalled to document.body. Handing back the canvas is why the rotate-secret
-// story could never find its own Confirm button.
+// portalled to document.body: a canvas-scoped query for anything inside one
+// rejects however correctly the dialog is drawn.
 async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
   const canvas = within(canvasElement);
   for (const testId of testIds) {
     await userEvent.click(await canvas.findByTestId(testId));
   }
   return screen;
+}
+
+// Rotate secret and Archive are the two irreversible verbs, so they live behind
+// the row's overflow rather than on it at Edit's weight — and OverflowMenu does
+// not MOUNT its children until it is first opened (they carry their own reads).
+// So a story about either opens the menu the way a reader does: a click aimed
+// straight at the item's testid finds no such node, and the capture that
+// follows shows a closed row under the name of an armed dialog.
+// webhooks.test.tsx opens it the same way, for the same reason.
+async function openRowActions(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "More actions" }),
+  );
 }
 
 const meta: Meta<typeof WebhooksCard> = {
@@ -211,6 +225,7 @@ export const EditOpen: Story = {
 export const RotateSecretConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
   },
 };
@@ -227,14 +242,28 @@ export const RotateSecretRevealed: Story = {
       }),
   }),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     const canvas = await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
-    await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
+    // Scoped to the dialog, not to `screen`: the confirm button is labelled
+    // with the ACT ("Rotate secret") rather than a generic "Confirm", which is
+    // also the label on the menu item that opened it — and the menu stays open
+    // behind the dialog on purpose, so an unscoped lookup for that name has two
+    // matches and the one it wants is the second.
+    const dialog = within(await canvas.findByRole("dialog"));
+    await userEvent.click(
+      await dialog.findByRole("button", { name: "Rotate secret" }),
+    );
+    // The reveal is the story: without this the play could only prove the
+    // confirm was clickable, and a screenshot of the confirm dialog still
+    // sitting there would pass under the name of a revealed secret.
+    await canvas.findByTestId("webhook-signing-secret");
   },
 };
 
 export const ArchiveConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     await clickTestIds(canvasElement, ["archive-record"]);
   },
 };
