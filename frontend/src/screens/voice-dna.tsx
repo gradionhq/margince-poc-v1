@@ -12,7 +12,9 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
-import { ensureProfileId, useVoiceProfile } from "./voice-profile";
+import { VoiceCorpusIntake } from "./voice-corpus-settings";
+import { VOICE_MIN_WORDS } from "./voice-intake-core";
+import { useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
 
@@ -110,7 +112,8 @@ export function VoiceDnaCard() {
               <b>{t("settings.voice.emptyTitle")}</b>
               <p className="t-small">{t("settings.voice.emptyBody")}</p>
             </EmptyState>
-            <CorpusAddForm
+            <VoiceCorpusIntake
+              first
               profileId={null}
               onChanged={() =>
                 qc.invalidateQueries({ queryKey: ["voice-profile"] })
@@ -144,6 +147,9 @@ function bandLabel(
 function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
   const t = useT();
   const qc = useQueryClient();
+  // Intake lives in one card and the build button in another, so the fact that
+  // a sample is still arriving has to be held by the parent they share.
+  const [intakeBusy, setIntakeBusy] = useState(false);
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["voice-profile"] });
     qc.invalidateQueries({ queryKey: ["voice-sources", profile.id] });
@@ -194,11 +200,21 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
 
       <Card className="card-stack" title={t("settings.voice.corpusLabel")}>
         <CorpusManifest profileId={profile.id} onChanged={invalidate} />
-        <CorpusAddForm profileId={profile.id} onChanged={invalidate} />
+        <VoiceCorpusIntake
+          profileId={profile.id}
+          onChanged={invalidate}
+          onBusyChange={setIntakeBusy}
+        />
       </Card>
 
       <Card className="card-stack" title={t("settings.voice.buildsTitle")}>
-        <BuildControls profile={profile} onBuilt={invalidate} />
+        {/* A build started while a sample is still arriving would describe a
+            corpus that no longer exists by the time it finishes. */}
+        <BuildControls
+          profile={profile}
+          onBuilt={invalidate}
+          intakeBusy={intakeBusy}
+        />
         <VoiceHistory profileId={profile.id} onChanged={invalidate} />
       </Card>
     </>
@@ -305,6 +321,12 @@ function CorpusManifest({
                 target: manifest.summary.target_words.toLocaleString(),
               })}
             </p>
+            {/* The meter above tracks the 30,000-word quality target, which
+                says nothing about when a first build becomes possible. Below
+                the floor, the distance that actually matters is the 800. */}
+            {manifest.summary.total_words < VOICE_MIN_WORDS && (
+              <FloorMeter words={manifest.summary.total_words} />
+            )}
             <RegisterMix summary={manifest.summary} />
             {manifest.sources.length === 0 ? (
               <p className="t-small">{t("settings.voice.corpusEmpty")}</p>
@@ -333,77 +355,25 @@ function CorpusManifest({
   );
 }
 
-// A null profileId is the owner who has never built a voice: the paste box is
-// the same one, but the add resolves the profile through the shared
-// ensureProfileId first, so the very first sample mints the one profile the
-// onboarding step would have minted — never a second one beside it. That first
-// box is also the one case that names itself: it sits in the empty-state card
-// under the surface's own title, with no "Writing samples" heading above it to
-// say what pasting here does.
-function CorpusAddForm({
-  profileId,
-  onChanged,
-}: Readonly<{ profileId: string | null; onChanged: () => void }>) {
+// How far the corpus still is from the server's first-build floor. It renders
+// only below the floor: once a build is possible, the distance to it is no
+// longer the question the reader is asking.
+function FloorMeter({ words }: Readonly<{ words: number }>) {
   const t = useT();
-  const [paste, setPaste] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const first = profileId === null;
-
-  const add = useMutation({
-    mutationFn: async () => {
-      const id = profileId ?? (await ensureProfileId());
-      const { error: err } = await api.POST("/voice-profiles/{id}/sources", {
-        params: { path: { id } },
-        body: {
-          kind: "other",
-          register: "general",
-          weight: 1,
-          source_label: t("settings.voice.pastedLabel"),
-          source_ref: `settings:paste:${Date.now()}`,
-          format: "text",
-          content: paste,
-        },
-      });
-      if (err) {
-        throwProblem(err);
-      }
-    },
-    onSuccess: () => {
-      setPaste("");
-      setError(null);
-      onChanged();
-    },
-    onError: reportFailure(setError, t),
-  });
-
   return (
-    <div className="vdna-composer">
-      {first && (
-        <div className="vdna-label">{t("settings.voice.addFirstLabel")}</div>
-      )}
-      {/* The first sample is the one a user pastes a whole email into, so it
-          opens tall enough to show one without scrolling; a later addition to
-          an established corpus is a smaller act and gets a smaller box. */}
-      <Textarea
-        rows={first ? 8 : 4}
-        value={paste}
-        placeholder={t("settings.voice.addPlaceholder")}
-        onChange={(e) => setPaste(e.target.value)}
+    <p className="t-small vdna-floor">
+      <progress
+        value={Math.min(words, VOICE_MIN_WORDS)}
+        max={VOICE_MIN_WORDS}
+        aria-label={t("settings.voice.floorLabel", { min: VOICE_MIN_WORDS })}
       />
-      <div className="vdna-composer-actions">
-        <Button
-          small
-          variant={first ? "primary" : undefined}
-          disabled={paste.trim().length === 0 || add.isPending}
-          onClick={() => add.mutate()}
-        >
-          {first
-            ? t("settings.voice.addFirstCta")
-            : t("settings.voice.addSource")}
-        </Button>
-        {error && <span className="t-small">{error}</span>}
-      </div>
-    </div>
+      <span>
+        {t("settings.voice.floorProgress", {
+          words: words.toLocaleString(),
+          min: VOICE_MIN_WORDS.toLocaleString(),
+        })}
+      </span>
+    </p>
   );
 }
 
@@ -510,7 +480,12 @@ function SourceRow({
 function BuildControls({
   profile,
   onBuilt,
-}: Readonly<{ profile: VoiceProfile; onBuilt: () => void }>) {
+  intakeBusy = false,
+}: Readonly<{
+  profile: VoiceProfile;
+  onBuilt: () => void;
+  intakeBusy?: boolean;
+}>) {
   const t = useT();
   const [status, setStatus] = useState<
     "succeeded" | "failed" | "deferred" | "pending" | null
@@ -594,7 +569,7 @@ function BuildControls({
         <Button
           variant="primary"
           small
-          disabled={build.isPending || tooThin}
+          disabled={build.isPending || tooThin || intakeBusy}
           onClick={() => build.mutate()}
         >
           <Sparkles aria-hidden />{" "}

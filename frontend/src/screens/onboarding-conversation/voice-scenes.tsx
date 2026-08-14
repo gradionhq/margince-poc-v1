@@ -6,9 +6,9 @@ import { Button, Disclosure } from "../../design-system/atoms";
 import { MarginceCoreScene } from "../../design-system/margince-core";
 import { usePrefersReducedMotion } from "../../design-system/motion";
 import { useT } from "../../i18n";
-import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../onboarding";
 import type { VoiceInsightsData } from "../voice-insights";
 import { parseVoiceInsights } from "../voice-insights";
+import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../voice-intake-core";
 import type { BuildStage, ConversationQuestion } from "./conversation-machine";
 import type { CorpusManifestEntry } from "./use-voice-corpus";
 
