@@ -5170,6 +5170,12 @@ export interface paths {
          *     re-asserting upgrades/downgrades `access` and resets `expires_at`. A grant can never exceed the
          *     granting principal's own access (scope-intersection). Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
+         *
+         *     The seat ceiling binds the RECIPIENT as well (AAD-AC-4): a `write` grant to a user on a `read`
+         *     seat is refused `403 seat_tier_insufficient`, because it would widen that user's scope onto a
+         *     record every write to which the ceiling then refuses. A `read` grant to a read seat is the
+         *     authority their licence already carries and is accepted. A `team` subject is not a seat and is
+         *     not filtered — the read seats inside it are still refused every write at their own admission.
          */
         post: operations["createRecordGrant"];
         delete?: never;
