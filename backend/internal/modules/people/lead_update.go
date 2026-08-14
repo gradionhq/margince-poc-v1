@@ -172,9 +172,19 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 		return crmcontracts.Lead{}, err
 	}
 	// Clearing an override immediately recomputes from current signals
-	// (formulas §3.1): score no longer lags behind the machine value.
+	// (formulas §3.1): score no longer lags behind the machine value, and
+	// the recompute appends its own history entry.
 	if resumeRecompute {
-		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC()); err != nil {
+		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC(), true); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	} else if in.Score != nil {
+		// SETTING an override moves the displayed score without touching the
+		// machine value, so no recompute runs and nothing else records it.
+		// Without this entry the newest point in the series still holds the
+		// pre-override number, and "Explain This Score" would answer for a
+		// score the lead no longer carries (ADR-0105 §5).
+		if err := appendOverrideScoreHistory(ctx, tx, id); err != nil {
 			return crmcontracts.Lead{}, err
 		}
 	}

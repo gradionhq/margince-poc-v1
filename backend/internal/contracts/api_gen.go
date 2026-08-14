@@ -4065,6 +4065,48 @@ func (e LeadStatus) Valid() bool {
 	}
 }
 
+// Defines values for LeadManualSignalFactor.
+const (
+	LeadManualSignalFactorBudgetHint LeadManualSignalFactor = "budget_hint"
+	LeadManualSignalFactorEmployees  LeadManualSignalFactor = "employees"
+	LeadManualSignalFactorWebTraffic LeadManualSignalFactor = "web_traffic"
+)
+
+// Valid indicates whether the value is a known member of the LeadManualSignalFactor enum.
+func (e LeadManualSignalFactor) Valid() bool {
+	switch e {
+	case LeadManualSignalFactorBudgetHint:
+		return true
+	case LeadManualSignalFactorEmployees:
+		return true
+	case LeadManualSignalFactorWebTraffic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadManualSignalKind.
+const (
+	LeadManualSignalKindAssumption LeadManualSignalKind = "assumption"
+	LeadManualSignalKindFact       LeadManualSignalKind = "fact"
+	LeadManualSignalKindJudgement  LeadManualSignalKind = "judgement"
+)
+
+// Valid indicates whether the value is a known member of the LeadManualSignalKind enum.
+func (e LeadManualSignalKind) Valid() bool {
+	switch e {
+	case LeadManualSignalKindAssumption:
+		return true
+	case LeadManualSignalKindFact:
+		return true
+	case LeadManualSignalKindJudgement:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListEntityType.
 const (
 	ListEntityTypeDeal         ListEntityType = "deal"
@@ -7281,6 +7323,27 @@ func (e SetBlockedDomainRequestAdmission) Valid() bool {
 	}
 }
 
+// Defines values for SetLeadManualSignalRequestFactor.
+const (
+	SetLeadManualSignalRequestFactorBudgetHint SetLeadManualSignalRequestFactor = "budget_hint"
+	SetLeadManualSignalRequestFactorEmployees  SetLeadManualSignalRequestFactor = "employees"
+	SetLeadManualSignalRequestFactorWebTraffic SetLeadManualSignalRequestFactor = "web_traffic"
+)
+
+// Valid indicates whether the value is a known member of the SetLeadManualSignalRequestFactor enum.
+func (e SetLeadManualSignalRequestFactor) Valid() bool {
+	switch e {
+	case SetLeadManualSignalRequestFactorBudgetHint:
+		return true
+	case SetLeadManualSignalRequestFactorEmployees:
+		return true
+	case SetLeadManualSignalRequestFactorWebTraffic:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetProjectStakeholderRequestRole.
 const (
 	SetProjectStakeholderRequestRoleBlocker             SetProjectStakeholderRequestRole = "blocker"
@@ -8456,31 +8519,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -13665,6 +13728,108 @@ type LeadListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// LeadManualSignal A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+// replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+// by enrichment (ADR-0105 §4).
+type LeadManualSignal struct {
+	// Band The band picked for this factor; validated per factor.
+	Band       string                 `json:"band"`
+	Confidence *float32               `json:"confidence,omitempty"`
+	Factor     LeadManualSignalFactor `json:"factor"`
+
+	// Points The band→points mapping. May be negative.
+	Points int                `json:"points"`
+	Reason string             `json:"reason"`
+	SetAt  time.Time          `json:"set_at"`
+	SetBy  openapi_types.UUID `json:"set_by"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind   LeadManualSignalKind `json:"signal_kind"`
+	SupersededAt *time.Time           `json:"superseded_at,omitempty"`
+
+	// SupersededBy Names the auto source that took over, so the rep sees WHAT replaced their estimate.
+	SupersededBy *string `json:"superseded_by,omitempty"`
+}
+
+// LeadManualSignalFactor defines model for LeadManualSignal.Factor.
+type LeadManualSignalFactor string
+
+// LeadManualSignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+// `judgement` — a read of the situation. Shown on the factor, never
+// blended into an auto-captured signal (AC-S7a).
+type LeadManualSignalKind string
+
+// LeadScoreEntry One point in the retained series — what the score was, and why.
+type LeadScoreEntry struct {
+	ComputedAt time.Time          `json:"computed_at"`
+	Factors    *[]LeadScoreFactor `json:"factors,omitempty"`
+
+	// OverrideReason The Commercial Judgement reason in force at this point; null when the score is machine-computed.
+	OverrideReason *string `json:"override_reason,omitempty"`
+
+	// RawSum The fractional sum of the factors, before rounding.
+	RawSum float32 `json:"raw_sum"`
+
+	// RoundedSum raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired.
+	RoundedSum int `json:"rounded_sum"`
+
+	// Score The DISPLAYED score at this point: the human's number under an override, else the machine value.
+	Score int `json:"score"`
+
+	// ScoreComputed The machine value the factors below reconcile to.
+	ScoreComputed int `json:"score_computed"`
+}
+
+// LeadScoreExplanation The current explanation, or the retained series when `history=true`. `explained` is
+// false for a lead whose score predates the retained series; `current` is then absent
+// rather than carrying an empty factor list, which would read as "nothing contributed".
+type LeadScoreExplanation struct {
+	// Current One point in the retained series — what the score was, and why.
+	Current *LeadScoreEntry `json:"current,omitempty"`
+
+	// Explained False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1).
+	Explained bool `json:"explained"`
+
+	// History Present only when `history=true`.
+	History *[]LeadScoreEntry `json:"history,omitempty"`
+	Page    *PageInfo         `json:"page,omitempty"`
+
+	// Score The lead's displayed score right now.
+	Score int `json:"score"`
+}
+
+// LeadScoreFactor One row of the decomposition. `points` is the factor's contribution AFTER decay and
+// BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+// `raw_sum` — never, on their own, to `score_computed`.
+type LeadScoreFactor struct {
+	// BasePoints The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay.
+	BasePoints *float32 `json:"base_points,omitempty"`
+
+	// Factor The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+	// `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+	// `meeting_booked`), or a human-provided one (`manual:<factor>`).
+	Factor string `json:"factor"`
+
+	// Points Contribution after decay. May be negative (low_intent_source).
+	Points float32 `json:"points"`
+
+	// Reason The written reason on a manual factor.
+	Reason *string `json:"reason,omitempty"`
+
+	// SetBy The human who supplied a manual factor. Null for machine factors.
+	SetBy *openapi_types.UUID `json:"set_by,omitempty"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind *LeadManualSignalKind `json:"signal_kind,omitempty"`
+
+	// SourceActivityIds The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3).
+	SourceActivityIds *[]openapi_types.UUID `json:"source_activity_ids,omitempty"`
+}
+
 // LinkedInAccount defines model for LinkedInAccount.
 type LinkedInAccount struct {
 	// Connected Whether this member has authorized LinkedIn.
@@ -18049,6 +18214,24 @@ type SetFxRateRequest struct {
 	Rate string `json:"rate"`
 }
 
+// SetLeadManualSignalRequest defines model for SetLeadManualSignalRequest.
+type SetLeadManualSignalRequest struct {
+	Band       string                           `json:"band"`
+	Confidence *float32                         `json:"confidence,omitempty"`
+	Factor     SetLeadManualSignalRequestFactor `json:"factor"`
+
+	// Reason Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end.
+	Reason string `json:"reason"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind LeadManualSignalKind `json:"signal_kind"`
+}
+
+// SetLeadManualSignalRequestFactor defines model for SetLeadManualSignalRequest.Factor.
+type SetLeadManualSignalRequestFactor string
+
 // SetOverlayUserMapRequest defines model for SetOverlayUserMapRequest.
 type SetOverlayUserMapRequest struct {
 	IncumbentUserId string `json:"incumbent_user_id"`
@@ -20466,6 +20649,25 @@ type PromoteLeadParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// ExplainLeadScoreParams defines parameters for ExplainLeadScore.
+type ExplainLeadScoreParams struct {
+	// History Return the retained score series instead of the current explanation.
+	History *bool `form:"history,omitempty" json:"history,omitempty"`
+
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListListsParams defines parameters for ListLists.
 type ListListsParams struct {
 	EntityType *ListListsParamsEntityType `form:"entity_type,omitempty" json:"entity_type,omitempty"`
@@ -22757,6 +22959,9 @@ type CreateLeadJSONRequestBody = CreateLeadRequest
 
 // UpdateLeadJSONRequestBody defines body for UpdateLead for application/json ContentType.
 type UpdateLeadJSONRequestBody = UpdateLeadRequest
+
+// SetLeadManualSignalJSONRequestBody defines body for SetLeadManualSignal for application/json ContentType.
+type SetLeadManualSignalJSONRequestBody = SetLeadManualSignalRequest
 
 // PromoteLeadJSONRequestBody defines body for PromoteLead for application/json ContentType.
 type PromoteLeadJSONRequestBody = PromoteLeadRequest
@@ -29134,9 +29339,18 @@ type ServerInterface interface {
 	// Update a lead (partial).
 	// (PATCH /leads/{id})
 	UpdateLead(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadParams)
+	// Enter or replace a human-provided scoring factor (S-E13.6).
+	// (PUT /leads/{id}/manual-signals)
+	SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id)
+	// Withdraw a human-provided scoring factor.
+	// (DELETE /leads/{id}/manual-signals/{factor})
+	ClearLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id, factor string)
 	// Promote a lead to a person on genuine engagement (non-lossy merge).
 	// (POST /leads/{id}/promote)
 	PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams)
+	// Explain This Score — the weighted-factor decomposition behind a lead's score.
+	// (GET /leads/{id}/score)
+	ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams)
 	// List lists (static + dynamic segments).
 	// (GET /lists)
 	ListLists(w http.ResponseWriter, r *http.Request, params ListListsParams)
@@ -30673,9 +30887,27 @@ func (_ Unimplemented) UpdateLead(w http.ResponseWriter, r *http.Request, id Id,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Enter or replace a human-provided scoring factor (S-E13.6).
+// (PUT /leads/{id}/manual-signals)
+func (_ Unimplemented) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Withdraw a human-provided scoring factor.
+// (DELETE /leads/{id}/manual-signals/{factor})
+func (_ Unimplemented) ClearLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id, factor string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Promote a lead to a person on genuine engagement (non-lossy merge).
 // (POST /leads/{id}/promote)
 func (_ Unimplemented) PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Explain This Score — the weighted-factor decomposition behind a lead's score.
+// (GET /leads/{id}/score)
+func (_ Unimplemented) ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -37955,6 +38187,83 @@ func (siw *ServerInterfaceWrapper) UpdateLead(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// SetLeadManualSignal operation middleware
+func (siw *ServerInterfaceWrapper) SetLeadManualSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetLeadManualSignal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearLeadManualSignal operation middleware
+func (siw *ServerInterfaceWrapper) ClearLeadManualSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "factor" -------------
+	var factor string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factor", chi.URLParam(r, "factor"), &factor, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factor", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearLeadManualSignal(w, r, id, factor)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PromoteLead operation middleware
 func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Request) {
 
@@ -38023,6 +38332,82 @@ func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PromoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExplainLeadScore operation middleware
+func (siw *ServerInterfaceWrapper) ExplainLeadScore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExplainLeadScoreParams
+
+	// ------------- Optional query parameter "history" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "history", r.URL.Query(), &params.History, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "history"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "history", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExplainLeadScore(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -49304,7 +49689,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/leads/{id}", wrapper.UpdateLead)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/leads/{id}/manual-signals", wrapper.SetLeadManualSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/leads/{id}/manual-signals/{factor}", wrapper.ClearLeadManualSignal)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads/{id}/promote", wrapper.PromoteLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/{id}/score", wrapper.ExplainLeadScore)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/lists", wrapper.ListLists)

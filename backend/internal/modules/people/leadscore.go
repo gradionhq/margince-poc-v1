@@ -47,12 +47,52 @@ type BehavioralSignal struct {
 	ActivityID ids.ActivityID
 }
 
-// ScoreFactor is one Explain-This-Score row; the breakdown sums to the
-// returned score before clamping and rounding at the end.
+// ScoreFactor is one Explain-This-Score row. Points is the contribution
+// AFTER decay and BEFORE the rounding and clamping that produce the
+// stored score, so factors sum to LeadScoring.RawSum — never, on their
+// own, to the score itself.
 type ScoreFactor struct {
 	Factor            string           `json:"factor"`
 	Points            float64          `json:"points"`
+	BasePoints        float64          `json:"base_points,omitempty"`
 	SourceActivityIDs []ids.ActivityID `json:"source_activity_ids,omitempty"`
+}
+
+// LeadScoring is one run of §3.1 with its arithmetic left visible.
+// Rounding and clamping are SEPARATE steps and a reader that cannot tell
+// them apart misreports the second: raw 45.6 stores 46 with no clamp
+// involved, and raw 100.6 rounds to 101 before the cap acts on it, so
+// naming 100.6 as what was clamped states something that never happened
+// (ADR-0105 §2).
+type LeadScoring struct {
+	Score      int // RoundedSum bounded to 0..100 — what the record carries
+	RoundedSum int // RawSum rounded half-up, before the clamp
+	RawSum     float64
+	Factors    []ScoreFactor
+}
+
+// withManual folds a rep's own inputs into the run and re-derives the
+// arithmetic, so the two intermediate values keep describing the total the
+// score actually came from. Rounding and clamping run once, over the whole
+// breakdown — applying them twice would round a rounded number.
+func (s LeadScoring) withManual(manual []ScoreFactor) LeadScoring {
+	if len(manual) == 0 {
+		return s
+	}
+	factors := append(append([]ScoreFactor{}, s.Factors...), manual...)
+	var sum float64
+	for _, f := range factors {
+		sum += f.Points
+	}
+	rounded := int(math.Floor(sum + 0.5))
+	score := rounded
+	if score < 0 {
+		score = 0
+	}
+	if score > leadScoreMax {
+		score = leadScoreMax
+	}
+	return LeadScoring{Score: score, RoundedSum: rounded, RawSum: sum, Factors: factors}
 }
 
 var behavioralBasePoints = map[string]float64{
@@ -63,9 +103,17 @@ var behavioralBasePoints = map[string]float64{
 	"email_open":     behavioralEmailOpenPoints,
 }
 
-// ScoreLead computes §3.1 at one instant. An unknown signal kind
-// contributes zero — column-readiness degradation, not an error.
+// ScoreLead computes §3.1 at one instant and reports the score with its
+// breakdown. An unknown signal kind contributes zero — column-readiness
+// degradation, not an error.
 func ScoreLead(title, source string, signals []BehavioralSignal, now time.Time) (int, []ScoreFactor) {
+	scored := ScoreLeadDetail(title, source, signals, now)
+	return scored.Score, scored.Factors
+}
+
+// ScoreLeadDetail is ScoreLead with the intermediate arithmetic kept, for
+// the caller that has to persist an explanation rather than a number.
+func ScoreLeadDetail(title, source string, signals []BehavioralSignal, now time.Time) LeadScoring {
 	var factors []ScoreFactor
 
 	if title != "" && decisionMakerTitle.MatchString(title) {
@@ -93,7 +141,10 @@ func ScoreLead(title, source string, signals []BehavioralSignal, now time.Time) 
 		if !seen {
 			ix = len(factors)
 			perKind[signal.Kind] = ix
-			factors = append(factors, ScoreFactor{Factor: signal.Kind})
+			// BasePoints is the undecayed weight, so a reader can render the
+			// decay as arithmetic (`raw · 2^(−days/14)`) rather than being
+			// handed a number to take on faith (AC-leads-4/10).
+			factors = append(factors, ScoreFactor{Factor: signal.Kind, BasePoints: base})
 		}
 		factors[ix].Points += decayed
 		factors[ix].SourceActivityIDs = append(factors[ix].SourceActivityIDs, signal.ActivityID)
@@ -103,12 +154,13 @@ func ScoreLead(title, source string, signals []BehavioralSignal, now time.Time) 
 	for _, f := range factors {
 		sum += f.Points
 	}
-	score := int(math.Floor(sum + 0.5)) // round half-up per the worked example
+	rounded := int(math.Floor(sum + 0.5)) // round half-up per the worked example
+	score := rounded
 	if score < 0 {
 		score = 0
 	}
 	if score > leadScoreMax {
 		score = leadScoreMax
 	}
-	return score, factors
+	return LeadScoring{Score: score, RoundedSum: rounded, RawSum: sum, Factors: factors}
 }

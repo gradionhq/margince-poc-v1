@@ -2922,6 +2922,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/{id}/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Explain This Score — the weighted-factor decomposition behind a lead's score.
+         * @description The decomposition is READ from the retained series (ADR-0105 §1), never recomputed
+         *     at read time: behavioral factors decay continuously, so a recomputed breakdown would
+         *     explain a number the record does not carry.
+         *
+         *     While a Commercial Judgement override is in force the factors sum to `score_computed`,
+         *     NOT to the displayed `score` — the response names both and carries the override's
+         *     reason, because presenting a machine breakdown as the explanation of a human's number
+         *     would be a lie (ADR-0105 §1).
+         *
+         *     Rounding and clamping are separate steps and both are visible: `raw_sum` is the
+         *     fractional factor total, `rounded_sum` is it rounded half-up, and `score_computed` is
+         *     that bounded to 0..100. They differ in ordinary cases (45.6 → 46, no clamp) as well as
+         *     at the cap (100.6 → 101 → 100).
+         *
+         *     A lead whose score has never been recomputed since this shipped has no entry yet:
+         *     `explained` is false and `factors` is absent — deliberately NOT an empty array, which
+         *     would read as "nothing contributed". Source activities are re-read through the
+         *     caller's own scope.
+         */
+        get: operations["explainLeadScore"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/manual-signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Enter or replace a human-provided scoring factor (S-E13.6).
+         * @description A rep supplies a qualification signal capture cannot fetch — a traffic band, an
+         *     employee count, a budget hint. It feeds the same transparent weighted score and
+         *     appears in the decomposition as its own human-provided factor, never blended into an
+         *     auto-captured one.
+         *
+         *     One live band per factor: setting a factor that already has one REPLACES it. A
+         *     non-empty `reason` is required. Setting a factor the model already fetches
+         *     automatically is refused 422 `factor_auto_sourced` — the auto value wins (ADR-0105 §4),
+         *     and a rep who disagrees with a fetched fact is overruling the model, which is what the
+         *     Commercial Judgement override on `updateLead` is for.
+         */
+        put: operations["setLeadManualSignal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/manual-signals/{factor}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                factor: "web_traffic" | "employees" | "budget_hint";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a human-provided scoring factor.
+         * @description Clears the rep's own live input for this factor and recomputes. Superseded rows are
+         *     history and are NOT deleted by this path — clearing withdraws a current input, and
+         *     where there is none (the auto value already took over) this succeeds as a no-op
+         *     (ADR-0105 §4).
+         */
+        delete: operations["clearLeadManualSignal"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/relationships": {
         parameters: {
             query?: never;
@@ -12635,6 +12734,104 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         /**
+         * @description `fact` — the rep knows this. `assumption` — a working estimate.
+         *     `judgement` — a read of the situation. Shown on the factor, never
+         *     blended into an auto-captured signal (AC-S7a).
+         * @enum {string}
+         */
+        LeadManualSignalKind: "fact" | "assumption" | "judgement";
+        /**
+         * @description One row of the decomposition. `points` is the factor's contribution AFTER decay and
+         *     BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+         *     `raw_sum` — never, on their own, to `score_computed`.
+         */
+        LeadScoreFactor: {
+            /**
+             * @description The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+             *     `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+             *     `meeting_booked`), or a human-provided one (`manual:<factor>`).
+             */
+            factor: string;
+            /** @description Contribution after decay. May be negative (low_intent_source). */
+            points: number;
+            /** @description The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay. */
+            base_points?: number | null;
+            /** @description The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3). */
+            source_activity_ids?: string[];
+            /**
+             * Format: uuid
+             * @description The human who supplied a manual factor. Null for machine factors.
+             */
+            set_by?: string | null;
+            signal_kind?: components["schemas"]["LeadManualSignalKind"];
+            /** @description The written reason on a manual factor. */
+            reason?: string | null;
+        };
+        /** @description One point in the retained series — what the score was, and why. */
+        LeadScoreEntry: {
+            /** @description The DISPLAYED score at this point: the human's number under an override, else the machine value. */
+            score: number;
+            /** @description The machine value the factors below reconcile to. */
+            score_computed: number;
+            /** @description The Commercial Judgement reason in force at this point; null when the score is machine-computed. */
+            override_reason?: string | null;
+            /** @description The fractional sum of the factors, before rounding. */
+            raw_sum: number;
+            /** @description raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired. */
+            rounded_sum: number;
+            factors?: components["schemas"]["LeadScoreFactor"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        /**
+         * @description The current explanation, or the retained series when `history=true`. `explained` is
+         *     false for a lead whose score predates the retained series; `current` is then absent
+         *     rather than carrying an empty factor list, which would read as "nothing contributed".
+         */
+        LeadScoreExplanation: {
+            /** @description The lead's displayed score right now. */
+            score: number;
+            /** @description False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1). */
+            explained: boolean;
+            current?: components["schemas"]["LeadScoreEntry"];
+            /** @description Present only when `history=true`. */
+            history?: components["schemas"]["LeadScoreEntry"][];
+            page?: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+         *     replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+         *     by enrichment (ADR-0105 §4).
+         */
+        LeadManualSignal: {
+            /** @enum {string} */
+            factor: "web_traffic" | "employees" | "budget_hint";
+            /** @description The band picked for this factor; validated per factor. */
+            band: string;
+            /** @description The band→points mapping. May be negative. */
+            points: number;
+            signal_kind: components["schemas"]["LeadManualSignalKind"];
+            confidence?: number | null;
+            reason: string;
+            /** Format: uuid */
+            set_by: string;
+            /** Format: date-time */
+            set_at: string;
+            /** Format: date-time */
+            superseded_at?: string | null;
+            /** @description Names the auto source that took over, so the rep sees WHAT replaced their estimate. */
+            superseded_by?: string | null;
+        };
+        SetLeadManualSignalRequest: {
+            /** @enum {string} */
+            factor: "web_traffic" | "employees" | "budget_hint";
+            band: string;
+            signal_kind: components["schemas"]["LeadManualSignalKind"];
+            confidence?: number | null;
+            /** @description Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end. */
+            reason: string;
+        };
+        /**
          * @description A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
          *     company-level and consent-gated by construction — the only mandatory attribution is
          *     organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
@@ -21692,6 +21889,124 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    explainLeadScore: {
+        parameters: {
+            query?: {
+                /** @description Return the retained score series instead of the current explanation. */
+                history?: boolean;
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current explanation, or the paged series when `history=true`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadScoreExplanation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setLeadManualSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLeadManualSignalRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored manual signal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadManualSignal"];
+                };
+            };
+            /** @description Approval required (agent-triggered) or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Unknown factor, band invalid for the factor, blank reason, or the factor is auto-sourced. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clearLeadManualSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                factor: "web_traffic" | "employees" | "budget_hint";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared — or nothing live to clear, which is also success. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Approval required (agent-triggered) or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listRelationships: {

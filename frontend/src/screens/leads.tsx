@@ -333,6 +333,117 @@ function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
   return status === "new" || status === "working";
 }
 
+// "Explain This Score" (AC-S7): the weighted factors behind the number,
+// with the decay shown as arithmetic rather than asserted.
+//
+// The read serves what was STORED with the score, so a lead scored before
+// this shipped honestly says it has no explanation yet instead of showing
+// an empty list, which would read as "nothing contributed".
+function ScoreBreakdown({ id }: Readonly<{ id: string }>) {
+  const t = useT();
+  const explain = useQuery({
+    queryKey: ["lead", id, "score"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/leads/{id}/score", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+
+  if (explain.isPending) {
+    return <span className="t-caption">{t("lead.scoreLoading")}</span>;
+  }
+  if (explain.isError) {
+    return (
+      <span className="t-caption">{problemMessageOf(explain.error, t)}</span>
+    );
+  }
+  const current = explain.data?.current;
+  if (!explain.data?.explained || !current) {
+    return <span className="t-caption">{t("lead.scoreNotYetExplained")}</span>;
+  }
+  const factors = current.factors ?? [];
+  // Under a Commercial Judgement override the displayed score is the
+  // human's and these factors sum to the machine's, so the reader is told
+  // which number they are looking at rather than left to assume.
+  const overridden = current.override_reason != null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-1)",
+      }}
+    >
+      {overridden && (
+        <span className="t-caption">
+          {t("lead.scoreFactorsExplainMachine", {
+            score: current.score_computed,
+          })}
+        </span>
+      )}
+      {factors.length === 0 ? (
+        <span className="t-caption">{t("lead.scoreNoFactors")}</span>
+      ) : (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {factors.map((factor) => (
+            <li
+              key={factor.factor}
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                alignItems: "baseline",
+              }}
+            >
+              <span>{scoreFactorLabel(factor.factor, t)}</span>
+              <span className="t-mono">{factor.points.toFixed(1)}</span>
+              {factor.base_points != null && (
+                // The decay as arithmetic a reader can check: 25 halving
+                // every 14 days is why this row reads 12.5 today.
+                <span className="t-caption t-mono">
+                  {t("lead.scoreDecayed", { base: factor.base_points })}
+                </span>
+              )}
+              {factor.source_activity_ids != null &&
+                factor.source_activity_ids.length > 0 && (
+                  // How many records fed the factor. The ids themselves are
+                  // already filtered to what this reader may open, so the
+                  // count never claims more than they can see.
+                  <span className="t-caption">
+                    {t("lead.scoreSources", {
+                      count: factor.source_activity_ids.length,
+                    })}
+                  </span>
+                )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="t-caption t-mono">
+        {t("lead.scoreReconciles", {
+          raw: current.raw_sum.toFixed(2),
+          rounded: current.rounded_sum,
+          score: current.score_computed,
+        })}
+      </span>
+    </div>
+  );
+}
+
+// A factor's name in the reader's language, falling back to the raw key so
+// a factor the UI has no wording for yet still appears with its points —
+// an unnamed contribution is better than a silently missing one.
+function scoreFactorLabel(factor: string, t: ReturnType<typeof useT>): string {
+  const key = `lead.factor.${factor}` as MessageKey;
+  const label = t(key);
+  return label === key ? factor : label;
+}
+
 // Ownership: who holds the lead, and reassignment to any workspace user.
 // The owner reads as a NAME — EntityRef resolves it off the shared `/users`
 // roster and falls back to the id only while that load is in flight or when
@@ -522,8 +633,15 @@ function LeadLifecycle({
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-2)",
+        }}
+      >
         <span className="t-caption">{t("lead.explainScore")}</span>
+        <ScoreBreakdown id={id} />
         {lead.score_override_reason ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <p>
