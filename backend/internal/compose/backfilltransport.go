@@ -15,7 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -106,32 +110,47 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
-// windowMonths maps the contract's window enum onto months.
-func windowMonths(w string) (int, bool) {
-	switch w {
-	case "3m":
-		return 3, true
-	case "6m":
-		return 6, true
-	case "12m":
-		return 12, true
-	default:
-		return 0, false
+// The wire enum and the months are the SAME set in two spellings, derived
+// from capture's one statement of it rather than restated here.
+//
+// They used to be a pair of switches over 3m/6m/12m, and that is how a
+// widening shipped that reached the contract, the validator, the CHECK and
+// the picker — and not this file. Every new window answered 422 at the
+// door, with a message naming the old set, while every gate stayed green:
+// two halves keyed on one string, both halves in one file, neither of them
+// the source of truth.
+var (
+	windowNames  = windowNamesFor(capture.BackfillWindowMonths())
+	windowByName = invert(windowNames)
+	// windowOffer is the offered set as a reader sees it, so a refusal
+	// names the windows this build actually has rather than a sentence
+	// that ages the moment the set moves.
+	windowOffer = strings.Join(slices.Sorted(maps.Keys(windowByName)), ", ")
+)
+
+func windowNamesFor(months []int) map[int]string {
+	out := make(map[int]string, len(months))
+	for _, m := range months {
+		out[m] = strconv.Itoa(m) + "m"
 	}
+	return out
 }
 
-func monthsWindow(m int) string {
-	switch m {
-	case 3:
-		return "3m"
-	case 6:
-		return "6m"
-	case 12:
-		return "12m"
-	default:
-		return ""
+func invert(names map[int]string) map[string]int {
+	out := make(map[string]int, len(names))
+	for months, name := range names {
+		out[name] = months
 	}
+	return out
 }
+
+// windowMonths maps the contract's window enum onto months.
+func windowMonths(w string) (int, bool) {
+	months, ok := windowByName[w]
+	return months, ok
+}
+
+func monthsWindow(m int) string { return windowNames[m] }
 
 // caller extracts the signed-in human; every backfill op is per-user.
 func (h backfillHandlers) caller(w http.ResponseWriter, r *http.Request) (ids.UserID, bool) {
@@ -166,7 +185,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity, Code: "window_required",
-			Detail: "Pick a window: none, 3m, 6m or 12m.",
+			Detail: "Pick a window: none, " + windowOffer + ".",
 		})
 		return
 	}
@@ -181,7 +200,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 	if !ok {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
-			Detail: "The window must be none, 3m, 6m or 12m.",
+			Detail: "The window must be none, " + windowOffer + ".",
 		})
 		return
 	}
@@ -233,7 +252,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity, Code: "window_required",
-			Detail: "Pick a window: 3m, 6m or 12m.",
+			Detail: "Pick a window: " + windowOffer + ".",
 		})
 		return
 	}
@@ -241,7 +260,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	if !ok {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
-			Detail: "The window must be 3m, 6m or 12m ('none' is expressed by not starting).",
+			Detail: "The window must be one of " + windowOffer + " ('none' is expressed by not starting).",
 		})
 		return
 	}
@@ -409,7 +428,7 @@ func (h backfillHandlers) writeBackfillError(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, capture.ErrWindowInvalid):
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
-			Detail: "The window must be 3m, 6m or 12m.",
+			Detail: "The window must be one of " + windowOffer + ".",
 		})
 	case errors.Is(err, capture.ErrBackfillRunning):
 		httperr.Write(w, r, &httperr.DetailedError{

@@ -405,6 +405,29 @@ func assertPreviewValidatesItsWindowAndPricesHonestly(t *testing.T, b *backfillW
 		}
 	})
 
+	// The door the first widening did not reach: the contract, the picker,
+	// the validator and the CHECK all offered 24m/60m while the transport's
+	// own enum→months mapping still knew three values, so every new window
+	// answered 422 here. Driven over the whole offered set rather than the
+	// two new members, so a window added later is covered by existing.
+	t.Run("preview accepts every window the contract offers", func(t *testing.T) {
+		for _, months := range capture.BackfillWindowMonths() {
+			window := fmt.Sprintf("%dm", months)
+			var out crmcontracts.BackfillPreview
+			code, pcode := b.do(b.human, t, b.previewBackfill(crmcontracts.Gmail),
+				fmt.Sprintf(`{"window":%q}`, window), &out)
+			if code != http.StatusOK {
+				t.Errorf("%s preview = %d/%s, want 200 — the picker offers it", window, code, pcode)
+				continue
+			}
+			// And it comes back as itself: the months→enum direction is the
+			// same mapping, and a window it cannot name serializes empty.
+			if string(out.Window) != window {
+				t.Errorf("%s preview answered window %q, want it back", window, out.Window)
+			}
+		}
+	})
+
 	t.Run("preview 'none' is an honest zero — no scan, no spend", func(t *testing.T) {
 		var out crmcontracts.BackfillPreview
 		if code, _ := b.do(b.human, t, b.previewBackfill(crmcontracts.Gmail), `{"window":"none"}`, &out); code != http.StatusOK {

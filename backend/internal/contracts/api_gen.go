@@ -1203,7 +1203,9 @@ func (e BackfillPreviewEstimateQuality) Valid() bool {
 // Defines values for BackfillPreviewWindow.
 const (
 	BackfillPreviewWindowN12m BackfillPreviewWindow = "12m"
+	BackfillPreviewWindowN24m BackfillPreviewWindow = "24m"
 	BackfillPreviewWindowN3m  BackfillPreviewWindow = "3m"
+	BackfillPreviewWindowN60m BackfillPreviewWindow = "60m"
 	BackfillPreviewWindowN6m  BackfillPreviewWindow = "6m"
 	BackfillPreviewWindowNone BackfillPreviewWindow = "none"
 )
@@ -1213,7 +1215,11 @@ func (e BackfillPreviewWindow) Valid() bool {
 	switch e {
 	case BackfillPreviewWindowN12m:
 		return true
+	case BackfillPreviewWindowN24m:
+		return true
 	case BackfillPreviewWindowN3m:
+		return true
+	case BackfillPreviewWindowN60m:
 		return true
 	case BackfillPreviewWindowN6m:
 		return true
@@ -1227,7 +1233,9 @@ func (e BackfillPreviewWindow) Valid() bool {
 // Defines values for BackfillPreviewRequestWindow.
 const (
 	BackfillPreviewRequestWindowN12m BackfillPreviewRequestWindow = "12m"
+	BackfillPreviewRequestWindowN24m BackfillPreviewRequestWindow = "24m"
 	BackfillPreviewRequestWindowN3m  BackfillPreviewRequestWindow = "3m"
+	BackfillPreviewRequestWindowN60m BackfillPreviewRequestWindow = "60m"
 	BackfillPreviewRequestWindowN6m  BackfillPreviewRequestWindow = "6m"
 	BackfillPreviewRequestWindowNone BackfillPreviewRequestWindow = "none"
 )
@@ -1237,7 +1245,11 @@ func (e BackfillPreviewRequestWindow) Valid() bool {
 	switch e {
 	case BackfillPreviewRequestWindowN12m:
 		return true
+	case BackfillPreviewRequestWindowN24m:
+		return true
 	case BackfillPreviewRequestWindowN3m:
+		return true
+	case BackfillPreviewRequestWindowN60m:
 		return true
 	case BackfillPreviewRequestWindowN6m:
 		return true
@@ -1282,7 +1294,9 @@ func (e BackfillStatusState) Valid() bool {
 const (
 	BackfillStatusWindowLessThannil BackfillStatusWindow = "<nil>"
 	BackfillStatusWindowN12m        BackfillStatusWindow = "12m"
+	BackfillStatusWindowN24m        BackfillStatusWindow = "24m"
 	BackfillStatusWindowN3m         BackfillStatusWindow = "3m"
+	BackfillStatusWindowN60m        BackfillStatusWindow = "60m"
 	BackfillStatusWindowN6m         BackfillStatusWindow = "6m"
 )
 
@@ -1293,7 +1307,11 @@ func (e BackfillStatusWindow) Valid() bool {
 		return true
 	case BackfillStatusWindowN12m:
 		return true
+	case BackfillStatusWindowN24m:
+		return true
 	case BackfillStatusWindowN3m:
+		return true
+	case BackfillStatusWindowN60m:
 		return true
 	case BackfillStatusWindowN6m:
 		return true
@@ -7794,7 +7812,9 @@ func (e StageSemantic) Valid() bool {
 // Defines values for StartBackfillRequestWindow.
 const (
 	N12m StartBackfillRequestWindow = "12m"
+	N24m StartBackfillRequestWindow = "24m"
 	N3m  StartBackfillRequestWindow = "3m"
+	N60m StartBackfillRequestWindow = "60m"
 	N6m  StartBackfillRequestWindow = "6m"
 )
 
@@ -7803,7 +7823,11 @@ func (e StartBackfillRequestWindow) Valid() bool {
 	switch e {
 	case N12m:
 		return true
+	case N24m:
+		return true
 	case N3m:
+		return true
+	case N60m:
 		return true
 	case N6m:
 		return true
@@ -11128,11 +11152,11 @@ type BackfillPreviewWindow string
 
 // BackfillPreviewRequest defines model for BackfillPreviewRequest.
 type BackfillPreviewRequest struct {
-	// Window The CAP-PARAM-4 window; default UI selection is 6m.
+	// Window The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
 	Window BackfillPreviewRequestWindow `json:"window"`
 }
 
-// BackfillPreviewRequestWindow The CAP-PARAM-4 window; default UI selection is 6m.
+// BackfillPreviewRequestWindow The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
 type BackfillPreviewRequestWindow string
 
 // BackfillStatus The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1).
