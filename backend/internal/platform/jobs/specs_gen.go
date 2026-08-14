@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "873e23f3e11c6c2c00c55dbf71eeb3a25b679c3d601d5e8c5b1b38e86ed1fa90"
+const JobContractHash = "3b41ab8809e22bc74b4a21355dd3dfeaafd1e4e342819970ffda8e805a095757"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -21,25 +21,13 @@ var specs = map[string]Spec{
 	"agent_scheduler": {
 		Kind:         "agent_scheduler",
 		GoType:       "AgentSchedulerArgs",
-		Role:         Dispatcher,
-		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit:   FanOutWorkspace,
-		FanOutTo:     "agent_scheduler_workspace",
-		OptsOwner:    OptsCaller,
-		Cadence:      Cadence{OperatorField: "AgentScheduler.Interval", ScheduleWhenPositive: "AgentScheduler.Interval"},
-		Registration: Registration{When: []string{"AgentScheduler.Service"}},
-	},
-	"agent_scheduler_workspace": {
-		Kind:         "agent_scheduler_workspace",
-		GoType:       "AgentSchedulerWorkspaceArgs",
 		Role:         Worker,
 		Queue:        "agent_scheduler",
 		Timeout:      TimeoutPolicy{Fixed: 65 * time.Minute, DerivedFrom: "agentSchedulerPassTimeout"},
 		MaxAttempts:  1,
-		OptsOwner:    OptsFanOut,
+		OptsOwner:    OptsArgs,
+		Cadence:      Cadence{OperatorField: "AgentScheduler.Interval", ScheduleWhenPositive: "AgentScheduler.Interval"},
 		Registration: Registration{When: []string{"AgentScheduler.Service"}},
-		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"agent_task_retention": {
 		Kind:       "agent_task_retention",

@@ -146,7 +146,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 // subject, not this suite's.
 func (re *runnerEnv) tick(t *testing.T) {
 	t.Helper()
-	if err := re.svc.TickWorkspace(re.wsCtx, time.Now()); err != nil {
+	if err := re.svc.Tick(re.wsCtx, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }

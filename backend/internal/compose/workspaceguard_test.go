@@ -225,9 +225,6 @@ func workspaceRefusalDrivers() map[string]func(context.Context) error {
 		AgentTaskRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&agentTaskRetentionWorkspaceWorker{}).Work(ctx, &river.Job[AgentTaskRetentionWorkspaceArgs]{})
 		},
-		AgentSchedulerWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&agentSchedulerWorkspaceWorker{}).Work(ctx, &river.Job[AgentSchedulerWorkspaceArgs]{})
-		},
 		PrivacyRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&privacyRetentionWorkspaceWorker{}).Work(ctx, &river.Job[PrivacyRetentionWorkspaceArgs]{})
 		},

@@ -17,7 +17,6 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 const (
@@ -84,59 +83,45 @@ func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerCo
 	if now == nil {
 		now = time.Now
 	}
-	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool})
-	addDeclaredWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
+	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{svc: cfg.AgentScheduler.Service, now: now})
 	return periodicFor(cfg, AgentSchedulerArgs{})
 }
 
-// AgentSchedulerArgs schedules one fleet-wide agent-scheduling pass.
+// AgentSchedulerArgs seeds and executes the due agent jobs.
+//
+// It used to be a dispatcher that enumerated live workspaces and enqueued one
+// child per tenant. Under one installation that enumeration reads a single row,
+// so the pair collapsed into this (ADR-0091 §5, ADR-0103 §1).
 type AgentSchedulerArgs struct{}
 
-// Kind is the stable job identifier River persists in river_job.
+// Kind is the stable job identifier River persists in river_job. It is the
+// DISPATCHER's old kind, deliberately: it is the name operators alert on.
 func (AgentSchedulerArgs) Kind() string { return "agent_scheduler" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
-func (AgentSchedulerArgs) FleetWide() {}
+// InsertOpts carries the attempt cap the declaration publishes, because the
+// periodic insert supplies uniqueness and no attempt policy of its own. One
+// attempt is the declared posture and the reason is in api/jobs.yaml: a second
+// rung would spend a fresh batch of model budget on work the next tick repeats,
+// and a backing-off row suppresses that tick. Held equal to the declaration by
+// TestArgsOwnedAttemptCapsMatchTheirDeclaration.
+func (AgentSchedulerArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue:       agentSchedulerQueue,
+		MaxAttempts: 1,
+		UniqueOpts:  river.UniqueOpts{ByState: activeSweepStates},
+	}
+}
 
-// agentSchedulerWorker is the dispatcher. It enumerates the LIVE workspaces
-// only: an archived tenant has nobody to read a morning brief, so seeding one
-// would spend model budget producing a report no one will open.
+// agentSchedulerWorker seeds and executes the due jobs.
 type agentSchedulerWorker struct {
-	pool *pgxpool.Pool
-}
-
-func (w *agentSchedulerWorker) Work(ctx context.Context, _ *river.Job[AgentSchedulerArgs]) error {
-	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(AgentSchedulerWorkspaceArgs{}.Kind()),
-		func(ws ids.UUID) river.JobArgs { return AgentSchedulerWorkspaceArgs{Workspace: ws} }))
-}
-
-// AgentSchedulerWorkspaceArgs seeds and executes one workspace's due agent jobs.
-type AgentSchedulerWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (AgentSchedulerWorkspaceArgs) Kind() string { return "agent_scheduler_workspace" }
-
-// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
-func (a AgentSchedulerWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// agentSchedulerWorkspaceWorker ticks one workspace.
-type agentSchedulerWorkspaceWorker struct {
 	svc *RunnerService
 	now func() time.Time
 }
 
-// Work binds the tenant and nothing else: each claimed job resolves its own
-// passport and mints its own correlation id inside TickWorkspace, so binding a
-// pass-level actor here would relabel every run's audit rows as the scheduler's
-// rather than the agent's.
-func (w *agentSchedulerWorkspaceWorker) Work(ctx context.Context, job *river.Job[AgentSchedulerWorkspaceArgs]) error {
-	wsCtx, err := workspaceJobCtx(ctx, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, w.svc.TickWorkspace(wsCtx, w.now()))
+// Work binds no pass-level actor: each claimed job resolves its own passport
+// and mints its own correlation id inside the tick, so an actor bound here
+// would relabel every run's audit rows as the scheduler's rather than the
+// agent's.
+func (w *agentSchedulerWorker) Work(ctx context.Context, _ *river.Job[AgentSchedulerArgs]) error {
+	return jobs.FaultContext(ctx, w.svc.Tick(ctx, w.now()))
 }

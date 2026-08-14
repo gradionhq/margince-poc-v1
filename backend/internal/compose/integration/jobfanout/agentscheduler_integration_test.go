@@ -54,7 +54,7 @@ func afterEveryDueHour() time.Time {
 // It is dropped in cleanup: the integration lane resets rows between tests but
 // keeps the schema, so a surviving trigger would break every later suite that
 // schedules a run in this workspace.
-func failRunnerJobWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
+func failRunnerJobWrites(t *testing.T, owner *pgx.Conn) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := owner.Exec(ctx, `
@@ -74,13 +74,14 @@ func failRunnerJobWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 			t.Errorf("dropping the fault-injection function: %v", err)
 		}
 	})
-	// CREATE TRIGGER takes no bind parameters, so the tenant is interpolated;
-	// it is a UUID rendered by ids.UUID.String(), never caller text.
+	// Every write, not one tenant's: the table carries no workspace to key a
+	// WHEN clause on (ADR-0091 §8 phase D), and the pass under test is the
+	// installation's only one. The trigger drops in cleanup, so its blast
+	// radius is this test.
 	if _, err := owner.Exec(ctx, `
 		CREATE TRIGGER runner_job_write_fault_trigger
 		BEFORE INSERT OR UPDATE ON runner_job
-		FOR EACH ROW WHEN (NEW.workspace_id = '`+ws.String()+`'::uuid)
-		EXECUTE FUNCTION runner_job_write_fault()`); err != nil {
+		FOR EACH ROW EXECUTE FUNCTION runner_job_write_fault()`); err != nil {
 		t.Fatalf("arming the fault-injection trigger: %v", err)
 	}
 	t.Cleanup(func() {
@@ -101,23 +102,23 @@ func failRunnerJobWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 // cheapest honest evidence that the claim ran and the job was executed. The
 // spec is a real catalog name for the same reason: an unknown one fails one
 // step earlier, before the claim's result has been read at all.
-func seedDueRunnerJob(t *testing.T, owner *pgx.Conn, ws ids.UUID, trigger string) {
+func seedDueRunnerJob(t *testing.T, owner *pgx.Conn, trigger string) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO runner_job (workspace_id, agent_spec, trigger_ref, due_at)
-		VALUES ($1, 'morning_brief', $2, now() - interval '1 minute')`, ws, trigger); err != nil {
-		t.Fatalf("seeding a due runner job in %s: %v", ws, err)
+		INSERT INTO runner_job (agent_spec, trigger_ref, due_at)
+		VALUES ('morning_brief', $1, now() - interval '1 minute')`, trigger); err != nil {
+		t.Fatalf("seeding a due runner job: %v", err)
 	}
 }
 
 // runnerJobOutcome reads one seeded occurrence's status and failure reason.
-func runnerJobOutcome(t *testing.T, owner *pgx.Conn, ws ids.UUID, trigger string) (status, lastError string) {
+func runnerJobOutcome(t *testing.T, owner *pgx.Conn, trigger string) (status, lastError string) {
 	t.Helper()
 	var reason *string
 	if err := owner.QueryRow(context.Background(),
-		`SELECT status, last_error FROM runner_job WHERE workspace_id = $1 AND trigger_ref = $2`,
-		ws, trigger).Scan(&status, &reason); err != nil {
-		t.Fatalf("reading the runner job %s in %s: %v", trigger, ws, err)
+		`SELECT status, last_error FROM runner_job WHERE trigger_ref = $1`,
+		trigger).Scan(&status, &reason); err != nil {
+		t.Fatalf("reading the runner job %s: %v", trigger, err)
 	}
 	if reason != nil {
 		lastError = *reason
@@ -126,141 +127,77 @@ func runnerJobOutcome(t *testing.T, owner *pgx.Conn, ws ids.UUID, trigger string
 }
 
 // assertOccurrencesSeeded fails unless every catalog occurrence due at now
-// exists in ws. This is the half of a pass that has no other trace: an
-// unseeded occurrence is simply a brief that never happens, with no row
-// anywhere to notice its absence.
-func assertOccurrencesSeeded(t *testing.T, owner *pgx.Conn, ws ids.UUID, now time.Time) {
+// exists. This is the half of a pass that has no other trace: an unseeded
+// occurrence is simply a brief that never happens, with no row anywhere to
+// notice its absence.
+func assertOccurrencesSeeded(t *testing.T, owner *pgx.Conn, now time.Time) {
 	t.Helper()
 	for _, spec := range runner.Catalog() {
 		var seeded bool
 		if err := owner.QueryRow(context.Background(), `
-			SELECT EXISTS (SELECT 1 FROM runner_job WHERE workspace_id = $1 AND trigger_ref = $2)`,
-			ws, spec.TriggerRef(now)).Scan(&seeded); err != nil {
-			t.Fatalf("reading the seeded occurrences of %s in %s: %v", spec.Name, ws, err)
+			SELECT EXISTS (SELECT 1 FROM runner_job WHERE trigger_ref = $1)`,
+			spec.TriggerRef(now)).Scan(&seeded); err != nil {
+			t.Fatalf("reading the seeded occurrences of %s: %v", spec.Name, err)
 		}
 		if !seeded {
-			t.Errorf("workspace %s has no %s occurrence for %s — that agent simply never runs there, and no row records it", ws, spec.Name, now.Format(time.DateOnly))
+			t.Errorf("no %s occurrence exists for %s — that agent simply never runs, and no row records it", spec.Name, now.Format(time.DateOnly))
 		}
 	}
 }
 
-// TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed is the
-// characterization: a tenant whose scheduling pass cannot write must reach its
-// caller as an error, and must cost that tenant its pass and nothing more. A
-// pass that reported success over it leaves the tenant's briefs unseeded and
-// unclaimed with no row saying so; a pass that abandoned the fleet there does
-// the same to every workspace behind it.
-func TestAgentSchedulerReportsTheWorkspaceWhoseSchedulingFailed(t *testing.T) {
+// TestAgentSchedulerReportsAPassThatCouldNotWrite is the characterization: a
+// scheduling pass that cannot write must reach its caller as an error. A pass
+// that reported success over it leaves the briefs unseeded and unclaimed with
+// no row saying so.
+func TestAgentSchedulerReportsAPassThatCouldNotWrite(t *testing.T) {
 	re := setupRunner(t)
 	owner := integration.OwnerConn(t)
-	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
 
-	// A trigger per tenant. The occurrence key is unique across the
-	// installation now that it no longer carries a workspace (ADR-0091 §8
-	// phase B), and what this test is about is per-tenant OUTCOMES — two
-	// tenants sharing one trigger string was always incidental.
-	const trigger = "morning_brief:fleet-isolation"
-	const healthyTrigger = "morning_brief:fleet-isolation-healthy"
-	// Both tenants get real due work, seeded before the fault is armed: the
-	// victim's so its claim has a row to update and trip the trigger, the
-	// healthy tenant's so the claim assertion below rests on a claim that
-	// actually happened.
-	seedDueRunnerJob(t, owner, re.wsID, trigger)
-	seedDueRunnerJob(t, owner, healthy, healthyTrigger)
-	failRunnerJobWritesFor(t, owner, re.wsID)
+	const trigger = "morning_brief:write-fault"
+	// Real due work, seeded before the fault is armed, so the claim has a row
+	// to update and trip the trigger.
+	seedDueRunnerJob(t, owner, trigger)
+	failRunnerJobWrites(t, owner)
 
 	now := afterEveryDueHour()
-	if err := re.svc.TickWorkspace(schedulerPassCtx(re.wsID), now); err == nil {
-		t.Fatal("a workspace whose scheduling pass could not write reported success — nothing records that its briefs were never seeded or claimed")
+	if err := re.svc.Tick(schedulerPassCtx(re.wsID), now); err == nil {
+		t.Fatal("a scheduling pass that could not write reported success — nothing records that the briefs were never seeded or claimed")
 	}
-	if status, _ := runnerJobOutcome(t, owner, re.wsID, trigger); status != "queued" {
-		t.Fatalf("the faulted tenant's job is %s, want it untouched at queued — the fault injection did not hold, so the isolation claim below rests on nothing", status)
-	}
-
-	// The fault is one tenant's, and the pass now takes the tenant it is given:
-	// with the trigger still armed, the healthy tenant seeds its own catalog
-	// occurrences and claims its own due job.
-	if err := re.svc.TickWorkspace(schedulerPassCtx(healthy), now); err != nil {
-		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
-	}
-	assertOccurrencesSeeded(t, owner, healthy, now)
-	status, lastError := runnerJobOutcome(t, owner, healthy, healthyTrigger)
-	if status == "queued" {
-		t.Fatalf("workspace %s was never scheduled: its due job is still queued, so the pass reported success without claiming anything", healthy)
-	}
-	if status != "failed" || lastError == "" {
-		t.Fatalf("the healthy tenant's passport-less job is %s (%q), want a loud failure — the claim reached it but the execution did not", status, lastError)
+	if status, _ := runnerJobOutcome(t, owner, trigger); status != "queued" {
+		t.Fatalf("the seeded job is %s, want it untouched at queued — the fault injection did not hold, so this test proves nothing", status)
 	}
 }
 
-// TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
-// the converted shape: the dispatcher enqueues one row per LIVE workspace —
-// archived ones excluded, because an archived tenant has nobody to read a
-// morning brief and seeding one would spend model budget on a report no one
-// opens — each row names its own tenant on the wire, and the tenant whose
-// writes fail is the only row that fails.
-func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
+// TestAgentSchedulerSeedsAndClaimsWhatIsDue is what survives the fan-out.
+//
+// It used to enqueue one row per live workspace, exclude archived tenants, and
+// prove that the tenant whose writes failed was the ONLY row that failed. A
+// pass is one row now (ADR-0103 §1), so what is worth pinning is the half that
+// never depended on there being several: a pass seeds every occurrence due at
+// its instant and claims the work already waiting — the two halves that have no
+// other trace, since an unseeded occurrence is simply a brief that never
+// happens.
+func TestAgentSchedulerSeedsAndClaimsWhatIsDue(t *testing.T) {
 	re := setupRunner(t)
 	owner := integration.OwnerConn(t)
-	healthy := integration.SeedExtraWorkspace(t, owner, "scheduler-healthy", false)
-	archived := integration.SeedExtraWorkspace(t, owner, "scheduler-archived", true)
 
-	// A trigger per tenant. The occurrence key is unique across the
-	// installation now that it no longer carries a workspace (ADR-0091 §8
-	// phase B), and what this test is about is per-tenant OUTCOMES — two
-	// tenants sharing one trigger string was always incidental.
-	const trigger = "morning_brief:fanout"
-	const healthyTrigger = "morning_brief:fanout-healthy"
-	seedDueRunnerJob(t, owner, re.wsID, trigger)
-	seedDueRunnerJob(t, owner, healthy, healthyTrigger)
-	// Permanent, not transient: this kind takes a single attempt, and a fault
-	// that healed would let the tenant complete and read as green — the exact
-	// outcome this test denies.
-	failRunnerJobWritesFor(t, owner, re.wsID)
+	const trigger = "morning_brief:seed-and-claim"
+	seedDueRunnerJob(t, owner, trigger)
 
 	now := afterEveryDueHour()
-	_, completed, failed := jobtest.StartTestJobRunner(t, re.pool, compose.JobRunnerConfig{
-		CloseDateInterval: time.Hour,
-		ReconcileInterval: time.Hour,
-		TimeScanInterval:  time.Hour,
-		AgentScheduler: compose.AgentSchedulerConfig{
-			Interval: time.Hour, Service: re.svc, Now: func() time.Time { return now },
-		},
-	})
-	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	kind := compose.AgentSchedulerWorkspaceArgs{}.Kind()
-	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
+	if err := re.svc.Tick(schedulerPassCtx(re.wsID), now); err != nil {
+		t.Fatalf("the scheduling pass: %v", err)
+	}
+	assertOccurrencesSeeded(t, owner, now)
 
-	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
-		t.Errorf("no scheduling pass ran for workspace %s — a tenant the fan-out skipped gets no brief and no at-risk sweep, and no row records that it did not", healthy)
+	status, lastError := runnerJobOutcome(t, owner, trigger)
+	if status == "queued" {
+		t.Fatal("the due job is still queued — the pass reported success without claiming anything")
 	}
-	if !outcomes[healthy.String()] {
-		t.Error("the healthy tenant's scheduling pass failed")
-	}
-	if outcomes[re.wsID.String()] {
-		t.Error("the tenant whose writes could not land reported a completed job — the failure the per-workspace row exists to record was swallowed")
-	}
-	// The pass is only worth a row if it did the work: the healthy tenant's own
-	// occurrences are seeded and its due job executed, through the job path
-	// rather than a direct call.
-	assertOccurrencesSeeded(t, owner, healthy, now)
-	if status, _ := runnerJobOutcome(t, owner, healthy, healthyTrigger); status != "failed" {
-		t.Errorf("the healthy tenant's passport-less job is %s, want the loud failure its execution lands — the pass completed without claiming anything", status)
-	}
-
-	// The archived tenant must have no row at all. This count is fenced on the
-	// two outcomes above rather than read early: the fan-out is ONE atomic
-	// InsertMany, so any child reporting proves that insert committed — and it
-	// carried every workspace the dispatcher enumerated.
-	var dispatched int
-	if err := re.pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE kind = $1 AND args->>'workspace_id' = $2`,
-		kind, archived.String()).Scan(&dispatched); err != nil {
-		t.Fatalf("counting the archived tenant's scheduling jobs: %v", err)
-	}
-	if dispatched != 0 {
-		t.Errorf("%d %s rows were dispatched for an ARCHIVED workspace — seeding a brief nobody will read spends model budget on work nobody wants", dispatched, kind)
+	// Passport-less by design: the loud "no passport bound" failure on the row
+	// is the cheapest honest evidence that the claim ran and the job executed.
+	if status != "failed" || lastError == "" {
+		t.Fatalf("the passport-less job is %s (%q), want a loud failure — the claim reached it but the execution did not", status, lastError)
 	}
 }
 
@@ -311,9 +248,8 @@ func TestAgentSchedulerWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(
 		TimeScanInterval:  time.Hour,
 		AgentScheduler:    compose.AgentSchedulerConfig{Interval: 0, Service: re.svc},
 	})
-	if err := jobRunner.Enqueue(context.Background(),
-		compose.AgentSchedulerWorkspaceArgs{Workspace: re.wsID}, nil); err != nil {
-		t.Fatalf("enqueueing the workspace pass an earlier boot would have left: %v", err)
+	if err := jobRunner.Enqueue(context.Background(), compose.AgentSchedulerArgs{}, nil); err != nil {
+		t.Fatalf("enqueueing the pass an earlier boot would have left: %v", err)
 	}
 
 	// The close-date sweep is the FENCE, and it has to be: River inserts every
@@ -321,12 +257,12 @@ func TestAgentSchedulerWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(
 	// only waited on the hand-queued row could read the count before that round
 	// had happened at all — and would then report zero however the schedule was
 	// wired. Waiting for a sibling RunOnStart dispatcher to complete puts the
-	// round provably in the past. The workspace pass is waited on for the other
+	// round provably in the past. The scheduling pass is waited on for the other
 	// half of the claim: a queued row is still worked with no schedule present.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	jobtest.AwaitKindsCompleted(waitCtx, t, completed,
-		compose.CloseDateSweepArgs{}.Kind(), compose.AgentSchedulerWorkspaceArgs{}.Kind())
+		compose.CloseDateSweepArgs{}.Kind(), compose.AgentSchedulerArgs{}.Kind())
 
 	var dispatched int
 	if err := re.pool.QueryRow(context.Background(),
@@ -334,8 +270,11 @@ func TestAgentSchedulerWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(
 		compose.AgentSchedulerArgs{}.Kind()).Scan(&dispatched); err != nil {
 		t.Fatalf("counting the dispatched scheduling passes: %v", err)
 	}
-	if dispatched != 0 {
-		t.Errorf("%d %s rows were dispatched by a runner given no scheduler interval — a zero duration is not a cadence, and River spins on it rather than refusing it",
+	// Exactly the one row this test queued by hand. The count used to be zero
+	// because the schedule and the work were different kinds; one kind does both
+	// now, so a spinning schedule shows as rows arriving ABOVE this floor.
+	if dispatched != 1 {
+		t.Errorf("%d %s rows exist after a runner was given no scheduler interval, want only the one queued here — a zero duration is not a cadence, and River spins on it rather than refusing it",
 			dispatched, compose.AgentSchedulerArgs{}.Kind())
 	}
 }

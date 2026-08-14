@@ -20,7 +20,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -90,24 +89,9 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 	return svc
 }
 
-// forWorkspaceIn is this service with its store bound to the workspace ctx
-// names. The rest of the service — the tool registry, the brain, the identity
-// resolver — is tenant-agnostic and shared; only the store writes rows, and a
-// row lands in the workspace its handle binds.
-func (s *RunnerService) forWorkspaceIn(ctx context.Context) (*RunnerService, error) {
-	ws, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return nil, fmt.Errorf("%w: this pass was handed no workspace; the fan-out binds one per job row",
-			database.ErrNoWorkspace)
-	}
-	bound := *s
-	bound.store = s.store.ForWorkspace(ids.From[ids.WorkspaceKind](ws))
-	return &bound, nil
-}
-
-// TickWorkspace is ONE tenant's scheduler pass: close the runs abandoned since
+// Tick is the installation's scheduler pass: close the runs abandoned since
 // last time, seed the catalog occurrences due at now, then execute the jobs it
-// can claim. wsCtx must already carry the workspace — the caller binds it, so
+// can claim. ctx must already carry the workspace — the caller binds it, so
 // this pass can only ever touch the tenant it was handed.
 //
 // Three failures, three different destinations, because each belongs to a
@@ -118,33 +102,24 @@ func (s *RunnerService) forWorkspaceIn(ctx context.Context) (*RunnerService, err
 // say why on the row an operator reads, not take the whole pass down with it. The
 // sweep's own failure is only logged: it owns no row of this pass, and a tenant's
 // schedule must still run when the accounting for last week's crash cannot.
-func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) error {
+func (s *RunnerService) Tick(ctx context.Context, now time.Time) error {
 	now = now.UTC()
-	// The fan-out names this pass's tenant in wsCtx, and everything below runs
-	// through a service bound to it. One long-lived RunnerService serves every
-	// tenant's pass, so a pass that used the assembled store directly would
-	// seed, claim and record in whichever workspace the SERVICE was built for —
-	// the whole fleet's rows landing in one tenant.
-	s, err := s.forWorkspaceIn(wsCtx)
-	if err != nil {
-		return err
-	}
-	s.reapAbandonedRuns(wsCtx)
+	s.reapAbandonedRuns(ctx)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
 			// Cron-seeded jobs carry no passport yet: execution fails
 			// loudly rather than running with ambient authority.
-			if err := s.store.EnqueueJob(wsCtx, spec.Name, spec.TriggerRef(now), nil, due); err != nil {
+			if err := s.store.EnqueueJob(ctx, spec.Name, spec.TriggerRef(now), nil, due); err != nil {
 				return err
 			}
 		}
 	}
-	jobs, err := s.store.ClaimDueJobs(wsCtx, claimBatch)
+	jobs, err := s.store.ClaimDueJobs(ctx, claimBatch)
 	if err != nil {
 		return err
 	}
 	for _, job := range jobs {
-		s.executeJob(wsCtx, job)
+		s.executeJob(ctx, job)
 	}
 	return nil
 }
@@ -172,7 +147,7 @@ const abandonedRunReason = "abandoned: still running past twice the run wall clo
 	"coming back for it. Its tools may already have written — check the audit log for this run id " +
 	"before assuming nothing landed."
 
-// reapAbandonedRuns closes the runs nothing will ever finish, in the tenant wsCtx
+// reapAbandonedRuns closes the runs nothing will ever finish, in the tenant ctx
 // is bound to. The invariant that makes them unrecoverable belongs to
 // runner.Store.FailStuckRuns; what is decided HERE is only where the sweep runs
 // and what happens when it fails.
@@ -182,8 +157,8 @@ const abandonedRunReason = "abandoned: still running past twice the run wall clo
 // failure must not take down the pass, whose actual job is this tenant's
 // schedule. It is reported instead, because a sweep that keeps failing means runs
 // are piling up in 'running' where nothing will read them.
-func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context) {
-	swept, err := s.store.FailStuckRuns(wsCtx, stuckRunGrace, abandonedRunReason)
+func (s *RunnerService) reapAbandonedRuns(ctx context.Context) {
+	swept, err := s.store.FailStuckRuns(ctx, stuckRunGrace, abandonedRunReason)
 	if err != nil {
 		s.log.Error("runner: sweeping abandoned runs", "err", err)
 		return
@@ -201,35 +176,35 @@ func (s *RunnerService) reapAbandonedRuns(wsCtx context.Context) {
 
 // executeJob runs one claimed job to its outcome. Failures land on the
 // job row — a brief that never ran must say why, not vanish.
-func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) {
+func (s *RunnerService) executeJob(ctx context.Context, job runner.QueuedJob) {
 	spec, known := s.specByName(job.SpecName)
 	if !known {
-		s.finishJob(wsCtx, job.ID, nil, fmt.Sprintf("agent spec %q is not in the catalog", job.SpecName))
+		s.finishJob(ctx, job.ID, nil, fmt.Sprintf("agent spec %q is not in the catalog", job.SpecName))
 		return
 	}
 	if job.PassportID == nil {
-		s.finishJob(wsCtx, job.ID, nil,
+		s.finishJob(ctx, job.ID, nil,
 			"no passport bound: mint one (POST /v1/passports) and bind it to the job before the run can act")
 		return
 	}
-	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, *job.PassportID)
+	agentIdentity, err := s.identity.AuthenticateAgentByID(ctx, *job.PassportID)
 	if err != nil {
-		s.finishJob(wsCtx, job.ID, nil, "passport resolution failed: "+err.Error())
+		s.finishJob(ctx, job.ID, nil, "passport resolution failed: "+err.Error())
 		return
 	}
 	// One correlation id per run: every event the run's writes emit
 	// groups under it (events.md — "one originating request/agent-run").
-	runCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, agentIdentity.Principal()), ids.NewV7())
+	runCtx := principal.WithCorrelationID(principal.WithActor(ctx, agentIdentity.Principal()), ids.NewV7())
 
 	runID, created, err := s.store.StartRun(runCtx, spec, job.TriggerRef, *job.PassportID)
 	if err != nil {
-		s.finishJob(wsCtx, job.ID, nil, err.Error())
+		s.finishJob(ctx, job.ID, nil, err.Error())
 		return
 	}
 	if !created {
 		// This occurrence already ran (or is suspended) — the job was a
 		// duplicate trigger and idempotency absorbed it.
-		s.finishJob(wsCtx, job.ID, nil, "")
+		s.finishJob(ctx, job.ID, nil, "")
 		return
 	}
 	// Every ai_call the run's model lane makes stamps this run — the
@@ -253,7 +228,7 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 		Grounding:  grounding,
 	})
 	s.landOutcome(runCtx, runID, res, err)
-	s.finishJob(wsCtx, job.ID, &runID, "")
+	s.finishJob(ctx, job.ID, &runID, "")
 }
 
 // HandleEvent is the cg:overnight-agent consumer: an approval decision
@@ -271,7 +246,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	if err != nil {
 		return err
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
+	ctx = principal.WithWorkspaceID(ctx, ws.UUID)
 
 	// The payload is read BEFORE the run is claimed: claiming is one-way, so
 	// every step after it must end in a terminal status rather than in a
@@ -286,16 +261,9 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		return fmt.Errorf("runner: approval.decided payload: %w", err)
 	}
 
-	// The store is bound before any row is read or written: this consumer,
-	// like the scheduler pass, runs on one shared service.
-	s, err = s.forWorkspaceIn(wsCtx)
-	if err != nil {
-		return err
-	}
-
 	// Claim, don't just look: the bus is at-least-once and a resumed run is
 	// a fresh loop with a fresh budget, not an idempotent effect.
-	suspended, found, err := s.store.ClaimSuspendedByApproval(wsCtx, approvalID)
+	suspended, found, err := s.store.ClaimSuspendedByApproval(ctx, approvalID)
 	if err != nil {
 		return err
 	}
@@ -307,25 +275,25 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	// exactly that — the originally staged args no longer redeem.
 	if payload.Verdict == "approved" && payload.Edited {
 		if len(payload.EditedChange) == 0 {
-			return s.store.MarkFailed(wsCtx, suspended.RunID, "approval was edited but the decision event carries no edited_change")
+			return s.store.MarkFailed(ctx, suspended.RunID, "approval was edited but the decision event carries no edited_change")
 		}
 		suspended.Pending.Args = payload.EditedChange
 	}
 
-	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, suspended.PassportID)
+	agentIdentity, err := s.identity.AuthenticateAgentByID(ctx, suspended.PassportID)
 	if err != nil {
 		// The passport died while the run was parked (revoked, expired,
 		// human deactivated). The run cannot act anymore — close it.
-		return s.store.MarkFailed(wsCtx, suspended.RunID, "passport no longer valid at resume: "+err.Error())
+		return s.store.MarkFailed(ctx, suspended.RunID, "passport no longer valid at resume: "+err.Error())
 	}
 	// The resumed leg is the SAME logical run but a new causal moment;
 	// it groups its writes under a fresh correlation id.
-	runCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, agentIdentity.Principal()), ids.NewV7())
+	runCtx := principal.WithCorrelationID(principal.WithActor(ctx, agentIdentity.Principal()), ids.NewV7())
 	runCtx = principal.WithAgentRunID(runCtx, suspended.RunID)
 
 	spec, known := s.specByName(suspended.SpecName)
 	if !known {
-		return s.store.MarkFailed(wsCtx, suspended.RunID, fmt.Sprintf("agent spec %q left the catalog while suspended", suspended.SpecName))
+		return s.store.MarkFailed(ctx, suspended.RunID, fmt.Sprintf("agent spec %q left the catalog while suspended", suspended.SpecName))
 	}
 
 	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
