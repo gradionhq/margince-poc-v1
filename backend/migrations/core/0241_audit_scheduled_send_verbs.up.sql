@@ -1,4 +1,4 @@
--- 0240: the scheduled-send verbs join the audit vocabulary.
+-- 0241: the scheduled-send verbs join the audit vocabulary.
 --
 -- A message a rep chose to send later moves through four acts the ledger has to
 -- be able to record (ADR-0104/A155): it is scheduled, its moment may be moved,
