@@ -33,6 +33,25 @@ import (
 // wire body the admin has to scroll.
 const namedBlockingDeals = 10
 
+// lockLiveStageTarget ends the two lookups that resolve the live stage a
+// write is about to bind a deal to — create's birth stage and advance's
+// target. It is what makes the occupancy count below a GUARD rather than a
+// hint.
+//
+// As a plain read those lookups take no lock, so a deal could resolve a
+// live stage, the removal could then count zero deals and archive it, and
+// the deal's own write would still land: the FK on deal.stage_id checks
+// that the row EXISTS, and archiving is precisely the operation that leaves
+// it existing. The result is a live deal on a removed stage — invisible to
+// every board read, which all filter on live stages.
+//
+// FOR KEY SHARE is the weakest lock that conflicts with the removal's FOR
+// UPDATE, so a rename or a probability edit still runs alongside a deal
+// moving. Whichever side takes it first, the outcome is right: the removal
+// waits and then counts the deal, or the deal's lookup waits and is
+// re-evaluated against the committed archived_at and finds nothing live.
+const lockLiveStageTarget = ` FOR KEY SHARE`
+
 // BlockingDeal is one live deal standing in the way of a stage removal.
 type BlockingDeal struct {
 	ID   ids.DealID
@@ -92,76 +111,105 @@ func (e *TerminalStageError) MessageFault() (code, message string) {
 		"the " + e.Semantic + " stage is what closes a deal in this pipeline and cannot be removed"
 }
 
-// ArchiveStage removes a stage from its pipeline. The surviving stages
-// shift down so position stays contiguous, which is a pipeline-level
-// fact and rides ONE pipeline.updated — the same rule UpdateStage's
-// reorder branch follows.
+// ArchiveStage removes a stage from its pipeline. The survivors are
+// renumbered so positions stay contiguous, which is a pipeline-level fact
+// and rides ONE pipeline.updated — the same rule UpdateStage's reorder
+// branch follows — and none is published when nothing actually moved.
 func (s *Store) ArchiveStage(ctx context.Context, id ids.StageID, ifVersion *int64) error {
 	if err := auth.Require(ctx, "pipeline", principal.ActionDelete); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		// The lock makes the version read, the occupancy check and the
-		// archive one race-free unit: a deal advancing onto this stage
-		// concurrently either lands before the lock (and is then seen by
-		// the occupancy check) or waits for the archive to commit and
-		// fails its own live-stage lookup.
+		// The pipeline row is the serialization point for every write
+		// that reshapes its stage list — see lockStageConfig. Taken
+		// before the stage's own lock, and by the reorder path too, so
+		// an archive and a reorder racing on one pipeline queue instead
+		// of deadlocking on each other's stage rows.
+		pipelineID, err := lockStageConfig(ctx, tx, id)
+		if err != nil {
+			return err
+		}
 		if _, err := storekit.LockRow(ctx, tx, "stage", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
-		st, err := lockedStageForRemoval(ctx, tx, id, ifVersion)
-		if err != nil {
+		if err := refuseUnremovableStage(ctx, tx, id, ifVersion); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE stage SET archived_at = $2 WHERE id = $1`, id, time.Now().UTC()); err != nil {
 			return fmt.Errorf("archive stage: %w", err)
 		}
-		moved, err := closeStageGap(ctx, tx, st.pipelineID, st.position)
+		moved, err := renumberStages(ctx, tx, pipelineID)
 		if err != nil {
 			return err
 		}
-		return emitStageArchived(ctx, tx, id, st.pipelineID, moved)
+		return emitStageArchived(ctx, tx, id, pipelineID, moved)
 	})
 }
 
-// removableStage is the locked stage's state the removal decides on.
-type removableStage struct {
-	pipelineID ids.PipelineID
-	position   int
+// lockStageConfig takes the stage's PIPELINE row for update and answers
+// its id — the one serialization point for reshaping a pipeline's stage
+// list.
+//
+// It exists because the removal and the reorder each lock stage rows in an
+// order the other does not follow: an archive holds the stage it is
+// removing and then walks upward, while a reorder holds the stage it is
+// moving and waits on the unique index for the slot the archive just
+// vacated. That is an AB-BA cycle, and PostgreSQL answers it by aborting
+// one side — a 500 on a legitimate admin action. One row taken first by
+// both paths removes the cycle rather than diagnosing it.
+func lockStageConfig(ctx context.Context, tx pgx.Tx, id ids.StageID) (ids.PipelineID, error) {
+	var pipelineID ids.PipelineID
+	err := tx.QueryRow(ctx,
+		`SELECT pipeline_id FROM stage WHERE id = $1 AND archived_at IS NULL`, id).Scan(&pipelineID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pipelineID, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return pipelineID, fmt.Errorf("read the stage's pipeline: %w", err)
+	}
+	if _, err := storekit.LockRow(ctx, tx, "pipeline", pipelineID.UUID, storekit.LiveOnly); err != nil {
+		return pipelineID, err
+	}
+	return pipelineID, nil
 }
 
-// lockedStageForRemoval reads the locked stage and answers every refusal
-// that does not need the row to be touched: version skew, the terminal
-// pair, and the deals still standing on it.
-func lockedStageForRemoval(
-	ctx context.Context, tx pgx.Tx, id ids.StageID, ifVersion *int64,
-) (removableStage, error) {
-	var st removableStage
+// refuseUnremovableStage answers every refusal the locked stage can be
+// judged on before it is touched: version skew, the terminal pair, and
+// the deals still standing on it.
+func refuseUnremovableStage(ctx context.Context, tx pgx.Tx, id ids.StageID, ifVersion *int64) error {
 	var version int64
 	var semantic string
 	err := tx.QueryRow(ctx,
-		`SELECT version, pipeline_id, position, semantic FROM stage WHERE id = $1 AND archived_at IS NULL`, id).
-		Scan(&version, &st.pipelineID, &st.position, &semantic)
+		`SELECT version, semantic FROM stage WHERE id = $1 AND archived_at IS NULL`, id).
+		Scan(&version, &semantic)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return st, apperrors.ErrNotFound
+		return apperrors.ErrNotFound
 	}
 	if err != nil {
-		return st, fmt.Errorf("read stage before archive: %w", err)
+		return fmt.Errorf("read stage before archive: %w", err)
 	}
 	if ifVersion != nil && *ifVersion != version {
-		return st, apperrors.ErrVersionSkew
+		return apperrors.ErrVersionSkew
 	}
 	if StageSemantic(semantic) != SemanticOpen {
-		return st, &TerminalStageError{Semantic: semantic}
+		return &TerminalStageError{Semantic: semantic}
 	}
-	return st, refuseIfOccupied(ctx, tx, id)
+	return refuseIfOccupied(ctx, tx, id)
 }
 
 // refuseIfOccupied answers the occupancy refusal, or nil when the stage
 // holds nothing. Live deals only: an archived deal cannot be moved off
 // the stage, so refusing on one would leave the admin with no way
 // forward — and its FK keeps pointing at a row archiving leaves in place.
+//
+// The COUNT is unscoped and the NAMES are row-scoped, and the split is
+// deliberate. Occupancy is a fact about the stage: a removal that skipped
+// the deals its caller cannot see would strand exactly the rows the guard
+// exists to protect. The names are records, and a record handed back
+// carries the row-scope gate like any other read — so a caller whose scope
+// hides a blocking deal is told the true count and names only what they
+// may see, with the cap's "and N more" covering the rest.
 func refuseIfOccupied(ctx context.Context, tx pgx.Tx, id ids.StageID) error {
 	var count int
 	if err := tx.QueryRow(ctx,
@@ -171,9 +219,18 @@ func refuseIfOccupied(ctx context.Context, tx pgx.Tx, id ids.StageID) error {
 	if count == 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx,
-		`SELECT id, name FROM deal WHERE stage_id = $1 AND archived_at IS NULL
-		 ORDER BY created_at LIMIT $2`, id, namedBlockingDeals)
+	args := []any{id, namedBlockingDeals}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ScopeClauseFor(ctx, "deal", "", arg)
+	if err != nil {
+		return err
+	}
+	if scope != "" {
+		scope = " AND " + scope
+	}
+	rows, err := tx.Query(ctx, storekit.SQLf(
+		`SELECT id, name FROM deal WHERE stage_id = $1 AND archived_at IS NULL%s
+		 ORDER BY created_at LIMIT $2`, scope), args...)
 	if err != nil {
 		return fmt.Errorf("name deals on stage: %w", err)
 	}
@@ -192,55 +249,69 @@ func refuseIfOccupied(ctx context.Context, tx pgx.Tx, id ids.StageID) error {
 	return &StageOccupiedError{Count: count, Deals: named}
 }
 
-// closeStageGap pulls the stages above the removed one down by one so
-// positions stay 1..n, and reports the moves for the reorder event.
+// renumberStages restates the pipeline's surviving stages as positions
+// 1..n in their existing order, and reports the rows that actually moved
+// for the reorder event.
 //
-// Ascending, one row at a time, on purpose: uq_stage_position is a
-// per-row check, and a single set-based `position - 1` would depend on
-// PostgreSQL visiting the rows in an order that keeps every intermediate
-// state unique — which it does not promise. Walking upward, each row's
-// target was vacated by the archive or by its predecessor's move. A
+// It renumbers the WHOLE list, not just the stages above the removed one,
+// because contiguity is a postcondition of the removal and not an
+// invariant the schema holds: uq_stage_position enforces uniqueness only,
+// and both createStage and updateStage take the position they are handed.
+// Shifting only the tail would leave a pipeline that was already gapped
+// gapped, so the removal's own promise would hold on a seeded pipeline and
+// quietly not on a hand-configured one. Rows already at their rank are
+// left alone, so the ordinary case still touches only the tail.
+//
+// Ascending, one row at a time, on purpose: uq_stage_position is a per-row
+// check, and one set-based statement would depend on PostgreSQL visiting
+// the rows in an order that keeps every intermediate state unique — which
+// it does not promise. Ascending, the i-th row's target is i+1, which no
+// row still holds: the rows below it have already moved down, and a row
+// above it sits at a position strictly greater than its own index. A
 // pipeline holds a handful of stages, so the loop is bounded by the
 // bounded-config surface itself.
 //
-// The read takes FOR UPDATE because these rows are read and then written:
-// without it, a concurrent removal or reorder in the same pipeline could
-// move a stage between this SELECT and its UPDATE, and the position
-// written here would be computed from a row state that no longer holds.
-// Locking upward by position is also why two concurrent removals cannot
-// deadlock — neither can hold a stage the other needs without already
-// holding every stage below it.
-func closeStageGap(
-	ctx context.Context, tx pgx.Tx, pipelineID ids.PipelineID, removed int,
-) (map[string]any, error) {
+// FOR UPDATE because these rows are read and then written; the pipeline
+// lock the caller already holds is what keeps a concurrent reorder out.
+func renumberStages(ctx context.Context, tx pgx.Tx, pipelineID ids.PipelineID) (map[string]any, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT id FROM stage
-		 WHERE pipeline_id = $1 AND archived_at IS NULL AND position > $2
-		 ORDER BY position FOR UPDATE`, pipelineID, removed)
+		`SELECT id, position FROM stage
+		 WHERE pipeline_id = $1 AND archived_at IS NULL
+		 ORDER BY position FOR UPDATE`, pipelineID)
 	if err != nil {
-		return nil, fmt.Errorf("read stages above the removed one: %w", err)
+		return nil, fmt.Errorf("read the surviving stages: %w", err)
 	}
-	var above []ids.StageID
+	type placed struct {
+		id       ids.StageID
+		position int
+	}
+	var surviving []placed
 	for rows.Next() {
-		var id ids.StageID
-		if err := rows.Scan(&id); err != nil {
+		var s placed
+		if err := rows.Scan(&s.id, &s.position); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("scan stage above the removed one: %w", err)
+			return nil, fmt.Errorf("scan a surviving stage: %w", err)
 		}
-		above = append(above, id)
+		surviving = append(surviving, s)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read stages above the removed one: %w", err)
+		return nil, fmt.Errorf("read the surviving stages: %w", err)
 	}
-	moved := make(map[string]any, len(above))
-	for i, id := range above {
-		position := removed + i
-		if _, err := tx.Exec(ctx,
-			`UPDATE stage SET position = $2 WHERE id = $1`, id, position); err != nil {
-			return nil, fmt.Errorf("close the gap the removed stage left: %w", err)
+	moved := map[string]any{}
+	for i, s := range surviving {
+		rank := i + 1
+		if s.position == rank {
+			continue
 		}
-		moved[id.String()] = position
+		if _, err := tx.Exec(ctx,
+			`UPDATE stage SET position = $2 WHERE id = $1`, s.id, rank); err != nil {
+			if storekit.IsUniqueViolation(err) {
+				return nil, apperrors.ErrConflict
+			}
+			return nil, fmt.Errorf("renumber the surviving stages: %w", err)
+		}
+		moved[s.id.String()] = rank
 	}
 	return moved, nil
 }

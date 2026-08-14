@@ -1502,7 +1502,10 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
 // from the row: the refusal names the deals standing in the way, which is
 // the part an admin acts on, and a board read a minute ago would name the
 // wrong ones.
-function StageRemove({ stage }: Readonly<{ stage: Stage }>) {
+function StageRemove({
+  stage,
+  returnFocusTo,
+}: Readonly<{ stage: Stage; returnFocusTo: () => HTMLElement | null }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -1556,6 +1559,10 @@ function StageRemove({ stage }: Readonly<{ stage: Stage }>) {
         pending={remove.isPending}
         error={remove.isError ? problemMessageOf(remove.error, t) : null}
         onConfirm={() => remove.mutate()}
+        // The stage list, not the trigger: a successful removal unmounts
+        // the row this button lives in, so there is nothing to hand focus
+        // back to (design-system/confirmmodal).
+        returnFocusTo={returnFocusTo}
       >
         <p className="t-small">{t("stage.removeBody", { name: stage.name })}</p>
       </ConfirmModal>
@@ -1567,10 +1574,12 @@ function StageRow({
   stage,
   canEdit,
   t,
+  returnFocusTo,
 }: Readonly<{
   stage: Stage;
   canEdit: boolean;
   t: ReturnType<typeof useT>;
+  returnFocusTo: () => HTMLElement | null;
 }>) {
   return (
     <li
@@ -1586,14 +1595,17 @@ function StageRow({
         {stageSemanticLabel(stage.semantic, t)}
       </Badge>
       <span className="t-mono t-small">{stage.win_probability}%</span>
-      {canEdit && (
-        <span
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            alignItems: "center",
-          }}
-        >
+      {/* Each control carries its own verb — editing a stage is
+          pipeline:update, removing one is pipeline:delete — so a role
+          holding one without the other still sees the one it may use. */}
+      <span
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          alignItems: "center",
+        }}
+      >
+        {canEdit && (
           <EditAction
             label={t("stage.edit")}
             invalidate="pipelines"
@@ -1617,9 +1629,9 @@ function StageRow({
               return data;
             }}
           />
-          <StageRemove stage={stage} />
-        </span>
-      )}
+        )}
+        <StageRemove stage={stage} returnFocusTo={returnFocusTo} />
+      </span>
     </li>
   );
 }
@@ -1633,6 +1645,7 @@ function PipelineRow({
   canEdit: boolean;
   t: ReturnType<typeof useT>;
 }>) {
+  const stageList = useRef<HTMLUListElement>(null);
   const stages = [...(pipeline.stages ?? [])].sort(
     (a, b) => a.position - b.position,
   );
@@ -1687,7 +1700,12 @@ function PipelineRow({
           </>
         )}
       </div>
+      {/* tabIndex -1 so a removal can hand focus to the list it changed:
+          the row's own Remove button is gone by then, and focus dropped to
+          <body> leaves a screen-reader user at the top of the document. */}
       <ul
+        ref={stageList}
+        tabIndex={-1}
         style={{
           listStyle: "none",
           display: "flex",
@@ -1697,7 +1715,13 @@ function PipelineRow({
         }}
       >
         {stages.map((stage) => (
-          <StageRow key={stage.id} stage={stage} canEdit={canEdit} t={t} />
+          <StageRow
+            key={stage.id}
+            stage={stage}
+            canEdit={canEdit}
+            t={t}
+            returnFocusTo={() => stageList.current}
+          />
         ))}
       </ul>
     </Card>

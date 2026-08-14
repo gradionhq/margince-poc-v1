@@ -30,7 +30,8 @@ import (
 func ensureOpenBirthStage(ctx context.Context, tx pgx.Tx, stageID ids.StageID, pipelineID ids.PipelineID) error {
 	var semantic string
 	err := tx.QueryRow(ctx,
-		`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`,
+		`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`+
+			lockLiveStageTarget,
 		stageID, pipelineID).Scan(&semantic)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return apperrors.ErrNotFound

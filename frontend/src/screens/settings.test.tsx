@@ -1600,17 +1600,17 @@ describe("PipelinesCard", () => {
         allow: { pipeline: ["read", "update", "delete"] },
         stageDeleteRefusal: {
           status: 422,
+          // Exactly what the server sends: a MessageFault renders a
+          // machine code and a reason, and no per-field details body —
+          // a fixture that invented one would document a contract the
+          // backend does not have.
           body: {
             type: "https://errors.gradion.com/stage_occupied",
-            title: "Validation failed",
+            title: "Unprocessable Entity",
             status: 422,
             code: "stage_occupied",
             detail:
               "1 deal(s) still sit on this stage: Acme rollout. Move them to another stage first.",
-            details: {
-              deal_count: 1,
-              deals: [{ id: "d1", name: "Acme rollout" }],
-            },
           },
         },
       }),

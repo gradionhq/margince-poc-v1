@@ -112,6 +112,65 @@ func TestStageRemovalTakesTheVersionGuard(t *testing.T) {
 	assertContiguous(t, e, seeded.PipelineID, len(stages))
 }
 
+// Contiguity is a postcondition of the removal, not an invariant the
+// schema holds — createStage and updateStage both take the position they
+// are handed — so a pipeline that was already gapped must come out of a
+// removal renumbered, and a removal that moves nothing must not publish a
+// reorder that did not happen.
+func TestStageRemovalRenumbersWhateverLayoutItFinds(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.Slug = "stage-rm-gap"
+	apptest.BootstrapWorkspaceSession(t, e, "Stage RM Gap", "stage-rm-gap@fable.test", "Admin")
+
+	var pipeline struct {
+		ID     string `json:"id"`
+		Stages []struct {
+			ID string `json:"id"`
+		} `json:"stages"`
+	}
+	if status := e.Call(t, "POST", "/v1/pipelines", apptest.AnyMap{
+		"name": "Gapped", "stages": []apptest.AnyMap{
+			{"name": "Scout", "position": 2},
+			{"name": "Pitch", "position": 5},
+			{"name": "Close", "position": 9},
+		},
+	}, nil, &pipeline); status != http.StatusCreated {
+		t.Fatalf("create a gapped pipeline → %d", status)
+	}
+	gapped := readStages(t, e, pipeline.ID)
+	if gapped[0].Position != 2 || gapped[2].Position != 9 {
+		t.Fatalf("the fixture is not gapped: %+v", gapped)
+	}
+
+	// Removing the LAST stage moves nothing above it — but the gaps below
+	// are still the removal's to close.
+	if status := e.Call(t, "DELETE", "/v1/stages/"+gapped[2].ID, nil, nil, nil); status != http.StatusNoContent {
+		t.Fatalf("removing the last stage → %d, want 204", status)
+	}
+	assertContiguous(t, e, pipeline.ID, 2)
+
+	// Now the list is 1..n already, so removing its last stage moves
+	// nothing at all — and publishes no reorder.
+	survivors := readStages(t, e, pipeline.ID)
+	if status := e.Call(t, "DELETE", "/v1/stages/"+survivors[1].ID, nil, nil, nil); status != http.StatusNoContent {
+		t.Fatalf("removing the trailing stage → %d, want 204", status)
+	}
+	assertContiguous(t, e, pipeline.ID, 1)
+
+	var reorders int
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM event_outbox
+		 WHERE envelope->>'type' = 'pipeline.updated'
+		   AND envelope->'entity'->>'id' = $1::text
+		   AND envelope->'payload'->'changed_fields'->'stage_positions' IS NOT NULL`,
+		pipeline.ID).Scan(&reorders); err != nil {
+		t.Fatal(err)
+	}
+	if reorders != 1 {
+		t.Fatalf("%d reorder events for this pipeline, want 1 — only the removal that renumbered publishes one", reorders)
+	}
+}
+
 // assertOccupiedRefusal checks the F1b guard: a 422 whose machine code a
 // surface can branch on, and whose sentence names the deal standing in
 // the way so the admin knows what to move.

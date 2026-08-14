@@ -54,10 +54,11 @@ func TestTheOccupiedRefusalSaysHowManyItLeftUnnamed(t *testing.T) {
 	}
 }
 
-// Both refusals travel to the MCP surface through the datasource seam,
-// which never runs the HTTP mapper: the verdict has to be on the error
-// itself or a governed refusal reports as an internal fault an agent is
-// told to retry.
+// The verdict lives on the error, not in a per-module HTTP mapper: that
+// is what lets one choke point render both refusals, and what the
+// seam-coverage gate demands of any 422 a module can raise, since a
+// surface reaching the store without that mapper would otherwise report
+// a governed refusal as an internal fault.
 func TestBothRemovalRefusalsCarryTheirOwnVerdict(t *testing.T) {
 	for _, err := range []error{
 		&StageOccupiedError{Count: 1, Deals: blockingDealsFixture(1)},
