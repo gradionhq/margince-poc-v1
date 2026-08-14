@@ -54,6 +54,18 @@ type SendEmailArgs struct {
 	Subject        string   `json:"subject"`
 	Body           string   `json:"body"`
 	ConsentPurpose string   `json:"consent_purpose"`
+	// ScheduledAt defers the send to an instant instead of now (ADR-0104).
+	// Empty sends immediately, which is what every caller meant before this
+	// field existed.
+	//
+	// The approval a scheduled send needs is the one it already needs: this is
+	// still 🟡, still staged, and the token is redeemed when the message is
+	// SCHEDULED — inside the minutes-scale window ADR-0036 pins, rather than
+	// stretched across the deferral. What protects the fire is that every live
+	// gate runs again there.
+	ScheduledAt string `json:"scheduled_at,omitempty"`
+	// ScheduledTZ is the IANA zone the moment was chosen in, required with it.
+	ScheduledTZ string `json:"scheduled_tz,omitempty"`
 }
 
 // SendMessageArgs is one channel reply. It carries no subject and no
@@ -163,6 +175,8 @@ func (t sendEmailTool) Spec() mcp.ToolSpec {
 			"subject":{"type":"string"},
 			"body":{"type":"string"},
 			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"},
+			"scheduled_at":{"type":"string","format":"date-time"` + timestampNote + `},
+			"scheduled_tz":{"type":"string","description":"IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then."},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[SendEmailResult](),

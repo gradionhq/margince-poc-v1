@@ -35,6 +35,10 @@ type Handlers struct {
 	// channelDelivery is the same seam for a messaging channel; nil fails
 	// closed for the same reason (WithChannelDelivery wires it).
 	channelDelivery ChannelDeliveryStager
+	// timer wakes a scheduled send when it comes due; nil refuses to defer a
+	// send (WithScheduleTimer wires it), because accepting "send it Monday"
+	// with nothing to wake it is a promise this surface cannot keep.
+	timer ScheduleTimer
 	// The public-booking capture seams; nil fails closed
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer

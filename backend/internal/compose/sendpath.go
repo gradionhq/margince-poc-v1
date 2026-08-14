@@ -66,6 +66,11 @@ type SendPath struct {
 	// absent one is silent in exactly the same way, so "unwired" is not a
 	// safer deployment, only an indistinguishable one.
 	DraftOutcome activities.DraftOutcomeRecorder
+	// ScheduleTimer wakes a message the rep chose to send later. Nil means this
+	// role refuses to defer a send rather than accept a moment nothing will
+	// wake at — the same fail-closed rule Delivery follows, for the same
+	// reason: a promise this surface cannot keep is worse than a refusal.
+	ScheduleTimer activities.ScheduleTimer
 }
 
 // withPoolDefaults fills in what a role does not configure but the pool alone
@@ -108,6 +113,10 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		// mail surface does.
 		WithChannelDelivery(send.Delivery).
 		WithChannelReachability(send.ChannelRecipients).
+		// The timer rides SendPath for the reason this file exists: scheduling
+		// wired at one call site and not the other would be "send later" that
+		// works on one transport and silently 500s on the next.
+		WithScheduleTimer(send.ScheduleTimer).
 		// Wired unconditionally, like the unsubscribe linker below: it needs
 		// nothing but the caller's transaction, so a deployment cannot forget
 		// it and leave an account-started send unable to resolve anyone.
@@ -155,5 +164,6 @@ func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send S
 		draft:         drafter,
 		stager:        send.Delivery,
 		channelStager: send.Delivery,
+		timer:         send.ScheduleTimer,
 	}
 }

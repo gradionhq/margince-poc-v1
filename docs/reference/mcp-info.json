@@ -10,16 +10,16 @@
   "totals": {
     "tools": 38,
     "resources": 8,
-    "tool_catalog_bytes": 108534,
+    "tool_catalog_bytes": 109564,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 27910,
+    "approx_wire_tokens_total": 28168,
     "largest_tool_bytes": 4254,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 29194,
-      "input_schema_bytes": 25082,
-      "output_schema_bytes": 45953,
-      "description_plus_input_schema_bytes": 54276
+      "input_schema_bytes": 25966,
+      "output_schema_bytes": 46099,
+      "description_plus_input_schema_bytes": 55160
     }
   },
   "tools": {
@@ -5675,6 +5675,15 @@
               "minItems": 1,
               "type": "array"
             },
+            "scheduled_at": {
+              "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "scheduled_tz": {
+              "description": "IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then.",
+              "type": "string"
+            },
             "subject": {
               "type": "string"
             },
@@ -5705,12 +5714,18 @@
                   "format": "uuid",
                   "type": "string"
                 },
+                "scheduled_at": {
+                  "type": "string"
+                },
+                "scheduled_send_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
                 "status": {
                   "type": "string"
                 }
               },
               "required": [
-                "activity_id",
                 "status"
               ],
               "type": "object"
@@ -5833,6 +5848,15 @@
               "maxLength": 255,
               "type": "string"
             },
+            "scheduled_at": {
+              "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+              "format": "date-time",
+              "type": "string"
+            },
+            "scheduled_tz": {
+              "description": "IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then.",
+              "type": "string"
+            },
             "subject": {
               "type": "string"
             },
@@ -5863,12 +5887,18 @@
                   "format": "uuid",
                   "type": "string"
                 },
+                "scheduled_at": {
+                  "type": "string"
+                },
+                "scheduled_send_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
                 "status": {
                   "type": "string"
                 }
               },
               "required": [
-                "activity_id",
                 "status"
               ],
               "type": "object"

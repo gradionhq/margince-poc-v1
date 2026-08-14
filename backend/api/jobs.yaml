@@ -478,6 +478,24 @@ kinds:
       may run the connector's prior-send lookup, and then transmits — four
       network round trips, each of which can be slow before it is wrong.
 
+  comms_scheduled_send:
+    role: worker
+    go_type: ScheduledSendArgs
+    queue: default
+    timeout: 5m
+    opts_owner: caller
+    registration: {when: [SendRegistry], absent: registers_nothing}
+    args:
+      Workspace: id
+      ScheduledSendID: id
+    reason: >-
+      A dumb alarm, not the schedule. The row is the schedule: this wakes,
+      re-reads it, and does nothing if the message was cancelled, snoozes if
+      its moment moved, and otherwise fires it through the one send path. The
+      attempt ladder is bounded and its last rung HOLDS the message for a
+      human, because a row nothing will ever wake again is the one failure a
+      rep cannot see.
+
   embed_drift_sweep:
     role: dispatcher
     go_type: EmbedDriftSweepArgs

@@ -132,7 +132,16 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 // it off. One declaration, so no lane can be enabled by one boot phase and
 // starved by another.
 func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, captureReg *capture.Registry, watchCfg compose.GmailWatchConfig, configuredVault keyvault.Vault, lanes workerLanes, rdb *redis.Client, overlayBudget overlaybudget.Config, modelPath compose.ModelPath, boundModels map[string]map[string]bool) (*jobs.Runner, error) {
+	// Firing a scheduled message stages its delivery and enqueues the dispatch
+	// job, through the SAME machinery an immediate send uses. Insert-only, like
+	// the api's: this role works what it inserts, and a stager built on the
+	// runner being assembled here would need that runner to already exist.
+	sendInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, err
+	}
 	return compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		SendDelivery: compose.NewDeliveryStager(pool, sendInserter),
 		// The send lane reads attachment bytes from the same object store
 		// capture writes them to; without it a message carrying files fails at
 		// the read rather than going out without them.

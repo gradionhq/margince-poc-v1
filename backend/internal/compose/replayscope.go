@@ -26,6 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -53,19 +54,33 @@ type replayTarget struct {
 	idPath      string // dotted path to the record id inside the recorded body
 	pathParam   string // …or the route parameter naming its parent record, for a projection whose body omits it
 	rowNote     string // why the body carries no row-scoped record
+	// altTable is the table to probe when the recorded body carries altMarker,
+	// for a route that answers more than one record shape. A send answers its
+	// ACTIVITY when it went now and its SCHEDULED SEND when it will go later
+	// (ADR-0104), and the two ids name different tables — probing the wrong one
+	// turns a legitimate retry into a 404, which a client then "recovers" from
+	// with a fresh key and a second message.
+	altTable  string
+	altMarker string // the body field whose presence means altTable
 }
 
 // The row-scoped tables, and the RBAC objects that mirror them word for word.
 // One spelling each, so a typo cannot make two entries disagree in silence.
 const (
-	tablePerson       = "person"
-	tableOrganization = "organization"
-	tableDeal         = "deal"
-	tableLead         = "lead"
-	tableProject      = "project"
-	tableActivity     = "activity"
-	tableVoiceProfile = "voice_profile"
-	tableSignal       = "signal"
+	tablePerson        = "person"
+	tableOrganization  = "organization"
+	tableDeal          = "deal"
+	tableLead          = "lead"
+	tableProject       = "project"
+	tableActivity      = "activity"
+	tableVoiceProfile  = "voice_profile"
+	tableSignal        = "signal"
+	tableScheduledSend = "scheduled_send"
+
+	// jsonNull is the literal a present-but-null JSON field decodes to. A field
+	// that is present and null carries no record id, which for a discriminator
+	// is the same answer as absent.
+	jsonNull = "null"
 
 	// probeApproval keys the approvals-owned visibility probe compose injects.
 	probeApproval = "approval"
@@ -126,24 +141,39 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/organizations/{id}/profile-fields/{field}/confirm": {object: tableOrganization, table: tableOrganization, pathParam: "id"},
 	"PATCH /v1/organizations/{id}/facts/{factKey}":               {object: tableOrganization, table: tableOrganization, pathParam: "id"},
 	"POST /v1/organizations/{id}/facts/{factKey}/confirm":        {object: tableOrganization, table: tableOrganization, pathParam: "id"},
-	"POST /v1/deals":                      {object: tableDeal, table: tableDeal, idPath: "id"},
-	"PATCH /v1/deals/{id}":                {object: tableDeal, table: tableDeal, idPath: "id"},
-	"POST /v1/deals/{id}/advance":         {object: tableDeal, table: tableDeal, idPath: "id"},
-	"POST /v1/projects":                   {object: tableProject, table: tableProject, idPath: "id"},
-	"PATCH /v1/projects/{id}":             {object: tableProject, table: tableProject, idPath: "id"},
-	"POST /v1/projects/{id}/advance":      {object: tableProject, table: tableProject, idPath: "id"},
-	"POST /v1/leads":                      {object: tableLead, table: tableLead, idPath: "id"},
-	"PATCH /v1/leads/{id}":                {object: tableLead, table: tableLead, idPath: "id"},
-	"POST /v1/activities":                 {object: tableActivity, table: tableActivity, idPath: "id"},
-	"PATCH /v1/activities/{id}":           {object: tableActivity, table: tableActivity, idPath: "id"},
-	"POST /v1/activities/{id}/relink":     {object: tableActivity, table: tableActivity, idPath: "id"},
-	"POST /v1/activities/{id}/send-email": {object: tableActivity, table: tableActivity, idPath: "id"},
+	"POST /v1/deals":                  {object: tableDeal, table: tableDeal, idPath: "id"},
+	"PATCH /v1/deals/{id}":            {object: tableDeal, table: tableDeal, idPath: "id"},
+	"POST /v1/deals/{id}/advance":     {object: tableDeal, table: tableDeal, idPath: "id"},
+	"POST /v1/projects":               {object: tableProject, table: tableProject, idPath: "id"},
+	"PATCH /v1/projects/{id}":         {object: tableProject, table: tableProject, idPath: "id"},
+	"POST /v1/projects/{id}/advance":  {object: tableProject, table: tableProject, idPath: "id"},
+	"POST /v1/leads":                  {object: tableLead, table: tableLead, idPath: "id"},
+	"PATCH /v1/leads/{id}":            {object: tableLead, table: tableLead, idPath: "id"},
+	"POST /v1/activities":             {object: tableActivity, table: tableActivity, idPath: "id"},
+	"PATCH /v1/activities/{id}":       {object: tableActivity, table: tableActivity, idPath: "id"},
+	"POST /v1/activities/{id}/relink": {object: tableActivity, table: tableActivity, idPath: "id"},
+	// A send answers its outbound ACTIVITY when it went now, and its SCHEDULED
+	// SEND when the caller asked for it later — different tables behind the
+	// same "id". scheduled_at is the discriminator because only the second
+	// shape carries one.
+	//
+	// Spelled as a literal rather than through activities.FieldScheduledAt
+	// because the fitness gate reads this table with go/ast and can only
+	// resolve literals; a constant here would fail it with a parse complaint
+	// rather than a finding anyone could act on.
+	"POST /v1/activities/{id}/send-email": {
+		object: tableActivity, table: tableActivity, idPath: "id",
+		altTable: tableScheduledSend, altMarker: "scheduled_at",
+	},
 	// The account-started send answers with the outbound activity it wrote,
 	// so its replay is gated on that activity exactly as the reply's is. The
 	// route carries no id of its own — the origin is in the body — which is
 	// why the target is resolved from the RESPONSE's id rather than a path
 	// parameter.
-	"POST /v1/emails": {object: tableActivity, table: tableActivity, idPath: "id"},
+	"POST /v1/emails": {
+		object: tableActivity, table: tableActivity, idPath: "id",
+		altTable: tableScheduledSend, altMarker: "scheduled_at",
+	},
 	// The channel reply answers with the outbound activity it wrote, so its
 	// replay is gated on that activity exactly as the mail send's is. It matters
 	// more here, not less: a channel send is irreversible with no provider-side
@@ -276,6 +306,12 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 		}
 		table = resolved
 	}
+	// A route that answers two shapes says which one this body is. The marker
+	// is a field only the alternate carries, so the choice is read off the
+	// recorded body rather than guessed from the route.
+	if target.altTable != "" && bodyHasField(body, target.altMarker) {
+		table = target.altTable
+	}
 	id, err := replayRecordID(ctx, target, body)
 	if err != nil {
 		return err
@@ -288,6 +324,13 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 			// A signal has no owner column but is scoped through its subject
 			// entity; "no owner_id" is never on its own a reason to skip.
 			return auth.EnsureSignalVisibleLive(ctx, tx, id)
+		case tableScheduledSend:
+			// A scheduled message is the SENDER's own — an unsent body and its
+			// blind-copy list are not workspace-readable the way a sent
+			// activity is — so the probe is the same scheduled_by predicate the
+			// store reads with, not the generic row-scope clause. It also has
+			// no archived_at, which the generic probe requires.
+			return ensureScheduledSendVisibleLive(ctx, tx, id)
 		}
 		// LIVE, not merely visible. The recorded body is a frozen snapshot the
 		// store itself would no longer serve: Art. 17 erasure anonymizes the
@@ -302,6 +345,40 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 		// unexpected value refuses the replay rather than reaching SQL.
 		return auth.EnsureVisibleLive(ctx, tx, table, id)
 	})
+}
+
+// ensureScheduledSendVisibleLive refuses a replay whose scheduled message no
+// longer belongs to the caller. Existence-hiding, like every other row scope:
+// somebody else's message is not found rather than forbidden.
+func ensureScheduledSendVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return err
+	}
+	var visible bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM scheduled_send WHERE id = $1 AND scheduled_by = $2)`,
+		id, actor.UserID).Scan(&visible); err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+// bodyHasField reports whether the recorded body carries a non-null field —
+// the discriminator between two response shapes one route can answer.
+func bodyHasField(body, field string) bool {
+	if field == "" {
+		return false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &probe); err != nil {
+		return false
+	}
+	raw, ok := probe[field]
+	return ok && string(raw) != jsonNull
 }
 
 // replayRecordID resolves the record whose scope governs this body: from the

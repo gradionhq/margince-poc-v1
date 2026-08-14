@@ -1642,6 +1642,10 @@ export const en = {
   "compose.purpose": "Consent purpose",
   "compose.purposeHint":
     "The send is allowed only if every recipient has granted consent for this purpose.",
+  "compose.sendLaterLabel": "Send later (optional)",
+  "compose.sendLaterHint":
+    "Leave empty to send now. A scheduled message stays off the timeline until it goes out, and the consent and mailbox checks run again at that moment — if one refuses, the message is held for you instead of sent.",
+  "compose.scheduledToast": "Scheduled. It will go out at the time you picked.",
   "compose.send": "Send",
   "compose.sendConfirmTitle": "Send this email?",
   "compose.sendBody":
@@ -4526,6 +4530,9 @@ export const en = {
   "person.composer.title": "Draft follow-up · {name}",
   "person.composer.to": "To",
   "person.composer.subject": "Subject",
+  "person.composer.bcc": "Bcc",
+  "person.composer.bccPlaceholder":
+    "One address per line — they receive the message and no other recipient sees them",
   "person.composer.body": "Message",
   "richtext.bold": "Bold",
   "richtext.italic": "Italic",

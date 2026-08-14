@@ -172,6 +172,16 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 			})
 		},
 
+		// The scheduled-send alarm parses its row id before it binds the
+		// workspace, so a real id is what gets the call as far as the binding
+		// this test is about — a malformed one would refuse for the wrong
+		// reason and prove nothing.
+		ScheduledSendArgs{}.Kind(): func(ctx context.Context) error {
+			return (&scheduledSendWorker{}).Work(ctx, &river.Job[ScheduledSendArgs]{
+				Args: ScheduledSendArgs{ScheduledSendID: ids.NewV7().String()},
+			})
+		},
+
 		// The reindex worker takes its LAST attempt out of the pending set
 		// before returning, which is a store write; the row here is given an
 		// attempt below its cap so the refusal is what the call answers with,

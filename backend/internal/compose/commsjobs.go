@@ -400,6 +400,11 @@ type SendPacing struct {
 	Limit  int
 	Window time.Duration
 	MaxAge time.Duration
+	// ScheduleGrace bounds how late a message a rep chose to send later may
+	// still fire. Past it the message is held for a human: the rep picked a
+	// moment, and mail timed for Monday 09:00 is wrong mail at 18:00
+	// (ADR-0104 §6).
+	ScheduleGrace time.Duration
 }
 
 // The pacing defaults. The rate is a BURST bound, not a quota: Gmail enforces
@@ -425,6 +430,9 @@ func (p SendPacing) withDefaults() SendPacing {
 	}
 	if p.MaxAge <= 0 {
 		p.MaxAge = defaultSendMaxAge
+	}
+	if p.ScheduleGrace <= 0 {
+		p.ScheduleGrace = defaultScheduleGrace
 	}
 	return p
 }

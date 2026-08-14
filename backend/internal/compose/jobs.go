@@ -79,6 +79,12 @@ type JobRunnerConfig struct {
 	// picked up could only fail on every attempt, and a queued send is better
 	// left for a role that can actually resolve a mailbox.
 	SendRegistry *capture.Registry
+	// SendDelivery is the machinery a fired scheduled message stages through —
+	// the same one the api stages an immediate send with. Nil means this role
+	// registers no scheduled-send worker: firing a message means creating its
+	// delivery and its dispatch job, and a role that cannot do that would only
+	// wake a message to fail it.
+	SendDelivery DeliveryMachinery
 
 	// CloseDateInterval is the deals close-date hygiene sweep's cadence — the
 	// operator-facing --close-date-interval. No worker is gated on it: the

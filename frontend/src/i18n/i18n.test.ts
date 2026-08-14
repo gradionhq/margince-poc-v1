@@ -58,6 +58,12 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.ai.speakerName",
   "auth.title",
 
+  // The RFC 5322 header name. "Bcc" is the field's identity in every mail
+  // client in every locale — a translated label would name a field the
+  // recipient's own client does not call that, and the placeholder beside it
+  // is what carries the meaning.
+  "person.composer.bcc",
+
   // CRM domain nouns kept in English by design (glossary, design.md §6.1):
   // "deal", "pipeline", "timeline" etc. read the same in Vietnamese usage.
   "nav.deals",

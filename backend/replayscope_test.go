@@ -52,6 +52,12 @@ var rowScopedResponses = map[string]expectedTarget{
 	"SavedView":           {table: "saved_view", idPath: "id"},
 	"Automation":          {table: "automation", idPath: "id"},
 	"PromoteLeadResponse": {table: "person", idPath: "person.id"},
+	// A scheduled message is readable only by the rep who scheduled it, which
+	// the store enforces with its own scheduled_by predicate rather than an
+	// owner column the generic probe could read. It still carries an id and
+	// still hands back a body — subject, recipients, blind copies — so it is
+	// probed like any other record rather than exempted.
+	"ScheduledSend": {table: "scheduled_send", idPath: "id"},
 	// Not row-scoped in themselves — they carry a reference to a record that
 	// is, and inherit its visibility. An offer without its deal's scope would
 	// hand back that deal's pricing and buyer snapshot to someone who can no
@@ -109,15 +115,20 @@ func TestReplayScopeCoversEveryIdempotentOperation(t *testing.T) {
 			t.Errorf("%s both names an object and explains why it has none", route)
 		}
 
-		schema := responses[route]
-		if schema == "" {
+		schemas := responses[route]
+		if len(schemas) == 0 {
 			// Unclassifiable reads as "carries no record", which would wave
 			// through every exemption unexamined — the way this gate would
 			// pass for the wrong reason.
 			t.Errorf("%s: no 2xx response schema resolved from the contract, so its governance cannot be checked", route)
 			continue
 		}
-		want, carriesRecord := rowScopedResponses[schema]
+		// A route answering several shapes is governed by whichever one the
+		// probe is aimed at, and every OTHER row-scoped shape it can answer
+		// must be probed by something too. Take the classified shape the probe
+		// matches; fall back to the first row-scoped one so a mismatch is
+		// still reported against a real target rather than passing silently.
+		schema, want, carriesRecord := classifyResponse(schemas, got)
 		probesRow := got.table != "" || got.tableField != "" || got.moduleProbe != ""
 
 		switch {
@@ -157,7 +168,13 @@ func TestReplayScopeCoversEveryIdempotentOperation(t *testing.T) {
 
 // successResponseSchemas reads each operation's 2xx response schema name
 // out of the contract, keyed like the runtime maps.
-func successResponseSchemas(t *testing.T) map[string]string {
+// successResponseSchemas maps a route to every schema its 2xx responses name.
+//
+// A route may answer more than one shape: an accepted send returns its
+// activity, and the same operation returns a ScheduledSend when the caller
+// asked for it later (ADR-0104). Both are governed, so both are classified —
+// reading only one would let the other's row scope go unchecked.
+func successResponseSchemas(t *testing.T) map[string][]string {
 	t.Helper()
 	src, err := os.ReadFile("api/crm.yaml")
 	if err != nil {
@@ -176,7 +193,7 @@ func successResponseSchemas(t *testing.T) map[string]string {
 			} `yaml:"schema"`
 		} `yaml:"content"`
 	}
-	schemas := map[string]string{}
+	schemas := map[string][]string{}
 	for path, item := range doc.Paths {
 		for key, node := range item {
 			if !httpMethods[key] {
@@ -194,19 +211,48 @@ func successResponseSchemas(t *testing.T) map[string]string {
 				}
 				route := strings.ToUpper(key) + " /v1" + path
 				if ref := resp.Content["application/json"].Schema.Ref; ref != "" {
-					schemas[route] = ref[strings.LastIndex(ref, "/")+1:]
+					schemas[route] = append(schemas[route], ref[strings.LastIndex(ref, "/")+1:])
 					continue
 				}
 				if _, hasBody := resp.Content["application/json"]; hasBody {
 					// An inline schema carries no name to classify by, so the
 					// route stands in for one rather than silently reading as
 					// "no response record at all".
-					schemas[route] = "inline:" + route
+					schemas[route] = append(schemas[route], "inline:"+route)
 				}
 			}
 		}
 	}
 	return schemas
+}
+
+// classifyResponse picks which of a route's 2xx shapes its probe governs.
+//
+// It prefers the shape the probe actually names, so a route answering both an
+// Activity and a ScheduledSend is judged against the one it declares. When no
+// shape matches, the first row-scoped one is returned, which is what turns a
+// wrongly-aimed probe into a reported mismatch instead of a silent pass.
+func classifyResponse(schemas []string, got expectedTarget) (string, expectedTarget, bool) {
+	var firstScoped string
+	var firstWant expectedTarget
+	for _, schema := range schemas {
+		want, ok := rowScopedResponses[schema]
+		if !ok {
+			continue
+		}
+		if want.table == got.table && want.tableField == got.tableField &&
+			want.moduleProbe == got.moduleProbe && want.idPath == got.idPath &&
+			want.pathParam == got.pathParam {
+			return schema, want, true
+		}
+		if firstScoped == "" {
+			firstScoped, firstWant = schema, want
+		}
+	}
+	if firstScoped != "" {
+		return firstScoped, firstWant, true
+	}
+	return schemas[0], expectedTarget{}, false
 }
 
 // mappedReplayScope reads the replayScope map literal out of the compose

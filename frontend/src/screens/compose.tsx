@@ -825,6 +825,8 @@ async function sendFrom(args: {
     cc?: string[];
     draft_ref?: string;
     consent_purpose: string;
+    scheduled_at?: string;
+    scheduled_tz?: string;
   };
   channelBody: { body: string; consent_purpose: string };
   links: { entity_type: RelinkKind; entity_id: string }[];
@@ -853,6 +855,30 @@ async function sendFrom(args: {
     });
   }
   return api.POST("/emails", { body: { ...args.mail, links: args.links } });
+}
+
+// scheduleFields turns the picker's wall-clock text into what the wire wants:
+// an absolute instant plus the IANA zone the human chose it in.
+//
+// The browser gives "2026-08-17T09:00" — the rep's local time with no offset.
+// `new Date(...)` resolves it against the browser's own zone, which is the zone
+// the rep is looking at, so the instant is the one they meant. The zone NAME
+// travels beside it rather than a numeric offset: an offset would freeze the
+// DST rules of the day it was picked, and a message scheduled across a DST
+// boundary would arrive an hour wrong.
+//
+// Empty means send now, which is what the composer meant before this existed.
+export function scheduleFields(local: string): {
+  scheduled_at?: string;
+  scheduled_tz?: string;
+} {
+  if (local === "") return {};
+  const at = new Date(local);
+  if (Number.isNaN(at.getTime())) return {};
+  return {
+    scheduled_at: at.toISOString(),
+    scheduled_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
 }
 
 function canSendCompose(
@@ -1068,6 +1094,10 @@ export function ComposeModal({
   const [body, setBody] = useState("");
   const [intent, setIntent] = useState("");
   const [purpose, setPurpose] = useState("");
+  // The moment a rep chose to send at, as the browser's datetime-local gives
+  // it: wall-clock text in THEIR zone, with no offset. It becomes an absolute
+  // instant at submit — see scheduleFields.
+  const [sendAt, setSendAt] = useState("");
   const [provenance, setProvenance] = useState<DraftProvenance | null>(null);
   // The served voice draft the body in this form came from. It is what lets the
   // server say whether the rep sent the draft or rewrote it, so it may only ever
@@ -1199,6 +1229,7 @@ export function ComposeModal({
         cc: cc.length ? cc : undefined,
         draft_ref: draftRef ?? undefined,
         consent_purpose: purpose,
+        ...scheduleFields(sendAt),
       };
       const { data, error, response } = await sendFrom({
         activityId,
@@ -1215,7 +1246,13 @@ export function ComposeModal({
       if (!response.ok) {
         throwProblem(error || { title: t("compose.actionFailed") });
       }
-      return { sent: true as const, activity: data };
+      // 201 is a message that will go later; 202 is one that has gone. Both
+      // close the composer, and the caller is told which so it can say so.
+      return {
+        sent: true as const,
+        scheduled: response.status === 201,
+        activity: data,
+      };
     },
     onSuccess: (result) => {
       if (!result.sent) {
@@ -1358,6 +1395,17 @@ export function ComposeModal({
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 
+        {!isTelegram && (
+          <label className="field">
+            <span className="t-label">{t("compose.sendLaterLabel")}</span>
+            <TextInput
+              type="datetime-local"
+              value={sendAt}
+              onChange={(e) => setSendAt(e.target.value)}
+            />
+            <span className="t-caption">{t("compose.sendLaterHint")}</span>
+          </label>
+        )}
         {!isTelegram && <MailSendNotices to={to} cc={cc} purpose={purpose} />}
         {sendUnavailable && (
           <p className="t-caption">{t("compose.sendUnavailable")}</p>

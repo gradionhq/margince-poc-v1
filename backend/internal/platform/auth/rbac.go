@@ -139,6 +139,16 @@ var auditActionGrant = map[string]principal.Action{
 	// nobody exercised.
 	"connect":    principal.ActionCreate,
 	"disconnect": principal.ActionDelete,
+	// The scheduled-send verbs govern on the activity the message will become:
+	// scheduling one is the right to create that activity, and moving or
+	// withdrawing a pending message is the right to change it. Release and hold
+	// are written by the timer under the SENDER's re-derived grants, so they
+	// record the same rule the immediate send would have.
+	"schedule":   principal.ActionCreate,
+	"reschedule": principal.ActionUpdate,
+	"cancel":     principal.ActionUpdate,
+	"release":    principal.ActionCreate,
+	"hold":       principal.ActionUpdate,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a

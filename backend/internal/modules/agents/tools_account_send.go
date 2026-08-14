@@ -49,6 +49,8 @@ func (t sendAccountEmailTool) Spec() mcp.ToolSpec {
 			"subject":{"type":"string"},
 			"body":{"type":"string"},
 			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"},
+			"scheduled_at":{"type":"string","format":"date-time"` + timestampNote + `},
+			"scheduled_tz":{"type":"string","description":"IANA zone name the moment was chosen in (e.g. Europe/Berlin), required with scheduled_at. The send is deferred to that instant: no activity exists until it fires, and every gate re-runs then."},
 			"links":{"type":"array","minItems":1,"items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},"maxItems":25,

@@ -4236,12 +4236,18 @@
             "type": "string",
             "format": "uuid"
           },
+          "scheduled_at": {
+            "type": "string"
+          },
+          "scheduled_send_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "status": {
             "type": "string"
           }
         },
         "required": [
-          "activity_id",
           "status"
         ]
       },
@@ -4332,12 +4338,18 @@
             "type": "string",
             "format": "uuid"
           },
+          "scheduled_at": {
+            "type": "string"
+          },
+          "scheduled_send_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "status": {
             "type": "string"
           }
         },
         "required": [
-          "activity_id",
           "status"
         ]
       },

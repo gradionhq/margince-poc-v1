@@ -70,6 +70,7 @@ import (
 var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
 	// Reached only from worker sweeps, approvals effect executors, or a
 	// service that owns the gate above them. Each entry states which.
+	"internal/modules/activities:HoldScheduledSend":          "worker path: the scheduled-send timer hands a message back to a human when the sender no longer resolves or the ladder is exhausted, under the system principal — the human whose authority it WOULD have used is exactly the one that failed to resolve, so there is no actor to gate on",
 	"internal/modules/ai:CostReport":                         "aggregates this installation's ai_call rows into totals and returns no record; the cost surface above it takes the grant, and there is nothing here for object RBAC to narrow",
 	"internal/modules/ai:DueDeferredBuilds":                  "worker sweep: walks the fleet workspace-by-workspace for builds to re-offer, under the system principal — no human actor exists to gate",
 	"internal/modules/ai:RateFor":                            "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",

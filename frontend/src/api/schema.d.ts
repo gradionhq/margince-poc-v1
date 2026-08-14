@@ -2341,6 +2341,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scheduled-sends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own messages waiting to be sent.
+         * @description Scheduled mail is the SENDER's own (ADR-0104/A155). An unsent message's body and its
+         *     blind-copy list are not workspace-readable the way a sent activity is, so this lists
+         *     only what the caller scheduled.
+         */
+        get: operations["listScheduledSends"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scheduled-sends/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** One of the caller's scheduled messages. */
+        get: operations["getScheduledSend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Move a scheduled message to a different moment.
+         * @description Time only. The content is what the approval bound to, so changing it is
+         *     cancel-and-recompose, which re-enters every gate from the top (ADR-0104 §5).
+         *
+         *     Human-only: an agent may SCHEDULE through the 🟡 send tools, but moving or cancelling
+         *     a message a human approved is not an agent's decision.
+         */
+        patch: operations["rescheduleScheduledSend"];
+        trace?: never;
+    };
+    "/scheduled-sends/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw a scheduled message before it fires.
+         * @description Nothing is transmitted and nothing reaches the timeline. Human-only, for the same
+         *     reason rescheduling is.
+         */
+        post: operations["cancelScheduledSend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/send-message": {
         parameters: {
             query?: never;
@@ -12099,6 +12173,97 @@ export interface components {
              *     `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
              */
             consent_purpose: string;
+            /**
+             * Format: date-time
+             * @description Send this message at this instant instead of now (ADR-0104/A155). Absolute
+             *     and unambiguous; `scheduled_tz` records the zone the human picked it in.
+             *
+             *     A scheduled message writes NO activity and NO delivery row until it fires —
+             *     the timeline stays silent about a message nobody has sent. The response is
+             *     201 with the ScheduledSend rather than 202 with an activity.
+             *
+             *     Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+             *     while the sender is still at the keyboard, and again when it fires, against
+             *     the state that exists then. A message whose consent was withdrawn, whose
+             *     sender lost their seat, or whose attachment was archived in between is HELD
+             *     for a human rather than sent stale.
+             *
+             *     An instant already past sends immediately. Further ahead than 90 days is
+             *     refused 422.
+             */
+            scheduled_at?: string | null;
+            /**
+             * @description The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+             *     Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+             *     would freeze the DST rules of the day it was written (AC-DS-TZ4).
+             */
+            scheduled_tz?: string | null;
+        };
+        /**
+         * @description One message waiting for its moment (ADR-0104/A155). It is not an activity and not a
+         *     delivery: nothing is on the timeline and nothing has been handed to a provider.
+         */
+        ScheduledSend: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `scheduled` — waiting; the rep may move or cancel it.
+             *     `released` — it fired: the activity, the delivery row and the dispatch job exist.
+             *     Deliberately NOT "sent": the provider has not been called yet and the delivery can
+             *     still park or fail, so delivery truth lives on the outbound record, not here.
+             *     `cancelled` — withdrawn before it fired; nothing was transmitted.
+             *     `held` — a gate refused at fire, or the window was missed. It will not send itself;
+             *     a human reschedules or cancels it.
+             * @enum {string}
+             */
+            status: "scheduled" | "released" | "cancelled" | "held";
+            /** Format: date-time */
+            scheduled_at: string;
+            /** @description The IANA zone the human picked the moment in, kept so it re-renders as meant. */
+            scheduled_tz: string;
+            subject: string;
+            to: string[];
+            cc?: string[];
+            /**
+             * @description Visible to the SENDER, who is the only person this record is readable by. A scheduled
+             *     message's blind-copy list is not workspace-readable the way a sent activity is.
+             */
+            bcc?: string[];
+            body?: string;
+            /**
+             * Format: uuid
+             * @description The conversation this reply will join; null for an account-started message.
+             */
+            anchor_activity_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The timeline activity this produced, once released.
+             */
+            activity_id?: string | null;
+            /**
+             * @description Why a human has to look at it. `consent_withdrawn` — a recipient withdrew consent
+             *     after it was scheduled. `sender_inactive` — the scheduler lost their seat or mailbox.
+             *     `missed_window` — it came due while nothing was running and is now too late to be the
+             *     message that was written. `timer_exhausted` — the job that wakes it ran out of
+             *     attempts. `send_refused` — a gate refused for another reason at fire.
+             * @enum {string|null}
+             */
+            held_reason?: "consent_withdrawn" | "sender_inactive" | "missed_window" | "timer_exhausted" | "send_refused" | null;
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A new moment for a message already scheduled. TIME ONLY — the content is what the
+         *     approval bound to, so changing it is cancel-and-recompose (ADR-0104 §5).
+         */
+        RescheduleSendRequest: {
+            /** Format: date-time */
+            scheduled_at: string;
+            scheduled_tz: string;
         };
         /**
          * @description One account-started send. It is SendEmailRequest plus the `links` an anchor would
@@ -12159,6 +12324,31 @@ export interface components {
              *     `person_consent` for THIS purpose.
              */
             consent_purpose: string;
+            /**
+             * Format: date-time
+             * @description Send this message at this instant instead of now (ADR-0104/A155). Absolute
+             *     and unambiguous; `scheduled_tz` records the zone the human picked it in.
+             *
+             *     A scheduled message writes NO activity and NO delivery row until it fires —
+             *     the timeline stays silent about a message nobody has sent. The response is
+             *     201 with the ScheduledSend rather than 202 with an activity.
+             *
+             *     Every gate runs TWICE: now, so a bad recipient or a withheld consent refuses
+             *     while the sender is still at the keyboard, and again when it fires, against
+             *     the state that exists then. A message whose consent was withdrawn, whose
+             *     sender lost their seat, or whose attachment was archived in between is HELD
+             *     for a human rather than sent stale.
+             *
+             *     An instant already past sends immediately. Further ahead than 90 days is
+             *     refused 422.
+             */
+            scheduled_at?: string | null;
+            /**
+             * @description The IANA zone name (e.g. `Europe/Berlin`) the human chose `scheduled_at` in.
+             *     Required with `scheduled_at`. A zone NAME, never a numeric offset, which
+             *     would freeze the DST rules of the day it was written (AC-DS-TZ4).
+             */
+            scheduled_tz?: string | null;
             /**
              * @description The records this conversation is filed under — the company it was started from, and
              *     optionally the person and deal it concerns. At least one is required: a message
@@ -13023,7 +13213,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold";
             entity_type: string;
             /**
              * Format: uuid
@@ -20014,6 +20204,18 @@ export interface operations {
             };
         };
         responses: {
+            /**
+             * @description Scheduled, not sent (ADR-0104/A155). No activity and no delivery row exist yet;
+             *     the timeline stays silent until it fires.
+             */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledSend"];
+                };
+            };
             /** @description Accepted for send (queued); the resulting outbound activity is logged. */
             202: {
                 headers: {
@@ -20051,6 +20253,161 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listScheduledSends: {
+        parameters: {
+            query?: {
+                /** @description Omit for every state; supply one to filter. */
+                status?: "scheduled" | "released" | "cancelled" | "held";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's scheduled messages, soonest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledSend"][];
+                };
+            };
+        };
+    };
+    getScheduledSend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scheduled message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledSend"];
+                };
+            };
+            /**
+             * @description No such scheduled message for this caller. Somebody else's is not found rather
+             *     than forbidden — existence-hiding, as everywhere else.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rescheduleScheduledSend: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RescheduleSendRequest"];
+            };
+        };
+        responses: {
+            /** @description Moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledSend"];
+                };
+            };
+            /** @description No such scheduled message for this caller. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /**
+             * @description It already fired, was cancelled, or somebody moved it first. All three are the same
+             *     answer: the row you saw is not the row that is there.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    cancelScheduledSend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such scheduled message for this caller. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description It already fired or was already cancelled. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     sendMessage: {
