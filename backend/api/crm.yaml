@@ -3736,7 +3736,7 @@ paths:
         - name: status
           in: query
           required: false
-          schema: { type: string, enum: [scheduled, released, cancelled, held] }
+          schema: { type: string, enum: [scheduled, released, sent, cancelled, held] }
           description: Omit for every state; supply one to filter.
       responses:
         '200':
@@ -17284,12 +17284,14 @@ components:
         id: { type: string, format: uuid }
         status:
           type: string
-          enum: [scheduled, released, cancelled, held]
+          enum: [scheduled, released, sent, cancelled, held]
           description: |
             `scheduled` — waiting; the rep may move or cancel it.
-            `released` — it fired: the activity, the delivery row and the dispatch job exist.
-            Deliberately NOT "sent": the provider has not been called yet and the delivery can
-            still park or fail, so delivery truth lives on the outbound record, not here.
+            `released` — it fired: the activity, the delivery row and the dispatch job exist,
+            and the provider has not been called yet, so the delivery can still park or fail.
+            A step rather than an ending.
+            `sent` — the provider confirmed receipt. A message this system sent reads the same
+            whether a rep scheduled it or sent it directly.
             `cancelled` — withdrawn before it fired; nothing was transmitted.
             `held` — a gate refused at fire, or the window was missed. It will not send itself;
             a human reschedules or cancels it.

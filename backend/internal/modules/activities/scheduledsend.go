@@ -139,12 +139,21 @@ type ScheduledSend struct {
 	UpdatedAt   time.Time
 }
 
-// Scheduled-send states. 'released' is deliberately not 'sent': at the end of
-// the fire transaction the provider has not been called, and the delivery can
-// still park or fail. Delivery truth lives on the delivery row (ADR-0104 §5).
+// Scheduled-send states.
+//
+// 'released' is deliberately not 'sent' AT THAT MOMENT: the fire transaction has
+// handed the message to the delivery machinery and the provider has not been
+// called, so the delivery can still park or fail. It is a step, not an ending —
+// when the provider confirms receipt the row reads 'sent' like any other message
+// this system sent (ADR-0104 §5).
+//
+// 'sent' is never WRITTEN here. It is derived at read from the delivery's own
+// status (scheduledSendColumns), because comms owns the receipt and a second
+// writer would be a second place for the two to disagree about one message.
 const (
 	ScheduledStatusScheduled = "scheduled"
 	ScheduledStatusReleased  = "released"
+	ScheduledStatusSent      = "sent"
 	ScheduledStatusCancelled = "cancelled"
 	ScheduledStatusHeld      = "held"
 )

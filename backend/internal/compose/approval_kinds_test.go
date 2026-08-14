@@ -15,12 +15,19 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -206,4 +213,286 @@ func TestEveryConfirmationRequiredPolicyHasAnApprovalKind(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no confirm-first tool routes in the generated policy — the gate covers nothing")
 	}
+}
+
+// TestEveryKindComposeStagesHasADecisionGrantMapping closes the gap the three
+// tests above leave: they derive their kinds from the TOOL registry and the
+// effect registry, so a kind staged by a WORKER — no tool, no effect — is
+// invisible to all of them.
+//
+// That gap is not hypothetical. The held-scheduled-send item (ADR-0104 §5) was
+// staged by the fire path, landed in the approval table, and appeared in nobody's
+// inbox: decidable() fails closed on an unmapped kind, so every row was written
+// and then filtered out of the one surface that exists to show it. It looked
+// exactly like a notifier that never ran.
+//
+// Derived from the SOURCE rather than a list: every approvals.StageInput literal
+// in this package names its kind, and each one has to be decidable by somebody.
+func TestEveryKindComposeStagesHasADecisionGrantMapping(t *testing.T) {
+	fset := token.NewFileSet()
+	files := parsePackageFiles(t, fset, ".")
+	// Every string constant this package declares, so a Kind named by an
+	// identifier resolves to the value it will carry at run time.
+	consts := map[string]string{}
+	for _, file := range files {
+		collectStringConsts(file, consts)
+	}
+	kinds := map[string]token.Position{}
+	var unresolved []string
+	for _, file := range files {
+		{
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.CompositeLit)
+				if !ok || !isStageInput(lit) {
+					return true
+				}
+				kind, pos, outcome := stagedKind(lit, consts)
+				switch outcome {
+				case kindResolved:
+					kinds[kind] = fset.Position(pos)
+				case kindUnreadable:
+					// A Kind this gate cannot read is a stager it cannot judge,
+					// and silence there would be the same invisibility the gate
+					// exists to catch — one level up.
+					unresolved = append(unresolved, fset.Position(lit.Pos()).String())
+				case kindAbsent:
+					// A literal with no Kind field at all is a zero value or a
+					// partial build — an error return, a struct assembled
+					// field-by-field elsewhere. There is no kind here to judge.
+				}
+				return true
+			})
+		}
+	}
+	if len(kinds) == 0 {
+		t.Fatal("no approvals.StageInput literals found in compose — this gate resolved nothing and would demand nothing")
+	}
+	for _, where := range unresolved {
+		t.Errorf("%s stages an approval whose Kind this gate cannot resolve — teach stagedKind to read it, or the stager rides in unjudged",
+			where)
+	}
+	for kind, pos := range kinds {
+		// The target type is what a target-RESOLVED kind derives its second
+		// grant from. Passing "activity" resolves those without pinning this
+		// gate to any one kind's target: what it asks is whether the kind is
+		// MAPPED at all, and an unmapped one errors before the type is read.
+		if _, err := approvals.DecisionGrantObjects(kind, "activity"); err != nil {
+			t.Errorf("%s stages approval kind %q, which approvals has no decision-grant mapping for — every such row is written and then filtered out of the inbox, so it reads as a stager that never ran (%v)",
+				pos, kind, err)
+		}
+	}
+}
+
+// isStageInput reports whether a composite literal builds an approvals.StageInput.
+func isStageInput(lit *ast.CompositeLit) bool {
+	sel, ok := lit.Type.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "StageInput" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "approvals"
+}
+
+// kindOutcome says what reading a literal's Kind field found: a value this gate
+// can judge, a field it could not read, or no field at all. The three are
+// deliberately distinct — collapsing "unreadable" into "absent" is how a stager
+// rides in unjudged.
+type kindOutcome int
+
+const (
+	kindAbsent kindOutcome = iota
+	kindResolved
+	kindUnreadable
+)
+
+// stagedKind resolves the Kind field of a StageInput literal: a string literal
+// directly, a constant declared in this package, or an exported approvals kind.
+//
+// A Kind that is a plain identifier resolving to nothing is a PARAMETER — the
+// stager is a helper several callers share, and its kind is whatever they pass.
+// Those are reported as unreadable rather than skipped, because the gate cannot
+// see which kinds actually reach them.
+func stagedKind(lit *ast.CompositeLit, consts map[string]string) (string, token.Pos, kindOutcome) {
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || key.Name != "Kind" {
+			continue
+		}
+		switch v := kv.Value.(type) {
+		case *ast.BasicLit:
+			if v.Kind == token.STRING {
+				return strings.Trim(v.Value, `"`), v.Pos(), kindResolved
+			}
+		case *ast.Ident:
+			// A constant this package declares, resolved to its value.
+			if value, found := consts[v.Name]; found {
+				return value, v.Pos(), kindResolved
+			}
+			// Otherwise a function parameter: the helper is shared and its kind
+			// is whatever each caller passes, which this gate cannot see from
+			// the literal. Those callers are covered by the tool and effect
+			// registries above — the two gates together are what make the
+			// coverage total.
+			return "", token.NoPos, kindAbsent
+		case *ast.SelectorExpr:
+			// approvals.KindX used inline, resolved through the live package —
+			// the value the build compiles is the one this gate must judge.
+			if pkg, ok := v.X.(*ast.Ident); ok {
+				if value, found := crossPackageKinds[pkg.Name+"."+v.Sel.Name]; found {
+					return value, v.Pos(), kindResolved
+				}
+				// A selector on something that is not a package — in.Kind on a
+				// request struct — is a kind supplied by whoever CALLS this
+				// helper. The gate cannot see those from here; the adapter's
+				// own caller-side gate is what covers them (the tool and effect
+				// registries above), which is why this is a pass rather than a
+				// finding.
+				if !isPackageQualifier(pkg.Name) {
+					return "", token.NoPos, kindAbsent
+				}
+			}
+		}
+		return "", kv.Value.Pos(), kindUnreadable
+	}
+	return "", token.NoPos, kindAbsent
+}
+
+// collectStringConsts records every package-level string constant, so a Kind
+// written as an identifier resolves to the value it carries at run time.
+func collectStringConsts(file *ast.File, into map[string]string) {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i >= len(vs.Values) {
+					continue
+				}
+				switch v := vs.Values[i].(type) {
+				case *ast.BasicLit:
+					if v.Kind == token.STRING {
+						into[name.Name] = strings.Trim(v.Value, `"`)
+					}
+				case *ast.SelectorExpr:
+					// A local alias for another package's exported kind
+					// (approvals.KindX). Resolved through the live package
+					// rather than by re-parsing it: the value the build uses is
+					// the one this gate must judge, and a second reading of the
+					// source is a second chance to disagree with it.
+					if pkg, ok := v.X.(*ast.Ident); ok && pkg.Name == "approvals" {
+						if value, found := exportedApprovalKinds[v.Sel.Name]; found {
+							into[name.Name] = value
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// exportedApprovalKinds is every kind constant the approvals module exports for
+// another package to stage under. Listed here rather than reflected, because a
+// constant has no runtime identity to reflect on — and the list is short
+// because exporting one is the deliberate act of saying "compose stages this".
+//
+// A kind exported there and missing here makes this gate skip a stager, so the
+// companion assertion below fails when the two fall out of step.
+// gatekit:fixture the value each exported approvals kind constant carries —
+// resolved constant data, not a cost.
+var exportedApprovalKinds = map[string]string{
+	"KindQuotaRelease": approvals.KindQuotaRelease,
+}
+
+// crossPackageKinds resolves a kind another module exports and compose stages
+// under, keyed as written at the call site.
+// gatekit:fixture the value each cross-package kind constant carries, keyed as
+// written at the call site — resolved constant data, not a cost.
+var crossPackageKinds = map[string]string{
+	"approvals.KindQuotaRelease":    approvals.KindQuotaRelease,
+	"deals.CloseDateCorrectionKind": deals.CloseDateCorrectionKind,
+	"deals.FollowUpReconcileKind":   deals.FollowUpReconcileKind,
+}
+
+// isPackageQualifier reports whether an identifier names an imported package
+// rather than a local variable. Kept as the short list compose actually stages
+// through, so a NEW module's kind is unreadable — and therefore reported —
+// until somebody adds it here rather than silently skipped.
+func isPackageQualifier(name string) bool {
+	switch name {
+	case "approvals", "deals", "people", "activities", "agents":
+		return true
+	}
+	return false
+}
+
+// TestTheExportedApprovalKindMapIsComplete is the companion the gate above
+// depends on: exportedApprovalKinds is written by hand, and a kind exported by
+// approvals but missing from it makes that gate skip a stager silently.
+//
+// Derived from the approvals SOURCE rather than a second list, so exporting a
+// new kind fails here until the map catches up.
+func TestTheExportedApprovalKindMapIsComplete(t *testing.T) {
+	fset := token.NewFileSet()
+	exported := map[string]bool{}
+	for _, file := range parsePackageFiles(t, fset, "../modules/approvals") {
+		consts := map[string]string{}
+		collectStringConsts(file, consts)
+		for name := range consts {
+			if strings.HasPrefix(name, "Kind") {
+				exported[name] = true
+			}
+		}
+	}
+	if len(exported) == 0 {
+		t.Fatal("no exported Kind constants found in approvals — this gate resolved nothing")
+	}
+	for name := range exported {
+		if _, mapped := exportedApprovalKinds[name]; !mapped {
+			t.Errorf("approvals exports %s and exportedApprovalKinds does not carry it — every compose stager using it would be skipped by the decision-grant gate", name)
+		}
+	}
+	for name := range exportedApprovalKinds {
+		if !exported[name] {
+			t.Errorf("exportedApprovalKinds carries %s, which approvals no longer exports — stale entry", name)
+		}
+	}
+}
+
+// parsePackageFiles parses every non-test Go file in a directory.
+//
+// Explicit rather than parser.ParseDir, which is deprecated for ignoring build
+// tags: this gate wants every file whatever tags it carries, because a stager
+// behind a tag stages just as really as one without.
+func parsePackageFiles(t *testing.T, fset *token.FileSet, dir string) []*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	var files []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		files = append(files, file)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no Go files parsed from %s — this gate would resolve nothing", dir)
+	}
+	return files
 }

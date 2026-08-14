@@ -24,8 +24,30 @@ import (
 
 // scheduledSendColumns is the read shape, spelled once so the list and the
 // detail read cannot drift into scanning different rows.
+// scheduledSendStatusExpr is the status a REP sees, spelled once because the
+// projection and the filter must agree: rendering a derived state while
+// filtering the raw column makes `?status=sent` return nothing and
+// `?status=released` return rows that read "sent".
+const scheduledSendStatusExpr = `
+	CASE WHEN status = 'released'
+	       AND EXISTS (SELECT 1 FROM comms_outbound o
+	                    WHERE o.id = scheduled_send.delivery_id AND o.status = 'sent')
+	     THEN 'sent' ELSE status END`
+
 const scheduledSendColumns = `
-	id, status, scheduled_at, scheduled_tz, origin_kind,
+	id,
+	-- 'released' is where the fire transaction leaves the row: the message has
+	-- been handed to the delivery machinery and the provider has not been called
+	-- yet. When the provider confirms receipt the DELIVERY records it, and the
+	-- scheduled send follows — a message this system sent reads "sent" whether a
+	-- rep scheduled it or pressed the button (ADR-0104 §5, DRAFT-AC-N-10a).
+	--
+	-- DERIVED at read rather than written by a second writer. comms owns the
+	-- receipt and this table belongs to activities, so a cross-module write
+	-- would be a second place for the two to disagree about one message. Reading
+	-- the delivery's own status cannot drift from it.
+	` + scheduledSendStatusExpr + ` AS status,
+	scheduled_at, scheduled_tz, origin_kind,
 	anchor_activity_id, payload, scheduled_by, activity_id,
 	held_reason, version, created_at, updated_at`
 
@@ -47,7 +69,7 @@ func (s *Store) ListScheduledSends(ctx context.Context, status string) ([]Schedu
 		rows, err := tx.Query(ctx, `
 			SELECT`+scheduledSendColumns+`
 			  FROM scheduled_send
-			 WHERE scheduled_by = $1 AND ($2 = '' OR status = $2)
+			 WHERE scheduled_by = $1 AND ($2 = '' OR `+scheduledSendStatusExpr+` = $2)
 			 ORDER BY scheduled_at ASC`,
 			actor.UserID, status)
 		if err != nil {
