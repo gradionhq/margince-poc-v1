@@ -10,11 +10,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // pathID asserts a contract path id as entity K's id — the widening
@@ -40,31 +38,14 @@ type Handlers struct {
 	store *Store
 }
 
-// NewHandlers wires the transport over the installation-bound pool.
-func NewHandlers(db *database.DB) Handlers {
-	return Handlers{store: NewStore(db)}
-}
-
 // NewHandlersFromStore wires the transport over a store the caller already
-// built — compose's one path for a store pre-widened with WithFieldCatalog,
-// so the transport carries whatever seams the caller wired without a second
-// WithFieldCatalog call that could drift from the first.
+// built. Taking the store rather than a pool is what keeps one spelling of
+// "the collections store with its catalogue": compose builds that store once
+// and both the transport and the export surface receive the same one, so a
+// filter naming a cf_* column cannot be accepted by one surface and refused
+// as unknown by the other.
 func NewHandlersFromStore(store *Store) Handlers {
 	return Handlers{store: store}
-}
-
-// WithFieldCatalog wires the workspace custom-field vocabulary into the
-// transport's store (see Store.WithFieldCatalog): dynamic-list create
-// validation and the members endpoint then compile a filter naming a cf_*
-// column against the same widened vocabulary the filtered-export handler
-// already resolves through this store's SegmentEngine — without it, a
-// cf_* filter that export accepts is refused here as an unknown field.
-// Compose injects modules/customfields' Service here; a caller that never
-// filters (the workflow adapter's list writes) needs no catalog and
-// passes none.
-func (h Handlers) WithFieldCatalog(catalog fieldcatalog.FilterableReader) Handlers {
-	h.store = h.store.WithFieldCatalog(catalog)
-	return h
 }
 
 func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmcontracts.ListListsParams) {
