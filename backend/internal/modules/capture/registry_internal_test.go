@@ -15,12 +15,15 @@ type fakeChannelConnector struct{ name string }
 func (f fakeChannelConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{Name: f.name}
 }
+
 func (f fakeChannelConnector) Authenticate(context.Context, connector.AuthRequest) (connector.Auth, error) {
 	return nil, nil
 }
+
 func (f fakeChannelConnector) Sync(context.Context, connector.Auth, connector.Cursor, connector.Sink) (connector.Cursor, error) {
 	return connector.Cursor{}, nil
 }
+
 func (f fakeChannelConnector) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
 	return nil, nil
 }
@@ -34,12 +37,15 @@ type fakeMailConnector struct{ name string }
 func (f fakeMailConnector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{Name: f.name}
 }
+
 func (f fakeMailConnector) Authenticate(context.Context, connector.AuthRequest) (connector.Auth, error) {
 	return nil, nil
 }
+
 func (f fakeMailConnector) Sync(context.Context, connector.Auth, connector.Cursor, connector.Sink) (connector.Cursor, error) {
 	return connector.Cursor{}, nil
 }
+
 func (f fakeMailConnector) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
 	return nil, nil
 }
