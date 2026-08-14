@@ -262,5 +262,40 @@ func wire(a row, now time.Time) crmcontracts.Approval {
 			out.ProposedChange = &change
 		}
 	}
+	out.Evidence = wireEvidence(a.Evidence)
 	return out
+}
+
+// wireEvidence maps the persisted evidence array onto the contract shape.
+//
+// Unreadable evidence yields nil rather than a partial list: evidence exists so
+// a human can check a proposal, and half a citation invites confirming against
+// material that was never actually read. The proposal itself still reads, and
+// its missing evidence is what says "do not confirm this on the citation".
+func wireEvidence(raw json.RawMessage) *[]crmcontracts.ApprovalEvidence {
+	if len(raw) == 0 {
+		return nil
+	}
+	var stored []evidenceJSON
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil
+	}
+	out := make([]crmcontracts.ApprovalEvidence, 0, len(stored))
+	for _, e := range stored {
+		item := crmcontracts.ApprovalEvidence{EvidenceSnippet: &e.Snippet}
+		if e.SourceType != nil {
+			t := crmcontracts.ApprovalEvidenceSourceType(*e.SourceType)
+			item.SourceType = &t
+		}
+		if e.SourceID != nil {
+			v := openapi_types.UUID(*e.SourceID)
+			item.SourceId = &v
+		}
+		if len(e.SourceLines) > 0 {
+			lines := e.SourceLines
+			item.SourceLines = &lines
+		}
+		out = append(out, item)
+	}
+	return &out
 }

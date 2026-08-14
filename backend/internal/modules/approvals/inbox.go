@@ -49,19 +49,22 @@ type row struct {
 	// BundleID is the act that staged this row together with its siblings, nil
 	// for one staged alone (bundle.go).
 	BundleID *ids.UUID
+	// Evidence is what each claim was read out of, nil for a staging that read
+	// nothing (evidence.go).
+	Evidence json.RawMessage
 }
 
 const columns = `id, kind, status, proposed_by, on_behalf_of, passport_id,
 	target_entity_type, target_entity_id, target_version, summary,
 	proposed_change, diff_hash, expires_at, decided_by, decided_at, consumed_at, created_at,
-	bundle_id`
+	bundle_id, evidence`
 
 func scan(r pgx.Row) (row, error) {
 	var a row
 	err := r.Scan(&a.ID, &a.Kind, &a.Status, &a.ProposedBy, &a.OnBehalfOf, &a.PassportID,
 		&a.TargetType, &a.TargetID, &a.TargetVersion, &a.Summary,
 		&a.ProposedChange, &a.DiffHash, &a.ExpiresAt, &a.DecidedBy, &a.DecidedAt, &a.ConsumedAt, &a.CreatedAt,
-		&a.BundleID)
+		&a.BundleID, &a.Evidence)
 	return a, err
 }
 

@@ -71,6 +71,20 @@ func (e oversizedTranscriptError) FieldFault() (field, code, message string) {
 // refuses NUL outright, and the rest have no place in a spoken-word
 // transcript), each line's trailing whitespace is trimmed, and the result
 // is refused if it is blank or over the size bound.
+// transcriptLines splits a NORMALIZED transcript body into its addressable
+// lines. Index i holds line i+1, because the addressing this feature cites is
+// 1-based (ADR-0058).
+//
+// It is one line of code and it is a function anyway, because it is the single
+// spelling of the split. A reader that splits differently — trimming empties,
+// or on a different separator — cites line numbers that disagree with what the
+// human is looking at on screen, and the disagreement is invisible: both sides
+// produce plausible numbers. Everything that addresses a transcript goes
+// through here.
+func transcriptLines(normalized string) []string {
+	return strings.Split(normalized, "\n")
+}
+
 func normalizeTranscript(raw string) (string, error) {
 	if len(raw) > maxTranscriptBytes {
 		return "", oversizedTranscriptError{bytes: len(raw)}

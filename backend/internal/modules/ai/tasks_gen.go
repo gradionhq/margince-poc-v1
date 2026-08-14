@@ -42,6 +42,8 @@ const (
 	TaskSummarize Task = "summarize"
 	// TaskTranscript is Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands.
 	TaskTranscript Task = "transcript"
+	// TaskTranscriptPropose is S-E04.3 / MEET-AC-3/4: read the next steps and commitments out of a meeting transcript, each citing the 1-based transcript lines it was read from (ADR-0058). Floor 0.7; below it the proposal is dropped, never guessed, and a transcript stating none yields no proposal at all. Every proposal is a structural claim, so it STAGES for a human (approval kind transcript_proposal) and writes nothing until confirmed.
+	TaskTranscriptPropose Task = "transcript_propose"
 	// TaskVoiceBuild is owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066). Three sites: the derive pass plus the two evaluation passes.
 	TaskVoiceBuild Task = "voice_build"
 )
@@ -71,7 +73,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "9ee37bacc7d67837c7d210b83471662d55f05d7a5f567efedbeeb79e46a238c5"
+const TaskContractHash = "fadde9d67a62d8300a962a3ff4743239952ece4531d24a4b1639c1573a6619ec"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -97,6 +99,7 @@ func AllTasks() []Task {
 		TaskSiteTriage,
 		TaskSummarize,
 		TaskTranscript,
+		TaskTranscriptPropose,
 		TaskVoiceBuild,
 	}
 }
@@ -123,6 +126,7 @@ var taskLadders = map[Task][]Tier{
 	TaskSiteTriage:                 {TierCheapCloud, TierPremium},
 	TaskSummarize:                  {TierCheapCloud, TierPremium},
 	TaskTranscript:                 {TierCheapCloud, TierPremium},
+	TaskTranscriptPropose:          {TierCheapCloud, TierPremium},
 	TaskVoiceBuild:                 {TierCheapCloud, TierPremium},
 }
 
@@ -158,6 +162,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskSiteTriage:                 ExecutionModeBackground,
 	TaskSummarize:                  ExecutionModeInteractive,
 	TaskTranscript:                 ExecutionModeInteractive,
+	TaskTranscriptPropose:          ExecutionModeBackground,
 	TaskVoiceBuild:                 ExecutionModeBackground,
 }
 
@@ -200,6 +205,7 @@ var taskStatus = map[Task]string{
 	TaskSiteTriage:                 "shipped",
 	TaskSummarize:                  "shipped",
 	TaskTranscript:                 "planned",
+	TaskTranscriptPropose:          "shipped",
 	TaskVoiceBuild:                 "shipped",
 }
 
@@ -279,6 +285,9 @@ var taskSites = map[Task][]Site{
 		{Name: "org_ask", Kind: "one_shot"},
 		{Name: "org_dossier", Kind: "one_shot"},
 	},
+	TaskTranscriptPropose: {
+		{Name: "next_steps", Kind: "one_shot"},
+	},
 	TaskVoiceBuild: {
 		{Name: "derive", Kind: "one_shot"},
 		{Name: "eval_draft", Kind: "one_shot"},
@@ -331,6 +340,7 @@ var taskCompanyContext = map[Task]CompanyContextPolicy{
 	TaskSiteTriage:                 {TokenBudget: 0, Conditional: false},
 	TaskSummarize:                  {Scopes: []string{"identity"}, TokenBudget: 300, Conditional: true},
 	TaskTranscript:                 {TokenBudget: 0, Conditional: false},
+	TaskTranscriptPropose:          {TokenBudget: 0, Conditional: false},
 	TaskVoiceBuild:                 {TokenBudget: 0, Conditional: false},
 }
 
@@ -346,8 +356,9 @@ func CompanyContextFor(t Task) (CompanyContextPolicy, bool) {
 // behaviour and lives in the estimator; naming the rule here is what
 // lets the build prove the mapping is total.
 var taskCostUnit = map[Task]string{
-	TaskCaptureClassify: "per_message",
-	TaskEnrich:          "per_person",
+	TaskCaptureClassify:   "per_message",
+	TaskEnrich:            "per_person",
+	TaskTranscriptPropose: "per_activity",
 }
 
 // CostUnitFor returns the task's unit-rule name, or "" when unpriced.

@@ -579,36 +579,6 @@ func (e ApplyTagRequestEntityType) Valid() bool {
 	}
 }
 
-// Defines values for ApprovalEvidenceSourceType.
-const (
-	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
-	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
-	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
-	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
-	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
-	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
-)
-
-// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
-func (e ApprovalEvidenceSourceType) Valid() bool {
-	switch e {
-	case ApprovalEvidenceSourceTypeActivity:
-		return true
-	case ApprovalEvidenceSourceTypeDeal:
-		return true
-	case ApprovalEvidenceSourceTypeLessThannil:
-		return true
-	case ApprovalEvidenceSourceTypePage:
-		return true
-	case ApprovalEvidenceSourceTypeRelationship:
-		return true
-	case ApprovalEvidenceSourceTypeSignal:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ApprovalStatus.
 const (
 	ApprovalStatusApproved ApprovalStatus = "approved"
@@ -651,6 +621,36 @@ func (e ApprovalBundleMemberOutcome) Valid() bool {
 	case ApprovalBundleMemberOutcomeEffectFailed:
 		return true
 	case ApprovalBundleMemberOutcomeExpired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalEvidenceSourceType.
+const (
+	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
+	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
+	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
+	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
+	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
+	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
+func (e ApprovalEvidenceSourceType) Valid() bool {
+	switch e {
+	case ApprovalEvidenceSourceTypeActivity:
+		return true
+	case ApprovalEvidenceSourceTypeDeal:
+		return true
+	case ApprovalEvidenceSourceTypeLessThannil:
+		return true
+	case ApprovalEvidenceSourceTypePage:
+		return true
+	case ApprovalEvidenceSourceTypeRelationship:
+		return true
+	case ApprovalEvidenceSourceTypeSignal:
 		return true
 	default:
 		return false
@@ -10618,11 +10618,7 @@ type Approval struct {
 	DiffHash *string `json:"diff_hash,omitempty"`
 
 	// Evidence Per-claim evidence (snippet + source id) backing the proposal.
-	Evidence *[]struct {
-		EvidenceSnippet *string                     `json:"evidence_snippet,omitempty"`
-		SourceId        *openapi_types.UUID         `json:"source_id,omitempty"`
-		SourceType      *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
-	} `json:"evidence,omitempty"`
+	Evidence *[]ApprovalEvidence `json:"evidence,omitempty"`
 
 	// ExpiresAt When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
@@ -10654,9 +10650,6 @@ type Approval struct {
 	// TargetVersion The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).
 	TargetVersion *int `json:"target_version,omitempty"`
 }
-
-// ApprovalEvidenceSourceType defines model for Approval.Evidence.SourceType.
-type ApprovalEvidenceSourceType string
 
 // ApprovalStatus defines model for Approval.Status.
 type ApprovalStatus string
@@ -10704,6 +10697,20 @@ type ApprovalBundleMember struct {
 // audited, but the follow-on change did not land; the member reads approved and
 // unredeemed, and the server log carries the cause.
 type ApprovalBundleMemberOutcome string
+
+// ApprovalEvidence One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these.
+type ApprovalEvidence struct {
+	// EvidenceSnippet The fragment as it reads in the source, quoted rather than paraphrased.
+	EvidenceSnippet *string             `json:"evidence_snippet,omitempty"`
+	SourceId        *openapi_types.UUID `json:"source_id,omitempty"`
+
+	// SourceLines 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed.
+	SourceLines *[]int                      `json:"source_lines,omitempty"`
+	SourceType  *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
+}
+
+// ApprovalEvidenceSourceType defines model for ApprovalEvidence.SourceType.
+type ApprovalEvidenceSourceType string
 
 // ApprovalListResponse defines model for ApprovalListResponse.
 type ApprovalListResponse struct {
