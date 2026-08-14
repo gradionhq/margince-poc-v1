@@ -86,6 +86,7 @@ export function VoiceCorpusIntake({
         <Textarea
           rows={first ? 8 : 4}
           value={paste}
+          aria-label={t("settings.voice.addLabel")}
           placeholder={t("settings.voice.addPlaceholder")}
           onChange={(e) => setPaste(e.target.value)}
         />

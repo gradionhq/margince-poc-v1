@@ -3698,6 +3698,7 @@ export const de = {
   "settings.voice.excluded": "ausgeschlossen",
   "settings.voice.removeSource": "Probe entfernen",
   "settings.voice.pastedLabel": "Eingefügter Text",
+  "settings.voice.addLabel": "Beispiel hinzufügen",
   "settings.voice.addPlaceholder":
     "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
   "settings.voice.addSource": "Probe hinzufügen",

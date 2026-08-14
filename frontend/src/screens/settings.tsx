@@ -42,6 +42,7 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
@@ -760,9 +761,8 @@ function EmailSignatureCard() {
   const shown = body ?? signature.data?.body ?? "";
 
   return (
-    <Card
+    <Panel
       title={t("settings.signature")}
-      sub={t("settings.signatureSub")}
       actions={
         <Button
           small
@@ -773,7 +773,10 @@ function EmailSignatureCard() {
         </Button>
       }
     >
-      <div className="form-stack">
+      <PanelBody className="form-stack">
+        <p className="t-small settings-panel-sub">
+          {t("settings.signatureSub")}
+        </p>
         <Field label={t("settings.signatureLabel")}>
           {(control) => (
             <Textarea
@@ -787,12 +790,12 @@ function EmailSignatureCard() {
         </Field>
         <p className="t-caption">{t("settings.signatureHint")}</p>
         {save.isError && (
-          <p className="t-caption" style={{ color: "var(--danger)" }}>
+          <Callout tone="danger" live="alert">
             {problemMessageOf(save.error, t)}
-          </p>
+          </Callout>
         )}
-      </div>
-    </Card>
+      </PanelBody>
+    </Panel>
   );
 }
 
