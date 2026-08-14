@@ -3682,7 +3682,6 @@ export const vi = {
   "settings.voice.excluded": "đã loại trừ",
   "settings.voice.removeSource": "Gỡ mẫu văn",
   "settings.voice.pastedLabel": "Văn bản đã dán",
-  "settings.voice.addLabel": "Thêm mẫu",
   "settings.voice.addPlaceholder":
     "Dán một email, bài đăng, hay bất cứ gì bạn đã viết…",
   "settings.voice.addSource": "Thêm mẫu văn",

@@ -176,6 +176,16 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
           <p className="t-small settings-panel-sub">
             {t("settings.voice.intro")}
           </p>
+          {/* Said ONCE, for the whole surface, rather than beside each of the
+              five controls a denial disables. The affordances below may then be
+              absent without the page making a claim about the data — which is
+              the split design-system/README.md draws between a withheld surface
+              and a withheld write. */}
+          {!canEdit && (
+            <p className="t-small vdna-readonly">
+              {t("settings.voice.readOnly")}
+            </p>
+          )}
           <div className="vdna-status">
             <Badge>{t(`settings.voice.status.${profile.status}`)}</Badge>
             {profile.quality_band && (
@@ -215,18 +225,28 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
 
       <Panel title={t("settings.voice.personalityLabel")}>
         <PanelBody>
-          <PersonalityEditor profile={profile} onSaved={invalidate} />
+          <PersonalityEditor
+            profile={profile}
+            canEdit={canEdit}
+            onSaved={invalidate}
+          />
         </PanelBody>
       </Panel>
 
       <Panel title={t("settings.voice.corpusLabel")}>
         <PanelBody>
-          <CorpusManifest profileId={profile.id} onChanged={invalidate} />
-          <VoiceCorpusIntake
+          <CorpusManifest
             profileId={profile.id}
+            canEdit={canEdit}
             onChanged={invalidate}
-            onBusyChange={setIntakeBusy}
           />
+          {canEdit && (
+            <VoiceCorpusIntake
+              profileId={profile.id}
+              onChanged={invalidate}
+              onBusyChange={setIntakeBusy}
+            />
+          )}
         </PanelBody>
       </Panel>
 
@@ -236,6 +256,7 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
             corpus that no longer exists by the time it finishes. */}
           <BuildControls
             profile={profile}
+            canEdit={canEdit}
             onBuilt={invalidate}
             intakeBusy={intakeBusy}
           />
@@ -263,8 +284,13 @@ function DerivedVoice({ profile }: Readonly<{ profile: VoiceProfile }>) {
 // overwrites; the PATCH is version-guarded (If-Match on the profile version).
 function PersonalityEditor({
   profile,
+  canEdit,
   onSaved,
-}: Readonly<{ profile: VoiceProfile; onSaved: () => void }>) {
+}: Readonly<{
+  profile: VoiceProfile;
+  canEdit: boolean;
+  onSaved: () => void;
+}>) {
   const t = useT();
   const [text, setText] = useState(profile.personality_md);
   const [error, setError] = useState<string | null>(null);
@@ -290,23 +316,33 @@ function PersonalityEditor({
   const dirty = text !== profile.personality_md;
   return (
     <div className="vdna-composer">
+      {/* readOnly rather than disabled: the preferences are a READ this seat
+          still holds, and a disabled textarea drops out of the tab order, so a
+          keyboard reader could not reach the words to read them. */}
       <Textarea
         rows={4}
         value={text}
+        readOnly={!canEdit}
         aria-label={t("settings.voice.personalityLabel")}
         placeholder={t("settings.voice.personalityPlaceholder")}
         onChange={(e) => setText(e.target.value)}
       />
-      <div className="vdna-composer-actions">
-        <Button
-          small
-          disabled={!dirty || save.isPending}
-          onClick={() => save.mutate()}
-        >
-          {t("settings.voice.savePreferences")}
-        </Button>
-        {error && <span className="t-small">{error}</span>}
-      </div>
+      {canEdit && (
+        <div className="vdna-composer-actions">
+          <Button
+            small
+            disabled={!dirty || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {t("settings.voice.savePreferences")}
+          </Button>
+          {error && (
+            <span className="t-small" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -317,8 +353,13 @@ function PersonalityEditor({
 // id nobody has minted yet.
 function CorpusManifest({
   profileId,
+  canEdit,
   onChanged,
-}: Readonly<{ profileId: string; onChanged: () => void }>) {
+}: Readonly<{
+  profileId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}>) {
   const t = useT();
   const sources = useVoiceSources(profileId);
   const [error, setError] = useState<string | null>(null);
@@ -364,6 +405,7 @@ function CorpusManifest({
               <ul className="vdna-list">
                 {manifest.sources.map((s) => (
                   <SourceRow
+                    canEdit={canEdit}
                     key={s.id}
                     source={s}
                     summary={manifest.summary}
@@ -452,10 +494,12 @@ function RegisterMix({ summary }: Readonly<{ summary: VoiceCorpusSummary }>) {
 // band: the warning names the drop before anything is deleted.
 function SourceRow({
   source,
+  canEdit,
   summary,
   pending,
   onRemove,
 }: Readonly<{
+  canEdit: boolean;
   source: VoiceCorpusSource;
   summary: VoiceCorpusSummary;
   pending: boolean;
@@ -491,16 +535,17 @@ function SourceRow({
           })}
         </span>
       )}
-      <button
-        type="button"
-        className="iconbtn"
-        aria-label={t("settings.voice.removeSource")}
-        style={{ marginLeft: "auto" }}
-        disabled={pending}
-        onClick={handleRemove}
-      >
-        <Trash2 aria-hidden />
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          className="iconbtn vdna-row-verb"
+          aria-label={t("settings.voice.removeSource")}
+          disabled={pending}
+          onClick={handleRemove}
+        >
+          <Trash2 aria-hidden />
+        </button>
+      )}
     </li>
   );
 }
@@ -509,9 +554,11 @@ function SourceRow({
 // budget-deferred build is honestly reported, not spun on forever.
 function BuildControls({
   profile,
+  canEdit,
   onBuilt,
   intakeBusy = false,
 }: Readonly<{
+  canEdit: boolean;
   profile: VoiceProfile;
   onBuilt: () => void;
   intakeBusy?: boolean;
@@ -595,24 +642,35 @@ function BuildControls({
       {/* The title rides the wrapper, not the button: a disabled control fires
           no pointer events, so a tooltip on it would never appear at the exact
           moment someone is asking why they cannot click. */}
-      <span className="vdna-build" title={blocked ?? undefined}>
-        <Button
-          variant="primary"
-          small
-          disabled={build.isPending || tooThin || intakeBusy}
-          onClick={() => build.mutate()}
-        >
-          <Sparkles aria-hidden />{" "}
-          {build.isPending
-            ? t("settings.voice.building")
-            : t("settings.voice.rebuild")}
-        </Button>
-      </span>
-      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
-      {status && (
-        <p className="t-small">{t(`settings.voice.buildStatus.${status}`)}</p>
+      {canEdit && (
+        <span className="vdna-build" title={blocked ?? undefined}>
+          <Button
+            variant="primary"
+            small
+            disabled={build.isPending || tooThin || intakeBusy}
+            onClick={() => build.mutate()}
+          >
+            <Sparkles aria-hidden />{" "}
+            {build.isPending
+              ? t("settings.voice.building")
+              : t("settings.voice.rebuild")}
+          </Button>
+        </span>
       )}
-      {error && <p className="t-small">{error}</p>}
+      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
+      {/* Mounted whether or not there is an outcome yet. A build runs for about
+          a minute behind a poll, so the reader who started it has looked away —
+          and a live region inserted together with its text is not reliably
+          announced, which would leave the one thing they are waiting for
+          arriving in silence. */}
+      <p className="t-small" role="status">
+        {status ? t(`settings.voice.buildStatus.${status}`) : ""}
+      </p>
+      {error && (
+        <p className="t-small" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

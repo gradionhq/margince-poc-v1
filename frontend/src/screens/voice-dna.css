@@ -35,14 +35,6 @@
   margin-top: var(--space-3);
 }
 
-/* A composer that OPENS a card takes its gap from the card's header, which
-   carries one already — its own inter-block top margin would double it. The
-   composer that follows content inside a card (the paste box under the corpus
-   manifest) still separates itself, which is the case the rule above is for. */
-.card > .section-header + .vdna-composer {
-  margin-top: 0;
-}
-
 /* The action sits on its own row under the paste area, so the control reads as
    one composer rather than a field with something stuck to its edge. */
 .vdna-composer-actions {

@@ -1,7 +1,7 @@
 import { Upload } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Button, Radio, Textarea } from "../design-system/atoms";
+import { Button, Field, Radio, Textarea } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf } from "./common";
 import { useFileDrop } from "./use-file-drop";
@@ -80,16 +80,28 @@ export function VoiceCorpusIntake({
       )}
 
       <div className="vdna-composer">
-        {first && (
-          <div className="vdna-label">{t("settings.voice.addFirstLabel")}</div>
-        )}
-        <Textarea
-          rows={first ? 8 : 4}
-          value={paste}
-          aria-label={t("settings.voice.addLabel")}
-          placeholder={t("settings.voice.addPlaceholder")}
-          onChange={(e) => setPaste(e.target.value)}
-        />
+        {/* Field, not a div plus an aria-label: the words above the box have to
+            BE its accessible name, or the two drift — this box read "Your first
+            writing sample" while announcing "Add sample", which is the
+            label-in-name mismatch WCAG 2.5.3 exists to catch, and a reader
+            driving it by voice would ask for the wrong control. Field owns the
+            id and draws a real <label for>, so clicking the words also focuses
+            the box. */}
+        <Field
+          label={t(
+            first ? "settings.voice.addFirstLabel" : "settings.voice.addSource",
+          )}
+        >
+          {(control) => (
+            <Textarea
+              {...control}
+              rows={first ? 8 : 4}
+              value={paste}
+              placeholder={t("settings.voice.addPlaceholder")}
+              onChange={(e) => setPaste(e.target.value)}
+            />
+          )}
+        </Field>
         <div className="vdna-composer-actions">
           <Button
             small

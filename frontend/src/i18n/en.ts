@@ -3712,7 +3712,6 @@ export const en = {
   "settings.voice.excluded": "excluded",
   "settings.voice.removeSource": "Remove sample",
   "settings.voice.pastedLabel": "Pasted writing",
-  "settings.voice.addLabel": "Add sample",
   "settings.voice.addPlaceholder":
     "Paste an email, post, or anything you've written…",
   "settings.voice.addSource": "Add sample",
