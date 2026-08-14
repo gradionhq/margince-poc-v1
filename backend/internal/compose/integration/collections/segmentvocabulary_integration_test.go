@@ -124,6 +124,148 @@ func assertSoleMember(t *testing.T, f fixture, listID ids.ListID, want ids.UUID)
 	}
 }
 
+// defineField creates a custom field of any of the six catalog types on
+// person and answers its physical column — createTextField's generalized
+// sibling, used by the per-type coverage below. label must stay unique
+// across this package (see createTextField's own note on testdb.Reset).
+func (f fixture) defineField(t *testing.T, spec customfieldsmod.FieldSpec) string {
+	t.Helper()
+	spec.Object = "person"
+	spec.Source = "ui"
+	field, err := f.svc.Create(f.ctx, spec)
+	if err != nil {
+		t.Fatalf("defining %q: %v", spec.Label, err)
+	}
+	if field.ColumnName == nil {
+		t.Fatalf("defined field %q carries no column_name", spec.Label)
+	}
+	return *field.ColumnName
+}
+
+// seedTwoPeople creates two bare person records for a typed-filter test to
+// set a custom field value on afterward.
+func (f fixture) seedTwoPeople(t *testing.T, name string) (a, b ids.UUID) {
+	t.Helper()
+	pa, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: name + " A", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create %s A: %v", name, err)
+	}
+	pb, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: name + " B", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create %s B: %v", name, err)
+	}
+	return ids.UUID(pa.Id), ids.UUID(pb.Id)
+}
+
+// setField sets one custom column's value through the update path — the
+// same "filled in later, not at create" path every scenario in this file
+// filters against.
+//
+//craft:ignore naked-any value is a wire-shaped custom-field value, spanning every scalar type a cf_* column can hold
+func (f fixture) setField(t *testing.T, person ids.UUID, column string, value any) {
+	t.Helper()
+	if _, err := f.people.UpdatePerson(f.ctx, integration.PersonIDOf(person), peoplemod.UpdatePersonInput{
+		CustomFields: map[string]any{column: value},
+	}); err != nil {
+		t.Fatalf("setting %s=%v: %v", column, value, err)
+	}
+}
+
+// filterList builds a one-leaf dynamic list on person and answers its id,
+// failing the test if the definition is refused.
+//
+//craft:ignore naked-any value is a predicate leaf's operand, which spans every scalar and array shape the filter DSL accepts
+func (f fixture) filterList(t *testing.T, name, field, op string, value any) ids.ListID {
+	t.Helper()
+	created, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: name, EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": field, "op": op, "value": value},
+	})
+	if err != nil {
+		t.Fatalf("create list %q: %v", name, err)
+	}
+	return created.ID
+}
+
+// TestANumberCustomFieldFiltersOnEqAndGt exercises the typed operators the
+// text-only fixture above never reaches: eq narrows to an exact match and
+// gt narrows to values strictly above the bound, both against a real
+// numeric cf_* column.
+func TestANumberCustomFieldFiltersOnEqAndGt(t *testing.T) {
+	f := setupFixture(t)
+	column := f.defineField(t, customfieldsmod.FieldSpec{Label: "Deal Score", Type: customfieldsmod.TypeNumber})
+	high, low := f.seedTwoPeople(t, "Score")
+	f.setField(t, high, column, 42.5)
+	f.setField(t, low, column, 10.0)
+
+	assertSoleMember(t, f, f.filterList(t, "score eq", column, "eq", 42.5), high)
+	assertSoleMember(t, f, f.filterList(t, "score gt", column, "gt", 20.0), high)
+}
+
+// TestACurrencyCustomFieldFiltersOnEqAndRefusesAFractionalOperand proves
+// both halves of the currency fix: a whole minor-units value narrows
+// membership through eq, and a fractional operand is refused as a typed
+// validation error rather than silently truncated or reaching the query
+// as a query-execution failure.
+func TestACurrencyCustomFieldFiltersOnEqAndRefusesAFractionalOperand(t *testing.T) {
+	f := setupFixture(t)
+	column := f.defineField(t, customfieldsmod.FieldSpec{
+		Label: "Lifetime Value", Type: customfieldsmod.TypeCurrency, Currency: strPtr("USD"),
+	})
+	big, small := f.seedTwoPeople(t, "LTV")
+	f.setField(t, big, column, float64(500000))
+	f.setField(t, small, column, float64(100))
+
+	assertSoleMember(t, f, f.filterList(t, "ltv eq", column, "eq", float64(500000)), big)
+
+	_, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "ltv fractional", EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": 12.5},
+	})
+	var pred *storekit.PredicateError
+	if !errors.As(err, &pred) || pred.Code != storekit.CodeFilterValueInvalid {
+		t.Fatalf("a fractional currency operand err = %v, want a PredicateError(%s)", err, storekit.CodeFilterValueInvalid)
+	}
+}
+
+// TestADateCustomFieldFiltersOnGt proves a date column orders correctly
+// through the predicate engine's own gt, not just equality.
+func TestADateCustomFieldFiltersOnGt(t *testing.T) {
+	f := setupFixture(t)
+	column := f.defineField(t, customfieldsmod.FieldSpec{Label: "Renewal Date", Type: customfieldsmod.TypeDate})
+	later, earlier := f.seedTwoPeople(t, "Renewal")
+	f.setField(t, later, column, "2027-06-01")
+	f.setField(t, earlier, column, "2026-01-01")
+
+	assertSoleMember(t, f, f.filterList(t, "renewal gt", column, "gt", "2026-12-31"), later)
+}
+
+// TestABooleanCustomFieldFiltersOnEq proves a boolean column's eq narrows
+// to exactly the true-valued (or false-valued) rows.
+func TestABooleanCustomFieldFiltersOnEq(t *testing.T) {
+	f := setupFixture(t)
+	column := f.defineField(t, customfieldsmod.FieldSpec{Label: "Is VIP", Type: customfieldsmod.TypeBoolean})
+	vip, plain := f.seedTwoPeople(t, "VIP")
+	f.setField(t, vip, column, true)
+	f.setField(t, plain, column, false)
+
+	assertSoleMember(t, f, f.filterList(t, "vip eq true", column, "eq", true), vip)
+}
+
+// TestAPicklistCustomFieldFiltersOnIn proves a picklist column's in
+// membership narrows to rows whose value is any of the listed options.
+func TestAPicklistCustomFieldFiltersOnIn(t *testing.T) {
+	f := setupFixture(t)
+	column := f.defineField(t, customfieldsmod.FieldSpec{
+		Label: "Region", Type: customfieldsmod.TypePicklist, Options: []string{"emea", "apac", "amer"},
+	})
+	emea, amer := f.seedTwoPeople(t, "Region")
+	f.setField(t, emea, column, "emea")
+	f.setField(t, amer, column, "amer")
+
+	assertSoleMember(t, f, f.filterList(t, "region in", column, "in", []any{"emea"}), emea)
+}
+
 // TestADynamicListFiltersOnACustomFieldValue is the point of the task: a
 // cf_* predicate must be ACCEPTED by list creation and then actually
 // narrow membership — a customer who filled in a field can build a

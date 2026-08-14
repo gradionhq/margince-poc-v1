@@ -58,17 +58,19 @@ func inOperand(p Predicate, field Field) (any, error) {
 		}
 	}
 	switch field.Type {
-	case FieldNumber, FieldCurrency:
+	case FieldNumber:
 		return inNumberOperand(raw, field, p.Field)
+	case FieldCurrency:
+		return inCurrencyOperand(raw, field, p.Field)
 	default: // text, picklist, id — string-valued types (dates take no `in`).
 		return inStringOperand(raw, field, p.Field)
 	}
 }
 
-// inNumberOperand is inOperand's number/currency branch: scalarOperand's
-// contract for these two types is always a float64, but the assertion is
-// checked rather than asserted blind — a scalarOperand that ever changed
-// that contract must fail loudly here, not hand pgx a mistyped bind slice.
+// inNumberOperand is inOperand's number branch: scalarOperand's contract
+// for this type is always a float64, but the assertion is checked rather
+// than asserted blind — a scalarOperand that ever changed that contract
+// must fail loudly here, not hand pgx a mistyped bind slice.
 func inNumberOperand(raw []any, field Field, name string) ([]float64, error) {
 	values := make([]float64, len(raw))
 	for i, v := range raw {
@@ -79,6 +81,27 @@ func inNumberOperand(raw []any, field Field, name string) ([]float64, error) {
 		n, ok := checked.(float64)
 		if !ok {
 			return nil, fmt.Errorf("storekit: scalarOperand returned %T for a %s field, want float64", checked, field.Type)
+		}
+		values[i] = n
+	}
+	return values, nil
+}
+
+// inCurrencyOperand is inOperand's currency branch, checked the same way
+// inNumberOperand is checked — but against int64, currency's actual bind
+// shape (see scalarCurrencyOperand): a bigint column bound from a float64
+// truncates through pgx's Int8Codec rather than refusing a fractional or
+// out-of-range member.
+func inCurrencyOperand(raw []any, field Field, name string) ([]int64, error) {
+	values := make([]int64, len(raw))
+	for i, v := range raw {
+		checked, err := scalarOperand(v, field, name, OpIn)
+		if err != nil {
+			return nil, err
+		}
+		n, ok := checked.(int64)
+		if !ok {
+			return nil, fmt.Errorf("storekit: scalarOperand returned %T for a %s field, want int64", checked, field.Type)
 		}
 		values[i] = n
 	}
@@ -120,8 +143,10 @@ func scalarOperand(value any, field Field, name, op string) (any, error) {
 		return scalarStringOperand(value, invalid, "a string")
 	case FieldID:
 		return scalarUUIDOperand(value, invalid)
-	case FieldNumber, FieldCurrency:
+	case FieldNumber:
 		return scalarNumberOperand(value, invalid)
+	case FieldCurrency:
+		return scalarCurrencyOperand(value, invalid)
 	case FieldDate:
 		return scalarDateOperand(value, invalid)
 	case FieldBoolean:
@@ -182,6 +207,47 @@ func scalarNumberOperand(value any, invalid func(string) error) (any, error) {
 		return float64(n), nil
 	default:
 		return nil, invalid("a number")
+	}
+}
+
+// currencyFloatFloor and currencyFloatCeil bound the float64 values
+// scalarCurrencyOperand accepts before converting to int64: the widest
+// half-open range a float64 can compare against the int64 range without
+// undefined-behaviour overflow on the final conversion.
+const (
+	currencyFloatFloor = -9223372036854775808 // math.MinInt64, exact in float64
+	currencyFloatCeil  = 9223372036854775808  // math.MaxInt64 + 1, exact in float64
+)
+
+// scalarCurrencyOperand is scalarOperand's currency branch: a currency
+// column is bigint minor units (custom-fields.md), never a decimal, so the
+// operand must be a whole number that fits int64 — binding a float64
+// straight through would reach pgx's Int8Codec, which truncates a
+// fractional value silently via its Int64Valuer path rather than refusing
+// it, and an out-of-range value would fail as a database error instead of
+// a caller-facing one. Converting to int64 here, once both checks pass,
+// makes the eventual bind exact rather than routed through that lossy path.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherit scalarOperand's own span across the SQL scalar types
+func scalarCurrencyOperand(value any, invalid func(string) error) (any, error) {
+	switch n := value.(type) {
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return nil, invalid("a whole number of minor units")
+		}
+		if math.Trunc(n) != n {
+			return nil, invalid("a whole number of minor units, not a fractional amount")
+		}
+		if n < currencyFloatFloor || n >= currencyFloatCeil {
+			return nil, invalid("a whole number of minor units within the supported range")
+		}
+		return int64(n), nil
+	case int:
+		return int64(n), nil
+	case int64:
+		return n, nil
+	default:
+		return nil, invalid("a whole number of minor units")
 	}
 }
 

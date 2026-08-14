@@ -83,12 +83,12 @@ func TestCompileGoldenSQLPerOperator(t *testing.T) {
 	}{
 		{"eq id", leaf("owner_id", OpEq, ownerUUID), "t.owner_id = $1", []any{ownerUUID}},
 		{"neq picklist", leaf("status", OpNeq, "lost"), "t.status <> $1", []any{"lost"}},
-		{"gt currency", leaf("amount_minor", OpGt, 5000.0), "t.amount_minor > $1", []any{5000.0}},
+		{"gt currency", leaf("amount_minor", OpGt, 5000.0), "t.amount_minor > $1", []any{int64(5000)}},
 		{"gte number int accepted", leaf("probability", OpGte, 40), "t.probability >= $1", []any{40.0}},
 		{"lt date", leaf("expected_close_date", OpLt, "2026-09-01"), "t.expected_close_date < $1", []any{"2026-09-01"}},
 		{"lte number", leaf("probability", OpLte, 90.5), "t.probability <= $1", []any{90.5}},
 		{"in picklist", leaf("status", OpIn, []any{"open", "won"}), "t.status = ANY($1)", []any{[]string{"open", "won"}}},
-		{"in currency", leaf("amount_minor", OpIn, []any{100.0, 200.0}), "t.amount_minor = ANY($1)", []any{[]float64{100, 200}}},
+		{"in currency", leaf("amount_minor", OpIn, []any{100.0, 200.0}), "t.amount_minor = ANY($1)", []any{[]int64{100, 200}}},
 		{"contains text", leaf("title", OpContains, "acme"), "t.title ILIKE $1", []any{"%acme%"}},
 		{"exists true", leaf("owner_id", OpExists, true), "t.owner_id IS NOT NULL", nil},
 		{"exists false", leaf("owner_id", OpExists, false), "t.owner_id IS NULL", nil},
@@ -124,7 +124,7 @@ func TestCompileNestedGroupsGolden(t *testing.T) {
 	if sql != want {
 		t.Errorf("sql = %q, want %q", sql, want)
 	}
-	wantArgs := []any{"open", 100000.0, "%renewal%"}
+	wantArgs := []any{"open", int64(100000), "%renewal%"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Errorf("args = %#v, want %#v", args, wantArgs)
 	}
@@ -216,6 +216,8 @@ func TestCompileRejectsInvalidShapes(t *testing.T) {
 		{"malformed uuid", leaf("owner_id", OpEq, "not-a-uuid"), CodeFilterValueInvalid},
 		{"malformed date", leaf("expected_close_date", OpEq, "31/12/2026"), CodeFilterValueInvalid},
 		{"NaN number", leaf("probability", OpEq, nan()), CodeFilterValueInvalid},
+		{"fractional currency", leaf("amount_minor", OpEq, 12.5), CodeFilterValueInvalid},
+		{"currency beyond int64 range", leaf("amount_minor", OpGt, 1e19), CodeFilterValueInvalid},
 		{"exists non-bool", leaf("owner_id", OpExists, "yes"), CodeFilterValueInvalid},
 		{"boolean non-bool", leaf("is_hot", OpEq, "true"), CodeFilterValueInvalid},
 		{"in empty list", leaf("status", OpIn, []any{}), CodeFilterValueInvalid},
