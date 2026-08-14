@@ -155,7 +155,7 @@ func collectUnitTables(name, dir string) (tableNames []string, present bool, err
 		if !strings.HasSuffix(e.Name(), ".up.sql") {
 			continue
 		}
-		sqlBytes, err := os.ReadFile(filepath.Join(layer, e.Name()))
+		sqlBytes, err := os.ReadFile(filepath.Join(layer, e.Name())) // #nosec G304 -- a path this generator derives from the tree it is reading
 		if err != nil {
 			return nil, false, err
 		}
@@ -327,13 +327,24 @@ func maskNonCode(sql string) string {
 
 // dollarTag reads the opening $tag$ (or $$) at the start of s, if there is
 // one. A lone $ — a positional parameter, say — is not a quote opener.
+// isDollarTagChar reports whether c may appear inside a dollar-quote tag.
+// Postgres allows what an identifier allows, and naming the rule is what makes
+// the caller's early return legible — the inline form was four negations the
+// reader had to invert back into "is this an identifier character".
+func isDollarTagChar(c byte) bool {
+	return c == '_' ||
+		(c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9')
+}
+
 func dollarTag(s string) (string, bool) {
 	for i := 1; i < len(s); i++ {
 		c := s[i]
 		if c == '$' {
 			return s[:i+1], true
 		}
-		if c != '_' && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') {
+		if !isDollarTagChar(c) {
 			return "", false
 		}
 	}

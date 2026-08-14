@@ -35,9 +35,9 @@ import (
 // conversion: the AST cannot tell a conversion from a call that dials out,
 // so — the same reasoning as the Handle rule in astreader.go — the
 // conservative rule is the only one that keeps the claim checkable.
-func rejectLiveInitializers(pkgs map[string]*ast.Package, fset *token.FileSet) error {
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+func rejectLiveInitializers(pkgs map[string][]*ast.File, fset *token.FileSet) error {
+	for _, files := range pkgs {
+		for _, f := range files {
 			for _, decl := range f.Decls {
 				switch d := decl.(type) {
 				case *ast.FuncDecl:

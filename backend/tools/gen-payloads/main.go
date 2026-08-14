@@ -45,6 +45,7 @@ func main() {
 			log.Fatalf("gen-payloads: %s: %v", g.Source, err)
 		}
 	}
+	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("gen-payloads: %d group(s) generated\n", len(groups))
 }
 
@@ -59,7 +60,7 @@ func generateGroup(root string, g group) error {
 		return err
 	}
 	dst := filepath.Join(root, g.Out)
-	if err := os.WriteFile(dst, []byte(out), 0o600); err != nil {
+	if err := os.WriteFile(dst, []byte(out), 0o600); err != nil { // #nosec G703 -- dst derives from this generator's own declared group list
 		return fmt.Errorf("writing %s: %w", g.Out, err)
 	}
 	return nil

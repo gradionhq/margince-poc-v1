@@ -144,7 +144,7 @@ func digestBytes(b []byte) string {
 // workspace); absence digests as empty input, recorded, so appearing and
 // vanishing both register as a change.
 func digestFileOrEmpty(path string) (string, error) {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- the path is derived by this generator from the tree it hashes
 	if os.IsNotExist(err) {
 		return digestBytes(nil), nil
 	}

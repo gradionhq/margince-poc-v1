@@ -137,7 +137,7 @@ func scanUnit(name, dir string) (extensionUnit, error) {
 	if err != nil {
 		return extensionUnit{}, err
 	}
-	modBytes, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	modBytes, err := os.ReadFile(filepath.Join(dir, "go.mod")) // #nosec G304 -- a path this generator derives from the tree it is reading
 	switch {
 	case os.IsNotExist(err):
 		if hasGo {
@@ -218,7 +218,7 @@ func holdsOnlyInstalledOutput(dir string) (bool, error) {
 // refuseNonRootGoPackages refuses any Go package inside a unit's tree other
 // than the root package itself.
 //
-// This closes a gap the AST liveness walk cannot reach: parser.ParseDir in
+// This closes a gap the AST liveness walk cannot reach: parseDirByPackage in
 // deriveUnitManifest only ever reads the unit's ROOT directory, never
 // descending, so a package sitting in a subdirectory — reached only through
 // a blank import from the root package's own source, e.g.
@@ -369,7 +369,7 @@ func coreDigest(root string) (string, error) {
 			return "", err
 		}
 	}
-	raw, err := os.ReadFile(filepath.Join(root, goWorkFile))
+	raw, err := os.ReadFile(filepath.Join(root, goWorkFile)) // #nosec G304 -- a path this generator derives from the tree it is reading
 	if err != nil {
 		return "", err
 	}

@@ -51,7 +51,9 @@ func TestAnnotateThenCollect_roundTripsFindingID(t *testing.T) {
 func TestAnnotate_multipleFindingsKeepStableLines(t *testing.T) {
 	root := t.TempDir()
 	src := "line1\nline2\nline3\nline4\n"
-	os.WriteFile(filepath.Join(root, "f.go"), []byte(src), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "f.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	blocking := []Finding{
 		{ID: "a", File: "f.go", Line: 2, Category: "over-commenting", Severity: SeverityBlocker, Confidence: ConfidenceHigh, Rationale: "x", SuggestedFix: "y"},

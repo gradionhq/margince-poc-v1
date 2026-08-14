@@ -68,5 +68,6 @@ func main() {
 		log.Fatalf("gen-jobs: writing %s: %v", *outKindsPath, err)
 	}
 
+	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("%d kinds, %d queues generated\n", len(c.Kinds), len(c.Queues))
 }

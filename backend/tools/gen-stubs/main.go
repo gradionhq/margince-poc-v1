@@ -89,6 +89,7 @@ func run() error {
 	if err := os.WriteFile(*outPath, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
 		return err
 	}
+	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("%d stubs generated\n", count)
 	return nil
 }

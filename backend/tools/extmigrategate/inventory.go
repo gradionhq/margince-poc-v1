@@ -207,6 +207,10 @@ func assertNoTriggers(ctx context.Context, conn *pgx.Conn) error {
 		if err := rows.Scan(&table, &trigger); err != nil {
 			return fmt.Errorf("reading triggers in schema %s: %w", extSchema, err)
 		}
+		// One row is the whole answer: this is a positive allowlist, so the first
+		// trigger outside it refuses the unit. Reporting every offender would
+		// change nothing a caller does and would bury the one it must fix.
+		//nolint:staticcheck // SA4004: intentional — a fail-closed allowlist refuses on its first offender
 		return fmt.Errorf("trigger %s on %s.%s is outside the allowlist — a trigger is arbitrary code on a tenant table's write path, and the policy this gate checks says nothing about what it does", trigger, extSchema, table)
 	}
 	return rows.Err()
@@ -243,6 +247,8 @@ func assertNoRules(ctx context.Context, conn *pgx.Conn) error {
 		if err := rows.Scan(&table, &rule); err != nil {
 			return fmt.Errorf("reading rewrite rules in schema %s: %w", extSchema, err)
 		}
+		// Same shape as assertNoTriggers: first offender refuses, by design.
+		//nolint:staticcheck // SA4004: intentional — a fail-closed allowlist refuses on its first offender
 		return fmt.Errorf("rewrite rule %s on %s.%s is outside the allowlist — a rule rewrites statements against a tenant table before they run, and DO INSTEAD NOTHING discards them entirely", rule, extSchema, table)
 	}
 	return rows.Err()

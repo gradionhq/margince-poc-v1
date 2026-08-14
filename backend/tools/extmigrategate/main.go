@@ -111,6 +111,7 @@ func run(ctx context.Context, unit, dir, dsn string) (err error) {
 	var summary string
 	defer func() {
 		if err == nil && summary != "" {
+			//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 			fmt.Println(summary)
 		}
 	}()

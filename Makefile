@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -47,7 +47,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc craft-test check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check migration-versions test-lanes env-reads gofmt go-file-length rls-store-path no-jurisdiction pkg-freeze
+check-backend: check-craft-doc craft-test check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -485,12 +485,18 @@ test-lanes:
 env-reads:
 	@./scripts/check-env-reads.sh
 
-## gofmt — formatting floor under EVERY Go module. golangci-lint enforces gofmt
-## but runs `./...` from backend/, which stops at the module boundary; this
-## reaches backend/tools, cli/craft, extensions/<unit> and fixtures too, deriving
-## the file list from git so a new module is covered the day it is committed.
+## gofmt — formatting floor under EVERY Go module, including the ones golangci
+## cannot type-check (fixtures/), so `lint-modules` does not subsume it. Derives
+## the file list from git, so a new module is covered the day it is committed.
 gofmt:
 	@./scripts/check-gofmt.sh
+
+## lint-modules — golangci-lint over the Go modules `./...` from backend/ cannot
+## reach: backend/tools, cli/craft, composition and the units under extensions/
+## are each their own module, so the backend lint lane never saw them. Same
+## config as the product module; the list derives from tracked go.mod files.
+lint-modules: composition
+	@./scripts/check-lint-modules.sh
 
 ## go-file-length — hard 500-LOC cap on hand-written Go files, ratcheted via
 ## scripts/go-file-length-waivers.txt (pre-existing offenders may shrink,

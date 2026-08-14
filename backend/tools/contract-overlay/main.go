@@ -39,7 +39,10 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(*out), 0o750); err != nil {
 		log.Fatalf("contract-overlay: %v", err)
 	}
-	if err := os.WriteFile(*out, converted, 0o600); err != nil {
+	// The "taint" is this tool's own -out flag: for a build-time generator the
+	// author of that path is the engineer who typed it, and writing where they
+	// said to is the entire contract of the argument.
+	if err := os.WriteFile(*out, converted, 0o600); err != nil { // #nosec G703 -- the output path IS this tool's -out flag
 		log.Fatalf("contract-overlay: %v", err)
 	}
 }

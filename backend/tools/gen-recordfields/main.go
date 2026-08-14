@@ -102,7 +102,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("gen-recordfields: formatting output: %v", err)
 	}
-	if err := os.WriteFile(*out, formatted, 0o644); err != nil {
+	// 0o600, matching gen-agentpolicy/gen-payloads/contract-overlay: git records
+	// only the exec bit, so the mode a generator writes is a local-tree detail,
+	// and the four generators having one answer beats three having another.
+	if err := os.WriteFile(*out, formatted, 0o600); err != nil {
 		log.Fatalf("gen-recordfields: %v", err)
 	}
 }
