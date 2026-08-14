@@ -16,7 +16,6 @@ package compose
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -66,14 +65,12 @@ func newRefetchFixture(t *testing.T) refetchFixture {
 	return refetchFixture{e: e, vault: vault, ms: ms, meter: budgettest.Meter(t, budgettest.SmallConfig("hubspot"))}
 }
 
-// worker builds the re-fetch worker over inc, exposed (rather than folded into
-// signal) so a test can vary one dependency — the vault, say — before the run.
-func (f refetchFixture) worker(inc overlay.Incumbent) *overlayRefetchWorker {
-	return &overlayRefetchWorker{
-		pool: f.e.Pool, vault: f.vault, ms: f.ms, meter: f.meter,
-		log:          slog.New(slog.DiscardHandler),
-		newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
-	}
+// worker takes THIS build's registered re-fetch worker and points it at inc,
+// exposed (rather than folded into signal) so a test can vary one dependency —
+// the vault, say — before the run.
+func (f refetchFixture) worker(t *testing.T, inc overlay.Incumbent) *overlayRefetchWorker {
+	t.Helper()
+	return registeredRefetchWorker(t, f.e.Pool, f.vault, f.meter, inc)
 }
 
 // signal executes one coalesced webhook signal for contacts/c-1 — the record
@@ -125,7 +122,7 @@ func TestOverlayRefetchWorkerStopsCleanlyWhenTheWorkspaceDisconnected(t *testing
 	}
 
 	spy := &getCountingIncumbent{Adapter: seededPortal()}
-	if err := f.signal(f.worker(spy)); err != nil {
+	if err := f.signal(f.worker(t, spy)); err != nil {
 		t.Fatalf("a signal for a disconnected workspace must be a clean stop, got: %v", err)
 	}
 	if spy.gets != 0 {
@@ -156,7 +153,7 @@ func TestOverlayRefetchWorkerSkipsAHaltedMirror(t *testing.T) {
 	}
 
 	spy := &getCountingIncumbent{Adapter: seededPortal()}
-	if err := f.signal(f.worker(spy)); err != nil {
+	if err := f.signal(f.worker(t, spy)); err != nil {
 		t.Fatalf("a signal for a halted mirror must be a clean stop, got: %v", err)
 	}
 	if spy.gets != 0 {
@@ -169,10 +166,9 @@ func TestOverlayRefetchWorkerSkipsAHaltedMirror(t *testing.T) {
 
 // TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller proves the
 // worker distinguishes "gone" from "broken": a record the incumbent will not
-// return (archived between the webhook and the job, or unmappable) is not
-// retryable — retrying it forever would burn quota on a record that is never
-// coming back — so the worker stops cleanly and leaves reconciliation to the
-// poller's deletion feed.
+// return — archived between the signal and the job — is not retryable, since
+// the same read gives the same answer however many attempts it is given, so
+// the worker stops cleanly and leaves the row to the poller's deletion feed.
 func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	f := newRefetchFixture(t)
 	// A portal WITHOUT the signalled record: its Get fails with a plain
@@ -180,7 +176,7 @@ func TestOverlayRefetchWorkerLeavesAnUnreadableRecordToThePoller(t *testing.T) {
 	empty := fake.New()
 	empty.SeedOwner("owner-1", "a@authz.test")
 
-	if err := f.signal(f.worker(empty)); err != nil {
+	if err := f.signal(f.worker(t, empty)); err != nil {
 		t.Fatalf("an unreadable record must not be retried, got: %v", err)
 	}
 	if f.mirrored(t) {
@@ -206,7 +202,7 @@ func (g getFailingIncumbent) Get(context.Context, string, string) (overlay.Recor
 // and retry — swallowing it would silently drop the signal.
 func TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure(t *testing.T) {
 	f := newRefetchFixture(t)
-	err := f.signal(f.worker(getFailingIncumbent{Adapter: seededPortal(), err: apperrors.ErrPermissionDenied}))
+	err := f.signal(f.worker(t, getFailingIncumbent{Adapter: seededPortal(), err: apperrors.ErrPermissionDenied}))
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("a connection-level read failure = %v, want it surfaced so River retries", err)
 	}
@@ -221,7 +217,7 @@ func TestOverlayRefetchWorkerRetriesAConnectionLevelReadFailure(t *testing.T) {
 // failure worth retrying — not a record that stopped existing.
 func TestOverlayRefetchWorkerSurfacesAnUnresolvableToken(t *testing.T) {
 	f := newRefetchFixture(t)
-	w := f.worker(seededPortal())
+	w := f.worker(t, seededPortal())
 	w.vault = keyvault.NewMemory() // a vault that never held this connection's secret
 	if err := f.signal(w); err == nil {
 		t.Fatal("an unresolvable vaulted token must surface as an error, not a silent no-op")
@@ -263,7 +259,7 @@ func (r *revokeOnGetIncumbent) Get(ctx context.Context, objectClass, externalID 
 func TestOverlayRefetchWorkerStopsCleanlyOnADisconnectMidRefetch(t *testing.T) {
 	f := newRefetchFixture(t)
 	inc := &revokeOnGetIncumbent{Adapter: seededPortal(), pool: f.e.Pool}
-	if err := f.signal(f.worker(inc)); err != nil {
+	if err := f.signal(f.worker(t, inc)); err != nil {
 		t.Fatalf("a disconnect mid-refetch must be a clean stop, got: %v", err)
 	}
 	if f.mirrored(t) {

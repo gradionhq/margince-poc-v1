@@ -117,6 +117,151 @@ func flipService(db *database.DB) *Service {
 	})
 }
 
+// The declarations these tests judge rows against: what the contacts mapping
+// currently is, and one it used to be. Both are opaque digests to everything
+// under test — the flip preflight compares them, it never computes them.
+const (
+	currentContactsDeclaration = "contacts-declaration-current"
+	oldContactsDeclaration     = "contacts-declaration-superseded"
+)
+
+// flipServiceJudgingContacts is flipService with the current declarations
+// injected — for contacts ONLY. The companies mapping is deliberately absent:
+// it stands for a class this deployment cannot judge, which must be spared
+// rather than counted stale forever.
+func flipServiceJudgingContacts(db *database.DB) *Service {
+	return flipService(db).WithProjectionFingerprints(map[string]string{
+		IncumbentClassContacts: currentContactsDeclaration,
+	})
+}
+
+// ingestMirrorRow seeds one row through the real ingest, so the fingerprint
+// column is written by the writer production uses rather than by the test.
+func ingestMirrorRow(ctx context.Context, t *testing.T, ms *MirrorStore, objectClass, ext, fingerprint string, baseline time.Time) {
+	t.Helper()
+	err := ms.Ingest(ctx, Record{
+		ObjectClass: objectClass, ExternalID: ext,
+		Fields:                map[string]any{"full_name": "Ingested Row"},
+		ModifiedAt:            baseline,
+		ProjectionFingerprint: fingerprint,
+	})
+	if err != nil {
+		t.Fatalf("ingesting %s/%s: %v", objectClass, ext, err)
+	}
+}
+
+// TestFlipChecksRefuseAProjectionAnOlderDeclarationProduced is the flip's
+// reason for comparing at all: it freezes the mirror and writes what every row
+// holds as durable native rows, so a payload the current mapping would no
+// longer produce would become permanent. Re-projecting the row is the way out,
+// and the check must then clear.
+func TestFlipChecksRefuseAProjectionAnOlderDeclarationProduced(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	seedOverlayWorkspace(ctx, t, pool)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	svc := flipServiceJudgingContacts(db)
+	ms := NewMirrorStore(db, nil)
+	recordSweepSuccess(ctx, t, pool)
+	markBackfillDone(ctx, t, pool, IncumbentClassContacts)
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	ingestMirrorRow(ctx, t, ms, "person", "p-current", currentContactsDeclaration, baseline)
+	checks, err := svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if !checks.ForceFreshDone {
+		t.Fatalf("checks = %+v, want force-fresh done with every projection current", checks)
+	}
+
+	ingestMirrorRow(ctx, t, ms, "person", "p-legacy", oldContactsDeclaration, baseline)
+	checks, err = svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if checks.ForceFreshDone {
+		t.Fatal("force-fresh reported done while a row still holds a projection an older declaration produced")
+	}
+
+	// Re-projecting at the SAME baseline is the convergence path (the
+	// incumbent has not touched the record, so nothing else can change).
+	ingestMirrorRow(ctx, t, ms, "person", "p-legacy", currentContactsDeclaration, baseline)
+	checks, err = svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if !checks.ForceFreshDone {
+		t.Fatal("force-fresh stayed blocked after the row was re-projected by the current declaration")
+	}
+}
+
+// TestFlipChecksCountARowThatRecordsNoDeclarationAsStale covers the rows the
+// fingerprint column arrived after: they record NULL, which the read paths
+// coalesce to the empty string. Neither is a current declaration,
+// and nothing has checked what produced them — treating that as "unknown, let
+// it through" is exactly how an unverifiable projection becomes permanent.
+func TestFlipChecksCountARowThatRecordsNoDeclarationAsStale(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	seedOverlayWorkspace(ctx, t, pool)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	svc := flipServiceJudgingContacts(db)
+	ms := NewMirrorStore(db, nil)
+	recordSweepSuccess(ctx, t, pool)
+	markBackfillDone(ctx, t, pool, IncumbentClassContacts)
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	ingestMirrorRow(ctx, t, ms, "person", "p-unfingerprinted", "", baseline)
+	var stored *string
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT projection_fingerprint FROM overlay_mirror WHERE external_id = 'p-unfingerprinted'`,
+		).Scan(&stored)
+	}); err != nil {
+		t.Fatalf("reading back the seeded row: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("projection_fingerprint = %q, want NULL — the case this test exists for", *stored)
+	}
+
+	checks, err := svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if checks.ForceFreshDone {
+		t.Fatal("force-fresh reported done while a row records no declaration at all")
+	}
+}
+
+// TestFlipChecksSpareAClassNoCurrentDeclarationJudges is the escape hatch that
+// keeps the check clearable. A class this deployment holds no current
+// declaration for — a retired mapping — can never match one, so counting its
+// rows as stale would block the flip forever with no way to converge:
+// removing a mapping would brick the cutover.
+func TestFlipChecksSpareAClassNoCurrentDeclarationJudges(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	seedOverlayWorkspace(ctx, t, pool)
+	db := database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
+	svc := flipServiceJudgingContacts(db)
+	ms := NewMirrorStore(db, nil)
+	recordSweepSuccess(ctx, t, pool)
+	markBackfillDone(ctx, t, pool, IncumbentClassContacts)
+	markBackfillDone(ctx, t, pool, IncumbentClassCompanies)
+
+	baseline := time.Date(2026, 5, 13, 6, 44, 38, 0, time.UTC)
+	ingestMirrorRow(ctx, t, ms, "person", "p-current", currentContactsDeclaration, baseline)
+	// organization resolves to companies, which the injected map does not
+	// name — and the row carries a fingerprint that matches nothing.
+	ingestMirrorRow(ctx, t, ms, "organization", "org-retired", "companies-declaration-retired", baseline)
+
+	checks, err := svc.FlipChecks(ctx)
+	if err != nil {
+		t.Fatalf("FlipChecks: %v", err)
+	}
+	if !checks.ForceFreshDone {
+		t.Fatalf("checks = %+v, want force-fresh done — a class with no current declaration must not block the flip", checks)
+	}
+}
+
 func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	seedOverlayWorkspace(ctx, t, pool)

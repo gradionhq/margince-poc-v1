@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -77,7 +78,7 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	// The boot pass placed its own dispatcher row, so "no dispatcher exists" is
 	// not the claim to make — "the completion added none" is. Read the count
 	// before the backfill runs and hold it to that afterwards.
-	dispatchersBefore := countJobsOfKind(ctx, t, b, CaptureDigestArgs{}.Kind())
+	dispatchersBefore := countJobsOfKind(ctx, t, b.env.Pool, CaptureDigestArgs{}.Kind())
 
 	// Now schedule the backfill; the worker pages it to done and enqueues the
 	// same-day digest off the completion edge.
@@ -98,7 +99,7 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 
 	// A dispatcher row added here would be one workspace's backfill running
 	// the digest for every workspace in the installation.
-	if after := countJobsOfKind(ctx, t, b, CaptureDigestArgs{}.Kind()); after != dispatchersBefore {
+	if after := countJobsOfKind(ctx, t, b.env.Pool, CaptureDigestArgs{}.Kind()); after != dispatchersBefore {
 		t.Errorf("capture_digest rows went %d -> %d across the backfill; a completion must enqueue the "+
 			"CHILD kind for its own workspace, never the dispatcher that fans out over the whole fleet",
 			dispatchersBefore, after)
@@ -142,10 +143,12 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 }
 
 // countJobsOfKind answers how many river_job rows of a kind exist right now.
-func countJobsOfKind(ctx context.Context, t *testing.T, b *backfillWireEnv, kind string) int {
+// Every suite resets the database before it runs, so the count is this test's
+// own inserts and nothing else.
+func countJobsOfKind(ctx context.Context, t *testing.T, pool *pgxpool.Pool, kind string) int {
 	t.Helper()
 	var n int
-	if err := b.env.Pool.QueryRow(ctx, `SELECT count(*) FROM river_job WHERE kind = $1`, kind).Scan(&n); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM river_job WHERE kind = $1`, kind).Scan(&n); err != nil {
 		t.Fatalf("counting %s rows: %v", kind, err)
 	}
 	return n

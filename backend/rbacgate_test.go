@@ -128,6 +128,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/overlay:SaveReconcileWatermark":        "reconcile-poller checkpoint write; sweep state, not a record",
 	"internal/modules/overlay:SeedUserMap":                   "seeds mirror_user_map at connect time and on the sweep; the connect handler above it takes overlay_connection:update, and the sweep runs as system",
 	"internal/modules/overlay:SetManualUserMap":              "same: only usermapservice.go calls it, behind requireUserMapAdmin",
+	"internal/modules/overlay:StaleProjections":              "names the mirror rows an older mapping declaration projected, for the reconcile sweep's re-projection phase, under the worker's system principal — no request path reaches it and no human actor exists on it. What comes back is external ids of rows this workspace's own mirror already holds, inside its workspace-bound transaction: no record and no field of one leaves the call, so there is no row whose visibility a gate could decide",
 	"internal/modules/overlay:UpsertAssoc":                   "the same sweep's edge write, from backfill",
 	"internal/modules/overlay:UpsertUserMap":                 "the per-entry write SeedUserMap and the visibility recompute drive; same two paths, no independent entry",
 	"internal/modules/people:ExhaustedDomains":               "triage sweep (compose/capturedomaintriage.go) under the system principal: reads domains whose crawl attempts are spent so the sweep can settle them rather than strand them; no record, no human actor",
