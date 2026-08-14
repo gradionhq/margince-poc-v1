@@ -274,18 +274,22 @@ func periodicSiteKinds(t *testing.T) map[string]int {
 	return wired
 }
 
-// TestEveryScheduledDispatcherIsWiredExactlyOnce derives the wiring obligation
-// from the contract instead of keeping it as a list: a dispatcher whose
-// declaration carries a clock must have exactly one periodicFor site, and a
-// site must not name a kind with no schedule to place. A dispatcher that lost
-// its site is otherwise silent — nothing fails, the pass simply never ticks —
-// which is the failure mode of splitting twenty schedules across five files.
-func TestEveryScheduledDispatcherIsWiredExactlyOnce(t *testing.T) {
+// TestEveryScheduledKindIsWiredExactlyOnce derives the wiring obligation from
+// the contract instead of keeping it as a list: a kind whose declaration
+// carries a clock must have exactly one periodicFor site, and a site must not
+// name a kind with no schedule to place. A pass that lost its site is otherwise
+// silent — nothing fails, it simply never ticks — which is the failure mode of
+// splitting twenty schedules across five files.
+//
+// The obligation follows the CADENCE, not the role. A dispatcher always carries
+// one; a worker carries one when it is a pass in its own right rather than a
+// dispatcher's child (ADR-0103 §1).
+func TestEveryScheduledKindIsWiredExactlyOnce(t *testing.T) {
 	wired := periodicSiteKinds(t)
 
 	scheduled := 0
 	for kind, spec := range jobs.Declared() {
-		wantSite := spec.Role == jobs.Dispatcher && !spec.Cadence.OnDemand
+		wantSite := declaresAClock(spec.Cadence) && !spec.Cadence.OnDemand
 		if !wantSite {
 			if wired[kind] > 0 {
 				t.Errorf("%s has %d periodicFor site(s) but declares no schedule to place", kind, wired[kind])
@@ -301,4 +305,11 @@ func TestEveryScheduledDispatcherIsWiredExactlyOnce(t *testing.T) {
 		t.Fatalf("only %d dispatchers declare a cadence, under the floor of %d — this gate is no longer reading the contract",
 			scheduled, scheduledDispatcherFloor)
 	}
+}
+
+// declaresAClock reports whether the contract gives this kind a schedule of its
+// own — a fixed interval, or an operator field that carries one. A kind with
+// neither is reached by its dispatcher, and has no periodicFor site to own.
+func declaresAClock(c jobs.Cadence) bool {
+	return c.Fixed != 0 || c.OperatorField != "" || c.OnDemand
 }

@@ -5,11 +5,11 @@
 
 package webhooks
 
-// The outbound-webhook retry sweep is one job row per live tenant. A workspace
-// whose due-retry scan fails must say so: a sweep that reported success is
-// indistinguishable from a sweep that found nothing due, and what it hides is a
-// tenant whose parked deliveries are never re-attempted at all — the subscriber
-// simply stops receiving, with no failed row anywhere to read.
+// The outbound-webhook retry sweep is one job row per pass. A pass whose
+// due-retry scan fails must say so: a sweep that reported success is
+// indistinguishable from a sweep that found nothing due, and what it hides is
+// parked deliveries never being re-attempted at all — the subscriber simply
+// stops receiving, with no failed row anywhere to read.
 
 import (
 	"context"
@@ -136,52 +136,7 @@ func parkOneDelivery(t *testing.T, we *webhookEnv, deliverer *webhooks.Deliverer
 	assertDeliveryStatus(t, we, subID, "retrying", 1)
 }
 
-// parkDueDeliveryIn plants a live subscription and an already-due parked
-// delivery in a workspace OTHER than the harness's own, so a second tenant has
-// real work for a sweep to find. A tenant with nothing due never reads a
-// delivery row at all, which would leave any claim about its sweep resting on a
-// scan that never happened.
-//
-// It copies the harness subscription's sealed secret rather than minting one:
-// the deployment key seals it with nothing bound to a tenant or a subscription,
-// so the copy signs and POSTs exactly as the original does. The owner
-// connection is a superuser and so bypasses RLS, which is what lets one
-// statement write into a workspace this process has no bound context for.
-func parkDueDeliveryIn(t *testing.T, we *webhookEnv, owner *pgx.Conn, ws ids.UUID, targetURL string, dueAt time.Time) {
-	t.Helper()
-	ctx := context.Background()
-	var sealed string
-	if err := owner.QueryRow(ctx,
-		`SELECT signing_secret_ref FROM webhook_subscription WHERE workspace_id = $1`,
-		we.wsID).Scan(&sealed); err != nil {
-		t.Fatalf("reading the harness subscription's sealed secret: %v", err)
-	}
-	user, sub := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(ctx, `
-		INSERT INTO app_user (id, workspace_id, email, display_name)
-		VALUES ($1, $2, $3, 'Sweep Fixture')`, user, ws, "sweep-"+ws.String()+"@example.test"); err != nil {
-		t.Fatalf("seeding the subscription owner in %s: %v", ws, err)
-	}
-	if _, err := owner.Exec(ctx, `
-		INSERT INTO webhook_subscription (id, workspace_id, owner_id, target_url, event_types, signing_secret_ref)
-		VALUES ($1, $2, $3, $4, ARRAY['deal.created'], $5)`, sub, ws, user, targetURL, sealed); err != nil {
-		t.Fatalf("seeding the subscription in %s: %v", ws, err)
-	}
-	if _, err := owner.Exec(ctx, `
-		INSERT INTO webhook_delivery (workspace_id, subscription_id, event_id, event_type, payload,
-		                              status, attempts, next_retry_at)
-		VALUES ($1, $2, $3, 'deal.created', '{}', 'retrying', 1, $4)`,
-		ws, sub, ids.NewV7(), dueAt); err != nil {
-		t.Fatalf("parking the due delivery in %s: %v", ws, err)
-	}
-}
-
-// TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed is the
-// characterization: a tenant whose due-retry scan hits a database error must
-// reach its caller as an error. A sweep that reported success over it leaves
-// every delivery parked in that tenant parked forever, and records a healthy
-// pass while doing so.
-func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
+func TestWebhookRetryReportsASweepWhoseDueScanFailed(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := integration.OwnerConn(t)
 
@@ -189,16 +144,6 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 	parkOneDelivery(t, we, deliverer, rcv)
-	// The second tenant arrives only AFTER the harness has used the HTTP
-	// surface, and that order is load-bearing: a request path resolves the
-	// installation's one workspace (ADR-0061/A107) and refuses outright once
-	// there are two. A sweep is the opposite kind of caller — it is handed the
-	// tenant it runs for — so the fan-out this suite is about still reads both.
-	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
-	// The healthy tenant gets real due work of its own, so its sweep below
-	// actually scans and re-attempts. Without a row it would read nothing, and
-	// an assertion about a scan that never ran proves nothing about isolation.
-	parkDueDeliveryIn(t, we, owner, healthy, rcv.server.URL+"/hook", now)
 
 	// One healthy pass first: it proves the parked delivery is reachable by a
 	// sweep at this clock reading, so the "not re-attempted" assertion below
@@ -216,35 +161,23 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 
 	err := deliverer.SweepOnce(webhookSweepCtx(we.wsID))
 	if got := rcv.count.Load(); got != 2 {
-		t.Fatalf("the fault injection did not hold: the victim's parked delivery was re-attempted %d more times, so its due scan never failed", got-2)
+		t.Fatalf("the fault injection did not hold: the parked delivery was re-attempted %d more times, so the due scan never failed", got-2)
 	}
 	if err == nil {
-		t.Fatal("a workspace whose due-retry scan failed reported success — every delivery parked in that tenant stays parked and nothing records that the sweep never scanned")
-	}
-
-	// The fault is one tenant's, and the pass now takes the tenant it is given:
-	// with the policy still armed, the healthy tenant scans its own due row and
-	// re-attempts it. The receiver hit is the load-bearing half — a pass that
-	// returned nil without delivering would have scanned nothing.
-	// A deliverer of the healthy tenant's own: the workspace a sweep runs for
-	// is a property of the handle it was built on, not of the ctx it is called
-	// with, so reusing the victim's deliverer here would sweep the victim again
-	// and read as the fault leaking across tenants.
-	if err := newTestDelivererOn(we, we.DBFor(healthy), &now, rcv.server.Client()).
-		SweepOnce(webhookSweepCtx(healthy)); err != nil {
-		t.Fatalf("the healthy tenant's sweep, while the victim's is faulted: %v", err)
-	}
-	if got := rcv.count.Load(); got != 3 {
-		t.Fatalf("the endpoint saw %d attempts, want one more from the healthy tenant's sweep — its pass reported success without scanning", got)
+		t.Fatal("a sweep whose due-retry scan failed reported success — every parked delivery stays parked and nothing records that the scan never ran")
 	}
 }
 
-// TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
-// the converted shape: the dispatcher enqueues one row per LIVE workspace —
-// archived ones excluded, because a delivery parked for a subscription nobody
-// is listening on any more is work nobody wants — each row names its own tenant
-// on the wire, and the tenant whose scan failed is the only row that fails.
-func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
+// TestWebhookRetryRecordsAFailedPassAsAFailedRow is what survives the fan-out.
+//
+// It used to enqueue one row per live workspace and prove that the tenant whose
+// scan failed was the ONLY row that failed — the per-tenant row was the unit of
+// failure. A pass is one row now (ADR-0103 §1), so the property worth pinning is
+// the half that never depended on there being several: a sweep that could not
+// scan must leave a FAILED row behind, because a pass reporting success is
+// indistinguishable from a pass that found nothing due, and what it hides is
+// every parked delivery never being re-attempted again.
+func TestWebhookRetryRecordsAFailedPassAsAFailedRow(t *testing.T) {
 	we := setupWebhooks(t)
 	owner := integration.OwnerConn(t)
 
@@ -252,18 +185,13 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 	parkOneDelivery(t, we, deliverer, rcv)
-	// Seeded after the HTTP subscription above, and for the same reason: the
-	// request path resolves the installation's one workspace and refuses when a
-	// second exists, while the fan-out under test is handed its tenant.
-	healthy := integration.SeedExtraWorkspace(t, owner, "healthy", false)
-	archived := integration.SeedExtraWorkspace(t, owner, "archived", true)
-	// Past the parked delivery's backoff, so the victim's sweep has something
-	// due to scan for: a tenant with nothing due never reads a row and so never
-	// meets the fault.
+	// Past the parked delivery's backoff, so the sweep has something due to
+	// scan for: a pass with nothing due never reads a row and so never meets
+	// the fault.
 	now = now.Add(64 * time.Second)
 	// Permanent, not transient: the row fires a failure event on every attempt,
-	// and a fault that healed would let attempt 2 complete and record the
-	// tenant as green — the exact outcome this test denies.
+	// and a fault that healed would let a later attempt complete and record the
+	// pass as green — the exact outcome this test denies.
 	failDueScansFor(t, owner, we.wsID)
 
 	_, completed, failed := jobtest.StartTestJobRunner(t, we.pool, compose.JobRunnerConfig{
@@ -272,11 +200,6 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
 			Interval: time.Hour,
-			// The fan-out builds one deliverer per workspace it sweeps, and the
-			// factory honours that: each tenant's worker gets a deliverer over
-			// the handle it was given. A factory that answered with one shared
-			// deliverer would sweep a single tenant twice and report the fan-out
-			// as working.
 			Deliverer: func(db *database.DB) *webhooks.Deliverer {
 				return newTestDelivererOn(we, db, &now, rcv.server.Client())
 			},
@@ -284,31 +207,9 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	})
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	kind := compose.WebhookRetryWorkspaceArgs{}.Kind()
-	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
-
-	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
-		t.Errorf("no retry sweep ran for workspace %s — a tenant the fan-out skipped keeps its deliveries parked and no row records that it did", healthy)
-	}
-	if !outcomes[healthy.String()] {
-		t.Error("the healthy tenant's retry sweep failed")
-	}
-	if outcomes[we.wsID.String()] {
-		t.Error("the tenant whose due scan could not run reported a completed job — the failure the per-workspace row exists to record was swallowed")
-	}
-
-	// The archived tenant must have no row at all. This count is fenced on the
-	// two outcomes above rather than read early: the fan-out is ONE atomic
-	// InsertMany, so any child reporting proves that insert committed — and it
-	// carried every workspace the dispatcher enumerated.
-	var dispatched int
-	if err := we.pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE kind = $1 AND args->>'workspace_id' = $2`,
-		kind, archived.String()).Scan(&dispatched); err != nil {
-		t.Fatalf("counting the archived tenant's retry jobs: %v", err)
-	}
-	if dispatched != 0 {
-		t.Errorf("%d %s rows were dispatched for an ARCHIVED workspace — re-attempting a delivery for a subscription nobody listens on any more spends outbound attempts on work nobody wants", dispatched, kind)
+	kind := compose.WebhookRetryArgs{}.Kind()
+	if outcome := jobtest.AwaitKindOutcome(waitCtx, t, completed, failed, kind); outcome {
+		t.Error("the pass whose due scan could not run reported a completed job — the failure the row exists to record was swallowed")
 	}
 }
 
@@ -364,9 +265,8 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 		TimeScanInterval:  time.Hour,
 		WebhookRetry:      compose.WebhookRetryConfig{Interval: 0, Deliverer: func(*database.DB) *webhooks.Deliverer { return deliverer }},
 	})
-	if err := runner.Enqueue(context.Background(),
-		compose.WebhookRetryWorkspaceArgs{Workspace: we.wsID}, nil); err != nil {
-		t.Fatalf("enqueueing the workspace pass an earlier boot would have left: %v", err)
+	if err := runner.Enqueue(context.Background(), compose.WebhookRetryArgs{}, nil); err != nil {
+		t.Fatalf("enqueueing the pass an earlier boot would have left: %v", err)
 	}
 
 	// The close-date sweep is the FENCE, and it has to be: River inserts every
@@ -379,16 +279,21 @@ func TestWebhookRetryWithoutAnIntervalSchedulesNothingButStillWorksAQueuedRow(t 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	jobtest.AwaitKindsCompleted(waitCtx, t, completed,
-		compose.CloseDateSweepArgs{}.Kind(), compose.WebhookRetryWorkspaceArgs{}.Kind())
+		compose.CloseDateSweepArgs{}.Kind(), compose.WebhookRetryArgs{}.Kind())
 
+	// Exactly the one row this test queued by hand. The count used to be zero
+	// because the schedule and the work were different kinds — the dispatcher's
+	// absence was countable on its own. One kind does both now, so the shape of
+	// a spinning schedule is not "a row exists" but "rows keep arriving", and
+	// the hand-queued row is the floor a spin would rise above.
 	var dispatched int
 	if err := we.pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM river_job WHERE kind = $1`,
 		compose.WebhookRetryArgs{}.Kind()).Scan(&dispatched); err != nil {
 		t.Fatalf("counting the dispatched retry passes: %v", err)
 	}
-	if dispatched != 0 {
-		t.Errorf("%d %s rows were dispatched by a runner given no retry interval — a zero duration is not a cadence, and River spins on it rather than refusing it",
+	if dispatched != 1 {
+		t.Errorf("%d %s rows exist after a runner was given no retry interval, want only the one queued here — a zero duration is not a cadence, and River spins on it rather than refusing it",
 			dispatched, compose.WebhookRetryArgs{}.Kind())
 	}
 }

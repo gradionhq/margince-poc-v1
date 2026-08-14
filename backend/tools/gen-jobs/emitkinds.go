@@ -118,11 +118,16 @@ func writeRoleAssertions(b *strings.Builder, c contract) {
 	}
 	b.WriteString(")\n\n")
 
-	b.WriteString("// The declared workspace-scoped kinds: each carries exactly one tenant's\n")
-	b.WriteString("// pass and says which in its own args.\n")
+	// Keyed on the ARGS, not on the role. A worker carries a tenant while its
+	// module still has one to carry (ADR-0091 §8 phase D is removing them one
+	// module at a time), and a worker whose args no longer name a workspace must
+	// not be asserted to bind one — the marker would be a claim about a field
+	// that does not exist.
+	b.WriteString("// The declared tenant-scoped kinds: each says which workspace it is for\n")
+	b.WriteString("// in its own args.\n")
 	b.WriteString("var (\n")
 	for _, name := range c.sortedKinds() {
-		if def := c.Kinds[name]; def.Role == roleWorker {
+		if def := c.Kinds[name]; def.Role == roleWorker && def.hasWorkspaceArg() {
 			fmt.Fprintf(b, "\t_ jobs.WorkspaceScoped = %s{}\n", def.GoType)
 		}
 	}
