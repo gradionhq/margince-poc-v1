@@ -701,9 +701,17 @@ keyed on `NEW.workspace_id`. Privacy's retention sweep and search's re-embed
 fan-out are the same shape. Their tables go with the fleet loops (§5).
 
 **The target shape is decided upstream — build against it, do not re-derive
-it.** ADR-0103 / DECISIONS **A154** (margince-foundation, PROPOSED 2026-08-14,
-awaiting founder ratification) settles what ADR-0091 §5 left open. The short
-form, because the distinction is what makes the work tractable:
+it.** ADR-0103 / DECISIONS **A154** (margince-foundation, PROPOSED 2026-08-14)
+settles what ADR-0091 §5 left open.
+
+**It is PROPOSED, not ratified, and that does not gate the work.** Proposals
+land on the spec's `main` and the build works from them; what ratification
+changes is the record, not the permission. If the founder moves the shape, the
+move lands upstream as an amendment first and the build follows it — the one
+thing that must not happen is the build improvising a different answer and
+leaving two shapes in the tree.
+
+The short form, because the distinction is what makes the work tractable:
 
 - **A pass over the installation is ONE job.** The 23 dispatchers that fan out
   over `workspace` merge with the child they exist to enqueue. The survivor
