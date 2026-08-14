@@ -50,7 +50,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
+		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists|org-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
 	}
 	direction := args[0]
 
@@ -108,8 +108,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return dropDB(ctx, conn, *name, stdout)
 	case "db-exists":
 		return dbExists(ctx, conn, *name, stdout)
+	case "org-exists":
+		return orgExists(ctx, conn, stdout)
 	default:
-		return fmt.Errorf("migrate: unknown direction %q (want up, down, reset-password, recreate-db, drop-db or db-exists)", direction)
+		return fmt.Errorf("migrate: unknown direction %q (want up, down, reset-password, recreate-db, drop-db, db-exists or org-exists)", direction)
 	}
 }
 
@@ -381,6 +383,31 @@ func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer
 	}
 	if _, err := fmt.Fprintf(stdout, "%t\n", exists); err != nil {
 		return fmt.Errorf("migrate db-exists: writing the answer: %w", err)
+	}
+	return nil
+}
+
+// orgExists reports whether this installation has been bootstrapped — whether an
+// active organization exists — as "true" or "false" on stdout, in the shape
+// dbExists above already answers a yes/no question.
+//
+// It exists so a deployment can tell the two states apart BEFORE the api boots,
+// which is what lets an entrypoint stop materializing a bootstrap credential an
+// already-provisioned installation will never read (ADR-0061 §2: bootstrap
+// values are consumed exactly once, and the section may be deleted once the
+// organization exists).
+//
+// The predicate is the one the api itself applies when it counts organizations
+// at boot — archived_at IS NULL — rather than a second spelling of "active" that
+// could drift from it.
+func orgExists(ctx context.Context, conn *pgx.Conn, stdout io.Writer) error {
+	var exists bool
+	if err := conn.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM workspace WHERE archived_at IS NULL)`).Scan(&exists); err != nil {
+		return fmt.Errorf("migrate org-exists: probing for an organization: %w", err)
+	}
+	if _, err := fmt.Fprintf(stdout, "%t\n", exists); err != nil {
+		return fmt.Errorf("migrate org-exists: writing the answer: %w", err)
 	}
 	return nil
 }

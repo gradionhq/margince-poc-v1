@@ -353,6 +353,51 @@ func TestUpAppliesAnExtensionNamespaceAndTheRiverIndex(t *testing.T) {
 	}
 }
 
+// TestOrgExistsAnswersTheEntrypointsQuestion pins the three states the deploy
+// entrypoint distinguishes before it decides whether to materialize a bootstrap
+// credential. The archived case is the one worth having: the api counts
+// organizations with `archived_at IS NULL`, and a probe that merely counted rows
+// would call an archived-only installation provisioned and withhold the
+// credential that could still bootstrap it.
+func TestOrgExistsAnswersTheEntrypointsQuestion(t *testing.T) {
+	maint, base, withDB := testDSNs(t)
+	name := base + "_org_probe"
+	t.Cleanup(func() { mustMigrate(t, "drop-db", "--dsn", maint, "--name", name) })
+	mustMigrate(t, "recreate-db", "--dsn", maint, "--name", name)
+
+	dsn := withDB(name)
+	mustMigrate(t, "up", "--dsn", dsn)
+
+	if out := mustMigrate(t, "org-exists", "--dsn", dsn); out != "false\n" {
+		t.Fatalf("org-exists against a migrated but unbootstrapped installation printed %q, want %q", out, "false\n")
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connecting to seed a workspace: %v", err)
+	}
+	defer func() {
+		if err := conn.Close(ctx); err != nil {
+			t.Errorf("closing the seeding connection: %v", err)
+		}
+	}()
+
+	if _, err := conn.Exec(ctx, `INSERT INTO workspace (slug) VALUES ('org-probe')`); err != nil {
+		t.Fatalf("seeding a workspace: %v", err)
+	}
+	if out := mustMigrate(t, "org-exists", "--dsn", dsn); out != "true\n" {
+		t.Fatalf("org-exists against a bootstrapped installation printed %q, want %q", out, "true\n")
+	}
+
+	if _, err := conn.Exec(ctx, `UPDATE workspace SET archived_at = now() WHERE slug = 'org-probe'`); err != nil {
+		t.Fatalf("archiving the workspace: %v", err)
+	}
+	if out := mustMigrate(t, "org-exists", "--dsn", dsn); out != "false\n" {
+		t.Fatalf("org-exists counted an ARCHIVED organization as present (printed %q); the api's boot count ignores it, so the two disagree", out)
+	}
+}
+
 // assertRecorded proves the version landed in the namespace's OWN tracking
 // table: an extension migration recorded against core's table would be
 // reverted by a plain `migrate down`.
