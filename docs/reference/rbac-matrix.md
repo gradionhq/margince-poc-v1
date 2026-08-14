@@ -75,6 +75,7 @@ the workspace but changes none of them.
 | `installation_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |
 | `integrations` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `lead` | CRUD | CRUD | CRUD | -R-- | CRUD |
+| `license` | -R-- | ---- | ---- | ---- | -R-- |
 | `list` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `offer` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `offer_template` | CRUD | CRUD | CRU- | -R-- | CRUD |

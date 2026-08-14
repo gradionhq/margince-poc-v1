@@ -84,6 +84,7 @@ type Server struct {
 	captureSettingsHandlers
 	ownDomainHandlers
 	installationSettingsHandlers
+	licenseHandlers
 	consumerMailDomainHandlers
 	blockedDomainHandlers
 	importHandlers

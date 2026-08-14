@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 )
@@ -75,8 +76,18 @@ func logLicensePosture(ctx context.Context, log *slog.Logger, posture licenseche
 // exposition reports what the watcher last resolved instead of what the process
 // booted with.
 func WithLicensePosture(posture func() licensecheck.Posture) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
+	return func(s *Server, pool *pgxpool.Pool) {
 		s.licensePosture = posture
+		// The entitlement surface is built HERE rather than in the assembly, and
+		// both halves together: the assembly runs BEFORE the options, so a handler
+		// wired there would have captured a nil posture and answered 501 for the
+		// life of the process. One wiring point also means one answer to "does this
+		// role report entitlement at all" — a role that never applies this option
+		// serves no /metrics section and no surface, declared or absent in both.
+		s.licenseHandlers = licenseHandlers{
+			seats:   identity.NewSeatUsage(InstallationDB(pool)),
+			posture: posture,
+		}
 	}
 }
 

@@ -4236,6 +4236,27 @@ func (e LeadManualSignalKind) Valid() bool {
 	}
 }
 
+// Defines values for LicenseEntitlementState.
+const (
+	LicenseEntitlementStateAbsent   LicenseEntitlementState = "absent"
+	LicenseEntitlementStateRejected LicenseEntitlementState = "rejected"
+	LicenseEntitlementStateValid    LicenseEntitlementState = "valid"
+)
+
+// Valid indicates whether the value is a known member of the LicenseEntitlementState enum.
+func (e LicenseEntitlementState) Valid() bool {
+	switch e {
+	case LicenseEntitlementStateAbsent:
+		return true
+	case LicenseEntitlementStateRejected:
+		return true
+	case LicenseEntitlementStateValid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListEntityType.
 const (
 	ListEntityTypeDeal         ListEntityType = "deal"
@@ -10208,22 +10229,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	Dropped       ListSignalsParamsResolutionState = "dropped"
-	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	Resolved      ListSignalsParamsResolutionState = "resolved"
-	Unresolved    ListSignalsParamsResolutionState = "unresolved"
+	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
+	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
+	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case Dropped:
+	case ListSignalsParamsResolutionStateDropped:
 		return true
-	case LowConfidence:
+	case ListSignalsParamsResolutionStateLowConfidence:
 		return true
-	case Resolved:
+	case ListSignalsParamsResolutionStateResolved:
 		return true
-	case Unresolved:
+	case ListSignalsParamsResolutionStateUnresolved:
 		return true
 	default:
 		return false
@@ -14119,6 +14140,33 @@ type LeadScoreFactor struct {
 	// SourceActivityIds The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3).
 	SourceActivityIds *[]openapi_types.UUID `json:"source_activity_ids,omitempty"`
 }
+
+// LicenseEntitlement What the license grants and how much of it is used, as this process last resolved it.
+// Read by admin/ops only.
+type LicenseEntitlement struct {
+	// CheckedAt When this posture was resolved, so a stale answer is recognizable as one.
+	CheckedAt time.Time `json:"checked_at"`
+
+	// OverLimit Whether `seats_used` exceeds `seats_granted`. False whenever nothing caps seats, so
+	// an unlicensed installation is never reported as over a limit it does not have.
+	OverLimit bool `json:"over_limit"`
+
+	// SeatsGranted Full seats the license admits. ABSENT when nothing caps them — no license, or a
+	// grant carrying no seat count — which is not a grant of zero.
+	SeatsGranted *int `json:"seats_granted,omitempty"`
+
+	// SeatsUsed Full seats in use: not deactivated. Read seats are unlimited and never counted
+	// (A62/ADR-0047).
+	SeatsUsed int `json:"seats_used"`
+
+	// State Whether a license was verified, none was configured, or one was refused. A client
+	// that cannot read a value it recognizes MUST NOT assume entitlement.
+	State LicenseEntitlementState `json:"state"`
+}
+
+// LicenseEntitlementState Whether a license was verified, none was configured, or one was refused. A client
+// that cannot read a value it recognizes MUST NOT assume entitlement.
+type LicenseEntitlementState string
 
 // LinkedInAccount defines model for LinkedInAccount.
 type LinkedInAccount struct {
@@ -29672,6 +29720,9 @@ type ServerInterface interface {
 	// Reverse a completed CSV import run.
 	// (POST /imports/{id}/undo)
 	UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The installation's entitlement and seat usage (admin/ops).
+	// (GET /installation/license)
+	GetLicenseEntitlement(w http.ResponseWriter, r *http.Request)
 	// The installation's own settings.
 	// (GET /installation/settings)
 	GetInstallationSettings(w http.ResponseWriter, r *http.Request)
@@ -31220,6 +31271,12 @@ func (_ Unimplemented) GetImportRunReport(w http.ResponseWriter, r *http.Request
 // Reverse a completed CSV import run.
 // (POST /imports/{id}/undo)
 func (_ Unimplemented) UndoImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The installation's entitlement and seat usage (admin/ops).
+// (GET /installation/license)
+func (_ Unimplemented) GetLicenseEntitlement(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -38333,6 +38390,26 @@ func (siw *ServerInterfaceWrapper) UndoImportRun(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UndoImportRun(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLicenseEntitlement operation middleware
+func (siw *ServerInterfaceWrapper) GetLicenseEntitlement(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLicenseEntitlement(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -50227,6 +50304,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/imports/{id}/undo", wrapper.UndoImportRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/installation/license", wrapper.GetLicenseEntitlement)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/installation/settings", wrapper.GetInstallationSettings)

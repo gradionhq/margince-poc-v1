@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import {
   Activity,
+  BadgeCheck,
   Building2,
   ChevronDown,
   Database,
@@ -89,6 +90,7 @@ import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
 import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
+import { LicenseCard } from "./license";
 import { ProviderCard } from "./integrations-provider";
 import { JobHealthCard } from "./jobhealth";
 import { LinkedInImportCard } from "./linkedin-import";
@@ -180,6 +182,7 @@ const SETTINGS_TABS = [
   { id: "data-model", icon: Database, group: "org" },
   { id: "ai", icon: Sparkles, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
+  { id: "license", icon: BadgeCheck, group: "org" },
   { id: "maintenance", icon: Wrench, group: "org" },
 ] as const satisfies readonly {
   id: string;
@@ -259,6 +262,8 @@ function tabContent(id: SettingsTabId): ReactNode {
           <AuditLogCard />
         </>
       );
+    case "license":
+      return <LicenseCard />;
     case "maintenance":
       return (
         <>
@@ -424,6 +429,7 @@ export function useSettingsEntryVisibility(
   const organization = useCan("organization", "read");
   const installation = useCan("installation_settings", "read");
   const captureSettings = useCan("capture_settings", "read");
+  const licenseRead = useCan("license", "read");
   const automation = useCan("automation", "read");
   const webhook = useCan("webhook_subscription", "read");
   // The consent registry's server gate, which is not a role and not "any member":
@@ -502,6 +508,14 @@ export function useSettingsEntryVisibility(
     // reindex and finds the other two withheld. Nobody below ops has anything to
     // read here at all. The reindex is an ordinary grant an edited role can hold, so
     // the entry opens on either and the cards inside decide.
+    // What the license grants and how much of it is used. Admin/ops-only, read
+    // included — the narrowest predicate on the rail beside Maintenance's,
+    // because a seat meter is the installation's commercial standing and a rep
+    // reads their own seat elsewhere (UC-ADMIN-03 F1). A live grant rather than a
+    // role name, like every other entry here: an ops principal whose license read
+    // was removed by an edited role loses the row, which is the difference
+    // between asking the grant and asking who somebody is.
+    license: licenseRead,
     maintenance: isAdmin || embeddingReindex,
   };
 }

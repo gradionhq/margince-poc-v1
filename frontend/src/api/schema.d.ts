@@ -4295,6 +4295,51 @@ export interface paths {
         patch: operations["updateInstallationSettings"];
         trace?: never;
     };
+    "/installation/license": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's entitlement and seat usage (admin/ops).
+         * @description Reads what the license grants and how much of it is used. The entitlement is verified
+         *     OFFLINE at boot against the validation module bundled in the binary and re-checked while
+         *     the process runs, so this reports what the installation last resolved rather than
+         *     asking anything.
+         *
+         *     `state` is the posture: `valid` (a license the module honored), `absent` (none
+         *     configured — a supported state that runs), or `rejected` (one the module refused; an
+         *     installation in that state does not serve, so a client never sees it from a live
+         *     server).
+         *
+         *     `seats_granted` is ABSENT when there is no seat cap to report — no license, or one
+         *     whose grant carries no seat count. That is not the same as a grant of zero seats, and a
+         *     client that renders a missing value as `0` would tell an admin their license permits
+         *     nobody. `seats_used` counts full seats that are not deactivated; read seats are
+         *     unlimited and never metered (A62/ADR-0047).
+         *
+         *     `over_limit` is the server's own verdict on the pair, so a client cannot arrive at a
+         *     different answer than the one the installation acts on. Being over the limit is
+         *     reported, never enforced here: the workspace keeps working, which is P7's
+         *     warning-then-grace rather than a silent mid-month lockout.
+         *
+         *     Admin/ops-only, read included: a seat meter is the installation's commercial standing,
+         *     and a rep reads their own seat elsewhere (UC-ADMIN-03 F1). Governed by the `license`
+         *     RBAC object. Human-only, like every sibling governance read: what an installation is
+         *     entitled to is not reconnaissance to hand an agent, even one carrying an admin's
+         *     passport.
+         */
+        get: operations["getLicenseEntitlement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/settings": {
         parameters: {
             query?: never;
@@ -8019,6 +8064,38 @@ export interface components {
             /** Format: date-time */
             resolved_at?: string | null;
         } | null;
+        /**
+         * @description What the license grants and how much of it is used, as this process last resolved it.
+         *     Read by admin/ops only.
+         */
+        LicenseEntitlement: {
+            /**
+             * @description Whether a license was verified, none was configured, or one was refused. A client
+             *     that cannot read a value it recognizes MUST NOT assume entitlement.
+             * @enum {string}
+             */
+            state: "valid" | "absent" | "rejected";
+            /**
+             * @description Full seats the license admits. ABSENT when nothing caps them — no license, or a
+             *     grant carrying no seat count — which is not a grant of zero.
+             */
+            seats_granted?: number;
+            /**
+             * @description Full seats in use: not deactivated. Read seats are unlimited and never counted
+             *     (A62/ADR-0047).
+             */
+            seats_used: number;
+            /**
+             * @description Whether `seats_used` exceeds `seats_granted`. False whenever nothing caps seats, so
+             *     an unlicensed installation is never reported as over a limit it does not have.
+             */
+            over_limit: boolean;
+            /**
+             * Format: date-time
+             * @description When this posture was resolved, so a stale answer is recognizable as one.
+             */
+            checked_at: string;
+        };
         /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
          *     changed only by admin/ops.
@@ -13677,7 +13754,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace" | "license";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -24415,6 +24492,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getLicenseEntitlement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The installation's entitlement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LicenseEntitlement"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getCaptureSettings: {

@@ -575,6 +575,10 @@ func (stubs) UndoImportRun(w nethttp.ResponseWriter, r *nethttp.Request, id open
 	httperr.NotImplemented(w, r, "UndoImportRun")
 }
 
+func (stubs) GetLicenseEntitlement(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetLicenseEntitlement")
+}
+
 func (stubs) GetInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetInstallationSettings")
 }
