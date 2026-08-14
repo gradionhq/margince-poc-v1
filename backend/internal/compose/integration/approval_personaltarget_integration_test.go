@@ -37,7 +37,7 @@ func TestAStagedViewArchiveIsDecidableByItsOwnerAlone(t *testing.T) {
 	svc := approvals.NewService(e.DB())
 	views := collections.NewStore(e.DB())
 
-	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, CollectionsPerms())
 	view, err := views.CreateSavedView(owner, collections.CreateSavedViewInput{
 		Resource: "people", Name: "My pipeline", Query: map[string]any{"columns": []any{"full_name"}},
 	})
@@ -49,9 +49,9 @@ func TestAStagedViewArchiveIsDecidableByItsOwnerAlone(t *testing.T) {
 	// Two seats holding every saved_view grant that would BOTH have passed a
 	// row-scope arm: a teammate (rep1 and rep2 share team1) and an all-scope
 	// admin, for whom the clause renders no predicate at all.
-	allScope := collectionsPerms()
+	allScope := CollectionsPerms()
 	allScope.RowScope = principal.RowScopeAll
-	assertCannotDecideStagedApproval(e.As(e.Rep2, []ids.UUID{e.Team1}, collectionsPerms()),
+	assertCannotDecideStagedApproval(e.As(e.Rep2, []ids.UUID{e.Team1}, CollectionsPerms()),
 		t, svc, "a teammate", approvalID)
 	assertCannotDecideStagedApproval(e.As(e.Rep3, []ids.UUID{e.Team2}, allScope),
 		t, svc, "an all-scope admin", approvalID)

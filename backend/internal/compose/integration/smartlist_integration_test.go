@@ -27,22 +27,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// collectionsPerms extends the rep fixture with the list + saved_view
-// object grants the segmentation surface needs, without mutating the
-// shared RepPerms map.
-func collectionsPerms() principal.Permissions {
-	p := RepPerms
-	obj := map[string]principal.ObjectGrant{}
-	for k, v := range RepPerms.Objects {
-		obj[k] = v
-	}
-	full := principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
-	obj["list"] = full
-	obj["saved_view"] = full
-	p.Objects = obj
-	return p
-}
-
 // adminCollectionsCtx is an unbounded (row_scope=all) principal that can
 // read lists and people — the cross-team oracle the scope assertions
 // measure the rep's narrowed view against.
@@ -64,7 +48,7 @@ func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 	mine := e.SeedPerson(t, "Mine Renewal", &e.Rep1)
 	foreign := e.SeedPerson(t, "Foreign Renewal", &e.Rep3)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, CollectionsPerms())
 
 	// One filter, matching BOTH teams' owners.
 	created, err := store.CreateList(rep, collections.CreateListInput{
@@ -109,7 +93,7 @@ func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 func TestDynamicList_reEvaluatesLiveAsRecordsChange(t *testing.T) {
 	e := Setup(t)
 	store := collections.NewStore(e.DB())
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, CollectionsPerms())
 
 	created, err := store.CreateList(rep, collections.CreateListInput{
 		Name: "Owned by rep1", EntityType: "person", ListType: "dynamic",
@@ -159,7 +143,7 @@ func TestDynamicList_reEvaluatesLiveAsRecordsChange(t *testing.T) {
 func TestDynamicList_rejectsInvalidDefinition(t *testing.T) {
 	e := Setup(t)
 	store := collections.NewStore(e.DB())
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, CollectionsPerms())
 
 	assertCode := func(name string, def map[string]any, wantCode string) {
 		t.Helper()
@@ -191,7 +175,7 @@ func TestDynamicList_rejectsInvalidDefinition(t *testing.T) {
 func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	e := Setup(t)
 	store := collections.NewStore(e.DB())
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, CollectionsPerms())
 
 	query := map[string]any{
 		"columns": []any{"full_name", "owner_id"},
@@ -215,7 +199,7 @@ func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	}
 
 	// Per-user: another user cannot see it (existence-hidden as 404).
-	other := e.As(e.Rep3, []ids.UUID{e.Team2}, collectionsPerms())
+	other := e.As(e.Rep3, []ids.UUID{e.Team2}, CollectionsPerms())
 	if _, err := store.GetSavedView(other, created.ID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("cross-user get → %v, want ErrNotFound", err)
 	}

@@ -1,0 +1,443 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package collections
+
+// The three guarantees the unit lane cannot reach, proved against real
+// Postgres: a workspace's own custom field really filters a dynamic list
+// (a customer who fills in a field can build a target list from it — the
+// whole point of letting them add one), retiring that field's catalog
+// status leaves an already-saved segment evaluable rather than silently
+// widening it, and a filtered export of a segment carries exactly the rows
+// membership computed for it — one predicate engine, not two that could
+// drift apart. Two more scenarios pin the tag vocabulary against the
+// database's own CHECK constraint and the polymorphic join it drives.
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	collectionsmod "github.com/gradionhq/margince/backend/internal/modules/collections"
+	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
+	peoplemod "github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// fullGrant is unbounded object authority — every suite below acts as one
+// principal holding exactly the objects this vocabulary spans, so a
+// refusal in a test is never mistaken for an RBAC gap.
+var fullGrant = principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
+
+// testPerms is this suite's one actor: unbounded row scope, and every
+// object the segment vocabulary touches — custom_field to define columns,
+// the four record types a segment can filter, list to build one, and tag
+// to mint and apply the polymorphic join's own vocabulary.
+var testPerms = principal.Permissions{
+	RoleKeys: []string{"admin"},
+	Objects: map[string]principal.ObjectGrant{
+		"custom_field": fullGrant,
+		"person":       fullGrant,
+		"organization": fullGrant,
+		"deal":         fullGrant,
+		"lead":         fullGrant,
+		"list":         fullGrant,
+		"tag":          fullGrant,
+	},
+	RowScope: principal.RowScopeAll,
+}
+
+// fixture bundles one migrated environment with the store wiring compose
+// itself uses (serverassembly.go): the collections store and the people
+// store both widened by the SAME customfields service, so a test that
+// writes a value through one and filters through the other is exercising
+// the real cross-module seam, not a hand-built stand-in for it.
+type fixture struct {
+	e      *integration.Env
+	ctx    context.Context
+	svc    *customfieldsmod.Service
+	people *peoplemod.Store
+	lists  *collectionsmod.Store
+}
+
+func setupFixture(t *testing.T) fixture {
+	t.Helper()
+	e := integration.Setup(t)
+	svc := customfieldsmod.NewService(e.Pool, integration.SchemaPool(t))
+	return fixture{
+		e: e,
+		// A real seeded user, not a synthetic id: custom_field.created_by is
+		// foreign-keyed to app_user, and the harness seeds only Rep1/2/3.
+		ctx:    e.As(e.Rep1, nil, testPerms),
+		svc:    svc,
+		people: peoplemod.NewStore(e.DB()).WithFieldCatalog(svc),
+		lists:  collectionsmod.NewStore(e.DB()).WithFieldCatalog(svc),
+	}
+}
+
+// createTextField defines an active text field on person and answers its
+// physical column and catalog id. label must be unique across this
+// package's own tests: testdb.Reset truncates the custom_field catalog
+// between tests but never reverts the ALTER TABLE a create ran, so a
+// reused label collides with the physical column an earlier test left
+// behind in this same schema.
+func (f fixture) createTextField(t *testing.T, label string) (column string, id ids.UUID) {
+	t.Helper()
+	field, err := f.svc.Create(f.ctx, customfieldsmod.FieldSpec{
+		Object: "person", Label: label, Type: customfieldsmod.TypeText, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("defining %q: %v", label, err)
+	}
+	if field.ColumnName == nil {
+		t.Fatalf("defined field %q carries no column_name", label)
+	}
+	return *field.ColumnName, ids.UUID(field.Id)
+}
+
+// assertSoleMember reads a list's live membership and fails unless it is
+// exactly the one record named.
+func assertSoleMember(t *testing.T, f fixture, listID ids.ListID, want ids.UUID) {
+	t.Helper()
+	rows, _, err := f.lists.ListMembers(f.ctx, listID, 50, "")
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	if len(rows) != 1 || rows[0].EntityID != want {
+		t.Fatalf("members = %v, want exactly [%s]", rows, want)
+	}
+}
+
+// TestADynamicListFiltersOnACustomFieldValue is the point of the task: a
+// cf_* predicate must be ACCEPTED by list creation and then actually
+// narrow membership — a customer who filled in a field can build a
+// target list from it, which is the entire reason to let them add one.
+func TestADynamicListFiltersOnACustomFieldValue(t *testing.T) {
+	f := setupFixture(t)
+	column, _ := f.createTextField(t, "Loyalty Tier")
+
+	matching, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Match", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create matching person: %v", err)
+	}
+	if _, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Other", Source: "manual"}); err != nil {
+		t.Fatalf("create non-matching person: %v", err)
+	}
+	// Set through the update path, not at create: a field a customer fills
+	// in later must filter exactly as one set at creation would.
+	if _, err := f.people.UpdatePerson(f.ctx, integration.PersonIDOf(ids.UUID(matching.Id)), peoplemod.UpdatePersonInput{
+		CustomFields: map[string]any{column: "gold"},
+	}); err != nil {
+		t.Fatalf("setting the custom field through the update path: %v", err)
+	}
+
+	// The 422→201 flip: this call answers 422 (a *storekit.PredicateError)
+	// if the catalogue is not wired into this store, exactly the defect an
+	// earlier fix closed in only one of the two collections stores.
+	created, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "Gold tier", EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": "gold"},
+	})
+	if err != nil {
+		t.Fatalf("a dynamic list on a custom field was refused: %v", err)
+	}
+	assertSoleMember(t, f, created.ID, ids.UUID(matching.Id))
+}
+
+// TestRetiringACustomFieldLeavesItsSegmentEvaluable proves retirement is a
+// status flip, never a column drop: a segment saved against a field that
+// is later retired must keep returning the same rows. Dropping the clause
+// instead would silently WIDEN the target list — the way someone ends up
+// emailing people they never meant to target.
+func TestRetiringACustomFieldLeavesItsSegmentEvaluable(t *testing.T) {
+	f := setupFixture(t)
+	column, fieldID := f.createTextField(t, "Renewal Segment")
+
+	matching, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Match", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create matching person: %v", err)
+	}
+	if _, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Other", Source: "manual"}); err != nil {
+		t.Fatalf("create non-matching person: %v", err)
+	}
+	if _, err := f.people.UpdatePerson(f.ctx, integration.PersonIDOf(ids.UUID(matching.Id)), peoplemod.UpdatePersonInput{
+		CustomFields: map[string]any{column: "renew"},
+	}); err != nil {
+		t.Fatalf("setting the custom field: %v", err)
+	}
+
+	created, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "Renewals", EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": "renew"},
+	})
+	if err != nil {
+		t.Fatalf("create dynamic list: %v", err)
+	}
+	assertSoleMember(t, f, created.ID, ids.UUID(matching.Id))
+
+	if _, err := f.svc.Retire(f.ctx, fieldID); err != nil {
+		t.Fatalf("retiring the field: %v", err)
+	}
+
+	// Same list, re-read after retirement: still exactly the one row.
+	assertSoleMember(t, f, created.ID, ids.UUID(matching.Id))
+
+	// A NEW list on the same, now-retired field must still validate — a
+	// saved segment naming a retired column is not a mistake to refuse.
+	if _, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "Renewals, take two", EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": "renew"},
+	}); err != nil {
+		t.Fatalf("a new list on a retired field's column was refused: %v", err)
+	}
+}
+
+// TestFilteredExportOfASegmentMatchesItsMembership pins the ONE engine
+// (LVS-AC-2): a filtered export of a definition carries exactly the rows
+// the members endpoint computed from that same definition, in the same
+// order. A second vocabulary lookup anywhere in the export path would
+// show up here as an export that disagrees with the list it exports.
+func TestFilteredExportOfASegmentMatchesItsMembership(t *testing.T) {
+	f := setupFixture(t)
+	column, _ := f.createTextField(t, "Export Match Flag")
+
+	seed := func(name, value string) ids.UUID {
+		p, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: name, Source: "manual"})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := f.people.UpdatePerson(f.ctx, integration.PersonIDOf(ids.UUID(p.Id)), peoplemod.UpdatePersonInput{
+			CustomFields: map[string]any{column: value},
+		}); err != nil {
+			t.Fatalf("set %s's field: %v", name, err)
+		}
+		return ids.UUID(p.Id)
+	}
+	a, b := seed("A", "blue"), seed("B", "blue")
+	seed("C", "red")
+
+	created, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "Blues", EntityType: "person", ListType: "dynamic",
+		Definition: map[string]any{"field": column, "op": "eq", "value": "blue"},
+	})
+	if err != nil {
+		t.Fatalf("create dynamic list: %v", err)
+	}
+	rows, _, err := f.lists.ListMembers(f.ctx, created.ID, 50, "")
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	members := map[ids.UUID]bool{}
+	for _, m := range rows {
+		members[m.EntityID] = true
+	}
+	if len(rows) != 2 || !members[a] || !members[b] {
+		t.Fatalf("membership = %v, want exactly [%s %s]", rows, a, b)
+	}
+
+	engine, ok, err := f.lists.SegmentEngine(f.ctx, "person")
+	if err != nil || !ok {
+		t.Fatalf("resolve person engine: ok=%v err=%v", ok, err)
+	}
+	result, err := compose.NewFilteredExportWriter(f.e.Pool).WriteFiltered(f.ctx, engine,
+		storekit.Predicate{Field: column, Op: "eq", Value: "blue"}, "csv")
+	if err != nil {
+		t.Fatalf("filtered export: %v", err)
+	}
+
+	exported := integration.CSVColumn(t, result.Body, "id")
+	if len(exported) != len(rows) {
+		t.Fatalf("export carries %d rows, membership carries %d (%v vs %v)", len(exported), len(rows), exported, rows)
+	}
+	for i, m := range rows {
+		if exported[i] != m.EntityID.String() {
+			t.Fatalf("export row %d = %s, membership row %d = %s — the two vocabulary lookups disagreed",
+				i, exported[i], i, m.EntityID)
+		}
+	}
+}
+
+// checkLiteralRe pulls a quoted literal out of a rendered Postgres CHECK
+// constraint (pg_get_constraintdef quotes each value, whether it renders
+// as `IN (...)` or the normalized `= ANY (ARRAY[...])`); a double-quoted
+// column or type name never matches, only the single-quoted values do.
+var checkLiteralRe = regexp.MustCompile(`'([a-z_]+)'`)
+
+func mapsEqual(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestTheTaggableVocabularyMatchesTheCheckConstraint proves the Go-side
+// taggable set is not just consistent with itself (the unit lane's job)
+// but COMPLETE against the schema's own CHECK (LVS-DDL-2) — the authority
+// a generated contract enum can lag behind. The CHECK admits five values:
+// person, organization, deal, lead and project (0131_project.up.sql's
+// taggable_entity_type_check); the contract enum's omission of project is
+// a separately tracked contract/spec divergence (#1244), not a defect a
+// narrower expectation here should paper over.
+func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
+	f := setupFixture(t)
+
+	var def string
+	err := database.WithWorkspaceTx(f.ctx, f.e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(f.ctx, `
+			SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			 WHERE conrelid = 'taggable'::regclass AND contype = 'c'
+			   AND pg_get_constraintdef(oid) LIKE '%entity_type%'`).Scan(&def)
+	})
+	if err != nil {
+		t.Fatalf("reading taggable's own CHECK constraint: %v", err)
+	}
+	got := map[string]bool{}
+	for _, m := range checkLiteralRe.FindAllStringSubmatch(def, -1) {
+		got[m[1]] = true
+	}
+	want := map[string]bool{"person": true, "organization": true, "deal": true, "lead": true, "project": true}
+	if !mapsEqual(got, want) {
+		t.Fatalf("taggable's CHECK admits %v, want %v", got, want)
+	}
+
+	// collections exports no accessor for its private taggable set, so
+	// validation is the observable proxy: every type the CHECK admits must
+	// let a dynamic list filter by tag, or a record type nobody can see
+	// would ship with a filter that silently never matches anything.
+	for entity := range want {
+		if _, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+			Name: "tag probe " + entity, EntityType: entity, ListType: "dynamic",
+			Definition: map[string]any{"field": "tag", "op": "exists", "value": false},
+		}); err != nil {
+			t.Errorf("%s: a tag filter did not validate: %v", entity, err)
+		}
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+// seedTaggablePair creates two records of one entity type and answers
+// their ids untyped — every caller widens through the same ApplyTag /
+// CreateList surface, which takes entity ids untyped for exactly this
+// polymorphic reason.
+func (f fixture) seedTaggablePair(t *testing.T, entity string, pipeline ids.PipelineID, stage ids.StageID) (tagged, plain ids.UUID) {
+	t.Helper()
+	switch entity {
+	case "person":
+		a, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Tagged Person", Source: "manual"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := f.people.CreatePerson(f.ctx, peoplemod.CreatePersonInput{FullName: "Plain Person", Source: "manual"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ids.UUID(a.Id), ids.UUID(b.Id)
+	case "organization":
+		a, err := f.people.CreateOrganization(f.ctx, peoplemod.CreateOrganizationInput{DisplayName: "Tagged Org"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := f.people.CreateOrganization(f.ctx, peoplemod.CreateOrganizationInput{DisplayName: "Plain Org"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ids.UUID(a.Id), ids.UUID(b.Id)
+	case "deal":
+		return f.e.SeedDeal(t, "Tagged Deal", pipeline, stage, nil), f.e.SeedDeal(t, "Plain Deal", pipeline, stage, nil)
+	default: // lead
+		a, _, err := f.people.CreateLead(f.ctx, peoplemod.CreateLeadInput{FullName: strPtr("Tagged Lead"), Source: "manual"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _, err := f.people.CreateLead(f.ctx, peoplemod.CreateLeadInput{FullName: strPtr("Plain Lead"), Source: "manual"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ids.UUID(a.Id), ids.UUID(b.Id)
+	}
+}
+
+// assertTagSegment proves the tag leaf both ways for one entity type: an
+// `eq` on the tag's id selects exactly the tagged record, and `exists:
+// false` selects exactly the untagged one — the join reaches the SAME
+// taggable row from either direction.
+func (f fixture) assertTagSegment(t *testing.T, entity, tagID string, tagged, plain ids.UUID) {
+	t.Helper()
+	has, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: entity + " has the tag", EntityType: entity, ListType: "dynamic",
+		Definition: map[string]any{"field": "tag", "op": "eq", "value": tagID},
+	})
+	if err != nil {
+		t.Fatalf("%s: create tagged-eq list: %v", entity, err)
+	}
+	assertSoleMember(t, f, has.ID, tagged)
+
+	untagged, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: entity + " has no tag", EntityType: entity, ListType: "dynamic",
+		Definition: map[string]any{"field": "tag", "op": "exists", "value": false},
+	})
+	if err != nil {
+		t.Fatalf("%s: create untagged list: %v", entity, err)
+	}
+	assertSoleMember(t, f, untagged.ID, plain)
+}
+
+// TestATagFilterSelectsTaggedRecordsPerEntityType proves the tag leaf
+// reaches the polymorphic taggable join for every entity type that can
+// carry one — person, organization, deal and lead — not just the one the
+// unit lane happened to exercise.
+func TestATagFilterSelectsTaggedRecordsPerEntityType(t *testing.T) {
+	f := setupFixture(t)
+	tag, err := f.lists.CreateTag(f.ctx, "vip", nil)
+	if err != nil {
+		t.Fatalf("create tag: %v", err)
+	}
+	pipeline, open, _ := integration.DealFixture(t, f.e)
+
+	for _, entity := range []string{"person", "organization", "deal", "lead"} {
+		tagged, plain := f.seedTaggablePair(t, entity, pipeline, open)
+		if _, err := f.lists.ApplyTag(f.ctx, tag.ID, entity, tagged); err != nil {
+			t.Fatalf("%s: apply tag: %v", entity, err)
+		}
+		f.assertTagSegment(t, entity, tag.ID.String(), tagged, plain)
+	}
+}
+
+// TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake pins the
+// obligation the handler's own writeErr documents: a failed catalogue
+// read must never surface as a *storekit.PredicateError, which is the one
+// shape the transport maps to 422-blame-the-caller's-filter. A context
+// already canceled before the engine reaches for the workspace's cf_*
+// columns is a genuine failure over the real service and the real pool —
+// no hand-built adapter, no simulated error — that has nothing at all to
+// do with what the caller's filter named.
+func TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake(t *testing.T) {
+	f := setupFixture(t)
+	dead, cancel := context.WithCancel(f.ctx)
+	cancel()
+
+	_, _, err := f.lists.SegmentEngine(dead, "person")
+	if err == nil {
+		t.Fatal("a canceled catalogue read returned no error")
+	}
+	var pred *storekit.PredicateError
+	if errors.As(err, &pred) {
+		t.Fatalf("a catalogue failure was dressed up as a filter validation error: %v", pred)
+	}
+}
