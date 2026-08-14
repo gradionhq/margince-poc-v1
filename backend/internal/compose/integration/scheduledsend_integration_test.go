@@ -229,6 +229,13 @@ func (p *preflightEnv) setDueAt(t *testing.T, id ids.UUID, at time.Time) {
 // message was written under, through the real consent surface.
 func (p *preflightEnv) withdrawConsent(t *testing.T) {
 	t.Helper()
+	p.setTransactionalConsent(t, "withdrawn")
+}
+
+// setTransactionalConsent moves the recipient's transactional grant either way,
+// through the real consent surface.
+func (p *preflightEnv) setTransactionalConsent(t *testing.T, state string) {
+	t.Helper()
 	var purposes struct {
 		Data []struct {
 			ID  string `json:"id"`
@@ -248,9 +255,9 @@ func (p *preflightEnv) withdrawConsent(t *testing.T) {
 		t.Fatalf("bootstrap seeded no transactional purpose: %+v", purposes.Data)
 	}
 	if status := p.Call(t, "POST", "/v1/people/"+p.personID+"/consent", apptest.AnyMap{
-		"purpose_id": transactional, "new_state": "withdrawn", "lawful_basis": "consent",
+		"purpose_id": transactional, "new_state": state, "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("withdrawing consent → %d", status)
+		t.Fatalf("setting consent to %s → %d", state, status)
 	}
 }
 
@@ -348,6 +355,58 @@ func TestFilteringByStatusFindsTheStateTheListActuallyShows(t *testing.T) {
 	}
 }
 
+// heldCard is the inbox card as a rep sees it.
+type heldCard struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Summary string `json:"summary"`
+}
+
+// heldCardFor finds the card raised for one message, through the endpoint a
+// rep's inbox reads — a row written to a table nothing serves is not a card
+// anybody sees. Matched on the message named in the payload: the card carries no
+// target id, because a held message produced no activity to point at.
+func (p *preflightEnv) heldCardFor(t *testing.T, id ids.UUID) (heldCard, bool) {
+	t.Helper()
+	var page struct {
+		Data []struct {
+			heldCard
+			ProposedChange *struct {
+				ScheduledSendID string `json:"scheduled_send_id"`
+			} `json:"proposed_change"`
+		} `json:"data"`
+	}
+	if status := p.Call(t, "GET", "/v1/approvals?status=pending", nil, nil, &page); status != http.StatusOK {
+		t.Fatalf("reading the approval inbox → %d", status)
+	}
+	for _, row := range page.Data {
+		if row.ProposedChange != nil && row.ProposedChange.ScheduledSendID == id.String() {
+			return row.heldCard, true
+		}
+	}
+	return heldCard{}, false
+}
+
+// forceStatus moves a scheduled row directly, standing in for whatever else
+// could have moved it while a card sat in an inbox.
+func (p *preflightEnv) forceStatus(t *testing.T, id ids.UUID, status string) {
+	t.Helper()
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE scheduled_send SET status = $1, held_reason = NULL WHERE id = $2`, status, id)
+		return err
+	}); err != nil {
+		t.Fatalf("moving the scheduled send to %s: %v", status, err)
+	}
+}
+
+// grantTransactionalConsent restores the grant the withdrawal removed, so a rep
+// accepting a held card has actually fixed what stopped it.
+func (p *preflightEnv) grantTransactionalConsent(t *testing.T) {
+	t.Helper()
+	p.setTransactionalConsent(t, "granted")
+}
+
 // releasedActivity reads the activity a fired scheduled send produced.
 func (p *preflightEnv) releasedActivity(t *testing.T, id ids.UUID) ids.UUID {
 	t.Helper()
@@ -418,6 +477,122 @@ func TestConsentWithdrawnBeforeFiringHoldsTheMessage(t *testing.T) {
 	}
 	if got := p.countDeliveries(t); got != deliveriesBefore {
 		t.Fatalf("a held message staged %d deliveries; a refusal must reach the machinery not at all", got-deliveriesBefore)
+	}
+}
+
+// DRAFT-AC-N-11a. A message the system stopped is a decision waiting for a rep,
+// and a state they must go looking for is one they find late. It has to reach
+// the inbox this product already uses for "something needs you".
+//
+// Visibility is only half. The card carries the same Accept/Reject buttons every
+// other card carries, and if they did nothing a rep would click one, watch the
+// card vanish, and still have a message sitting stopped — a decision reported
+// but never made. So this asserts the ACTION, not the appearance.
+func TestARepCanRetryAHeldMessageFromTheirInbox(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusHeld {
+		t.Fatalf("the message reads %q, want %q — this test is about what a hold raises", status, activities.ScheduledStatusHeld)
+	}
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("a message stopped and no card appeared — a rep would only find out by going looking")
+	}
+	if !strings.Contains(card.Summary, "Monday morning") || !strings.Contains(strings.ToLower(card.Summary), "consent") {
+		t.Errorf("the card does not say which message stopped or why: %q", card.Summary)
+	}
+
+	// The rep fixes the problem and clicks Accept.
+	p.grantTransactionalConsent(t)
+	if status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("accepting the card → %d, want 200", status)
+	}
+
+	// Accept has to DO something: the message is armed again, not merely
+	// dismissed from the list.
+	status, reason := p.scheduledStatus(t, id)
+	if status != activities.ScheduledStatusScheduled {
+		t.Fatalf("after Accept the message reads %q/%q, want %q — the card was dismissed and the message left stopped",
+			status, reason, activities.ScheduledStatusScheduled)
+	}
+	if _, still := p.heldCardFor(t, id); still {
+		t.Error("the card outlived the rep's answer")
+	}
+}
+
+// The other button. Reject means "give up on this one", and without a declined
+// effect the card would leave the inbox while the message waited forever for a
+// decision nobody would make again.
+func TestARepCanAbandonAHeldMessageFromTheirInbox(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("no card to reject — this test is about rejecting one")
+	}
+	if status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/reject", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("rejecting the card → %d, want 200", status)
+	}
+
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusCancelled {
+		t.Fatalf("after Reject the message reads %q, want %q — the card was dismissed and the message left stopped",
+			status, activities.ScheduledStatusCancelled)
+	}
+}
+
+// Reject and the cancellation it releases commit together, or neither does.
+//
+// The failure this closes is specific: reject the card, have the cancellation
+// fail afterwards, and the card is already rejected — a retry is refused as
+// already-decided while the message is still held. The rep answered, the system
+// recorded the answer, and nothing happened.
+//
+// Driven by rejecting a card whose message was cancelled out from under it: the
+// cancel then finds no pending row and fails, which must take the rejection down
+// with it rather than leaving a decided card over a message in the wrong state.
+func TestARejectionThatCannotCancelLeavesTheCardRetryable(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("no card raised — this test is about rejecting one")
+	}
+
+	// The message reaches a state the cancel cannot act on, behind the card's
+	// back — a rep on another device, or a sweep. Cancelled rather than
+	// released: the state-shape CHECK requires a released row to name the
+	// activity it produced, and inventing one would be a fixture the writer
+	// never produces.
+	p.forceStatus(t, id, activities.ScheduledStatusCancelled)
+
+	// The rejection must now fail as a whole rather than commit half of itself.
+	status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/reject", apptest.AnyMap{}, nil, nil)
+	if status == http.StatusOK {
+		t.Fatal("the rejection reported success while its cancellation could not run — the card would be decided and the message left in the wrong state")
+	}
+
+	// And the card is still there to try again, because the decision rolled back
+	// with the work.
+	if _, still := p.heldCardFor(t, id); !still {
+		t.Error("the card was consumed by a rejection that did no work — a retry would be refused as already decided")
 	}
 }
 

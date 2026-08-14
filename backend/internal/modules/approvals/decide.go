@@ -78,7 +78,24 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		a, err = s.decideInTx(ctx, tx, p, id, approve, reason, edited)
-		return err
+		if err != nil {
+			return err
+		}
+		// A declined effect runs HERE, inside the decision's transaction, so a
+		// rejection and the work it releases commit together. Run afterwards it
+		// would leave the card rejected, the retry refused as already-decided,
+		// and the subject it was about still waiting — the failure this whole
+		// card exists to prevent.
+		//
+		// The approve side cannot join this transaction: its effects redeem the
+		// approval and write through other modules' stores, several of which
+		// open their own. It carries its own atomicity through RedeemAndApply.
+		if decline, ok := s.declines[a.Kind]; ok && !approve && serverProposed(a) {
+			if err := decline(ctx, tx, id, a.ProposedChange); err != nil {
+				return fmt.Errorf("executing the %s decline: %w", a.Kind, err)
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return a, err

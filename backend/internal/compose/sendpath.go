@@ -27,6 +27,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -71,6 +72,12 @@ type SendPath struct {
 	// wake at — the same fail-closed rule Delivery follows, for the same
 	// reason: a promise this surface cannot keep is worse than a refusal.
 	ScheduleTimer activities.ScheduleTimer
+	// HeldNotifier raises the inbox card when a message is stopped. Unlike
+	// Delivery and ScheduleTimer, nil does NOT refuse: a hold that cannot be
+	// announced still has to happen, because refusing to stop a message would
+	// let a gate's refusal turn into a send. withPoolDefaults supplies the real
+	// one, so a role cannot forget it by omission.
+	HeldNotifier activities.HeldNotifier
 }
 
 // withPoolDefaults fills in what a role does not configure but the pool alone
@@ -88,6 +95,13 @@ func (p SendPath) withPoolDefaults(pool *pgxpool.Pool) SendPath {
 	}
 	if p.ChannelRecipients == nil {
 		p.ChannelRecipients = channelReachability{}
+	}
+	if p.HeldNotifier == nil {
+		// Derived from the pool like the draft-outcome recorder: a rep whose
+		// message stopped must be told on every role that can hold one, and
+		// "unwired" here is indistinguishable from a message that stopped
+		// silently.
+		p.HeldNotifier = NewScheduledSendHeldNotifier(approvals.NewService(InstallationDB(pool)))
 	}
 	return p
 }
@@ -117,6 +131,7 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		// wired at one call site and not the other would be "send later" that
 		// works on one transport and silently 500s on the next.
 		WithScheduleTimer(send.ScheduleTimer).
+		WithHeldNotifier(send.HeldNotifier).
 		// Wired unconditionally, like the unsubscribe linker below: it needs
 		// nothing but the caller's transaction, so a deployment cannot forget
 		// it and leave an account-started send unable to resolve anyone.
@@ -146,6 +161,7 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 		// still signs nothing — signedBody decides that, not this wiring.
 		WithSignature(people.NewStore(InstallationDB(pool))).
 		WithSenderName(identity.NewServiceFor(InstallationDB(pool))).
+		WithHeldNotifier(send.HeldNotifier).
 		WithDraftOutcome(send.DraftOutcome)
 }
 
