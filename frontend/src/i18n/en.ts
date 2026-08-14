@@ -3681,6 +3681,29 @@ export const en = {
   "settings.voice.addSource": "Add sample",
   "settings.voice.addFirstLabel": "Your first writing sample",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
+  "settings.voice.browseFiles": "Choose files",
+  "settings.voice.dropHint":
+    "Or drop .txt, .md, .vtt, .srt or .json files here.",
+  "settings.voice.floorLabel": "Progress towards the first build ({min} words)",
+  "settings.voice.floorProgress": "{words} of {min} words to a first build",
+  "settings.voice.speakerQuestion": "Which speaker are you in “{name}”?",
+  "settings.voice.speakerDetail": "{words} words, {turns} turns",
+  "settings.voice.speakerConfirm": "That one is me",
+  "settings.voice.speakerDismiss": "Skip this file",
+  "settings.voice.noticeKept": "{name}: kept {kept} of {total} words.",
+  "settings.voice.noticeSkippedType":
+    "{name} was skipped — only text files can be read.",
+  "settings.voice.noticeSkippedEmpty": "{name} was skipped — it has no text.",
+  "settings.voice.noticeDismissed":
+    "{name} was skipped — nothing in it could be attributed to you.",
+  "settings.voice.noticeFailed": "{name} could not be added: {detail}",
+  "settings.voice.noticeUnexpected": "{name} could not be added.",
+  "settings.voice.refusalUnattributed":
+    "{name} is a conversation, and none of it could be attributed to you — so none of it was added.",
+  "settings.voice.refusalSpeaker":
+    "That speaker was not found in {name}, so nothing was added.",
+  "settings.voice.refusalUnsupported":
+    "{name} is not a format the corpus can read.",
   "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",

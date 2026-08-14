@@ -3671,6 +3671,33 @@ export const de = {
   "settings.voice.addSource": "Probe hinzufügen",
   "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
+  "settings.voice.browseFiles": "Dateien auswählen",
+  "settings.voice.dropHint":
+    "Oder .txt-, .md-, .vtt-, .srt- oder .json-Dateien hier ablegen.",
+  "settings.voice.floorLabel":
+    "Fortschritt bis zum ersten Build ({min} Wörter)",
+  "settings.voice.floorProgress":
+    "{words} von {min} Wörtern bis zum ersten Build",
+  "settings.voice.speakerQuestion": "Wer bist du in „{name}“?",
+  "settings.voice.speakerDetail": "{words} Wörter, {turns} Beiträge",
+  "settings.voice.speakerConfirm": "Das bin ich",
+  "settings.voice.speakerDismiss": "Datei überspringen",
+  "settings.voice.noticeKept": "{name}: {kept} von {total} Wörtern übernommen.",
+  "settings.voice.noticeSkippedType":
+    "{name} wurde übersprungen – lesbar sind nur Textdateien.",
+  "settings.voice.noticeSkippedEmpty":
+    "{name} wurde übersprungen – die Datei enthält keinen Text.",
+  "settings.voice.noticeDismissed":
+    "{name} wurde übersprungen – nichts darin ließ sich dir zuordnen.",
+  "settings.voice.noticeFailed":
+    "{name} konnte nicht hinzugefügt werden: {detail}",
+  "settings.voice.noticeUnexpected": "{name} konnte nicht hinzugefügt werden.",
+  "settings.voice.refusalUnattributed":
+    "{name} ist ein Gespräch, und nichts darin ließ sich dir zuordnen – deshalb wurde nichts übernommen.",
+  "settings.voice.refusalSpeaker":
+    "Diese Person kommt in {name} nicht vor, es wurde nichts übernommen.",
+  "settings.voice.refusalUnsupported":
+    "{name} liegt in einem Format vor, das nicht gelesen werden kann.",
   "settings.voice.buildsTitle": "Builds",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",

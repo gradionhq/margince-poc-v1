@@ -1,11 +1,16 @@
 import type { Dispatch } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import type { MessageKey } from "../../i18n/en";
 import { problemMessage } from "../common";
-import { ACCEPTED_CORPUS_FILE, TRANSCRIPT_EXT } from "../onboarding";
-import { ensureProfileId } from "../voice-profile";
+import type { IntakeOutcome, RefusalReason } from "../voice-intake-core";
+import {
+  intakePaste,
+  intakeTranscript,
+  intakeUpload,
+  isAcceptedCorpusFile,
+  sourceRef,
+} from "../voice-intake-core";
 import type {
   ConversationEvent,
   ConversationState,
@@ -23,11 +28,6 @@ import { diffCorpus, useNarrationQueue } from "./narration";
 type CorpusPreview = components["schemas"]["VoiceCorpusPreviewResult"];
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
 type IngestStats = components["schemas"]["VoiceIngestStats"];
-type IngestRequest = components["schemas"]["IngestVoiceCorpusSourceRequest"];
-
-// A .txt is treated as a transcript when the preview attributes at least
-// this share of its spoken words to labelled speakers.
-const ATTRIBUTED_SHARE = 0.8;
 
 export type CorpusManifestEntry = Readonly<{
   ref: string;
@@ -55,53 +55,24 @@ type UseVoiceCorpusArgs = Readonly<{
   initialSummary?: CorpusSummary | null;
 }>;
 
-const refusalKeys: Record<string, MessageKey> = {
-  unattributed_transcript: "ob.conv.voice.refusalUnattributed",
-  speaker_label_required: "ob.conv.voice.refusalUnattributed",
-  speaker_not_found: "ob.conv.voice.refusalSpeaker",
-  unsupported_format: "ob.conv.voice.refusalUnsupported",
+const refusalKeys: Record<RefusalReason, MessageKey> = {
+  unattributed: "ob.conv.voice.refusalUnattributed",
+  speaker: "ob.conv.voice.refusalSpeaker",
+  unsupported: "ob.conv.voice.refusalUnsupported",
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-// Every stable machine code an RFC 7807 body carries: the top-level `code`
-// plus any per-field `details.errors[].code`.
-function problemCodes(problem: unknown): string[] {
-  if (!isRecord(problem)) {
-    return [];
-  }
-  const codes: string[] = [];
-  if (typeof problem.code === "string") {
-    codes.push(problem.code);
-  }
-  const details = problem.details;
-  if (isRecord(details) && Array.isArray(details.errors)) {
-    for (const raw of details.errors) {
-      if (isRecord(raw) && typeof raw.code === "string") {
-        codes.push(raw.code);
-      }
-    }
-  }
-  return codes;
-}
-
-// The 422's stable machine code (top-level or per-field in details.errors)
-// picks the honest refusal line; an unknown code falls back to the server's
-// safe detail.
+// The refusal category the core read off the 422 picks the honest line; a
+// refusal it did not recognize falls back to the server's own safe detail.
 function refusalEntry(
   ref: string,
+  reason: RefusalReason | null,
   problem: unknown,
 ): Extract<ConversationEvent, { type: "NARRATION" }>["entry"] {
-  const known = problemCodes(problem).find(
-    (code) => refusalKeys[code] !== undefined,
-  );
-  if (known !== undefined) {
+  if (reason !== null) {
     return {
       kind: "narration",
       id: `refuse:${ref}`,
-      i18nKey: refusalKeys[known],
+      i18nKey: refusalKeys[reason],
     };
   }
   return {
@@ -110,27 +81,6 @@ function refusalEntry(
     i18nKey: "ob.conv.voice.ingestFailed",
     params: { detail: problemMessage(problem) },
   };
-}
-
-// What one previewed file honestly IS: a conversational source needs the
-// speaker answer first; a transcript-shaped file nobody is attributable in
-// is refused whole (none of it can be proven the owner's own words); and
-// single-author prose ingests directly.
-function routePreview(
-  name: string,
-  preview: CorpusPreview,
-): "ask-speaker" | "refuse" | "document" {
-  const attributedWords = preview.speakers.reduce(
-    (sum, speaker) => sum + speaker.words,
-    0,
-  );
-  const conversational =
-    TRANSCRIPT_EXT.test(name) ||
-    attributedWords >= preview.total_words * ATTRIBUTED_SHARE;
-  if (conversational && preview.ingestible_as_transcript) {
-    return "ask-speaker";
-  }
-  return TRANSCRIPT_EXT.test(name) ? "refuse" : "document";
 }
 
 export function useVoiceCorpus({
@@ -143,7 +93,6 @@ export function useVoiceCorpus({
   const [asks, setAsks] = useState<readonly SpeakerAsk[]>([]);
   const [probesInFlight, setProbesInFlight] = useState(0);
   const summaryRef = useRef<CorpusSummary | null>(initialSummary);
-  const pasteSeq = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -229,165 +178,82 @@ export function useVoiceCorpus({
     [queue, say],
   );
 
-  const ingest = useCallback(
-    async (
-      body: IngestRequest,
-      transcript: boolean,
-      reactionKey: MessageKey,
-    ): Promise<void> => {
-      ingestSeq.current += 1;
-      const seq = ingestSeq.current;
-      const profileId = await ensureProfileId();
-      const { data, error } = await api.POST("/voice-profiles/{id}/sources", {
-        params: { path: { id: profileId } },
-        body,
-      });
-      if (error) {
-        if (mounted.current) {
-          dispatch({
-            type: "NARRATION",
-            entry: refusalEntry(body.source_ref, error),
-          });
-        }
+  // One place the conversation learns what an intake attempt ended as: the
+  // core decides, this translates the verdict into what the thread says.
+  const applyOutcome = useCallback(
+    (seq: number, outcome: IntakeOutcome, reactionKey: MessageKey): void => {
+      if (!mounted.current) {
+        return;
+      }
+      if (outcome.kind === "skipped") {
+        say(`skip:${outcome.label}`, "ob.conv.voice.fileEmpty", {
+          name: outcome.label,
+        });
+        return;
+      }
+      if (outcome.kind === "refused") {
+        dispatch({
+          type: "NARRATION",
+          entry: refusalEntry(outcome.ref, outcome.reason, outcome.problem),
+        });
+        return;
+      }
+      if (outcome.kind === "speaker-needed") {
+        // A re-upload under the same name supersedes its pending question;
+        // the ingest itself is idempotent on source_ref server-side.
+        setAsks((prev) => [
+          ...prev.filter((ask) => ask.ref !== outcome.ref),
+          {
+            ref: outcome.ref,
+            label: outcome.label,
+            content: outcome.content,
+            preview: outcome.preview,
+          },
+        ]);
         return;
       }
       recordIngest(
         seq,
         {
-          ref: body.source_ref,
-          label: body.source_label,
-          keptWords: data.ingest_stats.kept_words,
-          inputWords: data.ingest_stats.input_words,
-          transcript,
+          ref: outcome.ref,
+          label: outcome.label,
+          keptWords: outcome.stats.kept_words,
+          inputWords: outcome.stats.input_words,
+          transcript: outcome.transcript,
         },
-        data.ingest_stats,
-        data.summary,
+        outcome.stats,
+        outcome.summary,
         reactionKey,
       );
     },
-    [dispatch, recordIngest],
+    [dispatch, recordIngest, say],
   );
 
-  // Preview one accepted file and act on what it honestly IS (routePreview);
-  // the empty pre-gate is the only client-side counting anywhere.
-  const classifyUpload = useCallback(
-    async (name: string, text: string): Promise<void> => {
-      const ref = `onboarding:upload:${name}`;
-      if (text.split(/\s+/).filter(Boolean).length === 0) {
-        say(`skip:${name}`, "ob.conv.voice.fileEmpty", { name });
-        return;
-      }
-      const profileId = await ensureProfileId();
-      const { data, error } = await api.POST(
-        "/voice-profiles/{id}/sources/preview",
-        {
-          params: { path: { id: profileId } },
-          body: { format: "transcript", content: text },
-        },
-      );
-      if (error) {
-        if (mounted.current) {
-          dispatch({ type: "NARRATION", entry: refusalEntry(ref, error) });
-        }
-        return;
-      }
-      if (!mounted.current) {
-        return;
-      }
-      const route = routePreview(name, data);
-      if (route === "ask-speaker") {
-        // A re-upload under the same name supersedes its pending question;
-        // the ingest itself is idempotent on source_ref server-side.
-        setAsks((prev) => [
-          ...prev.filter((ask) => ask.ref !== ref),
-          { ref, label: name, content: text, preview: data },
-        ]);
-        return;
-      }
-      if (route === "refuse") {
-        say(`refuse:${ref}`, "ob.conv.voice.refusalUnattributed");
-        return;
-      }
-      await ingest(
-        {
-          kind: "document",
-          register: "general",
-          weight: 1,
-          source_label: name,
-          source_ref: ref,
-          format: "text",
-          speaker_label: null,
-          content: text,
-        },
-        false,
-        "ob.conv.voice.reactionDocument",
-      );
-    },
-    [dispatch, ingest, say],
-  );
-
-  // One intake for all three entry paths: the attach button, a drop onto the
-  // thread, and (via addPaste) the composer. V1 corpus is text only;
-  // anything else is refused by name.
-  const addFiles = useCallback(
-    (files: readonly File[]) => {
-      for (const file of files) {
-        if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
-          say(`skip:${file.name}`, "ob.conv.voice.fileSkipped", {
-            name: file.name,
-          });
-          continue;
-        }
-        dispatch({
-          type: "UPLOAD_ADDED",
-          id: `onboarding:upload:${file.name}`,
-          name: file.name,
-        });
-        setProbesInFlight((count) => count + 1);
-        file
-          .text()
-          .then((text) => classifyUpload(file.name, text))
-          .catch((err: unknown) => {
-            if (mounted.current) {
-              sayUnexpectedFailure(
-                `refuse:onboarding:upload:${file.name}`,
-                err,
-              );
-            }
-          })
-          .finally(() => {
-            if (mounted.current) {
-              setProbesInFlight((count) => count - 1);
-            }
-          });
-      }
-    },
-    [classifyUpload, dispatch, say, sayUnexpectedFailure],
-  );
-
-  const addPaste = useCallback(
-    (text: string, label: string) => {
-      pasteSeq.current += 1;
-      const ref = `onboarding:paste:${pasteSeq.current}`;
-      dispatch({ type: "UPLOAD_ADDED", id: ref, name: label });
+  // Each intake is stamped when its INGEST is issued, and only the
+  // newest-stamped summary may drive the meter. A response that settles late
+  // carries the corpus as it stood when the server answered it, so applying it
+  // after a newer one would roll the displayed total — and the build gate that
+  // reads it — backwards. The stamp is taken inside the core's ingest call
+  // rather than here at intake start, because a file that reads and previews
+  // slowly has not written anything yet: ordering it by when the reader picked
+  // it would let a preview delay decide which summary wins.
+  const runIntake = useCallback(
+    (
+      start: (stamp: () => number) => Promise<IntakeOutcome>,
+      reactionKey: MessageKey,
+      failureId: string,
+    ): void => {
       setProbesInFlight((count) => count + 1);
-      void ingest(
-        {
-          kind: "other",
-          register: "general",
-          weight: 1,
-          source_label: label,
-          source_ref: ref,
-          format: "text",
-          speaker_label: null,
-          content: text,
-        },
-        false,
-        "ob.conv.voice.reactionDocument",
-      )
+      let seq = 0;
+      start(() => {
+        ingestSeq.current += 1;
+        seq = ingestSeq.current;
+        return seq;
+      })
+        .then((outcome) => applyOutcome(seq, outcome, reactionKey))
         .catch((err: unknown) => {
           if (mounted.current) {
-            sayUnexpectedFailure(`refuse:${ref}`, err);
+            sayUnexpectedFailure(failureId, err);
           }
         })
         .finally(() => {
@@ -396,7 +262,58 @@ export function useVoiceCorpus({
           }
         });
     },
-    [dispatch, ingest, sayUnexpectedFailure],
+    [applyOutcome, sayUnexpectedFailure],
+  );
+
+  // One intake for all three entry paths: the attach button, a drop onto the
+  // thread, and (via addPaste) the composer. V1 corpus is text only;
+  // anything else is refused by name.
+  const addFiles = useCallback(
+    (files: readonly File[]) => {
+      for (const file of files) {
+        if (!isAcceptedCorpusFile(file.name)) {
+          say(`skip:${file.name}`, "ob.conv.voice.fileSkipped", {
+            name: file.name,
+          });
+          continue;
+        }
+        // The thread shows the file the moment it is handed over, before its
+        // content has been read — so the bubble is identified by name, while
+        // the SOURCE it becomes is keyed by what is in it.
+        dispatch({
+          type: "UPLOAD_ADDED",
+          id: `onboarding:upload:${file.name}`,
+          name: file.name,
+        });
+        runIntake(
+          async (stamp) => {
+            const text = await file.text();
+            return intakeUpload(
+              sourceRef("upload", text),
+              file.name,
+              text,
+              stamp,
+            );
+          },
+          "ob.conv.voice.reactionDocument",
+          `refuse:onboarding:upload:${file.name}`,
+        );
+      }
+    },
+    [dispatch, runIntake, say],
+  );
+
+  const addPaste = useCallback(
+    (text: string, label: string) => {
+      const ref = sourceRef("paste", text);
+      dispatch({ type: "UPLOAD_ADDED", id: ref, name: label });
+      runIntake(
+        (stamp) => intakePaste(ref, label, text, stamp),
+        "ob.conv.voice.reactionDocument",
+        `refuse:${ref}`,
+      );
+    },
+    [dispatch, runIntake],
   );
 
   // The machine holds ONE pending question, so speaker asks queue here and
@@ -438,33 +355,14 @@ export function useVoiceCorpus({
         return;
       }
       setAsks((prev) => prev.filter((candidate) => candidate.ref !== ask.ref));
-      setProbesInFlight((count) => count + 1);
-      void ingest(
-        {
-          kind: "transcript",
-          register: "spoken",
-          weight: 1,
-          source_label: ask.label,
-          source_ref: ask.ref,
-          format: "transcript",
-          speaker_label: value,
-          content: ask.content,
-        },
-        true,
+      runIntake(
+        (stamp) =>
+          intakeTranscript(ask.ref, ask.label, ask.content, value, stamp),
         "ob.conv.voice.reactionTranscript",
-      )
-        .catch((err: unknown) => {
-          if (mounted.current) {
-            sayUnexpectedFailure(`refuse:${ask.ref}`, err);
-          }
-        })
-        .finally(() => {
-          if (mounted.current) {
-            setProbesInFlight((count) => count - 1);
-          }
-        });
+        `refuse:${ask.ref}`,
+      );
     },
-    [asks, ingest, sayUnexpectedFailure],
+    [asks, runIntake],
   );
 
   return {

@@ -386,17 +386,14 @@ export function wizardStateBody(input: {
   };
 }
 
-// The accepted corpus formats, mirroring the contract's format enum
-// (crm.yaml IngestVoiceCorpusSourceRequest.format: txt/md/vtt/srt/json).
-export const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
-export const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
-
-export const TRANSCRIPT_EXT = /\.(vtt|srt|json)$/i;
-
-// 800 mirrors the server's build floor ("at least 800 eligible own-authored
-// words"): gating the build action here turns that 422 into a clear,
-// up-front ask.
-export const VOICE_MIN_WORDS = 800;
+// The corpus intake rules now live with the intake itself, shared by the two
+// surfaces that collect writing samples (this act and the Settings card).
+export {
+  ACCEPTED_CORPUS_ATTR,
+  ACCEPTED_CORPUS_FILE,
+  TRANSCRIPT_EXT,
+  VOICE_MIN_WORDS,
+} from "./voice-intake-core";
 
 // pickBuiltVersion names the version the build just produced: the highest
 // numbered active-or-candidate row — active when it auto-activated,

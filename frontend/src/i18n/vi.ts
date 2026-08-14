@@ -3660,6 +3660,30 @@ export const vi = {
   "settings.voice.addSource": "Thêm mẫu văn",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
+  "settings.voice.browseFiles": "Chọn tệp",
+  "settings.voice.dropHint":
+    "Hoặc thả tệp .txt, .md, .vtt, .srt hay .json vào đây.",
+  "settings.voice.floorLabel": "Tiến độ tới bản dựng đầu tiên ({min} từ)",
+  "settings.voice.floorProgress": "{words} trên {min} từ tới bản dựng đầu tiên",
+  "settings.voice.speakerQuestion": "Bạn là người nói nào trong “{name}”?",
+  "settings.voice.speakerDetail": "{words} từ, {turns} lượt",
+  "settings.voice.speakerConfirm": "Đó là tôi",
+  "settings.voice.speakerDismiss": "Bỏ qua tệp này",
+  "settings.voice.noticeKept": "{name}: giữ {kept} trên {total} từ.",
+  "settings.voice.noticeSkippedType":
+    "Đã bỏ qua {name} — chỉ đọc được tệp văn bản.",
+  "settings.voice.noticeSkippedEmpty":
+    "Đã bỏ qua {name} — tệp không có nội dung.",
+  "settings.voice.noticeDismissed":
+    "Đã bỏ qua {name} — không phần nào trong đó quy được cho bạn.",
+  "settings.voice.noticeFailed": "Không thêm được {name}: {detail}",
+  "settings.voice.noticeUnexpected": "Không thêm được {name}.",
+  "settings.voice.refusalUnattributed":
+    "{name} là một cuộc trò chuyện, và không phần nào quy được cho bạn — nên không có gì được thêm vào.",
+  "settings.voice.refusalSpeaker":
+    "Không tìm thấy người nói đó trong {name}, nên không có gì được thêm vào.",
+  "settings.voice.refusalUnsupported":
+    "{name} có định dạng mà kho văn bản không đọc được.",
   "settings.voice.buildsTitle": "Bản dựng",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
