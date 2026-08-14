@@ -54,10 +54,10 @@ type Service struct {
 	// mailbox lost, a thread archived since staging — that same report strands
 	// work the human could have released after fixing the cause.
 	//
-	// A precheck must be a pure READ. It runs outside any transaction, so it
-	// may use the pool freely, and it runs on a decision that can still fail
-	// after it, so anything it wrote would be a write for a decision that never
-	// happened.
+	// It is also where a kind states what its payload may not become: the
+	// generic edit scope pins entity references, so a field that matters and is
+	// not shaped like a uuid — an address, a declared purpose — has nowhere
+	// else to be defended.
 	prechecks map[string]ReleasePrecheck
 	// quota is the volume meter an approved step-up widens (quotarelease.go).
 	// Nil in a composition that serves no agents, where a step-up can never be
@@ -81,14 +81,29 @@ const (
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
-// ReleasePrecheck answers whether this kind's effect could run right now,
-// against the payload the decision is about to approve.
+// ReleasePrecheck answers whether this kind's effect could run right now, and
+// whether the payload about to be approved is one this kind accepts.
+//
+// It receives BOTH the staged proposal and the human's edit, because some kinds
+// have to compare them: the generic edit scope pins entity references, which
+// protects any field shaped like a uuid and nothing else. A kind whose payload
+// carries something equally load-bearing in another shape — an address, a
+// declared purpose — has no other place to say so.
+//
+// edited is nil when the human approved as staged.
 //
 // Returning an error refuses the DECISION, so the approval is never decided and
-// the human can act on the reason and approve again. Returning nil promises
-// nothing: the effect still runs afterwards and may still fail on the state
-// that moved in between — which is what the effect's own transaction is for.
-type ReleasePrecheck func(ctx context.Context, proposedChange json.RawMessage) error
+// the human can act on the reason and approve the same row again. Returning nil
+// promises nothing: the effect still runs afterwards and may still fail on state
+// that moved in between, which is what the effect's own transaction is for.
+//
+// It runs OUTSIDE any transaction, so it may use the pool freely. It is not
+// required to be side-effect free, and for a send it is not: the consent gate
+// records a lawful basis it derived, exactly as it does when a rep schedules a
+// message that may later be cancelled (activities.scheduleSend runs the same
+// preparation and throws the result away). What it must not do is write
+// anything the DECISION owns, because the decision may still refuse after it.
+type ReleasePrecheck func(ctx context.Context, staged, edited json.RawMessage) error
 
 // NewService builds the approvals engine over a workspace-bound handle,
 // with no effects registered until compose wires them.

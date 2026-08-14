@@ -120,14 +120,11 @@ func (s *Service) runPrecheck(ctx context.Context, id ids.ApprovalID, approve bo
 	if !ok || !serverProposed(a) {
 		return nil
 	}
-	// The payload the decision is ABOUT to approve, which on a modify-then-
-	// approve is the human's edited version — preflighting the staged original
-	// would clear a message nobody is going to send.
-	payload := a.ProposedChange
-	if len(edited) > 0 {
-		payload = edited
-	}
-	return check(ctx, payload)
+	// Both, because the kind may need to compare them. What is preflighted is
+	// the payload about to be approved — on a modify-then-approve the human's
+	// edit, since clearing the staged original would clear a message nobody is
+	// going to send — and what is compared against is what was staged.
+	return check(ctx, a.ProposedChange, edited)
 }
 
 // runDecisionEffect runs what a COMMITTED decision releases: a step-up's window

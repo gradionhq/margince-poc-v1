@@ -109,13 +109,12 @@ func decodeHeldDraft(raw json.RawMessage) (automation.HeldDraftProposal, error) 
 // change, so a modify-then-approve edit can correct the words and cannot re-aim
 // the reply at another thread.
 //
-// The addressee is NOT pinned that way — an email address is not UUID-shaped —
-// so an approver editing over the API can change `to`. That is deliberate and
-// it is the same authority they already hold: the release re-runs the consent
-// gate against whatever address it ends up with, so an edited recipient is
-// governed exactly as if they had typed the message themselves. The inbox does
-// not offer the field, because reading a draft is not the moment to redirect
-// it.
+// The addressee is not protected by that mechanism — an email address is not
+// UUID-shaped, so the generic pin never sees it — which is why the precheck
+// below pins it by hand. Consent does re-run against an edited address, so this
+// was never a consent bypass; it was a RETARGETING one, and the edit scope's own
+// rule is that an edit corrects content and never "the call or the record it
+// applies to". For an outbound message the destination is that record.
 func sendFromHeldDraft(p automation.HeldDraftProposal) (activities.SendOrigin, activities.SendEmailInput) {
 	origin := activities.FromActivity(ids.From[ids.ActivityKind](p.AnchorActivityID))
 	return origin, activities.SendEmailInput{
@@ -182,13 +181,60 @@ func heldDraftPrecheck(
 	gate activities.ConsentGate,
 	stager activities.DeliveryStager,
 ) approvals.ReleasePrecheck {
-	return func(ctx context.Context, proposedChange json.RawMessage) error {
-		proposal, err := decodeHeldDraft(proposedChange)
+	return func(ctx context.Context, staged, edited json.RawMessage) error {
+		proposal, err := decodeHeldDraft(staged)
 		if err != nil {
 			return err
+		}
+		if len(edited) > 0 {
+			corrected, err := decodeHeldDraft(edited)
+			if err != nil {
+				return err
+			}
+			if err := refuseRetargetedDraft(proposal, corrected); err != nil {
+				return err
+			}
+			proposal = corrected
 		}
 		origin, in := sendFromHeldDraft(proposal)
 		_, err = store.PrepareSend(ctx, origin, in, gate, stager)
 		return err
 	}
+}
+
+// refuseRetargetedDraft holds a modify-then-approve edit to the words.
+//
+// ADR-0036 §4 lets a human release a corrected version of a staged action, and
+// the correction is CONTENT. The approvals edit scope enforces that by pinning
+// entity references — which protects anything shaped like a uuid, and nothing
+// else. Two fields here matter as much as the anchor does and are shaped like
+// prose:
+//
+// The ADDRESSEE. A message re-aimed at another recipient is not the message
+// that was staged, however well the words survived. Consent re-runs against
+// whatever address the send ends up with, so this was never a way to write to
+// somebody who refused — but it was a way to send an automation's draft, filed
+// under one thread and approved as a reply to one person, to a different person
+// entirely. The inbox has never offered the field; this is what makes that true
+// of the API as well.
+//
+// The PURPOSE. It is the lawful basis the send is made under, chosen by the
+// operator when the automation was configured. Editing it at release would let
+// somebody re-license a message at the moment of sending it.
+// The refusal is approvals' OWN RetargetedEditError, not a new error beside it.
+// This is the same violation the edit scope refuses for entity references, in a
+// field whose shape that check cannot see — so it should read identically to the
+// human who hits it, and land on the same 422.
+func refuseRetargetedDraft(staged, edited automation.HeldDraftProposal) error {
+	var moved []string
+	if edited.To != staged.To {
+		moved = append(moved, "to")
+	}
+	if edited.ConsentPurpose != staged.ConsentPurpose {
+		moved = append(moved, "consent_purpose")
+	}
+	if len(moved) == 0 {
+		return nil
+	}
+	return &approvals.RetargetedEditError{Paths: moved}
 }

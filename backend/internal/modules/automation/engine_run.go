@@ -158,6 +158,18 @@ func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Hand
 			// or not a human ever releases it. Recording the suspension while
 			// discarding what the firing made would leave run history saying an
 			// automation drafted a reply and holding nothing to show for it.
+			//
+			// Only when there IS one, though. Every other 🟡 kind stages having
+			// produced nothing, and marshalling its empty slice would write JSON
+			// `null` over a column that has read SQL NULL for those runs since
+			// they existed — a shape change on a shared path, for no gain.
+			if len(result.Applied) == 0 {
+				_, err := tx.Exec(ctx, `
+					UPDATE workflow_run SET status = 'requires_approval', detail = $3
+					WHERE handler = $1 AND idempotency_key = $2`,
+					h.Spec().Name, runKey(h, ev), detail)
+				return err
+			}
 			appliedJSON, err := json.Marshal(result.Applied)
 			if err != nil {
 				return err

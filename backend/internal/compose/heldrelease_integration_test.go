@@ -38,15 +38,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// draftRecipient is the one counterparty every fixture here answers, named once
+// so an assertion and the seed cannot disagree about who the mail went to.
+const draftRecipient = "anna@example.com"
+
 // decider binds a REAL seeded human, not a synthetic one.
 //
 // approval.decided_by is a foreign key, so a made-up principal id is refused by
 // the database rather than by the code under test — and the refusal arrives
 // looking like a bug in the release.
-// draftRecipient is the one counterparty every fixture here answers, named once
-// so an assertion and the seed cannot disagree about who the mail went to.
-const draftRecipient = "anna@example.com"
-
 func decider(e *integration.Env) context.Context {
 	return e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 }
@@ -67,8 +67,8 @@ type heldDraftFixture struct {
 }
 
 func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) heldDraftFixture {
-	const to = draftRecipient
 	t.Helper()
+	const to = draftRecipient
 	owner := integration.OwnerConn(t)
 	person := e.SeedPerson(t, "Anna Weber", nil)
 	anchor := integration.SeedRow(t, owner, `
@@ -241,15 +241,19 @@ func TestAHeldDraftCannotBeReleasedTwice(t *testing.T) {
 // A refusal must leave the draft RELEASABLE, and that is a stronger claim than
 // "nothing was sent".
 //
-// The approvals engine commits a decision and only then runs the effect, so an
-// effect that refuses leaves an approved row decideInTx will not decide again
-// and no surface can re-drive — for a send, the message is simply gone. The
-// preflight exists to move that refusal one step earlier, where it lands on a
-// still-pending approval a human can act on.
+// The approvals engine commits a decision and only then runs the effect, so a
+// refusal that reaches the effect leaves an approved row decideInTx will not
+// decide again and no surface can re-drive — for a send, the message is simply
+// gone. Two guards stand in front of that, and an archived anchor meets the
+// FIRST: decidability refuses a staging whose target is no longer visible,
+// before any status is written. So this test does not prove the preflight, and
+// saying otherwise would be claiming coverage it does not have —
+// TestAPreflightRefusalLeavesTheDraftPending below drives that one, with a
+// refusal decidability has no opinion about.
 //
-// So this asserts the state a human can actually recover from: nothing sent,
-// nothing consumed, and the approval still PENDING — then fixes the cause and
-// approves the same row, which must go out.
+// What it does prove is the property both guards exist to produce, and the one
+// a human experiences: nothing sent, nothing consumed, the approval still
+// PENDING — then the cause is fixed, the same row is approved, and it goes.
 func TestAReleaseThatRefusesLeavesTheDraftPendingAndReleasableLater(t *testing.T) {
 	e := integration.Setup(t)
 	svc := releaseService(t, e)
@@ -332,5 +336,85 @@ func TestApplySendPathRegistersTheHeldDraftRelease(t *testing.T) {
 	if n := e.WsCount(t, `SELECT count(*) FROM activity
 		WHERE direction = 'outbound' AND kind = 'email'`); n != 1 {
 		t.Error("the served approvals surface decided a held draft and sent nothing — applySendPath is not registering the release")
+	}
+}
+
+// The preflight specifically, driven by a refusal decidability cannot see.
+//
+// The anchor is untouched here, so the target-visibility check passes and the
+// decision would go ahead; what refuses is the consent gate, reached only by
+// preparing the send. Without the preflight this refusal lands after the
+// decision commits — an approved row nothing can decide again, a run parked
+// forever, and a message a human said yes to that will never exist.
+func TestAPreflightRefusalLeavesTheDraftPending(t *testing.T) {
+	e := integration.Setup(t)
+	svc := releaseService(t, e)
+	f := seedHeldDraft(t, e, svc)
+
+	// The purpose stops being answerable while the draft waits. Archiving it is
+	// how an admin retires a basis, and it is the kind of thing that happens in
+	// the days a draft can sit in an inbox.
+	e.WsExec(t, `UPDATE consent_purpose SET archived_at = now() WHERE key = 'business_correspondence'`)
+
+	if _, err := svc.Decide(decider(e), f.approval, true, nil); err == nil {
+		t.Fatal("releasing with no answerable consent purpose succeeded, want a refusal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity
+		WHERE direction = 'outbound' AND kind = 'email'`); n != 0 {
+		t.Errorf("outbound activities = %d, want 0", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval
+		WHERE id = $1 AND status = 'pending'`, f.approval); n != 1 {
+		t.Fatal("the approval was decided by a release that refused — the preflight is not running before the decision, so this message is now unreleasable")
+	}
+	// The run is still waiting too: a draft a human can still release must not
+	// have had its automation terminated underneath it.
+	var status string
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT status FROM workflow_run WHERE handler = $1`, f.handler).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "requires_approval" {
+		t.Errorf("parked run status = %q, want it still waiting", status)
+	}
+}
+
+// An edit may correct what a message SAYS. It may not change who receives it.
+//
+// The generic edit scope pins entity references, which sees the anchor and is
+// blind to an address — so without a check of its own, an API caller could
+// approve an automation's draft, filed under one thread and composed for one
+// counterparty, into a message addressed to somebody else. The inbox never
+// offered the field; this is what makes that true of the API too.
+func TestAnEditedHeldDraftCannotBeReAimedAtAnotherRecipient(t *testing.T) {
+	e := integration.Setup(t)
+	svc := releaseService(t, e)
+	f := seedHeldDraft(t, e, svc)
+
+	retargeted, err := json.Marshal(automation.HeldDraftProposal{
+		AnchorActivityID: f.anchor,
+		To:               "someone.else@example.com",
+		Subject:          "Re: Kickoff",
+		Body:             "Hi Anna — here is what we agreed.",
+		ConsentPurpose:   "business_correspondence",
+		Intent:           "recap the meeting",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.DecideEdited(decider(e), f.approval, retargeted)
+	if err == nil {
+		t.Fatal("an edited approval re-aimed the message and was accepted")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity
+		WHERE direction = 'outbound' AND kind = 'email'`); n != 0 {
+		t.Errorf("outbound activities = %d, want 0 — nothing may go to a recipient nobody approved", n)
+	}
+	// Refused BEFORE the decision, so the original draft is still there to
+	// release to the person it was actually written to.
+	if n := e.WsCount(t, `SELECT count(*) FROM approval
+		WHERE id = $1 AND status = 'pending'`, f.approval); n != 1 {
+		t.Error("the retargeting attempt decided the approval — a refused edit must leave the honest draft releasable")
 	}
 }
