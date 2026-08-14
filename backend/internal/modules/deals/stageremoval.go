@@ -235,7 +235,10 @@ func refuseIfOccupied(ctx context.Context, tx pgx.Tx, id ids.StageID) error {
 		return fmt.Errorf("name deals on stage: %w", err)
 	}
 	defer rows.Close()
-	named := make([]BlockingDeal, 0, count)
+	// The query is capped, so the count is the wrong capacity: a stage
+	// holding thousands of deals would size this slice for all of them
+	// and fill ten.
+	named := make([]BlockingDeal, 0, min(count, namedBlockingDeals))
 	for rows.Next() {
 		var d BlockingDeal
 		if err := rows.Scan(&d.ID, &d.Name); err != nil {
