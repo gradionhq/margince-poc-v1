@@ -52,7 +52,7 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, c
 	// (Query.SelectIDs), so a team-scoped caller's segment excludes the
 	// records they cannot see — the same visibility law the static path
 	// enforces with its per-member probe.
-	if listType == "dynamic" {
+	if listType == listTypeDynamic {
 		return s.evaluateSegment(ctx, listID, listEntityType, definition, limit, cursor)
 	}
 	var out []memberRow
@@ -155,7 +155,7 @@ func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType str
 			Scan(&listEntityType, &listType); err != nil {
 			return err
 		}
-		if listType != "static" {
+		if listType != listTypeStatic {
 			return &BadInputError{Field: "list", Reason: "a dynamic segment computes its members; only static lists take them"}
 		}
 		if entityType != listEntityType {

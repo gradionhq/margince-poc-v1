@@ -87,7 +87,7 @@ func (s *Store) ListFilterSource(ctx context.Context, id ids.ListID) (FilterSour
 	if err != nil {
 		return FilterSource{}, err
 	}
-	if list.ListType != "dynamic" {
+	if list.ListType != listTypeDynamic {
 		return FilterSource{}, &BadInputError{
 			Field:  "list_id",
 			Reason: "a static list carries explicit members, not a filter; export it through its members",

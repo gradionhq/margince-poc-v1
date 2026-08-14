@@ -47,6 +47,21 @@ func (s *Store) WithFieldCatalog(r fieldcatalog.FilterableReader) *Store {
 	return s
 }
 
+// The two list kinds (LVS-DDL-1's list_type CHECK). A static list is an
+// explicit membership set; a dynamic one stores a filter its members are
+// derived from, so the pair decides which of the two membership paths a
+// read takes and whether a definition may be present at all.
+//
+// `dynamic` is spelled here as well as in dynamicAddedBy, which carries the
+// same text for a different question: this pair answers what KIND of list a
+// row is, while that one marks who added a computed member — the filter
+// itself rather than a person. Folding them into one constant would make a
+// rename of either meaning silently change the other.
+const (
+	listTypeStatic  = "static"
+	listTypeDynamic = "dynamic"
+)
+
 // memberEntityTables is the closed polymorphic target set — the table
 // name doubles as the RBAC object and the visibility-probe table. It is
 // derived from the canonical record vocabulary rather than restated, so a
@@ -178,14 +193,14 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		return listRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	if in.ListType == "" {
-		in.ListType = "static"
+		in.ListType = listTypeStatic
 	}
 	// A dynamic segment IS its definition; a static set must not carry
 	// one — the shape rules out a half-and-half list.
-	if in.ListType == "dynamic" && len(in.Definition) == 0 {
+	if in.ListType == listTypeDynamic && len(in.Definition) == 0 {
 		return listRow{}, &BadInputError{Field: "definition", Reason: "a dynamic list needs a query definition"}
 	}
-	if in.ListType == "static" && len(in.Definition) > 0 {
+	if in.ListType == listTypeStatic && len(in.Definition) > 0 {
 		return listRow{}, &BadInputError{Field: "definition", Reason: "a static list carries no definition"}
 	}
 	// A dynamic segment's definition is a stored filter the members
@@ -193,7 +208,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	// entity's closed vocabulary NOW so an unknown field or an over-deep
 	// tree is rejected at creation (422) rather than at read time — a
 	// list cannot store a filter it could never evaluate.
-	if in.ListType == "dynamic" {
+	if in.ListType == listTypeDynamic {
 		if err := s.validateSegmentDefinition(ctx, in.EntityType, in.Definition); err != nil {
 			return listRow{}, err
 		}
