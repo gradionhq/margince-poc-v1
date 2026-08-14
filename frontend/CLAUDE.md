@@ -21,8 +21,9 @@ are load-bearing.
 When a test times out under full-suite load and passes in isolation, the first
 instinct is "the runner was slow, raise the budget". Measure before believing
 it. The `company-context` family (#545, #652, #782, #981) was chased as a load
-problem for a month; the file actually takes 271ms inside the full suite against
-192ms isolated, 1.4x, nowhere near the 40x needed to exhaust a 10s waiter.
+problem for a month; the file actually takes 271 ms in the full suite versus
+192 ms in isolation, a factor of 1.4, nowhere near the factor of 40 that
+exhausting a 10s waiter would need.
 
 The real cause was a product bug. React Query re-arms `useMutation`'s options in
 a **passive** effect, so between the commit that renders an enabled control and
@@ -51,11 +52,17 @@ The rule that came out of it, and the gate that holds it:
 
 ### Drive the UI in a way that does not cost wall-clock time
 
-`userEvent.setup()` advances on real timers: every simulated keystroke and click
-awaits a real macrotask, so a test's cost scales with its interaction count.
-Calling `setup()` per interaction instead of once multiplies the fixed cost by
-the number of interactions, which is what pushes the interaction-heavy screen
+`userEvent` advances on real timers. Its `delay` defaults to `0`, which is still
+a number, so `wait()` schedules a real `setTimeout` and every simulated keystroke
+and click yields a macrotask (`user-event` 14.6.3, `utils/misc/wait.js:9`). A
+test's cost therefore scales with its interaction count, on a queue it shares
+with every other jsdom suite, which is what pushes the interaction-heavy screen
 suites past vitest's 5s default under contention (#1144, open).
+
+The cost is per event, not per `setup()`, so constructing an instance per
+interaction is not itself the expense. Do it once per test anyway: one instance
+carries the shared input-device state, and a second one silently forgets which
+keys and buttons the first left held.
 
 When writing or touching a screen test:
 
@@ -84,8 +91,9 @@ What the gates actually cover, so you know what they do not:
   story that fails to compile or fails to register is caught deterministically.
 - `make fe-uat` is the change-scoped render gate. It fails on a render error,
   on a changed component with **no** story, and on a changed story the build
-  does not register, but it is a coordinator lane and **not required**, so
-  nothing stops a component from shipping without one.
+  does not register. Two things weaken it: it is a coordinator lane and **not
+  required**, and `ARGS="--allow-missing"` turns the missing-story failure off.
+  Nothing, then, stops a component from shipping without a story.
 
 That second gap is the rule you keep by hand. When a change adds or alters a
 component in `src/design-system/` or a screen surface:
