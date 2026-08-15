@@ -151,7 +151,12 @@ describe("what a grounded reading offers", () => {
     serve(GROUNDED);
     show();
     expect(await screen.findByText(/2 fields it can ground/i)).toBeTruthy();
-    expect(screen.getByText("14850000")).toBeTruthy();
+    // MONEY, not the minor units it is stored in. "14850000" under a label
+    // reading "Amount", beside a snippet quoting "EUR 148,500.00", is two
+    // renderings of one number disagreeing a hundredfold — in the one place a
+    // human is asked to check it.
+    expect(screen.getByText(/148,500\.00/)).toBeTruthy();
+    expect(screen.queryByText("14850000")).toBeNull();
     expect(screen.getByText("EUR")).toBeTruthy();
     // An omission is an answer, rendered rather than left off for the reader to
     // notice on their own.
@@ -215,7 +220,10 @@ describe("what a grounded reading offers", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
-  it("sends an edited value as an edit and leaves the untouched one alone", async () => {
+  // The edit path is where the minor-unit display would have done real damage:
+  // a rep "correcting" 14850000 to the figure the document prints turns €148,500
+  // into €1,485. So the field is edited in MAJOR units and converted back here.
+  it("takes an edit in major units and sends it as minor units", async () => {
     const calls = serve(GROUNDED);
     show();
     const [editAmount] = await screen.findAllByRole("button", {
@@ -223,8 +231,10 @@ describe("what a grounded reading offers", () => {
     });
     await userEvent.click(editAmount);
     const input = screen.getByRole("textbox", { name: /edit amount/i });
+    // It opens on the figure a person says, not the integer we store.
+    expect((input as HTMLInputElement).value).toBe("148500.00");
     await userEvent.clear(input);
-    await userEvent.type(input, "20000000");
+    await userEvent.type(input, "200000");
     await userEvent.click(
       screen.getByRole("button", { name: /accept 2 fields/i }),
     );
@@ -244,7 +254,7 @@ describe("what a grounded reading offers", () => {
     expect(await screen.findByText(/2 fields it can ground/i)).toBeTruthy();
     // The values and their evidence still render: seeing what a document says is
     // not the same authority as writing it onto a record.
-    expect(screen.getByText("14850000")).toBeTruthy();
+    expect(screen.getByText(/148,500\.00/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /accept/i })).toBeNull();
   });
 });
