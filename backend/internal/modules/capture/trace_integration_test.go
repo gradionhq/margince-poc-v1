@@ -253,10 +253,12 @@ func TestAnErasedAddressIsNeverWrittenEvenWithPayloadsOn(t *testing.T) {
 		// Seeded through storekit's own hashing rule, not a literal: writer and
 		// reader must normalize identically or a stray space resurrects an
 		// erased subject, which is the bug this table exists to prevent.
+		// The columns the erasure engine itself writes (erasuretimeline.go): the
+		// table carries no tenant since the privacy sweep dropped it, so a
+		// fixture spelling one is asserting a schema that no longer exists.
 		_, err := tx.Exec(ctx, `
-			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)`,
-			storekit.SuppressionHash(erased))
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('email', $1)`, storekit.SuppressionHash(erased))
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the suppression list: %v", err)
