@@ -183,3 +183,72 @@ func TestTheShippedReadingRunsTheValidator(t *testing.T) {
 type fakeDocumentBrain struct{ *ai.FakeClient }
 
 func (f fakeDocumentBrain) AttachmentMIMEs() []string { return f.Caps().AttachmentMIMEs }
+
+// Every bound a stated field owes. Each of these is MODEL output derived from a
+// document a counterparty may have written, and each lands somewhere a human
+// reads — an audit note, a panel row — so an unbounded one is a way to push a
+// wall of text in front of the reviewer.
+func TestAStatedFieldOwesItsEvidenceAndItsBounds(t *testing.T) {
+	long := strings.Repeat("x", 400)
+	for name, field := range map[string]string{
+		"no value":        `{"field":"name","stated":"stated","value":"","source_quote":"ORDER FORM","page_or_section":"top","confidence":0.9}`,
+		"no quote":        `{"field":"name","stated":"stated","value":"Order form","source_quote":"","page_or_section":"top","confidence":0.9}`,
+		"no location":     `{"field":"name","stated":"stated","value":"Order form","source_quote":"ORDER FORM","page_or_section":"","confidence":0.9}`,
+		"unbounded quote": `{"field":"name","stated":"stated","value":"Order form","source_quote":"` + long + `","page_or_section":"top","confidence":0.9}`,
+		"unbounded value": `{"field":"name","stated":"stated","value":"` + long + `","source_quote":"ORDER FORM","page_or_section":"top","confidence":0.9}`,
+		"confidence off":  `{"field":"name","stated":"stated","value":"Order form","source_quote":"ORDER FORM","page_or_section":"top","confidence":4}`,
+		"no verdict":      `{"field":"name","stated":"","value":"","source_quote":"","page_or_section":"","confidence":0}`,
+	} {
+		if err := documentShapeValid(uatSource())(allFour(field, "", "", "")); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A field the document does not state carries no evidence to check, and
+// demanding empty values would fail a reply for being tidy.
+func TestANotStatedFieldOwesNothing(t *testing.T) {
+	if err := documentShapeValid(uatSource())(allFour()); err != nil {
+		t.Fatalf("an all-not-stated reply was refused: %v", err)
+	}
+}
+
+// The same field twice is a reply that did not answer once.
+func TestTheSameFieldTwiceRefusesTheReply(t *testing.T) {
+	dup := statedField("name", "Order form", "ORDER FORM")
+	if err := documentShapeValid(uatSource())(reply(dup, dup,
+		notStated(modelFieldAmount), notStated("currency"), notStated("expected_close_date"))); err == nil {
+		t.Fatal("a duplicated field was accepted")
+	}
+}
+
+// A currency the money type refuses, and a date that is not one, are values the
+// deal could never hold — omitted rather than offered.
+func TestAValueTheDealCouldNotHoldIsOmitted(t *testing.T) {
+	fields, err := readDocumentFields(allFour("", "",
+		statedField("currency", "EURO", "Contract value: EUR 148,500.00"),
+		statedField("expected_close_date", "31 January 2027", "31 January 2027")))
+	if err != nil {
+		t.Fatalf("readDocumentFields: %v", err)
+	}
+	for _, f := range fields {
+		if !f.Omitted {
+			t.Errorf("%s = %q was offered, and the deal cannot hold it", f.Field, f.Value)
+		}
+	}
+}
+
+// The two confidence bands, and the floor beneath them.
+func TestConfidenceLandsInTheBandTheContractDeclares(t *testing.T) {
+	for confidence, want := range map[string]string{"0.95": "high", "0.75": "medium"} {
+		fields, err := readDocumentFields(allFour(
+			`{"field":"name","stated":"stated","value":"Order form","source_quote":"ORDER FORM",`+
+				`"page_or_section":"top","confidence":`+confidence+`}`, "", "", ""))
+		if err != nil {
+			t.Fatalf("readDocumentFields: %v", err)
+		}
+		if fields[0].Omitted || fields[0].Confidence != want {
+			t.Errorf("confidence %s landed as %+v, want %s", confidence, fields[0], want)
+		}
+	}
+}
