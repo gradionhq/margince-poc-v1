@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -68,7 +69,17 @@ type ExpiredApproval struct {
 // uses. There is no second definition of "due" here: a divergence between the
 // two would be a row that displays as expired and is never swept, or one swept
 // while the inbox still offers it.
+//
+// The CLOCK may call this and nobody else. Every other entry point on this
+// service gates on what the caller may see; this one decides approvals in bulk
+// without consulting any human's row scope, so the only safe admission rule is
+// that no human is calling. Left open it would be an authenticated user's way to
+// refuse every pending approval in the installation at once — each one audited
+// as though the clock had done it, with their name nowhere in the record.
 func (s *Service) ExpireDue(ctx context.Context) ([]ExpiredApproval, error) {
+	if err := onlyTheExpirySweep(ctx); err != nil {
+		return nil, err
+	}
 	due, err := s.dueForExpiry(ctx)
 	if err != nil {
 		return nil, err
@@ -209,3 +220,21 @@ func (s *Service) expireOne(ctx context.Context, id ids.ApprovalID) (bool, error
 // and the reason is legibility rather than ceremony — somebody reading the trail
 // must be able to tell a refusal a colleague made from one nobody made.
 const ExpiryActor = "system:approval-expiry"
+
+// onlyTheExpirySweep admits the scheduled sweep and refuses everyone else.
+//
+// It checks the ACTOR ID as well as the principal type, because "some system
+// principal" is not the claim being made: the audit rows this pass writes are
+// attributed to ExpiryActor, and a caller who cannot present that id would be
+// writing decisions under a name that is not theirs.
+func onlyTheExpirySweep(ctx context.Context) error {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return fmt.Errorf("crmapprovals: expiry sweep without a bound actor: %w", apperrors.ErrPermissionDenied)
+	}
+	if p.Type != principal.PrincipalSystem || p.ID != ExpiryActor {
+		return fmt.Errorf("crmapprovals: %s may not expire approvals — the sweep runs as %s: %w",
+			p.ID, ExpiryActor, apperrors.ErrPermissionDenied)
+	}
+	return nil
+}

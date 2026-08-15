@@ -126,7 +126,7 @@ func TestAStagingInsideItsWindowIsLeftAlone(t *testing.T) {
 func TestAKindThatNeverExpiresSurvivesTheSweep(t *testing.T) {
 	e := integration.Setup(t)
 	if !approvals.ExpiresNever(approvals.KindScheduledSendHeld) {
-		t.Skip("no non-expiring kind to prove this with")
+		t.Fatal("held scheduled sends are no longer exempt from expiry — the sweep will now reap a message whose subject is still waiting on it, and this test would have skipped rather than said so")
 	}
 	svc := approvals.NewService(e.DB())
 	id := stageThenAge(t, e, svc, approvals.KindScheduledSendHeld, 30*24*time.Hour)
@@ -235,5 +235,44 @@ func TestTheDefaultWindowIsThreeDays(t *testing.T) {
 	// would flake on their skew while telling us nothing more.
 	if gap < 71*time.Hour || gap > 73*time.Hour {
 		t.Errorf("default window is %v, want ~72h — at 24h a staging raised on Friday afternoon auto-rejects before Monday", gap)
+	}
+}
+
+// The sweep is the clock's alone.
+//
+// ExpireDue decides approvals in bulk without consulting any human's row scope,
+// so leaving it open would give an authenticated user a way to refuse every
+// pending approval in the installation at once — each one audited as though the
+// clock had done it, with their name nowhere in the record.
+func TestOnlyTheClockMayExpireApprovals(t *testing.T) {
+	e := integration.Setup(t)
+	svc := approvals.NewService(e.DB())
+	id := stageThenAge(t, e, svc, "advance_deal", time.Hour)
+
+	// An admin: the most authority a human has, and still not this.
+	if _, err := svc.ExpireDue(e.Admin()); err == nil {
+		t.Fatal("an admin expired every due approval in the installation")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE id = $1 AND status = 'pending'`, id); n != 1 {
+		t.Error("a human's refused sweep decided the approval anyway")
+	}
+
+	// A system principal that is not the sweep is refused too: the audit rows
+	// this writes are attributed to ExpiryActor, so any other id would be
+	// writing decisions under a name that is not its own.
+	impostor := principal.WithActor(principal.WithWorkspaceID(context.Background(), e.WS),
+		principal.Principal{Type: principal.PrincipalSystem, ID: "system:something-else"})
+	if _, err := svc.ExpireDue(principal.WithCorrelationID(impostor, ids.NewV7())); err == nil {
+		t.Error("a system principal that is not the expiry sweep expired approvals under the sweep's name")
+	}
+
+	// And the sweep itself still works — a guard that refuses everyone is not a
+	// guard, it is an outage.
+	expired, err := svc.ExpireDue(expiryCtx(e))
+	if err != nil {
+		t.Fatalf("the sweep itself was refused: %v", err)
+	}
+	if len(expired) != 1 {
+		t.Errorf("the sweep expired %d approvals, want 1", len(expired))
 	}
 }
