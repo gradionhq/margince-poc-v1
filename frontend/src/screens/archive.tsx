@@ -47,6 +47,7 @@ export function ArchiveAction<Archived extends { id: string }>({
   invalidate,
   recordKey,
   onArchived,
+  disabledReason,
 }: Readonly<{
   label: string;
   confirmText: string;
@@ -54,6 +55,12 @@ export function ArchiveAction<Archived extends { id: string }>({
   invalidate: string;
   recordKey: string;
   onArchived: () => void;
+  // Why this action is unavailable, when it is. STATE-4a settles the
+  // absent-vs-disabled question by CAUSE: a control blocked by STATE
+  // rather than permission — an archived record — stays visible and
+  // disabled WITH the reason, because the reason is the information and
+  // hiding the control hides a fact the reader needs.
+  disabledReason?: string;
 }>) {
   const t = useT();
   const headingId = useId();
@@ -73,6 +80,8 @@ export function ArchiveAction<Archived extends { id: string }>({
       <Button
         small
         variant="danger"
+        disabled={Boolean(disabledReason)}
+        title={disabledReason}
         onClick={() => setConfirming(true)}
         data-testid="archive-record"
       >

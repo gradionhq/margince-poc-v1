@@ -220,8 +220,16 @@ export function EditAction<Updated extends { id: string }>({
   invalidate,
   recordKey,
   resolveExisting,
+  disabledReason,
 }: Readonly<{
   label: string;
+  // Why this action is unavailable, when it is. STATE-4a settles the
+  // absent-vs-disabled question by CAUSE: a control blocked by STATE
+  // rather than permission — an archived record — stays visible and
+  // disabled WITH the reason, because the reason is the information and
+  // hiding the control hides a fact the reader needs.
+  disabledReason?: string;
+
   // See EditRecordModal — an optional one-sentence advisory over the form.
   notice?: string;
   fields: CreateField[];
@@ -253,7 +261,13 @@ export function EditAction<Updated extends { id: string }>({
     isVersionSkew(mutation.error.problem);
   return (
     <>
-      <Button small onClick={() => setEditing(true)} data-testid="edit-record">
+      <Button
+        small
+        disabled={Boolean(disabledReason)}
+        title={disabledReason}
+        onClick={() => setEditing(true)}
+        data-testid="edit-record"
+      >
         {label}
       </Button>
       <EditRecordModal

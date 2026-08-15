@@ -1240,8 +1240,6 @@ export const de = {
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
   "lead.unassigned": "Nicht zugewiesen",
-  "lead.terminalPromoted":
-    "Zum Kontakt befördert — dieser Lead ist jetzt schreibgeschützt.",
   "lead.terminalDisqualified":
     "Disqualifiziert — dieser Lead ist jetzt schreibgeschützt.",
   "lead.marker": "Lead",
