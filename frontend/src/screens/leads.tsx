@@ -650,6 +650,164 @@ function LeadOwner({
 // "explain" here is honestly just the override-vs-machine story), and
 // ownership — the owner's name plus reassignment to any workspace user.
 // All three share one PATCH /leads/{id} + If-Match(lead.version) mutation.
+// The score block: its explanation, and the Commercial Judgement override.
+// Extracted from LeadLifecycle because guarding every terminal write pushed
+// that render past the complexity budget — and because the score's own
+// controls are a thing in themselves.
+function LeadScorePanel({
+  lead,
+  id,
+  readOnly,
+  terminalReasonId,
+  overriding,
+  setOverriding,
+  scoreValue,
+  setScoreValue,
+  reasonValue,
+  setReasonValue,
+  scoreFieldId,
+  reasonFieldId,
+  patch,
+}: Readonly<{
+  lead: Lead;
+  id: string;
+  readOnly: boolean;
+  terminalReasonId: string;
+  overriding: boolean;
+  setOverriding: (next: boolean) => void;
+  scoreValue: string;
+  setScoreValue: (next: string) => void;
+  reasonValue: string;
+  setReasonValue: (next: string) => void;
+  scoreFieldId: string;
+  reasonFieldId: string;
+  patch: { isPending: boolean; mutate: (body: UpdateLeadRequest) => void };
+}>) {
+  const t = useT();
+  const reasonBlank = reasonValue.trim() === "";
+  const scoreBlank = scoreValue.trim() === "";
+  const parsedScore = Number(scoreValue);
+  const scoreInvalid =
+    scoreBlank ||
+    !Number.isInteger(parsedScore) ||
+    parsedScore < 0 ||
+    parsedScore > 100;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+      }}
+    >
+      <span className="t-caption">{t("lead.explainScore")}</span>
+      <ScoreBreakdown id={id} lead={lead} />
+      {lead.score_override_reason ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+          }}
+        >
+          <p>
+            {t("lead.scoreOverridden", {
+              reason: lead.score_override_reason,
+            })}
+          </p>
+          {lead.score_computed != null && (
+            <p className="t-caption">
+              {t("lead.machineScore", { score: lead.score_computed })}
+            </p>
+          )}
+          <Button
+            small
+            disabled={patch.isPending || readOnly}
+            reasonId={readOnly ? terminalReasonId : undefined}
+            onClick={() => patch.mutate({ score: null })}
+          >
+            {t("lead.clearOverride")}
+          </Button>
+        </div>
+      ) : overriding ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            maxWidth: 320,
+          }}
+        >
+          <div
+            className="t-caption"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+            }}
+          >
+            <label htmlFor={scoreFieldId}>{t("lead.overrideScoreValue")}</label>
+            <TextInput
+              id={scoreFieldId}
+              type="number"
+              min={0}
+              max={100}
+              value={scoreValue}
+              onChange={(event) => setScoreValue(event.target.value)}
+            />
+          </div>
+          <div
+            className="t-caption"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+            }}
+          >
+            <label htmlFor={reasonFieldId}>{t("lead.overrideReason")}</label>
+            <TextInput
+              id={reasonFieldId}
+              value={reasonValue}
+              onChange={(event) => setReasonValue(event.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <Button
+              variant="primary"
+              small
+              disabled={reasonBlank || scoreInvalid || patch.isPending}
+              reasonId={readOnly ? terminalReasonId : undefined}
+              onClick={() =>
+                patch.mutate({
+                  score: parsedScore,
+                  score_override_reason: reasonValue.trim(),
+                })
+              }
+            >
+              {t("lead.saveOverride")}
+            </Button>
+            <Button small onClick={() => setOverriding(false)}>
+              {t("create.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        // "Machine-computed score" was a label with no value beside it,
+        // naming what the badge above already says. The override is a rare
+        // action and stands alone.
+        <Button
+          small
+          reasonId={lead.archived_at ? terminalReasonId : undefined}
+          onClick={() => setOverriding(true)}
+        >
+          {t("lead.overrideScore")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function LeadLifecycle({
   lead,
   id,
@@ -668,9 +826,22 @@ function LeadLifecycle({
   const [overriding, setOverriding] = useState(false);
   const [scoreValue, setScoreValue] = useState("");
   const [reasonValue, setReasonValue] = useState("");
+  // A terminal lead takes no writes: the server refuses score, status and
+  // owner on it, so every control here is refused by ONE fact. Derived once
+  // rather than re-tested per control, because the control that gets missed
+  // is the one that had to remember on its own.
+  const readOnly = Boolean(lead.archived_at);
 
   const patch = useMutation({
     mutationFn: async (body: UpdateLeadRequest) => {
+      // The last word on a terminal lead, and deliberately not a per-control
+      // check: the server refuses every one of these writes, and a control
+      // added later would otherwise have to remember on its own. `readOnly`
+      // is read from the record the mutation is about, not from render state,
+      // so a lead that went terminal while this page was open is refused too.
+      if (lead.archived_at) {
+        throw new Error("a terminal lead takes no writes");
+      }
       const { data, error } = await api.PATCH("/leads/{id}", {
         params: { path: { id }, ...ifMatch(lead.version) },
         body,
@@ -688,14 +859,6 @@ function LeadLifecycle({
     },
   });
 
-  const reasonBlank = reasonValue.trim() === "";
-  const scoreBlank = scoreValue.trim() === "";
-  const parsedScore = Number(scoreValue);
-  const scoreInvalid =
-    scoreBlank ||
-    !Number.isInteger(parsedScore) ||
-    parsedScore < 0 ||
-    parsedScore > 100;
   const meId = me.data?.user?.id;
 
   return (
@@ -724,109 +887,27 @@ function LeadLifecycle({
         </div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
-        <span className="t-caption">{t("lead.explainScore")}</span>
-        <ScoreBreakdown id={id} lead={lead} />
-        {lead.score_override_reason ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <p>
-              {t("lead.scoreOverridden", {
-                reason: lead.score_override_reason,
-              })}
-            </p>
-            {lead.score_computed != null && (
-              <p className="t-caption">
-                {t("lead.machineScore", { score: lead.score_computed })}
-              </p>
-            )}
-            <Button
-              small
-              disabled={patch.isPending}
-              onClick={() => patch.mutate({ score: null })}
-            >
-              {t("lead.clearOverride")}
-            </Button>
-          </div>
-        ) : overriding ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              maxWidth: 320,
-            }}
-          >
-            <div
-              className="t-caption"
-              style={{ display: "flex", flexDirection: "column", gap: 4 }}
-            >
-              <label htmlFor={scoreFieldId}>
-                {t("lead.overrideScoreValue")}
-              </label>
-              <TextInput
-                id={scoreFieldId}
-                type="number"
-                min={0}
-                max={100}
-                value={scoreValue}
-                onChange={(event) => setScoreValue(event.target.value)}
-              />
-            </div>
-            <div
-              className="t-caption"
-              style={{ display: "flex", flexDirection: "column", gap: 4 }}
-            >
-              <label htmlFor={reasonFieldId}>{t("lead.overrideReason")}</label>
-              <TextInput
-                id={reasonFieldId}
-                value={reasonValue}
-                onChange={(event) => setReasonValue(event.target.value)}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button
-                variant="primary"
-                small
-                disabled={reasonBlank || scoreInvalid || patch.isPending}
-                onClick={() =>
-                  patch.mutate({
-                    score: parsedScore,
-                    score_override_reason: reasonValue.trim(),
-                  })
-                }
-              >
-                {t("lead.saveOverride")}
-              </Button>
-              <Button small onClick={() => setOverriding(false)}>
-                {t("create.cancel")}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          // "Machine-computed score" was a label with no value beside it,
-          // naming what the badge above already says. The override is a rare
-          // action and stands alone.
-          <Button
-            small
-            reasonId={lead.archived_at ? terminalReasonId : undefined}
-            onClick={() => setOverriding(true)}
-          >
-            {t("lead.overrideScore")}
-          </Button>
-        )}
-      </div>
+      <LeadScorePanel
+        lead={lead}
+        id={id}
+        readOnly={readOnly}
+        terminalReasonId={terminalReasonId}
+        overriding={overriding}
+        setOverriding={setOverriding}
+        scoreValue={scoreValue}
+        setScoreValue={setScoreValue}
+        reasonValue={reasonValue}
+        setReasonValue={setReasonValue}
+        scoreFieldId={scoreFieldId}
+        reasonFieldId={reasonFieldId}
+        patch={patch}
+      />
 
       <LeadOwner
         lead={lead}
         meId={meId}
         terminalReasonId={terminalReasonId}
-        pending={patch.isPending}
+        pending={patch.isPending || readOnly}
         onAssign={(ownerId) => patch.mutate({ owner_id: ownerId })}
       />
 
