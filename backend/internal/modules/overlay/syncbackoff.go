@@ -11,6 +11,17 @@ package overlay
 // honors a longer floor), and RecordSweepSuccess resets it. The row lives
 // in overlay_sync_state and is read by DueOverlayConnections' due-scan;
 // error DETAIL goes to system_log, the row carries only the class.
+//
+// EVERY next_sweep_at write here takes the DATABASE's clock, never a
+// timestamp bound from Go. The due-scan compares the column against now()
+// inside Postgres (connectionreads.go), so a deadline derived from the app
+// process makes that a cross-clock comparison, and the two clocks are only
+// ever coincidentally equal. A backoff has minutes of margin and survives the
+// skew; a reset means "due immediately" and has none — stamped by a process
+// running ahead of the database it lands in the future, and the connection it
+// was supposed to heal stays backed off for as long as the skew lasts.
+// syncclock_test.go derives that rule from this source rather than trusting
+// this paragraph.
 
 import (
 	"context"
@@ -81,22 +92,22 @@ func sweepBackoffDelay(consecutiveFailures int) time.Duration {
 
 // RecordSweepSuccess resets the backoff for ctx's workspace: the next
 // sweep is due immediately and the failure ladder is cleared. One clean
-// sweep heals a backed-off connection.
-func (s *MirrorStore) RecordSweepSuccess(ctx context.Context, now time.Time) error {
+// sweep heals a backed-off connection. It takes no clock: the reset is the
+// zero-margin case of this file's database-clock rule.
+func (s *MirrorStore) RecordSweepSuccess(ctx context.Context) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, last_error_class, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 0, $1, NULL, now())
+			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 0, now(), NULL, now())
 			ON CONFLICT ((true)) DO UPDATE SET
-			  next_sweep_at = EXCLUDED.next_sweep_at,
+			  next_sweep_at = now(),
 			  consecutive_failures = 0,
-			  last_success_at = EXCLUDED.last_success_at,
+			  last_success_at = now(),
 			  last_error_class = NULL,
-			  updated_at = now()`,
-			now)
+			  updated_at = now()`)
 		return err
 	})
 }
@@ -131,7 +142,7 @@ func (s *MirrorStore) RequestSweep(ctx context.Context) error {
 // longer floor) — so a failing connection stops re-sweeping hot. It never
 // tombstones: the connection stays selectable, just paced. The error
 // detail is logged to system_log; the sidecar row carries only the class.
-func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error, now time.Time) error {
+func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error) error {
 	class := classifySweepError(sweepErr)
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
@@ -140,23 +151,27 @@ func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error, no
 		var failures int
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, last_failure_at, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 1, $2, $1, now())
+			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 1, $1, now(), now())
 			ON CONFLICT ((true)) DO UPDATE SET
 			  consecutive_failures = overlay_sync_state.consecutive_failures + 1,
 			  last_error_class = EXCLUDED.last_error_class,
-			  last_failure_at = EXCLUDED.last_failure_at,
+			  last_failure_at = now(),
 			  updated_at = now()
 			RETURNING consecutive_failures`,
-			now, string(class)).Scan(&failures); err != nil {
+			string(class)).Scan(&failures); err != nil {
 			return fmt.Errorf("overlay: recording the sweep failure: %w", err)
 		}
 
-		next := now.Add(sweepBackoffDelay(failures))
-		if class == classSweepRateLimited && next.Sub(now) < rateLimitedFloor {
-			next = now.Add(rateLimitedFloor)
+		// The ladder is a DELAY, not a deadline, so the database applies it to
+		// its own clock (this file's rule).
+		delay := sweepBackoffDelay(failures)
+		if class == classSweepRateLimited && delay < rateLimitedFloor {
+			delay = rateLimitedFloor
 		}
-		if _, err := tx.Exec(ctx, `UPDATE overlay_sync_state SET next_sweep_at = $1 WHERE workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid`,
-			next); err != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE overlay_sync_state SET next_sweep_at = now() + make_interval(secs => $1)
+			WHERE workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid`,
+			delay.Seconds()); err != nil {
 			return fmt.Errorf("overlay: pacing the next sweep after failure: %w", err)
 		}
 

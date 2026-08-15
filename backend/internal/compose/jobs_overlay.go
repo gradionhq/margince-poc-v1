@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -214,13 +213,13 @@ func (w *overlayReconcileWorkspaceWorker) Work(ctx context.Context, job *river.J
 	// A fenced ErrConnectionGone in the RECORDING means the connection was
 	// revoked between the sweep and this write — benign, nothing to pace.
 	if sweepErr != nil {
-		if recErr := recMS.RecordSweepFailure(wsCtx, sweepErr, time.Now()); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
+		if recErr := recMS.RecordSweepFailure(wsCtx, sweepErr); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
 			w.log.WarnContext(wsCtx, "overlay reconcile: recording the sweep-failure backoff failed",
 				"workspace", d.Workspace.String(), "err", recErr)
 		}
 		return jobs.FaultContext(ctx, sweepErr)
 	}
-	if recErr := recMS.RecordSweepSuccess(wsCtx, time.Now()); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
+	if recErr := recMS.RecordSweepSuccess(wsCtx); recErr != nil && !errors.Is(recErr, overlay.ErrConnectionGone) {
 		w.log.WarnContext(wsCtx, "overlay reconcile: resetting the sweep backoff after success failed",
 			"workspace", d.Workspace.String(), "err", recErr)
 	}

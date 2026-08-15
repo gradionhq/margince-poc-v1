@@ -39,7 +39,20 @@ const allowedFamilies = new Set([
   "monospace",
 ]);
 
-describe("design-system conformance gates (B-EP09.1)", () => {
+// Every gate below reads — and most of them TypeScript-parse — the whole
+// source tree, so what each costs is a function of how much source exists and
+// how loaded the runner is. Vitest's 5s per-test default is sized for a unit
+// test, not for a repo sweep, and it left no margin: the heaviest leg measures
+// ~1.1s locally under the coverage instrumentation `fe-unit` runs with, and
+// has already blown the 5s ceiling on a loaded CI runner (reported against a
+// job named "vitest + coverage", so it read as a coverage failure). The suite
+// budget below is an order of magnitude above that worst observed cost,
+// because the tree only grows and because these scans are synchronous file
+// I/O — there is no hang for a tight timeout to catch, so a generous one costs
+// nothing. Declared on the suite so every gate this file grows inherits it.
+const scanBudget = { timeout: 60_000 };
+
+describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   it("uses only the three §2 type families", () => {
     for (const file of files) {
       const text = readFileSync(file, "utf8");

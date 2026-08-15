@@ -259,7 +259,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		}
 	}
 
-	if err := mirror.RecordSweepSuccess(adminCtx, time.Now()); err != nil {
+	if err := mirror.RecordSweepSuccess(adminCtx); err != nil {
 		t.Fatalf("recording sweep success: %v", err)
 	}
 
