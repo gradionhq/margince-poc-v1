@@ -31,7 +31,6 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
-import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -339,7 +338,57 @@ function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
 // The read serves what was STORED with the score, so a lead scored before
 // this shipped honestly says it has no explanation yet instead of showing
 // an empty list, which would read as "nothing contributed".
-function ScoreBreakdown({ id }: Readonly<{ id: string }>) {
+// The decision-maker title pattern the score uses (formulas §3.1). Mirrored
+// here ONLY to say why a title earned nothing; the score itself is computed
+// server-side and this never adds to it.
+const DECISION_MAKER_TITLE =
+  /(chief|vp|head|director|founder|owner|c[a-z]o)\b/i;
+const HIGH_INTENT_SOURCES = new Set(["inbound", "webform", "referral"]);
+
+// What a lead is missing, in the model's own terms — shown when no retained
+// decomposition exists yet.
+//
+// A zero score and an unscored lead look identical as a number and mean
+// opposite things: "we assessed this and it earns nothing" versus "nothing
+// has been assessed". A rep reads both as a bad prospect, and only one of
+// them is (ADR-0108 §4). These reasons are always derivable, so the page
+// states them rather than explaining our own storage history.
+function ScoreShortfall({ lead }: Readonly<{ lead: Lead }>) {
+  const t = useT();
+  const missing: string[] = [];
+  if (!lead.title) {
+    missing.push(t("lead.shortfall.noTitle"));
+  } else if (!DECISION_MAKER_TITLE.test(lead.title)) {
+    missing.push(t("lead.shortfall.titleNotSenior", { title: lead.title }));
+  }
+  if (!lead.source || !HIGH_INTENT_SOURCES.has(lead.source)) {
+    missing.push(t("lead.shortfall.sourceNoIntent", { source: lead.source }));
+  }
+  // Behavioral points are the only ones that move after capture, so this line
+  // is the actionable one: it names what would change the score.
+  missing.push(t("lead.shortfall.noEngagement"));
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-1)",
+      }}
+    >
+      <span className="t-caption">{t("lead.shortfall.lead")}</span>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {missing.map((reason) => (
+          <li key={reason} className="t-caption">
+            {reason}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ScoreBreakdown({ id, lead }: Readonly<{ id: string; lead: Lead }>) {
   const t = useT();
   const explain = useQuery({
     queryKey: ["lead", id, "score"],
@@ -364,7 +413,12 @@ function ScoreBreakdown({ id }: Readonly<{ id: string }>) {
   }
   const current = explain.data?.current;
   if (!explain.data?.explained || !current) {
-    return <span className="t-caption">{t("lead.scoreNotYetExplained")}</span>;
+    // No retained decomposition. The reasons a lead scores nothing are still
+    // derivable from the lead in hand, and they are what the reader came for
+    // — "this score predates the breakdown" answers a question nobody asked
+    // and leaves a 0 looking like a bad prospect rather than an unassessed
+    // one (ADR-0108 §4).
+    return <ScoreShortfall lead={lead} />;
   }
   const factors = current.factors ?? [];
   // Under a Commercial Judgement override the displayed score is the
@@ -466,12 +520,16 @@ function LeadOwner({
   const pickerId = useId();
   const [picking, setPicking] = useState(false);
   const roster = useRoster("user", picking);
-  // The viewer is excluded as well as the current owner: "Assign to me" sits
-  // right beside this picker, and offering the same person under a second
-  // label would run one mutation from two controls that read differently.
-  const candidates = (roster.data ?? []).filter(
-    (entry) => entry.id !== lead.owner_id && entry.id !== meId,
-  );
+  // Everyone but the current owner, with the VIEWER first: assigning to
+  // yourself is the common case on a small team, and it is now an option in
+  // this one control rather than a button of its own (ADR-0108 §5).
+  const candidates = (roster.data ?? [])
+    .filter((entry) => entry.id !== lead.owner_id)
+    .sort((a, b) => {
+      if (a.id === meId) return -1;
+      if (b.id === meId) return 1;
+      return 0;
+    });
 
   return (
     <div
@@ -488,20 +546,20 @@ function LeadOwner({
           alignItems: "center",
         }}
       >
-        <span className="t-caption">
-          {lead.owner_id ? t("lead.ownerLabel") : t("lead.unassigned")}
-        </span>
-        {lead.owner_id &&
-          (lead.owner_id === meId ? (
+        <span className="t-caption">{t("lead.ownerLabel")}</span>
+        {lead.owner_id ? (
+          lead.owner_id === meId ? (
             <span className="t-caption">{t("lead.ownerYou")}</span>
           ) : (
             <EntityRef kind="user" id={lead.owner_id} />
-          ))}
-        {meId && meId !== lead.owner_id && (
-          <Button small disabled={pending} onClick={() => onAssign(meId)}>
-            {t("lead.assignToMe")}
-          </Button>
+          )
+        ) : (
+          <span className="t-caption">{t("lead.unassigned")}</span>
         )}
+        {/* ONE control, not a button that assigns to you beside a button
+            that reveals a picker nobody can see until they press it
+            (ADR-0108 §5). The viewer is the first option because
+            self-assignment is the common case on a small team. */}
         <Button
           small
           disabled={pending}
@@ -509,7 +567,7 @@ function LeadOwner({
           aria-controls={pickerId}
           onClick={() => setPicking(!picking)}
         >
-          {t("lead.assignToSomeone")}
+          {t("lead.assign")}
         </Button>
       </div>
 
@@ -542,11 +600,15 @@ function LeadOwner({
               disabled={pending}
               options={candidates.map((entry) => ({
                 value: entry.id,
-                // A user with no display name still has to be pickable, so the
-                // id stands in rather than rendering a blank row.
+                // The viewer reads as "Me" — a rep scanning this list looks
+                // for themselves, not for their own name among colleagues'.
+                // A user with no display name still has to be pickable, so
+                // the id stands in rather than rendering a blank row.
                 label:
-                  ("display_name" in entry ? entry.display_name : null) ??
-                  entry.id,
+                  entry.id === meId
+                    ? t("lead.assignToMe")
+                    : (("display_name" in entry ? entry.display_name : null) ??
+                      entry.id),
               }))}
               onChange={(value) => {
                 onAssign(value);
@@ -641,7 +703,7 @@ function LeadLifecycle({
         }}
       >
         <span className="t-caption">{t("lead.explainScore")}</span>
-        <ScoreBreakdown id={id} />
+        <ScoreBreakdown id={id} lead={lead} />
         {lead.score_override_reason ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <p>
@@ -900,8 +962,107 @@ function LeadOverviewPane({
         </>
       )}
       <CustomFieldsCard object="lead" record={lead} />
-      <RecordContextPanel entityType="lead" id={lead.id} />
     </>
+  );
+}
+
+// The lead's identity row and its verbs. Extracted from LeadScreen because
+// the terminal-state branch pushed that render past the complexity budget,
+// and because a header is a thing in its own right: the name, why the verbs
+// are gone when they are, and the verbs themselves.
+function LeadHeader({
+  lead,
+  id,
+  cf,
+  overlay,
+}: Readonly<{
+  lead: Lead;
+  id: string;
+  cf: ReturnType<typeof useObjectCustomFields>;
+  overlay: boolean;
+}>) {
+  const t = useT();
+  return (
+    <div className="list-head">
+      {/* The lead's name is this page's name: the shell's page head
+            yields to a record route and prints only the trail that leads
+            here, so without this the page would carry no heading at all. */}
+      <SectionHeader
+        level={1}
+        title={lead.full_name ?? lead.email ?? t("nav.leads")}
+      />
+      {/* A promoted or disqualified lead is archived and terminal —
+            the backend rejects edit/disqualify/promote/score-override on
+            it, so those affordances would only 404. STATE-4a wants the
+            controls disabled WITH the reason rather than hidden, and
+            EditAction/ArchiveAction/ShareAction carry no reason prop to
+            do that with; until they do, the page at least SAYS why the
+            actions are gone instead of leaving the reader to guess
+            (ADR-0108 §6, tracked as issue 1325). */}
+      {lead.archived_at && (
+        <span className="t-caption">
+          {lead.status === "promoted"
+            ? t("lead.terminalPromoted")
+            : t("lead.terminalDisqualified")}
+        </span>
+      )}
+      {!lead.archived_at && (
+        <EditAction
+          label={t("record.edit")}
+          notice={overlay ? t("overlay.partialWriteBack") : undefined}
+          fields={[...leadEditFields, ...cf.formFields]}
+          record={{
+            id: lead.id,
+            version: lead.version,
+            full_name: lead.full_name ?? "",
+            email: lead.email ?? "",
+            title: lead.title ?? "",
+            company_name: lead.company_name ?? "",
+            candidate_org_key: lead.candidate_org_key ?? "",
+            ...cf.recordSlice(lead),
+          }}
+          update={async (values) => {
+            const { data, error } = await api.PATCH("/leads/{id}", {
+              params: {
+                path: { id },
+                ...ifMatch(lead.version),
+              },
+              body: {
+                ...mapLeadUpdate(values),
+                ...cf.toBody(values),
+              },
+            });
+            if (error) {
+              throwProblem(error);
+            }
+            return data;
+          }}
+          invalidate="leads"
+          recordKey="lead"
+        />
+      )}
+      {!lead.archived_at && !overlay && (
+        <>
+          <ArchiveAction
+            label={t("record.disqualify")}
+            confirmText={t("record.disqualifyConfirm")}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/leads/{id}", {
+                params: { path: { id } },
+              });
+              if (error) {
+                throwProblem(error, t);
+              }
+              return data;
+            }}
+            invalidate="leads"
+            recordKey="lead"
+            onArchived={() => navigate({ screen: "leads" })}
+          />
+          <ShareAction recordType="lead" recordId={lead.id} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -979,76 +1140,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       <QueryGate query={leadQuery}>
         {(lead) => (
           <Card as="div" className="lead-detail">
-            <div className="list-head">
-              {/* The lead's name is this page's name: the shell's page head
-                  yields to a record route and prints only the trail that leads
-                  here, so without this the page would carry no heading at all. */}
-              <SectionHeader
-                level={1}
-                title={lead.full_name ?? lead.email ?? t("nav.leads")}
-                sub={t("lead.segregated")}
-              />
-              {/* A promoted or disqualified lead is archived and terminal —
-                  the backend rejects edit/disqualify/promote/score-override on
-                  it, so those affordances would only 404. Read-only past that
-                  point. */}
-              {!lead.archived_at && (
-                <EditAction
-                  label={t("record.edit")}
-                  notice={overlay ? t("overlay.partialWriteBack") : undefined}
-                  fields={[...leadEditFields, ...cf.formFields]}
-                  record={{
-                    id: lead.id,
-                    version: lead.version,
-                    full_name: lead.full_name ?? "",
-                    email: lead.email ?? "",
-                    title: lead.title ?? "",
-                    company_name: lead.company_name ?? "",
-                    candidate_org_key: lead.candidate_org_key ?? "",
-                    ...cf.recordSlice(lead),
-                  }}
-                  update={async (values) => {
-                    const { data, error } = await api.PATCH("/leads/{id}", {
-                      params: {
-                        path: { id },
-                        ...ifMatch(lead.version),
-                      },
-                      body: {
-                        ...mapLeadUpdate(values),
-                        ...cf.toBody(values),
-                      },
-                    });
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="leads"
-                  recordKey="lead"
-                />
-              )}
-              {!lead.archived_at && !overlay && (
-                <>
-                  <ArchiveAction
-                    label={t("record.disqualify")}
-                    confirmText={t("record.disqualifyConfirm")}
-                    archive={async () => {
-                      const { data, error } = await api.DELETE("/leads/{id}", {
-                        params: { path: { id } },
-                      });
-                      if (error) {
-                        throwProblem(error, t);
-                      }
-                      return data;
-                    }}
-                    invalidate="leads"
-                    recordKey="lead"
-                    onArchived={() => navigate({ screen: "leads" })}
-                  />
-                  <ShareAction recordType="lead" recordId={lead.id} />
-                </>
-              )}
-            </div>
+            <LeadHeader lead={lead} id={id} cf={cf} overlay={overlay} />
             <LeadBadges lead={lead} />
             {lead.email && <p className="t-mono">{lead.email}</p>}
             <div style={{ marginBottom: 16 }}>

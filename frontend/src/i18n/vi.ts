@@ -1204,6 +1204,14 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
+  "lead.shortfall.lead": "Chưa có gì cộng vào điểm này:",
+  "lead.shortfall.noTitle": "Chưa có chức danh.",
+  "lead.shortfall.titleNotSenior":
+    "“{title}” không thuộc nhóm chức danh mà mô hình tìm.",
+  "lead.shortfall.sourceNoIntent":
+    "Đến từ “{source}”, tự nó chưa thể hiện ý định mua.",
+  "lead.shortfall.noEngagement":
+    "Chưa có phản hồi hay cuộc họp — đó mới là thứ thay đổi điểm nhiều nhất.",
   "lead.scoreLoading": "Đang tải lý do…",
   "lead.scoreNotYetExplained":
     "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",
@@ -1223,6 +1231,9 @@ export const vi = {
   "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
   "lead.unassigned": "Chưa giao",
+  "lead.terminalPromoted": "Đã chuyển thành liên hệ — lead này giờ chỉ đọc.",
+  "lead.terminalDisqualified": "Đã loại — lead này giờ chỉ đọc.",
+  "lead.assign": "Giao",
   "lead.assignToMe": "Giao cho tôi",
   "lead.assignToSomeone": "Giao cho người khác",
   "lead.assignTo": "Giao lead này cho",
