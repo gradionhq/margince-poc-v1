@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -314,54 +316,162 @@ func TestReconcileChannelProvidersRefusesAUnitThatSeizesARegisteredCoreTransport
 	}
 }
 
-// The seam SHIPS, not just the function: NewCaptureRegistry — the real
-// composition-root entry point every process role calls — sets both
-// activities' and comms' in-memory snapshots as a side effect of registering
-// its connectors, not just something a hand-written call to
-// reconcileChannelProviders would prove.
-func TestNewCaptureRegistrySetsTheActivitiesAndCommsChannelSnapshots(t *testing.T) {
+// The seam SHIPS, not just the function: ReconcileChannelProviders — the boot
+// step a process role calls — registers a composed unit's transport and makes
+// it sendable, on a role that builds NO capture registry. That is the write
+// twin of TestTheDirectoryLoadsFromTheRegistryAndNotFromTheCaptureBoot, and it
+// is the shape the whole step exists for: building the capture registry is
+// gated on a configured keyvault, and a vault-less role must still register
+// what it composed.
+//
+// It asks about a UNIT transport rather than telegram on purpose. Telegram's
+// row is seeded by the core migration and testdb does not reset
+// channel_provider, and both in-memory sets carry telegram as their
+// compile-time default — so every telegram assertion here is already true
+// before the act, and would pass against a boot step that did nothing at all.
+// A unit's row can only have been written by this call.
+func TestTheBootStepRegistersAComposedUnitTransportWithNoCaptureRegistry(t *testing.T) {
 	e := integration.Setup(t)
-	// Restore the pre-registry default (not nil/empty): both packages start
-	// with {"telegram"} baked in, and a later test in this same process that
-	// assumes telegram is still a channel kind must not see the emptied set
-	// this test would otherwise leave behind.
+	ctx := context.Background()
+	owner := integration.OwnerConn(t)
 	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
 	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "boot", extension.Channel{
+		Provider: "boot_chat", Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(),
+			`DELETE FROM channel_provider WHERE provider = 'boot_chat'`); err != nil {
+			t.Errorf("cleaning up channel_provider: %v", err)
+		}
+	})
+	emptyTheSendableSets(t)
 
-	NewCaptureRegistry(e.Pool, nil, CaptureConfig{})
-
-	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
-		t.Error("NewCaptureRegistry did not set activities' channel-provider snapshot")
+	// Through RecordComposition, which is what a process role actually calls —
+	// reaching past it to the reconcile alone would leave the step every role
+	// wires untested, and the ordering it owns unproven.
+	if err := RecordComposition(ctx, e.Pool, discardLog(), ComposedExtensions()); err != nil {
+		t.Fatalf("the boot step on a role that composes no capture registry: %v", err)
 	}
-	if _, capability := comms.SendScopeFor(capture.ProviderTelegram); capability != comms.SendsWithoutScope {
-		t.Error("NewCaptureRegistry did not set comms' channel-provider snapshot")
+	// The inventory half landed too: both facts follow from the same composed
+	// set, and a step that recorded one of them is the half-wired boot this
+	// function exists to make unreachable.
+	if n := observedExtensionCount(t, owner); n == 0 {
+		t.Error("the boot step registered the transports but recorded no extension inventory")
+	}
+
+	var transport string
+	if err := owner.QueryRow(ctx,
+		`SELECT transport FROM channel_provider WHERE provider = 'boot_chat'`).Scan(&transport); err != nil {
+		t.Fatalf("reading back the unit transport the boot step should have registered: %v", err)
+	}
+	if transport != "unit" {
+		t.Errorf("boot_chat registered as transport %q, want unit", transport)
+	}
+	// Both in-memory halves, refilled from empty: the send pre-flight reads
+	// them, so a transport missing here is one every reply is refused on.
+	if !activities.CanSendOnProvider("boot_chat") {
+		t.Error("the unit's transport is not in activities' sendable set")
+	}
+	if _, capability := comms.SendScopeFor("boot_chat"); capability == comms.CannotSend {
+		t.Error("the unit's transport is not in comms' sendable set")
+	}
+	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
+		t.Error("the core connector did not come back into the sendable set")
 	}
 }
 
-// The regression this design's own review round caught: reconcile must run
-// over an infra transaction, never a workspace-bound one — NewCaptureRegistry
-// is called during normal server construction, which happens BEFORE the
-// installation is bootstrapped (no organization exists yet). A workspace-bound
-// transaction fails to even resolve which workspace to bind, which is a
-// deployment-halting panic on every fresh install, not a corner case.
-func TestNewCaptureRegistryReconcilesBeforeTheInstallationIsBootstrapped(t *testing.T) {
+// Reconcile runs over an infra transaction, never a workspace-bound one: the
+// boot step runs BEFORE the installation is bootstrapped, when no organization
+// exists. A workspace-bound transaction cannot resolve which workspace to bind,
+// which halts every fresh install rather than some corner of one.
+func TestTheBootStepReconcilesBeforeTheInstallationIsBootstrapped(t *testing.T) {
 	e := integration.Setup(t)
+	ctx := context.Background()
+	owner := integration.OwnerConn(t)
 	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
 	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "prebootstrap", extension.Channel{
+		Provider: "prebootstrap_chat", Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(),
+			`DELETE FROM channel_provider WHERE provider = 'prebootstrap_chat'`); err != nil {
+			t.Errorf("cleaning up channel_provider: %v", err)
+		}
+	})
+	emptyTheSendableSets(t)
 
 	// Archived, not deleted: identity.Service.InstallationWorkspace counts
 	// un-archived workspaces, and integration.Setup's own fixture rows
 	// (app_user, team) FK-reference this workspace with ON DELETE RESTRICT, so
 	// a DELETE here would fail on the wrong constraint before ever reaching
 	// the one this test is about.
-	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`UPDATE workspace SET archived_at = now()`); err != nil {
+	if _, err := owner.Exec(ctx, `UPDATE workspace SET archived_at = now()`); err != nil {
 		t.Fatalf("archiving every workspace to simulate a pre-bootstrap install: %v", err)
 	}
 
-	NewCaptureRegistry(e.Pool, nil, CaptureConfig{})
+	if err := ReconcileChannelProviders(ctx, e.Pool); err != nil {
+		t.Fatalf("the boot step with no organization bootstrapped yet: %v", err)
+	}
+	if !activities.CanSendOnProvider("prebootstrap_chat") {
+		t.Error("the boot step did not reconcile with no organization bootstrapped yet")
+	}
+}
 
-	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
-		t.Error("NewCaptureRegistry did not reconcile with no organization bootstrapped yet")
+// A boot step that cannot register the vocabulary aborts the boot, and says
+// which of its two halves failed. The refusal itself is proved by the reconcile
+// suite above; what matters here is that RecordComposition surfaces it rather
+// than swallowing it, and that an operator reading one line knows whether the
+// inventory or the transports were what went wrong.
+func TestRecordingTheCompositionFailsTheBootWhenAUnitShadowsACoreTransport(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "impostor", extension.Channel{
+		Provider: capture.ProviderTelegram, Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+
+	err := RecordComposition(ctx, e.Pool, discardLog(), ComposedExtensions())
+
+	if err == nil {
+		t.Fatal("a boot whose unit declares the core's own transport was allowed to continue; " +
+			"every reply on that transport would leave under the unit's credential")
+	}
+	if !strings.Contains(err.Error(), "channel vocabulary") {
+		t.Errorf("the boot failure %q does not say which step failed, so an operator cannot tell "+
+			"a transport collision from an inventory problem", err)
+	}
+	if !strings.Contains(err.Error(), capture.ProviderTelegram) {
+		t.Errorf("the boot failure %q does not name the transport in dispute, which is the one thing "+
+			"an operator must rename", err)
+	}
+}
+
+// observedExtensionCount answers how many extension-composition observations
+// the installation holds — the inventory half of RecordComposition, read from
+// the trail it actually writes.
+func observedExtensionCount(t *testing.T, owner *pgx.Conn) int {
+	t.Helper()
+	var n int
+	if err := owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM system_log WHERE action = $1`, extensionCompositionObserved).Scan(&n); err != nil {
+		t.Fatalf("counting the recorded extension observations: %v", err)
+	}
+	return n
+}
+
+// emptyTheSendableSets clears what the assertions are about to look at, and
+// fails if the clearing did not take. Both packages carry telegram as a
+// compile-time default and testdb does not reset channel_provider, so a test
+// that does not start from empty cannot tell a boot step that ran from one that
+// did nothing.
+func emptyTheSendableSets(t *testing.T) {
+	t.Helper()
+	activities.SetChannelProviders(nil)
+	comms.SetChannelProviders(nil)
+	if activities.CanSendOnProvider(capture.ProviderTelegram) {
+		t.Fatal("the sendable set survived being emptied — this run could not tell a reconcile from a no-op")
 	}
 }

@@ -14,10 +14,11 @@ package compose
 // the vocabulary of interaction kinds is fixed by the contract and seeded by
 // the core migration, so boot has nothing to add to it.
 //
-// Called from NewCaptureRegistry, which this codebase already constructs more
-// than once per process (a role-specific alternate wiring path, the worker's
-// one-shot backfill helper) — so every write here is an idempotent upsert, and
-// every in-memory set is last-write-wins, never a once-only registration.
+// Driven by ReconcileChannelProviders, the boot step every process role runs.
+// A role may run it more than once per process (a role-specific alternate
+// wiring path, the worker's one-shot backfill helper), so every write here is
+// an idempotent upsert, and every in-memory set is last-write-wins, never a
+// once-only registration.
 
 import (
 	"context"
@@ -33,6 +34,41 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
+
+// ReconcileChannelProviders writes this binary's channel vocabulary into the
+// registry: the core connectors it compiled in, plus every channel its composed
+// units declare. It runs after RegisterExtensions, because the unit half reads
+// ComposedExtensions().
+//
+// It is a boot step in its own right, and it cannot ride the construction of
+// the capture registry. That construction is gated on a configured keyvault
+// root key; what a message may name is not. Where the write rides it, a
+// vault-less installation registers none of its units' transports — a captured
+// message on one then violates activity.channel_provider's foreign key, the
+// core-vs-unit collision check never runs, and both in-memory snapshots keep
+// their pre-registry default, so a reply on a unit channel is refused before it
+// is staged. LoadChannelProviderDirectory answers the same question for the
+// read side, and for the same reason.
+//
+// It returns its error rather than halting: a unit colliding with a core
+// transport is a refusal an operator has to act on, and the caller that owns
+// the process's exit is where that decision belongs.
+func ReconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool) error {
+	return reconcileChannelProviders(ctx, pool, CoreChannelProviders())
+}
+
+// CoreChannelProviders is every transport this binary compiled a CORE connector
+// for — the reconcile's core half.
+//
+// Derived from the registry rather than restated beside it. A hand-kept list
+// would be a second answer to "what did this binary compile in", and the two
+// would disagree the first time a connector was added; deriving it means the
+// registry stays the only place that knows. It enumerates rather than captures,
+// so it needs neither pool nor vault — both of which NewCaptureRegistry
+// documents as optional for exactly that.
+func CoreChannelProviders() []string {
+	return NewCaptureRegistry(nil, nil, CaptureConfig{}).ChannelProviders()
+}
 
 // reconcileChannelProviders upserts a channel_provider row for every transport
 // this binary composed — the core connectors passed in, plus every channel the

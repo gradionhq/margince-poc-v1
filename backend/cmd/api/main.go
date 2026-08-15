@@ -92,10 +92,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Record the composed extension set when it changed since the last
-	// boot — install/upgrade/removal happen in source, so this is where
-	// they become observable (ADR-0069 §5).
-	if err := compose.ObserveExtensionInventory(ctx, pool, logger, extensions); err != nil {
+	// What this binary composed, recorded before it serves: the extension
+	// inventory (install/upgrade/removal happen in source, so this is where
+	// they become observable — ADR-0069 §5) and the channel vocabulary those
+	// units declare. Before the server is assembled, which loads the transport
+	// directory FROM the rows this writes.
+	if err := compose.RecordComposition(ctx, pool, logger, extensions); err != nil {
 		return err
 	}
 
