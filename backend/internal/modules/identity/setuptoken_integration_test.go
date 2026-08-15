@@ -198,7 +198,7 @@ func TestASecondTokenIsNotMintedWhileOneIsOutstanding(t *testing.T) {
 	}
 }
 
-// The two claims 0252 makes in prose, asserted against the database rather than
+// The two claims 0255 makes in prose, asserted against the database rather than
 // trusted. Both are one query in a lane that already has Postgres.
 
 func TestOnlyTheHashOfTheSetupTokenIsStored(t *testing.T) {

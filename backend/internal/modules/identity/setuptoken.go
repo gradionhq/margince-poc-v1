@@ -40,47 +40,8 @@ var ErrSetupTokenExists = errors.New("identity: a setup token is already outstan
 // log and handed on. Under the installation advisory lock — the same one boot
 // and claim take — so two api replicas starting together cannot both pass the
 // EXISTS check and race each other into the unique index.
-func (s *Service) MintSetupToken(ctx context.Context) (raw string, err error) {
-	raw, hash, err := mintSessionToken()
-	if err != nil {
-		return "", fmt.Errorf("identity: minting the setup token: %w", err)
-	}
-	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
-			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
-		}
-		existing, err := activeWorkspaces(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if len(existing) > 0 {
-			return ErrAlreadyProvisioned
-		}
-		var outstanding bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM setup_token WHERE consumed_at IS NULL)`).Scan(&outstanding); err != nil {
-			return fmt.Errorf("identity: checking for an outstanding setup token: %w", err)
-		}
-		if outstanding {
-			return ErrSetupTokenExists
-		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO setup_token (token_hash) VALUES ($1)`, hash); err != nil {
-			// The partial unique index is the real guarantee; the check above
-			// only lets us say so in words. Report both the same way, so a boot
-			// that loses a race it should not be in reports "already
-			// outstanding" rather than dying on a raw constraint violation.
-			if storekit.IsUniqueViolation(err) {
-				return ErrSetupTokenExists
-			}
-			return fmt.Errorf("identity: recording the setup token: %w", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return raw, nil
+func (s *Service) MintSetupToken(ctx context.Context) (string, error) {
+	return s.issueSetupToken(ctx, keepOutstanding)
 }
 
 // RotateSetupToken retires whatever is outstanding and issues a fresh
@@ -95,7 +56,35 @@ func (s *Service) MintSetupToken(ctx context.Context) (raw string, err error) {
 // that path.
 //
 // It refuses on a provisioned installation, where there is nothing to claim.
-func (s *Service) RotateSetupToken(ctx context.Context) (raw string, err error) {
+func (s *Service) RotateSetupToken(ctx context.Context) (string, error) {
+	return s.issueSetupToken(ctx, replaceOutstanding)
+}
+
+// outstandingPolicy is what separates minting from rotating, and it is the only
+// thing that does: whether an existing credential blocks the new one or is
+// retired to make room for it.
+type outstandingPolicy bool
+
+const (
+	// keepOutstanding — refuse rather than replace. A boot that silently minted
+	// a fresh token would invalidate the one an operator had already read out
+	// of the log and handed on.
+	keepOutstanding outstandingPolicy = false
+	// replaceOutstanding — retire first, so the old credential stops working
+	// the moment this commits rather than both being live until one is spent.
+	replaceOutstanding outstandingPolicy = true
+)
+
+// issueSetupToken is the whole rule both public entry points apply: under the
+// installation advisory lock, refuse a provisioned installation, settle what to
+// do about an outstanding credential, and record only the hash of a new one.
+//
+// One body rather than two near-identical ones, because every line of it is
+// security-bearing — the lock that stops two replicas racing, the provisioned
+// refusal that stops /setup/status advertising a live installation as claimable,
+// the hash-only write. A second copy is a second place for one of those to be
+// dropped.
+func (s *Service) issueSetupToken(ctx context.Context, policy outstandingPolicy) (string, error) {
 	raw, hash, err := mintSessionToken()
 	if err != nil {
 		return "", fmt.Errorf("identity: minting the setup token: %w", err)
@@ -111,13 +100,28 @@ func (s *Service) RotateSetupToken(ctx context.Context) (raw string, err error) 
 		if len(existing) > 0 {
 			return ErrAlreadyProvisioned
 		}
-		// Retire first, so the single-outstanding index admits the new row —
-		// and so the old credential stops working the moment this commits,
-		// rather than both being live until someone spends one.
-		if err := retireSetupTokens(ctx, tx); err != nil {
-			return err
+		if policy == replaceOutstanding {
+			if err := retireSetupTokens(ctx, tx); err != nil {
+				return err
+			}
+		} else {
+			var outstanding bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM setup_token WHERE consumed_at IS NULL)`).Scan(&outstanding); err != nil {
+				return fmt.Errorf("identity: checking for an outstanding setup token: %w", err)
+			}
+			if outstanding {
+				return ErrSetupTokenExists
+			}
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO setup_token (token_hash) VALUES ($1)`, hash); err != nil {
+			// The partial unique index is the real guarantee; the check above
+			// only lets us say so in words. Report both the same way, so a boot
+			// that loses a race it should not be in reports "already
+			// outstanding" rather than dying on a raw constraint violation.
+			if storekit.IsUniqueViolation(err) {
+				return ErrSetupTokenExists
+			}
 			return fmt.Errorf("identity: recording the setup token: %w", err)
 		}
 		return nil

@@ -1,4 +1,4 @@
--- 0252: the setup token an unprovisioned installation is claimed with.
+-- 0255: the setup token an unprovisioned installation is claimed with.
 --
 -- ADR-0105/A156 gives an installation two provisioning paths. Configured:
 -- margince.yaml carries bootstrap_admin and boot creates the organization, as
