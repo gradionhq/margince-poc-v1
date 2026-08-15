@@ -219,27 +219,62 @@ func TestSeats(t *testing.T) {
 	}
 }
 
+// moduleOutput is the success output of the module release this tree pins: the
+// license it verified beside the grant it was asked about.
+//
+// The shape is pinned HERE because nothing in this repository can mint a token
+// the bundled keyset trusts, so the success path never runs end to end in a
+// test. When upstream moved the grants under their own key, every test still
+// passed and only an installation would have found out: the grant map decoded
+// as {"license":…, "grants":…} and every seat count silently disappeared. This
+// fixture is the tripwire that was missing.
+const moduleOutput = `{"license":{"id":"01890a5d-ac96-774b-bcce-b302099a8057","subject":"acme-prod",` +
+	`"org":"Acme GmbH","name":"Ada Lovelace","email":"ada@acme.example","key_id":"Ujmh",` +
+	`"issued_at":"2026-08-15T09:00:00Z","not_before":"2026-08-15T09:00:00Z",` +
+	`"expiry":"2027-08-15T09:00:00Z","in_grace":false},` +
+	`"grants":{"seats":10,"feature":true,"something_new":7}}`
+
 // The grant map is carried whole. A build that projected it into known fields
 // would drop the attributes a later license adds, which is the one thing the
 // open attribute format exists to prevent.
-func TestDecodeGrantsCarriesUnknownAttributes(t *testing.T) {
+func TestDecodeResultCarriesUnknownAttributes(t *testing.T) {
 	t.Parallel()
-	grants, err := decodeGrants([]byte(`{"seats":10,"feature":true,"something_new":7}`))
+	result, err := decodeResult([]byte(moduleOutput))
 	if err != nil {
-		t.Fatalf("decodeGrants: %v", err)
+		t.Fatalf("decodeResult: %v", err)
 	}
-	if len(grants) != 3 {
-		t.Fatalf("decoded %d attributes, want 3: %v", len(grants), grants)
+	if len(result.Grants) != 3 {
+		t.Fatalf("decoded %d attributes, want 3: %v", len(result.Grants), result.Grants)
 	}
-	if grants["something_new"] != float64(7) {
-		t.Errorf("an attribute this build does not know was dropped: %v", grants)
+	if result.Grants["something_new"] != float64(7) {
+		t.Errorf("an attribute this build does not know was dropped: %v", result.Grants)
 	}
 }
 
-func TestDecodeGrantsRefusesOutputThatIsNotAGrant(t *testing.T) {
+// The module names the license it verified. Nothing in this build acts on the
+// detail yet, but a decode that dropped it would be found only by whoever
+// needed it, and the grants sit in the same document.
+func TestDecodeResultCarriesTheLicenseItVerified(t *testing.T) {
 	t.Parallel()
-	if _, err := decodeGrants([]byte("not json")); err == nil {
-		t.Error("decodeGrants accepted output that is not JSON")
+	result, err := decodeResult([]byte(moduleOutput))
+	if err != nil {
+		t.Fatalf("decodeResult: %v", err)
+	}
+	if result.License.Subject != "acme-prod" || result.License.Org != "Acme GmbH" {
+		t.Errorf("subject/org = %q/%q, want acme-prod/Acme GmbH", result.License.Subject, result.License.Org)
+	}
+	if result.License.ID == "" || result.License.Expiry.IsZero() {
+		t.Errorf("id/expiry = %q/%s, want both set", result.License.ID, result.License.Expiry)
+	}
+	if result.License.InGrace {
+		t.Error("a license inside its validity reports in_grace")
+	}
+}
+
+func TestDecodeResultRefusesOutputThatIsNotAResult(t *testing.T) {
+	t.Parallel()
+	if _, err := decodeResult([]byte("not json")); err == nil {
+		t.Error("decodeResult accepted output that is not JSON")
 	}
 }
 

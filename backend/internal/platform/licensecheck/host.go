@@ -6,7 +6,7 @@ package licensecheck
 // The wazero host that runs the bundled validation module in this process.
 //
 // Vendored from margince-constellation's tools/licensecheckwasm/host/host.go at
-// 2b30e0aa27525a7a706891f42553325249105e2b, and kept in step with it by hand. It
+// 885471640ea89785c69942816984953257c83d62, and kept in step with it by hand. It
 // is a copy rather than an import because that package lives in a private
 // module: a public source installation could not resolve the import path, so
 // importing it would make this product unbuildable for exactly the people who
@@ -40,6 +40,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/andybalholm/brotli"
 	"github.com/tetratelabs/wazero"
@@ -51,6 +52,37 @@ import (
 // module's output. JSON numbers decode to float64.
 type Grants = map[string]any
 
+// Result is what the module reports: which license the installation holds, and
+// what the requested product grants. The two are separate objects on the wire,
+// so a product attribute can never collide with a metadata field.
+type Result struct {
+	Grants  Grants  `json:"grants"`
+	License License `json:"license"`
+}
+
+// License is the metadata of the license the module verified.
+//
+// Org, ContactName and ContactEmail are empty for a license issued before those
+// claims existed. A zero IssuedAt or NotBefore means the token carried no such
+// claim. InGrace reports a license past its expiry that the grace period still
+// accepts: the check passes today and will stop passing.
+//
+// Nothing in this build reads these yet. They are decoded rather than dropped
+// because the alternative is a decode that has to change before anyone can use
+// them, and this file is the one that has to match upstream byte for byte.
+type License struct {
+	IssuedAt     time.Time `json:"issued_at"`
+	NotBefore    time.Time `json:"not_before"`
+	Expiry       time.Time `json:"expiry"`
+	ID           string    `json:"id"`
+	Subject      string    `json:"subject"`
+	Org          string    `json:"org,omitempty"`
+	ContactName  string    `json:"name,omitempty"`
+	ContactEmail string    `json:"email,omitempty"`
+	KeyID        string    `json:"key_id"`
+	InGrace      bool      `json:"in_grace"`
+}
+
 // ErrVerdict marks an error as the module's JUDGMENT about a license — an
 // untrusted signature, the wrong issuer, expiry past grace, no grant for this
 // product — as opposed to a failure to run the module at all. Only run() wraps
@@ -58,10 +90,11 @@ type Grants = map[string]any
 var ErrVerdict = errors.New("license rejected")
 
 // check runs the module (compiled wasm bytes, gzipped or raw) to validate token
-// for product at generation, issued by issuer. It returns the granted
-// attributes, or an error when the module rejects the license or fails to run.
-// The token is passed to the module as the MARGINCE_LICENSE environment
-// variable; issuer, product and generation are passed as arguments.
+// for product at generation, issued by issuer. It returns the license the module
+// verified and the granted attributes, or an error when the module rejects the
+// license or fails to run. The token is passed to the module as the
+// MARGINCE_LICENSE environment variable; issuer, product and generation are
+// passed as arguments.
 //
 // The parameters this repository only ever passes constants for stay parameters:
 // the signature is upstream's, and narrowing it here would make the copy harder
@@ -69,16 +102,16 @@ var ErrVerdict = errors.New("license rejected")
 // pass the same constants for the same reason — what varies is the token.
 //
 //nolint:unparam // upstream's signature, kept comparable; see the vendoring note above
-func check(ctx context.Context, module []byte, issuer, product string, generation int, token string) (Grants, error) {
+func check(ctx context.Context, module []byte, issuer, product string, generation int, token string) (Result, error) {
 	module, err := maybeDecompress(module)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	out, err := run(ctx, module, issuer, product, generation, token)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
-	return decodeGrants(out)
+	return decodeResult(out)
 }
 
 // wasmMagic starts every WebAssembly module: "\0asm".
@@ -150,11 +183,11 @@ func run(ctx context.Context, module []byte, issuer, product string, generation 
 	return nil, fmt.Errorf("run module: %w", err)
 }
 
-// decodeGrants parses the module's JSON output into grants.
-func decodeGrants(out []byte) (Grants, error) {
-	var grants Grants
-	if err := json.Unmarshal(out, &grants); err != nil {
-		return nil, fmt.Errorf("decode grants: %w", err)
+// decodeResult parses the module's JSON output.
+func decodeResult(out []byte) (Result, error) {
+	var result Result
+	if err := json.Unmarshal(out, &result); err != nil {
+		return Result{}, fmt.Errorf("decode result: %w", err)
 	}
-	return grants, nil
+	return result, nil
 }

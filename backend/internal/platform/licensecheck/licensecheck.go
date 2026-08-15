@@ -158,19 +158,20 @@ func Resolve(ctx context.Context, token string, now time.Time) (Posture, error) 
 	if strings.TrimSpace(token) == "" {
 		return Posture{State: StateAbsent, CheckedAt: now}, nil
 	}
-	grants, err := check(ctx, bundledModule, issuer, product, generation, token)
+	result, err := check(ctx, bundledModule, issuer, product, generation, token)
 	switch {
 	case errors.Is(err, ErrVerdict):
 		return Posture{State: StateRejected, Reason: sanitizeReason(err.Error()), CheckedAt: now}, nil
 	case err != nil:
 		return Posture{}, fmt.Errorf("licensecheck: the bundled validation module (%s) could not run: %s",
 			ModuleVersion(), sanitizeReason(err.Error()))
-	case grants == nil:
-		// Exit 0 with `null` on stdout decodes without error and is not a grant.
-		// Admitting it would license an installation nothing granted.
+	case result.Grants == nil:
+		// Exit 0 with `null` or an empty document decodes without error and is
+		// not a grant. Admitting it would license an installation nothing
+		// granted.
 		return Posture{State: StateRejected, Reason: "the module reported no grant at all", CheckedAt: now}, nil
 	default:
-		return Posture{State: StateValid, Grants: grants, CheckedAt: now}, nil
+		return Posture{State: StateValid, Grants: result.Grants, CheckedAt: now}, nil
 	}
 }
 
