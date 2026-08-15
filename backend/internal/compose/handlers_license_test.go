@@ -155,3 +155,121 @@ func TestWithLicensePostureReachesTheEntitlementHandler(t *testing.T) {
 		t.Error("the option did not reach the /metrics accessor")
 	}
 }
+
+// The licensee detail the module proved, onto the wire. What matters here is
+// which claims survive and which verdicts the server states for the client.
+func TestToContractLicenseHolder(t *testing.T) {
+	t.Parallel()
+	full := licensecheck.License{
+		ID:           "0199c4f2-1d6e-7a41-9f0b-7b2a2c1d5e30",
+		Subject:      "acme-prod",
+		Org:          "Acme GmbH",
+		ContactName:  "Ada Lovelace",
+		ContactEmail: "ada@acme.example",
+		Expiry:       resolvedAt.AddDate(1, 0, 0),
+	}
+
+	t.Run("a complete license renders every claim", func(t *testing.T) {
+		t.Parallel()
+		got := toContractLicenseHolder(full, resolvedAt)
+		if got.Id != full.ID || got.Subject != "acme-prod" {
+			t.Errorf("identifiers = %q / %q", got.Id, got.Subject)
+		}
+		for name, field := range map[string]*string{
+			"org": got.Org, "contact_name": got.ContactName, "contact_email": got.ContactEmail,
+		} {
+			if field == nil {
+				t.Errorf("%s is absent for a license that carries it", name)
+			}
+		}
+		if got.RenewalDue {
+			t.Error("a license a year from expiry asks for a renewal")
+		}
+	})
+
+	// A license issued before those claims existed verifies exactly like any
+	// other. Its rows are ABSENT, so a client renders what it has rather than
+	// three empty placeholders.
+	t.Run("a license from before the claims existed renders none of them", func(t *testing.T) {
+		t.Parallel()
+		got := toContractLicenseHolder(licensecheck.License{
+			ID: full.ID, Subject: full.Subject, Expiry: full.Expiry,
+		}, resolvedAt)
+		if got.Org != nil || got.ContactName != nil || got.ContactEmail != nil {
+			t.Errorf("absent claims rendered as %v / %v / %v", got.Org, got.ContactName, got.ContactEmail)
+		}
+		if got.Id == "" || got.Subject == "" {
+			t.Error("the identifiers every license carries went missing")
+		}
+	})
+
+	t.Run("the renewal window opens at ninety days and not before", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name   string
+			expiry time.Time
+			want   bool
+		}{
+			{name: "ninety-one days out", expiry: resolvedAt.Add(91 * 24 * time.Hour)},
+			{name: "exactly ninety days out", expiry: resolvedAt.Add(renewalWindow), want: true},
+			{name: "a week out", expiry: resolvedAt.Add(7 * 24 * time.Hour), want: true},
+			{name: "already past", expiry: resolvedAt.Add(-time.Hour), want: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				license := full
+				license.Expiry = tc.expiry
+				if got := toContractLicenseHolder(license, resolvedAt).RenewalDue; got != tc.want {
+					t.Errorf("RenewalDue = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	// A client that reads only `renewal_due` must still warn about a license
+	// living on its grace period.
+	t.Run("a license on its grace period always asks for a renewal", func(t *testing.T) {
+		t.Parallel()
+		license := full
+		license.InGrace = true
+		got := toContractLicenseHolder(license, resolvedAt)
+		if !got.InGrace {
+			t.Error("InGrace was dropped")
+		}
+		if !got.RenewalDue {
+			t.Error("a license in grace does not ask for a renewal; a client reading one field would say nothing")
+		}
+	})
+}
+
+// The holder rides only a verified license. An unlicensed installation has no
+// licensee, and a refused one proved nothing about who holds it.
+func TestLicenseEntitlementCarriesTheHolderOnlyWhenValid(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		posture licensecheck.Posture
+		want    bool
+	}{
+		{
+			name: "valid",
+			posture: licensecheck.Posture{
+				State:     licensecheck.StateValid,
+				Grants:    licensecheck.Grants{licensecheck.SeatsAttribute: float64(10)},
+				License:   licensecheck.License{ID: "0199", Subject: "acme-prod", Expiry: resolvedAt.AddDate(1, 0, 0)},
+				CheckedAt: resolvedAt,
+			},
+			want: true,
+		},
+		{name: "absent", posture: licensecheck.Posture{State: licensecheck.StateAbsent, CheckedAt: resolvedAt}},
+		{name: "rejected", posture: licensecheck.Posture{State: licensecheck.StateRejected, CheckedAt: resolvedAt}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := toContractLicenseEntitlement(tc.posture, 3)
+			if (got.License != nil) != tc.want {
+				t.Errorf("License present = %v, want %v", got.License != nil, tc.want)
+			}
+		})
+	}
+}

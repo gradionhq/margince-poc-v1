@@ -14147,6 +14147,24 @@ type LicenseEntitlement struct {
 	// CheckedAt When this posture was resolved, so a stale answer is recognizable as one.
 	CheckedAt time.Time `json:"checked_at"`
 
+	// License Who holds the license and how long it lasts, as the validation module proved it.
+	// Present only for a verified license.
+	//
+	// `org`, `contact_name` and `contact_email` are ABSENT for a license issued before those
+	// claims existed. Such a license verifies exactly like any other, so a client renders the
+	// rows it has rather than placeholders for the ones it does not.
+	//
+	// The two verdicts are the server's, so a client cannot arrive at a different answer
+	// than the one the installation acts on. `in_grace` says the license is past its expiry
+	// and still accepted — it works today and will stop. `renewal_due` says expiry is near
+	// enough to act on; the window is the same 90 days the module's grace period runs for,
+	// which is a deliberate symmetry rather than a shared constant (the module owns its
+	// grace and does not report it).
+	//
+	// The token itself is never here. It is a credential, and this response reaches a
+	// browser.
+	License *LicenseHolder `json:"license,omitempty"`
+
 	// OverLimit Whether `seats_used` exceeds `seats_granted`. False whenever nothing caps seats, so
 	// an unlicensed installation is never reported as over a limit it does not have.
 	OverLimit bool `json:"over_limit"`
@@ -14167,6 +14185,54 @@ type LicenseEntitlement struct {
 // LicenseEntitlementState Whether a license was verified, none was configured, or one was refused. A client
 // that cannot read a value it recognizes MUST NOT assume entitlement.
 type LicenseEntitlementState string
+
+// LicenseHolder Who holds the license and how long it lasts, as the validation module proved it.
+// Present only for a verified license.
+//
+// `org`, `contact_name` and `contact_email` are ABSENT for a license issued before those
+// claims existed. Such a license verifies exactly like any other, so a client renders the
+// rows it has rather than placeholders for the ones it does not.
+//
+// The two verdicts are the server's, so a client cannot arrive at a different answer
+// than the one the installation acts on. `in_grace` says the license is past its expiry
+// and still accepted — it works today and will stop. `renewal_due` says expiry is near
+// enough to act on; the window is the same 90 days the module's grace period runs for,
+// which is a deliberate symmetry rather than a shared constant (the module owns its
+// grace and does not report it).
+//
+// The token itself is never here. It is a credential, and this response reaches a
+// browser.
+type LicenseHolder struct {
+	// ContactEmail The licensee's contact address. Absent when the license carries no such claim. It
+	// comes from the token and is never stored, so it is outside the retention engine
+	// and the Art. 17 erasure cascade.
+	ContactEmail *string `json:"contact_email,omitempty"`
+
+	// ContactName The licensee's contact person. Absent when the license carries no such claim.
+	ContactName *string `json:"contact_name,omitempty"`
+
+	// Expiry When the license stops being current.
+	Expiry time.Time `json:"expiry"`
+
+	// Id The license id. What support asks for.
+	Id string `json:"id"`
+
+	// InGrace The license is past `expiry` and the grace period still accepts it. The
+	// installation keeps working and will stop, which is the one state worth
+	// interrupting an admin about.
+	InGrace bool `json:"in_grace"`
+
+	// Org The licensee's company name. Absent when the license carries no such claim.
+	Org *string `json:"org,omitempty"`
+
+	// RenewalDue Expiry is within the warning window, or already past it. True whenever `in_grace`
+	// is true, so a client that reads only this one still warns.
+	RenewalDue bool `json:"renewal_due"`
+
+	// Subject The operator-chosen handle the license was issued against, for example
+	// `acme-prod`. It tells two installations of one customer apart.
+	Subject string `json:"subject"`
+}
 
 // LinkedInAccount defines model for LinkedInAccount.
 type LinkedInAccount struct {

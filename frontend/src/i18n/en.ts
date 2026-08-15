@@ -3793,6 +3793,18 @@ export const en = {
   "license.over.title": "You are over your seat entitlement",
   "license.over.body":
     "{used} seats are in use and the license grants {granted}. Nothing is blocked and nobody loses access — remove a seat, or raise the entitlement, to come back inside it.",
+  "license.holder.title": "Licensed to",
+  "license.holder.org": "Organization",
+  "license.holder.contact": "Contact",
+  "license.holder.installation": "Installation",
+  "license.holder.validUntil": "Valid until",
+  "license.holder.id": "License id",
+  "license.grace.title": "This license expired",
+  "license.grace.body":
+    "The license expired on {expiry}. It still works, for a limited period. Renew it to keep the installation in service.",
+  "license.renewal.title": "This license needs a renewal",
+  "license.renewal.body":
+    "The license expires on {expiry}. Nothing changes before that date.",
   "license.counting":
     "Full seats that are not deactivated, agents included. Read-only seats are unlimited and never counted.",
   "settings.group.you": "You",

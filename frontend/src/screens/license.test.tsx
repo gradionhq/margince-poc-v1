@@ -30,6 +30,29 @@ type Entitlement = {
   over_limit: boolean;
   checked_at: string;
   seats_granted?: number;
+  license?: {
+    id: string;
+    subject: string;
+    expiry: string;
+    in_grace: boolean;
+    renewal_due: boolean;
+    org?: string;
+    contact_name?: string;
+    contact_email?: string;
+  };
+};
+
+// A licensee with every claim, a year from expiry. Tests that care about the
+// seat meter take it as-is; tests about the licensee vary one field.
+const HOLDER = {
+  id: "0199c4f2-1d6e-7a41-9f0b-7b2a2c1d5e30",
+  subject: "acme-prod",
+  org: "Acme GmbH",
+  contact_name: "Ada Lovelace",
+  contact_email: "ada@acme.example",
+  expiry: "2027-08-14T09:00:00Z",
+  in_grace: false,
+  renewal_due: false,
 };
 
 function backendFor(entitlement: Entitlement) {
@@ -157,5 +180,118 @@ describe("LicenseCard", () => {
     const meter = screen.getByRole("meter");
     expect(meter.getAttribute("aria-valuenow")).toBe("11");
     expect(meter.getAttribute("aria-valuemax")).toBe("10");
+  });
+});
+
+describe("the licensee", () => {
+  it("names the holder, the installation and the support reference", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "valid",
+        seats_used: 9,
+        seats_granted: 10,
+        over_limit: false,
+        checked_at: checkedAt,
+        license: HOLDER,
+      }),
+    );
+    render(<LicenseCard />);
+
+    expect(await waitFor(() => screen.getByText("Acme GmbH"))).toBeTruthy();
+    expect(screen.getByText(/Ada Lovelace/)).toBeTruthy();
+    expect(screen.getByText(/ada@acme.example/)).toBeTruthy();
+    expect(screen.getByText("acme-prod")).toBeTruthy();
+    expect(screen.getByText(HOLDER.id)).toBeTruthy();
+  });
+
+  // A license issued before those claims existed verifies like any other. Its
+  // rows are absent, not empty: an empty row says something is missing from
+  // THIS license rather than from the vocabulary it was issued under.
+  it("renders no row for a claim the license does not carry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "valid",
+        seats_used: 9,
+        seats_granted: 10,
+        over_limit: false,
+        checked_at: checkedAt,
+        license: {
+          id: HOLDER.id,
+          subject: HOLDER.subject,
+          expiry: HOLDER.expiry,
+          in_grace: false,
+          renewal_due: false,
+        },
+      }),
+    );
+    render(<LicenseCard />);
+
+    expect(await waitFor(() => screen.getByText("acme-prod"))).toBeTruthy();
+    expect(screen.queryByText("Organization")).toBeNull();
+    expect(screen.queryByText("Contact")).toBeNull();
+  });
+
+  it("asks for a renewal without interrupting when expiry is near", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "valid",
+        seats_used: 9,
+        seats_granted: 10,
+        over_limit: false,
+        checked_at: checkedAt,
+        license: { ...HOLDER, renewal_due: true },
+      }),
+    );
+    render(<LicenseCard />);
+
+    expect(
+      await waitFor(() => screen.getByText("This license needs a renewal")),
+    ).toBeTruthy();
+    // Amber, not an alert: nothing has gone wrong yet.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // Past expiry and still accepted. This one interrupts, because the
+  // installation will stop working.
+  it("interrupts when the license runs on its grace period", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "valid",
+        seats_used: 9,
+        seats_granted: 10,
+        over_limit: false,
+        checked_at: checkedAt,
+        license: { ...HOLDER, in_grace: true, renewal_due: true },
+      }),
+    );
+    render(<LicenseCard />);
+
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert.textContent).toMatch(/expired/i);
+    expect(alert.textContent).toMatch(/still works/i);
+    // One notice, not two: the grace state supersedes the renewal warning.
+    expect(screen.queryByText("This license needs a renewal")).toBeNull();
+  });
+
+  it("shows no licensee card for an unlicensed installation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "absent",
+        seats_used: 12,
+        over_limit: false,
+        checked_at: checkedAt,
+      }),
+    );
+    render(<LicenseCard />);
+
+    expect(
+      await waitFor(() => screen.getByText("No license configured")),
+    ).toBeTruthy();
+    expect(screen.queryByText("Licensed to")).toBeNull();
   });
 });

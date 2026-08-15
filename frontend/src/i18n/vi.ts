@@ -3767,6 +3767,18 @@ export const vi = {
   "license.over.title": "Bạn đã vượt quá số chỗ được cấp",
   "license.over.body":
     "Đang dùng {used} chỗ trong khi giấy phép cấp {granted}. Không có gì bị chặn và không ai mất quyền truy cập — hãy bỏ một chỗ hoặc nâng hạn mức để trở lại trong giới hạn.",
+  "license.holder.title": "Cấp phép cho",
+  "license.holder.org": "Tổ chức",
+  "license.holder.contact": "Liên hệ",
+  "license.holder.installation": "Bản cài đặt",
+  "license.holder.validUntil": "Có hiệu lực đến",
+  "license.holder.id": "Mã giấy phép",
+  "license.grace.title": "Giấy phép này đã hết hạn",
+  "license.grace.body":
+    "Giấy phép đã hết hạn vào {expiry}. Nó vẫn hoạt động trong một thời gian có hạn. Hãy gia hạn để bản cài đặt tiếp tục hoạt động.",
+  "license.renewal.title": "Giấy phép này cần gia hạn",
+  "license.renewal.body":
+    "Giấy phép hết hạn vào {expiry}. Không có gì thay đổi trước ngày đó.",
   "license.counting":
     "Chỗ đầy đủ chưa bị vô hiệu hoá, bao gồm cả agent. Chỗ chỉ đọc là không giới hạn và không bao giờ được tính.",
   "settings.group.you": "Cá nhân",

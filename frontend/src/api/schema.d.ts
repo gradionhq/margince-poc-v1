@@ -8095,6 +8095,60 @@ export interface components {
              * @description When this posture was resolved, so a stale answer is recognizable as one.
              */
             checked_at: string;
+            license?: components["schemas"]["LicenseHolder"];
+        };
+        /**
+         * @description Who holds the license and how long it lasts, as the validation module proved it.
+         *     Present only for a verified license.
+         *
+         *     `org`, `contact_name` and `contact_email` are ABSENT for a license issued before those
+         *     claims existed. Such a license verifies exactly like any other, so a client renders the
+         *     rows it has rather than placeholders for the ones it does not.
+         *
+         *     The two verdicts are the server's, so a client cannot arrive at a different answer
+         *     than the one the installation acts on. `in_grace` says the license is past its expiry
+         *     and still accepted — it works today and will stop. `renewal_due` says expiry is near
+         *     enough to act on; the window is the same 90 days the module's grace period runs for,
+         *     which is a deliberate symmetry rather than a shared constant (the module owns its
+         *     grace and does not report it).
+         *
+         *     The token itself is never here. It is a credential, and this response reaches a
+         *     browser.
+         */
+        LicenseHolder: {
+            /** @description The license id. What support asks for. */
+            id: string;
+            /**
+             * @description The operator-chosen handle the license was issued against, for example
+             *     `acme-prod`. It tells two installations of one customer apart.
+             */
+            subject: string;
+            /** @description The licensee's company name. Absent when the license carries no such claim. */
+            org?: string;
+            /** @description The licensee's contact person. Absent when the license carries no such claim. */
+            contact_name?: string;
+            /**
+             * @description The licensee's contact address. Absent when the license carries no such claim. It
+             *     comes from the token and is never stored, so it is outside the retention engine
+             *     and the Art. 17 erasure cascade.
+             */
+            contact_email?: string;
+            /**
+             * Format: date-time
+             * @description When the license stops being current.
+             */
+            expiry: string;
+            /**
+             * @description The license is past `expiry` and the grace period still accepts it. The
+             *     installation keeps working and will stop, which is the one state worth
+             *     interrupting an admin about.
+             */
+            in_grace: boolean;
+            /**
+             * @description Expiry is within the warning window, or already past it. True whenever `in_grace`
+             *     is true, so a client that reads only this one still warns.
+             */
+            renewal_due: boolean;
         };
         /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,

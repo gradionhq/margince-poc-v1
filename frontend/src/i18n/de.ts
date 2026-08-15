@@ -3789,6 +3789,18 @@ export const de = {
   "license.over.title": "Sie überschreiten Ihre Sitzplatzgrenze",
   "license.over.body":
     "{used} Sitzplätze sind belegt, die Lizenz gewährt {granted}. Es wird nichts blockiert und niemand verliert den Zugang — geben Sie einen Sitzplatz frei oder erhöhen Sie die Grenze.",
+  "license.holder.title": "Lizenziert für",
+  "license.holder.org": "Organisation",
+  "license.holder.contact": "Kontakt",
+  "license.holder.installation": "Installation",
+  "license.holder.validUntil": "Gültig bis",
+  "license.holder.id": "Lizenz-ID",
+  "license.grace.title": "Diese Lizenz ist abgelaufen",
+  "license.grace.body":
+    "Die Lizenz ist am {expiry} abgelaufen. Sie funktioniert noch, für einen begrenzten Zeitraum. Erneuern Sie die Lizenz, damit die Installation in Betrieb bleibt.",
+  "license.renewal.title": "Diese Lizenz braucht eine Erneuerung",
+  "license.renewal.body":
+    "Die Lizenz läuft am {expiry} ab. Vor diesem Datum ändert sich nichts.",
   "license.counting":
     "Volle Sitzplätze, die nicht deaktiviert sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt.",
   "settings.group.you": "Persönlich",

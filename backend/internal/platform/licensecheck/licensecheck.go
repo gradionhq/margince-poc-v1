@@ -115,6 +115,13 @@ type Posture struct {
 	// CheckedAt is when this answer was resolved, so a stale posture is
 	// recognizable as one.
 	CheckedAt time.Time
+	// License is what the module proved about the license itself: which one it
+	// is, who holds it, and how long it lasts. Zero unless valid.
+	//
+	// Carried whole, like Grants, and for the same reason: the module reports
+	// what it verified, and a projection here would have to change every time
+	// upstream proves one more thing.
+	License License
 }
 
 // Seats reports the full-seat count the license grants. ok is false when there
@@ -171,7 +178,7 @@ func Resolve(ctx context.Context, token string, now time.Time) (Posture, error) 
 		// granted.
 		return Posture{State: StateRejected, Reason: "the module reported no grant at all", CheckedAt: now}, nil
 	default:
-		return Posture{State: StateValid, Grants: result.Grants, CheckedAt: now}, nil
+		return Posture{State: StateValid, Grants: result.Grants, License: result.License, CheckedAt: now}, nil
 	}
 }
 

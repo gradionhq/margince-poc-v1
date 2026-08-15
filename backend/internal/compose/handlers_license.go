@@ -14,6 +14,7 @@ package compose
 
 import (
 	"net/http"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -56,6 +57,15 @@ func (h licenseHandlers) GetLicenseEntitlement(w http.ResponseWriter, r *http.Re
 	httperr.WriteJSON(w, http.StatusOK, toContractLicenseEntitlement(h.posture(), used))
 }
 
+// renewalWindow is how long before expiry the surface asks for a renewal.
+//
+// It is the same 90 days the module's grace period runs for, on purpose: an
+// installation is warned for as long before expiry as it keeps working after it.
+// The two are NOT one constant — the module owns its grace and does not report
+// it — so if upstream ever changes that window, this stops matching silently.
+// Asking for a `grace_until` is tracked on issue #1190.
+const renewalWindow = 90 * 24 * time.Hour
+
 // toContractLicenseEntitlement renders one posture and one count onto the wire.
 //
 // The reason a rejection carries is deliberately NOT here. It is the module's
@@ -68,6 +78,10 @@ func toContractLicenseEntitlement(posture licensecheck.Posture, used int) crmcon
 		SeatsUsed: used,
 		CheckedAt: posture.CheckedAt,
 	}
+	if posture.State == licensecheck.StateValid {
+		holder := toContractLicenseHolder(posture.License, posture.CheckedAt)
+		out.License = &holder
+	}
 	granted, capped := posture.Seats()
 	if !capped {
 		// Absent, never zero. A client rendering a missing cap as 0 would tell an
@@ -78,4 +92,34 @@ func toContractLicenseEntitlement(posture licensecheck.Posture, used int) crmcon
 	out.SeatsGranted = &granted
 	out.OverLimit = used > granted
 	return out
+}
+
+// toContractLicenseHolder renders who holds the license and how long it lasts.
+//
+// Every optional claim is rendered only when the token carries it. A license
+// issued before those claims existed verifies exactly like any other, and a
+// client should show the rows it has rather than placeholders for the rest.
+//
+// The token never appears here. It is a credential and this response reaches a
+// browser.
+func toContractLicenseHolder(license licensecheck.License, now time.Time) crmcontracts.LicenseHolder {
+	holder := crmcontracts.LicenseHolder{
+		Id:      license.ID,
+		Subject: license.Subject,
+		Expiry:  license.Expiry,
+		InGrace: license.InGrace,
+		// True whenever the license is already on its grace period, so a client
+		// that reads only this one still warns.
+		RenewalDue: license.InGrace || !license.Expiry.After(now.Add(renewalWindow)),
+	}
+	if license.Org != "" {
+		holder.Org = &license.Org
+	}
+	if license.ContactName != "" {
+		holder.ContactName = &license.ContactName
+	}
+	if license.ContactEmail != "" {
+		holder.ContactEmail = &license.ContactEmail
+	}
+	return holder
 }

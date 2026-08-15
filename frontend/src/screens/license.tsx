@@ -8,6 +8,7 @@ import { Meter } from "../design-system/readings";
 import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import { LicenseHolderCard } from "./licenseholder";
 
 // The entitlement surface: what the license grants, and how many seats are using
 // it. Read-only, because there is nothing here to write — the token is resolved
@@ -51,7 +52,17 @@ export function LicenseCard() {
   const query = useLicenseEntitlement();
   return (
     <QueryGate query={query}>
-      {(entitlement) => <LicenseReading entitlement={entitlement} />}
+      {(entitlement) => (
+        <>
+          {/* Only a verified license has a holder. An unlicensed installation
+              has nobody to name, and a refused one proved nothing about who
+              holds it — so the card is absent rather than empty. */}
+          {entitlement.license && (
+            <LicenseHolderCard holder={entitlement.license} />
+          )}
+          <LicenseReading entitlement={entitlement} />
+        </>
+      )}
     </QueryGate>
   );
 }
