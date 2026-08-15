@@ -80,8 +80,7 @@ export function ArchiveAction<Archived extends { id: string }>({
       <Button
         small
         variant="danger"
-        disabled={Boolean(disabledReason)}
-        title={disabledReason}
+        reason={disabledReason}
         onClick={() => setConfirming(true)}
         data-testid="archive-record"
       >

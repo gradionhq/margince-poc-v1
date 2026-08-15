@@ -246,9 +246,11 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await waitFor(() =>
       expect((button as HTMLButtonElement).disabled).toBe(true),
     );
-    // The reason rides the control, not a sentence beside it: a disabled
-    // button whose reason lives elsewhere is a dead button (ADR-0108 §6).
-    expect(button.getAttribute("title")).toBe(
+    // The reason is wired to the control with aria-describedby, not stuffed
+    // into a title a screen reader never announces on a disabled button.
+    const describedBy = button.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)?.textContent).toBe(
       "needs an email and an open status",
     );
   });
@@ -919,7 +921,11 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     for (const testId of ["edit-record", "archive-record"]) {
       const control = screen.getByTestId(testId) as HTMLButtonElement;
       expect(control.disabled).toBe(true);
-      expect(control.getAttribute("title")).toBe(reason);
+      const describedBy = control.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy as string)?.textContent).toBe(
+        reason,
+      );
     }
     // Promote is gone rather than disabled: a disqualified lead is not a
     // promotable one, and the header's primary action is for live leads.
@@ -972,6 +978,27 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     expect(
       screen.getByText("45.60 adds up, rounds to 46, scored 46"),
     ).toBeTruthy();
+  });
+
+  it("never prints an absent source into the sentence about it", async () => {
+    // The suite let this ship: a lead with no source interpolated the missing
+    // value and rendered "Came in as undefined" at a rep.
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({ ...lead, score: 0, source: null, title: null });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "No source on record — nothing says where this lead came from.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText(/undefined/)).toBeNull();
   });
 
   it("never claims nothing counts when the score is not zero", async () => {

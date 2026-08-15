@@ -86,8 +86,7 @@ export function ShareAction({
   const t = useT();
   return (
     <Button
-      disabled={Boolean(disabledReason)}
-      title={disabledReason}
+      reason={disabledReason}
       small
       data-testid="share-record"
       onClick={() =>

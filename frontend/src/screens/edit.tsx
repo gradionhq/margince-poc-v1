@@ -263,8 +263,7 @@ export function EditAction<Updated extends { id: string }>({
     <>
       <Button
         small
-        disabled={Boolean(disabledReason)}
-        title={disabledReason}
+        reason={disabledReason}
         onClick={() => setEditing(true)}
         data-testid="edit-record"
       >

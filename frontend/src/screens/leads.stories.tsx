@@ -58,8 +58,6 @@ export const LeadOverview: Story = {
           roles: ["rep"],
           teams: [],
         }),
-      "GET /records/lead/l-1/context": () =>
-        jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] }),
     });
     return (
       <StoryProviders>

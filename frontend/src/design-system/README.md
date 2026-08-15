@@ -120,12 +120,16 @@ Three consequences worth stating, because each was a real defect:
   installation, while "you may not reset this installation" is noise on every
   page that renders it. A surface that reports anything at all is not this.
 
-Two things carry this properly today and are worth copying: `Switch`'s `reason`
-prop, which renders the explanation **and** points the control at it with
-`aria-describedby` — the only accessibility-wired denial in the tree — and
-`FieldGuard`, for a withheld VALUE rather than a withheld surface. Everything
-else hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as
-the card body, which is the shape to match until a primitive earns its place.
+Three things carry this properly. `Switch`'s `reason` prop renders the
+explanation **and** points the control at it with `aria-describedby`.
+`Button`'s `reason` does the same for an ACTION — passing it disables the
+button, renders the sentence beside it and wires `aria-describedby` — because
+a `title` on a disabled button is announced by no screen reader and a disabled
+button cannot be focused, so a reason living only in `title` reaches exactly
+nobody who needed it. And `FieldGuard` covers a withheld VALUE rather than a
+withheld surface. Everything else hand-rolls
+`<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as the card body,
+which is the shape to match until a primitive earns its place.
 
 `Switch` versus `Checkbox` follows from the same honesty: a `Checkbox` states an
 intent that something later submits, a `Switch` **is** the action. A control that
