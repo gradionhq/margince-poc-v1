@@ -10,6 +10,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryStates, throwProblem } from "./common";
 import { RECORD_ZONE, SectionCard } from "./company360";
+import { ContractForm } from "./contractform";
 
 // The account's agreements: what it signed, what each is worth, and when the
 // next one has to be decided.
@@ -75,6 +76,11 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
   const { locale } = useLocale();
   const mayRead = useCan("contract", "read");
   const [activeOnly, setActiveOnly] = useState(false);
+  // The create verb belongs to the section even when it is EMPTY — that is the
+  // state it most belongs to, and an account with no agreements is exactly the
+  // one somebody opened this card to fix.
+  const mayCreate = useCan("contract", "create");
+  const [creating, setCreating] = useState(false);
 
   const query = useQuery({
     queryKey: ["orgContracts", orgId, activeOnly],
@@ -104,7 +110,19 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
         contracts.length,
       )}
       emptyLabel={t("contracts.empty")}
+      actions={
+        mayCreate ? (
+          <Button small onClick={() => setCreating(true)}>
+            {t("contracts.add")}
+          </Button>
+        ) : undefined
+      }
     >
+      <ContractForm
+        orgId={orgId}
+        open={creating}
+        onClose={() => setCreating(false)}
+      />
       <div className="docs-filters">
         <Button
           small

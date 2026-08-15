@@ -820,6 +820,29 @@ export const de = {
   "contracts.renewsOn": "Verl\u00e4ngert sich am {when}",
   "contracts.endedPendingStatus":
     "Laufzeit beendet \u2014 Status\u00e4nderung offen",
+  "contracts.form.title": "Vertrag erfassen",
+  "contracts.form.name": "Titel",
+  "contracts.form.number": "Vertragsnummer",
+  "contracts.form.value": "Wert",
+  "contracts.form.basis": "Dieser Wert ist",
+  "contracts.basis.total": "der Gesamtwert der Laufzeit",
+  "contracts.basis.annual": "zw\u00f6lf Monate eines unbefristeten Vertrags",
+  "contracts.form.startsOn": "Beginnt",
+  "contracts.form.endsOn": "Endet",
+  "contracts.form.endsOnHint":
+    "Leer lassen f\u00fcr einen unbefristeten Vertrag.",
+  "contracts.form.renewalOn": "Verl\u00e4ngert sich",
+  "contracts.form.noticeDays": "K\u00fcndigungsfrist (Tage)",
+  "contracts.form.noticeDaysHint":
+    "Wie viel Vorlauf eine K\u00fcndigung braucht. Die Verl\u00e4ngerungswarnung kommt vor dieser Frist, nicht erst vor dem Verl\u00e4ngerungsdatum.",
+  "contracts.form.signedOn": "Unterschrieben",
+  "contracts.form.signedOnHint":
+    "Nur wenn bekannt ist, dass unterschrieben wurde \u2014 nie aus dem Abschlussdatum eines Deals \u00fcbernommen.",
+  "contracts.form.save": "Vertrag erfassen",
+  "contracts.form.errNoName": "Ein Vertrag braucht einen Titel.",
+  "contracts.form.errTermOrder":
+    "Eine Laufzeit kann nicht vor ihrem Beginn enden.",
+  "contracts.add": "Vertrag erfassen",
   "contracts.perYear": "{amount} / Jahr",
   "contracts.state.title": "Unter Vertrag · {count} aktiv",
   "contracts.state.none": "Kein Vertrag hinterlegt",

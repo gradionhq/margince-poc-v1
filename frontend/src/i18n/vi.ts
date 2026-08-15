@@ -813,6 +813,33 @@ export const vi = {
   "contracts.renewsOn": "Gia h\u1ea1n ng\u00e0y {when}",
   "contracts.endedPendingStatus":
     "\u0110\u00e3 h\u1ebft h\u1ea1n \u2014 ch\u1edd \u0111\u1ed5i tr\u1ea1ng th\u00e1i",
+  "contracts.form.title": "Ghi nh\u1eadn h\u1ee3p \u0111\u1ed3ng",
+  "contracts.form.name": "Ti\u00eau \u0111\u1ec1",
+  "contracts.form.number": "S\u1ed1 h\u1ee3p \u0111\u1ed3ng",
+  "contracts.form.value": "Gi\u00e1 tr\u1ecb",
+  "contracts.form.basis": "Gi\u00e1 tr\u1ecb n\u00e0y l\u00e0",
+  "contracts.basis.total":
+    "t\u1ed5ng gi\u00e1 tr\u1ecb c\u1ea3 k\u1ef3 h\u1ea1n",
+  "contracts.basis.annual":
+    "m\u01b0\u1eddi hai th\u00e1ng c\u1ee7a h\u1ee3p \u0111\u1ed3ng kh\u00f4ng k\u1ef3 h\u1ea1n",
+  "contracts.form.startsOn": "B\u1eaft \u0111\u1ea7u",
+  "contracts.form.endsOn": "K\u1ebft th\u00fac",
+  "contracts.form.endsOnHint":
+    "\u0110\u1ec3 tr\u1ed1ng n\u1ebfu h\u1ee3p \u0111\u1ed3ng kh\u00f4ng c\u00f3 k\u1ef3 h\u1ea1n.",
+  "contracts.form.renewalOn": "Gia h\u1ea1n",
+  "contracts.form.noticeDays":
+    "Th\u1eddi h\u1ea1n b\u00e1o tr\u01b0\u1edbc (ng\u00e0y)",
+  "contracts.form.noticeDaysHint":
+    "C\u1ea7n b\u00e1o tr\u01b0\u1edbc bao l\u00e2u \u0111\u1ec3 h\u1ee7y. C\u1ea3nh b\u00e1o gia h\u1ea1n xu\u1ea5t hi\u1ec7n tr\u01b0\u1edbc h\u1ea1n n\u00e0y, kh\u00f4ng ph\u1ea3i tr\u01b0\u1edbc ng\u00e0y gia h\u1ea1n.",
+  "contracts.form.signedOn": "\u0110\u00e3 k\u00fd",
+  "contracts.form.signedOnHint":
+    "Ch\u1ec9 khi bi\u1ebft ch\u1eafc \u0111\u00e3 k\u00fd \u2014 kh\u00f4ng l\u1ea5y t\u1eeb ng\u00e0y ch\u1ed1t c\u1ee7a th\u01b0\u01a1ng v\u1ee5.",
+  "contracts.form.save": "Ghi nh\u1eadn h\u1ee3p \u0111\u1ed3ng",
+  "contracts.form.errNoName":
+    "H\u1ee3p \u0111\u1ed3ng c\u1ea7n c\u00f3 ti\u00eau \u0111\u1ec1.",
+  "contracts.form.errTermOrder":
+    "K\u1ef3 h\u1ea1n kh\u00f4ng th\u1ec3 k\u1ebft th\u00fac tr\u01b0\u1edbc khi b\u1eaft \u0111\u1ea7u.",
+  "contracts.add": "Ghi nh\u1eadn h\u1ee3p \u0111\u1ed3ng",
   "contracts.perYear": "{amount} / n\u0103m",
   "contracts.state.title": "Đang có hợp đồng · {count} hiệu lực",
   "contracts.state.none": "Chưa có hợp đồng nào",
