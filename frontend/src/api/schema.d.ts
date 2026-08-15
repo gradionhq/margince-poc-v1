@@ -29738,6 +29738,11 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": {
+                    /**
+                     * Format: uuid
+                     * @description The agreement this document is about (CONTRACT-DDL-5). Optional: most client paper is about no particular agreement.
+                     */
+                    contract_id?: string;
                     /** @enum {string} */
                     entity_type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
                     /** Format: uuid */

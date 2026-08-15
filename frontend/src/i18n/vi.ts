@@ -813,6 +813,7 @@ export const vi = {
   "contracts.renewsOn": "Gia h\u1ea1n ng\u00e0y {when}",
   "contracts.endedPendingStatus":
     "\u0110\u00e3 h\u1ebft h\u1ea1n \u2014 ch\u1edd \u0111\u1ed5i tr\u1ea1ng th\u00e1i",
+  "contracts.perYear": "{amount} / n\u0103m",
   "contracts.state.title": "Đang có hợp đồng · {count} hiệu lực",
   "contracts.state.none": "Chưa có hợp đồng nào",
   "contracts.state.renewsOn": "Gia hạn ngày {when}",

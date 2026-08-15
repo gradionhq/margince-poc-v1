@@ -2580,12 +2580,20 @@ function CompanyDealsAndTasksTabs({
   return (
     <>
       {tab === "deals" && (
-        <CompanyDealsTab
-          org={org}
-          view={view}
-          failed={failed}
-          readOnly={readOnly}
-        />
+        <>
+          {/* Beside the deals card, not inside it. The card's `extra` slot only
+              renders when the deals section itself is readable, so a reader
+              holding the contract grant and not the deal grant would never see
+              what the account is under contract for — a section withheld by
+              somebody else's permission. */}
+          <CompanyContractState view={view} />
+          <CompanyDealsTab
+            org={org}
+            view={view}
+            failed={failed}
+            readOnly={readOnly}
+          />
+        </>
       )}
       {tab === "tasks" && (
         <CompanyTasksTab
@@ -2647,12 +2655,7 @@ function CompanyDealsTab({
           <NewDealAction orgId={org.id} orgName={org.display_name} />
         )
       }
-      extra={
-        <>
-          <CompanyContractState view={view} />
-          <CompanyLastOffer view={view} />
-        </>
-      }
+      extra={<CompanyLastOffer view={view} />}
     />
   );
 }

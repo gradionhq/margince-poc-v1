@@ -62,7 +62,7 @@ func listContractsTx(ctx context.Context, tx pgx.Tx, in ListContractsInput, asOf
 
 	where := []string{storekit.SQLf("organization_id = $%d", orgPos), "archived_at IS NULL"}
 
-	scope, err := visibleClause(ctx, "", arg)
+	scope, err := VisibleClause(ctx, "", arg)
 	if err != nil {
 		return crmcontracts.ContractListResponse{}, err
 	}

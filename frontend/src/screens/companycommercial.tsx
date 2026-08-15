@@ -205,7 +205,9 @@ export function CompanyContractState({
         {t("contracts.state.title", { count: contracts.active_count })}
       </span>
       <span className="co-row-meta">
-        {contractValues(contracts, locale).map((value) => (
+        {contractValues(contracts, locale, (amount) =>
+          t("contracts.perYear", { amount }),
+        ).map((value) => (
           <span key={value}>{value}</span>
         ))}
         {contracts.priced_count != null &&
@@ -254,6 +256,7 @@ export function CompanyContractState({
 export function contractValues(
   contracts: ContractStrip,
   locale: Locale,
+  perYear: (amount: string) => string,
 ): readonly string[] {
   const currency = contracts.base_currency;
   if (!currency) {
@@ -267,7 +270,9 @@ export function contractValues(
   }
   if (contracts.annualized_value_minor_base != null) {
     figures.push(
-      `${formatMoney(contracts.annualized_value_minor_base, currency, locale)} / a`,
+      perYear(
+        formatMoney(contracts.annualized_value_minor_base, currency, locale),
+      ),
     );
   }
   return figures;

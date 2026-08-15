@@ -10611,6 +10611,10 @@ paths:
               type: object
               required: [entity_type, entity_id, file]
               properties:
+                contract_id:
+                  type: string
+                  format: uuid
+                  description: 'The agreement this document is about (CONTRACT-DDL-5). Optional: most client paper is about no particular agreement.'
                 entity_type: { type: string, enum: [person, organization, deal, activity, lead, project] }
                 entity_id: { type: string, format: uuid }
                 file: { type: string, format: binary }

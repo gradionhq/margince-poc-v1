@@ -837,6 +837,7 @@ export const en = {
   "contracts.endsOn": "Ends {when}",
   "contracts.renewsOn": "Renews {when}",
   "contracts.endedPendingStatus": "Term ended \u2014 status change pending",
+  "contracts.perYear": "{amount} / year",
   "contracts.state.title": "Under contract · {count} active",
   "contracts.state.none": "No contract on record",
   "contracts.state.renewsOn": "Renews {when}",

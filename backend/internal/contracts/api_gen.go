@@ -20555,6 +20555,8 @@ type ListAttachmentsParamsEntityType string
 
 // UploadAttachmentMultipartBody defines parameters for UploadAttachment.
 type UploadAttachmentMultipartBody struct {
+	// ContractId The agreement this document is about (CONTRACT-DDL-5). Optional: most client paper is about no particular agreement.
+	ContractId *openapi_types.UUID                     `json:"contract_id,omitempty"`
 	EntityId   openapi_types.UUID                      `json:"entity_id"`
 	EntityType UploadAttachmentMultipartBodyEntityType `json:"entity_type"`
 	File       openapi_types.File                      `json:"file"`

@@ -134,7 +134,11 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
                 {contract.contract_number && (
                   <span className="t-caption">{contract.contract_number}</span>
                 )}
-                <span>{contractValue(contract, locale)}</span>
+                <span>
+                  {contractValue(contract, locale, (amount) =>
+                    t("contracts.perYear", { amount }),
+                  )}
+                </span>
                 {contract.status && (
                   <Badge tone={STATUS_TONE[contract.status]}>
                     {t(STATUS_LABELS[contract.status])}
@@ -201,10 +205,14 @@ function ContractTermState({ contract }: Readonly<{ contract: Contract }>) {
 // An annualized figure NEVER renders as a bare amount: a reader who cannot tell
 // a three-year total from a per-year figure has been handed a number they will
 // misuse, and the row is the last place that distinction can be made.
-export function contractValue(contract: Contract, locale: Locale): string {
+export function contractValue(
+  contract: Contract,
+  locale: Locale,
+  perYear: (amount: string) => string,
+): string {
   if (contract.value_minor == null || !contract.currency) {
     return "";
   }
   const amount = formatMoney(contract.value_minor, contract.currency, locale);
-  return contract.value_basis === "annualized_12m" ? `${amount} / a` : amount;
+  return contract.value_basis === "annualized_12m" ? perYear(amount) : amount;
 }

@@ -20,6 +20,7 @@ describe("contractValues", () => {
         annualized_value_minor_base: 12_000_000,
       },
       "en",
+      (amount) => `${amount} / year`,
     );
 
     expect(values).toHaveLength(2);
@@ -38,17 +39,22 @@ describe("contractValues", () => {
         annualized_value_minor_base: 12_000_000,
       },
       "en",
+      (amount) => `${amount} / year`,
     );
 
     expect(values).toHaveLength(1);
-    expect(values[0]).toMatch(/\/ a$/);
+    expect(values[0]).toMatch(/\/ year$/);
   });
 
   it("draws nothing when no agreement carries a convertible figure", () => {
     // Null, not zero: an account whose agreements have no priced value is not
     // an account under contract for nothing.
     expect(
-      contractValues({ active_count: 3, cancellation_pending: false }, "en"),
+      contractValues(
+        { active_count: 3, cancellation_pending: false },
+        "en",
+        (amount) => `${amount} / year`,
+      ),
     ).toHaveLength(0);
   });
 });
@@ -87,6 +93,7 @@ describe("contractValue", () => {
         currency: "EUR",
       }),
       "en",
+      (amount) => `${amount} / year`,
     );
     const total = contractValue(
       contractRow({
@@ -95,10 +102,11 @@ describe("contractValue", () => {
         currency: "EUR",
       }),
       "en",
+      (amount) => `${amount} / year`,
     );
 
-    expect(annual).toMatch(/\/ a$/);
-    expect(total).not.toMatch(/\/ a$/);
+    expect(annual).toMatch(/\/ year$/);
+    expect(total).not.toMatch(/\/ year$/);
   });
 
   it("draws nothing rather than a bare number when the currency is missing", () => {
@@ -108,6 +116,7 @@ describe("contractValue", () => {
       contractValue(
         contractRow({ value_basis: "total", value_minor: 5_000 }),
         "en",
+        (amount) => `${amount} / year`,
       ),
     ).toBe("");
   });

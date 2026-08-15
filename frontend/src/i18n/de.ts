@@ -820,6 +820,7 @@ export const de = {
   "contracts.renewsOn": "Verl\u00e4ngert sich am {when}",
   "contracts.endedPendingStatus":
     "Laufzeit beendet \u2014 Status\u00e4nderung offen",
+  "contracts.perYear": "{amount} / Jahr",
   "contracts.state.title": "Unter Vertrag · {count} aktiv",
   "contracts.state.none": "Kein Vertrag hinterlegt",
   "contracts.state.renewsOn": "Verlängert sich am {when}",
