@@ -4716,6 +4716,9 @@ export const de = {
   "person.drawer.close": "Schließen",
   "person.composer.title": "Follow-up entwerfen · {name}",
   "person.composer.to": "An",
+  "person.composer.transport": "Versandweg",
+  "person.composer.transportEmail": "E-Mail",
+  "person.composer.toConversation": "Setzt Ihre {transport}-Unterhaltung fort",
   "person.composer.subject": "Betreff",
   "person.composer.bcc": "Bcc",
   "person.composer.bccPlaceholder":

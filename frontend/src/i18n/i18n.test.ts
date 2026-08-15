@@ -43,6 +43,10 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // vocabulary ("email", "mobile"), so there is no literal here to translate
   // and a translation could only rename somebody else's pool.
   "provider.credits.pool",
+  // "Email" is the Vietnamese word for email. de has "E-Mail" and differs;
+  // vi does not, and inventing a difference would name the transport
+  // something no Vietnamese speaker calls it.
+  "person.composer.transportEmail",
   // The same proper noun as co.chip.linkedin, one surface over.
   "provider.profile.linkedin",
   "person.page.linkedin",

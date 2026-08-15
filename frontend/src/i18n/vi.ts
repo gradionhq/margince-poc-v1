@@ -4686,6 +4686,10 @@ export const vi = {
   "person.drawer.close": "Đóng",
   "person.composer.title": "Soạn thư tiếp theo · {name}",
   "person.composer.to": "Đến",
+  "person.composer.transport": "Cách gửi",
+  "person.composer.transportEmail": "Email",
+  "person.composer.toConversation":
+    "Tiếp tục cuộc trò chuyện {transport} của bạn",
   "person.composer.subject": "Chủ đề",
   "person.composer.bcc": "Bcc",
   "person.composer.bccPlaceholder":

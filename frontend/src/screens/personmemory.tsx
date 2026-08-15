@@ -6,6 +6,7 @@ import { Badge, SegmentedControl } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
+import { ChannelReplyAction } from "./compose";
 
 // Conversation memory (concept §5.10, ADR-0097 D3).
 //
@@ -13,6 +14,17 @@ import { useProviderLabel } from "./channelproviders";
 // about, not the transport events it was made of. The Activity tab remains the
 // complete raw ledger beside it: a summary never replaces the original, and a
 // withheld activity never leaks through one.
+//
+// It also carries the REPLY, and that is a deliberate exception to "summary,
+// not ledger". A captured channel message links to a person, and this card is
+// the only routed surface a person's channel conversations appear on — the
+// timelines that mount the full action cluster are the deal, company and
+// person-list ones, and the last of those is not routed in this build. Without
+// the reply here, a transport the installation can demonstrably send on has no
+// button anywhere: the whole path exists, is governed, and is unreachable by
+// the human it was built for.
+//
+// Only the reply, though. Relink is a raw-ledger act and stays on the ledger.
 
 type Person360 = components["schemas"]["Person360"];
 type Activity = components["schemas"]["Activity"];
@@ -76,6 +88,24 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
             <span />
           )}
           <span className="pe-memory-time">{row.time}</span>
+          {/* Reply, on the same terms the 360 timelines offer it: available on
+              any row, and WITHHELD on a channel row whose person cannot be
+              reached on the transport that carried it. Mail behaves exactly as
+              it does there — the composer picks send-message over send-email
+              from the row's kind, and nothing else about the interaction
+              differs. A row with no anchor renders nothing. */}
+          <span className="pe-memory-action">
+            {row.activityId && row.kind && (
+              <ChannelReplyAction
+                activityId={row.activityId}
+                kind={row.kind}
+                channelProvider={row.channelProvider ?? undefined}
+                entityType="person"
+                entityId={view.person.id}
+                personId={view.person.id}
+              />
+            )}
+          </span>
         </PanelRow>
       ))}
     </Panel>
@@ -86,6 +116,13 @@ type Row = {
   key: string;
   date: string;
   time: string;
+  // What a reply anchors on, and the transport it would leave by. Null when the
+  // row is not a channel message, or when the entry names no activity — a
+  // thread projection is not obliged to carry one, and a reply anchored on
+  // nothing is a button that can only fail.
+  activityId: string | null;
+  kind: Activity["kind"] | null;
+  channelProvider: string | null;
   channel: string;
   channelLabel: string;
   title: string;
@@ -127,6 +164,17 @@ function fromEntry(
     key: entry.key,
     date: dayMonth(entry.occurred_at),
     time: clock(entry.occurred_at),
+    // first_activity_id is what "expand to original" opens, and it is the right
+    // anchor for a reply too: the send resolves the conversation from the
+    // anchor's own links and thread key, so the first message of a thread names
+    // the same conversation as its last.
+    activityId: entry.first_activity_id ?? null,
+    // The row's own kind, whatever it is. A reply is offered on a mail row
+    // exactly as it is on a channel one — the same rule the 360 timelines
+    // apply — because a composer gated to channel rows would leave a workspace
+    // whose only rows are mail unable to answer anything from here.
+    kind: entry.channel,
+    channelProvider: entry.channel_provider ?? null,
     channel: channelKeyOf(entry.channel, entry.channel_provider),
     channelLabel: labelFor(
       channelKeyOf(entry.channel, entry.channel_provider),
@@ -158,6 +206,9 @@ function foldActivities(
         key: row.id,
         date: dayMonth(row.occurred_at),
         time: clock(row.occurred_at),
+        activityId: row.id,
+        kind: row.kind,
+        channelProvider: row.channel_provider ?? null,
         channel: channelKeyOf(row.kind, row.channel_provider),
         channelLabel: labelFor(
           channelKeyOf(row.kind, row.channel_provider),
