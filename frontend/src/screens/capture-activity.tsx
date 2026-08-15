@@ -46,6 +46,36 @@ const OUTCOMES = [
   "fault",
 ] as const;
 
+// The reasons this screen can render, spelled as a closed set.
+//
+// It exists to kill an `as never` on the catalog lookup. That cast silenced the
+// compile error for a missing key, and what shipped behind it was a row
+// rendering `captureActivity.reason.transactional_infra` at a member — the
+// catalog falls back to the key itself, so a missing entry is invisible until
+// somebody sees one. A reason outside this set now renders NOTHING, which is
+// the honest answer: the screen genuinely does not know what it means.
+const REASONS = [
+  "internal_only",
+  "deferral_capped",
+  "noise_prior",
+  "decided_prior",
+  "no_granting_human",
+  "invisible_incumbent",
+  "derivation_failed",
+  "no_counterparty",
+  "transactional_infra",
+  "transactional_prefix",
+] as const;
+
+type KnownReason = (typeof REASONS)[number];
+
+// `find` rather than `includes` + a cast: it narrows on its own, so this
+// carries no assertion at all — which is the point, since an assertion is what
+// let the missing key through in the first place.
+function knownReason(reason: string | null | undefined): KnownReason | null {
+  return REASONS.find((known) => known === reason) ?? null;
+}
+
 const SCOPES = ["mine", "workspace"] as const;
 type Scope = (typeof SCOPES)[number];
 
@@ -163,7 +193,7 @@ function CaptureFunnel({
       {OUTCOMES.map((outcome) => (
         <StatCard
           key={outcome}
-          label={t(`captureActivity.outcome.${outcome}` as never)}
+          label={t(`captureActivity.outcome.${outcome}`)}
           // Zero is a reading, not an absence: "no message was dropped as
           // internal today" is exactly what somebody comes here to confirm.
           value={String(funnel[outcome] ?? 0)}
@@ -177,7 +207,6 @@ function CaptureEntryRow({
   entry,
   payloads,
 }: Readonly<{ entry: TraceEntry; payloads: boolean }>) {
-  const t = useT();
   const { locale } = useLocale();
   // The reader's own zone: a trace is read to reconcile "I sent that at 9:04"
   // against what the pipeline did, and a UTC timestamp makes them do the
@@ -189,17 +218,35 @@ function CaptureEntryRow({
         {formatDateTime(entry.occurred_at, locale, zone)}
       </span>
       <span className="capture-activity__connector">{entry.connector}</span>
-      <span className="capture-activity__outcome">
-        {t(`captureActivity.outcome.${entry.outcome}` as never)}
-        {entry.reason ? (
-          <span className="capture-activity__reason">
-            {t(`captureActivity.reason.${entry.reason}` as never)}
-          </span>
-        ) : null}
-      </span>
+      <CaptureEntryOutcome entry={entry} />
       <CaptureEntryContent entry={entry} payloads={payloads} />
       <CaptureEntryResolution entry={entry} />
     </li>
+  );
+}
+
+// The outcome and the reason that qualifies it.
+//
+// A capped deferral is the one pair that would otherwise contradict itself: the
+// message is NOT waiting for a verdict, because the ceiling refused to ask for
+// one. So it says "Not queued", and the reason line explains why — rather than
+// leaving a heading and its own explanation arguing on screen.
+function CaptureEntryOutcome({ entry }: Readonly<{ entry: TraceEntry }>) {
+  const t = useT();
+  const reason = knownReason(entry.reason);
+  const outcome =
+    entry.outcome === "deferred" && reason === "deferral_capped"
+      ? "deferred_capped"
+      : entry.outcome;
+  return (
+    <span className="capture-activity__outcome">
+      {t(`captureActivity.outcome.${outcome}`)}
+      {reason ? (
+        <span className="capture-activity__reason">
+          {t(`captureActivity.reason.${reason}`)}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -248,7 +295,7 @@ function CaptureEntryResolution({ entry }: Readonly<{ entry: TraceEntry }>) {
   }
   return (
     <span className="capture-activity__resolution">
-      {t(`captureActivity.resolution.${entry.resolution.status}` as never)}
+      {t(`captureActivity.resolution.${entry.resolution.status}`)}
     </span>
   );
 }

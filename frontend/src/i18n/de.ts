@@ -3752,7 +3752,7 @@ export const de = {
   "captureActivity.reason.internal_only":
     "alle Beteiligten waren auf Ihren eigenen Domains",
   "captureActivity.reason.deferral_capped":
-    "nicht eingereiht — das Limit offener Fragen war erreicht, es kommt keine Beurteilung",
+    "das Limit offener Fragen war erreicht, es kommt keine Beurteilung",
   "captureActivity.reason.noise_prior":
     "eine frühere Beurteilung stufte diesen Absender als Rauschen ein, die Nachricht wird archiviert",
   "captureActivity.reason.decided_prior":
@@ -3765,6 +3765,11 @@ export const de = {
     "der Kontaktschritt schlug fehl; die Nachricht selbst ist unberührt",
   "captureActivity.reason.no_counterparty":
     "kein Absender, den dieses CRM erfassen konnte",
+  "captureActivity.reason.transactional_infra":
+    "der Absender ist Mail-Infrastruktur, kein Unternehmen, mit dem Sie arbeiten",
+  "captureActivity.reason.transactional_prefix":
+    "der Absender wirkt wie ein automatischer Versender, keine Person",
+  "captureActivity.outcome.deferred_capped": "Nicht eingereiht",
   "captureActivity.resolution.pending": "wartet noch",
   "captureActivity.resolution.unsure": "an die Prüfliste gesendet",
   "captureActivity.resolution.real": "als echter Kontakt beurteilt",

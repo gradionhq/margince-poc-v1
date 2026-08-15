@@ -3730,7 +3730,7 @@ export const vi = {
   "captureActivity.reason.internal_only":
     "mọi bên đều thuộc tên miền của chính bạn",
   "captureActivity.reason.deferral_capped":
-    "chưa xếp hàng — đã chạm giới hạn câu hỏi mở, sẽ không có phán quyết",
+    "đã chạm giới hạn câu hỏi mở, sẽ không có phán quyết",
   "captureActivity.reason.noise_prior":
     "một phán quyết trước đã xem người gửi này là nhiễu, tin nhắn sẽ được lưu trữ",
   "captureActivity.reason.decided_prior":
@@ -3743,6 +3743,11 @@ export const vi = {
     "bước tạo liên hệ thất bại; bản thân tin nhắn không bị ảnh hưởng",
   "captureActivity.reason.no_counterparty":
     "không có người gửi nào CRM có thể ghi nhận",
+  "captureActivity.reason.transactional_infra":
+    "người gửi là hạ tầng thư, không phải công ty bạn làm việc cùng",
+  "captureActivity.reason.transactional_prefix":
+    "người gửi trông như trình gửi tự động, không phải một người",
+  "captureActivity.outcome.deferred_capped": "Chưa xếp hàng",
   "captureActivity.resolution.pending": "vẫn đang chờ",
   "captureActivity.resolution.unsure": "đã gửi vào hàng chờ duyệt",
   "captureActivity.resolution.real": "được xem là liên hệ thật",

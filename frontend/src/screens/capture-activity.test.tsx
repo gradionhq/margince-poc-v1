@@ -5,7 +5,12 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render as rtlRender,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
@@ -140,6 +145,49 @@ describe("capture activity", () => {
   it("offers the shared-channel toggle to a seat that holds capture_trace", async () => {
     renderTab(windowBody(), { capture_trace: ["read"] });
     expect(await screen.findByText(/shared channels/i)).toBeInTheDocument();
+  });
+
+  it("renders a suppression reason as a sentence, never as a raw key", async () => {
+    // The catalog falls back to the KEY when one is missing, so a missing entry
+    // is invisible until somebody sees a row. This one shipped that way.
+    renderTab(
+      windowBody({
+        data: [
+          { ...ROW, outcome: "suppressed", reason: "transactional_infra" },
+        ],
+      }),
+    );
+    expect(await screen.findByText(/mail infrastructure/i)).toBeInTheDocument();
+    expect(screen.queryByText(/captureActivity\./)).not.toBeInTheDocument();
+  });
+
+  it("renders nothing for a reason it does not know", async () => {
+    // A row written by a newer binary. Rendering the key would show a member an
+    // identifier; the honest answer is that this screen does not know.
+    renderTab(
+      windowBody({
+        data: [{ ...ROW, outcome: "captured", reason: "teleported" }],
+      }),
+    );
+    await screen.findByText(/content not stored/i);
+    expect(screen.queryByText(/teleported/)).not.toBeInTheDocument();
+  });
+
+  it("does not say a capped deferral is waiting for a verdict", async () => {
+    // The outcome and its own explanation must not argue: nothing is queued and
+    // no verdict is coming, so "Waiting on a verdict" above "no verdict is
+    // coming" is the screen contradicting itself.
+    renderTab(
+      windowBody({
+        data: [{ ...ROW, outcome: "deferred", reason: "deferral_capped" }],
+      }),
+    );
+    // Scoped to the LIST: the funnel legitimately labels its bucket "Waiting on
+    // a verdict", because most deferrals genuinely are waiting. It is this row
+    // that is not.
+    const row = within(await screen.findByRole("list"));
+    expect(row.getByText(/not queued/i)).toBeInTheDocument();
+    expect(row.queryByText(/waiting on a verdict/i)).not.toBeInTheDocument();
   });
 
   it("reports an empty window as empty rather than as a failure", async () => {

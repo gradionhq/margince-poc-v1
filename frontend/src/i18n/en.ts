@@ -3757,7 +3757,7 @@ export const en = {
   "captureActivity.outcome.fault": "Derivation failed",
   "captureActivity.reason.internal_only": "every party was on your own domains",
   "captureActivity.reason.deferral_capped":
-    "not queued — the open-question limit was reached, so no verdict is coming",
+    "the open-question limit was reached, so no verdict is coming",
   "captureActivity.reason.noise_prior":
     "a previous verdict judged this sender noise, so it will be archived",
   "captureActivity.reason.decided_prior":
@@ -3769,6 +3769,11 @@ export const en = {
   "captureActivity.reason.derivation_failed":
     "the contact step failed; the message itself is unaffected",
   "captureActivity.reason.no_counterparty": "no sender this CRM could record",
+  "captureActivity.reason.transactional_infra":
+    "the sender is mail infrastructure, not a company you work with",
+  "captureActivity.reason.transactional_prefix":
+    "the sender looks like an automated mailer, not a person",
+  "captureActivity.outcome.deferred_capped": "Not queued",
   "captureActivity.resolution.pending": "still waiting",
   "captureActivity.resolution.unsure": "sent to the review queue",
   "captureActivity.resolution.real": "judged a real contact",
