@@ -6,11 +6,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -188,7 +188,7 @@ func generateUnitManifests(root string, units []extensionUnit, verbs []declaredV
 			return err
 		}
 		path := filepath.Join(u.Dir, unitManifestFile)
-		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, encoded) {
+		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, encoded) { // #nosec G304 -- a path this generator derives from the tree it is reading
 			continue
 		}
 		if err := writeFileAtomic(u.Dir, path, encoded); err != nil {
@@ -209,10 +209,17 @@ func writeFileAtomic(dir, path string, content []byte) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename consumes it
+	// Cleanup for every path that does not reach the rename. Once the rename
+	// consumes the temp file this fails with ENOENT, which is the success case
+	// and says nothing a caller could act on; a real failure here leaves one
+	// stray *.tmp beside the manifest and must not mask the write's own outcome.
+	//nolint:errcheck // best-effort cleanup of a temp file whose absence IS the success case
+	defer os.Remove(tmpName)
 	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		return err
+		// Joined, not dropped: the write error is what went wrong, but a Close
+		// that also fails on the way out is a second fact about the same file
+		// descriptor, and errors.Join folds away the nil when it succeeds.
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -280,13 +287,13 @@ func verifyUnitManifests(root string, units []extensionUnit, verbs []declaredVer
 func publishedVocabulary(root string) (map[string]string, error) {
 	dir := filepath.Join(root, "backend", "pkg", "extension")
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution)
+	pkgs, err := parseDirByPackage(fset, dir, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("parsing the published extension surface: %w", err)
 	}
 	vocab := map[string]string{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
+	for _, files := range pkgs {
+		for _, file := range files {
 			collectStringConsts(file, vocab)
 		}
 	}

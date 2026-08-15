@@ -38,6 +38,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// This scaffolder's whole output IS stdout: which files it wrote, and what
+	// the engineer does next.
 	fmt.Printf("scaffolded:\n  %s\n  %s\n\n", handlerPath, testPath)
 	fmt.Print(nextSteps(args[0]))
 }

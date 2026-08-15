@@ -189,7 +189,7 @@ func New() extension.Extension {
 }
 
 // TestSubpackageGoFilesAreRejected pins the gap rejectLiveInitializers
-// cannot reach on its own: parser.ParseDir in deriveUnitManifest only ever
+// cannot reach on its own: parseDirByPackage in deriveUnitManifest only ever
 // reads the unit's ROOT directory. A subpackage's init() — reached only
 // through a blank import from the root package — would never be parsed by
 // anything in this generator, so it must be refused at the scan stage

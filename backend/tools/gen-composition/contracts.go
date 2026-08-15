@@ -220,7 +220,7 @@ func rejectDuplicateKeys(node *yaml.Node, target string) error {
 func composedContracts(root string, units []extensionUnit) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(composedContractBases))
 	for _, base := range composedContractBases {
-		raw, err := os.ReadFile(filepath.Join(root, "backend", apiLayer, base))
+		raw, err := os.ReadFile(filepath.Join(root, "backend", apiLayer, base)) // #nosec G304 -- base comes from composedContractBases, a fixed list in this file
 		if err != nil {
 			return nil, err
 		}

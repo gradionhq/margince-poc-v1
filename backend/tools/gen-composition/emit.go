@@ -220,7 +220,7 @@ func canonicalGoSource(name string, src []byte) ([]byte, error) {
 // composition module, and each enabled extension module — sorted, paths
 // relative to build/composition/go.work.
 func composedWork(root string, units []extensionUnit) ([]byte, string, error) {
-	raw, err := os.ReadFile(filepath.Join(root, goWorkFile))
+	raw, err := os.ReadFile(filepath.Join(root, goWorkFile)) // #nosec G304 -- reads the repo's own go.work at a computed path
 	if err != nil {
 		return nil, "", err
 	}

@@ -63,5 +63,10 @@ type quoteOut struct {
 // the workspace and needs no capability. The parameter is taken and dropped
 // rather than wrapped away, because Handle must stay a bare identifier.
 func quote(_ context.Context, _ extension.Runtime, _ json.RawMessage) (json.RawMessage, error) {
+	// math/rand/v2 is the right generator here and crypto/rand would be the
+	// wrong one: which of a fixed list of sayings a demo tool returns is not a
+	// secret, guards nothing, and gates no decision. Nothing downstream treats
+	// this value as unpredictable.
+	//nolint:gosec // G404: picking a saying from a public list is not a security decision
 	return json.Marshal(quoteOut{Quote: quotes[rand.IntN(len(quotes))]})
 }

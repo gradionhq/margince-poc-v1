@@ -152,7 +152,10 @@ func generate(root string) error {
 	}
 	for rel, content := range files {
 		path := filepath.Join(outRoot, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		// 0o755 rather than gosec's 0o750: this is generated build output under
+		// build/composition/, and the container lanes that vendor this repo read it
+		// as a different UID than the one that generated it.
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { // #nosec G301 -- build output stays readable to another UID
 			return err
 		}
 		if err := os.WriteFile(path, content, 0o644); err != nil { // #nosec G306 -- generated build artifacts, not secrets
@@ -200,11 +203,18 @@ func currentManifest(root string, files map[string][]byte) (manifest, error) {
 // build pipelines, and a writable PATH entry must not choose which go
 // resolves the composed graph.
 func materializeWorkSum(root, outRoot string) error {
+	// The deprecation notice points at `go env GOROOT`, which cannot be used
+	// here: reading it means already having found a go binary on PATH, and
+	// refusing to trust PATH is the whole point of the paragraph above. The
+	// notice's own caveat — that the build-time root is meaningless if the
+	// binary is copied elsewhere — does not apply to a generator the build lanes
+	// invoke through `go run` from inside this repo.
+	//nolint:staticcheck // SA1019: the replacement resolves through PATH, which this deliberately refuses to trust
 	goRoot := runtime.GOROOT()
 	if goRoot == "" {
 		return fmt.Errorf("cannot locate the go toolchain (empty GOROOT)")
 	}
-	cmd := exec.Command(filepath.Join(goRoot, "bin", "go"), "list", "-m", "all")
+	cmd := exec.Command(filepath.Join(goRoot, "bin", "go"), "list", "-m", "all") // #nosec G204 -- GOROOT/bin/go with literal args; refusing PATH is the point
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOWORK="+filepath.Join(outRoot, goWorkFile))
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -292,7 +302,7 @@ func verifyManifestBytes(root string, current manifest) error {
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile))
+	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile)) // #nosec G304 -- a path this generator derives from the tree it is reading
 	if err != nil {
 		return err
 	}
@@ -402,7 +412,7 @@ const frontendLocalesVanillaStub = "frontend/src/composition/extlocales.gen.ts"
 // unchanged" would be an assertion, not a checked fact.
 func stubMatchesVanilla(root string) error {
 	for _, s := range vanillaStubs {
-		stub, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.rel)))
+		stub, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.rel))) // #nosec G304 -- a path this generator derives from the tree it is reading
 		if err != nil {
 			return err
 		}
@@ -414,7 +424,7 @@ func stubMatchesVanilla(root string) error {
 }
 
 func readManifest(root string) (manifest, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile))
+	raw, err := os.ReadFile(filepath.Join(root, "build", "composition", manifestFile)) // #nosec G304 -- a path this generator derives from the tree it is reading
 	if err != nil {
 		return manifest{}, fmt.Errorf("no composition manifest (%v)", err)
 	}

@@ -49,7 +49,9 @@ func TestResidue_skipsCraftToolDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(toolFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(toolFile, []byte("// CRAFT-FIX[x] is a token this file defines\n"), 0o644)
+	if err := os.WriteFile(toolFile, []byte("// CRAFT-FIX[x] is a token this file defines\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if m, err := Residue(root); err != nil || len(m) != 0 {
 		t.Fatalf("tool dir should be skipped: got %d markers (err %v)", len(m), err)

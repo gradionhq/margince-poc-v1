@@ -341,6 +341,10 @@ kinds:
 // A cadence mapping is the same hole, on a block whose valid keys are a
 // different pair; it takes its own fixture because only a DISPATCHER may carry
 // one.
+// The misspelled key is the INPUT, not a typo: an unknown key is what the
+// parser must reject, and the assertion names the same string back.
+//
+//nolint:misspell // "postive" is deliberate fixture data — correcting it would make the key valid and the test vacuous
 func TestParseRejectsAnUnknownKeyInACadenceMapping(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:

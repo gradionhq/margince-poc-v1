@@ -10,7 +10,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,7 +37,7 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 	// ParseComments, because one of the declarations this reader has to judge
 	// lives in a comment: //go:embed binds a pattern to the var beneath it, and
 	// the Migrations field is checked against exactly that binding.
-	pkgs, err := parser.ParseDir(fset, u.Dir, func(fi fs.FileInfo) bool { return scannableGoFile(fi.Name()) }, parser.SkipObjectResolution|parser.ParseComments)
+	pkgs, err := parseDirByPackage(fset, u.Dir, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
@@ -79,9 +78,9 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 	return encodeUnitManifest(m)
 }
 
-func findNew(pkgs map[string]*ast.Package) (fn *ast.FuncDecl, file *ast.File, count int) {
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+func findNew(pkgs map[string][]*ast.File) (fn *ast.FuncDecl, file *ast.File, count int) {
+	for _, files := range pkgs {
+		for _, f := range files {
 			for _, decl := range f.Decls {
 				if d, ok := decl.(*ast.FuncDecl); ok && d.Recv == nil && d.Name.Name == "New" {
 					fn, file, count = d, f, count+1
@@ -146,10 +145,10 @@ type unitReader struct {
 // The decl's own doc is consulted only for an UNGROUPED declaration. A comment
 // above `var (` binds to no spec in Go, so treating it as one would accept a
 // directive the compiler ignores — and mark every var in the group.
-func migrationEmbedVars(pkgs map[string]*ast.Package) map[string]bool {
+func migrationEmbedVars(pkgs map[string][]*ast.File) map[string]bool {
 	embeds := map[string]bool{}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
+	for _, files := range pkgs {
+		for _, f := range files {
 			for _, decl := range f.Decls {
 				d, ok := decl.(*ast.GenDecl)
 				if !ok || d.Tok != token.VAR {

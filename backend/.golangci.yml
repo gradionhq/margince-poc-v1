@@ -156,6 +156,42 @@ linters:
       # deliberately no path exclusion for it: exempting the whole file would
       # also exempt a second, unsanctioned registration added to it later,
       # which is the gap the single-owner rule above exists to close.
+      #
+      # The CLI modules are exempt from the fmt.Print* rule — and ONLY from
+      # that one. `make lint-modules` runs this same config over the modules
+      # `./...` from backend/ cannot reach; two of them are build-time command
+      # trees whose stdout IS their interface. gen-jobs telling the make lane
+      # "63 kinds, 9 queues generated", gen-workflow printing the two paths it
+      # scaffolded and what to do next, craft printing its findings table —
+      # none of that is an event, and routing it through slog would put
+      # human-facing text into a log stream nobody reads. The rule's own
+      # rationale above is a SERVER rationale: no level, no correlation_id, no
+      # fields, invisible to a reader joining a log line to an audit row.
+      #
+      # `text:` narrows this to the fmt.Print* pattern alone. forbidigo also
+      # carries the two river registration rules and http.Error, and those
+      # stay armed here: a path exclusion that switched the whole linter off
+      # would be a wider hole than the one being cut, and would go on being
+      # wider as patterns are added.
+      #
+      # The path prefixes are relative to THIS FILE's directory, which is how
+      # golangci reports issue paths — so backend/tools is `tools/` and
+      # cli/craft is `../cli/craft/`. Neither can match anything in the
+      # product module, whose files report as `internal/`, `cmd/` or `pkg/`.
+      # If a golangci upgrade ever changed that convention these rules would
+      # stop matching and the suppressed findings would come BACK, failing the
+      # gate — the safe direction for a mistake in a config like this.
+      #
+      # What this gives up, stated rather than discovered later: a stray
+      # fmt.Print left in a tool after a debugging session is now invisible to
+      # the gate, where the in-source waiver this replaced would have made
+      # someone write a reason for it. That is the cost of the trade.
+      - path: '^tools/'
+        linters: [forbidigo]
+        text: 'use slog, not fmt\.Print'
+      - path: '^\.\./cli/craft/'
+        linters: [forbidigo]
+        text: 'use slog, not fmt\.Print'
 
 formatters:
   enable:
