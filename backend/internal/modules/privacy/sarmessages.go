@@ -141,5 +141,30 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		                          || coalesce(s.payload->'cc', '[]'::jsonb)
 		                          || coalesce(s.payload->'bcc', '[]'::jsonb)) AS addr
 		           WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1))`},
+		// The messages still waiting for a human to decide them. A staged
+		// approval holds a whole composed message before any scheduled row or
+		// activity exists, so neither section above can see it — and a subject
+		// asking what this installation holds about them is owed a draft
+		// somebody is about to send them just as much as one already sent.
+		//
+		// Matched on the payload as TEXT rather than on a shape, because there
+		// is no shape to match: proposed_change is per-kind JSON this package
+		// does not parse. The looseness errs toward including a proposal that
+		// merely mentions the subject, which is the right direction for an
+		// export — Art. 15 owes them what is held, and a staged message naming
+		// them is held about them whatever kind wrote it.
+		//
+		// The proposal is returned whole, for the same reason the sent
+		// messages' recipient lists are: this assembly is admin-mediated, so
+		// the disclosure is a human handing a package to a subject rather than
+		// an endpoint answering one.
+		{&pkg.StagedMessages, `SELECT a.id, a.kind, a.status, a.summary, a.proposed_change,
+		      a.created_at, a.expires_at, a.decided_at
+		   FROM approval a
+		   WHERE (a.target_entity_type = 'person' AND a.target_entity_id = $1)
+		      OR EXISTS (
+		           SELECT 1 FROM person_email e
+		            WHERE e.person_id = $1
+		              AND a.proposed_change::text ILIKE '%' || e.email || '%')`},
 	}
 }

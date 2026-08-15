@@ -85,6 +85,13 @@ type SARPackage struct {
 	// subject's to know — one is a message they received, the other is one
 	// somebody wrote to them that the system is still holding.
 	ScheduledMessages []map[string]any `json:"scheduled_messages"`
+	// The messages written to the subject that nobody has DECIDED yet: an
+	// automation composed them and they are waiting in somebody's approval
+	// inbox (#707). Held apart from ScheduledMessages for the same reason that
+	// is held apart from SentMessages — the distinction is the subject's to
+	// know. One is a message with a moment already chosen; this is one a
+	// colleague has not yet agreed to send at all, and may never.
+	StagedMessages []map[string]any `json:"staged_messages"`
 }
 
 // AssembleSAR builds the package. It is a privileged read: the caller must be
