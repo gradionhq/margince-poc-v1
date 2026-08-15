@@ -306,8 +306,23 @@ func (r Record) validateKey() error {
 }
 
 func (r Record) validateAddresses() error {
+	// A record that names no ADDRESS at all may name no addresses: a chat
+	// message can have none anywhere in it, and the core's own shape already
+	// says so — connector.NormalizedRecord treats an empty set as "I cannot
+	// enumerate the parties", which the internal-message gate reads as NOT
+	// internal and keeps. Refusing it here would have turned away every record
+	// from a provider that issues opaque account ids and no mail, before it
+	// reached a core that would have accepted it.
+	//
+	// The condition is the counterparty's EMAIL rather than "is this a channel
+	// record", because that is the partition the core itself draws: a record
+	// naming its human by a channel account and one naming nobody at all are
+	// the same case here, and both are legal.
 	if len(r.Addresses) == 0 {
-		return errors.New("extension: the record names no addresses — the internal-message gate reads every party from this set, and over an empty one it answers \"not internal\" and keeps the record, so leaving it empty disables the gate rather than passing it")
+		if r.Counterparty.Email == "" {
+			return nil
+		}
+		return errors.New("extension: the record names an address for its counterparty and no addresses at all — the internal-message gate reads every party from that set, and over an empty one it answers \"not internal\" and keeps the record, so leaving it empty disables the gate rather than passing it")
 	}
 	if len(r.Addresses) > MaxAddresses {
 		return fmt.Errorf("extension: the record names %d addresses, over the cap of %d", len(r.Addresses), MaxAddresses)

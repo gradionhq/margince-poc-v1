@@ -18,6 +18,7 @@ package extension
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 )
@@ -150,6 +151,29 @@ func (c Channel) Validate() error {
 	}
 	return nil
 }
+
+// ErrSendOutcomeUnknown is the one refusal a Send MUST report rather than
+// describe: the request went out and no usable answer came back — a timeout, a
+// reset connection, a response that could not be read. The message may be on
+// its way and may not, and nothing the unit has can tell.
+//
+// IT IS NOT A DEGREE OF FAILURE, it is a different kind. Every other error a
+// Send returns is read by the core as a DEFINITE answer from the provider, and
+// therefore as proof that nothing was transmitted — the delivery goes back on
+// the retry ladder. A channel has no prior-send lookup and no provider-honoured
+// idempotency key, so no later attempt can ever discover that an earlier one
+// already arrived; report an unanswered POST as an ordinary transport failure
+// and the recipient gets the rep's message twice, with nothing in the system
+// able to detect it.
+//
+// So the rule is narrow and worth stating twice: a failure of the CALL that
+// transmits is this class. A failure to open a client, to unseal a credential,
+// or a refusal the provider actually sent, is not — those are answers.
+//
+// A delivery reported this way STOPS, with the uncertainty on the record for a
+// human to resolve. That is deliberately worse than a retry for the unit author
+// and better for the recipient.
+var ErrSendOutcomeUnknown = errors.New("extension: the provider never reported the outcome of this transmission")
 
 // SuppliesTransport reports whether this channel can carry an outbound message
 // at all. It is the declaration's own answer to the question the transport

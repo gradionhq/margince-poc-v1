@@ -13,6 +13,8 @@ package compose
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
@@ -51,6 +53,62 @@ func (c *capturedSend) send(_ context.Context, _ extension.Runtime, msg extensio
 // answersLive is a unit's Live, fixed.
 func answersLive(live bool, err error) extension.ConnectionLiveChecker {
 	return func(context.Context, extension.Runtime, extension.UserID) (bool, error) { return live, err }
+}
+
+// The boot preflight for a channel declaration, which holds the two rules
+// Channel.Validate cannot: the same provider declared twice inside one unit,
+// and the same provider claimed by two DIFFERENT units.
+//
+// Both are facts about the composed SET rather than about a declaration, and
+// both refuse at BOOT rather than at the send — the send is the moment the
+// mistake becomes a message somebody receives. The THIRD collision, against a
+// core connector, is deliberately not here: see unitChannelFacts.
+func TestThePreflightHoldsChannelDeclarationsToTheComposedSet(t *testing.T) {
+	sender := &capturedSend{}
+	mine := extension.Extension{
+		Name: "mine", Version: "1.0.0",
+		Channels: []extension.Channel{{Provider: "mine_chat", Send: sender.send, Live: answersLive(true, nil)}},
+	}
+
+	claimed := map[string]extension.Name{}
+	if err := preflightChannels(mine, claimed); err != nil {
+		t.Fatalf("a well-formed channel declaration was refused: %v", err)
+	}
+	if claimed["mine_chat"] != "mine" {
+		t.Errorf("the provider was not recorded as claimed by %q; the next unit's collision would go unseen", mine.Name)
+	}
+
+	// The published grammar, reached through the preflight — so a declaration
+	// that arrived outside the generator path is held to the same rule the
+	// manifest generator applies.
+	ungrammatical := mine
+	ungrammatical.Channels = []extension.Channel{{Provider: "mine-chat"}}
+	if err := preflightChannels(ungrammatical, map[string]extension.Name{}); err == nil {
+		t.Error("a provider the registry grammar refuses was accepted; it would fail on the column instead, under a constraint name")
+	}
+
+	twice := mine
+	twice.Channels = append(slices.Clone(mine.Channels), mine.Channels[0])
+	if err := preflightChannels(twice, map[string]extension.Name{}); err == nil {
+		t.Error("one provider declared twice within a unit was accepted")
+	}
+
+	// The collision that matters most of the three that live here: two units,
+	// one provider, and nothing downstream able to say whose transport a
+	// message travelled on.
+	theirs := extension.Extension{
+		Name: "theirs", Version: "1.0.0",
+		Channels: []extension.Channel{{Provider: "mine_chat"}},
+	}
+	err := preflightChannels(theirs, claimed)
+	if err == nil {
+		t.Fatal("two units claiming one provider were accepted; one provider names one transport")
+	}
+	// Both names, because an author reading this has no other way to find the
+	// other side of the clash.
+	if !strings.Contains(err.Error(), "mine") || !strings.Contains(err.Error(), "theirs") {
+		t.Errorf("the refusal %q names only one side of the collision", err)
+	}
 }
 
 // A unit's transport is resolved instead of the capture registry's — and the
@@ -179,6 +237,53 @@ func TestTheUnitSenderHandsOverTheDeliveryTheDispatcherBuilt(t *testing.T) {
 	// retry safety on the idempotency key instead.
 	if receipt.RFC822MessageID != "" {
 		t.Errorf("RFC822MessageID = %q; a channel message has none", receipt.RFC822MessageID)
+	}
+}
+
+// The one refusal class that crosses the seam, and the reason it is the only
+// one: the dispatcher records a channel transmission as in flight BEFORE the
+// call and then treats every error that is NOT ErrSendOutcomeUnknown as a
+// definite answer from the provider — proof that nothing went out — clearing
+// the marker and putting the delivery back on the ladder.
+//
+// A channel has no prior-send lookup, so a POST whose answer was lost and
+// reported as an ordinary failure delivers the rep's message twice, with
+// nothing able to detect it. Anything else must NOT be translated, or a refusal
+// a retry would have recovered from stops the delivery instead.
+func TestOnlyAnUnknownOutcomeStopsTheDeliveryRatherThanRetryingIt(t *testing.T) {
+	ordinary := errors.New("the provider refused this message")
+	for name, tc := range map[string]struct {
+		from error
+		stop bool
+	}{
+		"a lost answer stops the delivery":     {from: extension.ErrSendOutcomeUnknown, stop: true},
+		"an ordinary refusal rides the ladder": {from: ordinary},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sender := &capturedSend{err: tc.from}
+			declaresTransport(t, "mine", extension.Channel{
+				Provider: "mine_chat", Send: sender.send, Live: answersLive(true, nil),
+			})
+			r := commsResolver{}
+			resolved, _, err := r.ResolveChannel(context.Background(), ids.New[ids.UserKind](), "mine_chat")
+			if err != nil {
+				t.Fatalf("ResolveChannel: %v", err)
+			}
+
+			_, err = resolved.SendMessage(context.Background(), nil, connector.ChannelMessage{
+				Recipient: connector.ChannelIdentity{Provider: "mine_chat", ChannelUserID: "acct-7"},
+				Body:      "the reply", IdempotencyKey: "delivery-1",
+			})
+
+			if got := errors.Is(err, connector.ErrSendOutcomeUnknown); got != tc.stop {
+				t.Errorf("ErrSendOutcomeUnknown = %v, want %v — got %v", got, tc.stop, err)
+			}
+			// The unit's own cause survives translation either way, so the
+			// delivery's log still says what the unit actually answered.
+			if !errors.Is(err, tc.from) {
+				t.Errorf("the underlying cause %v was dropped from %v", tc.from, err)
+			}
+		})
 	}
 }
 

@@ -21,6 +21,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -59,32 +60,22 @@ import (
 // FK would refuse the delete anyway, and ErrConnectorNotConfigured already
 // parks a send against it rather than needing the row gone.
 func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, providers []string) error {
-	units, err := unitChannelFacts(providers)
-	if err != nil {
-		return err
-	}
-	rows := append(channelProviderFactsFor(providers, providers), units...)
+	var units []channelProviderFacts
 	if err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
-		for _, facts := range rows {
-			// The display facts are UPSERTED, not left alone on conflict: they
-			// describe the composed connector, so the running binary is their
-			// only source of truth and a row written by an older build must be
-			// corrected rather than preserved. The provider itself still lands
-			// once — the primary key sees to that.
-			//
-			// `transport` is upserted with them, and it has to be: a provider
-			// that moves from a core connector to a unit (or back) is exactly
-			// the case where a stale value would tell the send path to resolve
-			// the wrong credential.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO channel_provider (provider, transport, label, credential_model, supplies_transport)
-				VALUES ($1, $2, $3, $4, $5)
-				ON CONFLICT (provider) DO UPDATE SET
-					transport         = EXCLUDED.transport,
-					label             = EXCLUDED.label,
-					credential_model  = EXCLUDED.credential_model,
-					supplies_transport = EXCLUDED.supplies_transport`,
-				facts.provider, facts.transport, facts.label, facts.credentialModel, facts.suppliesTransport); err != nil {
+		reserved, err := reservedCoreProviders(ctx, tx, providers)
+		if err != nil {
+			return err
+		}
+		// Inside the transaction, and BEFORE any write: the reserved set is read
+		// from the same snapshot the upsert runs against, so a unit cannot be
+		// admitted against a registry that changed underneath the check. A
+		// refused set writes nothing at all — the boot dies with the collision
+		// uninstalled rather than half-installed.
+		if units, err = unitChannelFacts(reserved); err != nil {
+			return err
+		}
+		for _, facts := range append(channelProviderFactsFor(providers, providers), units...) {
+			if err := upsertChannelProvider(ctx, tx, facts); err != nil {
 				return err
 			}
 		}
@@ -110,6 +101,73 @@ func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, provider
 	}
 	activities.SetChannelProviders(sendable)
 	comms.SetChannelProviders(sendable)
+	return nil
+}
+
+// reservedCoreProviders is every transport this installation holds for the
+// core: the registry's own `transport='core'` rows, plus the connectors this
+// binary composed.
+//
+// BOTH halves, because neither is the whole answer. The registry knows names no
+// binary has a connector for — `whatsapp` is registered by migration so a
+// hand-logged WhatsApp message can say what carried it — and those are exactly
+// the ones a composed-set check misses. The composed list covers the mirror
+// case: a fresh database whose reconcile has not run yet, or a core connector
+// registered after this one, where the row is not there to be read.
+func reservedCoreProviders(ctx context.Context, tx pgx.Tx, composed []string) (map[string]bool, error) {
+	reserved := make(map[string]bool, len(composed))
+	for _, p := range composed {
+		reserved[p] = true
+	}
+	rows, err := tx.Query(ctx, `SELECT provider FROM channel_provider WHERE transport = 'core'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		reserved[p] = true
+	}
+	return reserved, rows.Err()
+}
+
+// upsertChannelProvider writes one transport's row.
+//
+// The display facts are UPSERTED, not left alone on conflict: they describe the
+// composed supplier, so the running binary is their only source of truth and a
+// row written by an older build must be corrected rather than preserved. The
+// provider itself still lands once — the primary key sees to that. `transport`
+// is upserted with them because a provider that moves between suppliers is
+// exactly the case where a stale value would tell the send path to resolve the
+// wrong credential.
+//
+// The WHERE clause is the belt to reservedCoreProviders' braces, and it is here
+// because the two failures are different: that check refuses a KNOWN collision
+// with an explanation, and this refuses to overwrite a core row under any
+// circumstance the check did not foresee. A unit taking over a core transport
+// is silent by nature — the same conversation, transmitted by somebody else —
+// so the write itself must not be able to do it.
+func upsertChannelProvider(ctx context.Context, tx pgx.Tx, facts channelProviderFacts) error {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO channel_provider (provider, transport, label, credential_model, supplies_transport)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (provider) DO UPDATE SET
+			transport          = EXCLUDED.transport,
+			label              = EXCLUDED.label,
+			credential_model   = EXCLUDED.credential_model,
+			supplies_transport = EXCLUDED.supplies_transport
+		WHERE channel_provider.transport = EXCLUDED.transport`,
+		facts.provider, facts.transport, facts.label, facts.credentialModel, facts.suppliesTransport)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("compose: the transport %q is already registered by a different supplier than %q — a registered transport does not change hands, because every message and every identity binding already filed on it would start resolving a different credential",
+			facts.provider, facts.transport)
+	}
 	return nil
 }
 

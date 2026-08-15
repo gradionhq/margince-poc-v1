@@ -77,7 +77,7 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 		// The two that DISABLE the internal-message gate rather than failing
 		// it: over an empty set the gate answers "not internal" and keeps the
 		// record, and a blank element is a party it skips.
-		"no addresses at all": func(r *extension.Record) { r.Addresses = nil },
+		"no addresses on a record that names one": func(r *extension.Record) { r.Addresses = nil },
 		"a blank address among real ones": func(r *extension.Record) {
 			r.Addresses = []string{"sender@acme.test", "  "}
 		},
@@ -135,6 +135,35 @@ func namedByAccount(identity extension.ChannelIdentity) func(*extension.Record) 
 		r.Counterparty.Email = ""
 		r.Counterparty.Domain = ""
 		r.Counterparty.ChannelIdentity = identity
+	}
+}
+
+// A record that names no address ANYWHERE may name no addresses, and this is
+// the case a channel-only provider is made of: opaque account ids, a display
+// name, and no mail in the message at all.
+//
+// Refusing it would have turned such a record away at the published grammar,
+// before it reached a core that accepts it — connector.NormalizedRecord reads an
+// empty set as "I cannot enumerate the parties", which the internal-message gate
+// answers as not-internal and keeps.
+func TestARecordThatNamesNoAddressMayNameNoAddresses(t *testing.T) {
+	rec := aValidRecord()
+	rec.Activity.Kind = extension.ActivityKindMessage
+	rec.Activity.ChannelProvider = "dispact"
+	namedByAccount(extension.ChannelIdentity{Provider: "dispact", ChannelUserID: "G-1"})(&rec)
+	rec.Addresses = nil
+
+	if err := rec.Validate(); err != nil {
+		t.Fatalf("a channel-only record with no addresses was refused: %v", err)
+	}
+
+	// And the mirror, which is what keeps the exemption from swallowing the
+	// rule: a record that DOES name an address still owes the whole party set,
+	// or the gate it belongs to is silently disabled.
+	mail := aValidRecord()
+	mail.Addresses = nil
+	if err := mail.Validate(); err == nil {
+		t.Error("a mail-shaped record with no addresses was accepted; the internal-colleague gate reads that set and keeps everything over an empty one")
 	}
 }
 

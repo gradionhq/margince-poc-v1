@@ -120,21 +120,21 @@ var directMessageTypes = map[string]bool{
 // channel account goes through the channel ladder, which binds the account to a
 // person the reply path can then resolve.
 //
-// A DIRECT MESSAGE is named by its account, and the account id is the CHANNEL
-// slug rather than the sender's own user id, because that is what this provider's
-// send routes on — a reply goes back into the conversation the message was read
-// from instead of opening a second one beside it. For a DM that is exact: the
-// channel IS the pair, so the slug names the sender as reliably as their user id
-// would.
+// A DIRECT MESSAGE is named by the SENDER'S OWN ACCOUNT ID, not by the channel
+// the message arrived in. The core keys the binding on (provider, account id)
+// and treats that row as the person: it is what an erasure suppresses and what
+// the reply path resolves. Keying it on a conversation instead would make the
+// same colleague two people when they DM two members, and an erasure armed for
+// one of those would leave their other chats capturable. The send resolves the
+// conversation from the account when it needs one (client.dmChannelWith).
 //
-// FOR A MENTION IN A SHARED CHANNEL THE SLUG WOULD BE WRONG TWICE, which is why
-// those are named by address instead. It names a room rather than a person, so a
-// reply meant for one colleague would post in front of everyone in it — and the
-// core keys a binding on (provider, account id), so the second person mentioned
-// in that room would take the binding off the first and inherit their replies.
+// A MENTION IN A SHARED CHANNEL is named by address instead. The room gives
+// this unit no per-person address to bind, and a reply resolved from the room
+// would post in front of everyone in it.
 //
-// A mention is therefore captured, reads on the timeline, and is not answerable.
-// That is the honest state for a room this unit has no per-person address in.
+// A mention is therefore captured, reads on the timeline, and is not answerable
+// on this transport. That is the honest state for a room this unit has no
+// private conversation in.
 func counterpartyOf(item inboxItem, sender providerUser) extension.Counterparty {
 	if !directMessageTypes[item.Type] {
 		return extension.Counterparty{
@@ -149,7 +149,7 @@ func counterpartyOf(item inboxItem, sender providerUser) extension.Counterparty 
 		Direction:   extension.DirectionInbound,
 		ChannelIdentity: extension.ChannelIdentity{
 			Provider:      "dispact",
-			ChannelUserID: item.ChannelID,
+			ChannelUserID: sender.ID,
 			DisplayName:   sender.name(),
 		},
 	}

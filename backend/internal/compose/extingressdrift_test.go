@@ -289,4 +289,16 @@ func TestAUnitMayBindAnAccountOnlyOnItsOwnTransport(t *testing.T) {
 	} else if !errors.Is(err, extension.ErrInvalid) {
 		t.Errorf("the refusal is %v, want extension.ErrInvalid", err)
 	}
+
+	// And its REACH, which is the half that regresses. Only the ingress door
+	// maps a Counterparty today — the published core-write request carries no
+	// channel identity — so this pins the one door that does, and fails loudly
+	// if that door stops calling the gate.
+	src, err := os.ReadFile("extingress.go")
+	if err != nil {
+		t.Fatalf("reading extingress.go: %v", err)
+	}
+	if !strings.Contains(string(src), "refuseUnitIdentity(") {
+		t.Error("extingress.go maps a counterparty for a unit and does not call refuseUnitIdentity; that door can bind an account under a transport the unit does not supply")
+	}
 }

@@ -133,6 +133,17 @@ func channelProviderFactsFor(registered, sending []string) []channelProviderFact
 // to catch. The unit-vs-unit half is still the preflight's — that one needs no
 // core knowledge, and refusing it earlier is a better error.
 //
+// WHAT COUNTS AS A CORE TRANSPORT is the REGISTRY's answer, not the composed
+// sender list's, and the difference is a hole this check shipped with once.
+// `capture.Registry.ChannelProviders` returns only connectors that implement
+// the message seam — `telegram` and nothing else — while `channel_provider`
+// carries every reserved core name, `whatsapp` among them: registered by
+// migration so a hand-logged WhatsApp message can say what carried it, with no
+// Go connector behind it. Checked against the composed list alone, a unit
+// declaring `whatsapp` passed, the upsert re-pointed the core row at the unit,
+// and every previously-unrepliable WhatsApp conversation in the installation
+// became one the unit transmits.
+//
 // credential_model is per_member for every unit transport, because that is what
 // the tier makes available: a unit holds one sealed secret per member (the
 // user-scoped SecretsRequest) and has no installation credential to send under.
@@ -141,16 +152,12 @@ func channelProviderFactsFor(registered, sending []string) []channelProviderFact
 // The label is DERIVED from the id rather than declared, which is the same
 // decision providerLabel documents: this endpoint is readable by every
 // authenticated seat, and a derived name cannot carry text somebody typed.
-func unitChannelFacts(coreProviders []string) ([]channelProviderFacts, error) {
-	core := make(map[string]bool, len(coreProviders))
-	for _, p := range coreProviders {
-		core[p] = true
-	}
+func unitChannelFacts(reserved map[string]bool) ([]channelProviderFacts, error) {
 	var out []channelProviderFacts
 	for _, ext := range ComposedExtensions() {
 		for _, ch := range ext.Channels {
-			if core[ch.Provider] {
-				return nil, fmt.Errorf("compose: extension %q declares the transport %q, which a core connector already supplies — a message on it would leave on the unit's credential instead of the workspace's, so rename the unit's channel", ext.Name, ch.Provider)
+			if reserved[ch.Provider] {
+				return nil, fmt.Errorf("compose: extension %q declares the transport %q, which this installation reserves for the core — a message on it would leave on the unit's credential instead of the workspace's, so rename the unit's channel", ext.Name, ch.Provider)
 			}
 			out = append(out, channelProviderFacts{
 				provider:          ch.Provider,

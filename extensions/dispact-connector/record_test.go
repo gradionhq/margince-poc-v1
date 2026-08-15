@@ -238,13 +238,12 @@ func TestACapturedNotificationIsAMessageOnTheDeclaredTransport(t *testing.T) {
 
 // The reply address, and the case it deliberately does NOT bind.
 //
-// A DM's channel is a pair, so its slug names the sender as reliably as their
-// own id would — and it is what the send routes on, so a reply goes back into
-// the conversation it was read from. A MENTION's channel is a room, where the
-// slug would be wrong twice: a reply meant for one colleague would post in front
-// of everyone, and the core keys a binding on (provider, account id), so the
-// second person mentioned in that room would take the binding off the first and
-// inherit their replies.
+// A DM binds the SENDER'S ACCOUNT, because the core treats that row as the
+// person: it is what an erasure suppresses and what a reply resolves. Keying it
+// on the conversation instead would make the same colleague two people when
+// they DM two members. A MENTION binds nothing — the room gives this unit no
+// per-person address, and a reply resolved from a room would post in front of
+// everyone in it.
 func TestOnlyADirectMessageCarriesAReplyAddress(t *testing.T) {
 	for kind, wantBound := range map[string]bool{
 		"dm":              true,
@@ -263,9 +262,9 @@ func TestOnlyADirectMessageCarriesAReplyAddress(t *testing.T) {
 		if bound != wantBound {
 			t.Errorf("%q bound a reply address = %v, want %v", kind, bound, wantBound)
 		}
-		if bound && rec.Counterparty.ChannelIdentity.ChannelUserID != item.ChannelID {
-			t.Errorf("%q bound %q, want the channel slug %q the send routes on",
-				kind, rec.Counterparty.ChannelIdentity.ChannelUserID, item.ChannelID)
+		if bound && rec.Counterparty.ChannelIdentity.ChannelUserID != aSender().ID {
+			t.Errorf("%q bound %q, want the SENDER's own account id %q — the binding IS the person, and keying it on a conversation makes one colleague two people",
+				kind, rec.Counterparty.ChannelIdentity.ChannelUserID, aSender().ID)
 		}
 		// Either way the record must pass the published grammar: a half-stated
 		// identity is refused there, and it is the shape a careless narrowing

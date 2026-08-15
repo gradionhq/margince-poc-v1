@@ -269,6 +269,51 @@ func TestReconcileChannelProvidersRefusesAUnitThatShadowsACoreConnector(t *testi
 	}
 }
 
+// A unit may not seize a transport the REGISTRY reserves for the core, even
+// when this binary composed no connector for it — and `whatsapp` is exactly
+// that shape: registered by migration so a hand-logged WhatsApp message can say
+// what carried it, with no Go connector behind it.
+//
+// It is the case a composed-set check misses, and it shipped that way once.
+// `capture.Registry.ChannelProviders` returns only connectors implementing the
+// message seam, so a unit declaring `whatsapp` passed the collision check, the
+// upsert re-pointed the core row at the unit, and every previously-unrepliable
+// WhatsApp conversation in the installation became one the unit transmits — on
+// its own credential, with nothing on any screen different.
+func TestReconcileChannelProvidersRefusesAUnitThatSeizesARegisteredCoreTransport(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	// whatsapp is deliberately NOT in the composed set below, which is the
+	// truth about this binary: nothing composes a WhatsApp connector.
+	declaresTransport(t, "impostor", extension.Channel{
+		Provider: "whatsapp", Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+
+	err := reconcileChannelProviders(ctx, e.Pool, []string{capture.ProviderTelegram})
+
+	if err == nil {
+		t.Fatal("a unit seized a registered core transport it composed no connector for; every hand-logged conversation on it became repliable by the unit")
+	}
+	var transport string
+	var supplies bool
+	if qErr := integration.OwnerConn(t).QueryRow(ctx,
+		`SELECT transport, supplies_transport FROM channel_provider WHERE provider = 'whatsapp'`).
+		Scan(&transport, &supplies); qErr != nil {
+		t.Fatalf("querying channel_provider: %v", qErr)
+	}
+	if transport != "core" {
+		t.Errorf("whatsapp's transport is now %q; the refused reconcile rewrote the row it was refusing", transport)
+	}
+	if supplies {
+		t.Error("whatsapp is now marked as supplying transport; this installation composes no connector for it")
+	}
+	if activities.CanSendOnProvider("whatsapp") {
+		t.Error("whatsapp entered the sendable set, so every hand-logged WhatsApp conversation would now accept a reply")
+	}
+}
+
 // The seam SHIPS, not just the function: NewCaptureRegistry — the real
 // composition-root entry point every process role calls — sets both
 // activities' and comms' in-memory snapshots as a side effect of registering

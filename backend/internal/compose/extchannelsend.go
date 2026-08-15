@@ -20,6 +20,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
@@ -111,17 +112,52 @@ func (s unitChannelSender) SendMessage(ctx context.Context, _ connector.Auth, ms
 		Attempt: msg.Attempt + 1,
 	})
 	if err != nil {
-		// Returned as-is, and that is a decision: the dispatcher classifies the
-		// deployment facts at RESOLVE, so a refusal here rides the retry ladder
-		// whatever it says. A revoked credential parks on the next attempt,
-		// where Live answers false — which is the conservative order, because
-		// re-sending a message that already arrived is the one failure a human
-		// cannot undo.
-		return connector.SendReceipt{}, err
+		return connector.SendReceipt{}, unitSendRefusal(err)
 	}
 	// No RFC822 identity: a channel message has none, which is why the channel
 	// seam keys its retry safety on the idempotency key instead.
 	return connector.SendReceipt{ProviderMessageID: receipt.ProviderMessageID}, nil
+}
+
+// unitSendRefusal translates a unit's refusal into the core's own, and it
+// carries exactly ONE class across because only one changes what the
+// dispatcher does.
+//
+// The channel seam does not detect a prior send: it records a transmission as
+// in flight BEFORE the call, and then treats every error that is not
+// ErrSendOutcomeUnknown as a definite answer from the provider — which is to
+// say as proof that nothing went out — clears the marker, and puts the delivery
+// back on the ladder. That is correct for a refusal the provider actually sent
+// and catastrophic for a POST whose answer was lost: the recipient gets the
+// rep's message twice and nothing in the system can tell.
+//
+// So a unit reporting extension.ErrSendOutcomeUnknown STOPS the delivery, with
+// the uncertainty on the record. Everything else rides the ladder, including a
+// revoked credential — which parks on the next attempt, where Live answers
+// false, rather than being classified from an error string here.
+func unitSendRefusal(err error) error {
+	if errors.Is(err, extension.ErrSendOutcomeUnknown) {
+		return fmt.Errorf("%w: %w", connector.ErrSendOutcomeUnknown, err)
+	}
+	return err
+}
+
+// unitSendCapable answers the REQUEST-time pre-flight for a unit transport:
+// can this member send on it right now.
+//
+// It asks the unit's own Live, which is the same question the delivery asks and
+// deliberately the same answer — a rep told "you can send" at the composer and
+// then parked at transmission has been told two things by one installation.
+//
+// A unit that cannot ANSWER reports the fault rather than a verdict, which is
+// the mail arm's own rule one branch below: a pre-flight that cannot ask must
+// not answer, because asserting a capability nobody read is how a rep learns at
+// transmission what they should have been told at the composer.
+func unitSendCapable(ctx context.Context, transport unitTransport, member ids.UserID) (bool, error) {
+	if !transport.channel.SuppliesTransport() {
+		return false, nil
+	}
+	return unitConnectionLive(ctx, transport, extension.UserID(member.String()), boundExtensionRuntime())
 }
 
 // resolveUnitChannel binds a unit's transport to the member whose credential
@@ -146,7 +182,7 @@ func (r commsResolver) resolveUnitChannel(ctx context.Context, userID ids.UserID
 	}
 	deps := boundExtensionRuntime()
 	member := extension.UserID(userID.String())
-	live, err := r.unitConnectionLive(ctx, transport, member, deps)
+	live, err := unitConnectionLive(ctx, transport, member, deps)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -163,7 +199,7 @@ func (r commsResolver) resolveUnitChannel(ctx context.Context, userID ids.UserID
 // A separate Runtime from the send's, and released before the send is built: the
 // two are two invocations of the unit, and a Runtime that outlived its call is
 // the thing release exists to prevent.
-func (commsResolver) unitConnectionLive(ctx context.Context, transport unitTransport, member extension.UserID, deps extensionRuntimeBinding) (bool, error) {
+func unitConnectionLive(ctx context.Context, transport unitTransport, member extension.UserID, deps extensionRuntimeBinding) (bool, error) {
 	rt := sendRuntimeFor(ctx, string(transport.unit), transport.version,
 		"channel/"+transport.channel.Provider, deps)
 	defer rt.release()
