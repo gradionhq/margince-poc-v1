@@ -542,6 +542,63 @@ func TestAnAgentScheduledSendFiresUnderTheAgentThatScheduledIt(t *testing.T) {
 	}
 }
 
+// An agent that names no human stores no provenance, rather than a guess.
+//
+// `agent_on_behalf_of` means "the human behind this agent". The obvious
+// shortcut when it is absent is to fall back to the principal's UserID, and
+// that is wrong: a passport-less agent principal's UserID is an AGENT's own
+// app_user row (compose/extjobsrun.go selects it `WHERE id = $1 AND is_agent`),
+// so the fallback writes an agent's id into a column a human belongs in. The
+// fire path hands that to actor.OnBehalfOf, which auth.Admit reads to derive
+// seat and RBAC — a fabricated authority, the same class of defect the stored
+// provenance exists to end.
+//
+// Storing nothing is the honest record for an actor that never named a human:
+// the row keeps the pre-0258 behaviour instead of asserting a person who was
+// never involved.
+func TestAnAgentWithNoHumanBehindItStoresNoProvenance(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	// No OnBehalfOf and no passport — the extension-tick shape. UserID is the
+	// agent's OWN row, which is exactly what must not be copied.
+	agent := principal.Principal{
+		Type:     principal.PrincipalAgent,
+		ID:       "agent:extension-tick",
+		UserID:   uuidOf(t, p.user),
+		SeatType: principal.SeatFull,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"admin"},
+			Objects: map[string]principal.ObjectGrant{
+				"activity": {Create: true, Read: true, Update: true},
+				"person":   {Create: true, Read: true, Update: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+
+	id := p.scheduleAsAgent(t, agent, time.Now().Add(2*time.Hour))
+
+	actorID, passport, behalf := p.storedProvenance(t, id)
+	if actorID != nil || passport != nil || behalf != nil {
+		t.Fatalf("an agent naming no human stored provenance %v/%v/%v — the columns travel together, and a guessed human is worse than none",
+			actorID, passport, behalf)
+	}
+}
+
+// storedProvenance reads the three scheduling-time agent columns.
+func (p *preflightEnv) storedProvenance(t *testing.T, id ids.UUID) (actorID *string, passport, behalf *ids.UUID) {
+	t.Helper()
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT agent_actor_id, agent_passport_id, agent_on_behalf_of
+			   FROM scheduled_send WHERE id = $1`, id).Scan(&actorID, &passport, &behalf)
+	}); err != nil {
+		t.Fatalf("reading the stored provenance for %s: %v", id, err)
+	}
+	return actorID, passport, behalf
+}
+
 // rowVersion reads the scheduled row's optimistic-concurrency version.
 func (p *preflightEnv) rowVersion(t *testing.T, id ids.UUID) int64 {
 	t.Helper()

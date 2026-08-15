@@ -1,4 +1,4 @@
--- 0257: a scheduled message remembers WHICH agent scheduled it.
+-- 0258: a scheduled message remembers WHICH agent scheduled it.
 --
 -- The row already stores the authorizing human (`scheduled_by`) and whether the
 -- actor was a human or an agent (`principal_kind`). That is enough to fire with
@@ -23,7 +23,7 @@
 -- already exist. A backfill would have to invent the very identity this
 -- migration exists to stop inventing: a pre-existing agent-scheduled row cannot
 -- say which agent it was, and NULL is the honest record of that. The fire path
--- reads it as "no stored provenance" and falls back to the pre-0257 behaviour
+-- reads it as "no stored provenance" and falls back to the pre-0258 behaviour
 -- for those rows only.
 ALTER TABLE scheduled_send
   ADD COLUMN agent_actor_id  text NULL,
@@ -40,7 +40,7 @@ ALTER TABLE scheduled_send
 -- cannot be given one. So this constraint does NOT say "every agent row names
 -- its agent" — it says a row either names it completely or not at all. The
 -- writer is what makes new agent rows complete, and the fire path treats a
--- NULL actor id as the pre-0257 row it is.
+-- NULL actor id as the pre-0258 row it is.
 ALTER TABLE scheduled_send ADD CONSTRAINT scheduled_send_agent_provenance_shape CHECK (
   (principal_kind = 'agent' AND agent_actor_id IS NOT NULL AND agent_on_behalf_of IS NOT NULL)
   OR

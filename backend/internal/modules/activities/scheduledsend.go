@@ -455,24 +455,29 @@ type agentProvenance struct {
 
 // provenanceOf captures the acting agent, or nothing at all for a human.
 //
-// OnBehalfOf falls back to the actor's own UserID, and the two cannot name
-// different people on any real agent path: identity mints an agent principal
-// from one value (AgentIdentity.Principal sets UserID and OnBehalfOf from the
-// same a.OnBehalfOf), and auth.Admit derives the agent's seat and RBAC from
-// OnBehalfOf, so an agent whose two fields disagreed would already be acting
-// under a ceiling belonging to somebody other than its UserID. The fallback is
-// for an agent principal assembled with only a UserID, which still names a real
-// human — and the column has to be non-NULL for the row's agent arm to be
-// complete.
+// agent_on_behalf_of is the HUMAN behind the agent, and it is taken only from
+// OnBehalfOf — never from UserID, which is a different fact.
+//
+// On the agent path that can reach a send the two hold the same value anyway:
+// identity mints the principal from one field (AgentIdentity.Principal sets
+// UserID and OnBehalfOf from the same a.OnBehalfOf). But a passport-less agent
+// principal exists in this tree whose UserID is an AGENT's own app_user row —
+// compose/extjobsrun.go selects it `WHERE id = $1 AND is_agent` — and copying
+// that into a column meaning "the human behind this" would write an agent's id
+// where a human's belongs. The fire path then hands it to actor.OnBehalfOf,
+// which auth.Admit reads to derive seat and RBAC: a fabricated authority, which
+// is the same class of defect this whole record exists to end.
+//
+// An agent with no OnBehalfOf therefore stores no provenance at all rather than
+// a guess. That row keeps the pre-0258 behaviour, which is the honest outcome
+// for an actor that never named a human — and the CHECK's all-or-nothing shape
+// is what makes it representable.
 func provenanceOf(p principal.Principal) agentProvenance {
-	if p.Type == principal.PrincipalHuman {
+	if p.Type == principal.PrincipalHuman || p.OnBehalfOf.IsZero() {
 		return agentProvenance{}
 	}
 	actorID := p.ID
 	behalf := p.OnBehalfOf
-	if behalf.IsZero() {
-		behalf = p.UserID
-	}
 	out := agentProvenance{ActorID: &actorID, OnBehalfOf: &behalf}
 	if !p.PassportID.IsZero() {
 		// A passport is how an agent's scopes were granted, so an action taken
@@ -480,10 +485,8 @@ func provenanceOf(p principal.Principal) agentProvenance {
 		// one was lost.
 		//
 		// Every agent that can reach a send today carries one — the tool surface
-		// is the only agent door to SendOrSchedule. But a passport-less agent
-		// principal is a real shape in this codebase (compose/extjobsrun.go
-		// mints one for an extension tick, with an agent's own app_user id as
-		// UserID and no OnBehalfOf), so this stays conditional rather than
+		// is the only agent door to SendOrSchedule, and its principals are
+		// passport-minted. This stays conditional rather than
 		// assuming the passport is always there.
 		out.PassportID = &p.PassportID
 	}

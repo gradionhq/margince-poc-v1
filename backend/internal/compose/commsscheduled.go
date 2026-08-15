@@ -197,12 +197,12 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 
 // schedulerOf is who a pending scheduled message fires as: the authorizing
 // human, the kind of principal that scheduled it, and — when that was an
-// agent — the agent's own identity as core 0257 recorded it.
+// agent — the agent's own identity as core 0258 recorded it.
 type schedulerOf struct {
 	UserID ids.UUID
 	Kind   string
 	// AgentActorID is the acting agent's principal id. Empty for a human, and
-	// empty for an agent row scheduled before 0257 existed to record one.
+	// empty for an agent row scheduled before 0258 existed to record one.
 	AgentActorID    string
 	AgentPassport   ids.UUID
 	AgentOnBehalfOf ids.UUID
@@ -255,7 +255,7 @@ func (w *scheduledSendWorker) scheduler(ctx context.Context, id ids.UUID) (sched
 // signature — something the identical immediate send would never do
 // (ADR-0104 §4).
 //
-// The agent's IDENTITY is preserved too, from what core 0257 stored at schedule
+// The agent's IDENTITY is preserved too, from what core 0258 stored at schedule
 // time. Deriving it from the human's id instead names an actor that never
 // existed and collapses every agent acting for one person into it, which breaks
 // the attribution ADR-0055 depends on.
@@ -309,7 +309,7 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (co
 			actor.OnBehalfOf = sched.AgentOnBehalfOf
 		}
 		if actor.ID == "" {
-			// Scheduled before 0257, so the row never recorded which agent it
+			// Scheduled before 0258, so the row never recorded which agent it
 			// was and cannot be given one now. The derived id is what those
 			// rows have always fired under; keeping it confines the invented
 			// identity to them rather than putting a blank actor in the audit.
