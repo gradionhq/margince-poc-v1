@@ -79,7 +79,13 @@ export function LicenseHolderCard({
           <dd>{holder.subject}</dd>
         </div>
         <div>
-          <dt>{t("license.holder.validUntil")}</dt>
+          {/* The label follows the fact. "Valid until" beside a date that has
+              already passed states the opposite of what the notice above says. */}
+          <dt>
+            {holder.in_grace
+              ? t("license.holder.expiredOn")
+              : t("license.holder.validUntil")}
+          </dt>
           <dd>{expiry}</dd>
         </div>
         <div>

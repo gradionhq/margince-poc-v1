@@ -3798,6 +3798,7 @@ export const en = {
   "license.holder.contact": "Contact",
   "license.holder.installation": "Installation",
   "license.holder.validUntil": "Valid until",
+  "license.holder.expiredOn": "Expired on",
   "license.holder.id": "License id",
   "license.grace.title": "This license expired",
   "license.grace.body":

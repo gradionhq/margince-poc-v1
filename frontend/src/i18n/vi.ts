@@ -3772,6 +3772,7 @@ export const vi = {
   "license.holder.contact": "Liên hệ",
   "license.holder.installation": "Bản cài đặt",
   "license.holder.validUntil": "Có hiệu lực đến",
+  "license.holder.expiredOn": "Đã hết hạn vào",
   "license.holder.id": "Mã giấy phép",
   "license.grace.title": "Giấy phép này đã hết hạn",
   "license.grace.body":
