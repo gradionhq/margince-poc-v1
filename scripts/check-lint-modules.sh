@@ -67,11 +67,11 @@ fi
 # a type-checkable package; it has nothing to say here. They are NOT unchecked
 # code: the craft gate, the license header test and the tree-wide gofmt gate all
 # cover fixtures/, and none of the three needs to typecheck to do its job.
-# `s#/\?go\.mod$##` reads as an optional slash under GNU sed and as a LITERAL
-# backslash-slash under the BSD sed macOS ships, so on a developer laptop every
-# path kept its `/go.mod` suffix, `cd` failed with "Not a directory", and the
-# gate reported findings in eight modules it had never entered. Two plain
-# substitutions say the same thing in both dialects.
+
+# Two plain substitutions rather than one optional-slash pattern: `\?` is a GNU
+# extension, and the BSD sed macOS ships reads it as a literal `?`, so a pattern
+# that strips the suffix on CI leaves it in place on a laptop. Both dialects
+# agree on these two.
 modules="$(git ls-files '*go.mod' \
   | sed -e 's#/go\.mod$##' -e 's#^go\.mod$#.#' \
   | grep -v '^backend$' \
@@ -93,7 +93,22 @@ fi
 # looks like it passed and did not run.
 members="$(sed -n 's#^[[:space:]]*\.\./\.\./##p' "$COMPOSED_WORK")"
 
-failed=""
+# THREE ways this gate can fail, kept apart, because they are three different
+# questions for whoever reads the output and only one of them is about the code.
+#
+# golangci exits 1 when it RAN and found issues, and non-1 when it could not run
+# at all — an unreadable config, a workspace that does not resolve, an internal
+# error. A failing `cd` is a third thing again, and a bare `cd "$mod" && …` exits
+# 1 for that too, which is how one path bug came to announce itself as findings
+# in eight modules nothing had ever entered, under a remedy explaining how to fix
+# findings that did not exist. So the cd gets a reserved status of its own, well
+# outside the range golangci uses, and the run's exit is read rather than merely
+# tested.
+readonly CANNOT_ENTER=90
+
+findings=""
+unenterable=""
+broken=""
 count=0
 for mod in $modules; do
   count=$((count + 1))
@@ -107,19 +122,48 @@ for mod in $modules; do
   # was being armed, fixing the three visible G304s revealed four more that the
   # cap had been suppressing all along. A gate that truncates reads exactly like
   # a gate that found everything.
-  if ! (cd "$mod" && GOWORK="$work" "$GOLANGCI" run --config "$CONFIG" \
-        --max-same-issues=0 --max-issues-per-linter=0 ./...); then
-    failed="$failed $mod"
-  fi
+  rc=0
+  (
+    cd "$mod" || exit "$CANNOT_ENTER"
+    GOWORK="$work" exec "$GOLANGCI" run --config "$CONFIG" \
+      --max-same-issues=0 --max-issues-per-linter=0 ./...
+  ) || rc=$?
+  case "$rc" in
+    0) ;;
+    1) findings="$findings $mod" ;;
+    "$CANNOT_ENTER") unenterable="$unenterable $mod" ;;
+    *) broken="$broken $mod(exit $rc)" ;;
+  esac
 done
 
-if [[ -n "$failed" ]]; then
+if [[ -n "$unenterable" ]]; then
   echo
-  echo "FAIL — golangci-lint findings in:$failed"
+  echo "FAIL: lint-modules could not enter:$unenterable"
+  echo
+  echo "Those directories come from tracked go.mod files that the working tree does"
+  echo "not have, so NOTHING was linted in them. This is not a lint finding: check"
+  echo "the checkout against \`git ls-files '*go.mod'\` before looking at any code."
+fi
+
+if [[ -n "$broken" ]]; then
+  echo
+  echo "FAIL: golangci-lint could not complete in:$broken"
+  echo
+  echo "A non-1 exit is the tool refusing to run — an unreadable config, a workspace"
+  echo "that does not resolve, an internal error — rather than anything it found."
+  echo "Its own error is above; 'make tools' and 'make composition' fix most of them."
+fi
+
+if [[ -n "$findings" ]]; then
+  echo
+  echo "FAIL — golangci-lint findings in:$findings"
   echo
   echo "These modules are outside 'golangci-lint run ./...' from backend/, so they are"
   echo "linted only here. Fix the finding, or waive a genuine false positive in source"
   echo "with '//nolint:<linter> // <reason>' on the line it applies to."
+fi
+
+if [[ -n "$unenterable$broken$findings" ]]; then
   exit 1
 fi
 
