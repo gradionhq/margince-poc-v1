@@ -54,8 +54,8 @@ func TestMenuForKindRoutesFactBearingKindsOnly(t *testing.T) {
 		t.Fatal("unclassified pages must make no call")
 	}
 	menu, ok := menuForKind(crmcontracts.SiteReadPageKindImpressum)
-	if !ok || !menu.entities || menu.people {
-		t.Fatalf("impressum menu = %+v, want company fields + entities", menu)
+	if !ok || !menu.entities || !menu.people {
+		t.Fatalf("impressum menu = %+v, want company fields + entities + people", menu)
 	}
 	menu, ok = menuForKind(crmcontracts.SiteReadPageKindServices)
 	if !ok || menu.entities || menu.people {
@@ -487,5 +487,24 @@ func TestAPersonWithNoPublishedEmailIsNotProposed(t *testing.T) {
 	}
 	if reasons := dropReasons(dropped); reasons["Bernd Beispiel"] != dropNoPublishedEmail {
 		t.Fatalf("Bernd must drop for having no published address: %+v", dropped)
+	}
+}
+
+func TestTheImprintIsReadForPeopleBecauseGermanLawPutsTheBoardOnIt(t *testing.T) {
+	// §5 TMG requires a company to name its Vertretungsberechtigte on the
+	// imprint, so for a large German firm that page is often the only place
+	// anyone is named: adesso.de publishes no team directory the crawl
+	// reaches, and its imprint names five board members plus the
+	// supervisory board chair.
+	menu, ok := menuForKind(crmcontracts.SiteReadPageKindImpressum)
+	if !ok {
+		t.Fatal("the imprint must make a call")
+	}
+	if !menu.people {
+		t.Error("the imprint carries no people lane, so a board nobody else " +
+			"publishes is never read")
+	}
+	if !menu.entities {
+		t.Error("the imprint still owes the entity census its vote")
 	}
 }
