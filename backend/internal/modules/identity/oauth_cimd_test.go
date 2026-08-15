@@ -24,10 +24,21 @@ func TestOnlyAnHTTPSURLWithAPathIsAMetadataDocumentClientID(t *testing.T) {
 		"http://app.example.com/client.json":         false, // the profile pins https
 		"https://user:pw@app.example.com/client.jsn": false, // userinfo is a second spelling of one id
 		"https://app.example.com/c.json#frag":        false, // so is a fragment
-		"s6BhdRkqt3":                                 false, // an opaque DCR id
-		"":                                           false,
-		"https://":                                   false,
-		"::not a url":                                false,
+		// Dot segments are the sharpest spelling problem: each of these names the
+		// same document as /client.json to the server that serves it, and a
+		// distinct client id here.
+		"https://app.example.com/a/../client.json":   false,
+		"https://app.example.com/./client.json":      false,
+		"https://app.example.com/a/%2e%2e/client.js": false, // percent-encoded, decoded before the check
+		"https://app.example.com/..":                 false,
+		// A segment that merely CONTAINS dots is an ordinary name, not a
+		// relative reference, and stays a valid id.
+		"https://app.example.com/..client.json": true,
+		"https://app.example.com/a...b/c.json":  true,
+		"s6BhdRkqt3":                            false, // an opaque DCR id
+		"":                                      false,
+		"https://":                              false,
+		"::not a url":                           false,
 	}
 	for raw, want := range cases {
 		err := cimdClientID(raw)
@@ -103,24 +114,31 @@ func TestARedirectInADocumentIsHeldToTheSameRuleAsARegisteredOne(t *testing.T) {
 	}
 }
 
-// The fetch's guards, against a real server. Each case is an attack rather than
-// a malformed input: an oversized body spends this server's memory, a redirect
-// walks past the address guard on its next hop, and a non-JSON answer is a page
-// that was never a metadata document.
+// useReachableCIMDClient points the package's fetch at the production client
+// with ONLY its transport replaced, and restores it when the test ends.
 //
-// The egress guard is SWAPPED OUT for the duration, and that is what makes these
-// assertions mean anything. netguard refuses a loopback address in the dialer's
-// Control hook, and httptest listens on one — so with the real client every case
-// below fails at connect time, none of them reaches the handler, and all four
-// pass on a guard they are not about. That is exactly the shape of a test that
-// cannot fail. The address guard keeps its own test, immediately below, which is
-// the only one here that uses the real client.
-func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
+// The dialer is what has to go and the only thing that may: netguard refuses a
+// loopback address in its Control hook and httptest listens on one, so with the
+// real transport every case below would fail at connect time and pass on a
+// guard it is not about. Everything else stays the production client's own —
+// the redirect policy above all, since a hand-written copy of it here would
+// mean deleting it from the client changes nothing about the tests that claim
+// to hold it. The address guard keeps its own test, which is the only one in
+// this file that uses the real client whole.
+func useReachableCIMDClient(t *testing.T) {
+	t.Helper()
 	guarded := cimdClient
-	cimdClient = &http.Client{Timeout: cimdFetchTimeout, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
+	reachable := *guarded
+	reachable.Transport = &http.Transport{}
+	cimdClient = &reachable
 	t.Cleanup(func() { cimdClient = guarded })
+}
+
+// The fetch's guards, against a real server. Each case is an attack rather than
+// a malformed input: an oversized body spends this server's memory, and a
+// non-JSON answer or a 404 is a page that was never a metadata document.
+func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
+	useReachableCIMDClient(t)
 
 	oversized := strings.Repeat("x", cimdMaxDocument+1)
 	cases := map[string]http.HandlerFunc{
@@ -128,9 +146,6 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			//craft:ignore swallowed-errors a test server's write failure is the client hanging up
 			_, _ = w.Write([]byte(`{"padding":"` + oversized + `"}`))
-		},
-		"a redirect to somewhere else": func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "https://elsewhere.example/client.json", http.StatusFound)
 		},
 		"an HTML page": func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html")
@@ -148,9 +163,8 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 	}
 
 	// The control, and it is load-bearing: a VALID document must be accepted
-	// through the same client. Without it every refusal above could still be a
-	// connect failure wearing a different name, which is the defect this test
-	// had before the swap.
+	// through the same client. Without it every refusal above could equally be a
+	// connect failure wearing a different name.
 	valid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		//craft:ignore swallowed-errors a test server's write failure is the client hanging up
@@ -163,16 +177,67 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 	}
 }
 
+// A redirect is not followed, and the second hop here is built to SUCCEED if it
+// were: the document it serves claims the first URL, so the equality check, the
+// media type, the size limit and the status check all pass on it. Only the
+// refusal to take the hop refuses this fetch.
+//
+// That is the attack it closes. A followed redirect is a second URL the caller
+// chose and the equality check never sees — the client_id it is held against is
+// the one the caller presented, not the one that answered — so a document
+// published anywhere would speak for a client id belonging to somewhere else.
+func TestTheFetchDoesNotFollowARedirect(t *testing.T) {
+	useReachableCIMDClient(t)
+
+	// The first server is bound but not serving yet, so its own URL is known
+	// before the second server has to name it. A variable written after both are
+	// running would be read from the server's goroutine instead.
+	first := httptest.NewUnstartedServer(nil)
+	clientID := "http://" + first.Listener.Addr().String() + "/client.json"
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		//craft:ignore swallowed-errors a test server's write failure is the client hanging up
+		_, _ = w.Write([]byte(`{"client_id":"` + clientID + `","client_name":"n",` +
+			`"redirect_uris":["https://a.example/cb"]}`))
+	}))
+	defer second.Close()
+
+	first.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, second.URL+"/client.json", http.StatusFound)
+	})
+	first.Start()
+	defer first.Close()
+
+	_, _, err := fetchCIMD(t.Context(), clientID)
+
+	if err == nil {
+		t.Fatal("the fetch followed a redirect: the document that answered was published at a URL the client_id equality check never saw")
+	}
+	// And it must be the 30x itself that refused it. Any other refusal means the
+	// hop was taken and something downstream caught the result, which is the
+	// redirect policy being untested rather than held.
+	if !strings.Contains(err.Error(), "answered 302") {
+		t.Fatalf("the fetch failed with %q, want the redirect refused as a status this server does not accept", err)
+	}
+}
+
 // A private or loopback address is refused at CONNECT time, on the resolved IP,
 // so a public-looking hostname that resolves inward cannot make this server
 // probe its own network. httptest listens on 127.0.0.1, which is exactly the
 // address the guard exists to refuse — so a successful fetch here would BE the
 // vulnerability.
+//
+// The document served is VALID and claims the URL it is served from, which is
+// what makes this test able to fail: a document that claimed anything else
+// would be refused by the equality check even after a successful connect, and
+// the test would pass with the dialer's guard deleted.
 func TestTheFetchRefusesAnAddressInsideTheDeployment(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		//craft:ignore swallowed-errors a test server's write failure is the client hanging up
-		_, _ = w.Write([]byte(`{"client_id":"x","client_name":"n","redirect_uris":["https://a/cb"]}`))
+		_, _ = w.Write([]byte(`{"client_id":"http://` + r.Host + `/client.json","client_name":"n",` +
+			`"redirect_uris":["https://a.example/cb"]}`))
 	}))
 	defer srv.Close()
 
@@ -180,6 +245,12 @@ func TestTheFetchRefusesAnAddressInsideTheDeployment(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("a metadata document on a loopback address was fetched; an unauthenticated caller can probe this deployment's network")
+	}
+	// And it must be the ADDRESS that refused it. Any other refusal here means
+	// the connect succeeded and something downstream caught the document, which
+	// is the guard being untested rather than held.
+	if !strings.Contains(err.Error(), "non-public") {
+		t.Fatalf("the fetch failed with %q, want netguard's non-public refusal — the loopback connect was not what stopped it", err)
 	}
 }
 

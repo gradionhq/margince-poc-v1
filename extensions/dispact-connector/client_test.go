@@ -36,19 +36,29 @@ func TestTheEgressGuardRefusesEveryNonPublicAddress(t *testing.T) {
 		// The ranges the stdlib predicates miss, and the reason the list of
 		// CIDRs exists at all: each of these reads as ordinary public space to
 		// IsPrivate.
-		"0.0.0.0":            false,
-		"0.1.2.3":            false,
-		"100.64.0.1":         false, // CGNAT
-		"192.0.0.1":          false, // protocol assignment
-		"192.0.2.5":          false, // documentation
-		"198.18.0.1":         false, // benchmarking
-		"198.51.100.5":       false,
-		"203.0.113.5":        false,
-		"240.0.0.1":          false, // reserved
-		"255.255.255.255":    false,
-		"2001:db8::1":        false, // documentation
-		"64:ff9b::a9fe:a9fe": false, // NAT64 onto the metadata address
-		"::ffff:127.0.0.1":   false, // IPv4-mapped loopback
+		"0.0.0.0":              false,
+		"0.1.2.3":              false,
+		"100.64.0.1":           false, // CGNAT
+		"192.0.0.1":            false, // protocol assignment
+		"192.0.2.5":            false, // documentation
+		"198.18.0.1":           false, // benchmarking
+		"198.51.100.5":         false,
+		"203.0.113.5":          false,
+		"240.0.0.1":            false, // reserved
+		"255.255.255.255":      false,
+		"192.88.99.1":          false, // 6to4 relay anycast
+		"2001:db8::1":          false, // documentation
+		"3fff::1":              false, // documentation, the newer range
+		"64:ff9b::a9fe:a9fe":   false, // NAT64 onto the metadata address
+		"64:ff9b:1::a9fe:a9fe": false, // local-use NAT64 onto the same address
+		"2002:7f00:1::1":       false, // 6to4 carrying 127.0.0.1
+		"2001::1":              false, // Teredo, inside the 2001::/23 blanket
+		"100::1":               false, // discard-only
+		"100:0:0:1::1":         false, // dummy prefix
+		"5f00::1":              false, // SRv6 SIDs
+		"fec0::1":              false, // deprecated site-local
+		"::ffff:0:a9fe:a9fe":   false, // IPv4-translated onto the metadata address
+		"::ffff:127.0.0.1":     false, // IPv4-mapped loopback
 	} {
 		t.Run(address, func(t *testing.T) {
 			ip := net.ParseIP(address)
