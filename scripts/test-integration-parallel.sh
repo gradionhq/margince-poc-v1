@@ -33,7 +33,8 @@
 # so each shard runs a deterministic round-robin slice of every package's
 # top-level Test functions via -run. Discovery is static (`func Test…` in the
 # package's *_test.go files) so it costs no compile; files under the known
-# opt-in lane tags (e2e_llm, livesmoke, voicelive) are skipped exactly as the compiler
+# opt-in lane tags (e2e_llm, livesmoke, voicelive) and the by-hand benchmark lane
+# (`integration && bench`) are skipped exactly as the compiler
 # skips them, and any other constraint — an expression, or a lone tag the
 # allowlist does not know (a satisfied built-in like linux or cgo would
 # compile but never be sliced) — fails discovery loudly instead of being
@@ -244,6 +245,19 @@ while IFS='|' read -r d rel; do
         # lane's build always satisfies the tag.
         '!integration') skip_file=1 ;;
         e2e_llm|livesmoke|voicelive) skip_file=1 ;;
+        # `integration && bench` is the by-hand benchmark lane (make bench-record
+        # / bench-capture). It is a CONJUNCTION rather than a lone tag on
+        # purpose: those files use this lane's own harness — apptest.AppEnv,
+        # newCaptureEnv, benchRuns — so they need `integration` to compile at
+        # all, and `bench` is what keeps them out of every scheduled run.
+        #
+        # Statically decidable for the same reason the lone tags are: this
+        # lane's build sets `integration` and never sets `bench`, so the
+        # compiler excludes the file and so does this. The general worry above —
+        # a satisfied built-in tag compiling under `go test` yet landing in no
+        # slice — does not apply, because `bench` is not built-in and nothing
+        # in this lane defines it.
+        'integration && bench') skip_file=1 ;;
         *)
           echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
           echo "  teach the allowlist in scripts/test-integration-parallel.sh or simplify the constraint" >&2
