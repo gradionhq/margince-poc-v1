@@ -25,12 +25,21 @@ import (
 )
 
 // HandleApprovalDecided is the engine-side approval.decided consumer: a
-// REJECTED decision on a workflow staging lands as the parked run's
-// terminal 'blocked' outcome. An approval keeps the run parked in
-// requires_approval — the effect lands through redemption, not through
-// this consumer — and a decision on a non-workflow approval matches no
-// run row and is a normal no-op, so the consumer never needs to know
-// which approvals are workflow stagings up front.
+// decision that REFUSES a workflow staging lands as the parked run's terminal
+// 'blocked' outcome. An approval keeps the run parked in requires_approval —
+// the effect lands through redemption, not through this consumer — and a
+// decision on a non-workflow approval matches no run row and is a normal
+// no-op, so the consumer never needs to know which approvals are workflow
+// stagings up front.
+//
+// TWO verdicts refuse, and the second one is why the run stops waiting at all.
+// A human rejecting says no; a closed window says no on nobody's behalf
+// ("unactioned means rejected", APPR-PARAM-1). The expiry sweep writes that
+// verdict in the same transaction as the approval and emits this event through
+// the outbox, so the run is ended by the same delivery guarantee a rejection
+// has — rather than by a second loop somewhere that has to be kept in step.
+// Without the expired arm a staging nobody answered left its run in
+// requires_approval permanently, which AUTO-AC-10 expects to see as blocked.
 func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.Envelope) error {
 	if env.Type != "approval.decided" {
 		return nil
@@ -43,7 +52,8 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 			return fmt.Errorf("crmagents: approval.decided payload: %w", err)
 		}
 	}
-	if payload.Verdict != "rejected" {
+	reason, refused := runBlockedReasonFor(payload.Verdict)
+	if !refused {
 		return nil
 	}
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
@@ -53,8 +63,27 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 		return err
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
-	return e.MarkRunBlocked(wsCtx, approvalID,
-		"approval "+approvalID.String()+" was rejected by the deciding human")
+	return e.MarkRunBlocked(wsCtx, approvalID, "approval "+approvalID.String()+" "+reason)
+}
+
+// runBlockedReasonFor maps a verdict onto the run outcome it produces, and says
+// whether it produces one at all.
+//
+// A table rather than a condition, because the set is the decision: approved is
+// absent on purpose (the effect lands through redemption, not here), and a
+// verdict this build has not met yet blocks nothing rather than being guessed
+// at. The reason is the human-facing half of the run record, so it says which
+// kind of no it was — somebody reading run history needs to tell "a colleague
+// declined this" from "nobody ever looked".
+func runBlockedReasonFor(verdict string) (string, bool) {
+	switch verdict {
+	case "rejected":
+		return "was rejected by the deciding human", true
+	case "expired":
+		return "expired with nobody deciding it", true
+	default:
+		return "", false
+	}
 }
 
 // MarkRunBlocked lands the terminal 'blocked' outcome (with its reason)

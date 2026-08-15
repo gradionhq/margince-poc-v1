@@ -79,6 +79,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/ai:DueDeferredBuilds":                  "worker sweep: walks the fleet workspace-by-workspace for builds to re-offer, under the system principal — no human actor exists to gate",
 	"internal/modules/ai:RateFor":                            "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",
 	"internal/modules/ai:ServedTaskTotals":                   "aggregate of this installation's calls for compose/costestimate; returns counts and totals, never a record, so there is no row whose visibility a gate could decide",
+	"internal/modules/approvals:ExpireDue":                   "worker sweep (compose/jobs_approvalexpiry.go) under the system principal: it decides nothing a human could have decided — it records the refusal a CLOSED WINDOW already made, which is why the audit row names the clock and decided_by stays null. There is no actor to gate on, and gating on the caller would make expiry depend on who happened to run the tick",
 	"internal/modules/capture:AgeOutReviewTx":                "age-out sweep write inside the caller's transaction",
 	"internal/modules/capture:AwaitingReview":                "review-queue sweep (compose/captureverdictsweeps.go) under the system principal",
 	"internal/modules/capture:ClaimDue":                      "worker sweep (compose/captureverdict.go): claims due pending counterparties under the system principal; no request, no human actor",

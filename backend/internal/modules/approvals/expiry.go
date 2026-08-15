@@ -15,7 +15,13 @@ import "time"
 
 // stagingTTL bounds how long an unactioned staging stays approvable; a
 // week-old agent intention should be re-proposed against fresh state.
-const stagingTTL = 24 * time.Hour
+//
+// 72 hours is the spec's number (APPR-PARAM-1), and the three days matter for a
+// reason a day does not cover: a staging raised on Friday afternoon is read on
+// Monday morning. At 24h — what this was — a proposal made after lunch on Friday
+// had auto-rejected before anybody could have seen it, and the rejection is
+// silent, so the only evidence was work that quietly did not happen.
+const stagingTTL = 72 * time.Hour
 
 // ExpiresNever reports whether a kind's stagings are exempt from expiry.
 //
@@ -45,13 +51,25 @@ func ExpiresNever(kind string) bool { return noExpiryKinds[kind] }
 // So those kinds do not expire. The horizon is the subject's own: the card is
 // withdrawn when the message is answered (compose's ResolveHeldInTx) or decided
 // on directly, and until then the question is still live and still worth asking.
-func ttlFor(kind string) time.Duration {
+// override is the staging's own window, or nil to take the kind's. It is the
+// per-item half APPR-PARAM-1 pins beside the default: two stagings of one kind
+// can deserve different windows when the thing they are about does — a proposal
+// raised against a deal closing tomorrow is stale sooner than the same proposal
+// against one closing next quarter, and the kind cannot know which it is.
+//
+// A kind that never expires ignores it. The exemption is a property of the
+// SUBJECT, not a clock anybody may set: a caller who could pass a window for one
+// of those kinds would be re-introducing the cliff the exemption removes.
+func ttlFor(kind string, override *time.Duration) time.Duration {
 	if ExpiresNever(kind) {
 		// The column is NOT NULL and every other reader compares against it, so
 		// a non-expiring row still needs a value. It is never CONSULTED for
 		// these kinds — effectiveStatus skips the comparison — so this is a
 		// placeholder rather than a deadline, and moving it changes nothing.
 		return unusedExpiryPlaceholder
+	}
+	if override != nil && *override > 0 {
+		return *override
 	}
 	return stagingTTL
 }

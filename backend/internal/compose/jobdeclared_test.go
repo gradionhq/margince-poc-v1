@@ -514,4 +514,5 @@ var argsForKind = map[string]river.JobArgs{
 	WebhookRetryArgs{}.Kind():       WebhookRetryArgs{},
 	AgentSchedulerArgs{}.Kind():     AgentSchedulerArgs{},
 	AgentTaskRetentionArgs{}.Kind(): AgentTaskRetentionArgs{},
+	ApprovalExpiryArgs{}.Kind():     ApprovalExpiryArgs{},
 }

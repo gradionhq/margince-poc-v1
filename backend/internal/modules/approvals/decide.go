@@ -235,7 +235,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 		status, action, verdict = approvalStatusApproved, "approve", approvalStatusApproved
 	}
 	auditEvidence := map[string]any{
-		approvalKeyKind: a.Kind, "verdict": verdict, "reason": reason,
+		approvalKeyKind: a.Kind, "verdict": verdict, approvalKeyReason: reason,
 	}
 	decidedPayload := crmcontracts.PublicEventApprovalDecided{
 		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),

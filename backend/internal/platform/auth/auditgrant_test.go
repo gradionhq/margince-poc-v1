@@ -48,6 +48,7 @@ var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 // attributes them. Each carries the reason it needs none.
 var auditVerbNoGrant = gatekit.Waive(map[string]string{
 	"approve": "approvals writes its own decision row (approvals/service.go) without the authorization_rule column",
+	"expire":  "written only by the approval expiry sweep under the system principal (approvals/expiresweep.go): no human acted, so there is no grant that admitted it — the row records that a window closed, not that somebody was allowed to close it",
 	// Rule() renders the AUDITED entity, and this verb's only storekit writer
 	// audits voice_profile_version — not an RBAC policy object, so any rule it
 	// rendered would name a grant that cannot exist. The transition is really
