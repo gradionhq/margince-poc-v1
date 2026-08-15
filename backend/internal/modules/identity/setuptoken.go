@@ -75,6 +75,15 @@ const (
 	replaceOutstanding outstandingPolicy = true
 )
 
+// No audit_log or event_outbox row accompanies these writes, which is the one
+// place in this package the standard write shape does not reach. It is a schema
+// fact rather than a choice: audit_log.workspace_id, system_log.workspace_id and
+// the outbox are all tenant-scoped and NOT NULL, and a setup token exists BEFORE
+// the workspace it authorizes creating — there is no tenant to scope a record
+// to. What the lifecycle does leave behind is the boot log line announcing the
+// mint, and the system_log row the resulting claim writes inside the same
+// transaction as the organization, naming the human who presented the token.
+//
 // issueSetupToken is the whole rule both public entry points apply: under the
 // installation advisory lock, refuse a provisioned installation, settle what to
 // do about an outstanding credential, and record only the hash of a new one.
