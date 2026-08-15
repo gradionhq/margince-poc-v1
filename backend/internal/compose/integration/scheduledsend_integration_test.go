@@ -690,6 +690,34 @@ func TestAStaleAttemptDoesNotHoldAMessageTheRepJustRescheduled(t *testing.T) {
 	}
 }
 
+// An attempt can also fail BEFORE it claims the row — a begin error, a pool
+// timeout — and then it has no version to report. It must still not hold what
+// the rep has since rescheduled: a verdict from an attempt that never read the
+// row is a verdict about nothing, so the honest answer is to decline and let the
+// next alarm decide against the row that is actually there.
+//
+// The distinction is what activities.UnobservedVersion exists for. A refusal
+// reached before the fire path runs at all (a sender whose account is gone) may
+// hold on its own claim; a failed attempt may not, and sharing one sentinel
+// between them would let this case take that arm.
+func TestAnAttemptThatNeverReadTheRowDoesNotHoldARescheduledMessage(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.rescheduleTo(t, id, time.Now().Add(48*time.Hour))
+
+	// Zero: what FireScheduledSend reports when it died before claiming.
+	if err := p.holdAs(t, id, activities.HeldTimerExhausted, 0); err != nil {
+		t.Fatalf("the unobserved hold errored rather than declining: %v", err)
+	}
+
+	if status, reason := p.scheduledStatus(t, id); status != activities.ScheduledStatusScheduled {
+		t.Fatalf("a message reads %q/%q — an attempt that never read the row held it anyway",
+			status, reason)
+	}
+}
+
 // A message left scheduled with no live alarm is the one failure the send path
 // cannot see: nothing wakes it and nobody is told, because being told is what
 // the fire path does and the fire path never runs.

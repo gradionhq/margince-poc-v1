@@ -131,10 +131,14 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 // hold has made a newer decision, and stopping their fresh intention for a
 // reason about the older one would undo a choice they just made.
 //
-// Zero means the caller observed no version, so the claim taken here is the
-// observation and the hold proceeds against the row this transaction finds. A
-// wrongly-held row cannot be repaired by the recovery sweep — that sweep reads
-// only rows still `scheduled` — so the guard has to be right on the way in.
+// UnobservedVersion says the caller never read the row at all, so the claim
+// taken here is the observation. That is only honest for a caller that refuses
+// BEFORE the fire path runs — a sender whose account is already gone. A caller
+// whose attempt ran and failed must pass what it saw, INCLUDING the zero it
+// gets when the attempt died before claiming: zero then means "the row moved or
+// I never saw it", and either way this verdict is not about the row that is
+// there now. A wrongly-held row cannot be repaired by the recovery sweep, which
+// reads only rows still `scheduled`, so the guard has to be right on the way in.
 func (s *Store) HoldScheduledSend(ctx context.Context, id ids.UUID, reason string, observed int64) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		claimed, found, err := s.claimForFire(ctx, tx, id)
@@ -146,21 +150,28 @@ func (s *Store) HoldScheduledSend(ctx context.Context, id ids.UUID, reason strin
 			// Nothing to hold, and nothing wrong.
 			return nil
 		}
-		if observed == 0 {
-			// Nothing observed earlier, so this claim IS the observation: the
-			// row is locked, and holding what is locked cannot race a
+		if observed == UnobservedVersion {
+			// The row is locked, and holding what is locked cannot race a
 			// reschedule that has not happened yet.
 			return s.holdInTx(ctx, tx, id, reason)
 		}
 		if claimed.RowVersion != observed {
-			// Somebody moved it after the attempt read it. Their decision is
-			// the live one; this attempt's verdict is about a row that no
-			// longer exists in that form.
+			// Somebody moved it after the attempt read it, or the attempt never
+			// got far enough to see it. Either way the live row is not the one
+			// this verdict was reached about.
 			return nil
 		}
 		return s.holdInTx(ctx, tx, id, reason)
 	})
 }
+
+// UnobservedVersion is what a caller passes to HoldScheduledSend when it has
+// not read the row and cannot: a refusal reached before the fire path ever
+// claims it. It is deliberately not the zero value, so a caller that had an
+// attempt and lost its observation cannot reach this arm by accident — that
+// caller's zero is a failed observation, and holding on it would stop whatever
+// the row says now rather than what the attempt decided about.
+const UnobservedVersion int64 = -1
 
 // claimedSend is one scheduled row locked for firing.
 type claimedSend struct {
@@ -352,25 +363,29 @@ func holdReasonFor(err error) (string, bool) {
 // race safe rather than harmful, but a sweep that fights the normal path on
 // every pass is a sweep nobody can read the logs of.
 //
-// Bound to the caller's workspace like every other read here, which on this
-// product is the installation's one live organization (ADR-0061). An
-// installation-wide read would additionally reach rows belonging to an ARCHIVED
-// workspace — the tenant-scope sweep left those in place rather than deleting
-// them (core 0217) — and re-arming one transmits mail on behalf of an
-// organization somebody switched off.
+// The workspace is an EXPLICIT predicate, not the transaction's GUC. Binding
+// the transaction sets `app.workspace_id` and nothing more — RLS was retired
+// wholesale in core 0217, so no policy turns that binding into a filter, and a
+// query without the column in its WHERE reads every tenant on the installation.
+// This one has to be narrowed by hand:
 //
-// Being workspace-bound is also what keeps it cheap: this is exactly the shape
-// core 0242's idx_scheduled_send_due was built for, so it walks that partial
-// index in scheduled_at order and stops at the limit. Dropping the workspace
-// predicate would cost a sequential scan over every scheduled row.
+//   - an ARCHIVED workspace keeps its rows (0217 left them in place rather than
+//     deleting them), so an unfiltered sweep re-arms mail for an organization
+//     somebody switched off, and the fire path behind it does not catch that —
+//     it re-checks the sender's seat against app_user rows still active in that
+//     archived tenant.
+//   - it is also what keeps the read cheap: with the column present this is
+//     exactly the shape core 0242's idx_scheduled_send_due was built for, so it
+//     walks that partial index in scheduled_at order and stops at the limit.
+//     Without it, a sequential scan over every scheduled row on the installation.
 func (s *Store) OverdueScheduledSends(ctx context.Context, olderThan time.Duration, limit int) ([]ids.UUID, error) {
 	var out []ids.UUID
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id FROM scheduled_send
-			 WHERE status = 'scheduled' AND scheduled_at < $1
+			 WHERE workspace_id = $1 AND status = 'scheduled' AND scheduled_at < $2
 			 ORDER BY scheduled_at ASC
-			 LIMIT $2`, s.now().Add(-olderThan), limit)
+			 LIMIT $3`, storekit.MustWorkspace(ctx), s.now().Add(-olderThan), limit)
 		if err != nil {
 			return fmt.Errorf("scheduled send: finding messages nothing will wake: %w", err)
 		}

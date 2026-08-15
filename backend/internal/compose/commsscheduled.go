@@ -160,8 +160,9 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 		// The scheduler lost their account or their seat. Holding under a
 		// system scope, because the authority we would otherwise hold under is
 		// exactly the one that just failed to resolve.
-		// No observation: this refuses before the fire path ever claims the row.
-		if err := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldSenderInactive, 0); err != nil {
+		// No observation is possible: this refuses before the fire path ever
+		// claims the row, so the hold's own claim is the first read of it.
+		if err := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldSenderInactive, activities.UnobservedVersion); err != nil {
 			return jobs.FaultContext(ctx, err)
 		}
 		return nil
@@ -175,7 +176,10 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 			// human instead of going quiet.
 			// Bound to the version that attempt claimed under: a rep who
 			// rescheduled after the rollback has made a newer decision, and
-			// this ladder's verdict is about the row before theirs.
+			// this ladder's verdict is about the row before theirs. An attempt
+			// that died before claiming reports zero, which matches no row and
+			// so declines the hold — the right answer, because a verdict from
+			// an attempt that never read the row is about nothing.
 			if holdErr := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldTimerExhausted, outcome.Observed); holdErr != nil {
 				return jobs.FaultContext(ctx, errors.Join(err, holdErr))
 			}
