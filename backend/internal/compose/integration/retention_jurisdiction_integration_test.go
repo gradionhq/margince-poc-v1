@@ -42,8 +42,8 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-			VALUES (`+wsClause+`, 'activity', NULL, 100, 'erase')`); err != nil {
+			INSERT INTO retention_policy (object_type, category, retain_days, action)
+			VALUES ('activity', NULL, 100, 'erase')`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -87,7 +87,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

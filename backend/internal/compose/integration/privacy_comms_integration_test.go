@@ -478,8 +478,8 @@ func TestRetentionRedactsTheDeliveryOfAnAgedOutActivity(t *testing.T) {
 	e := Setup(t)
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'activity', NULL, 100, 'erase')`)
+			INSERT INTO retention_policy (object_type, category, retain_days, action)
+			VALUES ('activity', NULL, 100, 'erase')`)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -488,7 +488,7 @@ func TestRetentionRedactsTheDeliveryOfAnAgedOutActivity(t *testing.T) {
 	fresh := seedDelivery(t, e, "10 days", "This week's message", "still within the window", "sent", mailRecipientEmail, ids.UUID{})
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 

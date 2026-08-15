@@ -19,8 +19,8 @@ import (
 // catalog.
 func SeedDefaultRetentionTx(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action, lawful_basis)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, v.object_type, v.category, v.retain_days, v.action, 'storage_limitation'
+		INSERT INTO retention_policy (object_type, category, retain_days, action, lawful_basis)
+		SELECT v.object_type, v.category, v.retain_days, v.action, 'storage_limitation'
 		FROM (VALUES
 		  ('lead',     'unconverted',        365,  'anonymize'),
 		  ('activity', NULL,                 1095, 'archive'),

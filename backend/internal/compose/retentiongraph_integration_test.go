@@ -95,8 +95,8 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 	// nightly. retain_days is 1, and both are older than that.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO retention_policy (workspace_id, object_type, retain_days, action, enabled)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'activity', 1, 'archive', true)`)
+			INSERT INTO retention_policy (object_type, retain_days, action, enabled)
+			VALUES ('activity', 1, 'archive', true)`)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the retention policy: %v", err)
@@ -107,7 +107,7 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})
-	if err := svc.EvaluateWorkspace(retentionPassProvenance(e.Admin())); err != nil {
+	if err := svc.EvaluateInstallation(retentionPassProvenance(e.Admin())); err != nil {
 		t.Fatalf("running the retention sweep: %v", err)
 	}
 

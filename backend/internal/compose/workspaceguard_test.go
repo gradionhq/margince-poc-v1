@@ -222,9 +222,6 @@ func workspaceRefusalDrivers() map[string]func(context.Context) error {
 		FinanceSyncArgs{}.Kind(): func(ctx context.Context) error {
 			return (&financeSyncWorker{}).Work(ctx, &river.Job[FinanceSyncArgs]{})
 		},
-		PrivacyRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&privacyRetentionWorkspaceWorker{}).Work(ctx, &river.Job[PrivacyRetentionWorkspaceArgs]{})
-		},
 		ProviderRunPollArgs{}.Kind(): func(ctx context.Context) error {
 			return (&providerRunPollWorker{}).Work(ctx, &river.Job[ProviderRunPollArgs]{})
 		},

@@ -146,11 +146,11 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 	theirs := ids.NewV7().String()
 
 	seedRiverRow(t, e, riverRow{
-		kind: "privacy_retention_workspace", state: "discarded",
+		kind: "idempotency_retention_workspace", state: "discarded",
 		workspace: mine, attempt: 3, errorText: "the record this job names no longer exists",
 	})
 	seedRiverRow(t, e, riverRow{
-		kind: "privacy_retention_workspace", state: "available",
+		kind: "idempotency_retention_workspace", state: "available",
 		workspace: mine,
 	})
 	// Another tenant's dead work, of a DIFFERENT kind so its presence would
@@ -162,7 +162,7 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 	// A dispatcher: no workspace at all, and a kind the closed untenanted
 	// arm declares.
 	seedRiverRow(t, e, riverRow{
-		kind: "privacy_retention", state: "available",
+		kind: "idempotency_retention", state: "available",
 	})
 	// An untenanted row whose kind is NOT a declared dispatcher. The arm is
 	// fail-closed, so it must be omitted rather than shared with every admin.
@@ -173,7 +173,7 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 		t.Fatalf("GET /admin/job-health → %d, want 200", status)
 	}
 
-	i, ok := kindOf(report, "privacy_retention_workspace")
+	i, ok := kindOf(report, "idempotency_retention_workspace")
 	if !ok {
 		t.Fatalf("the caller's own failing kind is missing from %+v", report.Kinds)
 	}
@@ -196,7 +196,7 @@ func TestJobHealthReportsThisWorkspacesDeadWorkAndNotAnotherWorkspacesAnything(t
 			"closed against the declared dispatcher kinds, not open to every null")
 	}
 
-	d, ok := kindOf(report, "privacy_retention")
+	d, ok := kindOf(report, "idempotency_retention")
 	if !ok {
 		t.Fatal("the dispatcher is missing: a dispatcher that is not running means no " +
 			"workspace is being swept at all, which is what an admin comes here to see")

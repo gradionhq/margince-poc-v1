@@ -41,9 +41,9 @@ import (
 // jobActorUnbound: workers that predate this gate and bind no actor. Each
 // needs its own subsystem checked before it is changed — see #1127.
 var jobActorUnbound = gatekit.Waive(map[string]string{
-	"privacyRetentionWorkspaceWorker": "retention sweep; whether its writes are gated is #1127's question",
-	"timeScanWorkspaceWorker":         "automation time-scan; same audit",
-	"webhookRetryWorker":              "webhook delivery retry; same audit",
+	"privacyRetentionWorker":  "retention sweep; whether its writes are gated is #1127's question",
+	"timeScanWorkspaceWorker": "automation time-scan; same audit",
+	"webhookRetryWorker":      "webhook delivery retry; same audit",
 })
 
 // storeBuilders are the handle constructors a store is built on. A Work method

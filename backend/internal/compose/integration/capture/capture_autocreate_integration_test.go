@@ -243,8 +243,8 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 	t.Run("an erased address stays dead", func(t *testing.T) {
 		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			_, err := tx.Exec(context.Background(), `
-				INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-				VALUES ($1, 'email', $2)`, e.WS, storekit.SuppressionHash("dave@dead.example"))
+				INSERT INTO erasure_suppression (kind, value_hash)
+				VALUES ('email', $1)`, storekit.SuppressionHash("dave@dead.example"))
 			return err
 		})
 		if err != nil {

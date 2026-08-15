@@ -247,7 +247,7 @@ func TestRetentionAnonymizeAlsoRemovesProviderClaims(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

@@ -89,10 +89,10 @@ func TestDispatchWithEnqueuesNothingForAnEmptyFleet(t *testing.T) {
 // number typed at the call site can drift from the one api/jobs.yaml
 // publishes, and nothing would notice.
 func TestWorkspaceSweepOptsReadsTheDeclaredQueueAndAttempts(t *testing.T) {
-	opts := workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind())
+	opts := workspaceSweepOpts(IdempotencyRetentionWorkspaceArgs{}.Kind())
 
-	if opts.Queue != "privacy_retention" {
-		t.Errorf("Queue = %q, want the declared privacy_retention", opts.Queue)
+	if opts.Queue != "default" {
+		t.Errorf("Queue = %q, want the declared default", opts.Queue)
 	}
 	if opts.MaxAttempts != 3 {
 		t.Errorf("MaxAttempts = %d, want the declared 3 — unset, River's 25-rung ladder silently replaces the tick as the retry cadence",
@@ -101,7 +101,7 @@ func TestWorkspaceSweepOptsReadsTheDeclaredQueueAndAttempts(t *testing.T) {
 }
 
 func TestWorkspaceSweepOptsTagsEveryFanOutChild(t *testing.T) {
-	opts := workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind())
+	opts := workspaceSweepOpts(IdempotencyRetentionWorkspaceArgs{}.Kind())
 
 	if !slices.Contains(opts.Tags, jobs.SweepTag) {
 		t.Errorf("Tags = %v, want jobs.SweepTag — an untagged child is invisible to both sweep gauges", opts.Tags)

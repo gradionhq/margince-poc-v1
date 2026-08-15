@@ -384,8 +384,8 @@ func suppressChannelAccount(t *testing.T, e *integration.Env, account string) {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'channel_identity', $1)`,
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('channel_identity', $1)`,
 			storekit.ChannelIdentityHash(telegram.Provider, account))
 		return err
 	}); err != nil {
