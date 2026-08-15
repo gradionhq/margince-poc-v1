@@ -21,6 +21,7 @@ package compose
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"sync"
 
@@ -120,23 +121,30 @@ var composedChannelProviders struct {
 // vocabulary is empty while log_activity still demands a value from it. Silence
 // that reads as an answer is worse than an error.
 //
-// Reading the TABLE also makes the three columns 0252 adds load-bearing rather
+// Reading the TABLE also makes the three display columns load-bearing rather
 // than write-only, and it is correct with or without a reconcile: the migration
 // seeds every row this installation ships with, and a reconcile only refreshes
 // them.
 //
-// transport='core' is filtered deliberately. The column exists to separate a
-// core connector from an extension unit's declared channel, and a unit's
-// provider id is an operator's choice of what to install — the same operator
-// information GET /v1/extensions is admin-only for. This endpoint is readable by
-// every authenticated seat, so publishing a unit name here would be a
-// disclosure decision made by inheritance. The slice that gives a unit a channel
-// makes it deliberately.
+// EVERY registered transport is published, core and unit alike. The security
+// review raised whether a unit's provider id — an operator's choice of what to
+// install — should be visible to every authenticated seat, and the answer is
+// yes, decided rather than inherited: a member whose timeline shows a message
+// that arrived on a unit's channel needs to know what to call it, and hiding the
+// name would leave that row rendering a raw id for exactly the transports the
+// extension tier exists to add.
+//
+// What is gated is not the NAME but the ACT. Whether a member may send on a
+// transport is an RBAC question, answered by the object permissions a unit
+// registers as `ext_<unit>_<object>` (identity's policy) and by the send
+// pre-flight — not by hiding the transport's existence. Disclosure and
+// capability are separate axes, which is the same separation this whole arc is
+// about.
 func LoadChannelProviderDirectory(ctx context.Context, pool *pgxpool.Pool) error {
 	var registered []string
 	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT provider FROM channel_provider WHERE transport = 'core' ORDER BY provider`)
+			`SELECT provider FROM channel_provider ORDER BY provider`)
 		if err != nil {
 			return err
 		}
@@ -170,4 +178,29 @@ func ComposedChannelProviders() (registered, sending []string) {
 	composedChannelProviders.mu.RLock()
 	defer composedChannelProviders.mu.RUnlock()
 	return slices.Clone(composedChannelProviders.registered), slices.Clone(composedChannelProviders.sending)
+}
+
+// loadChannelProviderDirectoryOrLog fills the directory snapshot at server
+// assembly, for every role that serves /v1 and independent of whether this role
+// composed a capture registry — see LoadChannelProviderDirectory for why that
+// independence is load-bearing.
+//
+// A failure is logged rather than fatal: an installation that cannot read its
+// own transport labels still serves every other route, and the directory's own
+// empty answer is then the honest one. It is the SILENT empty this arc had to
+// fix, not an empty that was reported.
+//
+// A nil pool OR a nil logger is a unit-test wiring with no database and no
+// observability, which several route-level tests build directly; every other
+// dependency here already tolerates that shape the same way. Both are checked
+// because the two arrive independently — a test that supplies a pool and no
+// logger would otherwise panic on the reporting path rather than the reading
+// one, which is a confusing way to learn about a wiring gap.
+func loadChannelProviderDirectoryOrLog(pool *pgxpool.Pool, log *slog.Logger) {
+	if pool == nil || log == nil {
+		return
+	}
+	if err := LoadChannelProviderDirectory(context.Background(), pool); err != nil {
+		log.Error("compose: loading the transport directory", "err", err)
+	}
 }

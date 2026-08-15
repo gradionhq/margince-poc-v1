@@ -20,7 +20,7 @@ import (
 )
 
 func TestTheDirectoryAndTheRegistryDescribeTheSameTransports(t *testing.T) {
-	integration.Setup(t)
+	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	ctx := context.Background()
 
@@ -43,7 +43,15 @@ func TestTheDirectoryAndTheRegistryDescribeTheSameTransports(t *testing.T) {
 
 	// Served from the boot snapshot, which is what the handler reads — asserting
 	// against a fresh query instead would prove the query, not the endpoint.
-	published := publishedChannelProviders(ComposedChannelProviders())
+	//
+	// Loaded first, because the snapshot is filled at SERVER ASSEMBLY and this
+	// lane constructs no server: an unloaded snapshot would make this test
+	// report the very emptiness it exists to refuse.
+	if err := LoadChannelProviderDirectory(ctx, e.Pool); err != nil {
+		t.Fatalf("loading the directory: %v", err)
+	}
+	registered, sending := ComposedChannelProviders()
+	published := publishedChannelProviders(registered, sending)
 	if len(published) == 0 {
 		t.Fatal("the directory published nothing; every member's timeline would render raw provider ids")
 	}
@@ -69,8 +77,8 @@ func TestTheDirectoryAndTheRegistryDescribeTheSameTransports(t *testing.T) {
 }
 
 // The label the MIGRATION seeds and the label the boot reconcile writes are two
-// spellings of one fact, and 0252's own comment promises this test holds them
-// together. They can only disagree for providers where title-casing the id is
+// spellings of one fact, and the migration that adds the column promises this
+// test holds them together. They can only disagree for providers where title-casing the id is
 // wrong — which is exactly why the exception exists, and exactly why it is the
 // pair most likely to drift.
 func TestTheSeededLabelMatchesTheOneBootWrites(t *testing.T) {
