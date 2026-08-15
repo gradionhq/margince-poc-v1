@@ -477,6 +477,36 @@ kinds:
       may run the connector's prior-send lookup, and then transmits — four
       network round trips, each of which can be slow before it is wrong.
 
+  comms_scheduled_send_recovery:
+    role: worker
+    go_type: ScheduledSendRecoveryArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 15m
+    registration: {when: [SendRegistry, SendDelivery], absent: registers_nothing}
+    args: {}
+    fault:
+      nil_after_logging: >-
+        A batch of independent messages, and one that cannot be re-armed must
+        not strand the others: the pass logs that message and carries on. The
+        retry policy is the CADENCE — this runs every 15 minutes and re-reads
+        what is still overdue, so a message that failed here is picked up by the
+        next pass without the ladder having to remember it. Failing the whole
+        job instead would re-run the messages that already succeeded, and a
+        permanently unreadable row would then block every other recovery behind
+        it forever. What the cadence cannot heal is a row that fails
+        deterministically, so the summary line carries a `failed` count: a
+        number that stays non-zero across passes is the signal that no amount of
+        re-running will fix that message.
+    reason: >-
+      The one pass that can find a message nothing will ever wake. A scheduled
+      row is armed by a River job and by nothing else, so a job discarded after
+      exhausting its attempts — a database outage across the whole ladder is the
+      real case — leaves the row scheduled with no timer and nobody told. This
+      re-arms those rows. Cheap: one indexed read of overdue rows, and on a
+      healthy installation it finds nothing.
+
   comms_scheduled_send:
     role: worker
     go_type: ScheduledSendArgs
