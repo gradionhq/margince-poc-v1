@@ -2,11 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Card } from "../design-system/atoms";
+import { Card, StatCard } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Meter } from "../design-system/readings";
+import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
-import "./license.css";
 import { problemMessage, QueryGate } from "./common";
 
 // The entitlement surface: what the license grants, and how many seats are using
@@ -14,15 +14,19 @@ import { problemMessage, QueryGate } from "./common";
 // from the deployment file at boot, so an operator changes their entitlement by
 // changing the deployment, not by typing into a form.
 //
-// Three states the server distinguishes, and the meter has to as well:
+// Three states the server distinguishes, and the reading has to as well:
 //
-//   valid, with a seat count   the meter reads used / granted
-//   valid, with no seat count  a license that caps nothing: no meter at all
+//   valid, with a seat count   the strip reads used beside granted, then a meter
+//   valid, with no seat count  a license that caps nothing: a count, no meter
 //   absent                     no license configured; nothing to measure against
 //
 // The middle case is why `seats_granted` is nullable rather than zero, and why
-// this screen renders the count on its own instead of a meter against it: a bar
-// filled against a limit nobody set would invent the limit.
+// the granted slot says "no limit" instead of a number: a meter filled against a
+// limit nobody set would invent the limit.
+//
+// A strip rather than two cards, because the two numbers are ONE comparison —
+// used against granted is the whole question this screen answers, and cards are
+// read one at a time.
 //
 // Over the limit is REPORTED, never enforced. The workspace keeps working — P7's
 // warning-then-grace, not a silent mid-month lockout — so the notice says what is
@@ -52,7 +56,9 @@ export function LicenseCard() {
   );
 }
 
-function LicenseReading({
+// Exported for its story: the states worth looking at are states of the READING,
+// and a story that had to stub a query to reach them would be testing the fetch.
+export function LicenseReading({
   entitlement,
 }: Readonly<{ entitlement: LicenseEntitlement }>) {
   const t = useT();
@@ -90,32 +96,28 @@ function LicenseReading({
           })}
         </Callout>
       )}
-      <dl className="license-reading">
-        <div>
-          <dt>{t("license.seats.used")}</dt>
-          <dd>{entitlement.seats_used}</dd>
-        </div>
-        {capped ? (
-          <div>
-            <dt>{t("license.seats.granted")}</dt>
-            <dd>{granted}</dd>
-          </div>
-        ) : (
+      <StatStrip>
+        <StatCard
+          label={t("license.seats.used")}
+          value={String(entitlement.seats_used)}
+          // The slot itself is the bad news when the count is past the grant, so
+          // `alert` rather than `tone`, which would only colour the figure.
+          alert={entitlement.over_limit}
+        />
+        <StatCard
+          label={t("license.seats.granted")}
           // Absent, not zero, and it says which absence it is: an unlicensed
           // installation and a license that caps nothing both have no number
           // here, and only the first is something an admin might want to change.
-          <div>
-            <dt>{t("license.seats.granted")}</dt>
-            <dd>{t("license.seats.uncapped")}</dd>
-          </div>
-        )}
-      </dl>
+          value={capped ? String(granted) : t("license.seats.uncapped")}
+        />
+      </StatStrip>
       {capped && (
         <Meter
           value={entitlement.seats_used}
           max={granted}
-          // A role="meter" takes no accessible name from its surroundings, so the
-          // reading is named here rather than by the term above it.
+          // A role="meter" takes no accessible name from the slots beside it, so
+          // the reading is named here rather than by the label above it.
           label={t("license.meter.label", {
             used: String(entitlement.seats_used),
             granted: String(granted),
