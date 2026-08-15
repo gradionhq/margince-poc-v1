@@ -184,7 +184,7 @@ func readContract(ctx context.Context, tx pgx.Tx, id ids.ContractID, asOf time.T
 	idPos := arg(id)
 	asOfPos := arg(asOf)
 
-	scope, err := visibleClause(ctx, "", arg)
+	scope, err := VisibleClause(ctx, "", arg)
 	if err != nil {
 		return crmcontracts.Contract{}, err
 	}

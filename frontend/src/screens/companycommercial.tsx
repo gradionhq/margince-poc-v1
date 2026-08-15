@@ -6,7 +6,7 @@ import { navigate } from "../app/router";
 import { Badge } from "../design-system/atoms";
 import { PanelBody } from "../design-system/panel";
 import { formatDate, formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import { throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 
@@ -15,20 +15,20 @@ import { RECORD_ZONE } from "./company360";
 // content inside that Panel (the `extra` slot on `DealsCard`), not a card of
 // its own with a duplicate deal list under a different heading.
 //
-// ONE BLOCK, NOT the contract-plus-renewal pair the mockup draws. Margince
-// has no concept of a contract: nothing stores a contract value, a contract
-// number or a renewal date, so that block would have to be invented. Deriving
-// it from an accepted offer was considered and refused — an accepted offer is
-// not a signed contract, it carries no renewal date, and calling one the
-// other is the kind of small lie that costs the reader trust in every other
-// figure on the page.
-//
-// Contracts as a real record is worth building and is its own feature; it is
-// raised upstream rather than faked here.
+// TWO blocks now: what we last put in front of this account, and what it is
+// already under contract for (ADR-0109/A160). The second used to be absent
+// because nothing stored a contract, and deriving it from an accepted offer was
+// refused — an accepted offer is not a signed agreement and carries no renewal
+// date, and calling one the other is the small lie that costs a reader trust in
+// every other figure on the page. The record exists now, so the block reports
+// it instead.
 
 type Organization360 = components["schemas"]["Organization360"];
 type Deal = NonNullable<Organization360["deals"]>["data"][number];
 type Offer = components["schemas"]["Offer"];
+type ContractStrip = NonNullable<
+  NonNullable<Organization360["state_strip"]>["contracts"]
+>;
 
 /**
  * CompanyLastOffer is the `extra` handed into the Deals tab's `DealsCard`
@@ -164,3 +164,116 @@ const OFFER_TONE: Record<
   expired: "warn",
   superseded: undefined,
 };
+
+/**
+ * CompanyContractState is what the account is under contract for: the block the
+ * mockup asks for, drawn from the state strip rather than a read of its own.
+ *
+ * TWO FIGURES, NEVER ONE. A three-year total and a per-year figure span
+ * different periods, so a single number covering both would describe nothing.
+ * Each is drawn only when the server sent it, and each is labelled with which
+ * kind of figure it is — the server keeps them apart for the same reason.
+ *
+ * A pending cancellation reads as still under contract with an end date,
+ * because that is what a notice period is. Rendering it as though the customer
+ * had already gone would be wrong on the one day the reader most needs it right.
+ */
+export function CompanyContractState({
+  view,
+}: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const contracts = view?.state_strip?.contracts;
+
+  // Absent means the reader has no contract grant — a different fact from an
+  // account with no agreements, and not this block's to report. The section
+  // simply is not here, rather than saying "none".
+  if (!contracts) {
+    return null;
+  }
+  if (contracts.active_count === 0) {
+    return (
+      <PanelBody className="com-block">
+        <span className="t-caption">{t("contracts.state.none")}</span>
+      </PanelBody>
+    );
+  }
+
+  return (
+    <PanelBody className="com-block">
+      <span className="t-caption">
+        {t("contracts.state.title", { count: contracts.active_count })}
+      </span>
+      <span className="co-row-meta">
+        {contractValues(contracts, locale, (amount) =>
+          t("contracts.perYear", { amount }),
+        ).map((value) => (
+          <span key={value}>{value}</span>
+        ))}
+        {contracts.priced_count != null &&
+          contracts.priced_count < contracts.active_count && (
+            <span className="t-caption">
+              {t("contracts.state.partial", {
+                priced: contracts.priced_count,
+                total: contracts.active_count,
+              })}
+            </span>
+          )}
+        {contracts.cancellation_pending &&
+          contracts.cancellation_effective_on && (
+            <Badge tone="warn">
+              {t("contracts.state.endsOn", {
+                when: formatDate(
+                  contracts.cancellation_effective_on,
+                  locale,
+                  RECORD_ZONE,
+                ),
+              })}
+            </Badge>
+          )}
+        {contracts.nearest_renewal_on && (
+          <span>
+            {t("contracts.state.renewsOn", {
+              when: formatDate(
+                contracts.nearest_renewal_on,
+                locale,
+                RECORD_ZONE,
+              ),
+            })}
+          </span>
+        )}
+      </span>
+    </PanelBody>
+  );
+}
+
+// The account's contracted value, as one or two labelled figures.
+//
+// The two bases are never added together and never rendered as a bare number:
+// a reader who cannot tell a three-year total from a per-year figure has been
+// handed a number they will misuse. Exported for its own test, because getting
+// this wrong is a wrong figure presented as a fact about the account.
+export function contractValues(
+  contracts: ContractStrip,
+  locale: Locale,
+  perYear: (amount: string) => string,
+): readonly string[] {
+  const currency = contracts.base_currency;
+  if (!currency) {
+    return [];
+  }
+  const figures: string[] = [];
+  if (contracts.total_basis_value_minor_base != null) {
+    figures.push(
+      formatMoney(contracts.total_basis_value_minor_base, currency, locale),
+    );
+  }
+  if (contracts.annualized_value_minor_base != null) {
+    figures.push(
+      perYear(
+        formatMoney(contracts.annualized_value_minor_base, currency, locale),
+      ),
+    );
+  }
+  return figures;
+}

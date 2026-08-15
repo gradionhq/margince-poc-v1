@@ -46,11 +46,16 @@ type AttachmentInput struct {
 	Filename    string
 	ContentType string
 	Body        []byte
+	// ContractID files this document against one agreement (ADR-0109). A
+	// roll-up like the account column beside it, not a second parent: the
+	// primary entity still owns the file's visibility.
+	ContractID *ids.UUID
 }
 
 const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
 	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status,
-	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id`
+	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id,
+	at.contract_id`
 
 // attachmentSource marks how the row was captured; a direct upload is "upload".
 const attachmentSource = "upload"
@@ -103,7 +108,10 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 		return crmcontracts.Attachment{}, err
 	}
 	if err := s.tx(ctx, func(tx pgx.Tx) error {
-		return ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID)
+		if err := ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
+			return err
+		}
+		return ensureContractFileable(ctx, tx, in.ContractID)
 	}); err != nil {
 		return crmcontracts.Attachment{}, err
 	}
@@ -124,6 +132,14 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	var out crmcontracts.Attachment
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// Re-checked HERE, in the transaction that writes the column. The
+		// pre-flight check above runs before the bytes are stored, so an
+		// agreement archived or re-anchored during the upload would otherwise
+		// still receive the document — the row commits against a contract the
+		// caller can no longer see.
+		if err := ensureContractFileable(ctx, tx, in.ContractID); err != nil {
+			return err
+		}
 		rollUp, hasAccount, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
 		if err != nil {
 			return err
@@ -135,11 +151,11 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
 				content_type, byte_size, storage_key, checksum, source, captured_by,
-				organization_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+				organization_id, contract_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
 			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
-			account); err != nil {
+			account, in.ContractID); err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
@@ -362,10 +378,11 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		docState    string
 		supersedes  *ids.UUID
 		orgID       *ids.UUID
+		contractID  *ids.UUID
 	)
 	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
 		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus,
-		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID); err != nil {
+		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID, &contractID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return crmcontracts.Attachment{}, apperrors.ErrNotFound
 		}
@@ -386,6 +403,7 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	att.DocState = &state
 	att.SupersedesId = uuidOrNil(supersedes)
 	att.OrganizationId = uuidOrNil(orgID)
+	att.ContractId = uuidOrNil(contractID)
 	return att, nil
 }
 
@@ -406,6 +424,42 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ensureContractFileable refuses a contract reference the uploader may not see.
+//
+// Naming a contract is a read of it, so an uploader who cannot see the
+// agreement cannot file paper against it — otherwise the upload is an existence
+// oracle, and the document lands under an agreement its owner never chose. A
+// contract has no owner column, so its visibility is inherited from the deal it
+// came from or its organization; the contracts module owns that rule and this
+// asks the same question by joining through it.
+//
+// Nil is the ordinary case: most client paper is about no particular agreement.
+func ensureContractFileable(ctx context.Context, tx pgx.Tx, contractID *ids.UUID) error {
+	if contractID == nil {
+		return nil
+	}
+	if err := auth.Require(ctx, "contract", principal.ActionRead); err != nil {
+		return err
+	}
+	var dealID *ids.UUID
+	var orgID ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT deal_id, organization_id FROM contract WHERE id = $1 AND archived_at IS NULL`,
+		*contractID).Scan(&dealID, &orgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Absent, archived, or invisible all answer the same way: a contract
+		// the caller cannot reach does not exist as far as they are concerned.
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("resolving the contract a document is filed against: %w", err)
+	}
+	if dealID != nil {
+		return auth.EnsureLinkTarget(ctx, tx, "deal", *dealID)
+	}
+	return auth.EnsureLinkTarget(ctx, tx, "organization", orgID)
 }
 
 // accountRollUp resolves the account a newly filed attachment belongs to, which

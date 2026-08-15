@@ -24,10 +24,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
-// visibleClause renders the SQL predicate that admits the contracts this
+// VisibleClause renders the SQL predicate that admits the contracts this
 // caller may see, for a contract row under the given alias. It returns the
 // empty string for an unbounded caller, exactly as the shared row-scope
 // helpers do, so a caller composes it the same way.
+//
+// Exported because the company overview aggregates contract VALUES, and an
+// aggregate that skips this predicate leaks through its total: a reader learns
+// what a colleague's agreements are worth without ever being able to open one.
+// One spelling, so the list and the headline cannot drift apart.
 //
 // Both arms require a LIVE anchor. An archived deal keeps its foreign key and
 // its grants, so without the filter a contract would stay readable — and
@@ -39,7 +44,7 @@ import (
 // NOT also admitted by its organization — the deal is the narrower claim, and
 // widening to the company would hand a caller agreements attached to deals
 // they cannot see.
-func visibleClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+func VisibleClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	dealScope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
 	if err != nil {
 		return "", err

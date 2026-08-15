@@ -11202,9 +11202,12 @@ type Attachment struct {
 	Category *AttachmentCategory `json:"category,omitempty"`
 
 	// Checksum sha256 of the bytes, for integrity/dedupe.
-	Checksum    *string   `json:"checksum,omitempty"`
-	ContentType *string   `json:"content_type,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	Checksum    *string `json:"checksum,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+
+	// ContractId The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up as organization_id above, and just as deliberately not a second parent. Set at upload by the person filing the paper; never inferred from a filename or a date, which is the guess the document state exists to refuse.
+	ContractId *openapi_types.UUID `json:"contract_id,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
 
 	// DocState ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
 	DocState   *AttachmentDocState  `json:"doc_state,omitempty"`
@@ -15672,6 +15675,33 @@ type Organization360StateStrip struct {
 		PricedCount  int `json:"priced_count"`
 		StalledCount int `json:"stalled_count"`
 	} `json:"commercial,omitempty"`
+
+	// Contracts What this account is under contract for. Null when the caller has no contract grant — gated independently of `commercial` above, because a role may read the pipeline and not the agreements behind it, and a zero would answer a question this reader has no standing to ask.
+	Contracts *struct {
+		// ActiveCount How many agreements are under contract today (CONTRACT-FORM-1) — the derived reading, not a status count.
+		ActiveCount int `json:"active_count"`
+
+		// AnnualizedValueMinorBase The summed value of the active agreements recorded as ANNUALIZED, kept apart from the total-basis figure above and NEVER added to it (ADR-0109 §5). A three-year total and a per-year figure span different periods, so one number covering both would describe nothing. A surface holding both shows both.
+		AnnualizedValueMinorBase *int `json:"annualized_value_minor_base,omitempty"`
+
+		// BaseCurrency The ISO-4217 currency both sums are expressed in. Travels with the figures; null whenever they are.
+		BaseCurrency *string `json:"base_currency,omitempty"`
+
+		// CancellationEffectiveOn The soonest cancellation effective date among the active agreements; null when none is pending.
+		CancellationEffectiveOn *openapi_types.Date `json:"cancellation_effective_on,omitempty"`
+
+		// CancellationPending True when an active agreement has notice recorded and its effective date has not arrived. The customer is still under contract — that is what a notice period is — and the card says so rather than reading as though they left.
+		CancellationPending bool `json:"cancellation_pending"`
+
+		// NearestRenewalOn The soonest renewal date among the active agreements; null when none names one.
+		NearestRenewalOn *openapi_types.Date `json:"nearest_renewal_on,omitempty"`
+
+		// PricedCount How many of `active_count` contributed to either sum. A lower number means the figures cover part of the account, and the page says so.
+		PricedCount *int `json:"priced_count,omitempty"`
+
+		// TotalBasisValueMinorBase The summed value of the active agreements recorded as a TOTAL, in base-currency minor units. Null when none carries a convertible figure — distinct from zero, which would claim agreements worth nothing.
+		TotalBasisValueMinorBase *int `json:"total_basis_value_minor_base,omitempty"`
+	} `json:"contracts,omitempty"`
 
 	// Engagement Null when the caller has no activity grant — not assessed, as distinct from never contacted.
 	Engagement *struct {
@@ -20525,6 +20555,8 @@ type ListAttachmentsParamsEntityType string
 
 // UploadAttachmentMultipartBody defines parameters for UploadAttachment.
 type UploadAttachmentMultipartBody struct {
+	// ContractId The agreement this document is about (CONTRACT-DDL-5). Optional: most client paper is about no particular agreement.
+	ContractId *openapi_types.UUID                     `json:"contract_id,omitempty"`
 	EntityId   openapi_types.UUID                      `json:"entity_id"`
 	EntityType UploadAttachmentMultipartBodyEntityType `json:"entity_type"`
 	File       openapi_types.File                      `json:"file"`
@@ -21950,6 +21982,9 @@ type ListOrganizationDocumentsParams struct {
 	Category   *ListOrganizationDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
 	DocState   *ListOrganizationDocumentsParamsDocState `form:"doc_state,omitempty" json:"doc_state,omitempty"`
 	PinnedOnly *bool                                    `form:"pinned_only,omitempty" json:"pinned_only,omitempty"`
+
+	// ContractId Only the paper filed against this agreement (CONTRACT-DDL-5).
+	ContractId *openapi_types.UUID `form:"contract_id,omitempty" json:"contract_id,omitempty"`
 }
 
 // ListOrganizationDocumentsParamsCategory defines parameters for ListOrganizationDocuments.
@@ -42088,6 +42123,19 @@ func (siw *ServerInterfaceWrapper) ListOrganizationDocuments(w http.ResponseWrit
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pinned_only"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pinned_only", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "contract_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "contract_id", r.URL.Query(), &params.ContractId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "contract_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contract_id", Err: err})
 		}
 		return
 	}

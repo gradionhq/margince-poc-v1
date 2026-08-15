@@ -148,6 +148,19 @@ func (a *assembly) readStateStrip() error {
 			strip.Commercial.NextCloseOn = &openapi_types.Date{Time: *in.open.NextCloseOn}
 		}
 	}
+	if in.contracts {
+		strip.Contracts = new(struct {
+			ActiveCount              int                 `json:"active_count"`
+			AnnualizedValueMinorBase *int                `json:"annualized_value_minor_base,omitempty"`
+			BaseCurrency             *string             `json:"base_currency,omitempty"`
+			CancellationEffectiveOn  *openapi_types.Date `json:"cancellation_effective_on,omitempty"`
+			CancellationPending      bool                `json:"cancellation_pending"`
+			NearestRenewalOn         *openapi_types.Date `json:"nearest_renewal_on,omitempty"`
+			PricedCount              *int                `json:"priced_count,omitempty"`
+			TotalBasisValueMinorBase *int                `json:"total_basis_value_minor_base,omitempty"`
+		})
+		fillContractStrip(strip.Contracts, in.contractStrip)
+	}
 	// The worst thing standing open, or nothing. Null covers BOTH "no signal"
 	// and "you may not read signals" on purpose: a strip that said "nothing is
 	// wrong" to someone who cannot look would be answering a question it has
