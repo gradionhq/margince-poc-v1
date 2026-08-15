@@ -37,6 +37,13 @@ import (
 func TestNewCollectionsStoreCarriesTheFieldCatalogSeam(t *testing.T) {
 	store := NewCollectionsStore(nil)
 	catalog := reflect.ValueOf(store).Elem().FieldByName("catalog")
+	// FieldByName answers the zero Value for a name it cannot find, and IsNil
+	// panics on that — so without this the diagnostic below is replaced by a
+	// stack trace in exactly the case it was written for, a renamed field.
+	if !catalog.IsValid() {
+		t.Fatal("collections.Store carries no catalog field — this test reflects on a " +
+			"name that no longer exists, so the wiring it gates is now ungated")
+	}
 	if catalog.IsNil() {
 		t.Fatal("NewCollectionsStore built a store with no field catalog seam at all — " +
 			"every caller of this constructor would refuse a cf_* filter another accepts")

@@ -31,9 +31,11 @@ import (
 var _ fieldcatalog.Reader = (*customfieldsmod.Service)(nil)
 
 // var _ fieldcatalog.FilterableReader documents the same seam for the FILTER
-// vocabulary. No consumer is wired to this port yet, which makes this line
-// the only thing in the tree that would catch the two drifting apart until
-// one is.
+// vocabulary — the columns a filter may name, retired ones included, which is
+// a different question from the ones a record store may write. collections
+// consumes it through WithFieldCatalog, so a drift would surface there too;
+// this line names the obligation at the implementation rather than leaving it
+// to whichever consumer happens to compile first.
 var _ fieldcatalog.FilterableReader = (*customfieldsmod.Service)(nil)
 
 func columnNames(cols []fieldcatalog.Column) []string {
