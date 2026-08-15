@@ -11,21 +11,25 @@ import { isOption } from "../app/options";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   Field,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
-import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
-import type { Budget, SyncStatus } from "./overlay-health";
-import { converged, OverlayLiveSection } from "./overlay-health";
+import { problemCodeOf, problemMessageOf, throwProblem, useMe } from "./common";
+import {
+  converged,
+  OverlayLiveActions,
+  OverlayLiveSection,
+} from "./overlay-health";
+import "./overlay.css";
 
 // The overlay card (Settings → Integrations): the incumbent connection
 // lifecycle plus the two health reads the backend already serves. Every
@@ -82,10 +86,17 @@ const STATUS_LABEL: Record<ConnectionStatus, MessageKey> = {
 // this form's own submit.
 function OverlayConnectForm({
   canConnect,
+  rolesKnown,
   reconnect,
   onRequestConfirm,
 }: Readonly<{
   canConnect: boolean;
+  // Whether the /me probe has ANSWERED. `canConnect` fails closed while the
+  // probe is in flight, so branching on it alone flashed "this is admin-only"
+  // at an admin on every single load of this tab — the neighbouring webhooks
+  // card has gated on the probe since it was written, and these two cards sat
+  // on the same page making opposite decisions about the same question.
+  rolesKnown: boolean;
   reconnect: boolean;
   onRequestConfirm: (region: Region, token: string) => void;
 }>) {
@@ -93,7 +104,12 @@ function OverlayConnectForm({
   const [region, setRegion] = useState<Region>("eu1");
   const [token, setToken] = useState("");
   if (!canConnect) {
-    return <p className="t-small">{t("overlay.adminOnly")}</p>;
+    // Nothing at all until the probe answers: an unknown grant is not a denial,
+    // and saying so before we know is a false statement the reader then has to
+    // watch retract itself.
+    return rolesKnown ? (
+      <p className="t-small">{t("overlay.adminOnly")}</p>
+    ) : null;
   }
   const ready = token.trim() !== "";
   return (
@@ -134,7 +150,7 @@ function OverlayConnectForm({
           />
         )}
       </Field>
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+      <div className="overlay-facts">
         <Button small variant="primary" type="submit" disabled={!ready}>
           <Plug aria-hidden />{" "}
           {reconnect ? t("overlay.reconnect") : t("overlay.connect")}
@@ -153,14 +169,7 @@ function ConnectionSummary({
 }: Readonly<{ connection: Connection; locale: Locale }>) {
   const t = useT();
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: "var(--space-2)",
-        alignItems: "center",
-        flexWrap: "wrap",
-      }}
-    >
+    <div className="overlay-facts">
       <Badge tone={STATUS_TONE[connection.status]}>
         {t(STATUS_LABEL[connection.status])}
       </Badge>
@@ -176,67 +185,102 @@ function ConnectionSummary({
   );
 }
 
-// The full "a connection exists" body (summary + revoked reconnect + live
-// health/actions) — split out of OverlayCard purely to keep that function's
-// branch count under the cognitive-complexity gate.
+// The padded half of a card whose connection exists: what the connection IS,
+// and the reconnect form a revoked one offers. The live health readings are the
+// panel's plate and the verbs are its action band, both handed to Panel by
+// OverlayCard — split out here purely to keep that function's branch count
+// under the cognitive-complexity gate.
 function ConnectedBody({
   connection,
   locale,
   canConnect,
-  canReconcile,
-  canDisconnect,
-  live,
-  sync,
-  budget,
+  rolesKnown,
+  sub,
   onReconnectRequest,
-  onReconcile,
-  reconcilePending,
-  reconcileQueued,
-  reconcileError,
-  onDisconnect,
 }: Readonly<{
   connection: Connection;
   locale: Locale;
   canConnect: boolean;
-  canReconcile: boolean;
-  canDisconnect: boolean;
-  live: boolean;
-  sync: QueryLike<SyncStatus>;
-  budget: QueryLike<Budget>;
+  rolesKnown: boolean;
+  // The card's own sentence, rendered HERE rather than in a body of its own:
+  // two stacked PanelBodies pay the panel's inner interval twice, and the gap
+  // read as a missing element between the sentence and the connection it
+  // describes.
+  sub: string;
   onReconnectRequest: (region: Region, token: string) => void;
-  onReconcile: () => void;
-  reconcilePending: boolean;
-  reconcileQueued: boolean;
-  reconcileError: string | null;
-  onDisconnect: () => void;
 }>) {
   return (
-    <>
+    <PanelBody>
+      <p className="t-caption">{sub}</p>
       <ConnectionSummary connection={connection} locale={locale} />
       {connection.status === "revoked" && (
-        <div style={{ marginTop: "var(--space-3)" }}>
+        <div className="overlay-connect">
           <OverlayConnectForm
             canConnect={canConnect}
+            rolesKnown={rolesKnown}
             reconnect
             onRequestConfirm={onReconnectRequest}
           />
         </div>
       )}
-      {live && (
-        <OverlayLiveSection
-          sync={sync}
-          budget={budget}
-          locale={locale}
-          canReconcile={canReconcile}
-          canDisconnect={canDisconnect}
-          onReconcile={onReconcile}
-          reconcilePending={reconcilePending}
-          reconcileQueued={reconcileQueued}
-          reconcileError={reconcileError}
-          onDisconnect={onDisconnect}
-        />
+    </PanelBody>
+  );
+}
+
+// Everything the card shows BEFORE a connection exists: the three states a
+// first read can land in, and — when it lands on "never connected" — the form
+// that makes one.
+//
+// The form is not inside an EmptyState any more. `.empty` is `text-align:
+// center; font-size: 13px; color: --textMeta`, which is the right chrome for a
+// sentence and the wrong chrome for a dropdown, a password field, two field
+// labels and a submit: the one form on this tab that binds an entire incumbent
+// CRM was rendering centred, small and grey, reading as a caption about a form
+// rather than as the form.
+function UnconnectedBody({
+  query,
+  canConnect,
+  rolesKnown,
+  sub,
+  onConnectRequest,
+}: Readonly<{
+  query: QueryLike<Connection | null>;
+  canConnect: boolean;
+  rolesKnown: boolean;
+  sub: string;
+  onConnectRequest: (region: Region, token: string) => void;
+}>) {
+  const t = useT();
+  const notConfigured =
+    query.isError && problemCodeOf(query.error) === "not_implemented";
+  return (
+    <PanelBody>
+      <p className="t-caption">{sub}</p>
+      {query.isPending && <p className="t-small">{t("overlay.loading")}</p>}
+      {notConfigured && (
+        <EmptyState>
+          <p>{t("overlay.notConfigured")}</p>
+        </EmptyState>
       )}
-    </>
+      {query.isError && !notConfigured && (
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(query.error, t, t("overlay.loadFailed"))}
+        </Callout>
+      )}
+      {!query.isPending && !query.isError && (
+        <>
+          <p className="t-small">{t("overlay.empty")}</p>
+          <div className="overlay-connect">
+            <OverlayConnectForm
+              canConnect={canConnect}
+              rolesKnown={rolesKnown}
+              reconnect={false}
+              onRequestConfirm={onConnectRequest}
+            />
+          </div>
+        </>
+      )}
+    </PanelBody>
   );
 }
 
@@ -250,6 +294,10 @@ export function OverlayCard() {
   const canConnect = useCanWrite("overlay_connection", "create");
   const canReconcile = useCanWrite("overlay_connection", "update");
   const canDisconnect = useCanWrite("overlay_connection", "delete");
+  // The probe itself, not just its answer: every grant above reads false while
+  // /me is in flight, so a branch on their absence alone flashes "admin only"
+  // at an admin on every load.
+  const me = useMe();
   const queryClient = useQueryClient();
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   // Connect/reconnect is confirm-first (same posture as Disconnect below):
@@ -378,59 +426,59 @@ export function OverlayCard() {
     },
   });
 
-  const notConfigured =
-    connection.isError && problemCodeOf(connection.error) === "not_implemented";
-  const loadFailed = connection.isError && !notConfigured;
+  const connected = connection.data ?? null;
+  const rolesKnown = !me.isPending;
 
   return (
-    <Card>
-      <SectionHeader title={t("overlay.title")} sub={t("overlay.sub")} />
-      {connection.isPending && (
-        <p className="t-small">{t("overlay.loading")}</p>
-      )}
-      {notConfigured && (
-        <EmptyState>
-          <p>{t("overlay.notConfigured")}</p>
-        </EmptyState>
-      )}
-      {loadFailed && (
-        <p className="t-small" style={{ color: "var(--danger)" }}>
-          {problemMessageOf(connection.error, t, t("overlay.loadFailed"))}
-        </p>
-      )}
-      {connection.isSuccess && connection.data === null && (
-        <EmptyState>
-          <p>{t("overlay.empty")}</p>
-          <OverlayConnectForm
-            canConnect={canConnect}
-            reconnect={false}
-            onRequestConfirm={(region, token) =>
-              setPendingConnect({ reconnect: false, region, token })
+    // Connect and Disconnect are the same decision in two directions, so they
+    // are drawn in the same place: the panel's own action band. Before, Connect
+    // sat centred inside an empty state at the TOP of the card and Disconnect
+    // hung off the BOTTOM behind two read-only panels, in different chrome —
+    // and the one at the bottom is the one that re-points every read in the
+    // installation.
+    <Panel
+      title={t("overlay.title")}
+      actions={
+        live ? (
+          <OverlayLiveActions
+            canReconcile={canReconcile}
+            canDisconnect={canDisconnect}
+            rolesKnown={rolesKnown}
+            onReconcile={() => reconcile.mutate()}
+            reconcilePending={reconcile.isPending}
+            reconcileQueued={reconcile.isSuccess}
+            reconcileError={
+              reconcile.isError ? problemMessageOf(reconcile.error, t) : null
             }
+            onDisconnect={() => setConfirmingDisconnect(true)}
           />
-        </EmptyState>
-      )}
-      {connection.isSuccess && connection.data && (
+        ) : undefined
+      }
+    >
+      {connected ? (
         <ConnectedBody
-          connection={connection.data}
+          connection={connected}
           locale={locale}
           canConnect={canConnect}
-          canReconcile={canReconcile}
-          canDisconnect={canDisconnect}
-          live={live}
-          sync={sync}
-          budget={budget}
+          rolesKnown={rolesKnown}
+          sub={t("overlay.sub")}
           onReconnectRequest={(region, token) =>
             setPendingConnect({ reconnect: true, region, token })
           }
-          onReconcile={() => reconcile.mutate()}
-          reconcilePending={reconcile.isPending}
-          reconcileQueued={reconcile.isSuccess}
-          reconcileError={
-            reconcile.isError ? problemMessageOf(reconcile.error, t) : null
-          }
-          onDisconnect={() => setConfirmingDisconnect(true)}
         />
+      ) : (
+        <UnconnectedBody
+          query={connection}
+          canConnect={canConnect}
+          rolesKnown={rolesKnown}
+          sub={t("overlay.sub")}
+          onConnectRequest={(region, token) =>
+            setPendingConnect({ reconnect: false, region, token })
+          }
+        />
+      )}
+      {live && (
+        <OverlayLiveSection sync={sync} budget={budget} locale={locale} />
       )}
       <ConfirmModal
         open={pendingConnect !== null}
@@ -481,6 +529,6 @@ export function OverlayCard() {
       >
         <p className="t-small">{t("overlay.disconnectBody")}</p>
       </ConfirmModal>
-    </Card>
+    </Panel>
   );
 }

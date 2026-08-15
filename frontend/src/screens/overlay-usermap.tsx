@@ -15,12 +15,16 @@ import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
-  SectionHeader,
   SegmentedControl,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
+// The rows here stay a real <ul>/<li>: they are a LIST of workspace users, and
+// PanelRow draws a <div>. A full-bleed row that costs a screen reader the list
+// semantics — how many people, which one of them this is — is a worse trade on
+// this card than on a roster of unrelated panels.
+import { Panel, PanelBody } from "../design-system/panel";
 import {
   RecordPicker,
   type RecordPickerCandidate,
@@ -33,7 +37,9 @@ import {
   problemMessageOf,
   throwProblem,
   useMe,
+  useSorMode,
 } from "./common";
+import "./overlay-usermap.css";
 
 // The mirror user-map card (Settings → Integrations): who, in the
 // incumbent CRM, each workspace user IS. That mapping is the whole of a
@@ -60,34 +66,10 @@ type UnmappedReason = Entry["unmapped_reason"];
 const VIEWS = ["user", "owner"] as const;
 type View = (typeof VIEWS)[number];
 
-// Shared row/list geometry, spelled once so every row in the card lines up
-// with the neighbouring overlay-health rows rather than drifting a token off.
-const LIST_STYLE = {
-  listStyle: "none",
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-3)",
-} as const;
-const ROW_STYLE = {
-  display: "flex",
-  gap: "var(--space-2)",
-  alignItems: "center",
-  flexWrap: "wrap",
-} as const;
-const SPLIT_ROW_STYLE = {
-  display: "flex",
-  gap: "var(--space-3)",
-  alignItems: "flex-start",
-} as const;
-// minWidth 0 lets the identity column shrink instead of shoving the actions
-// off the card when a name and an incumbent identity are both long.
-const CONTENT_COLUMN_STYLE = { flex: 1, minWidth: 0 } as const;
-const ACTIONS_STYLE = {
-  display: "flex",
-  gap: "var(--space-2)",
-  flex: "none",
-} as const;
-const DANGER_STYLE = { color: "var(--danger)" } as const;
+// The row and list geometry lives in overlay-usermap.css, not in frozen style
+// objects here: five of them said five different things about whether a row
+// wraps, and the two that said "never" are what made this card the widest thing
+// on a 390px screen.
 
 // The incumbent's own noun, keyed on the id the SERVER reports rather than
 // baked into the copy. An incumbent this build has no key for renders the
@@ -245,12 +227,16 @@ function OwnerPicker({
     },
     [owners],
   );
+  // The picker belongs to the WHOLE row rather than to the identity column: it
+  // used to open inside the left column while the button that opened it stayed
+  // in the actions column on the right, so the search field and its trigger read
+  // as two unrelated controls that happened to appear together.
   return (
-    <div style={{ marginTop: "var(--space-2)" }}>
+    <div className="usermap-picker">
       {failure ? (
-        <p className="t-small" style={DANGER_STYLE}>
+        <Callout tone="danger" live="alert">
           {failure}
-        </p>
+        </Callout>
       ) : (
         <RecordPicker
           label={t("overlay.userMap.pickerLabel", { principal })}
@@ -267,11 +253,11 @@ function OwnerPicker({
         </p>
       )}
       {actions.saveError && (
-        <p className="t-small" style={DANGER_STYLE}>
+        <Callout tone="danger" live="alert">
           {actions.saveError}
-        </p>
+        </Callout>
       )}
-      <div style={{ marginTop: "var(--space-2)" }}>
+      <div className="usermap-picker-cancel">
         <Button small onClick={actions.onCancelPick} disabled={actions.busy}>
           {t("overlay.userMap.cancel")}
         </Button>
@@ -317,14 +303,19 @@ function UserRow({
   const { principal } = directory;
   const mapped = isMapped(entry);
   return (
-    // Two columns, not one wrapping line: a long identity + chip run would
-    // otherwise push the actions onto their own right-aligned row, stranded
-    // above the explanation they belong to.
-    <li style={SPLIT_ROW_STYLE}>
-      <div style={CONTENT_COLUMN_STYLE}>
-        <div style={ROW_STYLE}>
-          <span>{entry.name ?? entry.email}</span>
-          {entry.name && <span className="t-small">{entry.email}</span>}
+    // Two columns while both fit, one stack when they do not: a long identity +
+    // chip run must not push the actions onto their own right-aligned row,
+    // stranded above the explanation they belong to — and the actions must not
+    // hold their full nowrap width against an identity squeezed to nothing,
+    // which is what a non-wrapping row and a `flex: none` actions column did to
+    // every name on a phone.
+    <li className="usermap-row">
+      <div className="usermap-identity">
+        <div className="usermap-facts">
+          <span className="usermap-email">{entry.name ?? entry.email}</span>
+          {entry.name && (
+            <span className="t-small usermap-email">{entry.email}</span>
+          )}
           {self && <Badge tone="accent">{t("overlay.userMap.you")}</Badge>}
           {mapped ? (
             <span className="t-small">
@@ -355,16 +346,9 @@ function UserRow({
           )}
         </div>
         <RowNotes entry={entry} principal={principal} />
-        {actions.picking === entry.user_id && (
-          <OwnerPicker
-            directory={directory}
-            actions={actions}
-            userId={entry.user_id}
-          />
-        )}
       </div>
       {actions.canMap && (
-        <div style={ACTIONS_STYLE}>
+        <div className="usermap-actions">
           <Button
             small
             disabled={actions.busy}
@@ -383,6 +367,13 @@ function UserRow({
             </Button>
           )}
         </div>
+      )}
+      {actions.picking === entry.user_id && (
+        <OwnerPicker
+          directory={directory}
+          actions={actions}
+          userId={entry.user_id}
+        />
       )}
     </li>
   );
@@ -475,10 +466,10 @@ function ByOwnerList({
   }
   return (
     <>
-      <ul style={LIST_STYLE}>
+      <ul className="usermap-list">
         {groups.map((group) => (
           <li key={group.incumbentUserId}>
-            <div style={ROW_STYLE}>
+            <div className="usermap-facts">
               <span>
                 {identityLabel(group.name, group.email, group.incumbentUserId)}
               </span>
@@ -495,13 +486,7 @@ function ByOwnerList({
                 </Badge>
               )}
             </div>
-            <ul
-              style={{
-                listStyle: "none",
-                marginTop: "var(--space-1)",
-                paddingLeft: "var(--space-3)",
-              }}
-            >
+            <ul className="usermap-group-users">
               {group.users.map((user) => (
                 <li key={user.user_id} className="t-small">
                   {identityLabel(user.name, user.email, user.user_id)}
@@ -514,7 +499,7 @@ function ByOwnerList({
       {/* This view can only show users who HAVE an owner, so it has to say
           how many it is leaving out rather than read as a full census. */}
       {unmapped > 0 && (
-        <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+        <p className="t-caption usermap-note">
           {t(
             unmapped === 1
               ? "overlay.userMap.unmappedCountOne"
@@ -528,7 +513,7 @@ function ByOwnerList({
           split across pages looks like a solo one. Saying the scope out loud is
           the honest fix; silently counting part of the workspace is not. */}
       {partial && (
-        <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+        <p className="t-caption usermap-note">
           {t("overlay.userMap.partialView")}
         </p>
       )}
@@ -564,8 +549,12 @@ function UserMapBody({
   }
   return (
     <>
-      <p className="t-small">{t("overlay.userMap.cost")}</p>
-      <div style={{ margin: "var(--space-3) 0" }}>
+      {/* The cost of the read this card performs, at the weight a standing
+          advisory earns. It was the quietest type on the card — 12px meta grey,
+          under everything else — which is the one thing a disclosure about
+          somebody else's money must not be. */}
+      <Callout tone="info">{t("overlay.userMap.cost")}</Callout>
+      <div className="usermap-view">
         <SegmentedControl
           options={VIEWS}
           value={view}
@@ -578,7 +567,7 @@ function UserMapBody({
         />
       </div>
       {view === "user" ? (
-        <ul style={LIST_STYLE}>
+        <ul className="usermap-list">
           {entries.map((entry) => (
             <UserRow
               key={entry.user_id}
@@ -618,6 +607,20 @@ export function MirrorUserMapCard() {
   // Seeing the map is a read the server gates on the update grant; changing a
   // mapping is a real write, so it also needs the seat.
   const canMap = useCanWrite("overlay_connection", "update");
+  // There is nothing to map until the workspace actually READS from a mirror.
+  // Both endpoints below answer 404 `mode_not_overlay` on a native
+  // installation — which is every installation until somebody connects an
+  // incumbent — so an admin opening this tab used to spend two round trips
+  // provoking a refusal the card then had to explain. The mode is already on
+  // /me, so asking it costs nothing and the card says the same sentence
+  // without the two requests.
+  //
+  // This is the user MAP, not the overlay connection itself: the neighbouring
+  // OverlayCard is deliberately NOT mode-gated, because it is the only surface
+  // that can connect one. Gating that would hide the way in; gating this hides
+  // nothing, because a workspace with no mirror has no owners to point at.
+  const overlay = useSorMode() === "overlay";
+  const readable = canManage && overlay;
   const queryClient = useQueryClient();
   // Evicting, not merely hiding: react-query keeps the last successful page
   // indefinitely, so a principal who loses the grant would otherwise be one
@@ -646,7 +649,7 @@ export function MirrorUserMapCard() {
   // requireUserMapAdmin): a rep's fetch could only 403, so it is never sent.
   const page = useInfiniteQuery({
     queryKey: ["overlay", "user-map"],
-    enabled: canManage,
+    enabled: readable,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/overlay/user-map", {
@@ -662,7 +665,7 @@ export function MirrorUserMapCard() {
 
   const directoryQuery = useQuery({
     queryKey: ["overlay", "owners"],
-    enabled: canManage,
+    enabled: readable,
     queryFn: async () => {
       const { data, error } = await api.GET("/overlay/owners", {});
       if (error) {
@@ -772,20 +775,23 @@ export function MirrorUserMapCard() {
   };
 
   return (
-    <Card>
-      <SectionHeader
-        title={t("overlay.userMap.title")}
-        sub={t("overlay.userMap.sub", { principal: directory.principal })}
-      />
-      <UserMapNotice
-        canManage={canManage}
-        rolesKnown={!me.isPending}
-        pending={page.isPending}
-        failed={page.isError}
-        error={page.error}
-      />
-      {canManage && page.isSuccess && (
-        <>
+    <Panel title={t("overlay.userMap.title")}>
+      <PanelBody>
+        <p className="t-caption">
+          {t("overlay.userMap.sub", { principal: directory.principal })}
+        </p>
+        <UserMapNotice
+          canManage={canManage}
+          overlay={overlay}
+          rolesKnown={!me.isPending}
+          pending={page.isPending}
+          failed={page.isError}
+          error={page.error}
+        />
+        {/* One body, not two stacked: the panel's inner interval is paid once,
+            so the table opens under the sentence that introduces it rather than
+            across a gap that reads as a missing element. */}
+        {canManage && page.isSuccess && (
           <UserMapBody
             entries={page.data.pages.flatMap((one) => one.entries)}
             directory={directory}
@@ -795,9 +801,9 @@ export function MirrorUserMapCard() {
             actions={actions}
             partial={page.hasNextPage}
           />
-          <LoadMoreButton query={page} />
-        </>
-      )}
+        )}
+        {canManage && page.isSuccess && <LoadMoreButton query={page} />}
+      </PanelBody>
       <UnmapConfirm
         entry={canManage ? unmapping : null}
         self={unmapping?.user_id === meId}
@@ -814,23 +820,29 @@ export function MirrorUserMapCard() {
           unmap.mutate(userId);
         }}
       />
-    </Card>
+    </Panel>
   );
 }
 
 // Everything the card shows INSTEAD of the mapping table. The two calm states
 // are not failures and must not read as ones: a 501 means this deployment
-// never wired overlay mode, and a `mode_not_overlay` 404 means the workspace
-// reads from native tables, where there is nothing to map. Anything else is a
-// real failure and keeps the server's own detail.
+// never wired overlay mode, and a workspace reading from native tables has
+// nothing to map. Anything else is a real failure and keeps the server's own
+// detail.
+//
+// The native case is answered from /me rather than from a 404 the card had to
+// provoke. `mode_not_overlay` is still recognised below, because /me and this
+// endpoint are two reads of a workspace that can be flipped between them.
 function UserMapNotice({
   canManage,
+  overlay,
   rolesKnown,
   pending,
   failed,
   error,
 }: Readonly<{
   canManage: boolean;
+  overlay: boolean;
   rolesKnown: boolean;
   pending: boolean;
   failed: boolean;
@@ -844,24 +856,25 @@ function UserMapNotice({
     return <p className="t-small">{t("overlay.userMap.adminOnly")}</p>;
   }
   const code = problemCodeOf(error);
-  if (code === "not_implemented" || code === "mode_not_overlay") {
+  if (!overlay || code === "mode_not_overlay") {
     return (
       <EmptyState>
-        <p>
-          {t(
-            code === "not_implemented"
-              ? "overlay.userMap.notConfigured"
-              : "overlay.userMap.notOverlay",
-          )}
-        </p>
+        <p>{t("overlay.userMap.notOverlay")}</p>
+      </EmptyState>
+    );
+  }
+  if (code === "not_implemented") {
+    return (
+      <EmptyState>
+        <p>{t("overlay.userMap.notConfigured")}</p>
       </EmptyState>
     );
   }
   if (failed) {
     return (
-      <p className="t-small" style={DANGER_STYLE}>
+      <Callout tone="danger" live="alert">
         {problemMessageOf(error, t, t("overlay.userMap.loadFailed"))}
-      </p>
+      </Callout>
     );
   }
   if (pending) {

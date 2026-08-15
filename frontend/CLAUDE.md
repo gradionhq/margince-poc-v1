@@ -2,13 +2,53 @@
 
 Scoped to this directory. The root [CLAUDE.md](../CLAUDE.md) still governs
 everything else: the branch/PR loop, the license header, the commit rules.
-Two things are frontend-only and neither has a gate that will catch them for
+Three things are frontend-only and none has a gate that will catch it for
 you, so they are written down here.
 
 `craft static` sweeps the Go trees only. No `*.test.tsx` in this repo is in
 scope for the craftsmanship catalog today, T11 (*tests prove behaviour or they
 are noise*, no real-clock flakiness) included. In this directory the rule holds
 because the author holds it.
+
+## Read the design system before you build anything you can see
+
+**[`src/design-system/README.md`](src/design-system/README.md) is the catalog.
+Open it first — every time, not once.** It is a table of what already exists,
+what each primitive is *for*, which file holds it, and whether it has a story.
+Reading it costs a minute. Not reading it costs a duplicate that looks fine in
+review and drifts forever after.
+
+The rule it states, in short: **every interactive control comes from
+`src/design-system/`.** A native `<select>`, a hand-rolled dropdown, one more
+"just this once" chip, a second modal — each is a defect, not a shortcut. Cards,
+buttons, inputs, fields, badges, tables, empty states, menus and dialogs are all
+already there.
+
+This has gone wrong the same way more than once, and the failure is not that
+somebody disagreed with the rule — it is that **they did not know the file
+existed**, wrote a reasonable-looking component, and passed review on it. So:
+
+- **Before writing a control, grep the catalog for the noun.** `Card`, `Panel`,
+  `Button`, `Select`, `Field`, `Badge`, `ListTable`, `EmptyState`, `Callout`,
+  `SurfaceState`, `Eyebrow` — if the thing you are about to build has a name,
+  that name is probably already in the table.
+- **Before writing a `<div className="...">` that draws a box**, check whether
+  it is a `Panel` (the house card: header band, `PanelBody`, `PanelRow`,
+  `panel-foot`). Two different card primitives is how settings and the record
+  page ended up looking like two products.
+- **A screen file is not a place to keep a primitive.** If a screen exports
+  something another screen imports, it belongs in `src/design-system/` — that is
+  exactly how `SurfaceState` spent months importable only from `company360.tsx`
+  while seven screens reached into it.
+- **If it genuinely is not there, add it there**, with a story, and update the
+  README table in the same commit. The README is the seam: a primitive nobody
+  can find gets rebuilt by the next person, and then there are two.
+
+Four script gates hold parts of this deterministically —
+`check-native-controls.sh`, `check-ds-purity.sh`, `check-ds-spacing.sh`,
+`check-space-tokens.sh` — but none of them can tell that the perfectly good
+component you just wrote already existed under a different name. That part is
+yours.
 
 ## A test may not depend on how busy the machine is
 

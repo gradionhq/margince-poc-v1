@@ -192,6 +192,34 @@ numbers appear here when releases start.
 
 ### Changed
 
+- **The twelve settings pages speak the record page's language.** Settings and
+  the company record were built from two different card primitives, and that was
+  most of the visual distance between them: the record page is `Panel` — an 8px
+  radius, a 48px header band with a hairline under it, full-bleed rows, a footer
+  band for a figure belonging to the whole card — while settings was `Card`, at a
+  12px radius with a 15px/600 title and no band. Across all twelve tabs `Panel`
+  was used zero times, `FieldGrid` zero, `FactList` twice. Every settings card is
+  a `Panel` now, and the surfaces that had invented their own chrome give it up —
+  the company profile alone drew five, including a gradient hero with a 180px
+  decorative circle; its stylesheet went from 292 lines to about 130 and none of
+  what remains is a surface. The pages also gained a reading measure (a single
+  text input on the Account tab was ~950px wide), one vertical rhythm (nineteen
+  inline margins and ten `card-stack` classes predated `.settings-stack`'s gap
+  and margins do not collapse in a flex container, so real gaps were a mix of 16
+  and 32 within one tab), and headings that are headings — Tailwind v4 preflight
+  is live with no global `h1`-`h6` rule, so a bare heading rendered at 14px/400,
+  identical to body text, which is what the Integrations lead card and the
+  company profile hero were doing with their titles.
+
+- **The record page's honest-state vocabulary left the screen it was written on.**
+  `SurfaceState` — ready, empty, withheld, unavailable, loading, unsupported,
+  failed, stale, partial — lived in `company360.tsx` and seven other screens
+  imported it from a screen file. `Eyebrow` was spelled out five times across
+  three stylesheets with no two agreeing. `PanelPlate`, `Panel`'s accent tone and
+  its actions band were all being reached into from a screen sheet.
+  `SectionHeader` learned level 3, because six nested sections were minting a
+  second `h2` inside an `h2` for want of a way to say what they meant.
+
 - **Opening a settings page is a READ, and every entry now asks like it.** Each entry's predicate was a WRITE grant, because each was written to
   answer "can you *use* this" — and measured against the live API a read-only
   seat was hidden from eight of the eleven entries the server answers 200 on,
@@ -238,6 +266,51 @@ numbers appear here when releases start.
   "Voice" reads as call recording.
 
 ### Fixed
+
+- **A partial payload took down the whole application.** `settings/maintenance`
+  dereferenced a contract-required field on `/admin/job-health`, and the only
+  error boundary was app-level, so one card's throw cost the reader the rail and
+  the navigation along with the page. The payload is rejected at the query
+  boundary rather than defaulted: an absent `kinds` rendered through `?? []`
+  draws the *idle* state, which tells an operator the background system has
+  nothing queued and nothing failed — a claim about the installation the
+  response never made. `CardBoundary` now contains a card that throws.
+
+- **`Switch` dropped `aria-checked`** whenever `checked` arrived `undefined`,
+  because React omits an undefined attribute. A `role="switch"` with no
+  `aria-checked` announces no state at all, and the stylesheet keys the knob off
+  the same attribute, so the track drew as off with nothing saying so.
+
+- **A `Badge`'s contrast was a property of its ancestor.** The tone tints are
+  translucent by canon, so `--success` on `--successBg` measured 4.54:1 over a
+  panel and 4.05:1 over a recessed plate — four hundredths of headroom on one
+  surface and a WCAG AA failure on the other, same component, same tokens. Each
+  tone now composites over an explicit surface. The canon values are untouched.
+
+- **`SegmentedControl` could not wrap.** An unwrapped `inline-flex` sets its own
+  minimum width and pushes its container: the company record's seven-tab strip
+  measured 543px inside a 374px column at 390px, which was the entire horizontal
+  overflow of the page every other surface is modelled on.
+
+- **Small text sat on tokens that do not carry it** — `--textMuted` at 1.54:1 on
+  a 13px form label, `--textTertiary` at 2.52:1 in nine rules. `tokens.css`
+  already names `--textMeta` the AA small-text role.
+
+- **The gates could not see any of it.** The 390px sweep asserted on
+  `document.body`, which `.main { overflow: hidden }` makes structurally
+  incapable of growing — measured across twelve tabs the body read 0 while the
+  shell's own scroller overflowed by 273px. Seven of the twelve settings tabs
+  were in neither sweep. And both sweeps passed on the crashed maintenance page,
+  scoring zero violations and zero overflow on a page that had rendered the error
+  boundary. The sweep now measures the elements that actually scroll, covers all
+  twelve tabs, and asserts the shell survived before measuring anything.
+
+- **Ten Storybook stories showed a state they were not named for.**
+  `aiusage`/`aicalls` never stubbed `GET /me`, so the fallback made `useMe` throw
+  and every capability hook failed closed — each of those stories captured the
+  `/me`-error branch. The shared stub now refuses to guess a session rather than
+  answering with a body that reads as a malformed one.
+
 
 - **Absent, disabled and withheld are now decided by CAUSE, and it is written
   down** (`frontend/src/design-system/README.md`). A surface a permission denies

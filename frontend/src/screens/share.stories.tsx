@@ -11,7 +11,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // and the revoke confirm modal opened.
 
 const meta: Meta = {
-  title: "Screens/Share",
+  title: "Patterns/Share record",
   parameters: { layout: "padded" },
 };
 export default meta;

@@ -29,7 +29,7 @@ function nativeMe() {
 }
 
 const meta: Meta = {
-  title: "Screens/ListQuery",
+  title: "Patterns/List query",
   parameters: { layout: "padded" },
   decorators: [
     (Story) => {

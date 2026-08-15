@@ -20,8 +20,10 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DriveScheduledSendForTest wakes one scheduled message through the production
@@ -51,4 +53,31 @@ func DriveScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspac
 		return nil
 	}
 	return err
+}
+
+// HoldScheduledSendForTest drives the store's hold under an observed row
+// version, standing in for a worker whose attempt failed and is now holding
+// what it saw. The lane needs it to prove a STALE observation declines.
+func HoldScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspace, id ids.UUID, reason string, observed int64) error {
+	store := sendStore(pool, SendPath{})
+	return store.HoldScheduledSend(sendWorkerScope(principal.WithWorkspaceID(ctx, workspace)), id, reason, observed)
+}
+
+// DriveScheduledSendRecoveryForTest runs one recovery pass through the
+// PRODUCTION worker, on the bare context River actually hands it.
+//
+// No workspace is injected, deliberately: River gives this periodic job no
+// tenant, so a helper that supplied one would prove the HELPER works while
+// production resolved nothing. The worker resolves the installation itself,
+// which is the behaviour under test.
+func DriveScheduledSendRecoveryForTest(ctx context.Context, pool *pgxpool.Pool) error {
+	inserter, err := jobs.NewInserter(pool, slog.New(slog.DiscardHandler))
+	if err != nil {
+		return err
+	}
+	worker := newScheduledSendRecoveryWorker(
+		identity.NewService(pool), sendStore(pool, SendPath{}), NewScheduleTimer(inserter), slog.New(slog.DiscardHandler))
+	return worker.Work(ctx, &river.Job[ScheduledSendRecoveryArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 1},
+	})
 }

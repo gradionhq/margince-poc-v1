@@ -6,10 +6,20 @@ import { meFixture } from "../app/mefixture";
 import { FxRatesCard, ModelCostsCard } from "./rates";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
+// READ before create. Both cards gate on `useCan(<object>, "read")` and skip
+// their query entirely without it, so a create-only fixture reached the withheld
+// body — and these two stories captured "only an admin or ops can see this"
+// under names promising a populated price sheet, with the fixtures below as
+// dead code. The predicate a surface opens on is the one a story has to hold.
 function admin() {
   return () =>
     jsonResponse(
-      meFixture({ allow: { fx_rate: ["create"], ai_model_rate: ["create"] } }),
+      meFixture({
+        allow: {
+          fx_rate: ["read", "create"],
+          ai_model_rate: ["read", "create"],
+        },
+      }),
     );
 }
 
@@ -68,7 +78,7 @@ function RateSheets() {
 }
 
 const meta: Meta<typeof RateSheets> = {
-  title: "Screens/rates",
+  title: "Settings/Organization/Rates and model costs",
   component: RateSheets,
 };
 export default meta;
@@ -77,6 +87,32 @@ type Story = StoryObj<typeof RateSheets>;
 // An admin sees both price sheets populated, each with its "Set rate" /
 // "Add model rate" affordance.
 export const Populated: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /fx-rates": () => jsonResponse(FX),
+      "GET /ai-model-rates": () => jsonResponse(MODELS),
+    });
+    return (
+      <StoryProviders>
+        <RateSheets />
+      </StoryProviders>
+    );
+  },
+};
+
+// The reason the header action band was restructured on this branch, pictured.
+// Beside the title, Refresh + "Set rate" were one unwrappable row sized to their
+// max content: at 390px the pair measured 353px inside a 324px card and pushed
+// the page 12px past the viewport. Both cards now put the pair in the panel's own
+// wrapping action band, and this is the only render that can show it holds —
+// nothing else in the catalogue draws either sheet below 1024px.
+//
+// No `layout` override: the canvas frame's 2rem gutter is what puts the card at
+// the ~324px the regression was measured in.
+export const PopulatedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => {
     installFetchStub({
       "GET /me": admin(),

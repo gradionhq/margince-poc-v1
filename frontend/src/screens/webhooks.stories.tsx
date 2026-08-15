@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { Badge } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
@@ -77,26 +77,58 @@ function baseRoutes(
   };
 }
 
-// Drives a sequence of testid clicks against one render, returning the
-// `within` handle so a play function can chain a further assertion or a
-// non-testid interaction (a role-named Confirm button, a label lookup) off
-// the same canvas.
+// Drives a sequence of testid clicks against one render, returning a query
+// handle so a play function can chain a further assertion or a non-testid
+// interaction (a role-named confirm button, a label lookup).
+//
+// The clicks are canvas-scoped — the testids are all on the card — but the
+// handle returned is `screen`, because what those clicks OPEN is a ConfirmModal
+// portalled to document.body: a canvas-scoped query for anything inside one
+// rejects however correctly the dialog is drawn.
 async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
   const canvas = within(canvasElement);
   for (const testId of testIds) {
     await userEvent.click(await canvas.findByTestId(testId));
   }
-  return canvas;
+  return screen;
+}
+
+// Rotate secret and Archive are the two irreversible verbs, so they live behind
+// the row's overflow rather than on it at Edit's weight — and OverflowMenu does
+// not MOUNT its children until it is first opened (they carry their own reads).
+// So a story about either opens the menu the way a reader does: a click aimed
+// straight at the item's testid finds no such node, and the capture that
+// follows shows a closed row under the name of an armed dialog.
+// webhooks.test.tsx opens it the same way, for the same reason.
+async function openRowActions(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "More actions" }),
+  );
 }
 
 const meta: Meta<typeof WebhooksCard> = {
-  title: "Screens/webhooks",
+  title: "Settings/Organization/Integrations/Webhooks",
   component: WebhooksCard,
 };
 export default meta;
 type Story = StoryObj<typeof WebhooksCard>;
 
 export const Active: Story = {
+  render: cardStory(baseRoutes()),
+};
+
+// A subscription row is the densest line in the settings tree: a state badge, a
+// `.t-mono` target URL nobody promised would be short, three event-type chips,
+// and four verbs (Edit, Rotate secret, View deliveries, Archive). At 390px that
+// row has to wrap into a readable block rather than push the card's scroll width
+// past the viewport — and there has been no render of it at any narrow width.
+//
+// No `layout` override: the canvas frame's 2rem gutter puts the card at ~326px,
+// which is the column the overflow measurements on this branch were taken in.
+export const ActivePhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: cardStory(baseRoutes()),
 };
 
@@ -193,6 +225,7 @@ export const EditOpen: Story = {
 export const RotateSecretConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
   },
 };
@@ -209,14 +242,28 @@ export const RotateSecretRevealed: Story = {
       }),
   }),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     const canvas = await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
-    await userEvent.click(canvas.getByRole("button", { name: "Confirm" }));
+    // Scoped to the dialog, not to `screen`: the confirm button is labelled
+    // with the ACT ("Rotate secret") rather than a generic "Confirm", which is
+    // also the label on the menu item that opened it — and the menu stays open
+    // behind the dialog on purpose, so an unscoped lookup for that name has two
+    // matches and the one it wants is the second.
+    const dialog = within(await canvas.findByRole("dialog"));
+    await userEvent.click(
+      await dialog.findByRole("button", { name: "Rotate secret" }),
+    );
+    // The reveal is the story: without this the play could only prove the
+    // confirm was clickable, and a screenshot of the confirm dialog still
+    // sitting there would pass under the name of a revealed secret.
+    await canvas.findByTestId("webhook-signing-secret");
   },
 };
 
 export const ArchiveConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
+    await openRowActions(canvasElement);
     await clickTestIds(canvasElement, ["archive-record"]);
   },
 };
@@ -274,19 +321,52 @@ const deadLetteredDelivery = {
   updated_at: "2026-07-20T10:00:00Z",
 };
 
+const deliveriesRoutes = {
+  ...baseRoutes(),
+  "GET /webhook-subscriptions/sub-active/deliveries": () =>
+    jsonResponse({
+      data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
+      page: { next_cursor: null, has_more: true },
+    }),
+};
+
+const openDeliveries = async ({
+  canvasElement,
+}: {
+  canvasElement: HTMLElement;
+}) => {
+  const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
+  await canvas.findByTestId("dead-letter-group");
+};
+
 export const DeliveriesPanelOpen: Story = {
-  render: cardStory({
-    ...baseRoutes(),
-    "GET /webhook-subscriptions/sub-active/deliveries": () =>
-      jsonResponse({
-        data: [activeDelivery, retryingDelivery, deadLetteredDelivery],
-        page: { next_cursor: null, has_more: true },
-      }),
-  }),
-  play: async ({ canvasElement }) => {
-    const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
-    await canvas.findByTestId("dead-letter-group");
-  },
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
+};
+
+// The eight-column delivery table inside its `.table-scroll` box at 390px. The
+// question is which of the two gives: either the scroller holds the table and
+// scrolls it sideways inside the card, or the table wins and the whole settings
+// column scrolls — and only a capture at this width can tell them apart, because
+// a table that overflows its scroller measures the same either way.
+export const DeliveriesPanelOpenPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
+};
+
+// The delivery statuses in situ rather than as a swatch row: `delivered`,
+// `retrying` and `dead_lettered` are three badge tones whose whole job is to be
+// told apart at a glance, and they sit here on the table's own striping, inside
+// the dead-letter group's tinted block, beside the `.t-mono` event ids. On a dark
+// ground a badge surface token and a table row token can converge, and that is
+// what this watches for — the pure `DeliveryStatusBadges` story below cannot,
+// because it shows the tones with nothing to be confused with.
+export const DeliveriesPanelOpenDark: Story = {
+  globals: { theme: "dark" },
+  render: cardStory(deliveriesRoutes),
+  play: openDeliveries,
 };
 
 export const DeliveriesReplayConfirm: Story = {

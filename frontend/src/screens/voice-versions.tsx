@@ -3,7 +3,7 @@ import { History, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button } from "../design-system/atoms";
+import { Badge, Button, Card } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { parseVoiceInsights, VoiceInsights } from "./voice-insights";
@@ -43,8 +43,13 @@ export function useVoiceVersions(profileId: string | undefined) {
 // and, when a candidate awaits review, the apply/reject banner above it.
 export function ActiveVoiceInsights({
   profileId,
+  canEdit,
   onChanged,
-}: Readonly<{ profileId: string; onChanged: () => void }>) {
+}: Readonly<{
+  profileId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}>) {
   const versions = useVoiceVersions(profileId);
   return (
     <QueryGate query={versions}>
@@ -59,6 +64,7 @@ export function ActiveVoiceInsights({
               <CandidateBanner
                 profileId={profileId}
                 candidate={candidate}
+                canEdit={canEdit}
                 onChanged={onChanged}
               />
             )}
@@ -80,10 +86,12 @@ export function ActiveVoiceInsights({
 function CandidateBanner({
   profileId,
   candidate,
+  canEdit,
   onChanged,
 }: Readonly<{
   profileId: string;
   candidate: VoiceProfileVersion;
+  canEdit: boolean;
   onChanged: () => void;
 }>) {
   const t = useT();
@@ -111,7 +119,10 @@ function CandidateBanner({
     onError: (e: Error) => setError(problemMessageOf(e, t)),
   });
   return (
-    <div className="vdna-candidate card">
+    // The design system's own inset card, not a hand-rolled `<div className=
+    // "card">`: a copy of the card surface is a second card the moment one of
+    // its five chrome values moves, and the README forbids it by name.
+    <Card as="div" inset className="vdna-candidate">
       <b>{t("voice.candidate.title", { n: candidate.profile_version })}</b>
       {candidate.review_reasons.length > 0 && (
         <ul className="vdna-reasons">
@@ -125,24 +136,26 @@ function CandidateBanner({
           {error}
         </p>
       )}
-      <div className="vdna-candidate-acts">
-        <Button
-          variant="primary"
-          small
-          disabled={transition.isPending}
-          onClick={() => transition.mutate("apply")}
-        >
-          {t("voice.candidate.apply")}
-        </Button>
-        <Button
-          small
-          disabled={transition.isPending}
-          onClick={() => transition.mutate("reject")}
-        >
-          {t("voice.candidate.reject")}
-        </Button>
-      </div>
-    </div>
+      {canEdit && (
+        <div className="vdna-candidate-acts">
+          <Button
+            variant="primary"
+            small
+            disabled={transition.isPending}
+            onClick={() => transition.mutate("apply")}
+          >
+            {t("voice.candidate.apply")}
+          </Button>
+          <Button
+            small
+            disabled={transition.isPending}
+            onClick={() => transition.mutate("reject")}
+          >
+            {t("voice.candidate.reject")}
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -150,8 +163,13 @@ function CandidateBanner({
 // "what changed" delta timeline, and the learning-signal counters.
 export function VoiceHistory({
   profileId,
+  canEdit,
   onChanged,
-}: Readonly<{ profileId: string; onChanged: () => void }>) {
+}: Readonly<{
+  profileId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}>) {
   const t = useT();
   const [versionCursor, setVersionCursor] = useState<string | undefined>();
   const [deltaCursor, setDeltaCursor] = useState<string | undefined>();
@@ -221,6 +239,7 @@ export function VoiceHistory({
                       key={version.id}
                       profileId={profileId}
                       version={version}
+                      canEdit={canEdit}
                       onChanged={onChanged}
                     />
                   ))}
@@ -289,10 +308,12 @@ export function VoiceHistory({
 function VersionRow({
   profileId,
   version,
+  canEdit,
   onChanged,
 }: Readonly<{
   profileId: string;
   version: VoiceProfileVersion;
+  canEdit: boolean;
   onChanged: () => void;
 }>) {
   const t = useT();
@@ -326,14 +347,13 @@ function VersionRow({
         {" · "}
         {new Date(version.created_at).toLocaleDateString(locale)}
       </span>
-      {version.status === "superseded" && (
+      {canEdit && version.status === "superseded" && (
         <button
           type="button"
-          className="iconbtn"
+          className="iconbtn vdna-row-verb"
           aria-label={t("voice.history.rollback", {
             n: version.profile_version,
           })}
-          style={{ marginLeft: "auto" }}
           disabled={rollback.isPending}
           onClick={() => rollback.mutate()}
         >

@@ -91,7 +91,7 @@ function retention(retainOnly: boolean, extra: RouteMap = {}) {
 }
 
 const meta: Meta<typeof RetentionCard> = {
-  title: "Screens/retention",
+  title: "Settings/Organization/Privacy/Retention",
   component: RetentionCard,
 };
 export default meta;
@@ -104,6 +104,18 @@ export const LadderActing: Story = { render: retention(false) };
 // The posture on: the erase and anonymize rows are enabled and inert, and each
 // says why; the archive row is untouched because archiving retains.
 export const RetainOnly: Story = { render: retention(true) };
+
+// The same page in dark, because the two things this screen says are both said
+// in colour-adjacent ways. The posture Switch is ON, so its track carries the
+// accent fill against `--bgElevated` and the thumb has to stay visible on it —
+// the one control in the settings tree whose state is a shape rather than a word.
+// And the suppressed rows say "enabled and inert" with a `--textMeta` caption
+// beside a badge, which is the contrast pair most likely to collapse when the
+// ground goes dark.
+export const RetainOnlyDark: Story = {
+  globals: { theme: "dark" },
+  render: retention(true),
+};
 
 // The inline authoring form, defaulting to the least destructive action.
 export const CreateForm: Story = {

@@ -457,7 +457,10 @@ describe("CustomFieldsAdmin", () => {
     expect(screen.getAllByRole("button", { name: /Edit label/i }).length).toBe(
       1,
     );
-    expect(screen.queryByText("Add field to Deal")).toBeNull();
+    // The builder's own summary, spelled as the catalog spells it — the older
+    // assertion looked for "Add field to Deal", a string this screen has never
+    // rendered, so it passed whether or not the builder was there.
+    expect(screen.queryByText("Add a field to Deal")).toBeNull();
   });
 
   it("offers the builder on create alone, without rename or retire", async () => {
@@ -473,9 +476,12 @@ describe("CustomFieldsAdmin", () => {
     renderAdmin();
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
     // Positive as well as negative: without this a broken create binding would
-    // pass, since "no archive control" is also true when nothing renders.
+    // pass, since "no archive control" is also true when nothing renders. The
+    // builder is a Disclosure now, so what proves it is there is its summary
+    // plus the control inside it.
+    expect(screen.getByText("Add a field to Deal")).toBeTruthy();
     expect(
-      screen.getByRole("region", { name: /Add a field to Deal/i }),
+      screen.getByRole("button", { name: /Confirm & add field/i }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
   });
@@ -575,22 +581,29 @@ describe("CustomFieldsAdmin", () => {
 });
 
 describe("AuditRail states", () => {
-  it("shows the loading line while the read is pending, not the empty line", () => {
-    wrap(<AuditRail entries={[]} isLoading />);
-    expect(screen.getByText(/Loading recent changes/i)).toBeInTheDocument();
+  const noop = () => undefined;
+
+  it("says nothing about emptiness while the read is still running", () => {
+    wrap(<AuditRail entries={[]} state="loading" onRetry={noop} />);
     expect(screen.queryByText(/No custom-field changes yet/i)).toBeNull();
   });
 
-  it("shows the error line on a failed read, not the empty line", () => {
-    wrap(<AuditRail entries={[]} isError />);
-    expect(
-      screen.getByText(/Could not load recent changes/i),
-    ).toBeInTheDocument();
+  it("offers a retry on a failed read, and does not claim the trail is empty", () => {
+    const retry = vi.fn();
+    wrap(<AuditRail entries={[]} state="failed" onRetry={retry} />);
+    expect(screen.getByText(/did not load/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No custom-field changes yet/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+  });
+
+  it("says the trail is withheld, not empty, when the role cannot read it", () => {
+    wrap(<AuditRail entries={[]} state="withheld" onRetry={noop} />);
+    expect(screen.getByText(/cannot read this/i)).toBeInTheDocument();
     expect(screen.queryByText(/No custom-field changes yet/i)).toBeNull();
   });
 
   it("shows the empty line only for a settled, genuinely empty read", () => {
-    wrap(<AuditRail entries={[]} />);
+    wrap(<AuditRail entries={[]} state="empty" onRetry={noop} />);
     expect(
       screen.getByText(/No custom-field changes yet/i),
     ).toBeInTheDocument();

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { meFixture } from "../app/mefixture";
 import { OverlayCard } from "./overlay";
@@ -97,7 +97,7 @@ function budgetFixture(band: Budget["band"]): Budget {
 }
 
 const meta: Meta<typeof OverlayCard> = {
-  title: "Screens/overlay",
+  title: "Settings/Organization/Integrations/Overlay",
   component: OverlayCard,
 };
 export default meta;
@@ -145,7 +145,10 @@ export const ConnectConfirm: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Connect HubSpot" }),
     );
-    await canvas.findByText(/switches every seat's reads to HubSpot/);
+    // `screen`, not the canvas: ConfirmModal portals to document.body, so a
+    // canvas-scoped query for its body rejects — and a rejecting play() used to
+    // report after the gate had already screenshotted and passed the story.
+    await screen.findByText(/switches every seat's reads to HubSpot/);
   },
 };
 
@@ -259,6 +262,61 @@ export const Unconfigured: Story = {
           { code: "not_implemented", detail: "overlay not wired" },
           501,
         ),
+    });
+    return (
+      <StoryProviders>
+        <OverlayCard />
+      </StoryProviders>
+    );
+  },
+};
+
+// The shed band in dark — the card at its loudest, so the tones can be read
+// against each other rather than one at a time. Three reds and a green share the
+// frame: the danger Badge on the recessed plate, the Meter drawn nearly full
+// against its track, the sync rows' success chips above it, and the danger
+// Disconnect in the action band. --danger lightens in dark the way --accent does
+// while --dangerBg only deepens its alpha, which leaves the danger CHIP the
+// thinnest of the tones — and the filled danger BUTTON is a different question
+// again, because its ink is --textOnStatusControl, not --danger (base.css).
+export const BudgetShedDark: Story = {
+  globals: { theme: "dark" },
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(freshSyncStatus),
+      "GET /overlay/budget": () => jsonResponse(budgetFixture("shed")),
+    });
+    return (
+      <StoryProviders>
+        <OverlayCard />
+      </StoryProviders>
+    );
+  },
+};
+
+// The live card at 390px. This is the width overlay.css was rewritten for: every
+// figure row here used to be an inline style with its own private answer to
+// whether it wraps, and the row that answered "no" is what pushed the card past a
+// phone. What to check is that the status/connected-at/region line, each sync
+// row's identifier + chip + timestamp, and the budget's figure row all wrap
+// inside the plate — and that Reconcile and Disconnect stay together, rather than
+// one of them leaving the band, since a Button's own label never wraps.
+//
+// Storybook applies the viewport from the MANAGER, by resizing the preview
+// iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at
+// the harness's own width and its PNG is NOT a picture of a phone. Review it in
+// Storybook, or by narrowing the browser.
+export const ActiveFreshPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(freshSyncStatus),
+      "GET /overlay/budget": () => jsonResponse(budgetFixture("ok")),
     });
     return (
       <StoryProviders>

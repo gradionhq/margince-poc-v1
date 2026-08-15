@@ -27,7 +27,7 @@ function story(band: string) {
 }
 
 const meta: Meta<typeof EconomyBanner> = {
-  title: "App/economy-banner",
+  title: "Shell/Economy banner",
   component: EconomyBanner,
 };
 export default meta;

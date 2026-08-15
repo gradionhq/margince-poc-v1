@@ -9,7 +9,7 @@ import {
 } from "./story-utils";
 
 const meta: Meta = {
-  title: "Screens/Products",
+  title: "Settings/Organization/Data model/Products",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -32,8 +32,8 @@ const product = {
 };
 
 // Every story here needs a principal, because the screen's write affordances are
-// gated on product grants now. The stub's catch-all answers `GET /me` with an
-// empty page, which resolves to a caller holding no grant at all — so without
+// gated on product grants now. The stub REFUSES to answer an unrouted `GET /me`
+// rather than guessing one — so without
 // this the whole catalog captured the read-only posture and no story showed the
 // editor. Named once rather than repeated per story.
 const AUTHORING_ME = () =>
@@ -42,6 +42,29 @@ const AUTHORING_ME = () =>
   );
 
 export const List: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": AUTHORING_ME,
+      "GET /products": () =>
+        jsonResponse({
+          data: [product],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    return (
+      <StoryProviders>
+        <ProductsAdmin />
+      </StoryProviders>
+    );
+  },
+};
+// The catalogue table at 390px. Every settings page takes the whole page column,
+// which is what a table needs and what a phone has none of. Seven values per row (name, SKU, unit, price, tax, active, the row verbs) have
+// to end up either wrapped or inside a scroller, and no story has drawn this
+// table narrow enough to say which.
+export const ListPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => {
     installFetchStub({
       "GET /me": AUTHORING_ME,

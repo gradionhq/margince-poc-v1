@@ -27,22 +27,13 @@ import { PageHead, Shell, WorkspaceRail } from "./shell";
 // canvas padding would clip the sidebar foot and misrepresent the layout — and
 // the foot is where the account block now lives.
 const meta: Meta<typeof Shell> = {
-  title: "App/Shell",
+  title: "Shell/Navigation shell",
   component: Shell,
   parameters: {
     layout: "fullscreen",
-    // The phone story at the foot of this file needs a WIDTH: the bottom-bar
-    // rules are viewport media queries. Named after the RULE rather than after a
-    // device, and the viewport tool ships inside Storybook 9 itself, so this
-    // adds no addon to `.storybook/main.ts`.
-    viewport: {
-      options: {
-        phone: {
-          name: "Phone (max 700px)",
-          styles: { width: "390px", height: "844px" },
-        },
-      },
-    },
+    // The `phone` viewport this file's last story selects is declared once for
+    // the whole catalog in .storybook/preview.tsx — it stopped being this
+    // file's private need the moment the settings pages wanted it too.
   },
 };
 export default meta;
@@ -380,6 +371,7 @@ function PhoneSectionExample() {
 export const SectionPhone: Story = {
   name: "a section — phone bar and the head's switcher",
   globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => (
     <LevelStory>
       <PhoneSectionExample />

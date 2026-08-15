@@ -11,18 +11,21 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCanWrite } from "../app/capability";
+import { useCanWrite, useHoldsAdminRole } from "../app/capability";
 import {
   Badge,
   Button,
-  Card,
   DataTable,
+  Disclosure,
   EmptyState,
   Field,
   Modal,
-  SectionHeader,
+  SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
@@ -45,12 +48,13 @@ import "./customfields.css";
 // immutable cf_-prefixed API key and the pending DDL are shown before Confirm so
 // the schema change is legible, a structural-sounding label is refused up front,
 // and the 🟡 gate states that Confirm writes a live column + an audit row. This
-// is NOT the ApprovalGate (Accept/Edit/Dismiss triad) — it is a local .cf-gate
-// preview block owned by this screen.
+// is NOT the ApprovalGate (Accept/Edit/Dismiss triad) — it is a `warn` Callout,
+// which is what the surface saying something about itself already looks like
+// everywhere else.
 
-// One glyph per scalar type, mirrored from the mockup's field icons and type
-// chips so a field's shape reads at a glance. Decorative only — every use is
-// aria-hidden, so the accessible name stays the translated type word.
+// One glyph per scalar type, so a field's shape reads at a glance in the table.
+// Decorative only — every use is aria-hidden, so the accessible name stays the
+// translated type word.
 const TYPE_ICON: Record<CfType, LucideIcon> = {
   text: Type,
   number: Hash,
@@ -116,17 +120,11 @@ export function FieldBuilder({
   };
 
   return (
-    <Card
-      className="cf-builder"
-      ariaLabel={t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
-    >
-      <header className="cf-builder-head">
-        <h3 className="section-header">
-          {t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
-        </h3>
-        <span className="badge">{t("cf.builder.noCode")}</span>
-      </header>
-      <p className="cf-hint">{t("cf.builder.intro")}</p>
+    <div className="cf-builder">
+      <div className="cf-builder-head">
+        <p className="cf-hint">{t("cf.builder.intro")}</p>
+        <Badge>{t("cf.builder.noCode")}</Badge>
+      </div>
 
       <div className="cf-grid">
         <Field label={t("cf.label")}>
@@ -155,27 +153,21 @@ export function FieldBuilder({
         </Field>
       </div>
 
+      {/* One closed set of options, all visible at once — the definition of
+          SegmentedControl. It replaced a six-tile icon grid that was the same
+          `aria-pressed` button in a third chrome, and whose glyphs were
+          aria-hidden decoration the accessible name never carried. Losing them
+          costs the reader nothing; the type still reads on every row of the
+          table above, where it names a field rather than a choice. */}
       <div className="field">
         <span className="t-label">{t("cf.typeLabel")}</span>
-        <div className="cf-typegrid">
-          {CF_TYPES.map((candidate) => {
-            const Icon = TYPE_ICON[candidate];
-            return (
-              <button
-                key={candidate}
-                type="button"
-                aria-pressed={candidate === type}
-                className={
-                  candidate === type ? "cf-typebtn active" : "cf-typebtn"
-                }
-                onClick={() => setType(candidate)}
-              >
-                <Icon aria-hidden />
-                <span>{t(`cf.type.${candidate}`)}</span>
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          label={t("cf.typeLabel")}
+          options={CF_TYPES}
+          value={type}
+          onChange={setType}
+          labels={typeLabels(t)}
+        />
       </div>
 
       {type === "currency" && (
@@ -233,20 +225,29 @@ export function FieldBuilder({
       )}
 
       {structural && (
-        <div className="cf-refuse" role="alert">
-          <strong>{t("cf.refuse.title")}</strong>
+        <Callout tone="danger" live="alert" title={t("cf.refuse.title")}>
           <p>{t("cf.refuse.body")}</p>
           <p>{t("cf.refuse.route")}</p>
-        </div>
+        </Callout>
       )}
 
-      <div className="cf-gate">
-        <AutonomyDot tier="confirm" /> <strong>{t("cf.gate.title")}</strong>
+      {/* `warn` because nothing is wrong yet and something will be if the
+          reader confirms without reading: the column goes live on every record
+          of this object. The autonomy dot rides in the title so the confirm
+          tier and the sentence it qualifies are one line, not two. */}
+      <Callout
+        tone="warn"
+        title={
+          <>
+            <AutonomyDot tier="confirm" /> {t("cf.gate.title")}
+          </>
+        }
+      >
         <p>{t("cf.gate.body", { object: t(`cf.obj.${object}`) })}</p>
         <code className="cf-ddl">
           {ddlPreview(object, label, type, currency)}
         </code>
-      </div>
+      </Callout>
 
       <div className="cf-actions">
         <Button variant="primary" disabled={!canConfirm} onClick={confirm}>
@@ -263,8 +264,33 @@ export function FieldBuilder({
           {t("cf.reset")}
         </Button>
       </div>
-    </Card>
+    </div>
   );
+}
+
+// The two option sets this screen switches on, each as the flat label map
+// SegmentedControl takes. Spelled out rather than derived from the tuple so
+// every key is checked against the catalog at compile time — a mapped
+// `Object.fromEntries` would need a cast to get back to Record<Option, string>,
+// and a cast is exactly what stops a missing translation being a build error.
+function typeLabels(t: ReturnType<typeof useT>): Record<CfType, string> {
+  return {
+    text: t("cf.type.text"),
+    number: t("cf.type.number"),
+    date: t("cf.type.date"),
+    currency: t("cf.type.currency"),
+    picklist: t("cf.type.picklist"),
+    boolean: t("cf.type.boolean"),
+  };
+}
+
+function objectLabels(t: ReturnType<typeof useT>): Record<CfObject, string> {
+  return {
+    deal: t("cf.obj.deal"),
+    organization: t("cf.obj.organization"),
+    person: t("cf.obj.person"),
+    lead: t("cf.obj.lead"),
+  };
 }
 
 type CustomField = components["schemas"]["CustomField"];
@@ -419,53 +445,65 @@ export function FieldTable({
 // read-only projection of the audit_log rows this screen's changes emit. It
 // renders only the fields the AuditLogEntry contract actually carries — the
 // action, the entity it touched, the actor, and when — never an invented
-// display name. Empty is an honest state, not a bug.
+// display name.
+//
+// Loading, failed, withheld and empty are FOUR different sentences and the rail
+// used to hand-roll three of them into one muted paragraph, with no retry on
+// the failure — which is `unavailable` wearing the word "error". SurfaceState
+// owns that vocabulary, so the caller classifies and this renders.
 export function AuditRail({
   entries,
-  isError,
-  isLoading,
+  state,
   meUserId,
+  onRetry,
 }: Readonly<{
   entries: AuditLogEntry[];
-  isError?: boolean;
-  isLoading?: boolean;
+  state: SectionState;
   meUserId?: string;
+  onRetry: () => void;
 }>) {
   const t = useT();
-
-  // A still-loading read is not an empty history — the "no changes yet" line
-  // must not stand in for a fetch that hasn't returned.
-  if (isLoading) {
-    return <p className="cf-audit-empty">{t("cf.audit.loading")}</p>;
-  }
-
-  // A failed audit read is not an empty history — say so honestly rather than
-  // letting "no changes yet" stand in for a load that never completed.
-  if (isError) {
-    return (
-      <p className="cf-audit-empty" role="alert">
-        {t("cf.audit.error")}
-      </p>
-    );
-  }
-
-  if (entries.length === 0) {
-    return <p className="cf-audit-empty">{t("cf.audit.empty")}</p>;
-  }
-
   const recentFirst = [...entries].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at),
   );
 
   return (
-    <ul className="cf-audit">
-      {recentFirst.map((entry) => (
-        <li key={entry.id}>
-          <AuditEntryLine entry={entry} meUserId={meUserId} />
-        </li>
-      ))}
-    </ul>
+    <SurfaceState
+      state={state}
+      emptyLabel={t("cf.audit.empty")}
+      detail={{ onRetry }}
+    >
+      <ul className="cf-audit">
+        {recentFirst.map((entry) => (
+          <li key={entry.id}>
+            <AuditEntryLine entry={entry} meUserId={meUserId} />
+          </li>
+        ))}
+      </ul>
+    </SurfaceState>
   );
+}
+
+// Which of the four the rail is in. Withheld comes FIRST because a disabled
+// query never leaves its pending state: classified in read-query order, a
+// reader whose role cannot see the trail would be shown a skeleton forever
+// instead of being told the answer is already settled.
+function auditState(
+  isAdmin: boolean,
+  isPending: boolean,
+  isError: boolean,
+  count: number,
+): SectionState {
+  if (!isAdmin) {
+    return "withheld";
+  }
+  if (isError) {
+    return "failed";
+  }
+  if (isPending) {
+    return "loading";
+  }
+  return count === 0 ? "empty" : "ready";
 }
 
 // The add-field create body (CUSTOM-FIELDS-WIRE-2): a plain manual field carries
@@ -533,9 +571,16 @@ function stagedField(draft: NewFieldDraft, createdBy: string): CustomField {
 //
 // This is CONTENT inside a settings page, not a route of its own. The page owns
 // the .wrap reading column (a second one nested inside it would double the page
-// padding) and the h1 in the shell's page head, so this returns a bare
-// .cf-screen block and its SectionHeader keeps SectionHeader's default level 2 —
-// an h2 under that h1, so the document never carries two page titles.
+// padding) and the h1 in the shell's page head, so this returns ONE Panel whose
+// own h2 sits under that h1 — the document never carries two page titles.
+//
+// One panel, not four surfaces. It used to be a bare heading, a chip bar and
+// three sibling Cards, which is four things on a tab that already carries three
+// more subjects — and the heading pair said "Custom fields" twice in 40px, once
+// as the section name and again as the card title. The object is now named by
+// the segmented control alone, and the two surfaces most visits do not want —
+// the builder and the change trail — are Disclosures. What is left open is the
+// answer to the question people actually arrive with: which fields exist.
 export function CustomFieldsAdmin() {
   const t = useT();
   const queryClient = useQueryClient();
@@ -544,6 +589,11 @@ export function CustomFieldsAdmin() {
   // while rename and retire change one that already exists.
   const canCreate = useCanWrite("custom_field", "create");
   const canEdit = useCanWrite("custom_field", "update");
+  // The trail is the ADMIN's, not this screen's: /audit-log is gated
+  // server-side on the role (privacy.ListAuditLog), while this page opens for
+  // anyone holding custom_field:read. So the rail below is gated on the role
+  // too, exactly as the settings audit card is.
+  const isAdmin = useHoldsAdminRole();
   const meUserId = me.data?.user?.id;
 
   const [object, setObject] = useState<CfObject>("deal");
@@ -590,6 +640,11 @@ export function CustomFieldsAdmin() {
 
   const audit = useQuery({
     queryKey: ["cf-audit"],
+    // A denial that is already known is not worth a request. Without this a
+    // non-admin on this tab fired a call that could only 403 and got the
+    // rail's red role="alert" back — a failure with a retry that can never
+    // succeed, over a refusal they cannot act on.
+    enabled: isAdmin,
     queryFn: async () => {
       const { data, error } = await api.GET("/audit-log", {
         params: { query: { entity_type: "custom_field" } },
@@ -698,31 +753,27 @@ export function CustomFieldsAdmin() {
     setRenameLabel(field.label);
   };
 
+  const objectName = t(`cf.obj.${object}`);
+
   return (
-    <div className="cf-screen">
-      <SectionHeader title={t("cf.title")} sub={t("cf.subtitle")} />
+    <Panel className="cf-screen" title={t("cf.title")}>
+      <PanelBody className="cf-scope">
+        <p className="cf-hint">{t("cf.subtitle")}</p>
+        {/* The object bar WAS a fieldset of aria-pressed buttons in a pill
+            chrome of its own — SegmentedControl by hand, down to the ARIA, with
+            different radius, weight and padding. The count that used to ride
+            the active pill is gone with it: it only ever described the object
+            already selected, whose whole list is immediately below. */}
+        <SegmentedControl
+          label={t("cf.object")}
+          options={CF_OBJECTS}
+          value={object}
+          onChange={setObject}
+          labels={objectLabels(t)}
+        />
+      </PanelBody>
 
-      <fieldset className="cf-objbar" aria-label={t("cf.object")}>
-        {CF_OBJECTS.map((candidate) => {
-          const active = candidate === object;
-          return (
-            <button
-              key={candidate}
-              type="button"
-              aria-pressed={active}
-              className="cf-objchip"
-              onClick={() => setObject(candidate)}
-            >
-              {t(`cf.obj.${candidate}`)}
-              {active && list.isSuccess && (
-                <span className="cf-count">{list.data.data.length}</span>
-              )}
-            </button>
-          );
-        })}
-      </fieldset>
-
-      <Card title={t("cf.onObject", { object: t(`cf.obj.${object}`) })}>
+      <PanelBody className="cf-tablebody">
         <QueryGate query={list}>
           {(page) => (
             <FieldTable
@@ -735,29 +786,52 @@ export function CustomFieldsAdmin() {
             />
           )}
         </QueryGate>
-      </Card>
+      </PanelBody>
 
-      {canCreate ? (
-        <FieldBuilder
-          key={`${object}-${builderKey}`}
-          object={object}
-          pending={create.isPending}
-          onSubmit={(draft) => create.mutate(draft)}
-          onToast={showToast}
-        />
-      ) : (
-        <p className="t-caption">{t("cf.noPermission")}</p>
-      )}
+      <PanelBody className="cf-aside">
+        {canCreate ? (
+          <Disclosure summary={t("cf.builder.addTo", { object: objectName })}>
+            <FieldBuilder
+              key={`${object}-${builderKey}`}
+              object={object}
+              pending={create.isPending}
+              onSubmit={(draft) => create.mutate(draft)}
+              onToast={showToast}
+            />
+          </Disclosure>
+        ) : null}
+        {/* The posture speaks for BOTH grants, so it is bound to both. The
+            server splits them — create.go admits `custom_field:create`, the
+            lifecycle handlers admit `update` — and a principal holding update
+            without create was reading "you have read-only access" above rows
+            whose Edit and Archive buttons worked. A sentence about a boundary
+            has to be true of the boundary it names. */}
+        {!canCreate && !canEdit && (
+          <p className="cf-posture">{t("cf.noPermission")}</p>
+        )}
 
-      <Card title={t("cf.audit.title")}>
-        <AuditRail
-          entries={audit.data?.data ?? []}
-          isError={audit.isError}
-          isLoading={audit.isPending}
-          meUserId={meUserId}
-        />
-        <p className="t-caption">{t("cf.audit.footer")}</p>
-      </Card>
+        {/* Withheld, not absent: the trail keeps its place for every reader,
+            because a section that simply were not there would read as "nobody
+            has changed a field" — a claim about the data in place of one about
+            who may read it. Closed by default because it is a secondary read;
+            the state inside it is settled before it is ever opened. */}
+        <Disclosure summary={t("cf.audit.title")}>
+          <AuditRail
+            entries={audit.data?.data ?? []}
+            state={auditState(
+              isAdmin,
+              audit.isPending,
+              audit.isError,
+              audit.data?.data.length ?? 0,
+            )}
+            meUserId={meUserId}
+            onRetry={() => void audit.refetch()}
+          />
+          {/* True for every reader: the recording happens whether or not this
+              one may read it back. */}
+          <p className="t-caption">{t("cf.audit.footer")}</p>
+        </Disclosure>
+      </PanelBody>
 
       {toast && (
         <div className="toast-region">
@@ -811,6 +885,6 @@ export function CustomFieldsAdmin() {
           <Button onClick={() => setRenaming(null)}>{t("deals.cancel")}</Button>
         </div>
       </Modal>
-    </div>
+    </Panel>
   );
 }

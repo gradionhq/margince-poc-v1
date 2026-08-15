@@ -102,7 +102,9 @@ function CoverageGrid({
   // A failed read is unavailable, never "nobody is connected": the two call for
   // opposite next moves and only a read that succeeded can make the second claim.
   if (query.isError || !graph) {
-    return <p className="co-restricted">{t("co.section.unavailable")}</p>;
+    return (
+      <p className="surfacestate-withheld">{t("co.section.unavailable")}</p>
+    );
   }
   if (colleagues.length === 0) {
     return (

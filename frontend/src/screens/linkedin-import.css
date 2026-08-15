@@ -3,10 +3,6 @@
    into one flat column — a wall of alternating words and numbers that read as
    a list of eight unrelated things rather than four counts. */
 
-.li-import {
-  margin-bottom: var(--space-4);
-}
-
 .li-import-explainer {
   margin-top: 0;
 }
@@ -99,8 +95,10 @@
   background: var(--bgElevated);
 }
 
+/* The same rule as .li-import-field above: a 12px term naming the figure
+ * beside it is text to be read, not a rule to be seen. */
 .li-import-result dt {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font: 500 0.75rem / 1.3 var(--f-body);
 }
 
@@ -120,28 +118,12 @@
   border-bottom: 1px solid var(--borderSubtle);
 }
 
-.li-import-field {
-  display: grid;
-  gap: var(--space-1);
+/* The URL field is a Field + TextInput now, so its label type, its box, its
+ * border and its focus ring all come from the design system — this sheet only
+ * says how wide the pair may run. `.li-import-field` declared all four by hand
+ * and none of them matched the identical field in the dialogs on this tab. */
+.li-import-profile .field {
   max-width: 32rem;
-  color: var(--textMuted);
-  font: 500 0.8125rem / 1.4 var(--f-body);
-}
-
-.li-import-field input {
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-  color: var(--textContent);
-  font: 400 0.875rem / 1.5 var(--f-body);
-}
-
-.li-import-field input:focus-visible {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
 }
 
 .li-import-profile p {

@@ -1,9 +1,11 @@
 import { useCallback, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Button, Modal } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage } from "./common";
+import "./users-admin.css";
 
 // The admin-issued set-password link (ADR-0061 Amendment 1). On an installation
 // with no outbound email, an invited member is created active with no password
@@ -119,20 +121,19 @@ export function PasswordLinkModal({
         {t("users.link.title", { name: memberName })}
       </h2>
       {pending && <p className="t-small">{t("users.link.pending")}</p>}
+      {/* `danger`: the credential does not exist. The same vocabulary the
+          roster and the invite form now use for a refused write, rather than a
+          paragraph tinted by hand — the tint WAS the claim, spelled in an
+          inline style, and nothing said which of the four tones it meant.
+
+          The member exists either way — only the link failed. Retry is the
+          whole point of this branch: without it the admin is left with an
+          account nobody can sign into and no visible way forward. */}
       {error && (
-        <>
-          <p
-            className="t-caption"
-            role="alert"
-            style={{ color: "var(--danger)" }}
-          >
-            {error}
-          </p>
-          {/* The member exists either way — only the link failed. Retry is the
-              whole point of this branch: without it the admin is left with an
-              account nobody can sign into and no visible way forward. */}
-          <p className="t-small">{t("users.link.failed")}</p>
-        </>
+        <Callout tone="danger" live="alert">
+          <p>{error}</p>
+          <p>{t("users.link.failed")}</p>
+        </Callout>
       )}
       {link && !pending && (
         <>
@@ -213,10 +214,14 @@ function CopyableLink({ url }: Readonly<{ url: string }>) {
       >
         {copied ? t("users.link.copied") : t("users.link.copy")}
       </Button>
+      {/* `warn`, not `danger`: the link itself is fine and is on screen in the
+          field beside this — what failed is the clipboard, and the way out is
+          to select the field by hand, which is exactly why it is a read-only
+          input rather than text. */}
       {copyFailed && (
-        <span className="t-caption" role="alert" style={{ flexBasis: "100%" }}>
+        <Callout tone="warn" live="alert" className="users-formerror">
           {t("users.link.copyFailed")}
-        </span>
+        </Callout>
       )}
     </div>
   );

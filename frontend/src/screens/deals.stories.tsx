@@ -16,7 +16,7 @@ import {
 // deal screen only mounts it when a rate exists, a low/zero-rate variant. The
 // DealScreen stories exercise the offers panel over the shared fetch stub.
 const meta: Meta = {
-  title: "Screens/Deals",
+  title: "Records/Deals",
   parameters: { layout: "padded" },
 };
 export default meta;

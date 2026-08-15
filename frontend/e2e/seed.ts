@@ -19,6 +19,11 @@ const E2E_ADMIN_GRANTS: GrantSpec = {
   fx_rate: ["create", "read", "update"],
   ai_model_rate: ["create", "read", "update"],
   saved_view: ["create", "read", "update", "delete"],
+  // The Voice DNA surface, which gates every write on this one object (core
+  // migration 0042 grants admin/ops/manager all four). Without it the
+  // `settings/voice` sweep measures a card with no controls at all — the
+  // read-only posture a `read_only` seat gets, not the admin the specs drive.
+  voice_profile: ["create", "read", "update", "delete"],
   // The consent registry's own gate, and so the Privacy & audit ENTRY's: the
   // server reads purposes under `person:read` (consent/store.go), not under a
   // role. Read alone, because no spec exercises a person write from here and a
@@ -305,6 +310,180 @@ export const auditEntries = [
     occurred_at: "2026-07-05T05:00:00Z",
   },
 ];
+
+// The three reads behind Settings → AI and Settings → Maintenance. They are
+// fixtures rather than catch-all `page([])` answers because the catch-all is
+// not a thin response — it is the WRONG SHAPE, and the two sweeps below cannot
+// see what they cannot render: `/admin/job-health` answered `{data,page}` (no
+// `kinds`, which crashed the card), `/ai/usage` answered a body with no
+// `budget` (an error state), and `/ai/calls` answered an empty page. The AI
+// tab's two widest tables therefore never rendered on the very route the 390px
+// sweep visits, and the queue report never rendered at all. Every field below
+// is required by its contract schema (AiUsage / AiCallListResponse /
+// JobHealth) — an under-filled fixture would just move the lie.
+
+export const aiUsage = {
+  days: [
+    {
+      date: "2026-07-04",
+      tasks: [
+        {
+          task: "capture_classify",
+          tier: "cheap_cloud",
+          calls: 412,
+          cached_hits: 96,
+          tokens_in: 184_320,
+          tokens_out: 21_460,
+          cost_est_minor: 118,
+        },
+        {
+          task: "enrich",
+          tier: "premium",
+          calls: 37,
+          cached_hits: 2,
+          tokens_in: 96_100,
+          tokens_out: 44_820,
+          cost_est_minor: 942,
+        },
+      ],
+    },
+    {
+      date: "2026-07-05",
+      tasks: [
+        {
+          task: "capture_classify",
+          tier: "cheap_cloud",
+          calls: 388,
+          cached_hits: 104,
+          tokens_in: 171_005,
+          tokens_out: 19_884,
+          cost_est_minor: 109,
+        },
+        {
+          task: "summarize",
+          tier: "local_small",
+          calls: 51,
+          cached_hits: 0,
+          tokens_in: 60_240,
+          tokens_out: 12_015,
+          cost_est_minor: 0,
+        },
+      ],
+    },
+  ],
+  budget: {
+    monthly_tokens: 4_000_000,
+    spent_tokens: 609_844,
+    band: "normal",
+    currency: "USD",
+  },
+};
+
+// Two terminal calls, one clean and one that retried and degraded — the second
+// is what puts a badge column and an error sentinel into the widest row, which
+// is the row a narrow viewport has to survive.
+export const aiCalls = {
+  data: [
+    {
+      id: "0d9f8c2e-6b41-4d2a-9a77-1f3c5b8e0a11",
+      occurred_at: "2026-07-05T06:14:00Z",
+      task: "capture_classify",
+      tier: "cheap_cloud",
+      provider: "deepseek",
+      model_id: "deepseek-chat",
+      served_model: "deepseek-chat-0724",
+      calls_attempted: 1,
+      tokens_in: 1_284,
+      tokens_out: 212,
+      reasoning_tokens: 0,
+      cached_tokens: 0,
+      latency_ms: 940,
+      cache_hit: false,
+      degraded: false,
+      error_sentinel: null,
+      has_payload: true,
+    },
+    {
+      id: "b71c4a55-2f08-4c93-8d61-77aa9e4c2b30",
+      occurred_at: "2026-07-05T05:58:00Z",
+      task: "enrich",
+      tier: "premium",
+      provider: "anthropic",
+      model_id: "claude-sonnet",
+      served_model: "claude-sonnet-4-6",
+      calls_attempted: 3,
+      tokens_in: 12_940,
+      tokens_out: 3_118,
+      reasoning_tokens: 1_002,
+      cached_tokens: 8_400,
+      latency_ms: 7_310,
+      cache_hit: true,
+      degraded: true,
+      error_sentinel: "provider_timeout",
+      has_payload: false,
+    },
+  ],
+  page: { next_cursor: null },
+  payload_capture_enabled: true,
+  tasks: ["capture_classify", "enrich", "summarize"],
+};
+
+// A queue with something waiting, a dispatcher beside it, and one dead job —
+// the dead count is what raises the card's alert, so an all-zero fixture would
+// leave the loudest thing on the page unmeasured.
+export const jobHealth = {
+  generated_at: "2026-07-05T06:20:00Z",
+  kinds: [
+    {
+      kind: "capture_ingest",
+      queue: "default",
+      fleet_wide: false,
+      waiting: 12,
+      running: 2,
+      retrying: 1,
+      dead: 0,
+      oldest_waiting_age_seconds: 195,
+    },
+    {
+      kind: "enrich_organization",
+      queue: "enrich",
+      fleet_wide: false,
+      waiting: 0,
+      running: 0,
+      retrying: 0,
+      dead: 2,
+      oldest_waiting_age_seconds: null,
+    },
+    {
+      kind: "workspace_dispatch",
+      queue: "dispatch",
+      fleet_wide: true,
+      waiting: 0,
+      running: 1,
+      retrying: 0,
+      dead: 0,
+      oldest_waiting_age_seconds: null,
+    },
+  ],
+  recent_failures: [
+    {
+      kind: "enrich_organization",
+      state: "discarded",
+      attempt: 5,
+      max_attempts: 5,
+      failed_at: "2026-07-05T04:41:00Z",
+      reason: "The provider refused the request.",
+    },
+    {
+      kind: "capture_ingest",
+      state: "retryable",
+      attempt: 2,
+      max_attempts: 5,
+      failed_at: "2026-07-05T06:02:00Z",
+      reason: "The mail provider was unreachable.",
+    },
+  ],
+};
 
 export const publicSlots = [
   { start: "2026-07-06T09:00:00Z", end: "2026-07-06T09:30:00Z" },
@@ -1129,6 +1308,15 @@ export async function mockApi(
           },
         ],
       });
+    }
+    if (path === "/ai/usage") {
+      return json(aiUsage);
+    }
+    if (path === "/ai/calls" && method === "GET") {
+      return json(aiCalls);
+    }
+    if (path === "/admin/job-health") {
+      return json(jobHealth);
     }
     if (path === "/agent-tools") {
       return json({

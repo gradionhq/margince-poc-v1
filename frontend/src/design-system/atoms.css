@@ -12,16 +12,32 @@
   background: var(--bgCard);
   color: var(--textMeta);
 }
+/* The tone tints are TRANSLUCENT by canon — --successBg, --warnBg and
+   --dangerBg all carry an alpha under a fifth — so a badge painted straight
+   onto its parent composites against whatever happens
+   to be behind it — and its contrast changes with the surface it lands on.
+   Measured: --success on --successBg reads 4.54:1 over a panel's --bgElevated
+   and 4.05:1 over the recessed --bgCard of a PanelPlate. Four hundredths of
+   headroom on one surface and a WCAG AA failure on the other, for the same
+   component with the same tokens.
+
+   So each tone lays its tint over an explicit --bgElevated of its own rather
+   than over its ancestor: the badge composites the same way everywhere and its
+   contrast stops being a property of where a caller put it. The canon values
+   are untouched — this is the same colour the design intends, made
+   independent of context. */
 .badge-success {
-  background: var(--successBg);
+  background:
+    linear-gradient(var(--successBg), var(--successBg)), var(--bgElevated);
   color: var(--success);
 }
 .badge-warn {
-  background: var(--warnBg);
+  background: linear-gradient(var(--warnBg), var(--warnBg)), var(--bgElevated);
   color: var(--warn);
 }
 .badge-danger {
-  background: var(--dangerBg);
+  background:
+    linear-gradient(var(--dangerBg), var(--dangerBg)), var(--bgElevated);
   color: var(--danger);
 }
 .badge-ai {
@@ -340,6 +356,13 @@
   border: 0;
   margin: 0;
   display: inline-flex;
+  /* An unwrapped inline-flex does not shrink: it sets its own minimum width and
+     pushes whatever contains it. The company record's tab strip is seven
+     options — measured 543px inside a 374px column at 390px, which is the whole
+     of that page's horizontal overflow, and the record page is the one every
+     other surface is meant to look like. A closed option set is exactly the
+     thing that CAN take a second line, so it does. */
+  flex-wrap: wrap;
   background: var(--bgCard);
   border-radius: var(--r-sm);
   padding: 3px;
@@ -447,6 +470,15 @@
 }
 .section-header h2 {
   font-size: 15px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+/* SectionHeader level={3}: a section inside a section. It steps down in size
+   as well as in outline depth — a nested heading drawn at its parent's size
+   tells the eye they are peers while the document says they are not, and the
+   eye is the one the reader believes. */
+.section-header h3 {
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--textPrimary);
 }

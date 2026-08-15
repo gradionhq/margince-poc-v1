@@ -12,7 +12,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // fails here rather than rendering an unlabelled heading.
 
 const meta: Meta = {
-  title: "Screens/Company dossier",
+  title: "Records/Company 360/Dossier",
   parameters: { layout: "padded" },
 };
 export default meta;

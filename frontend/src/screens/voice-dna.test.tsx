@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { VoiceDnaCard } from "./voice-dna";
 
@@ -92,11 +93,18 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Every write on this surface is one grant server-side (`voice_profile:update`,
+// plus `create` for minting the first profile), so the seat the stub answers
+// with decides whether the card offers any control at all.
+const VOICE_EDITOR = {
+  voice_profile: ["read", "create", "update"],
+} as const;
+
 // A stub that behaves like the server does across the whole mint: the profile
 // list answers empty until POST /voice-profiles creates one, so a card that
 // minted twice would be visible as two creates rather than hidden behind a
 // canned response.
-function stubApi() {
+function stubApi(grants: GrantSpec = VOICE_EDITOR) {
   const calls: string[] = [];
   let profile: VoiceProfile | null = null;
   vi.stubGlobal(
@@ -104,6 +112,9 @@ function stubApi() {
     vi.fn(async (request: Request) => {
       const path = new URL(request.url).pathname.replace(/^\/v1/, "");
       calls.push(`${request.method} ${path}`);
+      if (path === "/me") {
+        return jsonResponse(meFixture({ allow: grants }));
+      }
       if (path === "/voice-profiles") {
         if (request.method === "POST") {
           profile = PROFILE;
@@ -202,6 +213,22 @@ describe("the Settings Voice DNA card with no profile yet", () => {
     expect(add.hasAttribute("disabled")).toBe(true);
   });
 
+  // A seat that may READ a Voice DNA but not change one is not offered a
+  // control the server would refuse. The card keeps its place and says which
+  // posture it is in, once — the design-system rule for a readable surface
+  // whose write affordances are absent.
+  it("withholds the first-sample control from a seat that cannot create one", async () => {
+    stubApi({ voice_profile: ["read"] });
+    render(<VoiceDnaCard />);
+    expect(await screen.findByText("No Voice DNA yet")).toBeTruthy();
+    expect(
+      screen.getByText(/you do not have permission to change your Voice DNA/i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Add it and start my Voice DNA" }),
+    ).toBeNull();
+  });
+
   // An owner with no voice yet has one thing to do. Splitting the surface into
   // a card per subject would hand them five headings over five empty bodies —
   // a description of a profile that does not exist.
@@ -225,6 +252,9 @@ describe("the Settings Voice DNA card with a profile", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/me") {
+          return jsonResponse(meFixture({ allow: VOICE_EDITOR }));
+        }
         if (path === "/voice-profiles") {
           return jsonResponse({ data: [PROFILE], page: emptyPage.page });
         }
@@ -265,6 +295,37 @@ describe("the Settings Voice DNA card with a profile", () => {
       ),
     ).toBeTruthy();
   });
+
+  // Every box on this card is a real form control with a real name. A
+  // placeholder is not one: it is gone the moment a character is typed, so the
+  // field a screen reader was told about loses its name exactly when its
+  // content starts to matter.
+  it("names every writing box without relying on its placeholder", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/me") {
+          return jsonResponse(meFixture({ allow: VOICE_EDITOR }));
+        }
+        if (path === "/voice-profiles") {
+          return jsonResponse({ data: [PROFILE], page: emptyPage.page });
+        }
+        if (path === "/voice-profiles/vp-1/sources") {
+          return jsonResponse({ data: [SOURCE], summary: SUMMARY });
+        }
+        return jsonResponse(emptyPage);
+      }),
+    );
+    render(<VoiceDnaCard />);
+    // The preferences box takes its name from the card that holds it rather
+    // than drawing the same words twice.
+    expect(
+      await screen.findByRole("textbox", { name: "Your preferences" }),
+    ).toBeTruthy();
+    // The add box draws its own label, and the label is tied to the control.
+    expect(screen.getByLabelText("Add sample")).toBeTruthy();
+  });
 });
 
 // A build is the longest-running act on this card and the one a reader is
@@ -282,6 +343,9 @@ describe("a build that fails", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         const path = new URL(request.url).pathname.replace(/^\/v1/, "");
+        if (path === "/me") {
+          return jsonResponse(meFixture({ allow: VOICE_EDITOR }));
+        }
         if (path === "/voice-profiles") {
           return jsonResponse({ data: [BUILDABLE], page: emptyPage.page });
         }

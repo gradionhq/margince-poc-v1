@@ -10,7 +10,7 @@ import { EditRecordModal } from "./edit";
 // with a prefilled record and, separately, the version-skew error copy
 // EditAction shows on a 409 code:version_skew.
 const meta: Meta = {
-  title: "Screens/Edit",
+  title: "Patterns/Edit record",
   parameters: { layout: "padded" },
   decorators: [
     (Story) => (

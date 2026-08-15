@@ -10,7 +10,7 @@ import { StatStrip } from "./statstrip";
 // is really checking is that the row reads ACROSS — one plate, one type scale,
 // rules and no gaps.
 const meta: Meta<typeof StatStrip> = {
-  title: "Design system/StatStrip",
+  title: "Design System/StatStrip",
   component: StatStrip,
   parameters: { layout: "padded" },
 };

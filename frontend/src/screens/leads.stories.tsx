@@ -3,14 +3,19 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { LeadScreen, LeadsScreen } from "./leads";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // LeadsScreen (list, accent-tinted "segregated" surface) and LeadScreen (its
 // own 360 — never person.html, per the §3.5 segregation gap) both read
 // through the api client on mount; LeadScreen's lifecycle panel also reads
 // GET /me (the session-principal probe every role-aware surface shares).
 const meta: Meta = {
-  title: "Screens/Leads",
+  title: "Records/Leads",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -34,6 +39,7 @@ const lead = {
 export const LeadsList: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ lead: ["read", "update"] }),
       "GET /leads": () =>
         jsonResponse({
           data: [lead],

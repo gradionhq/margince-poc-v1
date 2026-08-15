@@ -9,17 +9,22 @@ import { LocaleProvider } from "../i18n";
 import type { QueryLike } from "./common";
 import {
   type Budget,
+  OverlayLiveActions,
   OverlayLiveSection,
   type SyncStatus,
 } from "./overlay-health";
 
-// OverlayLiveSection takes its two reads as QueryLike props and its two grants
-// as booleans, so it needs no network and no query client — the section is
-// exercised directly against hand-built fixtures rather than through the whole
-// OverlayCard, the same seam overlay-health.stories.tsx uses. What is under
-// test here is the section's honesty about WHY its action row is missing: this
-// section renders only on an installation already in overlay mode, so a seat
+// The live half of the overlay card takes its two reads as QueryLike props and
+// its two grants as booleans, so it needs no network and no query client — it
+// is exercised directly against hand-built fixtures rather than through the
+// whole OverlayCard, the same seam overlay-health.stories.tsx uses. What is
+// under test here is its honesty about WHY the action row is missing: this
+// surface renders only on an installation already in overlay mode, so a seat
 // without the grants is looking at a live mirror it cannot steer.
+//
+// The readings and the verbs are two components because the card hands them to
+// two different slots of one Panel — the recessed plate and the action band —
+// so they are rendered together here, exactly as OverlayCard composes them.
 
 // A settled QueryLike. Written out rather than borrowed from a react-query
 // result: this component only ever reads these five fields, and a hand-rolled
@@ -57,27 +62,36 @@ const render = (ui: ReactNode) =>
   rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
 
 function renderSection(
-  grants: Readonly<{ canReconcile: boolean; canDisconnect: boolean }>,
+  grants: Readonly<{
+    canReconcile: boolean;
+    canDisconnect: boolean;
+    rolesKnown?: boolean;
+  }>,
 ) {
   return render(
-    <OverlayLiveSection
-      sync={settled(SYNC)}
-      budget={settled(BUDGET)}
-      locale="en"
-      canReconcile={grants.canReconcile}
-      canDisconnect={grants.canDisconnect}
-      onReconcile={() => {}}
-      reconcilePending={false}
-      reconcileQueued={false}
-      reconcileError={null}
-      onDisconnect={() => {}}
-    />,
+    <>
+      <OverlayLiveSection
+        sync={settled(SYNC)}
+        budget={settled(BUDGET)}
+        locale="en"
+      />
+      <OverlayLiveActions
+        rolesKnown={grants.rolesKnown ?? true}
+        canReconcile={grants.canReconcile}
+        canDisconnect={grants.canDisconnect}
+        onReconcile={() => {}}
+        reconcilePending={false}
+        reconcileQueued={false}
+        reconcileError={null}
+        onDisconnect={() => {}}
+      />
+    </>,
   );
 }
 
 afterEach(cleanup);
 
-describe("OverlayLiveSection", () => {
+describe("the overlay card's live section", () => {
   it("states that the actions are withheld when neither grant is held", () => {
     renderSection({ canReconcile: false, canDisconnect: false });
 
@@ -88,6 +102,22 @@ describe("OverlayLiveSection", () => {
     // the seat still sees how fresh the mirror is and what the budget is doing.
     expect(screen.getByText(/mirror sync/i)).toBeTruthy();
     expect(screen.getByText(/api budget/i)).toBeTruthy();
+  });
+
+  // Both grants read false while /me is in flight, and an unknown grant is not
+  // a denial: saying so before the probe answers puts the sentence in front of
+  // the very operator it does not apply to, on every load of the tab.
+  it("says nothing about permission until the probe has answered", () => {
+    renderSection({
+      canReconcile: false,
+      canDisconnect: false,
+      rolesKnown: false,
+    });
+
+    expect(screen.queryByText(/do not have permission/i)).toBeNull();
+    // And the reads it does have are still on screen — a probe still running is
+    // no reason to withhold what already loaded.
+    expect(screen.getByText(/mirror sync/i)).toBeTruthy();
   });
 
   // The other direction, three ways, because the two grants are independent

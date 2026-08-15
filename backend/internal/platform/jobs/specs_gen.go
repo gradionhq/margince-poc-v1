@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "c2ae0c19e14a4e63ba7dbf2a29db5bf95c6b17a0b61a998e5c4c6f0cdfb71d82"
+const JobContractHash = "b90be4a8701b5bb135c793640abb63ce27f624feb25d4e0af0b7bae6d7f1c516"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -212,6 +212,17 @@ var specs = map[string]Spec{
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"SendRegistry"}},
 		Args:         []ArgField{{Name: "ScheduledSendID"}, {Name: "Workspace"}},
+	},
+	"comms_scheduled_send_recovery": {
+		Kind:         "comms_scheduled_send_recovery",
+		GoType:       "ScheduledSendRecoveryArgs",
+		Role:         Worker,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		OptsOwner:    OptsCaller,
+		Cadence:      Cadence{Fixed: 15 * time.Minute},
+		Registration: Registration{When: []string{"SendRegistry", "SendDelivery"}},
+		Fault:        FaultPolicy{NilAfterLogging: "A batch of independent messages, and one that cannot be re-armed must not strand the others: the pass logs that message and carries on. The retry policy is the CADENCE — this runs every 15 minutes and re-reads what is still overdue, so a message that failed here is picked up by the next pass without the ladder having to remember it. Failing the whole job instead would re-run the messages that already succeeded, and a permanently unreadable row would then block every other recovery behind it forever. What the cadence cannot heal is a row that fails deterministically, so the summary line carries a `failed` count: a number that stays non-zero across passes is the signal that no amount of re-running will fix that message."},
 	},
 	"comms_send_email": {
 		Kind:         "comms_send_email",

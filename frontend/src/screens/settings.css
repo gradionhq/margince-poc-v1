@@ -12,7 +12,18 @@
    unrelated surfaces was ZERO. Two hairlines touching read as one card.
 
    The gap is the same --space-4 the shell's rule gives, so a settings page and any
-   other page space alike. */
+   other page space alike.
+
+   And no width of its own: every settings page fills the page column, the same
+   column every other screen gets. This sheet carried a reading measure for a
+   while and gave the two table-carrying pages an exemption from it, which is two
+   problems. A reader navigating between entries watched the page change size,
+   because the width belonged to the entry rather than to settings. And the
+   exemption was a knob every new entry had to answer, which is how a register
+   grows a column of values nobody revisits. A control that should not stretch is
+   a control that knows its own width — see `.settings-intrinsic` below — and
+   that is where the constraint belongs, on the thing with an opinion rather than
+   on the page around it. */
 .settings-stack {
   display: flex;
   flex-direction: column;
@@ -31,293 +42,216 @@
   margin: var(--space-4) 0 0;
 }
 
-.company-context-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* A Card drew its descriptive line in the header, under the title. Panel's
+   header is a fixed-height band with room for a title and one control, so that
+   line moves into the body — where it is the first thing read, above the form
+   or the rows it describes, and it pays for its own interval to them. */
+.settings-panel-sub {
+  margin-bottom: var(--space-4);
 }
 
-.company-context-hero {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  justify-content: space-between;
+/* A control whose width is intrinsic: a two-option segmented control is two
+   words wide and a language dropdown is one language wide. Both sit in a
+   `.field`, which is a flex COLUMN — its default `align-items: stretch` is what
+   dragged them across the whole page column. Stated once here rather than as an
+   inline width per control, because the rule is about what the control IS, not
+   about this page. */
+.settings-intrinsic {
   align-items: flex-start;
-  gap: 20px;
-  padding: 28px;
-  border: 1px solid var(--accentMed);
-  border-radius: var(--r-lg);
-  background: linear-gradient(
-    135deg,
-    var(--accentLight),
-    var(--bgElevated) 58%
-  );
-  box-shadow: var(--shadow-card);
+}
+.settings-intrinsic .input {
+  width: auto;
+  min-width: 12rem;
 }
 
-.company-context-hero::after {
-  content: "";
-  position: absolute;
-  width: 180px;
-  height: 180px;
-  right: -60px;
-  bottom: -105px;
-  border-radius: 50%;
-  border: 30px solid var(--accentMed);
-  opacity: 0.45;
-  pointer-events: none;
+/* The one panel that announces its own danger: the red border is what separates
+   a destructive surface from the ordinary settings around it. */
+.settings-danger {
+  border-color: var(--danger);
 }
-
-.company-context-hero h2,
-.company-context-review h3 {
-  margin: 7px 0 6px;
-  color: var(--textPrimary);
-  letter-spacing: -0.025em;
+.settings-danger-result {
+  margin-top: var(--space-3);
 }
-
-.company-context-hero p {
-  max-width: 680px;
-  color: var(--textSecondary);
-  line-height: 1.55;
-}
-
-.company-context-kicker,
-.company-context-saved {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.company-context-warning {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.settings-danger-warning {
+  margin-top: var(--space-1);
   color: var(--warn);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.company-context-kicker svg,
-.company-context-saved svg,
-.company-context-warning svg,
-.company-context-trust svg,
-.company-context-actions svg {
-  width: 16px;
-  height: 16px;
-}
-
-.company-context-trust {
+/* The profile block, borrowed from the record page's identity header
+   (composed.css `.record-head`): the mark, then the name with its standing
+   badges on the same line, then the two meta lines that qualify it. Three loose
+   items in a wide box said nothing about which of them was the subject. */
+.settings-identity {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 11px 14px;
-  color: var(--textSecondary);
-  background: var(--bgCard);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
+  gap: var(--space-3);
 }
-
-.company-context-trust svg,
-.company-context-trust strong {
-  color: var(--accent);
-}
-
-.company-context-trust strong {
-  margin-left: auto;
-}
-
-.company-context-form,
-.company-context-review {
-  padding: 22px;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-}
-
-.company-context-form,
-.company-context-group {
+.settings-identity-id {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-1);
+  /* So a long address wraps inside the row rather than widening it. */
+  min-width: 0;
 }
-
-.company-context-group {
-  padding-top: 18px;
-  border-top: 1px solid var(--borderSubtle);
-}
-
-.company-context-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 15px;
-}
-
-.company-context-field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  color: var(--textSecondary);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.company-context-field:has(.textarea),
-.company-context-website {
-  grid-column: 1 / -1;
-}
-
-.company-context-field .textarea {
-  min-height: 78px;
-}
-
-.company-context-field small {
+.settings-identity-name {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 400;
-}
-
-.company-context-field small a {
-  color: var(--accent);
-}
-
-.company-context-website-row,
-.company-context-actions,
-.company-context-review-head,
-.company-context-comparison-title,
-.company-context-comparison-title > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.company-context-website-row .input {
-  flex: 1;
-}
-
-.company-context-actions {
-  justify-content: flex-end;
-  min-height: 36px;
-}
-
-.company-context-error {
-  margin-right: auto;
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.company-context-review-head {
-  justify-content: space-between;
-  margin-bottom: 18px;
-}
-
-.company-context-coverage {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  color: var(--textMeta);
-  font-size: 11px;
-}
-
-.company-context-coverage strong {
-  color: var(--accent);
-  font-size: 24px;
-}
-
-.company-context-comparisons {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.company-context-comparison {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-  padding: 15px;
-  border: 1px solid var(--borderSubtle);
-  border-left: 3px solid var(--accentMed);
-  border-radius: var(--r-md);
-  background: var(--bgCard);
-}
-
-.company-context-comparison.is-human_conflict {
-  border-left-color: var(--warn);
-}
-
-.company-context-comparison-title,
-.company-context-resolutions {
-  grid-column: 1 / -1;
-}
-
-.company-context-comparison-title {
-  justify-content: space-between;
-}
-
-.company-context-current,
-.company-context-proposed {
-  padding: 10px;
-  border-radius: var(--r-sm);
-  background: var(--bgElevated);
-}
-
-.company-context-current span,
-.company-context-proposed span {
-  color: var(--textMeta);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.company-context-current p,
-.company-context-proposed p {
-  margin-top: 5px;
-  color: var(--textPrimary);
-  line-height: 1.45;
-}
-
-.company-context-resolutions {
-  display: flex;
+  gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+/* PassportCard. The mint form is a label, a name field, five scope ticks and
+   the button, on as few lines as the width allows. */
+.passport-mint {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--borderSubtle);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.passport-mint .input {
+  width: auto;
+}
+.passport-mint-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+/* The always-mounted live region the minted token lands in. It has no box of
+   its own — the plate inside it is the surface — and no focus ring, because
+   focus arrives here programmatically rather than by tabbing to it. */
+.passport-token:focus {
+  outline: none;
+}
+.passport-token-value {
+  margin-top: var(--space-1);
+  /* A token is one unbroken run of characters and must wrap inside the panel
+     rather than set its minimum width. */
+  overflow-wrap: anywhere;
+}
+.passport-facts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Struck, not dimmed: dimming a revoked row drops it under the AA contrast
+   floor (B-EP09.21), and the revoked row is the one a reader most needs. */
+.passport-struck {
+  text-decoration: line-through;
 }
 
-.company-context-resolutions label {
-  color: var(--textSecondary);
-  font-size: 12px;
+/* AutonomyCard: the tier, its name, and — on the locked row — the badge saying
+   so, on one line each. */
+.autonomy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
-.company-context-resolutions .input {
-  flex: 1 1 240px;
+/* PipelinesCard. One pipeline per full-bleed row: its own heading (a real
+   `h3` through SectionHeader), the verbs beside it, and its stages under. */
+.pipeline-row > .section-header {
+  margin: 0 0 var(--space-2);
+  /* A pipeline name plus a standing badge plus two verbs is wider than a phone.
+     `.section-header` keeps its actions on one unwrapped line by default, which
+     is right for a page header and wrong here: the strip simply ran past the
+     panel's edge and the last verb was clipped away. Wrapping costs a line and
+     keeps every verb reachable. */
+  flex-wrap: wrap;
+}
+.pipeline-row > .section-header .section-header-actions {
+  flex-wrap: wrap;
+}
+.stage-rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* The four tracks of one stage: the name, its semantic badge, the win
+   probability, the edit verb. Fixed tracks for the three short ones so a column
+   of stages lines up. */
+.stage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 56px auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+/* A stage name is free text nobody promised would be short. Without this it
+   could not break, so at any width where the fixed tracks and the Edit button
+   leave it ~60px it painted straight over the badge beside it. */
+.stage-name {
+  overflow-wrap: anywhere;
+}
+/* The badge sits at the start of its fixed track at its own width. A grid cell
+   stretches its child by default, and a pill stretched to the width of the
+   longest semantic label reads as a bar rather than a tag. */
+.stage-row > .badge {
+  justify-self: start;
+}
+/* On a phone the three fixed tracks plus the verb ARE the width, and the name
+   has nothing left. So the row becomes two lines: the name across the top, the
+   readings and the verb under it. */
+@media (max-width: 560px) {
+  .stage-row {
+    grid-template-columns: auto auto 1fr;
+  }
+  .stage-name {
+    grid-column: 1 / -1;
+  }
+  /* The verb takes the end of its own line at its own width — the 1fr track is
+     there to push it there, not to stretch it across the row. */
+  .stage-row > :last-child {
+    justify-self: end;
+  }
 }
 
-@media (max-width: 760px) {
-  .company-context-fields,
-  .company-context-comparison {
-    grid-template-columns: 1fr;
-  }
-
-  .company-context-website-row,
-  .company-context-actions,
-  .company-context-review-head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .company-context-coverage {
-    align-items: flex-start;
-  }
+/* AuditLogCard. Six narrow filters as a grid of labelled cells rather than one
+   long row — in a row each control took the width of the card and the six of
+   them stacked into a page-tall form. */
+.audit-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.audit-filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.audit-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.audit-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* The expanded before/after trail, set in from the row it belongs to and
+   marked by a rule so it reads as this entry's detail rather than the next. */
+.audit-row-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--borderSubtle);
+}
+.audit-diff-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.audit-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.audit-error-cause {
+  margin: var(--space-2) 0 var(--space-3);
 }
 
 /* Tool console's passport-scope filter (AgentToolsCard): the gap between the
@@ -326,17 +260,37 @@
 .tool-scope-filter {
   margin-bottom: var(--space-3);
 }
+/* One of a handful of passports is an intrinsic choice, like the language
+   dropdown beside the theme on Account: it takes the width its longest option
+   needs, not the width of the card it narrows. */
+.tool-scope-filter .input {
+  width: auto;
+  min-width: 14rem;
+  max-width: 100%;
+}
 
 /* Tool console rows (AgentToolsCard): the verb and its governance badges on
-   one line, the selection prose under them. Layout lives here rather than in
-   inline styles so it reads on the spacing scale; only the dimming of a tool
-   the selected passport cannot reach stays inline, because it is per-row state
-   rather than layout. */
-.tool-row {
+   one line, the selection prose under them. All of it lives here rather than in
+   inline styles so it reads on the spacing scale — including the strikethrough
+   on a tool the chosen passport cannot reach, which is a state with one
+   spelling and not a per-row decision. */
+.tool-row-body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-1);
+}
+/* The verb is the identifier an agent selects on, so it reads in the accent
+   the rest of the product gives an identifier. */
+.tool-name {
+  color: var(--accent);
+}
+/* Struck, not dimmed. Dimming the row to 0.4 took it under the AA contrast
+   floor (B-EP09.21) — including the caption that is supposed to be the text
+   equivalent of the dimming, so the one part a reader needs most became the
+   hardest to read. */
+.tool-out-of-scope {
+  text-decoration: line-through;
 }
 .tool-row-head {
   display: flex;
@@ -364,81 +318,4 @@
 .tool-description {
   margin: 0 0 var(--space-1) calc(var(--space-3) + var(--space-2));
   max-width: 76ch;
-}
-
-/* Connected inboxes (the personal Connections entry): one row per live capture
-   connection. A mailbox is per-user, which is why it is not on Integrations. */
-.connectors-list {
-  list-style: none;
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.connector-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  padding: var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-}
-.connector-id {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.connector-id > svg {
-  width: 18px;
-  height: 18px;
-  color: var(--accent);
-}
-.connector-id > span {
-  display: flex;
-  flex-direction: column;
-}
-.connector-account {
-  color: var(--textSecondary);
-}
-.connector-synced {
-  color: var(--textSecondary);
-}
-.connector-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-/* Forces the mounted BackfillPanel onto its own line below the row's id +
-   actions (the row itself is flex-wrap: wrap; a 100%-width child can't share
-   a line with its siblings so it wraps). */
-.connector-backfill {
-  flex-basis: 100%;
-  margin-top: var(--space-2);
-}
-
-/* "Add a connection" affordance: shared by the empty state and the roster
-   footer. In the footer it sits below the roster with clear separation; the
-   button row itself always wraps horizontally with the connector-row gap. */
-.connector-add {
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--borderSubtle);
-}
-.connector-add-actions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-/* The consumer-mail add row reads as one line: domain, kind, submit. A control
-   surface fills its column by default, which is right under a field label and
-   wrong in a row — the kind picker takes the width of its own options so it
-   stays beside the domain it qualifies. */
-.consumer-mail-kind {
-  width: auto;
 }

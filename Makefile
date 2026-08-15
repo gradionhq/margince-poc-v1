@@ -47,7 +47,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: check-craft-doc craft-test check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check test-lanes env-reads go-file-length rls-store-path no-jurisdiction pkg-freeze
+check-backend: check-craft-doc craft-test check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check migration-versions test-lanes env-reads go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -466,6 +466,13 @@ make-target-parity:
 ## changes pass. A deliberate spec re-sync runs with CONTRACT_STABILITY=pre-live.
 contract-breaking-check:
 	@./scripts/check-contract-breaking.sh
+
+## migration-versions — a migration this branch adds claims a version no
+## migration on origin/main already claims, and sorts after all of them. Two
+## PRs numbering against the same main is how core 0240 (and then 0248) ended
+## up claimed twice, which the per-tree loader test cannot see.
+migration-versions:
+	@./scripts/check-migration-versions.sh
 
 ## test-lanes — hermetic-unit-lane enforcement: no untagged test may open a
 ## real Postgres/Redis; real-infra suites carry //go:build integration.

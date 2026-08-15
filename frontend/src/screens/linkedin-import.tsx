@@ -3,7 +3,9 @@ import { Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, Card } from "../design-system/atoms";
+import { Button, Field, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-import.css";
@@ -118,26 +120,31 @@ function LinkedInProfileSection() {
 
   if (account.isError) {
     return (
-      <p role="alert" className="co-error">
+      <Callout tone="danger" live="alert">
         {problemMessageOf(account.error, t)}
-      </p>
+      </Callout>
     );
   }
 
   return (
     <div className="li-import-profile">
-      <label className="li-import-field" htmlFor="linkedin-profile-url">
-        {t("linkedinImport.profileLabel")}
-        <input
-          id="linkedin-profile-url"
-          type="url"
-          inputMode="url"
-          data-testid="linkedin-profile-url"
-          placeholder={t("linkedinImport.profilePlaceholder")}
-          value={value}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-      </label>
+      {/* Field + TextInput, not a hand-rolled label wrapping a bare <input>:
+          this one box had its own label type, its own padding, its own border
+          and its own focus ring, none of which agreed with the field beside it
+          in any other dialog on the tab. */}
+      <Field label={t("linkedinImport.profileLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="url"
+            inputMode="url"
+            data-testid="linkedin-profile-url"
+            placeholder={t("linkedinImport.profilePlaceholder")}
+            value={value}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+        )}
+      </Field>
       <p className="co-muted">
         {account.data?.connected
           ? t("linkedinImport.connectedNote")
@@ -152,12 +159,12 @@ function LinkedInProfileSection() {
         >
           {t("linkedinImport.saveProfile")}
         </Button>
-        {save.isError && (
-          <span role="alert" className="co-error">
-            {problemMessageOf(save.error, t)}
-          </span>
-        )}
       </div>
+      {save.isError && (
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(save.error, t)}
+        </Callout>
+      )}
     </div>
   );
 }
@@ -169,57 +176,55 @@ export function LinkedInImportCard() {
   const importer = useImportConnections();
 
   return (
-    <Card
-      className="li-import"
-      title={t("linkedinImport.title")}
-      sub={t("linkedinImport.sub")}
-    >
-      <p className="co-muted li-import-explainer">
-        {t("linkedinImport.explainer")}
-      </p>
-      <LinkedInProfileSection />
-      {/* The file is named, and named twice: LinkedIn's export archive holds
+    // No per-card bottom margin: the tab owns the rhythm between its cards.
+    <Panel title={t("linkedinImport.title")}>
+      <PanelBody>
+        <p className="t-caption">{t("linkedinImport.sub")}</p>
+        <p className="co-muted li-import-explainer">
+          {t("linkedinImport.explainer")}
+        </p>
+        <LinkedInProfileSection />
+        {/* The file is named, and named twice: LinkedIn's export archive holds
           a dozen CSVs and picking the wrong one fails with a parse error that
           explains nothing. */}
-      <p className="li-import-which">
-        <Upload size={16} aria-hidden />
-        <span>{t("linkedinImport.whichFile")}</span>
-      </p>
-      <div className="li-import-picker">
-        <label className="li-import-button" htmlFor="linkedin-import-file">
-          {t("linkedinImport.choose")}
-        </label>
-        <input
-          id="linkedin-import-file"
-          ref={input}
-          type="file"
-          accept=".csv,text/csv"
-          data-testid="linkedin-import-file"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            setFileName(file?.name ?? null);
-            if (file) {
-              importer.mutate(file);
-            }
-          }}
-        />
-        {fileName && <span className="co-muted">{fileName}</span>}
-      </div>
-
-      {importer.isPending && (
-        <p className="co-muted">{t("linkedinImport.working")}</p>
-      )}
-      {importer.isError && (
-        <p
-          role="alert"
-          className="co-error"
-          data-testid="linkedin-import-error"
-        >
-          {problemMessageOf(importer.error, t)}
+        <p className="li-import-which">
+          <Upload size={16} aria-hidden />
+          <span>{t("linkedinImport.whichFile")}</span>
         </p>
-      )}
-      {importer.isSuccess && <ImportResult summary={importer.data} />}
-    </Card>
+        <div className="li-import-picker">
+          <label className="li-import-button" htmlFor="linkedin-import-file">
+            {t("linkedinImport.choose")}
+          </label>
+          <input
+            id="linkedin-import-file"
+            ref={input}
+            type="file"
+            accept=".csv,text/csv"
+            data-testid="linkedin-import-file"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              setFileName(file?.name ?? null);
+              if (file) {
+                importer.mutate(file);
+              }
+            }}
+          />
+          {fileName && <span className="co-muted">{fileName}</span>}
+        </div>
+
+        {importer.isPending && (
+          <p className="co-muted">{t("linkedinImport.working")}</p>
+        )}
+        {importer.isError && (
+          <div data-testid="linkedin-import-error">
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(importer.error, t)}
+            </Callout>
+          </div>
+        )}
+        {importer.isSuccess && <ImportResult summary={importer.data} />}
+      </PanelBody>
+    </Panel>
   );
 }
 

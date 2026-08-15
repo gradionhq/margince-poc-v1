@@ -80,6 +80,23 @@
   transform: translateX(18px);
 }
 
+/* A refused switch has to LOOK refused, and `opacity` alone does not carry that
+   in both themes: over a light ground 0.6 washes the accent to a pale sage that
+   reads as inert, while over a dark one it lands on almost the same saturated
+   green as a live control. So the disabled ON state names its own ink instead of
+   borrowing the live one and dimming it — the state is still legible, and it no
+   longer claims to be pressable. This matters most on exactly the card that
+   depends on it: the one whose whole promise is a denial wired to the control
+   with aria-describedby. */
+.switchcontrol:disabled[aria-checked="true"] .switchknob {
+  background: var(--borderControl);
+  border-color: var(--borderControl);
+}
+
+.switchcontrol:disabled[aria-checked="true"] .switchknob::after {
+  background: var(--bgElevated);
+}
+
 .switchlabel {
   font-size: var(--fs-body);
   line-height: var(--lh-normal);

@@ -35,14 +35,6 @@
   margin-top: var(--space-3);
 }
 
-/* A composer that OPENS a card takes its gap from the card's header, which
-   carries one already — its own inter-block top margin would double it. The
-   composer that follows content inside a card (the paste box under the corpus
-   manifest) still separates itself, which is the case the rule above is for. */
-.card > .section-header + .vdna-composer {
-  margin-top: 0;
-}
-
 /* The action sits on its own row under the paste area, so the control reads as
    one composer rather than a field with something stuck to its edge. */
 .vdna-composer-actions {
@@ -67,8 +59,12 @@
   background: var(--bgHover);
 }
 
+/* --textMeta, not --textMuted: --textMuted is the placeholder-grade ink and
+   measures 1.54:1 on this ground, while tokens.css names --textMeta the
+   canonical AA small-text role. Every line below is prose a reader is meant to
+   READ. */
 .vdna-drophint {
-  color: var(--textMuted);
+  color: var(--textMeta);
 }
 
 /* The distance to the first build, shown only below the floor. */
@@ -139,6 +135,19 @@
   margin-top: var(--space-1);
 }
 
+/* The row's verb (remove a sample, roll a version back) sits at the far end of
+   the line rather than beside the facts it acts on. */
+.vdna-row-verb {
+  margin-left: auto;
+}
+
+/* The read-only posture, said once at the top of the surface. It carries its
+   own interval so it reads as a statement ABOUT the card rather than as the
+   first line of the status row above it. */
+.vdna-readonly {
+  margin-top: var(--space-2);
+}
+
 /* The impress surface: what the build learned, quoted from the user's own
    corpus. Structure only; colour inherits (token-purity gate). */
 .vdna-insights {
@@ -168,15 +177,27 @@
   flex-wrap: wrap;
 }
 
-.vdna-moves ul {
+.vdna-moves ul,
+.vdna-avoid ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.vdna-moves li {
+.vdna-moves li,
+.vdna-avoid li {
   margin-top: var(--space-1);
   line-height: 1.5;
+}
+
+/* The two lists the build produces read as one pair, so the "what it avoids"
+   half is spaced off the signature moves above it rather than butting against
+   them. Before this the class was on the element and declared nowhere, so the
+   list kept the browser's bullets and indent while the list beside it did
+   not — two lists of the same kind, drawn two ways. */
+.vdna-avoid,
+.vdna-samples {
+  margin-top: var(--space-2);
 }
 
 .vdna-quote {
@@ -185,8 +206,9 @@
   opacity: 0.85;
 }
 
+/* The card surface itself comes from `Card as="div" inset`; what is left here
+   is where the sample sits relative to the one above it. */
 .vdna-sample {
-  padding: var(--space-3);
   margin-top: var(--space-2);
 }
 
@@ -231,7 +253,6 @@
 }
 
 .vdna-candidate {
-  padding: var(--space-3);
   margin-top: var(--space-2);
 }
 

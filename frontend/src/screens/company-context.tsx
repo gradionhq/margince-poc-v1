@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
-  Check,
   CircleAlert,
-  Globe2,
   RefreshCw,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanUpsert } from "../app/capability";
@@ -16,11 +14,17 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  Checkbox,
+  Field,
   Radio,
   SectionHeader,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
+import { FieldDiff } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -30,6 +34,7 @@ import {
   throwProblem,
   useMe,
 } from "./common";
+import "./company-context.css";
 
 type Capabilities = components["schemas"]["CompanyContextCapabilities"];
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -85,6 +90,11 @@ const PROFILE_GROUPS = [
   title: MessageKey;
   fields: readonly (keyof CompanyInput)[];
 }[];
+
+// Joins comparison keys into the one string the default selection is keyed on.
+// A NUL can appear in no key the server mints, so no key can ever split into
+// two — which a separator drawn from ordinary punctuation could not promise.
+const SELECTION_SEPARATOR = "\u0000";
 
 const MULTILINE_FIELDS = new Set<keyof CompanyInput>([
   "offer_summary",
@@ -144,46 +154,21 @@ export function ManualCompanySetup() {
     },
   });
   return (
-    <div className="wrap narrow company-setup-floor">
-      <div className="company-context-hero">
-        <div>
-          <span className="company-context-kicker">
-            <ShieldCheck aria-hidden /> {t("settings.companyManualKicker")}
-          </span>
-          <h2>{t("settings.companyManualTitle")}</h2>
-          <p>{t("settings.companyManualSub")}</p>
-        </div>
-      </div>
-      <div className="company-context-form">
-        {(["display_name", "offer_summary", "icp"] as const).map((field) => (
-          <div className="company-context-field" key={field}>
-            <span>{coldFieldLabel(field, t)}</span>
-            {field === "display_name" ? (
-              <TextInput
-                value={String(form[field] ?? "")}
-                aria-label={coldFieldLabel(field, t)}
-                onChange={(event) =>
-                  setForm({ ...form, [field]: event.target.value })
-                }
-              />
-            ) : (
-              <Textarea
-                rows={4}
-                value={String(form[field] ?? "")}
-                aria-label={coldFieldLabel(field, t)}
-                onChange={(event) =>
-                  setForm({ ...form, [field]: event.target.value })
-                }
-              />
-            )}
-          </div>
-        ))}
-        {save.isError && (
-          <p className="company-context-error">
-            {problemMessageOf(save.error, t)}
-          </p>
-        )}
-        <div className="company-context-actions">
+    // One Panel, in the ONE lead tone, where a gradient with a decorative
+    // circle and two bespoke boxes used to be. The heading is the panel's own
+    // title rather than a bare <h2>: preflight leaves an unclassed heading at
+    // body size, so the page's lead sentence used to render as body text
+    // inside a gradient.
+    <div className="wrap narrow">
+      <Panel
+        tone="accent"
+        title={
+          <>
+            <ShieldCheck aria-hidden size={16} />
+            {t("settings.companyManualTitle")}
+          </>
+        }
+        actions={
           <Button
             variant="primary"
             disabled={!requiredComplete(form) || save.isPending}
@@ -191,8 +176,42 @@ export function ManualCompanySetup() {
           >
             {t("settings.companyCreateWorkspace")} <ArrowRight aria-hidden />
           </Button>
-        </div>
-      </div>
+        }
+      >
+        <PanelBody className="form-stack">
+          <Eyebrow>{t("settings.companyManualKicker")}</Eyebrow>
+          <p className="t-caption">{t("settings.companyManualSub")}</p>
+          {(["display_name", "offer_summary", "icp"] as const).map((field) => (
+            <Field key={field} label={coldFieldLabel(field, t)}>
+              {(control) =>
+                field === "display_name" ? (
+                  <TextInput
+                    {...control}
+                    value={String(form[field] ?? "")}
+                    onChange={(event) =>
+                      setForm({ ...form, [field]: event.target.value })
+                    }
+                  />
+                ) : (
+                  <Textarea
+                    {...control}
+                    rows={4}
+                    value={String(form[field] ?? "")}
+                    onChange={(event) =>
+                      setForm({ ...form, [field]: event.target.value })
+                    }
+                  />
+                )
+              }
+            </Field>
+          ))}
+          {save.isError && (
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(save.error, t)}
+            </Callout>
+          )}
+        </PanelBody>
+      </Panel>
     </div>
   );
 }
@@ -279,11 +298,35 @@ export function CompanyContextCard() {
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
     {},
   );
+  const seeded = useRef<string | null>(null);
 
+  // Seed the editor from the server, and re-seed only when the server SAYS
+  // something different — which is not the same question as whether react-query
+  // handed over a new object.
+  //
+  // Every refetch mints one, and this query refetches on window focus like the
+  // rest of them: an operator who tabs away to copy their positioning text out
+  // of a deck and tabs back triggered a refetch that returned the profile
+  // unchanged, and the effect then threw away everything they had typed since
+  // the page loaded. Comparing the VALUES leaves an unsaved draft alone across
+  // every refetch that changes nothing, and still shows another admin's change
+  // when one really lands.
+  //
+  // This is also the only place the form is seeded. A save or an applied
+  // refresh writes the returned profile into the query cache, which arrives
+  // here — a second `setForm` at those call sites would be a second writer for
+  // one piece of state.
   useEffect(() => {
-    if (company.data) {
-      setForm(profileInput(company.data));
+    if (!company.data) {
+      return;
     }
+    const next = profileInput(company.data);
+    const signature = JSON.stringify(next);
+    if (seeded.current === signature) {
+      return;
+    }
+    seeded.current = signature;
+    setForm(next);
   }, [company.data]);
 
   const save = useMutation({
@@ -296,7 +339,6 @@ export function CompanyContextCard() {
     },
     onSuccess: (profile) => {
       queryClient.setQueryData(["company"], profile);
-      setForm(profileInput(profile));
     },
   });
 
@@ -355,23 +397,36 @@ export function CompanyContextCard() {
     },
   });
 
+  // What the reviewer starts from, as ONE comparable string, and the effect
+  // below seeds from it rather than from the array.
+  //
+  // The poll re-fetches this read every 900ms while the crawl is still running
+  // and hands back a new array each time. Keyed on the array's identity, the
+  // seed therefore ran on every tick: it rebuilt the default Set roughly
+  // once a second and wiped whatever the reviewer had ticked or cleared in the
+  // meantime — a change they had deliberately deselected reappeared under their
+  // cursor, and the box they ticked was gone by the time they read the next
+  // row. What the seed is really about is the ARRIVAL of a set of proposals,
+  // which is what this names: two polls that propose the same changes produce
+  // the same string and the effect does not run again.
+  const defaultSelection = (siteRead.data?.comparisons ?? [])
+    .filter(
+      (item) =>
+        item.classification === "new" ||
+        item.classification === "machine_change",
+    )
+    .map((item) => item.key)
+    .join(SELECTION_SEPARATOR);
+
   useEffect(() => {
-    const comparisons = siteRead.data?.comparisons;
-    if (!comparisons) {
-      return;
-    }
     setSelected(
       new Set(
-        comparisons
-          .filter(
-            (item) =>
-              item.classification === "new" ||
-              item.classification === "machine_change",
-          )
-          .map((item) => item.key),
+        defaultSelection === ""
+          ? []
+          : defaultSelection.split(SELECTION_SEPARATOR),
       ),
     );
-  }, [siteRead.data?.comparisons]);
+  }, [defaultSelection]);
 
   // Everything the confirm sends arrives as the mutation's VARIABLE, for the
   // reason spelled out on startRefresh above: react-query re-arms a mutation's
@@ -409,8 +464,11 @@ export function CompanyContextCard() {
       return data;
     },
     onSuccess: (profile) => {
+      // The editor re-seeds itself from the cache — see the seed effect above,
+      // which owns that state — so this only writes what the applied refresh
+      // ENDS: the read the reviewer was working through, and the choices they
+      // made in it.
       queryClient.setQueryData(["company"], profile);
-      setForm(profileInput(profile));
       setReadID(null);
       setResolutions({});
     },
@@ -427,143 +485,179 @@ export function CompanyContextCard() {
   }
 
   return (
-    <section className="company-context-shell">
-      <div className="company-context-hero">
-        <div>
-          <span className="company-context-kicker">
-            <Sparkles aria-hidden /> {t("settings.companyKicker")}
-          </span>
-          <h2>{t("settings.companyTitle")}</h2>
-          <p>{t("settings.companySub")}</p>
-        </div>
-        {capabilities.data && <Badge>{capabilities.data.rollout}</Badge>}
-      </div>
-      {/* The surface keeps its place and states its posture ONCE; the write
-          controls below are then simply absent (design-system README, "Absent,
-          disabled, or withheld"). This is a PERMISSION, which is why it speaks
-          at all — the rollout flag above returns null instead, because a
-          capability this installation does not have is not a fact about the
-          reader. Gated on the probe having answered, so a reader who may edit
-          never sees this flash while /me is in flight. */}
-      {me.isSuccess && !canEdit && (
-        <p className="t-caption">{t("settings.companyReadOnly")}</p>
-      )}
-      <QueryGate query={company}>
-        {(profile) =>
-          form && (
-            <>
-              <div className="company-context-trust">
-                <ShieldCheck aria-hidden />
-                <span>{t("settings.companyTrust")}</span>
-                <strong>
-                  {profile.fields?.length ?? 0} {t("settings.companyConfirmed")}
-                </strong>
-              </div>
-              <div className="company-context-form">
-                <div className="company-context-field company-context-website">
-                  <span>{t("settings.companyWebsite")}</span>
-                  <div className="company-context-website-row">
-                    <TextInput
-                      value={form.website ?? ""}
-                      aria-label={t("settings.companyWebsite")}
-                      onChange={(event) =>
-                        setForm({ ...form, website: event.target.value })
-                      }
-                    />
-                    {/* Reading the website is a write of this profile: the
-                        server admits the read on the same create-or-update the
-                        save needs, because a read exists to change what the
-                        record says. */}
-                    {canEdit && (
-                      <Button
-                        variant="primary"
-                        disabled={
-                          startRefresh.isPending || !(form.website ?? "").trim()
-                        }
-                        onClick={() => startRefresh.mutate(form.website ?? "")}
-                      >
-                        <RefreshCw aria-hidden /> {t("settings.companyRefresh")}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                {PROFILE_GROUPS.map((group) => (
-                  <div className="company-context-group" key={group.title}>
-                    <SectionHeader title={t(group.title)} />
-                    <div className="company-context-fields">
-                      {group.fields.map((field) => (
-                        <CompanyField
-                          key={field}
-                          field={field}
-                          value={String(form[field] ?? "")}
-                          profile={profile}
-                          onChange={(value) =>
-                            setForm({ ...form, [field]: value })
+    <div className="company-context-shell">
+      {/* The lead panel, in the one accent tone, where a gradient with a 180px
+          decorative circle used to be. Its title is Panel's own <h2>: the hero
+          spelled a bare <h2>, which preflight leaves at 14px/400 — the page's
+          lead sentence rendered as body text. */}
+      <Panel
+        tone="accent"
+        title={
+          <>
+            <Sparkles aria-hidden size={16} />
+            {t("settings.companyTitle")}
+          </>
+        }
+        // The head carries the title ALONE. It is a fixed band and this title
+        // is a whole sentence, so anything beside it leaves the sentence a
+        // three-word column on a phone — and the accent tone tints that band,
+        // which a neutral badge sitting on it disappears into. The eyebrow and
+        // the rollout stage take the body's own ground below instead, where
+        // each is read rather than squeezed.
+        //
+        // The save, or nothing. A surface that has already stated its read-only
+        // posture does not annotate the absence of each write control
+        // (design-system README, "Absent, disabled, or withheld"), and the band
+        // is Panel's slot for the verbs that change the panel — under the last
+        // field it commits, rather than after a card boundary.
+        actions={
+          canEdit && form ? (
+            <Button
+              variant="primary"
+              disabled={save.isPending || !requiredComplete(form)}
+              onClick={() => save.mutate(trimCompanyInput(form))}
+            >
+              {t("settings.companySave")}
+            </Button>
+          ) : null
+        }
+      >
+        <PanelBody className="form-stack">
+          <div className="company-context-kicker">
+            <Eyebrow>{t("settings.companyKicker")}</Eyebrow>
+            {capabilities.data && <Badge>{capabilities.data.rollout}</Badge>}
+          </div>
+          <p className="t-caption">{t("settings.companySub")}</p>
+          {/* The surface keeps its place and states its posture ONCE. This is a
+              PERMISSION, which is why it speaks at all — the rollout flag above
+              returns null instead, because a capability this installation does
+              not have is not a fact about the reader. Gated on the probe having
+              answered, so a reader who may edit never sees this flash while /me
+              is in flight. */}
+          {me.isSuccess && !canEdit && (
+            <p className="t-caption">{t("settings.companyReadOnly")}</p>
+          )}
+        </PanelBody>
+        {/* What IS, on the recessed plate, apart from what to do with it. */}
+        {company.data && (
+          <PanelPlate className="company-context-trust">
+            <ShieldCheck aria-hidden size={16} />
+            <span>{t("settings.companyTrust")}</span>
+            <strong>
+              {company.data.fields?.length ?? 0}{" "}
+              {t("settings.companyConfirmed")}
+            </strong>
+          </PanelPlate>
+        )}
+        <PanelBody className="form-stack">
+          <QueryGate query={company}>
+            {(profile) =>
+              form && (
+                <>
+                  <Field
+                    label={t("settings.companyWebsite")}
+                    className="company-context-website"
+                  >
+                    {(control) => (
+                      <div className="company-context-website-row">
+                        <TextInput
+                          {...control}
+                          value={form.website ?? ""}
+                          onChange={(event) =>
+                            setForm({ ...form, website: event.target.value })
                           }
                         />
-                      ))}
+                        {/* Reading the website is a write of this profile: the
+                            server admits the read on the same create-or-update
+                            the save needs, because a read exists to change what
+                            the record says. */}
+                        {canEdit && (
+                          <Button
+                            variant="primary"
+                            disabled={
+                              startRefresh.isPending ||
+                              !(form.website ?? "").trim()
+                            }
+                            onClick={() =>
+                              startRefresh.mutate(form.website ?? "")
+                            }
+                          >
+                            <RefreshCw aria-hidden size={16} />{" "}
+                            {t("settings.companyRefresh")}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </Field>
+                  {PROFILE_GROUPS.map((group) => (
+                    <div className="company-context-group" key={group.title}>
+                      <SectionHeader title={t(group.title)} level={3} />
+                      <div className="company-context-fields">
+                        {group.fields.map((field) => (
+                          <CompanyField
+                            key={field}
+                            field={field}
+                            value={String(form[field] ?? "")}
+                            profile={profile}
+                            onChange={(value) =>
+                              setForm({ ...form, [field]: value })
+                            }
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
-                <div className="company-context-actions">
-                  {save.isError && (
-                    <p className="company-context-error">
-                      {problemMessageOf(save.error, t)}
-                    </p>
-                  )}
-                  {save.isSuccess && (
-                    <span className="company-context-saved">
-                      <Check aria-hidden /> {t("settings.companySaved")}
-                    </span>
-                  )}
-                  {canEdit && (
-                    <Button
-                      variant="primary"
-                      disabled={save.isPending || !requiredComplete(form)}
-                      onClick={() => save.mutate(trimCompanyInput(form))}
-                    >
-                      {t("settings.companySave")}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {refreshFailure !== null && (
-                <p className="company-context-error">{refreshFailure}</p>
-              )}
-              {read && (
-                <RefreshReview
-                  read={read}
-                  selected={selected}
-                  resolutions={resolutions}
-                  onToggle={(key) => setSelected(toggleSet(selected, key))}
-                  onResolve={(resolution) =>
-                    setResolutions({
-                      ...resolutions,
-                      [resolution.key]: resolution,
-                    })
-                  }
-                  onConfirm={() =>
-                    confirm.mutate({
-                      current: form,
-                      read,
-                      selected,
-                      resolutions,
-                    })
-                  }
-                  canApply={canEdit}
-                  confirming={confirm.isPending}
-                  error={
-                    confirm.error
-                      ? problemMessageOf(confirm.error, t)
-                      : undefined
-                  }
-                />
-              )}
-            </>
-          )
-        }
-      </QueryGate>
-    </section>
+                  ))}
+                </>
+              )
+            }
+          </QueryGate>
+          {/* Both outcomes of a save are SPOKEN. They used to be a tinted
+              paragraph and a green tick with no live region between them, which
+              is the same as saying nothing to a reader who is not looking at
+              the button they just pressed. */}
+          {save.isError && (
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(save.error, t)}
+            </Callout>
+          )}
+          {save.isSuccess && (
+            <Callout tone="success" live="status">
+              {t("settings.companySaved")}
+            </Callout>
+          )}
+          {refreshFailure !== null && (
+            <Callout tone="danger" live="alert">
+              {refreshFailure}
+            </Callout>
+          )}
+        </PanelBody>
+      </Panel>
+      {read && form && (
+        <RefreshReview
+          read={read}
+          selected={selected}
+          resolutions={resolutions}
+          onToggle={(key) => setSelected(toggleSet(selected, key))}
+          onResolve={(resolution) =>
+            setResolutions({
+              ...resolutions,
+              [resolution.key]: resolution,
+            })
+          }
+          onConfirm={() =>
+            confirm.mutate({
+              current: form,
+              read,
+              selected,
+              resolutions,
+            })
+          }
+          canApply={canEdit}
+          confirming={confirm.isPending}
+          error={confirm.error ? problemMessageOf(confirm.error, t) : undefined}
+        />
+      )}
+    </div>
   );
 }
 
@@ -580,35 +674,49 @@ function CompanyField({
 }>) {
   const t = useT();
   const provenance = profile.fields?.find((item) => item.field === field);
-  const control = MULTILINE_FIELDS.has(field) ? (
-    <Textarea
-      rows={3}
-      value={value}
-      aria-label={coldFieldLabel(field, t)}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  ) : (
-    <TextInput
-      value={value}
-      aria-label={coldFieldLabel(field, t)}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  );
+  const multiline = MULTILINE_FIELDS.has(field);
+  // Field, not a span above a control: it owns the id and draws a real
+  // `<label for>`, so the words above the box are the box's own click target
+  // and its accessible name — which is what the hand-rolled row used an
+  // aria-label to fake, one per call site.
   return (
-    <div className="company-context-field">
-      <span>{coldFieldLabel(field, t)}</span>
-      {control}
-      {provenance && (
-        <small>
-          <Badge>{provenance.source}</Badge>
-          {provenance.source_url && (
-            <a href={provenance.source_url} target="_blank" rel="noreferrer">
-              {t("settings.companyViewSource")}
-            </a>
+    <Field label={coldFieldLabel(field, t)}>
+      {(control) => (
+        <>
+          {multiline ? (
+            <Textarea
+              {...control}
+              rows={3}
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          ) : (
+            <TextInput
+              {...control}
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+            />
           )}
-        </small>
+          {/* Where the value came from, under the value rather than in its
+              name: folded into the label it would be read out with the control
+              every time focus lands there. */}
+          {provenance && (
+            <span className="company-context-source t-small">
+              <Badge>{provenance.source}</Badge>
+              {provenance.source_url && (
+                <a
+                  href={provenance.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("settings.companyViewSource")}
+                </a>
+              )}
+            </span>
+          )}
+        </>
       )}
-    </div>
+    </Field>
   );
 }
 
@@ -651,58 +759,68 @@ function RefreshReview(
             100,
         );
   return (
-    <div className="company-context-review">
-      <div className="company-context-review-head">
-        <div>
-          <span className="company-context-kicker">
-            <Globe2 aria-hidden /> {t("settings.companyRefreshReview")}
-          </span>
-          <h3>
-            {ready
-              ? t("settings.companyRefreshReady")
-              : t("settings.companyRefreshReading")}
-          </h3>
-        </div>
-        <div className="company-context-coverage">
-          <strong>{coverage}%</strong>
-          <span>{t("settings.companyCoverage")}</span>
-        </div>
-      </div>
-      <div className="company-context-comparisons">
-        {props.read.comparisons.map((item) => (
-          <ComparisonRow
-            key={`${item.value_kind}:${item.key}`}
-            item={item}
-            selected={props.selected.has(item.key)}
-            resolution={props.resolutions[item.key]}
-            onToggle={() => props.onToggle(item.key)}
-            onResolve={props.onResolve}
-          />
+    // The review as a Panel: the state sentence is its title (it was a bare
+    // <h3>, which preflight draws at body size), the comparisons are full-bleed
+    // rows, and the coverage figure sits in the footer band because it belongs
+    // to the whole read rather than to any one row. It used to be 24px — larger
+    // than the page's own h1 — for a number nobody acts on.
+    <Panel
+      title={
+        ready
+          ? t("settings.companyRefreshReady")
+          : t("settings.companyRefreshReading")
+      }
+      footer={
+        <span className="company-context-coverage">
+          <strong>{coverage}%</strong> {t("settings.companyCoverage")}
+        </span>
+      }
+      actions={
+        <>
+          {unresolved && (
+            <Callout tone="warn" icon={CircleAlert}>
+              {t("settings.companyResolveAll")}
+            </Callout>
+          )}
+          {props.error && (
+            <Callout tone="danger" live="alert">
+              {props.error}
+            </Callout>
+          )}
+          {props.canApply && (
+            <Button
+              variant="primary"
+              disabled={!ready || unresolved || props.confirming}
+              onClick={props.onConfirm}
+            >
+              {t("settings.companyApplyRefresh")} <ArrowRight aria-hidden />
+            </Button>
+          )}
+        </>
+      }
+    >
+      {/* What this panel IS, under the title that says where the read has got
+          to. Beside the title it would squeeze a sentence into a column on a
+          phone, for the same reason the profile panel's eyebrow sits here. */}
+      <PanelBody className="form-stack">
+        <Eyebrow>{t("settings.companyRefreshReview")}</Eyebrow>
+        {props.read.warnings.map((warning) => (
+          <Callout tone="warn" icon={CircleAlert} key={warning}>
+            {warning}
+          </Callout>
         ))}
-      </div>
-      {props.read.warnings.map((warning) => (
-        <p className="company-context-warning" key={warning}>
-          <CircleAlert aria-hidden /> {warning}
-        </p>
+      </PanelBody>
+      {props.read.comparisons.map((item) => (
+        <ComparisonRow
+          key={`${item.value_kind}:${item.key}`}
+          item={item}
+          selected={props.selected.has(item.key)}
+          resolution={props.resolutions[item.key]}
+          onToggle={() => props.onToggle(item.key)}
+          onResolve={props.onResolve}
+        />
       ))}
-      <div className="company-context-actions">
-        {props.error && <p className="company-context-error">{props.error}</p>}
-        {unresolved && (
-          <span className="company-context-warning">
-            <CircleAlert aria-hidden /> {t("settings.companyResolveAll")}
-          </span>
-        )}
-        {props.canApply && (
-          <Button
-            variant="primary"
-            disabled={!ready || unresolved || props.confirming}
-            onClick={props.onConfirm}
-          >
-            {t("settings.companyApplyRefresh")} <ArrowRight aria-hidden />
-          </Button>
-        )}
-      </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -723,36 +841,37 @@ function ComparisonRow(
   // screen reader cannot tell apart, and picking the wrong change here is what
   // gets written to the record.
   const fieldLabel = coldFieldLabel(item.key.split("/").at(-2) ?? item.key, t);
+  const selectable = !conflict && item.classification !== "unchanged";
   return (
-    <article className={`company-context-comparison is-${item.classification}`}>
+    <PanelRow
+      className={`company-context-comparison is-${item.classification}`}
+    >
       <div className="company-context-comparison-title">
-        <div>
-          <strong>{fieldLabel}</strong>
-          <Badge>
-            {t(`settings.companyClass.${item.classification}` as MessageKey)}
-          </Badge>
-        </div>
-        {!conflict && item.classification !== "unchanged" && (
-          <input
-            type="checkbox"
+        {/* On a selectable row the field name IS the tick's other half, which
+            is what makes the words clickable; the aria-label spells the whole
+            instruction and contains those words, so the visible name and the
+            announced one agree (WCAG 2.5.3). A row with nothing to choose keeps
+            the name as plain text rather than a control that does nothing. */}
+        {selectable ? (
+          <Checkbox
             checked={props.selected}
             onChange={props.onToggle}
             aria-label={t("settings.companySelectChange", {
               field: fieldLabel,
             })}
+            label={<strong>{fieldLabel}</strong>}
           />
+        ) : (
+          <strong>{fieldLabel}</strong>
         )}
+        <Badge>
+          {t(`settings.companyClass.${item.classification}` as MessageKey)}
+        </Badge>
       </div>
-      {item.current_value !== null && (
-        <div className="company-context-current">
-          <span>{t("settings.companyCurrent")}</span>
-          <p>{item.current_value}</p>
-        </div>
-      )}
-      <div className="company-context-proposed">
-        <span>{t("settings.companyWebsiteProposal")}</span>
-        <p>{item.proposed_value}</p>
-      </div>
+      {/* The design system's own old→new diff. A null current value reads as
+          the "created" marker rather than as a blank box claiming we held an
+          empty string. */}
+      <FieldDiff oldValue={item.current_value} newValue={item.proposed_value} />
       {conflict && (
         <div className="company-context-resolutions">
           {(["keep_current", "accept_proposal"] as const).map((action) => (
@@ -799,7 +918,7 @@ function ComparisonRow(
           )}
         </div>
       )}
-    </article>
+    </PanelRow>
   );
 }
 

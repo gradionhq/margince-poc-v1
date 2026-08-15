@@ -24,8 +24,16 @@ import {
 import { AvatarStack } from "../design-system/avatarstack";
 import { type TimelineEntry, TimelineRow } from "../design-system/composed";
 import { EvidenceMark } from "../design-system/evidencemark";
+import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import {
+  omitted,
+  type SectionDetail,
+  type SectionState,
+  SurfaceState,
+  sectionState,
+} from "../design-system/surfacestate";
 import {
   formatDate,
   formatDateTime,
@@ -157,8 +165,6 @@ export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
     : undefined;
   return key ? t(key) : role.replace(/_/g, " ");
 }
-type Section = Organization360["sections_omitted"][number];
-
 // OVERLAY_REFUSAL is the validation code the 360 answers for a workspace
 // reading from an incumbent mirror. It is a refusal to assemble, not a
 // failure, so the screen falls back instead of showing an error.
@@ -262,205 +268,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/**
- * omitted reports whether the caller's role withheld one section.
- *
- * A payload with no list at all names nothing, so nothing reads as
- * withheld — the section then falls through to its empty state, which is
- * the safe display: "there is none" understates rather than inventing
- * content the caller cannot see.
- */
-export function omitted(view: Organization360, section: Section): boolean {
-  return (view.sections_omitted ?? []).includes(section);
-}
-
-/**
- * SectionState is what a card actually knows, and the four cases are
- * deliberately not collapsed:
- *
- *   ready       — the section came back with rows.
- *   empty       — the section came back, and there are none. A FACT.
- *   withheld    — the caller's role cannot read it; sections_omitted says so.
- *   unavailable — the section is missing and nobody said why: the read
- *                 failed, or the server sent a payload this client does not
- *                 fully understand.
- *
- * empty is the only one that may say "there is none", because it is the only
- * one that knows. Rendering the other three as empty states a fact the page
- * does not have — the rep reads "no open deals" and stops looking.
- *
- * The §7 matrix adds four more, each of which would otherwise be drawn as one
- * of the above and lose what makes it different:
- *
- *   unsupported — this MODE cannot serve the section (an overlay-only
- *                 installation and a native composite section). Distinct from
- *                 unavailable: nothing is broken and retrying changes nothing.
- *   failed      — the read failed and can be retried. `onRetry` is what makes
- *                 it a different state from unavailable rather than a
- *                 differently-worded one.
- *   stale       — the last known value, with when it was last true. It is
- *                 shown rather than withheld, because a figure from this
- *                 morning beats a blank, but never without its `as of`.
- *   partial     — some of the rows, with the count that is missing and a way
- *                 to the full list. Never a silent truncation.
- */
-export type SectionState =
-  | "ready"
-  | "empty"
-  | "withheld"
-  | "unavailable"
-  | "loading"
-  | "unsupported"
-  | "failed"
-  | "stale"
-  | "partial";
-
-/**
- * sectionState classifies one 360 section. `present` is whether the payload
- * carried it at all, which is a different question from whether it had rows.
- *
- * No payload at all is two different facts, not one, and `loading` is what
- * tells them apart: the composite read still in flight and the composite
- * read that failed both hand every card an undefined `view`, and without
- * `loading` this function could not see the difference — every section on
- * every record page reads UNAVAILABLE, "some of this page could not be
- * loaded", for as long as the read is still running. On a slow connection
- * that is not a flash, it is the page calling itself broken while its own
- * data is on the way. The cards take an optional view for exactly this
- * reason: a fabricated empty payload would have to claim an as_of it does
- * not have, and would be indistinguishable from a real answer one refactor
- * later.
- */
-export function sectionState(
-  view: Organization360 | undefined,
-  section: Section,
-  present: boolean,
-  count: number,
-  // Whether the read that would carry `view` is still running. Defaults to
-  // false rather than being required so a caller wired to a query that has
-  // no pending state of its own (NextSteps, CompanyTasksTab's own withheld
-  // check — both only ever call this once their OWN guard has already
-  // proven `view` defined) is not forced to invent one; a caller reading
-  // straight off the composite `view` MUST pass its query's own `isPending`.
-  loading = false,
-): SectionState {
-  if (!view) {
-    return loading ? "loading" : "unavailable";
-  }
-  if (omitted(view, section)) {
-    return "withheld";
-  }
-  if (!present) {
-    return "unavailable";
-  }
-  return count === 0 ? "empty" : "ready";
-}
-
-/**
- * SectionDetail is what the four §7 states need in order to say something a
- * reader can act on rather than a differently-worded "not here".
- */
-export type SectionDetail = {
-  // `failed` without a retry is `unavailable` with extra words.
-  onRetry?: () => void;
-  // Already formatted by the caller: this tier holds no locale or zone.
-  staleAsOf?: string;
-  // How many rows the caller is NOT seeing. A truncation nobody states reads
-  // as the whole list.
-  remaining?: number;
-  // Which mode limitation this is, in the caller's words. The generic
-  // sentence is the floor, not the target.
-  unsupportedReason?: string;
-};
-
-/**
- * SectionPart renders ONE section's body in whichever of the four states it
- * is in. A card with two independently-governed sections renders two of
- * these, so neither half's state can speak for the other.
- *
- * `label` names the part, and a card with more than one part MUST pass it:
- * "hidden from you" under a heading covering two sections says which of the
- * two it is only if the part is named. A single-section card leaves it out —
- * the card's own title is already the name.
- */
-export function SectionPart({
-  label,
-  state,
-  emptyLabel,
-  detail,
-  children,
-}: Readonly<{
-  label?: string;
-  state: SectionState;
-  emptyLabel: string;
-  // What the four §7 states need in order to be honest. Each is read by
-  // exactly one state and ignored by the rest; a state whose detail is absent
-  // still renders, one sentence shorter.
-  detail?: SectionDetail;
-  children: ReactNode;
-}>) {
-  const t = useT();
-  const body = (
-    <>
-      {state === "ready" && children}
-      {state === "empty" && <p className="co-empty">{emptyLabel}</p>}
-      {state === "withheld" && (
-        <p className="co-restricted">{t("co.section.restricted")}</p>
-      )}
-      {state === "unavailable" && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
-      )}
-      {state === "loading" && <Skeleton width="100%" height={32} />}
-      {state === "unsupported" && (
-        <p className="co-restricted">
-          {detail?.unsupportedReason ?? t("co.section.unsupported")}
-        </p>
-      )}
-      {state === "failed" && (
-        <div className="co-failed">
-          <p className="co-restricted">{t("co.section.failed")}</p>
-          {detail?.onRetry && (
-            <Button small onClick={detail.onRetry}>
-              {t("co.section.retry")}
-            </Button>
-          )}
-        </div>
-      )}
-      {/* The value first, then when it was last true. Reversing them buries
-          the caveat under the figure a reader has already taken as current. */}
-      {state === "stale" && (
-        <>
-          <p className="co-stale">
-            {detail?.staleAsOf
-              ? t("co.section.staleAsOf", { when: detail.staleAsOf })
-              : t("co.section.stale")}
-          </p>
-          {children}
-        </>
-      )}
-      {state === "partial" && (
-        <>
-          {children}
-          <p className="co-empty">
-            {detail?.remaining
-              ? t("co.section.partialCount", { count: detail.remaining })
-              : t("co.section.partial")}
-          </p>
-        </>
-      )}
-    </>
-  );
-  if (!label) {
-    return body;
-  }
-  return (
-    <section className="co-part" aria-label={label}>
-      <h3 className="co-part-label">{label}</h3>
-      {body}
-    </section>
-  );
-}
-
 // The coverage line the mockup draws above the contact rows: how many
 // contacts, how many nobody has written to, how many roles are unfilled.
 //
@@ -509,7 +316,7 @@ function CoverageSummary({
   if (!truncated && gaps > 0) {
     parts.push(t("co.coverage.gaps", { count: gaps }));
   }
-  return <p className="co-empty">{parts.join(" · ")}</p>;
+  return <p className="surfacestate-empty">{parts.join(" · ")}</p>;
 }
 
 /**
@@ -554,9 +361,9 @@ export function SectionCard({
     state === "partial";
   return (
     <Card className="co-card" title={title}>
-      <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
+      <SurfaceState state={state} emptyLabel={emptyLabel} detail={detail}>
         {children}
-      </SectionPart>
+      </SurfaceState>
       {present && footer}
       {present && actions && <div className="co-card-actions">{actions}</div>}
     </Card>
@@ -567,7 +374,7 @@ export function SectionCard({
  * RailPanel is SectionCard's four-state discipline rendered through Panel's
  * chrome — a fixed-height header and full-bleed rows — instead of the
  * negative-margin CSS breakout that shape used to need. The message states
- * (empty, withheld, unavailable, loading, failed) reuse SectionPart verbatim,
+ * (empty, withheld, unavailable, loading, failed) reuse SurfaceState verbatim,
  * padded in a PanelBody; `ready` is left to the caller, so rows passed as
  * children run edge to edge the way Panel is built to take them.
  *
@@ -599,9 +406,9 @@ export function RailPanel({
         children
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={emptyLabel} detail={detail}>
+          <SurfaceState state={state} emptyLabel={emptyLabel} detail={detail}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Panel>
@@ -1137,7 +944,9 @@ function RouteInAction({
               call for opposite next moves, and only a read that succeeded can
               say the second. */}
           {(query.isError || (!query.isPending && !readable)) && (
-            <p className="co-restricted">{t("co.section.unavailable")}</p>
+            <p className="surfacestate-withheld">
+              {t("co.section.unavailable")}
+            </p>
           )}
           {/* "Nobody" is a claim about the account, and only a COMPLETE read
               can make it. The graph caps its contact ring and withholds whole
@@ -1256,16 +1065,16 @@ export function DealsCard({
           ))}
           {state === "empty" && (
             <PanelBody>
-              <p className="co-empty">{t("co.deals.empty")}</p>
+              <p className="surfacestate-empty">{t("co.deals.empty")}</p>
             </PanelBody>
           )}
           {extra}
         </>
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={t("co.deals.empty")}>
+          <SurfaceState state={state} emptyLabel={t("co.deals.empty")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Panel>
@@ -1419,9 +1228,9 @@ export function CommercialPanel({
         </>
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={t("co.deals.empty")}>
+          <SurfaceState state={state} emptyLabel={t("co.deals.empty")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Panel>
@@ -1437,7 +1246,7 @@ function CommercialFigure({
 }: Readonly<{ label: string; value?: string }>) {
   return (
     <div className="co-figure">
-      <span className="co-part-label">{label}</span>
+      <Eyebrow>{label}</Eyebrow>
       {/* An absent value renders as a dash with its label intact, so the
           reader sees WHICH figure is missing rather than a shorter row. */}
       <span className="co-figure-value">{value ?? "—"}</span>
@@ -1522,7 +1331,7 @@ export function RecentActivityPanel({
       {state === "ready" ? (
         days.map((day) => (
           <div key={day.key} className="co-timeline-day">
-            <h3 className="co-timeline-day-heading">{day.key}</h3>
+            <h3 className="co-timeline-day-heading t-eyebrow">{day.key}</h3>
             <ul className="timeline">
               {day.entries.map((entry) => (
                 <TimelineRow key={entry.id} entry={entry} zone={RECORD_ZONE} />
@@ -1532,9 +1341,9 @@ export function RecentActivityPanel({
         ))
       ) : (
         <PanelBody>
-          <SectionPart state={state} emptyLabel={t("co.recent.empty")}>
+          <SurfaceState state={state} emptyLabel={t("co.recent.empty")}>
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Panel>
@@ -1588,12 +1397,12 @@ export function NextSteps({
     <Panel title={t("co.next.title")}>
       {state === "unavailable" && (
         <PanelBody>
-          <p className="co-restricted">{t("co.section.unavailable")}</p>
+          <p className="surfacestate-withheld">{t("co.section.unavailable")}</p>
         </PanelBody>
       )}
       {state === "empty" && (
         <PanelBody>
-          <p className="co-empty">{t("co.next.empty")}</p>
+          <p className="surfacestate-empty">{t("co.next.empty")}</p>
         </PanelBody>
       )}
       {state === "ready" &&
@@ -1966,7 +1775,7 @@ function BriefSections({
     <>
       {sections.map((section) => (
         <div key={section.kind} className="co-brief-section">
-          <h3 className="co-brief-section-label t-caption">
+          <h3 className="co-brief-section-label t-eyebrow">
             {t(SECTION_LABELS[section.kind])}
           </h3>
           <SentenceList
@@ -2223,7 +2032,7 @@ export function AskSection({
   const readable = Array.isArray(answer?.sentences) ? answer : undefined;
   return (
     <section className="co-part co-ask" aria-label={t("co.ask.title")}>
-      <h3 className="co-part-label">{t("co.ask.title")}</h3>
+      <Eyebrow as="h3">{t("co.ask.title")}</Eyebrow>
       <p className="co-ask-questions">
         {QUESTIONS.map((question) => (
           <Button
@@ -2238,7 +2047,7 @@ export function AskSection({
       </p>
       {ask.isPending && <Skeleton width="100%" height={40} />}
       {ask.isError && (
-        <p className="co-restricted">
+        <p className="surfacestate-withheld">
           {t("co.ask.failed")}
           {/* The server's own detail says WHICH failure — budget exhausted reads
               differently from a malformed request, and a rep can act on one. */}
@@ -2260,7 +2069,7 @@ export function AskSection({
             // records are not ones this reader can see, so there is nothing to
             // say. Saying that is honest; a sentence written around the gap
             // would not be.
-            <p className="co-empty">{t("co.ask.nothing")}</p>
+            <p className="surfacestate-empty">{t("co.ask.nothing")}</p>
           ) : (
             <SentenceList
               sentences={readable.sentences}
@@ -2439,7 +2248,7 @@ export function StateStrip({
     if (view && omitted(view, "state_strip")) {
       return (
         <section className="co-strip-withheld" aria-label={t("co.strip.title")}>
-          <p className="co-restricted">{t("co.section.restricted")}</p>
+          <p className="surfacestate-withheld">{t("co.section.restricted")}</p>
         </section>
       );
     }
@@ -3115,7 +2924,7 @@ export function useSuggestionsBody({
         {/* The row staying put with no word reads as a click that missed,
             and the rep clicks again. */}
         {dismiss.isError && (
-          <p className="co-restricted">
+          <p className="surfacestate-withheld">
             {t("co.suggest.dismissFailed")}
             {` ${problemMessageOf(dismiss.error, t)}`}
           </p>
@@ -3234,7 +3043,12 @@ export function SuggestionsSection({
       </>
     ) : undefined;
   return (
-    <Panel title={t("co.suggest.title")} footer={footer} className="co-lead">
+    <Panel
+      title={t("co.suggest.title")}
+      footer={footer}
+      tone="accent"
+      className="co-lead"
+    >
       {body.rows}
     </Panel>
   );

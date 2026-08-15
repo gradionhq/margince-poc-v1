@@ -22,9 +22,14 @@
   min-width: 0;
 }
 
-.ext-unit > .section-header > .section-header-actions {
+.ext-unit > .panel-head > .ext-unit-actions {
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* The lead panel's own sentence, above the read's pending/error surface. */
+.ext-lead-sub {
+  margin: 0 0 var(--space-3);
 }
 
 .ext-unit-link {
@@ -36,14 +41,23 @@
 }
 
 /* What the unit brings, and who may use it: two named blocks inside the unit
-   card, so a reader can tell the inventory from the grants at a glance. */
+   card, so a reader can tell the inventory from the grants at a glance. The
+   block owns the interval above its heading, so SectionHeader's own page-flow
+   top margin is reset — the two together read as a heading floating between
+   the block it leaves and the one it names. */
 .ext-block {
   margin-top: var(--space-4);
 }
 
-.ext-block-title {
+.ext-block > .section-header {
   margin: 0 0 var(--space-2);
-  color: var(--textSecondary);
+}
+
+/* The seat ceiling and the two matrix notices sit under the thing they are
+   about, on the same interval as the blocks around them. */
+.ext-readonly,
+.ext-matrix-note {
+  margin-top: var(--space-2);
 }
 
 /* The sentence that stands in for the page link when this build of the SPA has
@@ -180,19 +194,26 @@
   color: var(--textSecondary);
 }
 
-/* The tick's label is screen-reader-only, so the cell's clickable area is the
-   box itself — give it the whole cell to stand in. */
-.ext-cell {
+/* Each cell is one Switch whose label is screen-reader-only, so what the cell
+   shows is the track alone and it centres under its column header. */
+.ext-cell .switchrow {
   display: inline-flex;
-  margin: 0;
 }
 
-.ext-warn {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin: var(--space-2) 0 0;
-  color: var(--warn);
+/* The denial reaches a screen reader through the switch's own
+   `aria-describedby`, which is the whole reason `reason` is passed here — but
+   forty copies of one sentence printed under forty tracks is noise, not an
+   explanation. It is stated ONCE for the eye, in the block above the matrices;
+   this is what keeps the announced version without printing it forty times. */
+.ext-cell .switchreason {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .ext-note {

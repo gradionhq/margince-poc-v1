@@ -1,6 +1,7 @@
 import { useId } from "react";
 import type { components } from "../api/schema";
 import { Button, EmptyState, Modal, Skeleton } from "../design-system/atoms";
+import { Eyebrow } from "../design-system/eyebrow";
 import { useT } from "../i18n";
 import { approvalKindLabel } from "./approvalkind";
 import { ApprovalRow, useApprovalTokenSink } from "./inbox";
@@ -98,7 +99,7 @@ export function CompanyApprovalsPanel({
         <Skeleton width="100%" height={64} />
       )}
       {query.isError && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
+        <p className="surfacestate-withheld">{t("co.section.unavailable")}</p>
       )}
       {/* "Nothing is waiting" is a FACT, and only a read that succeeded knows
           it. A failed read that falls back to an empty 360 page would
@@ -109,12 +110,12 @@ export function CompanyApprovalsPanel({
       )}
       {groups.map((group) => (
         <section key={group.kind} className="co-part">
-          <h3 className="co-part-label">
+          <Eyebrow as="h3">
             {t("co.decisions.group", {
               count: group.approvals.length,
               kind: approvalKindLabel(group.kind, t),
             })}
-          </h3>
+          </Eyebrow>
           {group.approvals.map((approval) => (
             <ApprovalRow
               key={approval.id}

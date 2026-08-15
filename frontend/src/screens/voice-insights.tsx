@@ -1,6 +1,6 @@
 import { FileText, Lightbulb, Quote } from "lucide-react";
 import type { components } from "../api/schema";
-import { Badge } from "../design-system/atoms";
+import { Badge, Card } from "../design-system/atoms";
 import { useT } from "../i18n";
 import "./voice-dna.css";
 
@@ -166,7 +166,7 @@ export function VoiceInsights({
       {(data.words !== null ||
         data.sources !== null ||
         data.meanSentence !== null) && (
-        <div className="vdna-stats t-small">
+        <div className="t-small">
           {data.words !== null &&
             t("voice.insights.statWords", {
               count: data.words.toLocaleString(),
@@ -248,12 +248,15 @@ function SampleDrafts({ drafts }: Readonly<{ drafts: VoiceSampleDraft[] }>) {
         <FileText aria-hidden /> {t("voice.insights.samplesLabel")}
       </div>
       {drafts.map((draft) => (
-        <div key={draft.body} className="vdna-sample card">
+        // The design system's own inset card. `className="… card"` was a copy
+        // of the card surface, which the README forbids by name: a copy is a
+        // second card the moment one of its five chrome values moves.
+        <Card as="div" inset key={draft.body} className="vdna-sample">
           <div className="vdna-sample-head">
             <span className="vdna-pill">{t("voice.insights.draftOnly")}</span>
             {draft.subject && <b>{draft.subject}</b>}
             {draft.score !== null && (
-              <span className="t-small vdna-score">
+              <span className="t-small">
                 {t("voice.insights.voiceScore", {
                   pct: Math.round(draft.score * 100),
                 })}
@@ -261,7 +264,7 @@ function SampleDrafts({ drafts }: Readonly<{ drafts: VoiceSampleDraft[] }>) {
             )}
           </div>
           <p>{draft.body}</p>
-        </div>
+        </Card>
       ))}
       <p className="t-small vdna-disclosure">
         {t("voice.insights.disclosure")}

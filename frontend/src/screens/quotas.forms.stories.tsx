@@ -46,7 +46,7 @@ const ownerQuota = {
   updated_at: "2026-07-01T09:12:00Z",
 };
 
-const meta: Meta = { title: "Screens/quotas-forms" };
+const meta: Meta = { title: "Records/Quota forms" };
 export default meta;
 
 // The owner-XOR-team create form, opened so the render gate captures the side

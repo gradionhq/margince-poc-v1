@@ -22,7 +22,12 @@ import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The person record page V2 (ADR-0096) — its own gallery, one per surface the
 // concept names: the whole page behind the three reads it makes, the readings
@@ -34,7 +39,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // withheld reading rendered — that state exists only here.
 
 const meta: Meta = {
-  title: "Screens/Person record",
+  title: "Records/Person record",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -514,11 +519,11 @@ const withheld: View = {
 
 function Page() {
   installFetchStub({
-    // Without this the page falls back to the empty /me the story-utils
-    // default returns, which has no `.user`: useCan then fails closed and
-    // the embedded rail renders read-only no matter what the fixture below
-    // grants, which is not what a permitted reader actually sees.
-    "GET /me": () => jsonResponse(meFixture({ allow: { person: ["update"] } })),
+    // The page mounts capability-aware chrome, so the session has to be routed:
+    // the stub refuses to guess one, and an unrouted probe fails every grant
+    // closed — the embedded rail would render read-only no matter what the
+    // fixture below grants, which is not what a permitted reader sees.
+    "GET /me": meRoute({ person: ["read", "update"] }),
     "GET /people/p-1/360": () => jsonResponse(populated),
     "GET /people/p-1/brief": () =>
       jsonResponse({
@@ -1514,6 +1519,10 @@ export const MeetingBrief: Story = {
 export const ProviderNotConfigured: Story = {
   render: () => {
     installFetchStub({
+      // ProviderCard reads the session to decide whether the surface is
+      // read-only, so the probe has to be routed even for a story about the
+      // server answering 501.
+      "GET /me": meRoute({ integrations: ["read"] }),
       "GET /provider-connections": () =>
         jsonResponse({ code: "not_implemented" }, 501),
     });

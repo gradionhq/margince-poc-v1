@@ -1,0 +1,70 @@
+/* The incumbent-CRM overlay card (Settings → Integrations): the connection
+ * lifecycle, and the two health reads it serves once a mirror is live.
+ *
+ * Every row here used to be an inline style object, and each one had picked its
+ * own answer to the same question — whether it wraps. Two of the three did; the
+ * one that did not is what pushed the card past a 390px screen. The rules live
+ * in one sheet now, so the next row cannot quietly disagree.
+ */
+
+/* The status/connected-at/region line, and every figure row under it. */
+.overlay-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* One reading per mirrored object class. */
+.overlay-sync-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+}
+
+.overlay-sync-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* An object class is an identifier with nothing to break on. */
+.overlay-object {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The two health sections share the plate; the space between them rides here
+ * rather than on either section's own margin, so neither owns the interval. */
+.overlay-section + .overlay-section {
+  margin-top: var(--space-4);
+}
+
+/* The connect form is spaced off the sentence that introduces it whether or not
+ * anything precedes it — unlike the two health sections, which only pay for the
+ * interval between themselves. */
+.overlay-connect {
+  margin-top: var(--space-4);
+}
+
+.overlay-budget-detail {
+  margin-top: var(--space-1);
+}
+
+/* The budget bar sits under the figure it draws, at the width of the plate. */
+.overlay-budget-meter {
+  margin-top: var(--space-1);
+}
+
+/* The panel's action band is a flex row of verbs; a note about them belongs on
+ * its own line underneath rather than squeezed in beside them. */
+.overlay-action-note {
+  flex-basis: 100%;
+  margin: 0;
+}

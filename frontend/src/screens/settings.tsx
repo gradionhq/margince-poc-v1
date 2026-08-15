@@ -20,7 +20,7 @@ import {
   Webhook,
   Wrench,
 } from "lucide-react";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
@@ -30,18 +30,22 @@ import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import { setTheme, THEMES, useTheme } from "../app/theme";
 import {
+  Avatar,
   Badge,
   Button,
-  Card,
   Checkbox,
   EmptyState,
   Field,
+  SectionHeader,
   SegmentedControl,
   Skeleton,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { Select } from "../design-system/select";
@@ -53,7 +57,7 @@ import {
   toEvidence,
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
-import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
+import { LOCALES, type Locale, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
@@ -87,6 +91,7 @@ import { ProviderCard } from "./integrations-provider";
 import { JobHealthCard } from "./jobhealth";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
+import { SEARCH_DEBOUNCE_MS } from "./listquery";
 import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
@@ -149,6 +154,16 @@ import "./settings.css";
 // away from whoever it hid it from. The seam was never a missing group — it was
 // one entry belonging to both. Split by WHOSE thing each surface is, they both get
 // an honest predicate, and the ungated special case is gone rather than moved.
+//
+// Width is NOT an entry's business. Every page takes the whole column, so the
+// twelve of them line up with each other and with the rest of the app: a reader
+// moving between two settings pages sees the content start and end where the
+// last one did. A per-page measure buys a nicer form column at the cost of the
+// page appearing to change size as you navigate, and of a knob each new entry
+// has to answer for. Where a single control would otherwise stretch to the full
+// column, the control constrains itself (`.settings-intrinsic`, and each
+// surface's own field widths) — that is a property of the control, which knows
+// how wide it wants to be, not of the page, which does not.
 const SETTINGS_TABS = [
   { id: "account", icon: UserRound, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
@@ -548,7 +563,8 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
   // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
   // it once is the difference between twelve pages that space correctly and
-  // twelve that each have to remember to.
+  // twelve that each have to remember to. Width is owned the same way and is the
+  // same for all twelve, so there is nothing here to branch on.
   return (
     <div className="wrap">
       <ResumeConnectBanner />
@@ -597,48 +613,75 @@ function AiSettingsTab() {
 function AgentsTab() {
   return (
     <>
-      <AutonomyCard />
+      {/* The passports FIRST, because minting one is why a reader opens this
+          page. The autonomy table used to stand above them: three locked,
+          purely informational rows — nothing on it can be changed — sitting
+          between the reader and the only control here. It is reference for the
+          tiers the tools below are governed by, so it now reads after them. */}
       <PassportCard />
       {/* Directly after the passports, because it is the second half of one
           story: mint a passport, then lend it to a client that connects. */}
       <ConnectedAgentsCard />
       <AgentToolsCard />
+      <AutonomyCard />
     </>
   );
 }
 
+// Who you are, drawn the way the product draws an identity everywhere else: the
+// record page's own header block (composed.css `.record-head`) — a mark, the
+// name, the standing badges on the name's line, and the meta that qualifies it
+// underneath. Three items loose in a wide box said nothing about which of them
+// was the subject; the mark and the type scale do, before a word is read.
 function IdentityCard() {
   const t = useT();
   const query = useMe();
   const logout = useLogout();
   return (
-    <Card title={t("settings.identity")}>
-      <QueryGate query={query}>
-        {(me) => (
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <span>{me.user.email}</span>
-            {me.roles.map((role) => (
-              <RoleBadge key={role} roleKey={role} />
-            ))}
-          </div>
-        )}
-      </QueryGate>
-      <Button
-        small
-        disabled={logout.isPending}
-        onClick={() => logout.mutate()}
-        style={{ marginTop: "var(--space-3)" }}
-      >
-        {t("auth.signOut")}
-      </Button>
-    </Card>
+    <Panel
+      title={t("settings.identity")}
+      actions={
+        <Button
+          small
+          disabled={logout.isPending}
+          onClick={() => logout.mutate()}
+        >
+          {t("auth.signOut")}
+        </Button>
+      }
+    >
+      <PanelBody>
+        <QueryGate query={query}>
+          {(me) => (
+            <div className="settings-identity">
+              {/* Both halves are required on the wire, so the `?? ""` is not a
+                  default — it is the promise that a server answering with
+                  neither costs the reader an unnamed chip rather than the whole
+                  page: this block renders inside the app shell, and a throw here
+                  takes the navigation down with it. */}
+              <Avatar
+                name={me.user.display_name || me.user.email || ""}
+                // Tinted, because this is the ONE person the page is about and
+                // the tint is derived from their own name.
+                tinted
+              />
+              <div className="settings-identity-id">
+                <div className="settings-identity-name">
+                  <strong>{me.user.display_name || me.user.email}</strong>
+                  {me.roles.map((role) => (
+                    <RoleBadge key={role} roleKey={role} />
+                  ))}
+                </div>
+                {/* The two lines that qualify the name: the address the session
+                    is bound to, and the workspace it is bound to it IN. */}
+                <span className="t-small">{me.user.email}</span>
+                <span className="t-small">{me.workspace_name}</span>
+              </div>
+            </div>
+          )}
+        </QueryGate>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -701,9 +744,8 @@ function EmailSignatureCard() {
   const shown = body ?? signature.data?.body ?? "";
 
   return (
-    <Card
+    <Panel
       title={t("settings.signature")}
-      sub={t("settings.signatureSub")}
       actions={
         <Button
           small
@@ -714,7 +756,10 @@ function EmailSignatureCard() {
         </Button>
       }
     >
-      <div className="form-stack">
+      <PanelBody className="form-stack">
+        <p className="t-small settings-panel-sub">
+          {t("settings.signatureSub")}
+        </p>
         <Field label={t("settings.signatureLabel")}>
           {(control) => (
             <Textarea
@@ -728,12 +773,12 @@ function EmailSignatureCard() {
         </Field>
         <p className="t-caption">{t("settings.signatureHint")}</p>
         {save.isError && (
-          <p className="t-caption" style={{ color: "var(--danger)" }}>
+          <Callout tone="danger" live="alert">
             {problemMessageOf(save.error, t)}
-          </p>
+          </Callout>
         )}
-      </div>
-    </Card>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -742,46 +787,53 @@ function PreferencesCard() {
   const [theme] = useTheme();
   const { locale, setLocale } = useLocale();
   return (
-    <Card title={t("settings.preferences")} sub={t("settings.preferencesSub")}>
-      <div className="form-stack">
-        {/* Not a `Field`: a SegmentedControl is a `fieldset`, and a <label for>
-            pointing at one names nothing. So the name rides on the control
-            itself and this line is the eye's copy of it — the same words, which
-            is what WCAG 2.5.3 asks of a voice user who says what they can read. */}
-        <div className="field">
-          <span className="t-label">{t("shell.theme")}</span>
-          <SegmentedControl
-            options={THEMES}
-            value={theme}
-            onChange={setTheme}
-            label={t("shell.theme")}
-            labels={{ light: t("theme.light"), dark: t("theme.dark") }}
-          />
-        </div>
-        <Field label={t("locale.switchLabel")}>
-          {(control) => (
-            <Select
-              {...control}
-              value={locale}
-              // `Select` reports a string. The options are built from LOCALES,
-              // so narrowing the answer through that same list is what makes it
-              // a Locale — no assertion, and nothing acted on that the control
-              // was never offering.
-              onChange={(next) => {
-                const picked = LOCALES.find((option) => option === next);
-                if (picked) {
-                  setLocale(picked);
-                }
-              }}
-              options={LOCALES.map((option) => ({
-                value: option,
-                label: t(localeNameKey(option)),
-              }))}
+    <Panel title={t("settings.preferences")}>
+      <PanelBody>
+        <p className="t-small settings-panel-sub">
+          {t("settings.preferencesSub")}
+        </p>
+        <div className="form-stack">
+          {/* Not a `Field`: a SegmentedControl is a `fieldset`, and a <label for>
+              pointing at one names nothing. So the name rides on the control
+              itself and this line is the eye's copy of it — the same words, which
+              is what WCAG 2.5.3 asks of a voice user who says what they can read.
+              `settings-intrinsic`: two words wide is what this control IS, and
+              a `.field` column would otherwise stretch it across the page. */}
+          <div className="field settings-intrinsic">
+            <span className="t-label">{t("shell.theme")}</span>
+            <SegmentedControl
+              options={THEMES}
+              value={theme}
+              onChange={setTheme}
+              label={t("shell.theme")}
+              labels={{ light: t("theme.light"), dark: t("theme.dark") }}
             />
-          )}
-        </Field>
-      </div>
-    </Card>
+          </div>
+          <Field label={t("locale.switchLabel")} className="settings-intrinsic">
+            {(control) => (
+              <Select
+                {...control}
+                value={locale}
+                // `Select` reports a string. The options are built from LOCALES,
+                // so narrowing the answer through that same list is what makes
+                // it a Locale — no assertion, and nothing acted on that the
+                // control was never offering.
+                onChange={(next) => {
+                  const picked = LOCALES.find((option) => option === next);
+                  if (picked) {
+                    setLocale(picked);
+                  }
+                }}
+                options={LOCALES.map((option) => ({
+                  value: option,
+                  label: t(localeNameKey(option)),
+                }))}
+              />
+            )}
+          </Field>
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -801,7 +853,12 @@ function PassportCard() {
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const revokingRow = useRef<HTMLLIElement | null>(null);
+  const revokingRow = useRef<HTMLElement | null>(null);
+  // Where the minted token lands. It is a live region that is ALWAYS mounted
+  // rather than one that appears with the token in it: a region inserted at the
+  // same moment as its content is not reliably announced, and this token is
+  // shown exactly once in its life.
+  const tokenRegion = useRef<HTMLDivElement | null>(null);
   const labelId = useId();
 
   // Metadata only — the wire schema carries no token (PassportSummary),
@@ -860,72 +917,86 @@ function PassportCard() {
     },
   });
 
+  // The token arrives asynchronously, is shown once, and is never re-disclosed:
+  // announcing it is not enough on its own, because a reader whose focus is
+  // still on the Mint button has to hunt for what they just made. Focus moves
+  // to the region holding it, which is also what makes the copy gesture reach
+  // it from the keyboard.
+  const minted = mint.isSuccess;
+  useEffect(() => {
+    if (minted) {
+      tokenRegion.current?.focus();
+    }
+  }, [minted]);
+
   return (
-    <Card title={t("settings.passports")} sub={t("settings.passportsSub")}>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <span className="t-label" id={labelId}>
-          {t("settings.passportLabel")}
-        </span>
-        <TextInput
-          aria-labelledby={labelId}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-        />
-        {PASSPORT_SCOPES.map((scope) => (
-          <Checkbox
-            key={scope}
-            className="t-caption"
-            checked={scopes.has(scope)}
-            onChange={(event) => {
-              const next = new Set(scopes);
-              if (event.target.checked) {
-                next.add(scope);
-              } else {
-                next.delete(scope);
-              }
-              setScopes(next);
-            }}
-            label={t(scopeLabelKey(scope))}
-          />
-        ))}
-        <Button
-          small
-          variant="primary"
-          disabled={scopes.size === 0 || mint.isPending}
-          onClick={() => mint.mutate()}
-        >
-          {t("settings.mint")}
-        </Button>
-      </div>
-      {mint.isSuccess && (
-        <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
-          <p className="t-label">{t("settings.tokenOnce")}</p>
-          <p
-            className="t-mono"
-            style={{ wordBreak: "break-all", marginTop: 4 }}
-          >
-            {mint.data.token}
-          </p>
-        </Card>
-      )}
-      {mint.isError && (
-        <p
-          className="t-caption"
-          style={{ color: "var(--danger)", marginTop: 8 }}
-        >
-          {problemMessageOf(mint.error, t)}
+    <Panel
+      title={t("settings.passports")}
+      footer={t("settings.passportsLendHint")}
+    >
+      <PanelBody>
+        <p className="t-small settings-panel-sub">
+          {t("settings.passportsSub")}
         </p>
-      )}
-      <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-        {t("settings.passportsLendHint")}
-      </p>
+        <div className="passport-mint">
+          <span className="t-label" id={labelId}>
+            {t("settings.passportLabel")}
+          </span>
+          <TextInput
+            aria-labelledby={labelId}
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+          />
+          {PASSPORT_SCOPES.map((scope) => (
+            <Checkbox
+              key={scope}
+              className="t-caption"
+              checked={scopes.has(scope)}
+              onChange={(event) => {
+                const next = new Set(scopes);
+                if (event.target.checked) {
+                  next.add(scope);
+                } else {
+                  next.delete(scope);
+                }
+                setScopes(next);
+              }}
+              label={t(scopeLabelKey(scope))}
+            />
+          ))}
+          <Button
+            small
+            variant="primary"
+            disabled={scopes.size === 0 || mint.isPending}
+            onClick={() => mint.mutate()}
+          >
+            {t("settings.mint")}
+          </Button>
+        </div>
+        {/* The whole point of the mutation, and until now it simply appeared:
+            no live region, no focus. It is announced AND focused, because it is
+            shown once and never again — a reader who misses it has lost the
+            credential. tabIndex -1 makes it a focus target without joining
+            anybody's Tab order. */}
+        <div
+          className="passport-token"
+          ref={tokenRegion}
+          tabIndex={-1}
+          role="status"
+        >
+          {mint.isSuccess && (
+            <PanelPlate>
+              <p className="t-label">{t("settings.tokenOnce")}</p>
+              <p className="t-mono passport-token-value">{mint.data.token}</p>
+            </PanelPlate>
+          )}
+        </div>
+        {mint.isError && (
+          <p className="t-caption passport-mint-error">
+            {problemMessageOf(mint.error, t)}
+          </p>
+        )}
+      </PanelBody>
       {/* Only what this human MINTED. A row carrying a connection was issued by
           the token exchange to a client — it belongs to ConnectedAgentsCard,
           and listing it here put a raw DCR client id among the names the human
@@ -937,93 +1008,21 @@ function PassportCard() {
           page.data.every((passport) => passport.connection != null)
         }
       >
-        {(page) => (
-          <ul
-            style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              marginTop: 12,
-            }}
-          >
-            {page.data
-              .filter((passport) => passport.connection == null)
-              .map((passport) => {
-                const revoked = passport.revoked_at != null;
-                return (
-                  <li
-                    key={passport.id}
-                    data-passport={passport.id}
-                    // Reachable by focus() without joining anybody's Tab order:
-                    // the revoke confirm hands focus back here, because the
-                    // button it was opened from is gone by then.
-                    tabIndex={-1}
-                    style={{
-                      display: "flex",
-                      gap: "var(--space-2)",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      // struck, not dimmed — dimming would drop the row
-                      // under the AA contrast floor (B-EP09.21)
-                      textDecoration: revoked ? "line-through" : undefined,
-                    }}
-                  >
-                    <strong>{passport.label}</strong>
-                    {/* The credential exists but is withheld by design (shown
-                      once at mint) — masked reads as "withheld", not absent. */}
-                    <span className="t-label">{t("settings.token")}</span>
-                    <FieldGuard mode="masked" />
-                    <ScopeChips scopes={passport.scopes} />
-                    <span className="t-small">
-                      {t("settings.created", {
-                        date: formatDate(
-                          passport.created_at,
-                          locale,
-                          "Europe/Berlin",
-                        ),
-                      })}
-                    </span>
-                    {/* A credential's lifetime is a personal deadline, so it
-                        reads on the viewer's own calendar — the same
-                        zone-by-purpose split the consent screen makes. created_at
-                        above stays the fixed record zone. */}
-                    {passport.expires_at && (
-                      <span className="t-small">
-                        {t("settings.expires", {
-                          date: formatDate(
-                            passport.expires_at,
-                            locale,
-                            Intl.DateTimeFormat().resolvedOptions().timeZone,
-                          ),
-                        })}
-                      </span>
-                    )}
-                    {revoked && (
-                      <Badge tone="danger">{t("settings.revoked")}</Badge>
-                    )}
-                    {!revoked && (
-                      <Button
-                        small
-                        variant="danger"
-                        // The row is remembered from the CLICK rather than from
-                        // `confirmId`: the focus resolver runs as the dialog
-                        // closes, by which time that state is already back to
-                        // null and there is nothing left to look the row up by.
-                        onClick={(event) => {
-                          revokingRow.current =
-                            event.currentTarget.closest<HTMLLIElement>("li");
-                          setConfirmId(passport.id);
-                        }}
-                      >
-                        {t("settings.revoke")}
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-          </ul>
-        )}
+        {(page) =>
+          page.data
+            .filter((passport) => passport.connection == null)
+            .map((passport) => (
+              <PassportRow
+                key={passport.id}
+                passport={passport}
+                locale={locale}
+                onRevoke={(row) => {
+                  revokingRow.current = row;
+                  setConfirmId(passport.id);
+                }}
+              />
+            ))
+        }
       </QueryGate>
       <ConfirmModal
         open={confirmId != null}
@@ -1044,7 +1043,83 @@ function PassportCard() {
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
-    </Card>
+    </Panel>
+  );
+}
+
+type PassportSummary = components["schemas"]["PassportSummary"];
+
+// One minted passport, as a full-bleed row under the mint form. The revoked
+// state is STRUCK, never dimmed: dimming drops the row under the AA contrast
+// floor (B-EP09.21), and it is the revoked row a reader most needs to read.
+function PassportRow({
+  passport,
+  locale,
+  onRevoke,
+}: Readonly<{
+  passport: PassportSummary;
+  locale: Locale;
+  onRevoke: (row: HTMLElement | null) => void;
+}>) {
+  const t = useT();
+  const revoked = passport.revoked_at != null;
+  return (
+    <PanelRow>
+      {/* Reachable by focus() without joining anybody's Tab order: the revoke
+          confirm hands focus back here, because the button it was opened from
+          is gone by then. */}
+      <div
+        data-passport={passport.id}
+        tabIndex={-1}
+        className={
+          revoked ? "passport-facts passport-struck" : "passport-facts"
+        }
+      >
+        <strong>{passport.label}</strong>
+        {/* The credential exists but is withheld by design (shown once at
+            mint) — masked reads as "withheld", not absent. */}
+        <span className="t-label">{t("settings.token")}</span>
+        <FieldGuard mode="masked" />
+        <ScopeChips scopes={passport.scopes} />
+        <span className="t-small">
+          {t("settings.created", {
+            date: formatDate(passport.created_at, locale, "Europe/Berlin"),
+          })}
+        </span>
+        {/* A credential's lifetime is a personal deadline, so it reads on the
+            viewer's own calendar — the same zone-by-purpose split the consent
+            screen makes. created_at above stays the fixed record zone. */}
+        {passport.expires_at && (
+          <span className="t-small">
+            {t("settings.expires", {
+              date: formatDate(
+                passport.expires_at,
+                locale,
+                Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ),
+            })}
+          </span>
+        )}
+        {revoked && <Badge tone="danger">{t("settings.revoked")}</Badge>}
+        {!revoked && (
+          <Button
+            small
+            variant="danger"
+            // The row is remembered from the CLICK rather than from
+            // `confirmId`: the focus resolver runs as the dialog closes, by
+            // which time that state is already back to null and there is
+            // nothing left to look the row up by.
+            onClick={(event) =>
+              onRevoke(
+                event.currentTarget.closest<HTMLElement>("[data-passport]"),
+              )
+            }
+          >
+            {t("settings.revoke")}
+          </Button>
+        )}
+      </div>
+    </PanelRow>
   );
 }
 
@@ -1093,101 +1168,89 @@ function AgentToolsCard() {
   );
 
   return (
-    <Card title={t("tools.title")} sub={t("tools.sub")}>
-      {passports.data && passports.data.data.length > 0 && (
-        <div className="tool-scope-filter">
-          <PassportSelect
-            options={lendable.map((p) => ({
-              id: p.id,
-              label: t("tools.scopedTo", { label: p.label }),
-              scopes: p.scopes,
-            }))}
-            value={scopeId}
-            onChange={setPassportId}
-            allowEmpty
-            emptyLabel={t("tools.scopeAll")}
-            ariaLabel={t("tools.scopeAll")}
-          />
-        </div>
-      )}
+    <Panel title={t("tools.title")}>
+      <PanelBody>
+        <p className="t-small settings-panel-sub">{t("tools.sub")}</p>
+        {passports.data && passports.data.data.length > 0 && (
+          <div className="tool-scope-filter">
+            <PassportSelect
+              options={lendable.map((p) => ({
+                id: p.id,
+                label: t("tools.scopedTo", { label: p.label }),
+                scopes: p.scopes,
+              }))}
+              value={scopeId}
+              onChange={setPassportId}
+              allowEmpty
+              emptyLabel={t("tools.scopeAll")}
+              ariaLabel={t("tools.scopeAll")}
+            />
+          </div>
+        )}
+      </PanelBody>
       <QueryGate query={tools} empty={(data) => data.data.length === 0}>
-        {(data) => (
-          <ul
-            className="tool-rows"
-            style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            {data.data.map((tool) => {
-              const reachable =
+        {(data) =>
+          data.data.map((tool) => (
+            <ToolRow
+              key={tool.name}
+              tool={tool}
+              reachable={
                 !scopeId ||
                 tool.required_scope == null ||
-                grantedScopes.has(tool.required_scope);
-              return (
-                <li key={tool.name} data-tool={tool.name} className="tool-row">
-                  <div className="tool-row-head">
-                    <AutonomyDot tier={dotTier(tool.tier)} />
-                    {/* Struck, not dimmed. Dimming the row to 0.4 took the whole
-                        row under the AA contrast floor (B-EP09.21) — including
-                        the caption below that is supposed to be the text
-                        equivalent of the dimming, so the one part a reader needs
-                        most became the hardest to read. The passport list and the
-                        connected-agent rows both chose the strikethrough over
-                        dimming for exactly this reason.
-                        It wraps the FACTS about the tool and nothing else: the
-                        badges state its governance, which is true either way, and
-                        the caption is the explanation. */}
-                    <span
-                      className="t-mono"
-                      style={{
-                        color: "var(--accent)",
-                        textDecoration: reachable ? undefined : "line-through",
-                      }}
-                    >
-                      {tool.name}
-                    </span>
-                    {tool.title && (
-                      <span
-                        className="t-caption"
-                        style={{
-                          textDecoration: reachable
-                            ? undefined
-                            : "line-through",
-                        }}
-                      >
-                        {tool.title}
-                      </span>
-                    )}
-                    {tool.required_scope && (
-                      <Badge>{tool.required_scope}</Badge>
-                    )}
-                    {tool.egress && (
-                      <Badge tone="warn">{t("tools.egress")}</Badge>
-                    )}
-                    {!reachable && (
-                      <span className="t-caption">
-                        {t("tools.unreachable")}
-                      </span>
-                    )}
-                  </div>
-                  {/* The text an agent actually selects on. This console
-                      promises the surface an MCP client sees, and the name
-                      alone was never that. */}
-                  {tool.description && (
-                    <p className="t-caption tool-description">
-                      {tool.description}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                grantedScopes.has(tool.required_scope)
+              }
+            />
+          ))
+        }
       </QueryGate>
-    </Card>
+    </Panel>
+  );
+}
+
+type AgentTool = components["schemas"]["AgentTool"];
+
+// One governed tool, as a full-bleed row. Struck, not dimmed: dimming the row
+// to 0.4 took the whole row under the AA contrast floor (B-EP09.21) — including
+// the caption that is supposed to be the text equivalent of the dimming, so the
+// one part a reader needs most became the hardest to read. The strikethrough
+// wraps the FACTS and nothing else: the badges state the tool's governance,
+// which is true either way, and the caption is the explanation.
+function ToolRow({
+  tool,
+  reachable,
+}: Readonly<{ tool: AgentTool; reachable: boolean }>) {
+  const t = useT();
+  const struck = reachable ? undefined : "tool-out-of-scope";
+  return (
+    <PanelRow>
+      <div data-tool={tool.name} className="tool-row-body">
+        <div className="tool-row-head">
+          <AutonomyDot tier={dotTier(tool.tier)} />
+          <span
+            className={["t-mono", "tool-name", struck]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {tool.name}
+          </span>
+          {tool.title && (
+            <span className={["t-caption", struck].filter(Boolean).join(" ")}>
+              {tool.title}
+            </span>
+          )}
+          {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
+          {tool.egress && <Badge tone="warn">{t("tools.egress")}</Badge>}
+          {!reachable && (
+            <span className="t-caption">{t("tools.unreachable")}</span>
+          )}
+        </div>
+        {/* The text an agent actually selects on. This console promises the
+            surface an MCP client sees, and the name alone was never that. */}
+        {tool.description && (
+          <p className="t-caption tool-description">{tool.description}</p>
+        )}
+      </div>
+    </PanelRow>
   );
 }
 
@@ -1255,46 +1318,39 @@ function ResetDataCard() {
   }
 
   return (
-    <Card
+    <Panel
       title={t("settings.dangerZone")}
-      sub={t("settings.dangerZoneSub")}
       // The one card that announces its own danger: the red border is what
       // separates a destructive surface from the ordinary settings around it.
-      style={{ borderColor: "var(--danger)" }}
+      className="settings-danger"
+      actions={
+        <Button small variant="danger" onClick={() => setOpen(true)}>
+          {t("settings.resetDataButton")}
+        </Button>
+      }
     >
-      <p className="t-caption">{t("settings.resetDataDesc")}</p>
-      <Button
-        small
-        variant="danger"
-        onClick={() => setOpen(true)}
-        style={{ marginTop: "var(--space-3)" }}
-      >
-        {t("settings.resetDataButton")}
-      </Button>
-      {summary && (
-        <p
-          className="t-caption"
-          role="status"
-          style={{ marginTop: "var(--space-2)" }}
-        >
-          {t("settings.resetDataResult", {
-            tables: summary.tables_cleared,
-            jobs: summary.jobs_deleted,
-            streams: summary.streams_purged,
-            keys: summary.cache_keys_deleted,
-            objects: summary.objects_deleted,
-          })}
+      <PanelBody>
+        <p className="t-small settings-panel-sub">
+          {t("settings.dangerZoneSub")}
         </p>
-      )}
-      {summary?.drain_timed_out && (
-        <p
-          className="t-caption"
-          role="alert"
-          style={{ color: "var(--warn)", marginTop: "var(--space-1)" }}
-        >
-          {t("settings.resetDataDrainWarning")}
-        </p>
-      )}
+        <p className="t-caption">{t("settings.resetDataDesc")}</p>
+        {summary && (
+          <p className="t-caption settings-danger-result" role="status">
+            {t("settings.resetDataResult", {
+              tables: summary.tables_cleared,
+              jobs: summary.jobs_deleted,
+              streams: summary.streams_purged,
+              keys: summary.cache_keys_deleted,
+              objects: summary.objects_deleted,
+            })}
+          </p>
+        )}
+        {summary?.drain_timed_out && (
+          <p className="t-caption settings-danger-warning" role="alert">
+            {t("settings.resetDataDrainWarning")}
+          </p>
+        )}
+      </PanelBody>
       <ConfirmModal
         open={open}
         onClose={() => {
@@ -1333,7 +1389,7 @@ function ResetDataCard() {
           onChange={(event) => setTyped(event.target.value)}
         />
       </ConfirmModal>
-    </Card>
+    </Panel>
   );
 }
 
@@ -1582,15 +1638,12 @@ function StageRow({
   returnFocusTo: () => HTMLElement | null;
 }>) {
   return (
-    <li
-      style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) 88px 56px auto",
-        gap: 8,
-        alignItems: "center",
-      }}
-    >
-      <span>{stage.name}</span>
+    // The four tracks (name, semantic badge, probability, edit) live in
+    // settings.css, where they can have a phone breakpoint. Inline, the three
+    // fixed tracks plus the Edit button left about 60px for a stage name that
+    // could not wrap, and it painted straight over the badge beside it.
+    <li className="stage-row">
+      <span className="stage-name">{stage.name}</span>
       <Badge tone={stageSemanticTone(stage.semantic)}>
         {stageSemanticLabel(stage.semantic, t)}
       </Badge>
@@ -1650,70 +1703,57 @@ function PipelineRow({
     (a, b) => a.position - b.position,
   );
   return (
-    <Card as="div" inset style={{ marginBottom: "var(--space-3)" }}>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        {/* A real heading, not a span wearing heading type. The pipeline is the
-            subject of everything in this row and the stage list under it, so a
-            reader navigating by heading has to be able to land on it — before this
-            the Pipelines card was one outline node with an unreachable interior.
-            h3: the card's own title is the h2 under the page's h1. */}
-        <h3 className="t-h2" style={{ margin: 0 }}>
-          {pipeline.name}
-        </h3>
-        <Badge tone={pipeline.is_default ? "success" : undefined}>
-          {pipeline.is_default
-            ? t("pipeline.default")
-            : t("pipeline.notDefault")}
-        </Badge>
-        {canEdit && (
+    <PanelRow className="pipeline-row">
+      {/* A real heading through the primitive, not a span — nor an `h3` wearing
+          `t-h2`, which drew the inner heading at 18px under a card title at 15px
+          and told the eye the pipeline outranked the card holding it. The
+          pipeline is the subject of this row and the stage list under it, so a
+          reader navigating by heading has to be able to land on it; `level={3}`
+          is what makes the type step DOWN with the outline instead of past it. */}
+      <SectionHeader
+        title={pipeline.name}
+        level={3}
+        actions={
           <>
-            <EditAction
-              label={t("pipeline.edit")}
-              invalidate="pipelines"
-              recordKey="pipeline"
-              record={{
-                id: pipeline.id,
-                name: pipeline.name,
-                is_default: String(pipeline.is_default),
-                position: String(pipeline.position),
-              }}
-              fields={pipelineFields(t)}
-              update={async (values) => {
-                const { data, error } = await api.PATCH("/pipelines/{id}", {
-                  params: { path: { id: pipeline.id } },
-                  body: mapPipelineBody(values),
-                });
-                if (error) {
-                  throwProblem(error);
-                }
-                return data;
-              }}
-            />
-            <StageCreate pipelineId={pipeline.id} />
+            <Badge tone={pipeline.is_default ? "success" : undefined}>
+              {pipeline.is_default
+                ? t("pipeline.default")
+                : t("pipeline.notDefault")}
+            </Badge>
+            {canEdit && (
+              <>
+                <EditAction
+                  label={t("pipeline.edit")}
+                  invalidate="pipelines"
+                  recordKey="pipeline"
+                  record={{
+                    id: pipeline.id,
+                    name: pipeline.name,
+                    is_default: String(pipeline.is_default),
+                    position: String(pipeline.position),
+                  }}
+                  fields={pipelineFields(t)}
+                  update={async (values) => {
+                    const { data, error } = await api.PATCH("/pipelines/{id}", {
+                      params: { path: { id: pipeline.id } },
+                      body: mapPipelineBody(values),
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                />
+                <StageCreate pipelineId={pipeline.id} />
+              </>
+            )}
           </>
-        )}
-      </div>
+        }
+      />
       {/* tabIndex -1 so a removal can hand focus to the list it changed:
           the row's own Remove button is gone by then, and focus dropped to
           <body> leaves a screen-reader user at the top of the document. */}
-      <ul
-        ref={stageList}
-        tabIndex={-1}
-        style={{
-          listStyle: "none",
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-          marginTop: 8,
-        }}
-      >
+      <ul ref={stageList} tabIndex={-1} className="stage-rows">
         {stages.map((stage) => (
           <StageRow
             key={stage.id}
@@ -1724,7 +1764,7 @@ function PipelineRow({
           />
         ))}
       </ul>
-    </Card>
+    </PanelRow>
   );
 }
 
@@ -1758,17 +1798,12 @@ export function PipelinesCard() {
     },
   });
   return (
-    <Card title={t("settings.pipelines")} sub={t("settings.pipelinesSub")}>
-      {/* Said once, at the top, rather than annotating each absent control — the
-          rule in design-system/README.md. A reader holding one of the two verbs
-          can see for themselves which controls they got. */}
-      {!canCreate && !canEdit && (
-        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
-          {t("settings.pipelinesReadOnly")}
-        </p>
-      )}
-      {canCreate && (
-        <div style={{ marginBottom: 10 }}>
+    <Panel
+      title={t("settings.pipelines")}
+      // The verb that CHANGES this panel, in the band under its body — not one
+      // more row among the pipelines it would add to.
+      actions={
+        canCreate ? (
           <CreateAction
             label={t("pipeline.new")}
             invalidate="pipelines"
@@ -1784,54 +1819,59 @@ export function PipelinesCard() {
             }}
             fields={pipelineFields(t)}
           />
-        </div>
-      )}
-      <QueryGate query={query} empty={(pipelines) => pipelines.length === 0}>
-        {(pipelines) => (
-          <>
-            {pipelines.map((pipeline) => (
-              <PipelineRow
-                key={pipeline.id}
-                pipeline={pipeline}
-                canEdit={canEdit}
-                t={t}
-              />
-            ))}
-          </>
+        ) : undefined
+      }
+    >
+      <PanelBody>
+        <p className="t-small settings-panel-sub">
+          {t("settings.pipelinesSub")}
+        </p>
+        {/* Said once, at the top, rather than annotating each absent control —
+            the rule in design-system/README.md. A reader holding one of the two
+            verbs can see for themselves which controls they got. */}
+        {!canCreate && !canEdit && (
+          <p className="t-caption">{t("settings.pipelinesReadOnly")}</p>
         )}
+      </PanelBody>
+      <QueryGate query={query} empty={(pipelines) => pipelines.length === 0}>
+        {(pipelines) =>
+          pipelines.map((pipeline) => (
+            <PipelineRow
+              key={pipeline.id}
+              pipeline={pipeline}
+              canEdit={canEdit}
+              t={t}
+            />
+          ))
+        }
       </QueryGate>
-    </Card>
+    </Panel>
   );
 }
 
 // The two-tier table (03b): informational, and the advance-stage row is
-// locked 🟡 — there is no toggle that could soften it (AC-settings).
+// locked 🟡 — there is no toggle that could soften it (AC-settings). It reads
+// AFTER the passports and the tools it governs, because nothing on it can be
+// acted on: it is the reference for the tiers those rows are marked with.
 function AutonomyCard() {
   const t = useT();
   return (
-    <Card title={t("settings.autonomy")} sub={t("settings.autonomySub")}>
-      <ul
-        style={{
-          listStyle: "none",
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-        }}
-      >
-        <li>
-          <AutonomyDot tier="auto" /> <strong>{t("settings.tierRead")}</strong>
-        </li>
-        <li>
-          <AutonomyDot tier="confirm" />{" "}
-          <strong>{t("settings.tierSend")}</strong>
-        </li>
-        <li>
-          <AutonomyDot tier="confirm" />{" "}
-          <strong>{t("settings.tierAdvance")}</strong>{" "}
-          <Badge tone="warn">{t("settings.locked")}</Badge>
-        </li>
-      </ul>
-    </Card>
+    <Panel title={t("settings.autonomy")}>
+      <PanelBody>
+        <p className="t-small">{t("settings.autonomySub")}</p>
+      </PanelBody>
+      <PanelRow className="autonomy-row">
+        <AutonomyDot tier="auto" /> <strong>{t("settings.tierRead")}</strong>
+      </PanelRow>
+      <PanelRow className="autonomy-row">
+        <AutonomyDot tier="confirm" /> <strong>{t("settings.tierSend")}</strong>
+      </PanelRow>
+      <PanelRow className="autonomy-row">
+        <AutonomyDot tier="confirm" />{" "}
+        <strong>{t("settings.tierAdvance")}</strong>{" "}
+        <Badge tone="warn">{t("settings.locked")}</Badge>
+      </PanelRow>
+    </Panel>
   );
 }
 
@@ -1945,6 +1985,26 @@ function auditLogQueryParams(
   };
 }
 
+/**
+ * The filters as a QUESTION, settled — which is a different thing from the
+ * filters as they are being typed.
+ *
+ * The row updates on every keystroke, as it must; what waits is the query. The
+ * filter object is the query key, so before this every character was its own
+ * `GET /audit-log`: typing `agent:runner` asked the server twelve questions,
+ * eleven of them about prefixes nobody wanted an answer to, and the answers
+ * could land out of order. The shared list surface settles its own search on
+ * this same constant, so a filter costs the same anywhere in the product.
+ */
+function useSettledAuditLogFilters(typed: AuditLogFilters): AuditLogFilters {
+  const [settled, setSettled] = useState(typed);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(typed), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [typed]);
+  return settled;
+}
+
 function AuditLogFilterFields({
   filters,
   onChange,
@@ -1959,24 +2019,11 @@ function AuditLogFilterFields({
     // row: in a row each control took the width of the card and the six of them
     // stacked into a page-tall form, which is the shape of something to fill in
     // rather than something to narrow a list with.
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))",
-        gap: "var(--space-3)",
-      }}
-    >
+    <div className="audit-filters">
       {AUDIT_LOG_FILTER_FIELDS.map((field) => {
         const labelId = `${filterId}-${field.key}`;
         return (
-          <div
-            key={field.key}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-1)",
-            }}
-          >
+          <div key={field.key} className="audit-filter">
             <span className="t-label" id={labelId}>
               {t(field.labelKey)}
             </span>
@@ -2006,15 +2053,8 @@ function AuditLogRow({
   const evidence = toEvidence(entry.evidence);
 
   return (
-    <li style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
+    <PanelRow className="audit-row">
+      <div className="audit-row-head">
         <span className="t-small">
           {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
         </span>
@@ -2042,20 +2082,9 @@ function AuditLogRow({
         </Button>
       </div>
       {expanded && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            paddingLeft: 12,
-            borderLeft: "2px solid var(--borderSubtle)",
-          }}
-        >
+        <div className="audit-row-diff">
           {keys.map((key) => (
-            <div
-              key={key}
-              style={{ display: "flex", gap: 8, alignItems: "center" }}
-            >
+            <div key={key} className="audit-diff-line">
               <span className="t-label">{key}</span>
               <FieldDiff
                 oldValue={diffValue(entry.before, key)}
@@ -2078,7 +2107,7 @@ function AuditLogRow({
           {evidence && <EvidenceChip evidence={evidence} />}
         </div>
       )}
-    </li>
+    </PanelRow>
   );
 }
 
@@ -2094,7 +2123,7 @@ const FIRST_AUDIT_PAGE: string | null = null;
 function AuditLogEntries({
   filters,
   meUserId,
-}: Readonly<{ filters: AuditLogFilters; meUserId?: string }>) {
+}: Readonly<{ filters: AuditLogFilters; meUserId?: string }>): ReactNode {
   const t = useT();
   // The full trail is the admin's alone (AAD-ROLE-4/A91, enforced by
   // privacy.ListAuditLog), while the page it sits on opens for ops too — the
@@ -2121,82 +2150,73 @@ function AuditLogEntries({
 
   const entries = query.data?.pages.flatMap((page) => page.data) ?? [];
 
-  // Honest state matrix (§3a): withheld, loading, error, empty, then the list —
+  // Honest state matrix (§3a): withheld, loading, error, empty, then the rows —
   // kept as sequential branches rather than a nested ternary in the JSX below.
-  let body: ReactNode;
+  // Everything but the rows is body content and sits in a `PanelBody`; the rows
+  // themselves are full-bleed and are the panel's own direct children.
   if (!isAdmin) {
     // Withheld rather than absent, and the card keeps its place: an absent trail
     // on a page that opens for ops would read as "nothing has happened here",
     // which is a different claim from "this is not yours to read". The same
     // choice the subject-request queue above it makes, for the same reason.
-    body = (
-      <EmptyState>
-        <p className="t-small">{t("settings.auditAdminOnly")}</p>
-      </EmptyState>
-    );
-  } else if (query.isPending) {
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-3)",
-        }}
-      >
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-      </div>
-    );
-  } else if (query.isError) {
-    body = (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
-          {problemMessageOf(query.error, t)}
-        </p>
-        <Button
-          small
-          onClick={() => query.refetch()}
-          style={{ marginTop: "var(--space-3)" }}
-        >
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
-    );
-  } else if (entries.length === 0) {
-    body = <EmptyState>{t("common.empty")}</EmptyState>;
-  } else {
-    body = (
-      <>
-        <ul
-          style={{
-            listStyle: "none",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-3)",
-          }}
-        >
-          {entries.map((entry) => (
-            <AuditLogRow key={entry.id} entry={entry} meUserId={meUserId} />
-          ))}
-        </ul>
-        <LoadMoreButton query={query} />
-      </>
+    return (
+      <PanelBody>
+        <EmptyState>
+          <p className="t-small">{t("settings.auditAdminOnly")}</p>
+        </EmptyState>
+      </PanelBody>
     );
   }
-
+  if (query.isPending) {
+    return (
+      <PanelBody>
+        <div className="audit-loading">
+          <Skeleton width="60%" />
+          <Skeleton width="90%" />
+        </div>
+      </PanelBody>
+    );
+  }
+  if (query.isError) {
+    return (
+      <PanelBody>
+        <EmptyState>
+          <p>{t("common.error")}</p>
+          <p className="t-mono audit-error-cause">
+            {problemMessageOf(query.error, t)}
+          </p>
+          <Button small onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </EmptyState>
+      </PanelBody>
+    );
+  }
+  if (entries.length === 0) {
+    return (
+      <PanelBody>
+        <EmptyState>{t("common.empty")}</EmptyState>
+      </PanelBody>
+    );
+  }
   return (
-    <Card title={t("settings.auditEntries")} sub={t("settings.auditSub")}>
-      {body}
-    </Card>
+    <>
+      {entries.map((entry) => (
+        <AuditLogRow key={entry.id} entry={entry} meUserId={meUserId} />
+      ))}
+      <PanelBody>
+        <LoadMoreButton query={query} />
+      </PanelBody>
+    </>
   );
 }
 
 // AC-settings-16: the attributable audit view — live filters over actor /
 // entity_type / entity_id / action / from / to, keyset "load more" via the
-// page cursor. Two cards, because the question and the answer are two things:
-// six filters and a page of entries in one box made the row read as a header
-// the entries belonged to, and the entries scroll while the filters stay put.
+// page cursor. ONE card, because every other filtered list in this product puts
+// its dials inside the list's own surface: a card of its own titled "Filters"
+// made six inputs a subject in the page outline, level with the trail they
+// narrow, and left a reader scanning two cards to answer one question.
 // Each row expands into the before/after diff plus the agent attribution trail
 // (passport, on-behalf-of human, authorization rule, grounding evidence) —
 // collapsed by default so the flat scan stays fast.
@@ -2206,24 +2226,27 @@ export function AuditLogCard() {
   const meUserId = useMe().data?.user?.id;
   const isAdmin = useHoldsAdminRole();
   const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);
+  // The row reads what is being typed; the entries read what has settled.
+  const asked = useSettledAuditLogFilters(filters);
   return (
-    <>
-      {/* The filter row is absent, not withheld, for a reader who may not read
-          the trail: six inputs that narrow a list they cannot see are a control
-          with nothing behind it. The ENTRIES card below stays and says why —
-          absence there would claim nothing had happened. */}
-      {isAdmin && (
-        /* "Filters" here and the log's own name on the card BELOW, which is the
-           one that holds it. The page head used to name the log — it was an
-           entry of its own — and now says "Privacy & audit" over four cards, so
-           a filter row and a card of "Entries" left nothing on the page saying
-           which log this is. Naming the filters instead would put the name above
-           the question rather than above the answer. */
-        <Card title={t("settings.auditFilters")}>
-          <AuditLogFilterFields filters={filters} onChange={setFilters} />
-        </Card>
-      )}
-      <AuditLogEntries filters={filters} meUserId={meUserId} />
-    </>
+    <Panel title={t("settings.auditEntries")}>
+      <PanelBody>
+        <p className="t-small settings-panel-sub">{t("settings.auditSub")}</p>
+        {/* The filter row is absent, not withheld, for a reader who may not read
+            the trail: six inputs that narrow a list they cannot see are a
+            control with nothing behind it. The ROWS below stay and say why —
+            absence there would claim nothing had happened.
+            Its name is an eyebrow rather than a card title: it labels the dials
+            inside the log's surface, and the log's own name above is what says
+            which trail this is. */}
+        {isAdmin && (
+          <>
+            <Eyebrow as="h3">{t("settings.auditFilters")}</Eyebrow>
+            <AuditLogFilterFields filters={filters} onChange={setFilters} />
+          </>
+        )}
+      </PanelBody>
+      <AuditLogEntries filters={asked} meUserId={meUserId} />
+    </Panel>
   );
 }

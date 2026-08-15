@@ -10,7 +10,7 @@ import { SectionSummary } from "./companyrailshared";
 // only place that distinction has anything to render.
 
 const meta: Meta = {
-  title: "Screens/Company rail shared",
+  title: "Records/Company rail/Section summary",
   parameters: { layout: "padded" },
 };
 export default meta;

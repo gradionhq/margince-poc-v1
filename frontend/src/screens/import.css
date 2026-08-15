@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: BUSL-1.1
  * SPDX-FileCopyrightText: 2026 Gradion */
 
+/* Every quiet line here reads --textMeta, not --textMuted: --textMuted is the
+   placeholder-grade ink and measures 1.54:1 on this surface, while tokens.css
+   names --textMeta the canonical AA small-text role. These are the column
+   headers, the counts and the per-row reasons a reader weighs immediately
+   before committing the least reversible write in the product. */
+
 .import {
   display: flex;
   flex-direction: column;
@@ -10,7 +16,7 @@
 
 .import__hint {
   margin: 0;
-  color: var(--textMuted);
+  color: var(--textMeta);
   font-size: var(--fs-sm);
 }
 
@@ -44,7 +50,7 @@
 }
 
 .import__table thead th {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font-weight: var(--fw-medium);
 }
 
@@ -65,7 +71,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--textMuted);
+  color: var(--textMeta);
 }
 
 .import__empty {
@@ -80,9 +86,15 @@
   gap: var(--space-3);
 }
 
+/* A heading needs a heading's weight. Tailwind's preflight resets h1–h6 and
+   nothing in this tree puts it back, so an h3 that only sets a size renders at
+   body weight — indistinguishable from the hint line under it, which is the one
+   thing the title above the counts must not be. */
 .import__outcomeTitle {
   margin: 0;
   font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--textPrimary);
 }
 
 .import__counts {
@@ -93,7 +105,7 @@
 }
 
 .import__count dt {
-  color: var(--textMuted);
+  color: var(--textMeta);
   font-size: var(--fs-sm);
 }
 
@@ -106,7 +118,7 @@
 .import__issues {
   margin: 0;
   padding-left: var(--space-4);
-  color: var(--textMuted);
+  color: var(--textMeta);
   font-size: var(--fs-sm);
   display: flex;
   flex-direction: column;

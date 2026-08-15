@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { meFixture } from "../app/mefixture";
 import { EmbedReindexCard } from "./embedreindex";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -14,11 +14,6 @@ const STATUS_NEEDED = {
   updated_at: "2026-07-22T00:00:00Z",
   reindex_needed: true,
   entities_pending: 128,
-  per_workspace: [
-    {
-      entities_pending: 128,
-    },
-  ],
 };
 
 const STATUS_IDLE = {
@@ -28,6 +23,11 @@ const STATUS_IDLE = {
   entities_pending: 0,
 };
 
+// utilization_impact is a top-level field of EmbedReindexPreview — the band the
+// INSTALLATION would land in (A107/ADR-0061: one installation, one
+// organization). It sat under a `per_workspace` array the contract has no such
+// property for, so the card read `preview.utilization_impact`, found nothing,
+// and the impact badge this story exists to show never rendered.
 const PREVIEW = {
   entities_pending: 128,
   estimated_ai_tokens: 34_500,
@@ -35,13 +35,7 @@ const PREVIEW = {
   estimate_quality: "heuristic",
   currency: "USD",
   computed_at: "2026-07-22T00:00:00Z",
-  per_workspace: [
-    {
-      entities_pending: 128,
-      estimated_ai_tokens: 34_500,
-      utilization_impact: "degraded",
-    },
-  ],
+  utilization_impact: "degraded",
 };
 
 function admin(overrides: Record<string, unknown> = {}) {
@@ -53,26 +47,35 @@ function admin(overrides: Record<string, unknown> = {}) {
 }
 
 const meta: Meta<typeof EmbedReindexCard> = {
-  title: "Screens/embed-reindex-card",
+  title: "Settings/Organization/Maintenance/Embedding reindex",
   component: EmbedReindexCard,
 };
 export default meta;
 type Story = StoryObj<typeof EmbedReindexCard>;
 
+const renderNeedsReindex = () => {
+  installFetchStub({
+    "GET /me": admin(),
+    "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
+  });
+  return (
+    <StoryProviders>
+      <EmbedReindexCard />
+    </StoryProviders>
+  );
+};
+
 // The ops banner's companion card: reindex_needed is true, an admin sees the
 // "Review & reindex" trigger alongside the always-available "Rebuild index".
-export const NeedsReindex: Story = {
-  render: () => {
-    installFetchStub({
-      "GET /me": admin(),
-      "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
-    });
-    return (
-      <StoryProviders>
-        <EmbedReindexCard />
-      </StoryProviders>
-    );
-  },
+export const NeedsReindex: Story = { render: renderNeedsReindex };
+
+// The same card in dark. The status Badge is the whole state machine in one
+// chip — warn for "needed", accent for "re-embedding", success for idle — and
+// nothing else on the card distinguishes them, so a warn that stops reading as a
+// warning turns a pending reindex into a report that everything is fine.
+export const NeedsReindexDark: Story = {
+  globals: { theme: "dark" },
+  render: renderNeedsReindex,
 };
 
 // The v6 B2 rebuild affordance stays available even when nothing is pending —
@@ -92,8 +95,9 @@ export const UpToDateRebuildAvailable: Story = {
 };
 
 // The preview→confirm dialog's consent surface: tokens/cost/quality plus the
-// per-workspace utilization-impact disclosure, captured after the estimate
-// loads (confirm starts disabled until then).
+// utilization-impact disclosure — the budget band the installation would land
+// in were this spend added — captured after the estimate loads (confirm starts
+// disabled until then).
 export const PreviewDialogWithEstimate: Story = {
   render: () => {
     installFetchStub({
@@ -113,7 +117,17 @@ export const PreviewDialogWithEstimate: Story = {
       name: "Review & reindex",
     });
     await userEvent.click(reviewButton);
-    await canvas.findByText(/34,500/);
+    // `screen`, not the canvas: ConfirmModal portals to document.body, so a
+    // canvas-scoped query for its body rejects — and a rejecting play() used to
+    // report after the gate had already screenshotted and passed the story.
+    await screen.findByText(/34,500/);
+    // The badge is the half of the disclosure a story cannot assert by
+    // eyeballing a number: it renders only when the top-level
+    // utilization_impact is present, so naming it here keeps the fixture
+    // honest to the contract. It sits in the same portalled dialog the
+    // estimate does, so it is the same `screen` lookup — reaching for the
+    // canvas here rejected while the dialog above it was drawn correctly.
+    await screen.findByText("would enter economy mode");
   },
 };
 

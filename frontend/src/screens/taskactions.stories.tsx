@@ -18,7 +18,7 @@ import {
 // page does.
 
 const meta: Meta = {
-  title: "Screens/Task actions",
+  title: "Patterns/Task actions",
   parameters: { layout: "padded" },
 };
 export default meta;

@@ -41,7 +41,7 @@ export function CustomFieldsCard({
       <dl className="firmo">
         {rows.map(({ field, value }) => (
           <div key={field.column_name}>
-            <dt>{field.label}</dt>
+            <dt className="t-eyebrow">{field.label}</dt>
             <dd>{value}</dd>
           </div>
         ))}

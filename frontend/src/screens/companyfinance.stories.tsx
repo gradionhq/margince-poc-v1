@@ -13,7 +13,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // disconnected read, so this story is the only place it renders.
 
 const meta: Meta = {
-  title: "Screens/Company finance",
+  title: "Records/Company 360/Finance",
   parameters: { layout: "padded" },
 };
 export default meta;

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 import { api } from "../api/client";
 import { useCan, useCanWrite } from "../app/capability";
 import {
@@ -11,11 +11,19 @@ import {
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
+import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
-import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
+import {
+  problemMessageOf,
+  QueryGate,
+  QueryStates,
+  throwProblem,
+  useMe,
+} from "./common";
 import {
   actionLabelKey,
   effectLabelKey,
@@ -33,6 +41,13 @@ import {
 } from "./retention.logic";
 import { RetentionPolicyForm } from "./retentionpolicyform";
 import "./retention.css";
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 // Settings → Privacy → Retention (GCS-WIRE-1..5): the storage-limitation
 // ladder an admin now owns, and the retain-only posture that overrides its
@@ -421,28 +436,28 @@ export function RetentionCard() {
   // the grants rather than flashing while they are in flight.
   if (!canRead) {
     return (
-      <Card
-        title={t("retention.title")}
-        sub={t("retention.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <QueryGate query={me}>
-          {() => (
-            <EmptyState>
-              <p className="t-small">{t("retention.withheld")}</p>
-            </EmptyState>
-          )}
-        </QueryGate>
-      </Card>
+      <Panel title={t("retention.title")}>
+        <PanelBody>
+          <p className="t-sub" style={PANEL_SUB}>
+            {t("retention.sub")}
+          </p>
+          <QueryGate query={me}>
+            {() => (
+              <EmptyState>
+                <p className="t-small">{t("retention.withheld")}</p>
+              </EmptyState>
+            )}
+          </QueryGate>
+        </PanelBody>
+      </Panel>
     );
   }
 
+  // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Card
+    <Panel
       title={t("retention.title")}
-      sub={t("retention.sub")}
-      style={{ marginBottom: "var(--space-4)" }}
-      actions={
+      titleAction={
         canCreate ? (
           <Button small onClick={() => setAdding((open) => !open)}>
             {t("retention.addPolicy")}
@@ -450,30 +465,40 @@ export function RetentionCard() {
         ) : undefined
       }
     >
-      {settings.isPending ? (
-        <Skeleton width="70%" />
-      ) : settings.isError ? (
-        <p className="t-caption retention-error" role="alert">
-          {problemMessageOf(settings.error, t)}
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("retention.sub")}
         </p>
-      ) : (
-        <PostureToggle
-          retainOnly={settings.data.retain_only}
-          canManage={canManage}
-        />
-      )}
+        <CardBoundary>
+          {settings.isPending ? (
+            <Skeleton width="70%" />
+          ) : settings.isError ? (
+            <p className="t-caption retention-error" role="alert">
+              {problemMessageOf(settings.error, t)}
+            </p>
+          ) : (
+            <PostureToggle
+              retainOnly={settings.data.retain_only}
+              canManage={canManage}
+            />
+          )}
 
-      {adding && <RetentionPolicyForm onDone={() => setAdding(false)} />}
+          {adding && <RetentionPolicyForm onDone={() => setAdding(false)} />}
 
-      <PolicyList
-        query={policies}
-        canEdit={canManage}
-        canDelete={canDelete}
-        onDelete={setDeleting}
-      />
+          <PolicyList
+            query={policies}
+            canEdit={canManage}
+            canDelete={canDelete}
+            onDelete={setDeleting}
+          />
 
-      <DeletePolicyModal policy={deleting} onClose={() => setDeleting(null)} />
-    </Card>
+          <DeletePolicyModal
+            policy={deleting}
+            onClose={() => setDeleting(null)}
+          />
+        </CardBoundary>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -498,41 +523,35 @@ function PolicyList({
   onDelete: (policy: RetentionPolicy) => void;
 }>) {
   const t = useT();
-  if (query.isPending) {
-    return <Skeleton width="90%" />;
-  }
-  if (query.isError || !query.data) {
-    return (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-caption">{problemMessageOf(query.error, t)}</p>
-        <Button small onClick={() => query.refetch()}>
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
+  let body: ReactNode = null;
+  if (query.data) {
+    // Sorted by the authorable enum's order, not by the server's row order: the
+    // ladder reads the same on every visit and after every edit.
+    const rows = [...query.data.data].sort(
+      (left, right) =>
+        RETENTION_SCOPES.indexOf(left.scope) -
+        RETENTION_SCOPES.indexOf(right.scope),
     );
+    body =
+      rows.length === 0 ? (
+        <EmptyState>{t("retention.empty")}</EmptyState>
+      ) : (
+        <ul className="retention-list">
+          {rows.map((policy) => (
+            <PolicyRow
+              key={policy.id}
+              policy={policy}
+              canEdit={canEdit}
+              canDelete={canDelete}
+              onDelete={() => onDelete(policy)}
+            />
+          ))}
+        </ul>
+      );
   }
-  if (query.data.data.length === 0) {
-    return <EmptyState>{t("retention.empty")}</EmptyState>;
-  }
-  // Sorted by the authorable enum's order, not by the server's row order: the
-  // ladder reads the same on every visit and after every edit.
-  const rows = [...query.data.data].sort(
-    (left, right) =>
-      RETENTION_SCOPES.indexOf(left.scope) -
-      RETENTION_SCOPES.indexOf(right.scope),
-  );
-  return (
-    <ul className="retention-list">
-      {rows.map((policy) => (
-        <PolicyRow
-          key={policy.id}
-          policy={policy}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          onDelete={() => onDelete(policy)}
-        />
-      ))}
-    </ul>
-  );
+  // The shared spelling of the loading and failure rungs, rather than a third
+  // hand-rolled copy: the skeleton announces itself as busy, and the failure is
+  // an assertive live region carrying the server's own explanation beside the
+  // retry. The hand-rolled version said neither out loud.
+  return <QueryStates query={query}>{body}</QueryStates>;
 }

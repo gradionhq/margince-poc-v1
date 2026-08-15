@@ -3,13 +3,9 @@ import { Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  Textarea,
-} from "../design-system/atoms";
+import { useCanWrite } from "../app/capability";
+import { Badge, Button, EmptyState, Textarea } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { VoiceCorpusIntake } from "./voice-corpus-settings";
@@ -89,6 +85,7 @@ function bandFor(totalWords: number): string {
 // empty bodies would describe a surface the owner does not have.
 export function VoiceDnaCard() {
   const t = useT();
+  const canCreate = useCanWrite("voice_profile", "create");
   const qc = useQueryClient();
   const profile = useVoiceProfile();
   return (
@@ -103,23 +100,34 @@ export function VoiceDnaCard() {
           // owner who skipped the onboarding voice step could never start a
           // Voice DNA at all, and everything the profile unlocks (corpus,
           // builds, sample drafts) stayed unreachable.
-          <Card
-            className="card-stack"
-            title={t("settings.voice.title")}
-            sub={t("settings.voice.intro")}
-          >
-            <EmptyState>
-              <b>{t("settings.voice.emptyTitle")}</b>
-              <p className="t-small">{t("settings.voice.emptyBody")}</p>
-            </EmptyState>
-            <VoiceCorpusIntake
-              first
-              profileId={null}
-              onChanged={() =>
-                qc.invalidateQueries({ queryKey: ["voice-profile"] })
-              }
-            />
-          </Card>
+          <Panel title={t("settings.voice.title")}>
+            <PanelBody>
+              <p className="t-small settings-panel-sub">
+                {t("settings.voice.intro")}
+              </p>
+              <EmptyState>
+                <b>{t("settings.voice.emptyTitle")}</b>
+                <p className="t-small">{t("settings.voice.emptyBody")}</p>
+              </EmptyState>
+              {/* The first sample is what MINTS the profile, so the control
+                  that adds it asks for the create grant rather than the update
+                  one every later sample rides on. Withheld rather than absent:
+                  an empty card with no way to start reads as a feature this
+                  installation does not have, when the truth is a seat that may
+                  not use it. */}
+              {canCreate ? (
+                <VoiceCorpusIntake
+                  first
+                  profileId={null}
+                  onChanged={() =>
+                    qc.invalidateQueries({ queryKey: ["voice-profile"] })
+                  }
+                />
+              ) : (
+                <p className="t-small">{t("settings.voice.readOnly")}</p>
+              )}
+            </PanelBody>
+          </Panel>
         )
       }
     </QueryGate>
@@ -146,6 +154,10 @@ function bandLabel(
 
 function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
   const t = useT();
+  // useCanWrite, not useCan: every affordance these two children hold issues a
+  // mutation, and the seat ceiling has to fold in — a read seat holding the
+  // grant would otherwise be offered a write the server clamps.
+  const canEdit = useCanWrite("voice_profile", "update");
   const qc = useQueryClient();
   // Intake lives in one card and the build button in another, so the fact that
   // a sample is still arriving has to be held by the parent they share.
@@ -159,64 +171,102 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
   };
   return (
     <>
-      <Card
-        className="card-stack"
-        title={t("settings.voice.title")}
-        sub={t("settings.voice.intro")}
-      >
-        <div className="vdna-status">
-          <Badge>{t(`settings.voice.status.${profile.status}`)}</Badge>
-          {profile.quality_band && (
-            <span className="t-small">
-              {bandLabel(t, profile.quality_band)}
-            </span>
+      <Panel title={t("settings.voice.title")}>
+        <PanelBody>
+          <p className="t-small settings-panel-sub">
+            {t("settings.voice.intro")}
+          </p>
+          {/* Said ONCE, for the whole surface, rather than beside each of the
+              five controls a denial disables. The affordances below may then be
+              absent without the page making a claim about the data — which is
+              the split design-system/README.md draws between a withheld surface
+              and a withheld write. */}
+          {!canEdit && (
+            <p className="t-small vdna-readonly">
+              {t("settings.voice.readOnly")}
+            </p>
           )}
-          <span className="t-small vdna-version">
-            {t("settings.voice.version", { n: profile.profile_version ?? 0 })}
-          </span>
-        </div>
+          <div className="vdna-status">
+            <Badge>{t(`settings.voice.status.${profile.status}`)}</Badge>
+            {profile.quality_band && (
+              <span className="t-small">
+                {bandLabel(t, profile.quality_band)}
+              </span>
+            )}
+            <span className="t-small vdna-version">
+              {t("settings.voice.version", { n: profile.profile_version ?? 0 })}
+            </span>
+          </div>
 
-        {/* The insights panel also carries the candidate-review banner, so it
+          {/* The insights panel also carries the candidate-review banner, so it
             renders for EVERY profile state: a review-required first build must
             be actionable while the profile is still collecting. It sits with
             the status it can contradict — a card of its own would separate
             "Ready" from the version waiting to replace it. */}
-        <ActiveVoiceInsights profileId={profile.id} onChanged={invalidate} />
-      </Card>
+          <ActiveVoiceInsights
+            profileId={profile.id}
+            canEdit={canEdit}
+            onChanged={invalidate}
+          />
+        </PanelBody>
+      </Panel>
 
       {/* The raw derived text is what a profile can show BEFORE it is ready;
           once it is, the insights panel above quotes the same build back in a
           form a reader can use, and repeating the markdown under it would say
           the same thing twice. */}
       {profile.status !== "ready" && (
-        <Card className="card-stack" title={t("settings.voice.derivedLabel")}>
-          <DerivedVoice profile={profile} />
-        </Card>
+        <Panel title={t("settings.voice.derivedLabel")}>
+          <PanelBody>
+            <DerivedVoice profile={profile} />
+          </PanelBody>
+        </Panel>
       )}
 
-      <Card className="card-stack" title={t("settings.voice.personalityLabel")}>
-        <PersonalityEditor profile={profile} onSaved={invalidate} />
-      </Card>
+      <Panel title={t("settings.voice.personalityLabel")}>
+        <PanelBody>
+          <PersonalityEditor
+            profile={profile}
+            canEdit={canEdit}
+            onSaved={invalidate}
+          />
+        </PanelBody>
+      </Panel>
 
-      <Card className="card-stack" title={t("settings.voice.corpusLabel")}>
-        <CorpusManifest profileId={profile.id} onChanged={invalidate} />
-        <VoiceCorpusIntake
-          profileId={profile.id}
-          onChanged={invalidate}
-          onBusyChange={setIntakeBusy}
-        />
-      </Card>
+      <Panel title={t("settings.voice.corpusLabel")}>
+        <PanelBody>
+          <CorpusManifest
+            profileId={profile.id}
+            canEdit={canEdit}
+            onChanged={invalidate}
+          />
+          {canEdit && (
+            <VoiceCorpusIntake
+              profileId={profile.id}
+              onChanged={invalidate}
+              onBusyChange={setIntakeBusy}
+            />
+          )}
+        </PanelBody>
+      </Panel>
 
-      <Card className="card-stack" title={t("settings.voice.buildsTitle")}>
-        {/* A build started while a sample is still arriving would describe a
+      <Panel title={t("settings.voice.buildsTitle")}>
+        <PanelBody>
+          {/* A build started while a sample is still arriving would describe a
             corpus that no longer exists by the time it finishes. */}
-        <BuildControls
-          profile={profile}
-          onBuilt={invalidate}
-          intakeBusy={intakeBusy}
-        />
-        <VoiceHistory profileId={profile.id} onChanged={invalidate} />
-      </Card>
+          <BuildControls
+            profile={profile}
+            canEdit={canEdit}
+            onBuilt={invalidate}
+            intakeBusy={intakeBusy}
+          />
+          <VoiceHistory
+            profileId={profile.id}
+            canEdit={canEdit}
+            onChanged={invalidate}
+          />
+        </PanelBody>
+      </Panel>
     </>
   );
 }
@@ -234,8 +284,13 @@ function DerivedVoice({ profile }: Readonly<{ profile: VoiceProfile }>) {
 // overwrites; the PATCH is version-guarded (If-Match on the profile version).
 function PersonalityEditor({
   profile,
+  canEdit,
   onSaved,
-}: Readonly<{ profile: VoiceProfile; onSaved: () => void }>) {
+}: Readonly<{
+  profile: VoiceProfile;
+  canEdit: boolean;
+  onSaved: () => void;
+}>) {
   const t = useT();
   const [text, setText] = useState(profile.personality_md);
   const [error, setError] = useState<string | null>(null);
@@ -261,22 +316,33 @@ function PersonalityEditor({
   const dirty = text !== profile.personality_md;
   return (
     <div className="vdna-composer">
+      {/* readOnly rather than disabled: the preferences are a READ this seat
+          still holds, and a disabled textarea drops out of the tab order, so a
+          keyboard reader could not reach the words to read them. */}
       <Textarea
         rows={4}
         value={text}
+        readOnly={!canEdit}
+        aria-label={t("settings.voice.personalityLabel")}
         placeholder={t("settings.voice.personalityPlaceholder")}
         onChange={(e) => setText(e.target.value)}
       />
-      <div className="vdna-composer-actions">
-        <Button
-          small
-          disabled={!dirty || save.isPending}
-          onClick={() => save.mutate()}
-        >
-          {t("settings.voice.savePreferences")}
-        </Button>
-        {error && <span className="t-small">{error}</span>}
-      </div>
+      {canEdit && (
+        <div className="vdna-composer-actions">
+          <Button
+            small
+            disabled={!dirty || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {t("settings.voice.savePreferences")}
+          </Button>
+          {error && (
+            <span className="t-small" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -287,8 +353,13 @@ function PersonalityEditor({
 // id nobody has minted yet.
 function CorpusManifest({
   profileId,
+  canEdit,
   onChanged,
-}: Readonly<{ profileId: string; onChanged: () => void }>) {
+}: Readonly<{
+  profileId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}>) {
   const t = useT();
   const sources = useVoiceSources(profileId);
   const [error, setError] = useState<string | null>(null);
@@ -334,6 +405,7 @@ function CorpusManifest({
               <ul className="vdna-list">
                 {manifest.sources.map((s) => (
                   <SourceRow
+                    canEdit={canEdit}
                     key={s.id}
                     source={s}
                     summary={manifest.summary}
@@ -422,10 +494,12 @@ function RegisterMix({ summary }: Readonly<{ summary: VoiceCorpusSummary }>) {
 // band: the warning names the drop before anything is deleted.
 function SourceRow({
   source,
+  canEdit,
   summary,
   pending,
   onRemove,
 }: Readonly<{
+  canEdit: boolean;
   source: VoiceCorpusSource;
   summary: VoiceCorpusSummary;
   pending: boolean;
@@ -461,16 +535,17 @@ function SourceRow({
           })}
         </span>
       )}
-      <button
-        type="button"
-        className="iconbtn"
-        aria-label={t("settings.voice.removeSource")}
-        style={{ marginLeft: "auto" }}
-        disabled={pending}
-        onClick={handleRemove}
-      >
-        <Trash2 aria-hidden />
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          className="iconbtn vdna-row-verb"
+          aria-label={t("settings.voice.removeSource")}
+          disabled={pending}
+          onClick={handleRemove}
+        >
+          <Trash2 aria-hidden />
+        </button>
+      )}
     </li>
   );
 }
@@ -479,9 +554,11 @@ function SourceRow({
 // budget-deferred build is honestly reported, not spun on forever.
 function BuildControls({
   profile,
+  canEdit,
   onBuilt,
   intakeBusy = false,
 }: Readonly<{
+  canEdit: boolean;
   profile: VoiceProfile;
   onBuilt: () => void;
   intakeBusy?: boolean;
@@ -565,24 +642,35 @@ function BuildControls({
       {/* The title rides the wrapper, not the button: a disabled control fires
           no pointer events, so a tooltip on it would never appear at the exact
           moment someone is asking why they cannot click. */}
-      <span className="vdna-build" title={blocked ?? undefined}>
-        <Button
-          variant="primary"
-          small
-          disabled={build.isPending || tooThin || intakeBusy}
-          onClick={() => build.mutate()}
-        >
-          <Sparkles aria-hidden />{" "}
-          {build.isPending
-            ? t("settings.voice.building")
-            : t("settings.voice.rebuild")}
-        </Button>
-      </span>
-      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
-      {status && (
-        <p className="t-small">{t(`settings.voice.buildStatus.${status}`)}</p>
+      {canEdit && (
+        <span className="vdna-build" title={blocked ?? undefined}>
+          <Button
+            variant="primary"
+            small
+            disabled={build.isPending || tooThin || intakeBusy}
+            onClick={() => build.mutate()}
+          >
+            <Sparkles aria-hidden />{" "}
+            {build.isPending
+              ? t("settings.voice.building")
+              : t("settings.voice.rebuild")}
+          </Button>
+        </span>
       )}
-      {error && <p className="t-small">{error}</p>}
+      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
+      {/* Mounted whether or not there is an outcome yet. A build runs for about
+          a minute behind a poll, so the reader who started it has looked away —
+          and a live region inserted together with its text is not reliably
+          announced, which would leave the one thing they are waiting for
+          arriving in silence. */}
+      <p className="t-small" role="status">
+        {status ? t(`settings.voice.buildStatus.${status}`) : ""}
+      </p>
+      {error && (
+        <p className="t-small" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
