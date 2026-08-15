@@ -15,7 +15,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// ExtractionReport is the pure evidence-or-omit split (RD-AC-N-3): every
+// extractionReport is the pure evidence-or-omit split (RD-AC-N-3): every
 // grounded field carries its evidence, every omitted field carries the reason
 // it was omitted — never a guessed value — and both wire slices stay non-nil
 // even when empty (the contract's `[]`, never `null`).
@@ -33,7 +33,7 @@ func TestExtractionReportSplitsGroundedFromOmitted(t *testing.T) {
 		},
 	}
 
-	got := ExtractionReport(read)
+	got := extractionReport(read)
 
 	want := crmcontracts.AttachmentExtraction{
 		Id:        openapi_types.UUID(readID),
@@ -48,7 +48,7 @@ func TestExtractionReportSplitsGroundedFromOmitted(t *testing.T) {
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ExtractionReport = %+v, want %+v", got, want)
+		t.Fatalf("extractionReport = %+v, want %+v", got, want)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestExtractionReportSplitsGroundedFromOmitted(t *testing.T) {
 // would present as a document that says nothing, which is a claim about the
 // DOCUMENT made on the strength of a fact about the READING (RD-PARAM-N-6).
 func TestExtractionReportKeepsTheTwoOmissionReasonsApart(t *testing.T) {
-	got := ExtractionReport(ExtractionRead{
+	got := extractionReport(ExtractionRead{
 		Status: ExtractionReadDone,
 		Fields: []extraction.ExtractedField{
 			{Field: "currency", Omitted: true, OmittedReason: "not_stated_in_file"},
@@ -81,7 +81,7 @@ func TestExtractionReportKeepsTheTwoOmissionReasonsApart(t *testing.T) {
 // a different answer from a finished reading that grounded none, and the wire
 // has to be able to say so (RD-AC-N-2).
 func TestExtractionReportOfALiveReadingIsEmptyNotNil(t *testing.T) {
-	got := ExtractionReport(ExtractionRead{Status: ExtractionReadRunning})
+	got := extractionReport(ExtractionRead{Status: ExtractionReadRunning})
 	if got.Status != crmcontracts.AttachmentExtractionStatusRunning {
 		t.Errorf("Status = %q, want running", got.Status)
 	}

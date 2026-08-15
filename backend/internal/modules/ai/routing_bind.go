@@ -68,14 +68,19 @@ func (r *Router) BoundLadder(task Task) []ModelRef {
 // skips it, because a rung nothing is bound to cannot serve the call either.
 func (r *Router) AttachmentMIMEs(task Task) []string {
 	var carried []string
-	for i, tier := range taskLadders[task] {
+	// An explicit flag, not "is carried still nil": a first rung that declares
+	// NOTHING is the case the nil test gets wrong. It leaves carried nil, the
+	// next rung is then taken as the starting set rather than intersected with
+	// an empty one, and the task advertises carriage its leading rung refuses.
+	var started bool
+	for _, tier := range taskLadders[task] {
 		client, bound := r.clients[tier]
 		if !bound {
 			continue
 		}
 		declared := client.Caps().AttachmentMIMEs
-		if i == 0 || carried == nil {
-			carried = declared
+		if !started {
+			carried, started = declared, true
 			continue
 		}
 		carried = intersectMIMEs(carried, declared)

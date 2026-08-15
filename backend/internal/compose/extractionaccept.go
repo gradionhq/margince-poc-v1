@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -323,7 +324,38 @@ func buildExtractionAcceptPatch(req crmcontracts.AcceptExtractionRequest, ground
 		}
 		accepted = append(accepted, field)
 	}
+	if err := refuseUnpairedAmount(seen); err != nil {
+		return nil, deals.UpdateDealInput{}, err
+	}
 	return accepted, patch, nil
+}
+
+// refuseUnpairedAmount keeps the two halves of a money figure together on the
+// way onto the deal, exactly as the reading kept them together on the way out.
+//
+// A reading refuses to ground an amount it could not pair with a currency,
+// because 1,000,000 is a million yen or ten thousand euros depending on a value
+// that is not in the field. Accepting the amount ALONE walks straight past
+// that: the deal's own pair rule only asks that the resulting row has both, so
+// a ¥1,000,000 amount lands on a deal already carrying EUR and reads as
+// €10,000.00 — wrong by exactly the factor the scaling table exists to prevent,
+// and wearing an audit note that quotes the yen figure.
+//
+// The panel always sends both, so this refuses only a hand-built request. That
+// is the one this has to stop: the contract invites field subsets.
+func refuseUnpairedAmount(seen map[string]bool) error {
+	if seen[acceptFieldAmountMinor] == seen[acceptFieldCurrency] {
+		return nil
+	}
+	missing, present := acceptFieldCurrency, acceptFieldAmountMinor
+	if seen[acceptFieldCurrency] {
+		missing, present = acceptFieldAmountMinor, acceptFieldCurrency
+	}
+	return &ExtractionAcceptError{
+		Field: "field_keys", Code: "amount_currency_pair",
+		Message: "accepting " + present + " without " + missing +
+			" would scale a figure by a currency this reading did not ground; accept both or neither",
+	}
 }
 
 // setAcceptedDealField coerces one accepted value onto its UpdateDealInput
@@ -388,6 +420,18 @@ func editedFieldValue(key string, raw any) (string, error) {
 	case string:
 		return v, nil
 	case float64:
+		// A JSON number decodes into a float64, which stops representing
+		// consecutive integers past 2^53: 9007199254740993 arrives as
+		// ...992 and formats into a perfectly valid, silently wrong amount.
+		// Money is the one field this path writes, so an edit that cannot
+		// survive the decode is refused rather than rounded — and the message
+		// names the way through, which is to send it as a string.
+		if v != math.Trunc(v) || math.Abs(v) > maxExactJSONInteger {
+			return "", &ExtractionAcceptError{
+				Field: "edits." + key, Code: "invalid_edit_value",
+				Message: "an edited number must be a whole number this size can carry exactly; send a larger one as a string",
+			}
+		}
 		return strconv.FormatFloat(v, 'f', -1, 64), nil
 	default:
 		return "", &ExtractionAcceptError{
@@ -396,6 +440,10 @@ func editedFieldValue(key string, raw any) (string, error) {
 		}
 	}
 }
+
+// maxExactJSONInteger is the largest integer a float64 — and therefore a JSON
+// number — represents without a neighbour rounding onto it.
+const maxExactJSONInteger = 1 << 53
 
 // anyAcceptedFieldEdited reports whether any requested key carries an
 // edit — those notes are the human's own authored activities, so their

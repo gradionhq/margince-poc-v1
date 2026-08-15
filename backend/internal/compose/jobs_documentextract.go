@@ -49,10 +49,24 @@ func (a DocumentExtractArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // documentExtractInsertOpts routes the job to the readings' own queue and
 // deduplicates by args: the reading id is unique per reading, so a re-submitted
 // enqueue of the SAME reading collapses while a fresh reading always queues.
+//
+// ByState is the load-bearing half, and its absence is a trap. River's default
+// uniqueness window INCLUDES completed, so a re-enqueue of a reading whose
+// earlier job has finished is silently skipped — and EnqueueTx cannot see the
+// skip. That is exactly the path the abandoned-reading recovery takes: a job
+// that completed while leaving its row `running` (a retry inside the lease
+// declines the claim and returns), the lease expires, a rep presses the button
+// again, and the re-armed row is queued with no job behind it. Every later
+// press then joins that row, and the in-flight index blocks any fresh reading —
+// the document is unreadable until somebody deletes the row by hand.
+//
+// Restricting the window to the ACTIVE states is what makes the recovery real:
+// a reading in flight still dedupes, a finished one no longer blocks its own
+// replacement.
 func documentExtractInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{
 		Queue:      transcriptReadQueue,
-		UniqueOpts: river.UniqueOpts{ByArgs: true},
+		UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
 	}
 }
 
@@ -110,7 +124,8 @@ func (w *documentExtractWorker) Work(ctx context.Context, job *river.Job[Documen
 func (w *documentExtractWorker) declineUnread(ctx context.Context, args DocumentExtractArgs) error {
 	w.log.WarnContext(ctx, "document reading declined: no model lane configured",
 		"attachment_extraction_id", args.ExtractionReadID)
-	if _, err := w.activities.BeginExtractionRead(ctx, args.ExtractionReadID, activities.ExtractionReadLease); err != nil {
+	claim, err := w.activities.BeginExtractionRead(ctx, args.ExtractionReadID, activities.ExtractionReadLease)
+	if err != nil {
 		if errors.Is(err, apperrors.ErrConflict) {
 			return nil
 		}
@@ -118,8 +133,9 @@ func (w *documentExtractWorker) declineUnread(ctx context.Context, args Document
 	}
 	return w.activities.FinishExtractionRead(ctx, args.ExtractionReadID,
 		activities.ExtractionReadOutcome{
-			Status: activities.ExtractionReadFailed,
-			Detail: "this installation has no AI model configured for reading documents",
+			Status:    activities.ExtractionReadFailed,
+			Detail:    "this installation has no AI model configured for reading documents",
+			ClaimedAt: claimStart(claim),
 		})
 }
 

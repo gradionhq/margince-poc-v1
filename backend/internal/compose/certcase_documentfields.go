@@ -241,7 +241,7 @@ func (c *documentFieldsCase) disagreements(fields []extraction.ExtractedField) [
 		switch {
 		case expected && !offered:
 			out = append(out, fmt.Sprintf("the document states %s and the reading did not offer it", name))
-		case expected && got != want:
+		case expected && !valueAgrees(name, got, want):
 			out = append(out, fmt.Sprintf("the reading offers %s = %q where the document states %q", name, got, want))
 		case !expected && offered:
 			out = append(out, fmt.Sprintf(
@@ -249,4 +249,30 @@ func (c *documentFieldsCase) disagreements(fields []extraction.ExtractedField) [
 		}
 	}
 	return out
+}
+
+// valueAgrees compares one value the way that field can be right or wrong.
+//
+// Three of the four have exactly one correct answer — an amount in minor units,
+// an ISO-4217 code, a calendar date — and are compared exactly. The deal NAME is
+// prose the model chooses: an order form headed "Order Form — Pallet Handling
+// Programme, Graz site" can honestly be called either the whole heading or the
+// programme it names, and a scenario that demanded one spelling would grade
+// PHRASING rather than reading. Its wording is the rubric's to judge; what is
+// asserted here is that the reading found the right thing to name at all, which
+// containment (either way round, case-folded) is exactly strong enough to say.
+//
+// This is the transcript site's rule applied to the one free-text field here:
+// that case asserts the LINE a commitment was read from and leaves the summary
+// and owner to the rubric, for the same reason.
+func valueAgrees(field, got, want string) bool {
+	if field != documentFieldName {
+		return got == want
+	}
+	a := strings.ToLower(strings.TrimSpace(got))
+	b := strings.ToLower(strings.TrimSpace(want))
+	if a == "" || b == "" {
+		return a == b
+	}
+	return strings.Contains(a, b) || strings.Contains(b, a)
 }

@@ -8,7 +8,7 @@ import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { throwProblem, useMe } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { DocumentExtractionPanel } from "./documentextraction";
 
@@ -54,6 +54,21 @@ const STATE_LABELS: Record<DocState, MessageKey> = {
 // not a candidate. The rest are equal citizens and get no tone.
 const STATE_TONE: Partial<Record<DocState, "warn">> = { superseded: "warn" };
 
+// Whether this reader may write what a document says onto a deal.
+//
+// Read from /me's own effective grants rather than assumed: reading a document
+// and writing what it says are different authorities, and a panel that offered
+// Accept to a seat holding only the first would hand out a button whose every
+// press is a 403. The grant is ABSENT from the map when it was never given —
+// the generated index signature cannot say so — which is why it is widened and
+// read fail-closed.
+function useCanWriteDeals(): boolean {
+  const me = useMe();
+  const objects: Readonly<Record<string, { update?: boolean } | undefined>> =
+    me.data?.authorization?.objects ?? {};
+  return objects.deal?.update === true;
+}
+
 // A FILTERED read that found nothing is not an empty account. SectionCard's
 // empty state replaces the whole body — filters included — so reporting it here
 // would strand the reader on a category with no matches and no control left to
@@ -77,6 +92,7 @@ function documentsState(
 }
 
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
+  const canWriteDeals = useCanWriteDeals();
   const t = useT();
   const { locale } = useLocale();
   const [category, setCategory] = useState<Category | "">("");
@@ -169,7 +185,10 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
                 that can only be refused. */}
               {doc.entity_type === "deal" && (
                 <PanelRow className="docs-row">
-                  <DocumentExtractionPanel attachmentId={doc.id} canAccept />
+                  <DocumentExtractionPanel
+                    attachmentId={doc.id}
+                    canAccept={canWriteDeals}
+                  />
                 </PanelRow>
               )}
             </Fragment>

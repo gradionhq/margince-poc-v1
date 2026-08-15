@@ -39,18 +39,14 @@ func (h Handlers) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request
 		writeStoreErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, ExtractionReport(read))
+	httperr.WriteJSON(w, http.StatusOK, extractionReport(read))
 }
 
-// ExtractionReport maps the run record onto the contract's wire shape,
+// extractionReport maps the run record onto the contract's wire shape,
 // splitting a grounded field (always carrying its evidence) from one the
 // reading honestly could not offer. Both slices stay non-nil even when empty,
 // so the wire body is `[]`, never `null`.
-//
-// Exported because the accept path reports the same reading back after writing
-// from it, and two mappings of one row are how the panel and the confirmation
-// come to disagree about what was read.
-func ExtractionReport(read ExtractionRead) crmcontracts.AttachmentExtraction {
+func extractionReport(read ExtractionRead) crmcontracts.AttachmentExtraction {
 	out := crmcontracts.AttachmentExtraction{
 		Id:           openapi_types.UUID(read.ID),
 		Status:       crmcontracts.AttachmentExtractionStatus(read.Status),

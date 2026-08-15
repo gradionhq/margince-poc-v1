@@ -123,8 +123,10 @@ func MajorUnits(amountMinor int64, currency string) string {
 func MinorUnits(major, currency string) (int64, bool) {
 	major = strings.TrimSpace(major)
 	digits := MinorUnitDigits(currency)
-	// 18 integer digits keeps the scaled result inside int64 for every currency
-	// in the table; the fractional bound is the currency's own.
+	// 18 integer digits is a SHAPE bound, not the overflow guard: 18 digits plus
+	// a 4-decimal currency scales past int64, and what actually refuses that is
+	// ParseInt failing below. The bound is here to reject a figure no document
+	// states before spending a parse on it.
 	if !PlainDecimal(major, 18, digits) {
 		return 0, false
 	}

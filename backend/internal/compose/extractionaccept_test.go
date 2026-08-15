@@ -118,20 +118,22 @@ func TestBuildExtractionAcceptPatchRefusesGroundedFieldOutsideAllowlist(t *testi
 
 func TestBuildExtractionAcceptPatchDedupesRepeatedKeys(t *testing.T) {
 	accepted, _, err := buildExtractionAcceptPatch(crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor", "amount_minor"},
+		FieldKeys: []string{"amount_minor", "amount_minor", "currency"},
 	}, acceptPatchFixture())
 	if err != nil {
 		t.Fatalf("repeated key refused: %v", err)
 	}
-	if len(accepted) != 1 {
-		t.Fatalf("accepted %d fields for a repeated key, want 1 (field_keys is a set)", len(accepted))
+	// Two distinct keys accepted, not three: the repeat collapses. The currency
+	// rides along because an amount may not be accepted without it.
+	if len(accepted) != 2 {
+		t.Fatalf("accepted %d fields for a repeated key, want 2 (field_keys is a set)", len(accepted))
 	}
 }
 
 func TestBuildExtractionAcceptPatchEditFlipsProvenanceToHuman(t *testing.T) {
-	edits := map[string]interface{}{"amount_minor": "200000", "currency": float64(0)}
+	edits := map[string]interface{}{"amount_minor": "200000"}
 	accepted, patch, err := buildExtractionAcceptPatch(crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor", "name"},
+		FieldKeys: []string{"amount_minor", "name", "currency"},
 		Edits:     &edits,
 	}, acceptPatchFixture())
 	if err != nil {
@@ -143,10 +145,11 @@ func TestBuildExtractionAcceptPatchEditFlipsProvenanceToHuman(t *testing.T) {
 	if accepted[0].Value != "200000" || patch.AmountMinor == nil || *patch.AmountMinor != 200000 {
 		t.Errorf("edited value = %q / patch %v, want the edit 200000 over the extracted 150000", accepted[0].Value, patch.AmountMinor)
 	}
-	// The currency edit targets a field the request never accepts: it must
-	// not leak into the patch or flip anything.
-	if patch.Currency != nil {
-		t.Errorf("patch.Currency = %v, want unset (currency was not in field_keys)", patch.Currency)
+	// The currency is accepted as EXTRACTED: its edit is a float, which is not
+	// a currency code, so the coercion must refuse it rather than let a number
+	// through — and the accepted value stays the document's own.
+	if patch.Currency == nil || *patch.Currency != "EUR" {
+		t.Errorf("patch.Currency = %v, want the extracted EUR", patch.Currency)
 	}
 	if accepted[1].Provenance != crmcontracts.AcceptedExtractionFieldProvenanceAiExtracted {
 		t.Errorf("unedited field provenance = %s, want ai-extracted", accepted[1].Provenance)
@@ -156,7 +159,7 @@ func TestBuildExtractionAcceptPatchEditFlipsProvenanceToHuman(t *testing.T) {
 func TestBuildExtractionAcceptPatchCoercesNumericEdit(t *testing.T) {
 	edits := map[string]interface{}{"amount_minor": float64(200000)}
 	accepted, patch, err := buildExtractionAcceptPatch(crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		FieldKeys: []string{"amount_minor", "currency"},
 		Edits:     &edits,
 	}, acceptPatchFixture())
 	if err != nil {

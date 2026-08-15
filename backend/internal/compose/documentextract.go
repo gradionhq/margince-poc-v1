@@ -82,7 +82,14 @@ when the document says it in words or figures you can quote back verbatim. Repor
 for a value you are inferring, calculating, or carrying over from what documents like this
 usually say. A document that does not state a value is normal and common: saying so is the
 correct answer, and is worth more than a plausible guess. Quote the exact text each value
-was read from, and name the page or section it appears in.`
+was read from, and name the page or section it appears in.
+
+Many attached files record no piece of business at all — a specification, a checklist,
+minutes, a set of requirements. Every field is not_stated for such a file. In particular a
+document's own TITLE is not the name of a deal: "QA Validation Requirements" and "Packaging
+line 3 — revision C" are what a document is called and what it is about, not something
+anybody is buying. Report a name only when the document records a purchase, an engagement or
+an agreement, and the name is what is being bought or supplied.`
 
 // documentSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func documentSystemFor(fence promptfence.Fence) string {
@@ -163,14 +170,22 @@ func documentExtractRequest(src documentSource) model.Request {
 	if src.onTextLane() {
 		prompt.WriteString(fence.WrapAttr("document", "text", src.Text) + "\n")
 	} else {
-		prompt.WriteString("The document itself is attached to this message as " + src.Part.MIME + ".\n")
+		// FENCED like the filename above it, and for the same reason: the media
+		// type is whatever Content-Type the uploader sent, kept on the row as a
+		// hint (DOC-PARAM-9) and never validated into a closed set. Written into
+		// the prompt bare it would be the one span of counterparty-controlled
+		// text speaking in the instruction voice, on the surface whose entire
+		// design is that nothing from the document does.
+		prompt.WriteString("The document itself is attached to this message.\n")
+		prompt.WriteString(fence.WrapAttr("document", "media_type", src.Part.MIME) + "\n")
 	}
 	fmt.Fprintf(&prompt,
 		`Return JSON: { "fields": [ { "field", "stated", "value", "source_quote", "page_or_section", "confidence" } ] } — `+
 			`one entry for EACH of %s, in that order, and no others. `+
 			`Set "stated" to %q for a field this document states and %q for one it does not, leaving the other values empty when it does not. `+
 			`"value" for %s is the amount in the document's own figures with no currency symbol and no thousands separators; `+
-			`for %s it is the ISO-4217 code; for %s it is the calendar date as YYYY-MM-DD; for %s it is what the document calls this piece of business. `+
+			`for %s it is the ISO-4217 code; for %s it is the calendar date as YYYY-MM-DD; `+
+			`for %s it is what is being bought or supplied — not the document's own title, and not_stated for a document that records no purchase at all. `+
 			`"source_quote" is the exact text the value was read from, copied verbatim — never a paraphrase and never text you composed. `+
 			`"page_or_section" names where in the document it appears.`,
 		strings.Join(documentFieldOrder(), ", "), documentStated, documentNotStated,
@@ -216,117 +231,6 @@ func documentExtractSchema() json.RawMessage {
 		"fields",
 	))
 }
-
-// documentShapeValid is the §5.2 validator: the closed field set respected, and
-// every stated field carrying evidence this site may act on.
-//
-// On the TEXT lane it also holds each quote to the document's own words. That
-// check is the whole point there — a value whose quote is not in the document
-// was not read out of it — and it is exactly what the bytes lane cannot do,
-// since an image has no text to search. Nothing here pretends otherwise: the
-// bytes lane's grounding is held by the prompt and by the certification rubric,
-// and RD-AC-N-4 says so in as many words.
-func documentShapeValid(src documentSource) ai.Validator {
-	return func(text string) error {
-		var payload documentPayload
-		if err := json.Unmarshal([]byte(ai.Unfence(text)), &payload); err != nil {
-			return fmt.Errorf("output is not the required JSON shape: %w", err)
-		}
-		if msg := validateDocumentPayload(payload, src); msg != "" {
-			return errors.New(msg)
-		}
-		return nil
-	}
-}
-
-// validateDocumentPayload names the first fidelity violation, or "" when the
-// payload is one this site may act on.
-func validateDocumentPayload(payload documentPayload, src documentSource) string {
-	if payload.Fields == nil {
-		return "the reply carries no fields key, so it did not answer the question"
-	}
-	seen := make(map[string]bool, len(documentFieldOrder()))
-	for _, field := range payload.fields() {
-		if !isDocumentField(field.Field) {
-			return fmt.Sprintf("the reply reports %q, which is not one of the fields this document was read for",
-				clampToken(field.Field))
-		}
-		if seen[field.Field] {
-			return fmt.Sprintf("the reply reports %q twice, and a document states a value once", field.Field)
-		}
-		seen[field.Field] = true
-		if msg := validateDocumentField(field, src); msg != "" {
-			return msg
-		}
-	}
-	return ""
-}
-
-// isDocumentField reports whether a reported name is one this site asked for. A
-// reply that answers a question nobody asked is refused whole rather than
-// filtered: the extra field is evidence the reading did not read the prompt,
-// which makes the fields it DID report worth less trust, not more.
-func isDocumentField(name string) bool {
-	for _, known := range documentFieldOrder() {
-		if name == known {
-			return true
-		}
-	}
-	return false
-}
-
-// validateDocumentField holds one reported field to what a document can
-// support. Every echoed token is MODEL output — someone who got the model to
-// obey can choose it — so anything reaching a log or a retry prompt is bounded.
-func validateDocumentField(field documentField, src documentSource) string {
-	switch field.Stated {
-	case documentStated, documentNotStated:
-	default:
-		return fmt.Sprintf("field %q does not say whether the document states it, which is the question", field.Field)
-	}
-	if field.Stated == documentNotStated {
-		// An unstated field carries no evidence to check, and demanding empty
-		// values would fail a reply for being tidy in a way nobody asked for.
-		return ""
-	}
-	switch {
-	case strings.TrimSpace(field.Value) == "":
-		return fmt.Sprintf("field %q is reported as stated but carries no value", field.Field)
-	case len(field.Value) > maxDocumentValue:
-		return fmt.Sprintf("field %q carries a %d-character value, and at most %d may be reported",
-			field.Field, len(field.Value), maxDocumentValue)
-	case strings.TrimSpace(field.Quote) == "":
-		return fmt.Sprintf("field %q cites no quote, and an uncited value is a guess", field.Field)
-	case len(field.Quote) > maxDocumentQuote:
-		return fmt.Sprintf("field %q cites %d characters, and at most %d may be quoted — a quote locates a value, it does not summarize the page",
-			field.Field, len(field.Quote), maxDocumentQuote)
-	case strings.TrimSpace(field.Where) == "":
-		return fmt.Sprintf("field %q names no page or section, so its quote could not be found again", field.Field)
-	case len(field.Where) > maxDocumentWhere:
-		return fmt.Sprintf("field %q names a %d-character location, and at most %d may be reported",
-			field.Field, len(field.Where), maxDocumentWhere)
-	case field.Confidence < 0 || field.Confidence > 1:
-		return fmt.Sprintf("field %q reports confidence %v, which is outside [0,1]", field.Field, field.Confidence)
-	}
-	if src.onTextLane() && !quotedFromDocument(src.Text, field.Quote) {
-		return fmt.Sprintf("field %q quotes text this document does not contain, so the value was not read out of it", field.Field)
-	}
-	return ""
-}
-
-// quotedFromDocument reports whether a quote is the document's own words.
-//
-// Whitespace is collapsed on both sides before comparing, and only whitespace:
-// a document's text arrives with the line breaks and column padding its layout
-// happened to have, and a reply that reads a value off two lines writes it as
-// one sentence. Normalizing more than that — case, punctuation, accents — would
-// start admitting quotes the document does not contain, which is the one thing
-// this check exists to refuse.
-func quotedFromDocument(text, quote string) bool {
-	return strings.Contains(collapseSpace(text), collapseSpace(quote))
-}
-
-func collapseSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // groundDocumentFields turns a validated reply into what the reading stores:
 // grounded fields, and honest omissions with the reason each was omitted.

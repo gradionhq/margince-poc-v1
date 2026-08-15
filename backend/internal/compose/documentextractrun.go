@@ -26,6 +26,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
@@ -98,6 +99,7 @@ func NewDocumentExtractor(pool *pgxpool.Pool, brain documentCompleter, log *slog
 type documentReadStore interface {
 	BeginExtractionRead(ctx context.Context, readID ids.UUID, reclaimAfter time.Duration) (activities.ExtractionRead, error)
 	FinishExtractionRead(ctx context.Context, readID ids.UUID, outcome activities.ExtractionReadOutcome) error
+	ReleaseExtractionRead(ctx context.Context, readID ids.UUID, claimedAt time.Time) error
 	OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.Attachment, io.ReadCloser, error)
 }
 
@@ -110,40 +112,78 @@ type documentReadStore interface {
 // not be used closes the run and returns nil, because retrying would ask the
 // same question of the same document and get the same answer.
 func (d *DocumentExtractor) Read(ctx context.Context, store documentReadStore, readID, attachmentID ids.UUID) error {
-	if _, err := store.BeginExtractionRead(ctx, readID, activities.ExtractionReadLease); err != nil {
+	claim, err := store.BeginExtractionRead(ctx, readID, activities.ExtractionReadLease)
+	if err != nil {
 		return err
 	}
+	// The claim's own start time travels with every write below, so each one is
+	// scoped to THIS attempt: a lease that expired mid-call has already handed
+	// the reading to somebody else, and this worker must not close or re-queue
+	// what it no longer holds.
+	claimedAt := claimStart(claim)
+
 	src, detail, err := d.sourceFor(ctx, store, attachmentID)
 	if err != nil {
 		if terminal, msg := unreadableDocument(err); terminal {
-			return d.finishEmpty(ctx, store, readID, msg)
+			return d.fail(ctx, store, readID, claimedAt, msg)
 		}
 		// Anything else — the database unreachable, the object store down — is
 		// the JOB's to retry. Closing the reading here would turn a blip into a
 		// permanent verdict the rep has to notice and undo.
-		return err
+		return d.retryable(ctx, store, readID, claimedAt, err)
 	}
 	if detail != "" {
-		// The document is fine and this installation cannot read it. A completed
-		// reading saying so, not a failure: nothing is broken and nothing a rep
-		// does will change it (RD-AC-N-7). No model call was made.
-		return d.finishEmpty(ctx, store, readID, detail)
+		// COULD NOT read it, which is not the same answer as read it and it
+		// states none of them — and `done` is what the panel renders as the
+		// second. A file this installation's model cannot carry, one with no
+		// content type, one too large: each is a true "could not read", and each
+		// is something an operator can change, so each also earns the retry
+		// affordance only `failed` offers. No model call was made either way.
+		return d.fail(ctx, store, readID, claimedAt, detail)
 	}
 	fields, err := d.ask(ctx, src)
 	if err != nil {
 		if errors.Is(err, errRefusedDocument) {
 			d.log.WarnContext(ctx, "document reading refused",
 				"attachment_extraction_id", readID, "attachment_id", attachmentID, "reason", err)
-			return d.fail(ctx, store, readID,
+			return d.fail(ctx, store, readID, claimedAt,
 				"the model's reading of this document could not be used; the document is unchanged and can be read again")
 		}
-		return err
+		return d.retryable(ctx, store, readID, claimedAt, err)
 	}
 	return store.FinishExtractionRead(ctx, readID, activities.ExtractionReadOutcome{
-		Status: activities.ExtractionReadDone,
-		Detail: emptyReadingDetail(fields),
-		Fields: fields,
+		Status:    activities.ExtractionReadDone,
+		Detail:    emptyReadingDetail(fields),
+		Fields:    fields,
+		ClaimedAt: claimedAt,
 	})
+}
+
+// claimStart is the claimed row's own start time. It is set by the claim that
+// just succeeded, so a zero here would mean the store returned a row it did not
+// claim — worth failing loudly on rather than writing a zero timestamp into
+// every subsequent CAS, where it would match nothing and look like a race.
+func claimStart(claim activities.ExtractionRead) time.Time {
+	if claim.StartedAt == nil {
+		return time.Time{}
+	}
+	return *claim.StartedAt
+}
+
+// retryable hands the reading back before handing the job back.
+//
+// Returning the error alone would leave the row `running` with nobody working
+// it: River retries inside the lease, the re-claim is refused as somebody
+// else's, and the retry then reports success — a reading stranded live forever,
+// rendering as "reading…" with nothing for a rep to press.
+func (d *DocumentExtractor) retryable(
+	ctx context.Context, store documentReadStore, readID ids.UUID, claimedAt time.Time, cause error,
+) error {
+	if err := store.ReleaseExtractionRead(ctx, readID, claimedAt); err != nil {
+		d.log.WarnContext(ctx, "could not release a reading being retried",
+			"attachment_extraction_id", readID, "error", err)
+	}
+	return cause
 }
 
 // emptyReadingDetail says why a completed reading offered nothing, and says
@@ -232,8 +272,21 @@ func (d *DocumentExtractor) textSource(meta crmcontracts.Attachment, raw []byte)
 }
 
 // ask puts one document to the model and returns what it may act on.
+//
+// The validator runs on the shipping path, not only in the certification lane.
+// A site whose corpus grades a validator production never calls is certifying a
+// standard the product does not hold itself to — the reply that would have been
+// refused in the lane reaches a deal instead.
 func (d *DocumentExtractor) ask(ctx context.Context, src documentSource) ([]extraction.ExtractedField, error) {
-	resp, err := d.brain.Complete(ctx, documentExtractRequest(src))
+	req := documentExtractRequest(src)
+	validate := documentShapeValid(src)
+	var resp model.Response
+	var err error
+	if structured, ok := d.brain.(validatedBrain); ok {
+		resp, err = structured.CompleteValidated(ctx, req, validate)
+	} else {
+		resp, err = d.brain.Complete(ctx, req)
+	}
 	if err != nil {
 		if errors.Is(err, model.ErrAttachmentUnsupported) {
 			// The binding declared it carries this type and then refused it on
@@ -243,7 +296,16 @@ func (d *DocumentExtractor) ask(ctx context.Context, src documentSource) ([]extr
 			return nil, fmt.Errorf("%w: the model refused a document type its binding declares it carries: %w",
 				errRefusedDocument, err)
 		}
+		if errors.Is(err, ai.ErrOutputRejected) {
+			return nil, fmt.Errorf("%w: %w", errRefusedDocument, err)
+		}
 		return nil, err
+	}
+	// Validated again even when CompleteValidated already ran it: a bare
+	// completer (the offline fake, a role wired without the structured lane)
+	// does not, and this is the only floor those paths have.
+	if err := validate(resp.Text); err != nil {
+		return nil, fmt.Errorf("%w: %w", errRefusedDocument, err)
 	}
 	return readDocumentFields(resp.Text)
 }
@@ -268,20 +330,12 @@ func unreadableDocument(err error) (terminal bool, detail string) {
 	return false, ""
 }
 
-// finishEmpty closes a reading that completed without offering a field: the
-// document was read, or could honestly not be, and nothing is broken.
-func (d *DocumentExtractor) finishEmpty(ctx context.Context, store documentReadStore, readID ids.UUID, detail string) error {
-	return store.FinishExtractionRead(ctx, readID, activities.ExtractionReadOutcome{
-		Status: activities.ExtractionReadDone,
-		Detail: detail,
-	})
-}
-
 // fail closes the run with a reason a rep can act on. A failure to record the
 // failure is returned, so a run cannot be left claimed and silent.
-func (d *DocumentExtractor) fail(ctx context.Context, store documentReadStore, readID ids.UUID, detail string) error {
+func (d *DocumentExtractor) fail(
+	ctx context.Context, store documentReadStore, readID ids.UUID, claimedAt time.Time, detail string,
+) error {
 	return store.FinishExtractionRead(ctx, readID, activities.ExtractionReadOutcome{
-		Status: activities.ExtractionReadFailed,
-		Detail: detail,
+		Status: activities.ExtractionReadFailed, Detail: detail, ClaimedAt: claimedAt,
 	})
 }

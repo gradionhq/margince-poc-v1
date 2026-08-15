@@ -10923,9 +10923,12 @@ paths:
         refuses with the same typed 409 the raw download answers, before any bytes could
         reach a model.
 
-        Requires the same authority the accept will need — reading a document exists to
-        propose a change to its deal, and a caller who could never accept the result has
-        nothing to gain from paying for it.
+        Requires UPDATE on the attachment's own parent record, which is the authority the
+        attachment surface gates every write behind. Note this is not identical to the
+        accept's: the accept writes a DEAL and is deal-only, so a person- or org-scoped
+        attachment can be read by someone who could never accept the result. That is
+        deliberate — the read is valid for any entity_type and is worth having on its own —
+        but it does mean a reading can be paid for and then have nowhere to land.
       responses:
         '202':
           description: The reading is queued; poll it with `getAttachmentExtraction`.

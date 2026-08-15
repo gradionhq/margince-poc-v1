@@ -6,7 +6,9 @@ import { Button, TextInput } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
 import type { ConfidenceLevel } from "../design-system/trust";
 import { StagingCard } from "../design-system/trust";
-import { useT } from "../i18n";
+import { formatMoney } from "../format/format";
+import type { Locale } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
 
@@ -41,6 +43,19 @@ const OMITTED_REASONS: Record<OmittedField["reason"], MessageKey> = {
   not_confidently_stated: "extraction.omitted.notConfident",
 };
 
+// The two field names this panel treats specially: money is rendered as money,
+// and the currency it is rendered IN comes from the same reading.
+const AMOUNT_FIELD = "amount_minor";
+const CURRENCY_FIELD = "currency";
+
+// groundedCurrency is the currency THIS reading grounded, or "" when it
+// grounded none — in which case it grounded no amount either, because the two
+// stand or fall together server-side (an amount scaled by a guessed currency is
+// wrong by a factor nobody notices).
+function groundedCurrency(extraction: Extraction): string {
+  return extraction.fields.find((f) => f.field === CURRENCY_FIELD)?.value ?? "";
+}
+
 const FIELD_LABELS: Record<string, MessageKey> = {
   name: "extraction.field.name",
   amount_minor: "extraction.field.amount",
@@ -70,6 +85,62 @@ function plural(count: number, one: MessageKey, other: MessageKey): MessageKey {
   return count === 1 ? one : other;
 }
 
+// Money is stored in MINOR units and must never be shown in them.
+//
+// "14850000" under a label reading "Amount" is not a rendering of €148,500.00,
+// it is a different number — and the danger is not that a rep misreads it but
+// that they CORRECT it: typing the figure they expected turns €148,500 into
+// €1,485. So the amount renders as money, is edited as money, and is converted
+// back at the boundary.
+//
+// The currency is always there to convert with: a reading omits an amount it
+// could not pair with one, precisely so no figure is ever scaled by a guess.
+function minorDigits(currency: string, locale: Locale): number {
+  return (
+    new Intl.NumberFormat(locale === "de" ? "de-DE" : "en-US", {
+      style: "currency",
+      currency,
+    }).resolvedOptions().maximumFractionDigits ?? 2
+  );
+}
+
+// majorUnits renders a stored minor-unit amount as the figure a person types.
+// Plain digits rather than a formatted amount: this is what goes INTO an input,
+// and a grouped "148,500.00" would come back out as something to re-parse.
+export function majorUnits(
+  minor: string,
+  currency: string,
+  locale: Locale,
+): string {
+  const value = Number(minor);
+  if (!Number.isFinite(value)) {
+    return minor;
+  }
+  return (value / 10 ** minorDigits(currency, locale)).toFixed(
+    minorDigits(currency, locale),
+  );
+}
+
+// minorUnits is its inverse, and it REFUSES rather than rounds: a figure with
+// more decimals than the currency has is a misread, and silently dropping a
+// digit is how an amount becomes wrong by an order of magnitude.
+export function minorUnits(
+  major: string,
+  currency: string,
+  locale: Locale,
+): string | null {
+  const trimmed = major.trim().replace(/[\s,]/g, "");
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return null;
+  }
+  const digits = minorDigits(currency, locale);
+  const [whole, fraction = ""] = trimmed.split(".");
+  if (fraction.length > digits) {
+    return null;
+  }
+  return `${whole}${fraction.padEnd(digits, "0")}`;
+}
+
 function isLive(extraction: Extraction | undefined): boolean {
   return extraction?.status === "queued" || extraction?.status === "running";
 }
@@ -79,6 +150,7 @@ export function DocumentExtractionPanel({
   canAccept,
 }: Readonly<{ attachmentId: string; canAccept: boolean }>) {
   const t = useT();
+  const { locale } = useLocale();
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [accepted, setAccepted] = useState<number | null>(null);
@@ -117,6 +189,10 @@ export function DocumentExtractionPanel({
     onSuccess: async () => {
       setDismissed(false);
       setAccepted(null);
+      // A draft typed against the PREVIOUS reading must not survive into this
+      // one: it would pre-fill the new field, differ from the new value, and be
+      // sent as a deliberate human edit of a reading nobody typed it against.
+      setEdits({});
       await queryClient.invalidateQueries({
         queryKey: ["attachment-extraction", attachmentId],
       });
@@ -138,7 +214,12 @@ export function DocumentExtractionPanel({
           // what gets written.
           extraction_id: extraction.id,
           field_keys: fields.map((f) => f.field),
-          edits: editedOnly(fields, edits),
+          edits: editedOnly(
+            fields,
+            edits,
+            groundedCurrency(extraction),
+            locale,
+          ),
         },
       });
       if (error) {
@@ -203,12 +284,25 @@ export function DocumentExtractionPanel({
 function editedOnly(
   fields: readonly ExtractedField[],
   edits: Readonly<Record<string, string>>,
+  currency: string,
+  locale: Locale,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const field of fields) {
     const draft = edits[field.field];
-    if (draft !== undefined && draft !== field.value) {
-      out[field.field] = draft;
+    if (draft === undefined) {
+      continue;
+    }
+    // The amount was shown and typed in MAJOR units and is stored in minor:
+    // converting at this boundary is what stops a rep's "148500" landing as
+    // €1,485. An unconvertible figure is left as typed so the server refuses it
+    // by name, rather than being silently rounded into something plausible.
+    const value =
+      field.field === AMOUNT_FIELD && currency !== ""
+        ? (minorUnits(draft, currency, locale) ?? draft)
+        : draft;
+    if (value !== field.value) {
+      out[field.field] = value;
     }
   }
   return out;
@@ -302,6 +396,7 @@ function ExtractionBody({
           <GroundedField
             key={field.field}
             field={field}
+            currency={groundedCurrency(extraction)}
             draft={edits[field.field]}
             onEdit={(value) => onEdit(field.field, value)}
             canEdit={canAccept}
@@ -344,23 +439,30 @@ function ExtractionBody({
 // clutter and the number gets lost among them.
 function GroundedField({
   field,
+  currency,
   draft,
   onEdit,
   canEdit,
 }: Readonly<{
   field: ExtractedField;
+  currency: string;
   draft: string | undefined;
   onEdit: (value: string) => void;
   canEdit: boolean;
 }>) {
   const t = useT();
+  const { locale } = useLocale();
   const label = FIELD_LABELS[field.field];
+  const money = field.field === AMOUNT_FIELD && currency !== "";
+  const shown = money
+    ? formatMoney(Number(field.value), currency, locale)
+    : field.value;
   return (
     <li className="extraction-field">
       <span className="t-caption">{label ? t(label) : field.field}</span>
       {draft === undefined ? (
         <EvidenceMark
-          value={field.value}
+          value={shown}
           source={{
             provenance: { kind: "agent", agent: "agent:document-extractor" },
             confidence: CONFIDENCE[field.confidence],
@@ -379,7 +481,14 @@ function GroundedField({
       )}
       <span className="t-caption">{field.page_or_section}</span>
       {canEdit && draft === undefined && (
-        <Button variant="ghost" onClick={() => onEdit(field.value)}>
+        <Button
+          variant="ghost"
+          onClick={() =>
+            onEdit(
+              money ? majorUnits(field.value, currency, locale) : field.value,
+            )
+          }
+        >
           {t("extraction.edit")}
         </Button>
       )}

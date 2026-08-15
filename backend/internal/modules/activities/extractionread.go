@@ -197,15 +197,18 @@ func (s *Store) StartExtractionReadQueued(
 func (s *Store) rearmIfAbandonedExtraction(
 	ctx context.Context, tx pgx.Tx, read *ExtractionRead, enqueue ExtractionReadEnqueue,
 ) error {
-	if read.Status != ExtractionReadRunning {
-		return nil
-	}
+	// Both live statuses can strand, and only one of them is obvious. A RUNNING
+	// row past its lease is the killed worker. A QUEUED row past it is a job
+	// that never claimed at all — cancelled, discarded after exhausting its
+	// attempts, or lost with the queue — and it strands exactly as hard, because
+	// the in-flight index makes the corpse block every new reading of the
+	// document while `rearm` is the only thing that could clear it.
 	rearmed, err := scanExtractionRead(tx.QueryRow(ctx, `
 		UPDATE attachment_extraction
 		   SET status = 'queued', started_at = NULL, status_detail = NULL
 		 WHERE id = $1
-		   AND status = 'running'
-		   AND started_at < now() - ($2 * interval '1 microsecond')
+		   AND status IN ('queued','running')
+		   AND COALESCE(started_at, created_at) < now() - ($2 * interval '1 microsecond')
 		RETURNING `+extractionReadColumns, read.ID, ExtractionReadLease.Microseconds()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Inside its lease: a real worker holds it, and joining is correct.
@@ -267,6 +270,13 @@ func (s *Store) BeginExtractionRead(ctx context.Context, readID ids.UUID, reclai
 
 // ExtractionReadOutcome is what a finished reading has to report.
 type ExtractionReadOutcome struct {
+	// ClaimedAt is the start time of the claim this outcome belongs to, taken
+	// from the row BeginExtractionRead returned. It is what makes the finish
+	// specific to one attempt: a worker whose lease expired mid-model-call has
+	// already had the reading taken from it, and closing on `status = running`
+	// alone would let it overwrite the live worker's answer with its own stale
+	// one — both writes legitimate-looking, the later reading silently lost.
+	ClaimedAt time.Time
 	// Status is done or failed. Done with no grounded field is the honest answer
 	// for a document that states none of them, and Detail says so.
 	Status string
@@ -304,13 +314,13 @@ func (s *Store) FinishExtractionRead(ctx context.Context, readID ids.UUID, outco
 		tag, err := tx.Exec(ctx, `
 			UPDATE attachment_extraction
 			   SET status = $2, status_detail = $3, fields = $4, finished_at = now()
-			 WHERE id = $1 AND status = 'running'`,
-			readID, outcome.Status, detail, encoded)
+			 WHERE id = $1 AND status = 'running' AND started_at = $5`,
+			readID, outcome.Status, detail, encoded, outcome.ClaimedAt)
 		if err != nil {
 			return fmt.Errorf("finish extraction reading: %w", err)
 		}
 		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("%w: extraction reading %s is not running", apperrors.ErrConflict, readID)
+			return fmt.Errorf("%w: extraction reading %s is not running under this claim", apperrors.ErrConflict, readID)
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "attachment_extraction", readID, nil, map[string]any{
 			"status": outcome.Status, "grounded": groundedCount(outcome.Fields),
@@ -404,6 +414,34 @@ func (s *Store) GetExtractionRead(ctx context.Context, attachmentID, readID ids.
 		return nil
 	})
 	return out, err
+}
+
+// ReleaseExtractionRead hands a claimed reading back to the queue.
+//
+// A worker that is about to return a retryable error must return the reading
+// with it. Without that the row stays `running` while the job retries, its own
+// re-claim is refused as somebody else's live lease, and the retry reports
+// success — leaving a reading that no worker holds, no job will pick up, and no
+// surface offers a way out of, because a live reading renders as "reading…"
+// with nothing to press.
+//
+// The lease still covers the ungraceful case (a killed process cannot release
+// anything); this covers the ordinary one, which is far more common.
+func (s *Store) ReleaseExtractionRead(ctx context.Context, readID ids.UUID, claimedAt time.Time) error {
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		if err := requireExtractionAuthority(ctx, tx, readID); err != nil {
+			return err
+		}
+		// Scoped to this claim, like the finish: a worker whose lease already
+		// expired must not re-queue the reading somebody else is now working.
+		if _, err := tx.Exec(ctx, `
+			UPDATE attachment_extraction
+			   SET status = 'queued', started_at = NULL, status_detail = NULL
+			 WHERE id = $1 AND status = 'running' AND started_at = $2`, readID, claimedAt); err != nil {
+			return fmt.Errorf("release extraction reading: %w", err)
+		}
+		return nil
+	})
 }
 
 // LatestExtractionRead answers "has this document been read, and how did it go".
