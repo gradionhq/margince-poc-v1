@@ -3,14 +3,19 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PartnersScreen, PartnerTab } from "./partners";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // PartnerTab treats GET /organizations/{id}/partner's 404 as "not a partner
 // yet" (an honest empty state + setup form), never as an error — the
 // NotYetPartner story exercises that branch directly via a 404 stub.
 // PartnersScreen is the flat #/partners list read straight off GET /partners.
 const meta: Meta = {
-  title: "Screens/Partners",
+  title: "Records/Partners",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -34,6 +39,7 @@ const partner = {
 export const NotYetPartner: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /organizations/o-1/partner": () =>
         jsonResponse({ title: "Not found", detail: "no partner" }, 404),
     });
@@ -48,6 +54,7 @@ export const NotYetPartner: Story = {
 export const ExistingPartner: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /organizations/o-1/partner": () => jsonResponse(partner),
     });
     return (
@@ -61,6 +68,7 @@ export const ExistingPartner: Story = {
 export const PartnersList: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /partners": () =>
         jsonResponse({
           data: [partner, { ...partner, organization_id: "o-2" }],

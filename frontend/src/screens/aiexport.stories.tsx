@@ -14,15 +14,36 @@ const call = {
   },
 } satisfies AiCallDetail;
 const meta: Meta<typeof ExportScenarioDialog> = {
-  title: "Screens/ai-export",
+  title: "Settings/Organization/AI/Scenario export",
   component: ExportScenarioDialog,
 };
 export default meta;
 type Story = StoryObj<typeof ExportScenarioDialog>;
-export const Dialog: Story = {
-  render: () => (
-    <StoryProviders>
-      <ExportScenarioDialog call={call} onClose={() => {}} />
-    </StoryProviders>
-  ),
+
+const renderDialog = () => (
+  <StoryProviders>
+    <ExportScenarioDialog call={call} onClose={() => {}} />
+  </StoryProviders>
+);
+
+export const Dialog: Story = { render: renderDialog };
+
+// The dialog in dark. Almost everything here is a tinted Callout or a
+// `pre.code-block`, and the block paints `--bgCard` INSIDE a dialog that is
+// already a raised surface — two grounds that only stay distinguishable if both
+// re-resolve. The callout is what tells the reader this YAML is about to leave
+// the installation, so it is the one thing that may not go quiet.
+export const DialogDark: Story = {
+  globals: { theme: "dark" },
+  render: renderDialog,
+};
+
+// At 390px the payload is the risk: prompt YAML has long unwrapped lines, and
+// `.code-block` answers with `pre-wrap` plus its own scroll. Watching that the
+// wrapping happens in the block rather than the dialog growing past the screen
+// and taking the copy/close buttons with it.
+export const DialogPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: renderDialog,
 };

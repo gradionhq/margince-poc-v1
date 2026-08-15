@@ -20,13 +20,29 @@ const withTheme: Decorator = (Story, context) => {
   return <Story />;
 };
 
+// Storybook's own `layout` parameter says how a story wants to be framed, and
+// two of its three values mean "not like this": `fullscreen` asks for the raw
+// viewport, `centered` asks Storybook to centre the story itself. A frame that
+// ignores the parameter does not just add margin — it silently repeals it. The
+// shell's sidebar measures its foot against the viewport, so 2rem of frame
+// clipped it on the very story written to catch that; and a 390px phone
+// viewport carrying a 2rem frame on each side is a 342px phone, which is not
+// a phone any reader has.
+const FRAMED_BY_STORYBOOK = new Set(["fullscreen", "centered"]);
+
 // Surface decorator — frames every story with consistent breathing room so
-// the catalog reads as composed, not dumped in the canvas corner.
-const withSurface: Decorator = (Story) => (
-  <div style={{ minHeight: "100vh", padding: "2rem" }}>
-    <Story />
-  </div>
-);
+// the catalog reads as composed, not dumped in the canvas corner. Stories that
+// declared their own framing keep it.
+const withSurface: Decorator = (Story, context) => {
+  if (FRAMED_BY_STORYBOOK.has(context.parameters.layout)) {
+    return <Story />;
+  }
+  return (
+    <div style={{ minHeight: "100vh", padding: "2rem" }}>
+      <Story />
+    </div>
+  );
+};
 
 const preview: Preview = {
   globalTypes: {
@@ -41,6 +57,24 @@ const preview: Preview = {
           { value: "dark", title: "Dark" },
         ],
         dynamicTitle: true,
+      },
+    },
+  },
+  // The phone width, declared ONCE for the whole catalog rather than copied into
+  // every meta that wants it. Named after the RULE and not after a device: the
+  // shell's bottom bar and the settings section switcher are media queries at
+  // `PHONE_MAX_WIDTH` (src/app/viewport.ts), so 390px is a width that sits
+  // inside that rule rather than a particular handset. A story opts in with
+  // `globals: { viewport: { value: "phone" } }`.
+  //
+  // Storybook 9 ships the viewport tool itself, so this adds no addon.
+  parameters: {
+    viewport: {
+      options: {
+        phone: {
+          name: "Phone (max 700px)",
+          styles: { width: "390px", height: "844px" },
+        },
       },
     },
   },

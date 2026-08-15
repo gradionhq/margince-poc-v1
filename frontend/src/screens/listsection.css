@@ -1,0 +1,44 @@
+/* A settings section whose content is a list surface — products, offer
+   templates. Structure only; every colour reads a token and every gap reads the
+   --space-* scale.
+
+   These two used to render as a bare SectionHeader followed by a ListTable,
+   while the two surfaces beside them on the same tab were cards: one tab, two
+   kinds of top-level surface, and the section's own name floating on the page
+   ground while its neighbours' names sat inside their cards.
+
+   They are Panels now. The list surface draws its own border, radius and
+   background, so nesting it inside a Panel unchanged would put two hairlines
+   around one thing — this strips its chrome and lets the Panel be the surface.
+   The surface keeps every other job it has (the dials, the count, the pager);
+   what it gives up is being a box. */
+.listsection > .lt {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  /* The surface is sized by its rows here, not by a viewport: on a list SCREEN
+     `.wrap:has(> .lt)` gives it a height to fill, and that selector needs `.lt`
+     to be a direct child of `.wrap`, which inside a settings stack it is not.
+     `min-height: 0` without a height source is how a flex item ends up shorter
+     than its own content, so the floor comes back. */
+  min-height: auto;
+}
+
+/* The header the surface draws for its dials sits under the Panel's own header
+   band, so it must not draw a second line straight beneath the first. */
+.listsection > .lt > .lt-head {
+  border-top: 0;
+}
+
+/* What the section IS, and what a reader may not do in it: two caption lines on
+   the panel's own padding, above the surface that runs full-bleed under them. */
+.listsection-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: 0;
+}
+
+.listsection-intro > p {
+  margin: 0;
+}

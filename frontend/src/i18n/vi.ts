@@ -355,6 +355,20 @@ export const vi = {
   "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
   "app.errorRetry": "Thử lại",
 
+  "card.errorTitle": "Thẻ này đã ngừng hoạt động.",
+  "card.errorRetry": "Thử lại",
+
+  "state.withheld": "Đã ẩn — vai trò của bạn không đọc được phần này",
+  "state.unavailable": "Không tải được — đây có thể chưa phải toàn cảnh",
+  "state.unsupported":
+    "Không có ở chế độ này — hệ thống đang kết nối không lưu dữ liệu đó",
+  "state.failed": "Phần này không tải được.",
+  "state.retry": "Thử lại",
+  "state.stale": "Giá trị biết đến gần nhất — chưa làm mới từ đó",
+  "state.staleAsOf": "Giá trị biết đến gần nhất, tính đến {when}",
+  "state.partial": "Chỉ hiển thị một phần danh sách",
+  "state.partialCount": "Còn {count} mục chưa hiển thị",
+
   "list.search": "Tìm kiếm",
   "list.sort": "Sắp xếp",
   "list.showArchived": "Hiện mục lưu trữ",
@@ -455,6 +469,8 @@ export const vi = {
   "overlay.budgetLoading": "Đang tải cửa sổ hạn mức…",
   "overlay.budgetLoadFailed": "Không tải được cửa sổ hạn mức.",
   "overlay.budgetHeadroom": "Còn dư: {headroom}",
+  "overlay.budgetEmpty":
+    "Hệ thống cũ không báo cáo cửa sổ ngân sách nào cho kỳ này.",
   "overlay.budgetSources":
     "Force-fresh {forceFresh} · Poller {poller} · Capture {capture}",
   "overlay.budgetSearch": "API tìm kiếm: {consumed} / {limit} mỗi giây",
@@ -1839,6 +1855,8 @@ export const vi = {
   "settings.revoke": "Thu hồi",
   "settings.revokeConfirm":
     "Thông tin xác thực của passport này mất hiệu lực ngay — Agent sẽ mất quyền truy cập ở lần gọi kế tiếp.",
+  "import.withheld":
+    "Nhập tệp là thao tác của admin hoặc ops — cài đặt này vẫn có, chỉ là bạn không được chạy.",
   "import.title": "Nhập tệp",
   "import.sub":
     "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
@@ -3461,6 +3479,14 @@ export const vi = {
     "Đối tượng này chưa có trường ngày nào đang hoạt động.",
   "auto.dateField.loadError":
     "Không tải được các trường ngày của đối tượng này. Vui lòng thử lại.",
+  "auto.enabledFor": "{name} đang bật",
+  "auto.enabledLabel": "Đang bật",
+  "auto.rowActions": "Thao tác cho {name}",
+  "auto.withheld":
+    "Các tự động hoá đã cấu hình bị ẩn — vai trò của bạn không được phép đọc chúng.",
+  "auto.deleteTitle": "Xoá tự động hoá này?",
+  "auto.deleteBody":
+    "“{name}” cùng toàn bộ thiết lập sẽ bị xoá vĩnh viễn. Nếu bạn chỉ muốn nó ngừng chạy mà vẫn giữ quy tắc, hãy tắt nó đi.",
 
   "auto.runs.open": "Lượt chạy",
   "auto.runs.title": "Lịch sử chạy",
@@ -3605,10 +3631,12 @@ export const vi = {
   "cf.audit.loading": "Đang tải các thay đổi gần đây…",
   "cf.audit.error":
     "Không tải được các thay đổi gần đây — hãy thử lại sau chốc lát.",
+  "cf.audit.adminOnly":
+    "Chỉ quản trị viên đọc được dấu vết thay đổi. Các thay đổi trường của bạn vẫn được ghi lại — chỉ là không hiển thị ở đây.",
   "cf.audit.footer":
     "Mọi lần thêm / sửa / lưu trữ đều được ghi vĩnh viễn vào nhật ký kiểm toán.",
   "cf.noPermission":
-    "Bạn chỉ có quyền đọc với trường tuỳ chỉnh — trình dựng cùng các nút sửa và lưu trữ đều bị vô hiệu hoá.",
+    "Bạn chỉ có quyền đọc trường tùy chỉnh — thêm, sửa và lưu trữ không thuộc quyền của bạn ở đây.",
   "cf.retired": "Đã ngừng dùng",
   "cf.propagate.title": "Trường mới xuất hiện ở đâu",
   "cf.propagate.360": "Trên trang 360 của bản ghi",
@@ -3667,6 +3695,8 @@ export const vi = {
   "settings.voice.title": "Voice DNA",
   "settings.voice.intro":
     "Giọng văn riêng của bạn. Nó định hình các bản nháp viết cho bạn, chỉ riêng bạn thấy, và chỉ học từ những nguồn bạn thêm vào.",
+  "settings.voice.readOnly":
+    "Chế độ chỉ đọc — bạn không có quyền thay đổi Voice DNA của mình.",
   "settings.voice.emptyTitle": "Chưa có Voice DNA",
   "settings.voice.emptyBody":
     "Hãy thêm vài mẫu văn bên dưới rồi dựng Voice DNA của bạn — hoặc làm việc đó trong Onboarding.",
@@ -4208,6 +4238,8 @@ export const vi = {
   "webhooks.secret.copyFailed":
     "Không tự sao chép được — hãy bôi đen rồi tự sao chép khoá.",
   "webhooks.secret.done": "Xong",
+  "webhooks.secret.leaveWarning":
+    "Rời đi sẽ hủy bản sao duy nhất của khóa bí mật này. Hãy sao chép trước.",
 
   "webhooks.deliveries.show": "Xem lượt gửi",
   "webhooks.deliveries.hide": "Ẩn lượt gửi",

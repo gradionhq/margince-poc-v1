@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { FieldBuilder, FieldTable } from "./customfields";
 import { StoryProviders } from "./story-utils";
@@ -9,11 +10,12 @@ import { StoryProviders } from "./story-utils";
 // The custom-fields admin sub-components rendered with direct props so the
 // fe-uat render lane exercises them without a network round-trip. FieldBuilder
 // owns its own type/label state internally, so the currency / picklist /
-// refusal variants below render the default builder and are driven into that
-// state interactively (the repo has no @storybook/test `play` harness to script
-// it). FieldTable is fully prop-driven, so its states are pinned by fixtures.
+// refusal variants drive it there with `play` before the frame is taken — a
+// story that only mounted the default builder three times captured the same
+// screenshot three times and proved nothing about any of the three branches.
+// FieldTable is fully prop-driven, so its states are pinned by fixtures.
 const meta: Meta = {
-  title: "Screens/CustomFields",
+  title: "Settings/Organization/Data model/Custom fields",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -76,39 +78,14 @@ export const BuilderText: Story = {
   ),
 };
 
-// Renders the default builder; select the Currency type to reveal the ISO-4217
-// currency-code input (the builder owns its own type state — no `play` harness).
-export const BuilderCurrency: Story = {
-  render: () => (
-    <StoryProviders>
-      <FieldBuilder
-        object="deal"
-        pending={false}
-        onSubmit={noop}
-        onToast={noop}
-      />
-    </StoryProviders>
-  ),
-};
-
-// Renders the default builder; select the Picklist type to reveal the options
-// editor (reached interactively — the repo has no `play` scripting).
-export const BuilderPicklist: Story = {
-  render: () => (
-    <StoryProviders>
-      <FieldBuilder
-        object="deal"
-        pending={false}
-        onSubmit={noop}
-        onToast={noop}
-      />
-    </StoryProviders>
-  ),
-};
-
-// Renders the default builder; type a structural label (e.g. "Link to parent
-// account") to surface the refusal banner and disable Confirm.
-export const BuilderRefusal: Story = {
+// The builder in dark, for the consent callout it always carries. The DDL
+// preview is a `.cf-ddl` chip painting `--bgElevated` INSIDE a warn-toned
+// Callout: an elevated ground nested in a tint, which is the composite that has
+// no reason to keep its separation once both tokens re-resolve. The autonomy dot
+// in the callout title is colour-only as well, and it is what marks this as a
+// confirm-tier action against a live table.
+export const BuilderTextDark: Story = {
+  globals: { theme: "dark" },
   render: () => (
     <StoryProviders>
       <FieldBuilder
@@ -121,7 +98,98 @@ export const BuilderRefusal: Story = {
   ),
 };
 
+// The Currency type, chosen: the ISO-4217 currency-code input appears under
+// the type control and the DDL preview below picks up the numeric column.
+export const BuilderCurrency: Story = {
+  render: () => (
+    <StoryProviders>
+      <FieldBuilder
+        object="deal"
+        pending={false}
+        onSubmit={noop}
+        onToast={noop}
+      />
+    </StoryProviders>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByLabelText("Label"), "Ceiling");
+    await userEvent.click(canvas.getByRole("button", { name: "Currency" }));
+    await canvas.findByLabelText("Currency code");
+  },
+};
+
+// The Picklist type, chosen, with two options typed in: the options editor is
+// the only type whose shape the builder validates before Confirm goes live.
+export const BuilderPicklist: Story = {
+  render: () => (
+    <StoryProviders>
+      <FieldBuilder
+        object="deal"
+        pending={false}
+        onSubmit={noop}
+        onToast={noop}
+      />
+    </StoryProviders>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByLabelText("Label"), "Stage reason");
+    await userEvent.click(canvas.getByRole("button", { name: "Picklist" }));
+    const [first] = await canvas.findAllByLabelText("Option label");
+    await userEvent.type(first, "Budget");
+    await userEvent.click(canvas.getByRole("button", { name: "Add option" }));
+    const rows = await canvas.findAllByLabelText("Option label");
+    await userEvent.type(rows[rows.length - 1], "Timing");
+  },
+};
+
+// A structural label refused up front: the banner explains why a link between
+// objects is not a field, and Confirm stays dead while the label says it.
+export const BuilderRefusal: Story = {
+  render: () => (
+    <StoryProviders>
+      <FieldBuilder
+        object="organization"
+        pending={false}
+        onSubmit={noop}
+        onToast={noop}
+      />
+    </StoryProviders>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(
+      canvas.getByLabelText("Label"),
+      "Link to parent account",
+    );
+    await canvas.findByRole("alert");
+  },
+};
+
 export const TableWithFields: Story = {
+  render: () => (
+    <StoryProviders>
+      <FieldTable
+        object="deal"
+        fields={dealFields}
+        canEdit
+        meUserId="u1"
+        onRename={noop}
+        onArchive={noop}
+      />
+    </StoryProviders>
+  ),
+};
+
+// The field table at 390px. Every row carries a fully-qualified mono key
+// (`deal.cf_deal_stage_reason`) next to a type, a version and its rename/archive
+// verbs — a long unbreakable identifier in an identity column beside an actions
+// column, which is the pairing that makes a table stop fitting. The table is
+// supposed to scroll inside the card; this says whether it does.
+export const TableWithFieldsPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: () => (
     <StoryProviders>
       <FieldTable

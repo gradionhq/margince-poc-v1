@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent } from "storybook/test";
 import type { components } from "../api/schema";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 import { TelegramConnectForm } from "./telegram-connect-form";
@@ -30,14 +30,15 @@ const connectedConnection: ChannelConnection = {
 };
 
 const meta: Meta<typeof TelegramConnectForm> = {
-  title: "Screens/telegram-connect-form",
+  title: "Settings/You/Connections/Telegram connect form",
   component: TelegramConnectForm,
 };
 export default meta;
 type Story = StoryObj<typeof TelegramConnectForm>;
 
-async function fillAndSubmit(canvasElement: HTMLElement, cta: string) {
-  const canvas = within(canvasElement);
+// `screen`, not the story canvas: the form is inside a portalled Modal.
+async function fillAndSubmit(cta: string) {
+  const canvas = screen;
   await userEvent.type(
     canvas.getByLabelText("Bot token *"),
     "555000111:AAG-fake-bot-father-token",
@@ -67,9 +68,9 @@ export const Connected: Story = {
       </StoryProviders>
     );
   },
-  play: async ({ canvasElement }) => {
-    await fillAndSubmit(canvasElement, "Connect");
-    await within(canvasElement).findByText(/@acme_sales_bot/);
+  play: async () => {
+    await fillAndSubmit("Connect");
+    await screen.findByText(/@acme_sales_bot/);
   },
 };
 
@@ -107,10 +108,8 @@ export const WorkspaceAlreadyBound: Story = {
       </StoryProviders>
     );
   },
-  play: async ({ canvasElement }) => {
-    await fillAndSubmit(canvasElement, "Connect");
-    await within(canvasElement).findByText(
-      /already connected to this workspace/i,
-    );
+  play: async () => {
+    await fillAndSubmit("Connect");
+    await screen.findByText(/already connected to this workspace/i);
   },
 };

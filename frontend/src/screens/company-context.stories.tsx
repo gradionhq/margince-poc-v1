@@ -5,7 +5,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { CompanyContextCard, ManualCompanySetup } from "./company-context";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // Two surfaces the company-context rollout shares one read hook between:
 // ManualCompanySetup is the rollback-safe floor below the `onboarding` stage
@@ -152,6 +157,13 @@ export const ManualSetupSaveFailed: Story = {
   },
 };
 
+// The reviewer every card story below is seen through. The card admits its
+// editor on an UPSERT, so `update` alone carries the save and the website read:
+// the company is one standing record, and every story here opens on a workspace
+// that already has it, so nothing on these screens ever mints one. The read sits
+// beside it because that is the grant the settings entry leading here opens on.
+const EDITOR = { organization: ["read", "update"] } as const;
+
 function Card() {
   return (
     <StoryProviders>
@@ -163,6 +175,7 @@ function Card() {
 export const Populated: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_ENABLED),
       "GET /company": () => jsonResponse(POPULATED_PROFILE),
     });
@@ -173,6 +186,7 @@ export const Populated: Story = {
 export const Empty: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_ENABLED),
       "GET /company": () => jsonResponse(EMPTY_PROFILE),
     });
@@ -185,6 +199,7 @@ export const Empty: Story = {
 export const Loading: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_ENABLED),
       "GET /company": () => new Promise<Response>(() => {}),
     });
@@ -198,6 +213,7 @@ export const Loading: Story = {
 export const Failed: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_ENABLED),
       "GET /company": () => jsonResponse({ title: "company unreadable" }, 500),
     });
@@ -209,9 +225,13 @@ export const Failed: Story = {
 // rather than rendering a denied state, per its own docblock. There is
 // nothing to look at here on purpose: the story exists so a reader can
 // confirm that "withheld" really means an empty canvas, not a stray error.
+// The seat is the same editor as every story above, and that is what makes the
+// empty canvas readable: with a denied principal the blank screen would have two
+// candidate causes, and this story is only ever about the rollout answer.
 export const CapabilityDenied: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_DISABLED),
       "GET /company": () => jsonResponse(POPULATED_PROFILE),
     });
@@ -324,6 +344,9 @@ const REVIEW_READ: SiteRead = {
 export const RefreshReview: Story = {
   render: () => {
     installFetchStub({
+      // Reading the website is a write of the profile, so the refresh control
+      // this story clicks hangs off the same upsert answer the save does.
+      "GET /me": meRoute(EDITOR),
       "GET /company/context/capabilities": () => jsonResponse(READ_ENABLED),
       "GET /company": () => jsonResponse(POPULATED_PROFILE),
       "POST /company/site-reads": () => jsonResponse(REVIEW_READ),

@@ -7,6 +7,7 @@ import {
   emptyPage,
   installFetchStub,
   jsonResponse,
+  meRoute,
   type RouteMap,
   StoryProviders,
 } from "./story-utils";
@@ -131,6 +132,9 @@ const LEARNING = {
 function voiceStory(routes: RouteMap) {
   return () => {
     installFetchStub({
+      // Every control here mutates, so the card asks useCanWrite — grant AND
+      // seat. Both halves are named because they fail the same way on screen.
+      "GET /me": meRoute({ voice_profile: ["read", "create", "update"] }),
       "GET /voice-profiles/vp-1/versions": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/deltas": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/learning": () => jsonResponse(LEARNING),
@@ -145,7 +149,7 @@ function voiceStory(routes: RouteMap) {
 }
 
 const meta: Meta = {
-  title: "Screens/voice-dna",
+  title: "Settings/You/Voice/Voice DNA",
 };
 export default meta;
 
@@ -176,6 +180,26 @@ export const Ready: Story = {
 // instead of quoting text nobody produced, while the corpus/build controls
 // underneath are already live.
 export const Collecting: Story = {
+  render: voiceStory({
+    "GET /voice-profiles": () =>
+      jsonResponse({ data: [COLLECTING_PROFILE], page: emptyPage.page }),
+    "GET /voice-profiles/vp-1/sources": () =>
+      jsonResponse({
+        data: [COLLECTING_SOURCE],
+        summary: COLLECTING_SUMMARY,
+      }),
+  }),
+};
+
+// The one dark story the voice tree needs, and it is this state rather than
+// `Ready`: below the 800-word floor the card draws a FloorMeter, and a FloorMeter
+// is a bare `<progress>` element. voice-dna.css gives it a flex basis and nothing
+// else, and no sheet in this app declares `color-scheme`, so the browser paints
+// that widget in its own light-mode colours no matter what `data-theme` says —
+// every other pixel on the page re-resolves through a token and this one cannot.
+// The thin quality band and the register mix beside it are the rest of the frame.
+export const CollectingDark: Story = {
+  globals: { theme: "dark" },
   render: voiceStory({
     "GET /voice-profiles": () =>
       jsonResponse({ data: [COLLECTING_PROFILE], page: emptyPage.page }),

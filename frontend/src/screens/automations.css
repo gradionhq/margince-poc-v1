@@ -1,0 +1,94 @@
+/* The automations editor inside Settings → AI. Layout + token colours only
+   (ds-purity): every control comes from the design system, and every gap here
+   reads the --space-* scale so the surface cannot drift a step away from the
+   panels around it. This sheet exists because the screen carried twenty inline
+   style objects and thirteen raw pixel values — including the two hard width
+   floors that made it the narrowest surface in settings. */
+
+/* Two halves of one surface: what you can build FROM, and what is running.
+   `flex-basis` proposes the split, `min-width: 0` is what lets either half give
+   it up. The floors this replaces (240px and 280px) were wider than the card
+   interior a 390px viewport leaves, so the column had nowhere to go but
+   sideways — and took the settings page with it. */
+.auto-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.auto-column {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+/* The running instances carry more per row than the library does, so they get
+   the larger share wherever there is room for two columns at all. */
+.auto-column-wide {
+  flex: 2 1 20rem;
+}
+
+.auto-readonly {
+  margin-bottom: var(--space-2);
+}
+
+.auto-catalog {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.auto-catalog-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The line under a name — a description, a recipe, a confirmation. Close enough
+   to read as belonging to the line above it rather than as its own paragraph. */
+.auto-note {
+  margin-top: var(--space-1);
+}
+
+.auto-instances {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The instance row: identity on the left, state and verbs pushed to the right
+   by .auto-row-fill while there is a right to push to, wrapping when there is
+   not. */
+.auto-row-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.auto-row-fill {
+  flex-grow: 1;
+}
+
+.auto-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+
+.auto-form {
+  margin-top: var(--space-3);
+}
+
+.auto-recipe {
+  margin-top: var(--space-1);
+}
+
+.auto-field {
+  margin-top: var(--space-2);
+}
+
+.auto-form-actions {
+  margin-top: var(--space-3);
+}

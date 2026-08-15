@@ -4,7 +4,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
 import { CompanyRail } from "./companyrail";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The record's left rail (mockup State A): one panel, a details grid over
 // collapsible sections. Every seeded demo account grants full RBAC and
@@ -14,7 +19,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // empty state.
 
 const meta: Meta = {
-  title: "Screens/Company rail",
+  title: "Records/Company rail/Rail",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -108,6 +113,11 @@ const withheld = {
 
 function Rail({ view }: Readonly<{ view: View }>) {
   installFetchStub({
+    // Without a routed session useCan("organization","update") fails closed
+    // (useMe's no-authorization fallback) and canEdit is false for every field
+    // the DetailsGrid draws, contradicting this file's own claim that every
+    // seeded demo account grants full RBAC.
+    "GET /me": meRoute({ organization: ["read", "update"] }),
     // Payment is the third health meter, sourced from usePaymentHealth off
     // this endpoint rather than off view.health. A no_connection reply
     // leaves payment undefined and the meter never draws, so every story in
@@ -123,15 +133,6 @@ function Rail({ view }: Readonly<{ view: View }>) {
         overdue: { amount_minor: 89_000, currency: "EUR" },
         median_days_after_due: 4,
         recent_invoices: [],
-      }),
-    // Without this, useCan("organization","update") fails closed (useMe's
-    // no-authorization fallback) and canEdit is false for every field the
-    // DetailsGrid draws, contradicting this file's own claim that every
-    // seeded demo account grants full RBAC.
-    "GET /me": () =>
-      jsonResponse({
-        user: { id: "u-1", display_name: "Mira Voss" },
-        authorization: { objects: { organization: { update: true } } },
       }),
     "GET /users": () =>
       jsonResponse({

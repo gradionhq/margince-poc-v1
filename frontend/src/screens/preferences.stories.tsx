@@ -46,7 +46,7 @@ function center(routes: RouteMap) {
 }
 
 const meta: Meta<typeof PreferenceCenterScreen> = {
-  title: "Screens/preferences",
+  title: "Signed out/Email preference centre",
   component: PreferenceCenterScreen,
 };
 export default meta;

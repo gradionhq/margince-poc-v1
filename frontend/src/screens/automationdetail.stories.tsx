@@ -18,7 +18,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 type AutomationRun = components["schemas"]["AutomationRun"];
 
 const meta: Meta = {
-  title: "Screens/AutomationDetail",
+  title: "Settings/Organization/AI/Automation detail",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -92,18 +92,39 @@ export const OutcomeBadges: Story = {
   ),
 };
 
-export const RunsMixed: Story = {
-  render: () => {
-    installFetchStub({
-      [RUNS_PATH]: () =>
-        jsonResponse({ data: mixedRuns, page: { next_cursor: null } }),
-    });
-    return (
-      <StoryProviders>
-        <AutomationRuns automationId="au-1" />
-      </StoryProviders>
-    );
-  },
+const renderMixedRuns = () => {
+  installFetchStub({
+    [RUNS_PATH]: () =>
+      jsonResponse({ data: mixedRuns, page: { next_cursor: null } }),
+  });
+  return (
+    <StoryProviders>
+      <AutomationRuns automationId="au-1" />
+    </StoryProviders>
+  );
+};
+
+export const RunsMixed: Story = { render: renderMixedRuns };
+
+// The same five outcomes in dark, and the reason LINE is why this is worth a
+// picture rather than the badge legend above. A badge carries its tone on a
+// filled chip; `reasonColor` puts `--danger` and `--warn` on bare text over the
+// inset card, which is the shape that fails a contrast floor first when the
+// tokens re-resolve — a bright warn that reads on white is the same warn on
+// near-black. The card is `inset`, so its ground is recessed too.
+export const RunsMixedDark: Story = {
+  globals: { theme: "dark" },
+  render: renderMixedRuns,
+};
+
+// The run list at 390px. Two things crowd here: the outcome filter is six
+// buttons in one row (all + five outcomes), which is meant to wrap rather than
+// clip, and each row pairs a badge with evidence prose and a `deal:BÄR Pharma`
+// target ref that has no space to break at.
+export const RunsMixedPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: renderMixedRuns,
 };
 
 export const RunsEmpty: Story = {

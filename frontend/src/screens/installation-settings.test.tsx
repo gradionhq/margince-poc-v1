@@ -150,53 +150,54 @@ describe("InstallationSettingsCard", () => {
     expect(name.disabled).toBe(false);
   });
 
-  // Two subjects, two cards: what the organization is called and when its
-  // periods start, then the currency every amount is re-expressed in — which
-  // carries a lock rule of its own and needs the room to say so. One submit
-  // covers both, because the server takes ONE sparse PATCH: a save per card
-  // would promise two independent writes that do not exist.
-  it("splits the fields into an Installation and a Currency card, with one save", async () => {
+  // Two subjects, ONE surface, one save. What the organization is called and
+  // when its periods start is one subject; the currency every amount is
+  // re-expressed in is another, with a lock rule of its own that needs the room
+  // to say so — so the second gets its own heading INSIDE the panel rather than
+  // a card of its own. One submit covers both, because the server takes ONE
+  // sparse PATCH: a save per card would promise two independent writes that do
+  // not exist.
+  //
+  // The save lives with the fields it commits, which is the shape being pinned
+  // here. Split across two cards, the only place it could sit without claiming
+  // to save one of them was after BOTH — so an operator editing the base
+  // currency had to scroll past a card boundary to reach the control that
+  // writes it, and the two cards each looked like a form with no way to submit.
+  it("puts both subjects and their one save on a single surface", async () => {
     const { fetchMock, patch } = backendFor(SETTINGS_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<InstallationSettingsCard />);
 
-    // "Installation", not "Organization": this card sits under a nav group
+    // "Installation", not "Organization": this surface sits under a nav group
     // heading that already reads Organization, and a card repeating its own
     // heading names nothing.
-    const organization = (
+    const panel = (
       await screen.findByRole("heading", { name: /^installation$/i })
     ).closest("section");
-    if (!organization) {
+    if (!panel) {
       throw new Error("the Installation heading is not inside a card");
     }
-    expect(
-      within(organization).getByLabelText(/organization name/i),
-    ).toBeTruthy();
-    expect(
-      within(organization).getByLabelText(/reporting timezone/i),
-    ).toBeTruthy();
-    expect(within(organization).queryByLabelText(/base currency/i)).toBeNull();
+    expect(within(panel).getByLabelText(/organization name/i)).toBeTruthy();
+    expect(within(panel).getByLabelText(/reporting timezone/i)).toBeTruthy();
+    expect(within(panel).getByLabelText(/base currency/i)).toBeTruthy();
 
-    const currency = (
-      await screen.findByRole("heading", { name: /^currency$/i })
-    ).closest("section");
-    if (!currency) {
-      throw new Error("the Currency heading is not inside a card");
-    }
-    expect(within(currency).getByLabelText(/base currency/i)).toBeTruthy();
+    // The currency keeps a heading of its own, one level down: the lock rule is
+    // its own subject and an unheaded field in a list of fields does not say so.
+    const currency = within(panel).getByRole("heading", {
+      name: /^currency$/i,
+    });
+    expect(currency.tagName).toBe("H3");
 
-    // One button commits both cards, and it is not inside either of them — a
-    // save sitting in one card would read as saving only that card.
+    // One button, and it is on the surface that holds the fields.
     const saves = screen.getAllByRole("button", { name: /save/i });
     expect(saves).toHaveLength(1);
-    expect(organization.contains(saves[0])).toBe(false);
-    expect(currency.contains(saves[0])).toBe(false);
+    expect(panel.contains(saves[0])).toBe(true);
 
-    const name = within(organization).getByLabelText(/organization name/i);
+    const name = within(panel).getByLabelText(/organization name/i);
     await userEvent.clear(name);
     await userEvent.type(name, "Brandt Group");
-    const zone = within(organization).getByLabelText(/reporting timezone/i);
+    const zone = within(panel).getByLabelText(/reporting timezone/i);
     await userEvent.clear(zone);
     await userEvent.type(zone, "Europe/Vilnius");
     await userEvent.click(saves[0]);

@@ -1,13 +1,20 @@
-.rates-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
+/* The two price sheets (Settings → General, Settings → AI). */
 
+/* Refresh and the status line it produces read as one control: the button, and
+ * beside it either "queued" or the reason it was not. They wrap together rather
+ * than running the row wide, because the sentence is longer than the button on
+ * every locale. */
 .rates-refresh {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+/* A refresh that failed says so where the button is. Tinting is not the signal
+ * — the words are — but a failure that reads at the same weight as the success
+ * beside it is one a reader scans past. */
+.rates-error {
+  color: var(--danger);
+  font-size: var(--fs-sm);
 }

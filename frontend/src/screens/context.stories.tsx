@@ -3,7 +3,12 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RecordContextPanel } from "./context";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 const populated = () =>
   jsonResponse({
@@ -27,7 +32,7 @@ const populated = () =>
   });
 
 const meta: Meta<typeof RecordContextPanel> = {
-  title: "Screens/context",
+  title: "Records/Record context",
   component: RecordContextPanel,
 };
 export default meta;
@@ -35,7 +40,10 @@ type Story = StoryObj<typeof RecordContextPanel>;
 
 export const Populated: Story = {
   render: () => {
-    installFetchStub({ "GET /records/person/p1/context": populated });
+    installFetchStub({
+      "GET /me": meRoute({}),
+      "GET /records/person/p1/context": populated,
+    });
     return (
       <StoryProviders>
         <RecordContextPanel entityType="person" id="p1" />
@@ -47,6 +55,7 @@ export const Populated: Story = {
 export const Empty: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/person/p1/context": () =>
         jsonResponse({ anchor: { type: "person", id: "p1" }, sections: [] }),
     });

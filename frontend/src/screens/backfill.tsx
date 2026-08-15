@@ -13,6 +13,7 @@ import {
   problemMessageOf,
   throwProblem,
 } from "./common";
+import "./backfill.css";
 
 // The bounded connect-time backfill (ADR-0063): pick a window, see the scope
 // BEFORE anything spends (ADR-0020 preview-before-spend — the estimate card
@@ -22,10 +23,16 @@ import {
 // first thing a newly-connected user sees is honest scope, not a blank form —
 // but the spend still waits for the explicit "Start the import" consent.
 //
-// This panel is mounted in two places now: the onboarding coldstart (no
-// `initial`, always fetches) and the Settings connected-inboxes card (which
-// already holds the run row via the embedded `CaptureConnection.backfill` —
-// seeding from it renders a live run with no extra request).
+// Its one caller today is the Settings connected-inboxes card, which already
+// holds the run row via the embedded `CaptureConnection.backfill` — seeding
+// from it renders a live run with no extra request. Without a seed (the shape
+// the onboarding coldstart used) it simply fetches on mount.
+//
+// It imports its own sheet. Every class it names — .backfill-setup,
+// .backfill-h, .capture-hero, .capture-stat — used to be declared in
+// onboarding.css, which this file has never imported and whose screen no longer
+// mounts this panel at all, so the only caller was rendering it entirely
+// unstyled.
 
 type BackfillStatus = components["schemas"]["BackfillStatus"];
 type Provider = components["schemas"]["CaptureConnection"]["provider"];
@@ -343,9 +350,14 @@ function BackfillSetup({
           {narrowing ? t("backfill.narrowingNote") : startErrorMessage}
         </p>
       )}
-      <button type="button" className="backfill-skip" onClick={onSkip}>
-        {t("backfill.skip")}
-      </button>
+      {/* The one button on this panel that is not a Button — a bare <button>
+          carrying a class from a sheet this file never imported, so on Settings
+          it rendered as the browser's own grey chrome. */}
+      <div className="backfill-foot">
+        <Button small onClick={onSkip}>
+          {t("backfill.skip")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -490,14 +502,11 @@ function RunView({
         </p>
       )}
       {live && (
-        <button
-          type="button"
-          className="backfill-skip"
-          disabled={cancelling}
-          onClick={onCancel}
-        >
-          {t("backfill.cancel")}
-        </button>
+        <div className="backfill-foot">
+          <Button small disabled={cancelling} onClick={onCancel}>
+            {t("backfill.cancel")}
+          </Button>
+        </div>
       )}
       {live && cancelError && (
         <p className="t-small backfill-error">{cancelError}</p>

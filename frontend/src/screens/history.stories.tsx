@@ -7,6 +7,7 @@ import {
   emptyPage,
   installFetchStub,
   jsonResponse,
+  meRoute,
   StoryProviders,
 } from "./story-utils";
 
@@ -20,7 +21,7 @@ import {
 // formatDateTime on an Invalid time value — this keeps each endpoint's
 // response shaped for the schema it actually is.
 const meta: Meta = {
-  title: "Screens/History",
+  title: "Records/Record history",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -53,6 +54,7 @@ export const Changes: Story = {
   render: () => {
     seedWorkspace();
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/deal/d1/history": () =>
         jsonResponse({
           data: [created, updated],
@@ -101,6 +103,7 @@ export const FieldDiffs: Story = {
   render: () => {
     seedWorkspace();
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/deal/d1/history": () =>
         jsonResponse({
           data: [updated],
@@ -124,6 +127,7 @@ export const Empty: Story = {
   render: () => {
     seedWorkspace();
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/deal/d1/history": () => jsonResponse(emptyPage),
       "GET /field-history": () => jsonResponse(emptyPage),
     });
@@ -142,6 +146,7 @@ export const ErrorState: Story = {
     // error has to come back on for the story to demonstrate the error
     // state; field-history stays healthy in case the reviewer switches tabs.
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/deal/d1/history": () =>
         jsonResponse({ title: "boom" }, 500),
       "GET /field-history": () => jsonResponse(emptyPage),
@@ -160,6 +165,7 @@ export const AgentAttribution: Story = {
   render: () => {
     seedWorkspace();
     installFetchStub({
+      "GET /me": meRoute({}),
       "GET /records/deal/d1/history": () =>
         jsonResponse({
           data: [updated],

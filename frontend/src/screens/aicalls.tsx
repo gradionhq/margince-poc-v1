@@ -1,15 +1,24 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { useId, useState } from "react";
+import { type CSSProperties, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { QueryGate, QueryStates, throwProblem, useMe } from "./common";
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -56,7 +65,11 @@ export function CallDetailPanel({
                 })
               : t("aicalls.detail.contextNone")}
           </p>
-          <h3>{t("aicalls.detail.attempts")}</h3>
+          {/* A bare <h3> carries no class, and preflight leaves it at body size
+              and body weight — a heading only the document tree can see. The
+              eyebrow is the one spelling of a label over a block, and `as="h3"`
+              is what keeps it a real heading inside the card's own h2. */}
+          <Eyebrow as="h3">{t("aicalls.detail.attempts")}</Eyebrow>
           <ol>
             {query.data.attempts.map((attempt) => (
               <li key={attempt.attempt}>
@@ -80,7 +93,7 @@ export function CallDetailPanel({
                 style={{ marginTop: "var(--space-3)" }}
               >
                 <div className="field">
-                  <span className="code-label">
+                  <span className="code-label t-eyebrow">
                     {t("aicalls.detail.request")}
                   </span>
                   <pre className="code-block">
@@ -88,7 +101,7 @@ export function CallDetailPanel({
                   </pre>
                 </div>
                 <div className="field">
-                  <span className="code-label">
+                  <span className="code-label t-eyebrow">
                     {t("aicalls.detail.response")}
                   </span>
                   <pre className="code-block">
@@ -154,90 +167,100 @@ export function AiCallsCard() {
     // claim about the data rather than about who may read it. No request either:
     // the query is disabled, because a settled denial is not a failure to retry.
     return (
-      <Card
-        title={t("aicalls.title")}
-        sub={t("aicalls.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <QueryGate query={me}>
-          {() => (
-            <EmptyState>
-              <p className="t-small">{t("aicalls.withheld")}</p>
-            </EmptyState>
-          )}
-        </QueryGate>
-      </Card>
+      <Panel title={t("aicalls.title")}>
+        <PanelBody>
+          <p className="t-sub" style={PANEL_SUB}>
+            {t("aicalls.sub")}
+          </p>
+          <QueryGate query={me}>
+            {() => (
+              <EmptyState>
+                <p className="t-small">{t("aicalls.withheld")}</p>
+              </EmptyState>
+            )}
+          </QueryGate>
+        </PanelBody>
+      </Panel>
     );
   }
 
+  // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Card
-      title={t("aicalls.title")}
-      sub={t("aicalls.sub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
-      <QueryStates query={query}>
-        <Select
-          // The column header names what this filters on; the control sits above
-          // the table with nothing beside it, so without a name of its own a
-          // screen reader reaches an unnamed combobox.
-          aria-label={t("aicalls.col.task")}
-          value={task}
-          onChange={setTask}
-          // "All tasks" is a real option, not the select's placeholder: a
-          // reader who filtered to one task has to be able to come back.
-          // A task name is a wire value the server owns, so it is its own
-          // label — there is nothing to translate.
-          options={[
-            { value: "", label: t("aicalls.filter.all") },
-            ...tasks.map((value) => ({ value, label: value })),
-          ]}
-        />
-        {calls.length === 0 ? (
-          <EmptyState>{t("aicalls.empty")}</EmptyState>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                {/* The disclosure column. Named rather than left blank: a table
-                    that announces five headers for six cells makes the reader
-                    count. */}
-                <th className="sr-only">{t("aicalls.col.detail")}</th>
-                <th>{t("aicalls.col.when")}</th>
-                <th>{t("aicalls.col.task")}</th>
-                <th>{t("aicalls.col.model")}</th>
-                <th>{t("aicalls.col.tokens")}</th>
-                <th>{t("aicalls.col.latency")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((call) => (
-                <FragmentRow
-                  key={call.id}
-                  call={call}
-                  expanded={expanded === call.id}
-                  captureEnabled={captureEnabled}
-                  onToggle={() =>
-                    setExpanded(expanded === call.id ? null : call.id)
-                  }
-                  when={formatDateTime(call.occurred_at, locale, zone)}
-                  tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
-        {query.hasNextPage && (
-          <Button
-            small
-            disabled={query.isFetchingNextPage}
-            onClick={() => void query.fetchNextPage()}
-          >
-            {t("aicalls.loadMore")}
-          </Button>
-        )}
-      </QueryStates>
-    </Card>
+    <Panel title={t("aicalls.title")}>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("aicalls.sub")}
+        </p>
+        <QueryStates query={query}>
+          <Select
+            // The column header names what this filters on; the control sits above
+            // the table with nothing beside it, so without a name of its own a
+            // screen reader reaches an unnamed combobox.
+            aria-label={t("aicalls.col.task")}
+            value={task}
+            onChange={setTask}
+            // "All tasks" is a real option, not the select's placeholder: a
+            // reader who filtered to one task has to be able to come back.
+            // A task name is a wire value the server owns, so it is its own
+            // label — there is nothing to translate.
+            options={[
+              { value: "", label: t("aicalls.filter.all") },
+              ...tasks.map((value) => ({ value, label: value })),
+            ]}
+          />
+          {calls.length === 0 ? (
+            <EmptyState>{t("aicalls.empty")}</EmptyState>
+          ) : (
+            // Six columns of trace, none of them droppable — a call is only
+            // diagnosable with its model, its tokens and its latency side by
+            // side. The table scrolls sideways inside the card instead of the
+            // page scrolling, the same containment DataTable gives every list
+            // built from it (atoms.tsx).
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    {/* The disclosure column. Named rather than left blank: a
+                      table that announces five headers for six cells makes the
+                      reader count. */}
+                    <th className="sr-only">{t("aicalls.col.detail")}</th>
+                    <th>{t("aicalls.col.when")}</th>
+                    <th>{t("aicalls.col.task")}</th>
+                    <th>{t("aicalls.col.model")}</th>
+                    <th>{t("aicalls.col.tokens")}</th>
+                    <th>{t("aicalls.col.latency")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calls.map((call) => (
+                    <FragmentRow
+                      key={call.id}
+                      call={call}
+                      expanded={expanded === call.id}
+                      captureEnabled={captureEnabled}
+                      onToggle={() =>
+                        setExpanded(expanded === call.id ? null : call.id)
+                      }
+                      when={formatDateTime(call.occurred_at, locale, zone)}
+                      tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {query.hasNextPage && (
+            <Button
+              small
+              disabled={query.isFetchingNextPage}
+              onClick={() => void query.fetchNextPage()}
+            >
+              {t("aicalls.loadMore")}
+            </Button>
+          )}
+        </QueryStates>
+      </PanelBody>
+    </Panel>
   );
 }
 

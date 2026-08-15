@@ -13,7 +13,10 @@ import type { components } from "../api/schema";
 import { useCanMutate, useHoldsAdminRole } from "../app/capability";
 import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
 import { routeHash } from "../app/router";
-import { Badge, Card, Checkbox, EmptyState } from "../design-system/atoms";
+import { Badge, Card, EmptyState, SectionHeader } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
+import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import {
   isVersionSkew,
@@ -258,21 +261,31 @@ export function ExtensionAccessCard() {
 
   return (
     <div className="ext-stack">
-      <Card title={t("extAccess.title")} sub={t("extAccess.sub")}>
-        {/* Gate on the role probe itself so the admin-only notice appears only
-            once /me has answered — never as a flash while it loads. */}
-        <QueryGate query={me}>
-          {() =>
-            isAdmin ? (
-              <InventoryLead query={query} canManage={canMutate} />
-            ) : (
-              <EmptyState>
-                <p className="t-small">{t("extAccess.adminOnly")}</p>
-              </EmptyState>
-            )
-          }
-        </QueryGate>
-      </Card>
+      {/* tone="accent" — the one lead on this tab. Everything else here reports
+          or manages PEOPLE; this is the only surface in the product that can
+          grant an extension's RBAC objects at all, and until somebody does, a
+          shipped and enabled unit renders "you do not hold access" for every
+          seat. It used to be a bare <div> below the roster, with no card and
+          nothing saying it mattered. There is exactly one accent per page and
+          this is it. */}
+      <Panel tone="accent" title={t("extAccess.title")}>
+        <PanelBody>
+          <p className="t-caption ext-lead-sub">{t("extAccess.sub")}</p>
+          {/* Gate on the role probe itself so the admin-only notice appears only
+              once /me has answered — never as a flash while it loads. */}
+          <QueryGate query={me}>
+            {() =>
+              isAdmin ? (
+                <InventoryLead query={query} />
+              ) : (
+                <EmptyState>
+                  <p className="t-small">{t("extAccess.adminOnly")}</p>
+                </EmptyState>
+              )
+            }
+          </QueryGate>
+        </PanelBody>
+      </Panel>
       {/* Each unit gets a card of its own, beside the lead card rather than
           inside it: the inventory read's pending and error surfaces belong with
           the heading that names the page, and a unit is a subject in its own
@@ -294,12 +307,15 @@ export function ExtensionAccessCard() {
   );
 }
 
-// The lead card's body: the read's own pending/error surface, plus the two
-// sentences that speak for the whole inventory rather than for one unit.
+// The lead card's body: the read's own pending/error surface, plus the sentence
+// that speaks for the whole inventory rather than for one unit.
+//
+// The seat ceiling used to be stated HERE, one card above the controls it
+// governs — a reader looking at a row of dead toggles had to leave the card that
+// held them to find out why. It moved to the unit card, beside them.
 function InventoryLead({
   query,
-  canManage,
-}: Readonly<{ query: QueryLike<ComposedAccess>; canManage: boolean }>) {
+}: Readonly<{ query: QueryLike<ComposedAccess> }>) {
   const t = useT();
   const units = query.data?.extensions;
   return (
@@ -308,12 +324,6 @@ function InventoryLead({
         <EmptyState>
           <p className="t-small">{t("extAccess.empty")}</p>
         </EmptyState>
-      ) : null}
-      {/* The seat ceiling, said once rather than beside every matrix: a read
-          seat sees the whole inventory and every grant, and changes none of
-          them. */}
-      {units && units.length > 0 && !canManage ? (
-        <p className="t-small ext-note">{t("extAccess.readOnly")}</p>
       ) : null}
     </QueryStates>
   );
@@ -344,11 +354,10 @@ function UnitCard({
   // grants below instead of the deploy.
   const page = findExtension(unit.name);
   return (
-    <Card
-      as="article"
+    <Panel
       className="ext-unit"
       title={unit.name}
-      actions={
+      titleAction={
         <div className="ext-unit-actions">
           <Badge>{t("extAccess.version", { version: unit.version })}</Badge>
           {page ? (
@@ -369,40 +378,52 @@ function UnitCard({
         </div>
       }
     >
-      {/* A whole sentence, so it stays in the body where the heading row holds
-          only the link it stands in for. */}
-      {page ? null : (
-        <p className="t-small ext-note ext-unit-nopage">
-          <Info aria-hidden size={15} />
-          {t("extAccess.noPage", { name: unit.name })}
-        </p>
-      )}
-      <div className="ext-block">
-        <h3 className="t-label ext-block-title">
-          {t("extAccess.brings.heading")}
-        </h3>
-        <UnitBrings unit={unit} />
-      </div>
-      <div className="ext-block">
-        <h3 className="t-label ext-block-title">
-          {t("extAccess.grants.heading")}
-        </h3>
-        {unit.rbac_objects.length === 0 ? (
-          <p className="t-small ext-note">{t("extAccess.noObjects")}</p>
-        ) : (
-          <div className="ext-objects">
-            {unit.rbac_objects.map((object) => (
-              <ObjectMatrix
-                key={object}
-                object={object}
-                roles={roles}
-                canManage={canManage}
-              />
-            ))}
-          </div>
+      <PanelBody>
+        {/* A whole sentence, so it stays in the body where the heading row holds
+            only the link it stands in for. */}
+        {page ? null : (
+          <p className="t-small ext-note ext-unit-nopage">
+            <Info aria-hidden size={15} />
+            {t("extAccess.noPage", { name: unit.name })}
+          </p>
         )}
-      </div>
-    </Card>
+        {/* SectionHeader level={3}, not a `t-label` h3: these are sections
+            inside the unit's section and they owe the outline a real heading.
+            Spelled as a class they announced as headings and DREW as 12.5px —
+            the smallest type in the system — so the eye read them as peers of
+            the chips beneath them while the document said otherwise. */}
+        <div className="ext-block">
+          <SectionHeader level={3} title={t("extAccess.brings.heading")} />
+          <UnitBrings unit={unit} />
+        </div>
+        <div className="ext-block">
+          <SectionHeader level={3} title={t("extAccess.grants.heading")} />
+          {/* The seat ceiling, stated in the card that HOLDS the controls it
+              governs rather than one card up. Once per unit, not once per
+              toggle: every switch below also carries it as its `reason`, which
+              is what puts it in the accessibility tree beside the control. */}
+          {!canManage && unit.rbac_objects.length > 0 ? (
+            <Callout tone="info" className="ext-readonly">
+              {t("extAccess.readOnly")}
+            </Callout>
+          ) : null}
+          {unit.rbac_objects.length === 0 ? (
+            <p className="t-small ext-note">{t("extAccess.noObjects")}</p>
+          ) : (
+            <div className="ext-objects">
+              {unit.rbac_objects.map((object) => (
+                <ObjectMatrix
+                  key={object}
+                  object={object}
+                  roles={roles}
+                  canManage={canManage}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -489,17 +510,21 @@ function BringsRow({
  * is about — a table announced as "read create update delete" with no subject
  * is unreadable however many ticks it contains.
  *
- * Every cell is a native checkbox carrying its own full sentence as its
- * accessible name ("Allow Rep to read ext_notes_note"), because the header
- * association alone is a hint, not a name: a control has to be identifiable
- * out of context, and it is the only thing a user hears when tabbing straight
- * to it. The visible tick therefore has no visible text of its own — the name
- * lives in an `.sr-only` span inside the label the Checkbox atom wraps around
- * the input, which is also what makes the whole cell clickable.
+ * Every cell is a `Switch`, not a `Checkbox`, and the difference is the whole
+ * point of this grid: flipping one WRITES an RBAC grant. A checkbox states an
+ * intent something later submits, so a reader who was told "checkbox" has been
+ * told their next click is safe until they press Save — and there is no Save.
+ * `role="switch"` is what says the click IS the change.
  *
- * Native checkboxes are what keeps it keyboard-operable: Tab reaches every
- * cell in reading order and Space toggles it, with no key handling of our own
- * to get wrong.
+ * Each carries its own full sentence as its accessible name ("Allow Rep to read
+ * ext_notes_note"), because the header association alone is a hint, not a name:
+ * a control has to be identifiable out of context, and it is the only thing a
+ * user hears when tabbing straight to it. The name is `labelHidden`, so the
+ * visible cell is the track alone.
+ *
+ * A seat that may not write gets the reason as the switch's own `reason`, which
+ * `aria-describedby` attaches to the control — the block above states it once
+ * for the eye, this states it to every reader who lands on a single cell.
  */
 function ObjectMatrix({
   object,
@@ -558,31 +583,33 @@ function ObjectMatrix({
                     ) : null}
                   </th>
                   {CRUD.map((action) => (
-                    <td key={action}>
-                      <Checkbox
-                        className="ext-cell"
+                    <td key={action} className="ext-cell">
+                      <Switch
+                        labelHidden
+                        label={t("extAccess.cell", {
+                          role: role.name,
+                          action: t(`extAccess.action.${action}`),
+                          object,
+                        })}
                         checked={grant[action]}
                         disabled={!canManage || setGrant.isPending}
-                        onChange={(event) =>
+                        // Only the PERMISSION denial gets a reason. A write in
+                        // flight is the other way this is disabled, and it
+                        // wants no words at all — a sentence that appeared for
+                        // 200ms on every toggle would be noise, not an
+                        // explanation.
+                        reason={canManage ? undefined : t("extAccess.readOnly")}
+                        onChange={(next) =>
                           setGrant.mutate({
                             roleKey: role.key,
                             object,
-                            grant: { ...grant, [action]: event.target.checked },
-                            // The version of the role THIS tick was read from,
+                            grant: { ...grant, [action]: next },
+                            // The version of the role THIS cell was read from,
                             // not a version fetched at write time: that is the
                             // whole guarantee — the server compares against
                             // what the operator was looking at.
                             version: role.version,
                           })
-                        }
-                        label={
-                          <span className="sr-only">
-                            {t("extAccess.cell", {
-                              role: role.name,
-                              action: t(`extAccess.action.${action}`),
-                              object,
-                            })}
-                          </span>
                         }
                       />
                     </td>
@@ -594,25 +621,32 @@ function ObjectMatrix({
         </table>
       </div>
       {nobodyReads ? (
-        // role="status" rather than plain prose: the sentence appears and
-        // disappears as the last read grant is toggled, and a change nobody is
-        // told about is the same silence this screen exists to break.
-        <p role="status" className="ext-warn t-small">
-          <AlertTriangle aria-hidden size={15} />
+        // `warn` is exactly the claim: nothing is broken, and something will go
+        // wrong if nobody acts — every screen this unit ships renders "you do
+        // not hold access" until a read grant exists. live="status" because the
+        // sentence appears and disappears as the last read grant is toggled,
+        // and a change nobody is told about is the silence this screen exists
+        // to break.
+        <Callout
+          tone="warn"
+          live="status"
+          icon={AlertTriangle}
+          className="ext-matrix-note"
+        >
           {t("extAccess.nobodyReads", { object })}
-        </p>
+        </Callout>
       ) : null}
       {setGrant.isError ? (
-        <p role="alert" className="form-error">
+        <Callout tone="danger" live="alert" className="ext-matrix-note">
           {/* A version skew is not a failure to phrase generically: the
-              operator's tick did not apply, someone else's did, and the matrix
+              operator's flip did not apply, someone else's did, and the matrix
               above has just been repainted with theirs. Saying "couldn't save"
               there would leave them staring at a grid that silently changed
               under them. Every other refusal keeps the server's own words. */}
           {skew
             ? t("extAccess.versionSkew")
             : problemMessageOf(setGrant.error, t)}
-        </p>
+        </Callout>
       ) : null}
     </Card>
   );

@@ -10,7 +10,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // neighbourhood, a capped one, a withheld group, and an account with nothing
 // attached to it yet.
 const meta: Meta = {
-  title: "Screens/Company connections",
+  title: "Records/Company rail/Relationship graph",
   parameters: { layout: "padded" },
 };
 export default meta;

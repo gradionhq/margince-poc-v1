@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -381,71 +382,75 @@ export function ConnectedAgentsCard() {
   useClockAt(nextExpiry(connections, Date.now()));
 
   return (
-    <Card
-      title={t("agents.connected")}
-      sub={t("agents.connectedSub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
-      {/* The empty state is written out here rather than left to QueryGate's
+    // No margin of its own: the settings stack owns the gap between two cards,
+    // and a card that also pays for one gets double the interval its neighbours
+    // get.
+    <Panel title={t("agents.connected")}>
+      <PanelBody>
+        <p className="t-small settings-panel-sub">{t("agents.connectedSub")}</p>
+        {/* The empty state is written out here rather than left to QueryGate's
           generic one: "nothing here" beside a guide explaining how to connect
           reads as a loading failure, and the sentence a human needs is that no
           agent has connected YET. */}
-      {/* The wrapper is the disconnect confirm's focus anchor: it holds whatever
+        {/* The wrapper is the disconnect confirm's focus anchor: it holds whatever
           the list currently is — the connections that remain, or the "no agent
           is connected" line when the ended one was the last — and it is the only
           thing here that survives every one of those transitions. tabIndex -1
           makes it reachable by focus() without joining anybody's Tab order. */}
-      <div ref={listRegion} tabIndex={-1}>
-        <QueryGate query={list}>
-          {() => {
-            if (connections.length === 0) {
-              return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
-            }
-            return (
-              <ul
-                style={{
-                  listStyle: "none",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-3)",
-                }}
-              >
-                {connections.map((passport) => (
-                  <ConnectionRow
-                    key={passport.id}
-                    passport={passport}
-                    onEnd={() => setConfirmId(passport.id)}
-                  />
-                ))}
-              </ul>
-            );
+        <div ref={listRegion} tabIndex={-1}>
+          <QueryGate query={list}>
+            {() => {
+              if (connections.length === 0) {
+                return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
+              }
+              return (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-3)",
+                  }}
+                >
+                  {connections.map((passport) => (
+                    <ConnectionRow
+                      key={passport.id}
+                      passport={passport}
+                      onEnd={() => setConfirmId(passport.id)}
+                    />
+                  ))}
+                </ul>
+              );
+            }}
+          </QueryGate>
+        </div>
+        <ConnectGuide />
+        <ConfirmModal
+          open={confirmId != null}
+          onClose={() => {
+            setConfirmId(null);
+            disconnect.reset();
           }}
-        </QueryGate>
-      </div>
-      <ConnectGuide />
-      <ConfirmModal
-        open={confirmId != null}
-        onClose={() => {
-          setConfirmId(null);
-          disconnect.reset();
-        }}
-        title={t("agents.disconnect")}
-        confirmLabel={t("agents.disconnect")}
-        // The final click revokes a credential AND the grant beneath it; a
-        // primary-styled confirm would understate that at the one moment it
-        // matters most.
-        confirmVariant="danger"
-        onConfirm={() => confirmId && disconnect.mutate(confirmId)}
-        pending={disconnect.isPending}
-        error={disconnect.error ? problemMessageOf(disconnect.error, t) : null}
-        // The list the ended connection was in, since the row that opened this
-        // confirm is not in the refetched list at all. Landing there reads back
-        // what is still connected, which is the question somebody who just
-        // disconnected a client actually has next.
-        returnFocusTo={() => listRegion.current}
-      >
-        <p>{t("agents.disconnectConfirm")}</p>
-      </ConfirmModal>
-    </Card>
+          title={t("agents.disconnect")}
+          confirmLabel={t("agents.disconnect")}
+          // The final click revokes a credential AND the grant beneath it; a
+          // primary-styled confirm would understate that at the one moment it
+          // matters most.
+          confirmVariant="danger"
+          onConfirm={() => confirmId && disconnect.mutate(confirmId)}
+          pending={disconnect.isPending}
+          error={
+            disconnect.error ? problemMessageOf(disconnect.error, t) : null
+          }
+          // The list the ended connection was in, since the row that opened this
+          // confirm is not in the refetched list at all. Landing there reads back
+          // what is still connected, which is the question somebody who just
+          // disconnected a client actually has next.
+          returnFocusTo={() => listRegion.current}
+        >
+          <p>{t("agents.disconnectConfirm")}</p>
+        </ConfirmModal>
+      </PanelBody>
+    </Panel>
   );
 }

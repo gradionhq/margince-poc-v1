@@ -499,13 +499,8 @@
   flex-direction: column;
   gap: 2px;
 }
-.firmo dt {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--textMeta);
-}
+/* The term in a firmographics pair is an eyebrow: the markup carries
+   .t-eyebrow, so this sheet no longer keeps its own near-copy of that type. */
 .firmo dd {
   font-size: 13.5px;
   color: var(--textContent);

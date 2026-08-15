@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
-import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import { Badge, Button, EmptyState } from "../design-system/atoms";
+import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { Panel, PanelBody } from "../design-system/panel";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
@@ -24,6 +26,13 @@ import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 // (the withheld branch below). The two WRITE actions — confirming a
 // reindex and the always-available force rebuild — are admin/ops-only
 // server-side too (embedding_reindex object's update grant).
+
+// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
+// is the body's first paragraph and owes its own separation from the content
+// under it; it is a token rather than a number so it moves with the scale, and
+// it lives here rather than in a screen sheet because it belongs to the panel
+// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
+const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
@@ -339,111 +348,121 @@ export function EmbedReindexCard() {
   // act on. This runs after every hook call above so the hooks-call-order stays
   // unconditional, and it is gated on the /me probe itself so the notice waits
   // for the grants rather than flashing while they are in flight.
+  //
+  // ONE panel shell for every state this card can be in. It used to be four
+  // copies of the same header — withheld, loading, unreadable, ready — and the
+  // two middle ones had drifted into a bare paragraph apiece: no live region on
+  // the loading line, and no retry at all on the failure. QueryGate is the
+  // shared spelling of those three rungs, and it carries the server's own
+  // explanation with the retry rather than replacing it with "unavailable".
+  let body: ReactNode;
   if (!canRead) {
-    return (
-      <Card
-        title={t("embedreindex.title")}
-        sub={t("embedreindex.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <QueryGate query={me}>
-          {() => (
-            <EmptyState>
-              <p className="t-small">{t("embedreindex.withheld")}</p>
-            </EmptyState>
-          )}
-        </QueryGate>
-      </Card>
+    body = (
+      <QueryGate query={me}>
+        {() => (
+          <EmptyState>
+            <p className="t-small">{t("embedreindex.withheld")}</p>
+          </EmptyState>
+        )}
+      </QueryGate>
+    );
+  } else {
+    body = (
+      <QueryGate query={status}>
+        {(data) => {
+          const isRunning = data.status === "reembedding";
+          return (
+            <>
+              <StatusHeader
+                data={data}
+                isRunning={isRunning}
+                locale={locale}
+                t={t}
+              />
+              {/* Gated on the update grant, not on the read that got us this
+                  far: a viewer may be entitled to see the status without being
+                  entitled to start a rebuild. */}
+              {canWrite && (
+                <>
+                  <ReindexActions
+                    data={data}
+                    isRunning={isRunning}
+                    onReindex={() =>
+                      openDialog("reindex", data.configured_identity)
+                    }
+                    onRebuild={() =>
+                      openDialog("rebuild", data.configured_identity)
+                    }
+                    t={t}
+                  />
+                  <ConfirmModal
+                    open={mode !== null}
+                    onClose={closeDialog}
+                    title={dialogTitle(mode ?? "reindex", t)}
+                    confirmLabel={dialogConfirmLabel(
+                      mode ?? "reindex",
+                      confirm.isPending,
+                      t,
+                    )}
+                    // Gate on a fully-loaded, non-errored, non-refetching
+                    // estimate — a cached preview that is refetching
+                    // (isFetching) or has errored must not leave Confirm live
+                    // over stale scope/cost.
+                    confirmDisabled={
+                      preview.isPending ||
+                      preview.isFetching ||
+                      preview.isError ||
+                      !preview.data
+                    }
+                    pending={confirm.isPending}
+                    error={
+                      confirm.error ? problemMessageOf(confirm.error, t) : null
+                    }
+                    onConfirm={() => {
+                      // The grant can be withdrawn while this dialog sits open
+                      // — /me refetches on focus and after any 403 — so the
+                      // write re-reads it rather than trusting the capability
+                      // that opened the dialog.
+                      if (!canWrite) {
+                        return;
+                      }
+                      confirm.mutate(mode === "rebuild");
+                    }}
+                  >
+                    {preview.isPending && (
+                      <p className="t-small">
+                        {t("embedreindex.previewLoading")}
+                      </p>
+                    )}
+                    {preview.isError && (
+                      <p className="t-small" style={{ color: "var(--danger)" }}>
+                        {problemMessageOf(preview.error, t)}
+                      </p>
+                    )}
+                    <EstimateBody
+                      preview={preview.data}
+                      locale={locale}
+                      t={t}
+                    />
+                  </ConfirmModal>
+                </>
+              )}
+            </>
+          );
+        }}
+      </QueryGate>
     );
   }
 
-  if (status.isPending) {
-    return (
-      <Card
-        title={t("embedreindex.title")}
-        sub={t("embedreindex.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <p className="t-small">{t("embedreindex.loading")}</p>
-      </Card>
-    );
-  }
-  if (status.isError || !status.data) {
-    return (
-      <Card
-        title={t("embedreindex.title")}
-        sub={t("embedreindex.sub")}
-        style={{ marginBottom: "var(--space-4)" }}
-      >
-        <p className="t-small">{t("embedreindex.statusUnavailable")}</p>
-      </Card>
-    );
-  }
-
-  const data = status.data;
-  const isRunning = data.status === "reembedding";
-
+  // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Card
-      title={t("embedreindex.title")}
-      sub={t("embedreindex.sub")}
-      style={{ marginBottom: "var(--space-4)" }}
-    >
-      <StatusHeader data={data} isRunning={isRunning} locale={locale} t={t} />
-      {/* Gated on the update grant, not on the read that got us past the
-          early return above: a viewer may be entitled to see the status
-          without being entitled to start a rebuild. */}
-      {canWrite && (
-        <>
-          <ReindexActions
-            data={data}
-            isRunning={isRunning}
-            onReindex={() => openDialog("reindex", data.configured_identity)}
-            onRebuild={() => openDialog("rebuild", data.configured_identity)}
-            t={t}
-          />
-          <ConfirmModal
-            open={mode !== null}
-            onClose={closeDialog}
-            title={dialogTitle(mode ?? "reindex", t)}
-            confirmLabel={dialogConfirmLabel(
-              mode ?? "reindex",
-              confirm.isPending,
-              t,
-            )}
-            // Gate on a fully-loaded, non-errored, non-refetching estimate — a
-            // cached preview that is refetching (isFetching) or has errored must
-            // not leave Confirm live over stale scope/cost.
-            confirmDisabled={
-              preview.isPending ||
-              preview.isFetching ||
-              preview.isError ||
-              !preview.data
-            }
-            pending={confirm.isPending}
-            error={confirm.error ? problemMessageOf(confirm.error, t) : null}
-            onConfirm={() => {
-              // The grant can be withdrawn while this dialog sits open — /me
-              // refetches on focus and after any 403 — so the write re-reads it
-              // rather than trusting the capability that opened the dialog.
-              if (!canWrite) {
-                return;
-              }
-              confirm.mutate(mode === "rebuild");
-            }}
-          >
-            {preview.isPending && (
-              <p className="t-small">{t("embedreindex.previewLoading")}</p>
-            )}
-            {preview.isError && (
-              <p className="t-small" style={{ color: "var(--danger)" }}>
-                {problemMessageOf(preview.error, t)}
-              </p>
-            )}
-            <EstimateBody preview={preview.data} locale={locale} t={t} />
-          </ConfirmModal>
-        </>
-      )}
-    </Card>
+    <Panel title={t("embedreindex.title")}>
+      <PanelBody>
+        <p className="t-sub" style={PANEL_SUB}>
+          {t("embedreindex.sub")}
+        </p>
+        <CardBoundary>{body}</CardBoundary>
+      </PanelBody>
+    </Panel>
   );
 }

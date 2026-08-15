@@ -15,7 +15,7 @@ import { StoryProviders } from "./story-utils";
  * context would show a layout the product never renders.
  */
 const meta = {
-  title: "Screens/Auth/Identity region",
+  title: "Signed out/Identity region",
   component: IdentityRegion,
   parameters: { layout: "fullscreen" },
   decorators: [

@@ -31,7 +31,7 @@ arrive through props, translated by the caller with `t()`.
 | `Avatar` | A person's or company's chip: monogram, optional logo, optional per-name tint | `atoms.tsx` | ✅ |
 | `AvatarStack` | A group of people as overlapping monograms, folding past `max` into a "+N" chip rather than running the row wide. Expects a non-empty list: every caller guards `people.length > 0` before rendering it, so there is no "0 people" state to draw | `avatarstack.tsx` | ✅ |
 | `TextInput` | The one text field | `atoms.tsx` | ✅ |
-| `SearchField` | A text field with the search affordance | `atoms.tsx` | ✅ |
+| `SearchField` | A text field with the search affordance | `atoms.tsx` | ✅ (`Atoms → Search`) |
 | `Textarea` | The one multi-line field | `atoms.tsx` | ✅ |
 | **`Select`** | **The one dropdown: a button trigger plus a portalled listbox. Never a `<select>`** | **`select.tsx`** | ✅ |
 | `Checkbox` / `Radio` | A tick with its label as the other half of the click target | `atoms.tsx` | ✅ |
@@ -44,14 +44,14 @@ arrive through props, translated by the caller with `t()`.
 | **`FactList`** | **Label→value pairs a reader scans rather than edits. Rows arrive as an array so a caller drops absent facts: an empty value claims we know it and it is blank, which is not the same as not knowing** | `factlist.tsx` | ✅ |
 | `RecordPicker` | Search → candidates → pick, for choosing an existing record | `recordpicker.tsx` | ✅ |
 | `PassportSelect` / `ScopeChips` | Which agent passport, and the scopes it carries | `passportselect.tsx` | — |
-| `Modal` | The one dialog: portalled, Escape-closing, Tab kept inside. `placement="right"` is the drawer form — full height on the right edge, the record behind still legible; on a phone both are the same full-screen sheet | `atoms.tsx` | ✅ |
+| `Modal` | The one dialog: portalled, Escape-closing, Tab kept inside. `placement="right"` is the drawer form — full height on the right edge, the record behind still legible; on a phone both are the same full-screen sheet | `atoms.tsx` | ✅ (`Dialog` centred, `Drawer` right) |
 | `ConfirmModal` | A dialog that asks before something irreversible | `confirmmodal.tsx` | ✅ |
 | `OverflowMenu` | The verbs a record offers but a reader rarely wants | `atoms.tsx` | ✅ |
 | `Disclosure` | A section the reader opens when they want it | `atoms.tsx` | ✅ |
 | **`Card`** | **The one card surface. `as` picks the element (`section` by default, also `div` / `article` / `form` / `li`), `inset` is the recessed variant, and `title` / `sub` / `actions` render its `SectionHeader` — a hand-rolled `<div className="card">` is a second card the moment one of the five chrome values moves** | `atoms.tsx` | ✅ |
-| `SectionHeader` | The heading of a block: title, description on its own line under it at full width, and the block's actions beside the pair | `atoms.tsx` | ✅ |
+| `SectionHeader` | The heading of a block: title, description on its own line under it at full width, and the block's actions beside the pair. `level` is `1` / `2` / `3` — `1` for the one header that IS the page's name, `3` for a section INSIDE a section, and the type steps down with the outline rather than leaving a nested heading the same size as its parent. `Card` passes it straight through | `atoms.tsx` | ✅ |
 | `EmptyState` / `Skeleton` / `Kbd` | Page furniture: nothing-here, loading placeholder, key cap | `atoms.tsx` | ✅ |
-| `Panel` / `PanelBody` / `PanelRow` | The record page's titled-card shape, which `Card` does not offer: a fixed-height header (a title alone, or a title with a badge or a button, all the same height), full-bleed rows under it, and an optional footer band for a figure that belongs to the whole panel. `PanelBody` is its own component rather than a prop on `Panel`, because the header's rhythm, the body's padding and a row that wants to touch the panel's own edges are three different things living in one box: a caller needing both padded text and full-bleed rows nests `PanelBody` and `PanelRow` as siblings instead of fighting one slot that tries to be both. It is a `Card` with rows, not a rival surface — when `Card` grows a row and a footer band, this folds into it | `panel.tsx` | ✅ |
+| `Panel` / `PanelBody` / `PanelRow` / `PanelPlate` | The record page's titled-card shape, which `Card` does not offer: a fixed-height header (a title alone, or a title with a badge or a button, all the same height), full-bleed rows under it, and an optional footer band for a figure that belongs to the whole panel. `PanelBody` is its own component rather than a prop on `Panel`, because the header's rhythm, the body's padding and a row that wants to touch the panel's own edges are three different things living in one box: a caller needing both padded text and full-bleed rows nests `PanelBody` and `PanelRow` as siblings instead of fighting one slot that tries to be both. `tone="accent"` is the ONE lead variant: an accent border and a tinted header for the single card on a page that asks for a MOVE rather than reporting state — two of them on one page is no lead at all. `actions` is a band under the body for verbs that CHANGE the panel (the footer reports; this acts). `PanelPlate` is the recessed plate inset from the panel's edges that separates what IS from what to DO: context on the plate, moves full-bleed on the panel's own ground, and a reader can tell the halves apart before reading a word of either. It is a `Card` with rows, not a rival surface — when `Card` grows a row and a footer band, this folds into it | `panel.tsx` | ✅ |
 | `StatCard` / `AttainmentRing` | One reading with the basis it was drawn from; the server's attainment band as an arc | `atoms.tsx` | ✅ |
 | **`StatStrip`** | **A record's readings as ONE plate of ruled slots rather than N free-standing cards — cards are read one at a time, a strip is read across as a single comparison. Takes `StatCard`s as children and owns only the plate: slot count (from the children actually drawn, so a conditional slot leaves no empty cell), the rules between slots, the fold when the row stops being legible, and the one type scale every slot shares. A slot sized to its own content stops the row reading as one comparison** | `statstrip.tsx` | ✅ |
 | `Meter` / `Sparkline` / `Chip` | A proportion as a bar (pass `value` and `max`, never a percentage), a short series as a bare polyline, and one attribute of a record as an icon pill — a `Chip` is a fact, a `Badge` is a status | `readings.tsx` | ✅ |
@@ -66,10 +66,20 @@ arrive through props, translated by the caller with `t()`.
 | `ExplainNumber` | A converted aggregate opening into its contributing rows (FX lineage) | `explain.tsx` | — |
 | `MarginceCoreScene` | The product's one piece of AI identity, in its closed eight-state vocabulary. `aria-hidden`; callers pass `state` and never restyle. `margince-core-liquid.tsx` / `margince-core-feed.tsx` are its rendering ladder, not a caller's API | `margince-core.tsx` | ✅ |
 | `MarginceWorkbench` | The in-app agent workbench: steps, runtime chip, the Core in context | `margince-workbench.tsx` | — |
-| `PipelineBoard` / `DealCard` | The pipeline surface and its cards | `composed.tsx` | — |
+| `PipelineBoard` / `DealCard` | The pipeline surface and its cards | `composed.tsx` | ✅ (`RecordView → BoardInSurface`) |
 | `RecordView` | The record page shell: identity, readings, timeline | `composed.tsx` | ✅ |
-| `GroupedTimelineList` / `TimelineRow` / `MorningBriefItem` | The activity timeline, grouped, and one brief line | `composed.tsx` | via `RecordView` |
+| `GroupedTimelineList` / `TimelineRow` | The activity timeline, grouped | `composed.tsx` | via `RecordView` |
+| `MorningBriefItem` | One brief line. **Zero production callers and no story**: `RecordView` does not render it, and `home.tsx` draws its own `BriefItemCard` instead. Its only exercise is `composed.test.tsx`. Either the home brief adopts it or it goes — decide before building on it | `composed.tsx` | — |
 | `ProviderMark` | A federated provider's own sign-in mark — the ONE file allowed literal colours, because another company's colours are not ours to tokenise | `provider-mark.tsx` | — |
+| **`SurfaceState`** | **The nine-state honesty vocabulary — `ready \| empty \| withheld \| unavailable \| loading \| unsupported \| failed \| stale \| partial` — as ONE component, with `sectionState()` to classify a composite read's section and `omitted()` to ask whether a grant withheld it. `empty` is the only state allowed to say "there is none", because it is the only one that knows; drawing any of the other eight as empty states a fact the page does not have. Two ordering decisions are load-bearing: `stale` puts its caveat ABOVE the rows (a caveat under a figure arrives after the reader has taken it as current) and `partial` puts its count BELOW them. A `failed` with no `onRetry` is `unavailable` with extra words. The nine sentences are keyed `state.*`; what there is none OF stays the caller's word, in `emptyLabel`** | `surfacestate.tsx` | ✅ |
+| **`Eyebrow`** | **The one spelling of uppercase micro-type: 11px, `--fw-semibold`, `--tracking-eyebrow`, `--textMeta`. `as` picks `h2` / `h3` / `h4` / `span` / `dt`, because the same look is a real heading over a section and a plain label beside a value, and nothing about the type says which. The declarations live in `base.css` as `.t-eyebrow` so a selector-only site (`.firmo dt`) can reach them too** | `eyebrow.tsx` | ✅ |
+| **`CardBoundary`** | **A render boundary around ONE card. The app-level boundary is the floor, not the story: by the time it catches, the whole shell — navigation rail included — has unmounted, so one card's throw costs the reader every way out. This one keeps its place, says the card failed, and retries with the query cache reset beside its own state. It never shows the thrown error's text: a render throw names our internals and a reader cannot act on it** | `cardboundary.tsx` | ✅ |
+| `ListTable` | A record list as a table: columns, rows, the query dials above them, and the footer under them. Controlled — the screen owns the sort/filter/search state the server answers to | `listtable.tsx` | ✅ |
+| `ListSurface` | The chrome `ListTable` renders into, usable on its own for a list that is not a table: saved-view tabs, the count line, the search field, filter chips, the archived toggle, and the footer | `listsurface.tsx` | via `ListTable`, and directly in `RecordView → BoardInSurface` |
+| `Menu` | The popover panel `ListSurface` hangs its sort and filter sets in — a `fieldset` with a heading, because a set of controls that belong together IS one, and `align` picks which edge it opens from. Reached through the surface's own dials; there is no second spelling of a dropdown panel | `listsurface.tsx` | via `ListTable` |
+| `CountLine` | The one sentence under a list saying what is on screen out of what exists, and what it is sorted by. It is where "23 of 1,204" is spelled, so a screen never invents its own phrasing for the same fact — and `more` is what keeps an unknown total from being reported as a known one | `listsurface.tsx` | via `ListTable` |
+| `InlineChoice` / `InlineText` | Hover-to-edit ON a record page: a chooser that commits the instant something is picked, and a text field that commits on Enter or blur. Both show the plain VALUE with no hover affordance to a reader who may not edit it, keep the typed answer when a save is refused, and treat re-picking the stored value as no edit at all. `FieldRow` is what puts them in the grid | `inlinechoice.tsx` | via `FieldGrid` |
+| `Logomark` | The product's own "M". One mark, every fill on `currentColor`, so the shell chip and the onboarding speaker cannot drift into two | `logomark.tsx` | — |
 | `useTruncationTooltip` | The whole of a string its row had to truncate, on hover or focus — and nothing at all when the string already fits. Reach for it wherever user data of unbounded length is drawn on one line: a record name, a trail segment, a rail row's reading | `tooltip.tsx` | ✅ |
 | `usePrefersReducedMotion` / `useTypeStream` / `useDocumentIntro` | Motion, with one rule: reduced motion jumps to the END state, never to nothing | `motion.ts` | — |
 | `subscribeToWindowFocus` and friends | Whether this window has focus — one signal for the draw loop and the stylesheet alike | `window-focus.ts` | — |
@@ -120,12 +130,17 @@ Three consequences worth stating, because each was a real defect:
   installation, while "you may not reset this installation" is noise on every
   page that renders it. A surface that reports anything at all is not this.
 
-Two things carry this properly today and are worth copying: `Switch`'s `reason`
+**`SurfaceState` is the primitive for the third row**, and for the six other
+things a surface can be that are not content. Reach for it before hand-rolling
+a message line: it already knows that withheld, unavailable and unsupported are
+three different sentences, and that only `empty` may claim there is none.
+
+Two more things carry this properly and are worth copying: `Switch`'s `reason`
 prop, which renders the explanation **and** points the control at it with
 `aria-describedby` — the only accessibility-wired denial in the tree — and
-`FieldGuard`, for a withheld VALUE rather than a withheld surface. Everything
-else hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as
-the card body, which is the shape to match until a primitive earns its place.
+`FieldGuard`, for a withheld VALUE rather than a withheld surface. What is left
+hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as the
+card body, which is the shape to match where `SurfaceState` does not fit.
 
 `Switch` versus `Checkbox` follows from the same honesty: a `Checkbox` states an
 intent that something later submits, a `Switch` **is** the action. A control that
@@ -149,6 +164,24 @@ does, so every token re-resolves — check both before you call a surface done.
 Stories live beside their component as `<name>.stories.tsx`; that co-location is
 also what the change-scoped capture gate keys on
 (`frontend/scripts/fe-uat.mjs`).
+
+The sidebar has seven roots, and a story's `title` is the only thing that puts
+it under one — the gate keys on `importPath`, never on the title, so a title is
+free to describe the surface rather than the file:
+
+| Root | What is under it |
+|---|---|
+| `Design System/` | One node per primitive in this directory. |
+| `Records/` | The screens a rep works in, and the cards on them (`Company 360/`, `Company rail/`). |
+| `Settings/` | `You/` and `Organization/`, mirroring `SETTINGS_TABS` in `screens/settings.tsx` one for one, with the card as the leaf. |
+| `Patterns/` | Screen-tier building blocks that are not a page: the query gate, the create/edit/merge/share actions, the composer. |
+| `Onboarding/`, `Signed out/`, `Shell/` | The first run, the pages reachable without a session, and the application frame. |
+| `MCP Apps/` | The governed tool surfaces and their document forms. |
+
+Leaves are Sentence case throughout. The trap the old flat `Screens/` root left
+behind is worth naming once: `Company connections` was the company rail's
+relationship graph, not the settings Connections tab, and the tab it looked like
+had no story at all. It is `Records/Company rail/Relationship graph` now.
 
 ## Driving a control in a test
 

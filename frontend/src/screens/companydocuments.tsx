@@ -4,11 +4,12 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
-import { RECORD_ZONE, SectionPart, type SectionState } from "./company360";
+import { RECORD_ZONE } from "./company360";
 
 // The account's documents: the contracts, offers and legal files a rep goes
 // looking for before a call.
@@ -161,7 +162,7 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
         )
       ) : (
         <PanelBody>
-          <SectionPart
+          <SurfaceState
             state={state}
             emptyLabel={t("docs.empty")}
             detail={
@@ -169,7 +170,7 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
             }
           >
             {null}
-          </SectionPart>
+          </SurfaceState>
         </PanelBody>
       )}
     </Panel>

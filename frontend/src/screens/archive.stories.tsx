@@ -14,7 +14,7 @@ import { StoryProviders } from "./story-utils";
 // is a react-query mutation, so this needs the shared QueryClient provider
 // (not just LocaleProvider) even though no fetch ever actually fires here.
 const meta: Meta<typeof ArchiveAction> = {
-  title: "Screens/Archive",
+  title: "Patterns/Archive record",
   component: ArchiveAction,
   parameters: { layout: "padded" },
   decorators: [

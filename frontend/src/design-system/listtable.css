@@ -115,8 +115,16 @@
   color: var(--textPrimary);
   width: 180px;
 }
+/* Placeholder text is still text: SC 1.4.3 exempts inactive controls, pure
+ * decoration and invisible text, and a placeholder painted inside a live search
+ * field is none of the three. --textTertiary is the 3:1 mark role and measures
+ * 2.52:1 here, so it does not even carry a mark's floor — the AA small-text
+ * role is what a word a reader reads asks for. (The --textMuted named
+ * "placeholder-grade" in tokens.css is 1.54:1 and defensible nowhere paint
+ * lands.) The magnifier beside it keeps --textTertiary from .lt-search: that
+ * one IS a mark. */
 .lt-search-input::placeholder {
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 /* Controls a body brings with it (the deals pipeline picker and its stage and

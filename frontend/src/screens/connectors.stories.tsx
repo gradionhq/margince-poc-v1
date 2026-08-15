@@ -97,7 +97,7 @@ function cardStory(connections: CaptureConnection[]) {
 }
 
 const meta: Meta<typeof ConnectorsCard> = {
-  title: "Screens/connectors",
+  title: "Settings/You/Connections/Connectors",
   component: ConnectorsCard,
 };
 export default meta;
@@ -120,6 +120,29 @@ export const SyncError: Story = {
 };
 
 export const MixedRows: Story = {
+  render: cardStory([gmailConnected, gcalReauth, imapError, imapPolled]),
+};
+
+// All four statuses in dark, side by side. `statusTone` is the only thing that
+// separates "connected", "needs reconnecting" and "erroring" at a glance, and the
+// roster is where a reader compares them — three tones that hold apart in light
+// and collapse together in dark would read as four healthy mailboxes. The
+// finished BackfillPanel rides along inside the healthy row with its own
+// success-tinted plate.
+export const MixedRowsDark: Story = {
+  globals: { theme: "dark" },
+  render: cardStory([gmailConnected, gcalReauth, imapError, imapPolled]),
+};
+
+// The roster at 390px. A row is an identity column (provider, mailbox address,
+// three timestamp lines) beside up to three controls — a status badge, Reconnect
+// and Disconnect — and the reauth row is the one that has to fit all of them.
+// The healthy row also carries a whole nested panel (the finished backfill hero
+// with its three-stat grid), so this is a card inside a row inside a card at
+// phone width.
+export const MixedRowsPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
   render: cardStory([gmailConnected, gcalReauth, imapError, imapPolled]),
 };
 

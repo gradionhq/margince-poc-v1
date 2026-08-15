@@ -1,5 +1,26 @@
 /* Base controls (foundation v0 vocabulary) — grows as tickets need atoms. */
 
+/* Which palette the BROWSER draws its own widgets from.
+ *
+ * Every colour in this product is a token, and every token re-resolves when the
+ * shell stamps `data-theme` — but a handful of elements are painted by the
+ * engine rather than by us, and those read `color-scheme` and nothing else. The
+ * `<progress>` bar on the writing-voice card was the tell: on a dark panel it
+ * kept its light-mode widget colours, so the UNFINISHED part of the bar was the
+ * brightest thing on the surface and the meter read inverted. Form-control
+ * chrome, scrollbars and the caret have the same problem in miniature.
+ *
+ * Declared here rather than in tokens.css because tokens.css mirrors the design
+ * canon value for value and its test pins that; this is a rendering instruction,
+ * not a colour. */
+:root {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 /* Text for assistive technology only: in the accessibility tree, off the
    screen. Clipped to 1px rather than `display: none` or `visibility: hidden` —
    both of those remove it from the tree as well, which is the opposite of what
@@ -140,6 +161,19 @@
 .t-mono {
   font-family: var(--f-mono);
 }
+/* The eyebrow: the micro-label above the thing it names. THE one spelling of
+   uppercase micro-type — five sheets used to carry their own copy of it, at
+   11px or 12px and 0.03em or 0.04em, and every copy looked right on its own.
+   The tracking reads --tracking-eyebrow, which is the token named for exactly
+   this: uppercase this small sets cramped at the default spacing.
+   `Eyebrow` (eyebrow.tsx) renders it with the element the caller means. */
+.t-eyebrow {
+  font-size: var(--fs-eyebrow);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
 
 /* Code / payload preview surface (AI observability: the call-trace panel and
    the cert-scenario export). Wraps long single-line JSON/YAML and scrolls in
@@ -159,12 +193,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Small uppercase label sitting above a code-block or preview section. */
+/* Small uppercase label sitting above a code-block or preview section. It IS
+   an eyebrow, so it carries .t-eyebrow for the type and keeps only the one
+   thing that is its own: a span that has to take the full line above the
+   block it names. */
 .code-label {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--textMeta);
 }

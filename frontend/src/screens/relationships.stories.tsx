@@ -9,7 +9,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // GET /relationships/{id} in the contract — every row is hydrated straight
 // off the list read). The fixture mirrors people.test.tsx's employmentRel.
 const meta: Meta = {
-  title: "Screens/Relationships",
+  title: "Records/Relationships",
   parameters: { layout: "padded" },
 };
 export default meta;

@@ -77,21 +77,26 @@ export const Prose: Story = {
   ),
 };
 
-export const Facts: Story = {
-  name: "FactList",
+/** A callout carrying facts rather than prose — the pairing this file is the
+ * right home for. FactList's own states are catalogued under its own name in
+ * `factlist.stories.tsx`; a primitive whose only story sits under a different
+ * component's heading is a primitive nobody finds. */
+export const WithFacts: Story = {
   render: () => (
-    <FactList
-      numeric
-      facts={[
-        { key: "in", term: "Last inbound", value: "3 Feb 2026" },
-        { key: "out", term: "Last outbound", value: "Never" },
-        {
-          key: "spend",
-          term: "Spend this month",
-          value: "€1,204.00",
-          note: "Partial — 12 of 28 days counted",
-        },
-      ]}
-    />
+    <Callout tone="warn" icon={TriangleAlert} title="Nobody has written back">
+      <FactList
+        numeric
+        facts={[
+          { key: "in", term: "Last inbound", value: "3 Feb 2026" },
+          { key: "out", term: "Last outbound", value: "Never" },
+          {
+            key: "spend",
+            term: "Spend this month",
+            value: "€1,204.00",
+            note: "Partial — 12 of 28 days counted",
+          },
+        ]}
+      />
+    </Callout>
   ),
 };

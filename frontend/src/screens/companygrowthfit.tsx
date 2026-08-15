@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Eyebrow } from "../design-system/eyebrow";
 import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -125,7 +126,7 @@ export function GrowthFitPanel({
       className="co-part co-growth-fit"
       aria-label={t("co.growthFit.title")}
     >
-      <h2 className="co-part-label">{t("co.growthFit.title")}</h2>
+      <Eyebrow as="h2">{t("co.growthFit.title")}</Eyebrow>
       {fit.isPending ? (
         <Skeleton width="100%" height={64} />
       ) : !readable ? (

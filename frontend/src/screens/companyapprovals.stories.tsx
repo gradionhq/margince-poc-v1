@@ -14,7 +14,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // Populated story pins with two `send_email` rows under one heading.
 
 const meta: Meta = {
-  title: "Screens/Company approvals",
+  title: "Records/Company 360/Approvals",
   parameters: { layout: "padded" },
 };
 export default meta;

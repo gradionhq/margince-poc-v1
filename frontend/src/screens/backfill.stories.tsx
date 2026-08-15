@@ -33,7 +33,7 @@ function panelStory(
 }
 
 const meta: Meta<typeof BackfillPanel> = {
-  title: "Screens/backfill",
+  title: "Settings/You/Connections/Backfill",
   component: BackfillPanel,
 };
 export default meta;
@@ -54,32 +54,62 @@ export const Setup: Story = {
   ),
 };
 
-export const Running: Story = {
-  render: panelStory("gmail", {
-    state: "running",
-    backfill_id: "018f3a1b-0000-7000-8000-0000000000b1",
-    window: "6m",
-    estimated_messages: 400,
-    counts: {
-      captured: 128,
-      people_created: 47,
-      organizations_created: 12,
-      messages_scanned: 150,
-    },
-    updated_at: new Date().toISOString(),
-  }),
+// A run that moved a moment ago, so it keeps the progress bar rather than the
+// staleness note. Shared by the variants below, which need this same live state.
+const RUNNING: BackfillStatus = {
+  state: "running",
+  backfill_id: "018f3a1b-0000-7000-8000-0000000000b1",
+  window: "6m",
+  estimated_messages: 400,
+  counts: {
+    captured: 128,
+    people_created: 47,
+    organizations_created: 12,
+    messages_scanned: 150,
+  },
+  updated_at: new Date().toISOString(),
 };
 
-export const Done: Story = {
-  render: panelStory("gmail", {
-    state: "done",
-    counts: {
-      captured: 512,
-      people_created: 90,
-      organizations_created: 20,
-      messages_scanned: 600,
-    },
-  }),
+const DONE: BackfillStatus = {
+  state: "done",
+  counts: {
+    captured: 512,
+    people_created: 90,
+    organizations_created: 20,
+    messages_scanned: 600,
+  },
+};
+
+export const Running: Story = { render: panelStory("gmail", RUNNING) };
+
+export const Done: Story = { render: panelStory("gmail", DONE) };
+
+// The live run in dark. The bar is a bare `<progress>` element with nothing but
+// a width in the sheet, so its track and fill are whatever the browser paints —
+// the one control on these screens that does not get its colour from a token and
+// therefore cannot be reasoned about from the CSS. The stat values are `--accent`
+// on the panel ground beside it.
+export const RunningDark: Story = {
+  globals: { theme: "dark" },
+  render: panelStory("gmail", RUNNING),
+};
+
+// The finished run in dark. `.capture-hero.done` is the one tinted plate in this
+// panel — `--successBg` behind the text with an `--online` border and a
+// `--success` glyph — and "arrival" is the whole message of the state. A tint
+// that composites to the same value as the card leaves a hero saying nothing.
+export const DoneDark: Story = {
+  globals: { theme: "dark" },
+  render: panelStory("gmail", DONE),
+};
+
+// The live run at 390px. The counts sit in a two-column grid with an 84px floor
+// per stat and wrap outside it, and the progress bar takes the full width — this
+// is where a four-stat grid either becomes two rows or overflows the card.
+export const RunningPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: panelStory("gmail", RUNNING),
 };
 
 export const ErrorState: Story = {

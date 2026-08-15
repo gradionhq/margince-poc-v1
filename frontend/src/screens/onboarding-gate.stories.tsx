@@ -13,7 +13,7 @@ import "./onboarding.css";
 // by a polled read mid-flight and settled.
 
 const meta: Meta = {
-  title: "Screens/onboarding-gate",
+  title: "Onboarding/Gate",
   parameters: { layout: "fullscreen" },
 };
 export default meta;

@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { userEvent, within } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import { MergeAction } from "./merge";
-import { StoryProviders } from "./story-utils";
+import { installFetchStub, meRoute, StoryProviders } from "./story-utils";
 
 // MergeAction owns its own open/search/target state — a play() interaction
 // opens the dialog, types a search term (past the 250ms debounce), and
@@ -13,7 +13,7 @@ import { StoryProviders } from "./story-utils";
 // mutation is a react-query useMutation, so this needs the shared
 // QueryClient provider even though no fetch ever actually fires here.
 const meta: Meta<typeof MergeAction> = {
-  title: "Screens/Merge",
+  title: "Patterns/Merge records",
   component: MergeAction,
   parameters: { layout: "padded" },
   decorators: [
@@ -29,6 +29,12 @@ export default meta;
 type Story = StoryObj<typeof MergeAction>;
 
 export const TargetPicked: Story = {
+  // The merge dialog mounts record chrome that reads the session, so the probe
+  // has to be routed — an unrouted one fails every grant closed and renders a
+  // branch this story is not named for.
+  beforeEach: () => {
+    installFetchStub({ "GET /me": meRoute({ person: ["read", "update"] }) });
+  },
   args: {
     label: "Merge into…",
     sourceId: "p-1",
@@ -40,11 +46,13 @@ export const TargetPicked: Story = {
     survivorRoute: (targetId: string) => ({ screen: "contacts", id: targetId }),
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByTestId("merge-record"));
-    await userEvent.type(canvas.getByPlaceholderText("Search…"), "otto");
+    // The trigger is in the canvas; everything after it is inside the merge
+    // Modal, which portals to document.body — so the picker is reached through
+    // `screen`, not through a canvas-scoped query that would find nothing.
+    await userEvent.click(within(canvasElement).getByTestId("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "otto");
     // Past MergeAction's 250ms search debounce so the candidate list settles.
     await new Promise((resolve) => setTimeout(resolve, 400));
-    await userEvent.click(await canvas.findByText("Otto Fischer"));
+    await userEvent.click(await screen.findByText("Otto Fischer"));
   },
 };

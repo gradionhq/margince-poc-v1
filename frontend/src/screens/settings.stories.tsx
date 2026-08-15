@@ -106,7 +106,7 @@ function tab(tabId: string, routes: RouteMap) {
 }
 
 const meta: Meta<typeof SettingsScreen> = {
-  title: "Screens/settings",
+  title: "Settings/Settings screen",
   component: SettingsScreen,
 };
 export default meta;
@@ -153,23 +153,45 @@ export const PassportRevokeConfirm: Story = {
 // then dims the send_email row once the read-only "Scout" passport (whose
 // only granted scope is "read") is selected — its required "send" scope
 // is absent from that grant.
+const toolConsoleRoutes = {
+  "GET /me": me(),
+  "GET /passports": passports,
+  "GET /agent-tools": tools,
+};
+
+// Selects the read-only passport, so the send_email row is dimmed. Shared with
+// the dark variant below, which is about that dimming and nothing else.
+const selectScoutPassport = async ({
+  canvasElement,
+}: {
+  canvasElement: HTMLElement;
+}) => {
+  const canvas = within(canvasElement);
+  await canvas.findByText("search_records");
+  // The listbox is portalled to the body, outside this story's canvas, so the
+  // pick goes through the shared helper rather than a canvas-scoped query.
+  await pickOption(
+    userEvent.setup(),
+    canvas.getByRole("combobox", { name: "All passports" }),
+    "Reachable by Scout",
+  );
+};
+
 export const AgentToolConsole: Story = {
-  render: tab("agents", {
-    "GET /me": me(),
-    "GET /passports": passports,
-    "GET /agent-tools": tools,
-  }),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await canvas.findByText("search_records");
-    // The listbox is portalled to the body, outside this story's canvas, so the
-    // pick goes through the shared helper rather than a canvas-scoped query.
-    await pickOption(
-      userEvent.setup(),
-      canvas.getByRole("combobox", { name: "All passports" }),
-      "Reachable by Scout",
-    );
-  },
+  render: tab("agents", toolConsoleRoutes),
+  play: selectScoutPassport,
+};
+
+// The unreachable row is dimmed, and dimming is the one signal that does not
+// survive a theme swap by construction: on a light ground it reads as "faded
+// toward the paper", on a dark one the same reduction moves the text toward the
+// background it is meant to stay legible against. This is the story that says
+// whether the dim row is still readable text or has become a grey smear — and
+// whether the tier/egress badges beside it still separate from each other.
+export const AgentToolConsoleDark: Story = {
+  globals: { theme: "dark" },
+  render: tab("agents", toolConsoleRoutes),
+  play: selectScoutPassport,
 };
 
 // The shape a record takes, on one page: the field editor, the pipeline
@@ -191,7 +213,40 @@ export const DataModelTab: Story = {
 // The consent registry and the audit trail on one page: the trail is what proves
 // the surfaces above it were honoured, so it moved here from a tab of its own.
 export const PrivacyTab: Story = {
-  render: tab("privacy", { "GET /me": me(), "GET /audit-log": auditLog }),
+  // `person:read` is what opens this entry — the consent registry is gated on it
+  // server-side (consent/store.go), not on a role. Without it the entry is not
+  // visible, useVisibleSettingsTabs falls back to Account, and this story
+  // captured the Account tab: byte-identical to AccountTab, under the name of a
+  // page it never rendered. The comment two stories up describes this exact
+  // failure; it happened again here.
+  render: tab("privacy", {
+    "GET /me": me({ person: ["read"] }),
+    "GET /audit-log": auditLog,
+  }),
+};
+
+const privacyRoutes = {
+  "GET /me": me({ person: ["read"] }),
+  "GET /audit-log": auditLog,
+};
+
+// A whole settings PAGE at 390px, which is the thing only this file can show —
+// every other story in the settings tree renders one card with nothing above or
+// below it. `layout: "fullscreen"` because SettingsScreen brings `.wrap`, which
+// carries production's own gutter; the canvas frame would add a second one and
+// make this a 326px phone instead of a 390px one.
+//
+// What it watches is the seam BETWEEN cards rather than any one card's insides:
+// three panels stack here, each with a title and an action button on the same
+// header line, and one of them is a withheld body whose whole content is a
+// sentence explaining a denial. A page is where the panel header's title/action
+// split and the stack's own rhythm have to hold at once — and where the DSR facet
+// control runs out of width first.
+export const PrivacyTabPhone: Story = {
+  parameters: { layout: "fullscreen" },
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: tab("privacy", privacyRoutes),
 };
 
 // PipelinesCard (D-8, on the Data model entry) reads GET /me (roles →
@@ -264,6 +319,31 @@ export const PipelinesAdmin: Story = {
 
 export const PipelinesReadOnly: Story = {
   render: pipelinesCard({ pipeline: ["read"] }),
+};
+
+// The narrow render of the one rule in settings.css that has its own breakpoint.
+// A `.stage-row` is four tracks of which three are fixed — an 88px semantic
+// badge, a 56px win probability, and the Edit verb — so on a phone the fixed
+// tracks ARE the width and the stage name has nothing left; under 560px the row
+// becomes two lines instead. Nothing has ever drawn it below 1024px. The ladder
+// is what makes this the right story on this page: the four other data-model
+// cards answer their list routes from the stub's empty-page fallback, so a
+// page-level narrow story here would picture three empty states and a heading.
+export const PipelinesAdminPhone: Story = {
+  globals: { viewport: { value: "phone" } },
+  tags: ["uat-phone"],
+  render: pipelinesCard({ pipeline: ["read", "create", "update"] }),
+};
+
+// And the dark render of the same ladder, which is the densest real content the
+// data model page has: three stage names, the Open/Won semantic badges beside the
+// pipeline's own Default badge, three `.t-mono` win probabilities, the row verbs,
+// and no hairline between rows at all. What it watches is whether Open and Won
+// stay distinguishable from each other and from the row behind them once the
+// ground goes dark — a badge is tinted text on a tinted surface, and both move.
+export const PipelinesAdminDark: Story = {
+  globals: { theme: "dark" },
+  render: pipelinesCard({ pipeline: ["read", "create", "update"] }),
 };
 
 // AuditLogCard (AO-3/AO-4): one entry carrying a full before/after diff plus

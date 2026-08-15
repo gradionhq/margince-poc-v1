@@ -29,7 +29,7 @@ import {
  * controls, so each of the four is a story, driven through a real submit.
  */
 const meta: Meta = {
-  title: "Screens/Auth/Unauthenticated surface",
+  title: "Signed out/Sign-in surface",
   parameters: {
     layout: "fullscreen",
     // Two widths, named after the RULE each one exercises rather than after a

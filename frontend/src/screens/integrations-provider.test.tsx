@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -133,6 +134,15 @@ describe("ProviderCard write posture", () => {
   const DISCONNECT = "Disconnect";
   const DELETE_DATA = "Delete bought data";
   const KEY_FIELD = "Replace the API key";
+  // Disconnect and delete-data live behind the overflow, because neither is the
+  // same weight as Connect: one is recoverable and the other irreversibly
+  // destroys purchased contact data. The trigger's presence is what the grant
+  // decides; the two verbs are then inside it.
+  const MORE = "More actions";
+
+  async function openDestructiveMenu() {
+    await userEvent.click(screen.getByRole("button", { name: MORE }));
+  }
 
   async function renderAs(principal: Me) {
     vi.stubGlobal("fetch", backend(principal));
@@ -161,8 +171,7 @@ describe("ProviderCard write posture", () => {
     // control.
     expect(screen.getByText(READ_ONLY)).toBeTruthy();
     expect(screen.queryByRole("button", { name: CONNECT })).toBeNull();
-    expect(screen.queryByRole("button", { name: DISCONNECT })).toBeNull();
-    expect(screen.queryByRole("button", { name: DELETE_DATA })).toBeNull();
+    expect(screen.queryByRole("button", { name: MORE })).toBeNull();
     // The key box exists only to feed the submit that is gone.
     expect(screen.queryByLabelText(KEY_FIELD)).toBeNull();
   });
@@ -173,9 +182,10 @@ describe("ProviderCard write posture", () => {
     // Without this arm the test above would pass on a card that renders no
     // controls for anybody.
     expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
+    expect(screen.getByLabelText(KEY_FIELD)).toBeTruthy();
+    await openDestructiveMenu();
     expect(screen.getByRole("button", { name: DISCONNECT })).toBeTruthy();
     expect(screen.getByRole("button", { name: DELETE_DATA })).toBeTruthy();
-    expect(screen.getByLabelText(KEY_FIELD)).toBeTruthy();
     // A reader who may write is told nothing about a posture they do not have.
     expect(screen.queryByText(READ_ONLY)).toBeNull();
   });
@@ -185,7 +195,9 @@ describe("ProviderCard write posture", () => {
 
     expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
     // `delete` is what the server demands for both of these, and this seat does
-    // not hold it — so neither may ride in on the grant that binds a key.
+    // not hold it — so neither may ride in on the grant that binds a key, and
+    // the overflow that would hold them is not offered at all.
+    expect(screen.queryByRole("button", { name: MORE })).toBeNull();
     expect(screen.queryByRole("button", { name: DISCONNECT })).toBeNull();
     expect(screen.queryByRole("button", { name: DELETE_DATA })).toBeNull();
     // Not a read-only view: something here is still writable.

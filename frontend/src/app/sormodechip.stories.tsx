@@ -33,7 +33,7 @@ function story(mode: "native" | "overlay") {
 }
 
 const meta: Meta<typeof SorModeChip> = {
-  title: "App/sor-mode-chip",
+  title: "Shell/System-of-record chip",
   component: SorModeChip,
 };
 export default meta;

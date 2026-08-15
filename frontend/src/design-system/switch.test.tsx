@@ -17,6 +17,37 @@ describe("Switch", () => {
     expect(control).toHaveAttribute("aria-checked", "true");
   });
 
+  // The state a server payload can actually deliver. `auto_enrich` is required
+  // on the contract's CaptureSettings, so the compiler believes every read of
+  // it is a boolean — and a body that arrived without it hands `undefined` to
+  // this prop regardless. React then omits the attribute entirely, which is how
+  // a shipped `role="switch"` came to announce no state at all.
+  it("still announces a state when the caller has none to give", () => {
+    render(
+      <Switch
+        label="Auto-enrich"
+        checked={undefined}
+        onChange={() => undefined}
+      />,
+    );
+    const control = screen.getByRole("switch", { name: "Auto-enrich" });
+    // Present, and specifically "false": the knob is drawn off, and a control
+    // whose paint and whose announcement disagree is worse than either.
+    expect(control).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("writes ON from a state it never received", async () => {
+    const onChange = vi.fn();
+    render(
+      <Switch label="Auto-enrich" checked={undefined} onChange={onChange} />,
+    );
+    await userEvent.click(screen.getByRole("switch"));
+    // `!undefined` is also true, so this would pass by accident on the old
+    // code — it is here to pin that the resolved state drives the write as well
+    // as the announcement, so the two cannot drift apart later.
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
   it("hands back the value the caller would write, not the one it holds", async () => {
     const onChange = vi.fn();
     render(<Switch label="Auto-enrich" checked onChange={onChange} />);

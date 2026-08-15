@@ -1,0 +1,61 @@
+/* Outbound webhook subscriptions (Settings → Integrations).
+ *
+ * The classes this screen names used to be no-ops: `.webhook-row` and
+ * `.webhook-deliveries-panel` were written on elements no stylesheet declared,
+ * so every rule a reader might have expected from the name did nothing at all.
+ * The sheet lives beside the screen that draws it. */
+
+/* One subscription's identity line: the target URL and its state pill. */
+.webhook-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* A target URL is one unbroken token with nothing to break on, and `.t-mono`
+ * sets a family and nothing else. Left alone it is what makes a 390px page
+ * scroll sideways: `min-width: 0` lets the flex item shrink below its content,
+ * and `overflow-wrap` gives the URL somewhere to break — the same pair
+ * `.code-block` already carries in base.css. */
+.webhook-target {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The subscribed event set, and the row's verbs. Both wrap: four buttons of
+ * nowrap text do not fit a phone, and the two rows above them already wrapped,
+ * so the one that did not was the one that pushed the card sideways. */
+.webhook-events,
+.webhook-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  min-width: 0;
+}
+
+.webhook-updated {
+  margin-top: var(--space-2);
+}
+
+/* The deliveries table, opened from the row above it. */
+.webhook-deliveries-panel {
+  margin-top: var(--space-3);
+  min-width: 0;
+}
+
+/* The two delivery groups: dead-lettered first, then the rest. */
+.webhook-deliveries-group + .webhook-deliveries-group {
+  margin-top: var(--space-3);
+}
+
+/* The one-time secret reveal. The secret is destroyed when this dialog
+ * closes, so the copy affordance is the primary act here and the dismissal is
+ * not — the caution below states that in words as well. */
+.webhook-secret-caution {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}

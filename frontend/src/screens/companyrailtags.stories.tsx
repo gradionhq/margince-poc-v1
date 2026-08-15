@@ -13,7 +13,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // each verb renders only once its own half has answered.
 
 const meta: Meta = {
-  title: "Screens/Company rail tags",
+  title: "Records/Company rail/Tags",
   parameters: { layout: "padded" },
 };
 export default meta;

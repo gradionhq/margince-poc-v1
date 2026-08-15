@@ -1,0 +1,87 @@
+/* Connected inboxes (Settings → Connections): the roster rows and the add
+   affordance. Split out of settings.css so the sheet sits beside the screen
+   that draws it.
+
+   The mail roster rows are the panel's own full-bleed rows now, so this sheet
+   describes their LAYOUT and nothing else — the hairline, the padding and the
+   hover belong to PanelRow, and a border drawn here as well was the second
+   card nested inside the first. */
+
+.connectors-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.connector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* The bordered variant, for a row that sits one level deeper — inside the
+   panel's padded body rather than on its own ground, where a full-bleed
+   hairline has no edge to run to. */
+.connector-card {
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+.connector-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* Lets the identity column shrink instead of pushing the actions off the
+     row when an account label runs long. */
+  min-width: 0;
+}
+.connector-id > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex: none;
+}
+.connector-id > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* A mailbox address is one unbroken token, and it must not be what makes the
+   page scroll sideways on a phone. */
+.connector-account {
+  color: var(--textSecondary);
+  overflow-wrap: anywhere;
+}
+.connector-synced {
+  color: var(--textSecondary);
+}
+.connector-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Forces the mounted BackfillPanel onto its own line below the row's id +
+   actions (the row itself is flex-wrap: wrap; a 100%-width child can't share
+   a line with its siblings so it wraps). */
+.connector-backfill {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+
+/* "Add a connection", and the Telegram section under it: two blocks that read
+   as additions to the roster above rather than as part of it. Each sits on the
+   panel's own body padding and is fenced off by a rule at its top. */
+.connector-add {
+  border-top: 1px solid var(--borderSubtle);
+}
+.connector-add-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
