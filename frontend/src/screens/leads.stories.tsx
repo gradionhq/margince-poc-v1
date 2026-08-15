@@ -74,3 +74,96 @@ export const LeadOverview: Story = {
     );
   },
 };
+
+// A lead that earns nothing, which is the common shape of a fresh one: the
+// panel states the reasons rather than the score's storage history, so a 0
+// stops reading as a bad prospect when it means an unassessed one
+// (ADR-0108 §4).
+export const LeadScoringZero: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads/l-1": () =>
+        jsonResponse({ ...lead, score: 0, title: "Boss", source: "manual" }),
+      "GET /leads/l-1/score": () =>
+        jsonResponse({ score: 0, explained: false }),
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-9", display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadScreen id="l-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+// The score explained: factors with their points and the decay as arithmetic
+// a reader can check, plus the line that reconciles them to the stored score.
+export const LeadScoreExplained: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads/l-1": () => jsonResponse(lead),
+      "GET /leads/l-1/score": () =>
+        jsonResponse({
+          score: 72,
+          explained: true,
+          current: {
+            score: 72,
+            score_computed: 72,
+            raw_sum: 71.6,
+            rounded_sum: 72,
+            computed_at: "2026-06-04T00:00:00Z",
+            factors: [
+              { factor: "decision_maker_title", points: 15 },
+              { factor: "high_intent_source", points: 8 },
+              { factor: "reply", points: 22.6, base_points: 25 },
+            ],
+          },
+        }),
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-9", display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadScreen id="l-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+// A disqualified lead keeps its controls, DISABLED with the reason — hiding
+// them hid the fact the reader needed (STATE-4a). A promoted lead never
+// reaches this page; it redirects to the person it became.
+export const LeadDisqualified: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads/l-1": () =>
+        jsonResponse({
+          ...lead,
+          status: "disqualified",
+          archived_at: "2026-07-13T00:00:00Z",
+        }),
+      "GET /leads/l-1/score": () =>
+        jsonResponse({ score: 72, explained: false }),
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-9", display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadScreen id="l-1" />
+      </StoryProviders>
+    );
+  },
+};
