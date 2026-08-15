@@ -4,10 +4,15 @@
 package compose
 
 // The deep read's extraction orchestration: the page-fact fan-out and
-// the one profile call run CONCURRENTLY — their wall clock is the
-// product's read time. Collect-don't-cancel: one page's failure costs
-// that page's findings and degrades the read to partial, never the
-// whole fan-out; the worker and the debug CLI share this exact spine.
+// the profile call run CONCURRENTLY — their wall clock is the product's
+// read time. The profile lane runs at most TWICE: once as soon as there
+// is enough evidence to answer at all, and again over the finished crawl
+// when the corpus grew enough that the first answer was drawn from a
+// fraction of the site (reprofileOverWholeCrawl).
+//
+// Collect-don't-cancel: one page's failure costs that page's findings and
+// degrades the read to partial, never the whole fan-out; the worker and the
+// debug CLI share this exact spine.
 
 import (
 	"context"
@@ -51,7 +56,9 @@ type siteExtraction struct {
 // profileTriggerNonLegalPages is how much commercial evidence the profile
 // lane waits for before firing. A raw page-count trigger can be satisfied
 // entirely by legal pages on policy-heavy sites, permanently producing a
-// legal-only profile because the lane intentionally runs once.
+// legal-only profile: the early answer would then rest on policy text
+// alone, and on a site that never grows enough to warrant the second pass
+// that is the answer the read ships.
 const profileTriggerNonLegalPages = 8
 
 func profileEvidenceReady(pages []crawlPage) bool {
@@ -75,9 +82,10 @@ const (
 // crawlAndExtract OVERLAPS the crawl and the extraction: page-fact
 // calls launch the moment their page commits, and the profile call
 // fires once the top-ranked pages are in (or the crawl ends, whichever
-// is first). The read's wall clock becomes ~max(crawl, slowest lane)
-// instead of their sum. onProgress (may be nil) fires serially with the
-// live phase and the pages fetched so far.
+// is first), then once more over the whole crawl if it grew enough. The
+// read's wall clock becomes ~max(crawl, slowest lane) instead of their sum.
+// onProgress (may be nil) fires serially with the live phase and the pages
+// fetched so far.
 func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, pages []crawlPage), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	collected := pageFactsCollector{onDraft: onDraft}
@@ -179,21 +187,43 @@ func reprofileOverWholeCrawl(
 	current []evidencedField, collected *pageFactsCollector,
 ) []evidencedField {
 	extra := reprofileIfMuchMoreEvidence(ctx, x, pages, profiled)
-	switch {
-	case extra == nil:
+	if extra == nil {
 		return current
-	case extra.err != nil:
+	}
+	if extra.err != nil {
 		collected.failed = append(collected.failed,
 			fmt.Errorf("profile re-run: %w", extra.err))
 		return current
-	case len(extra.fields) > len(current):
-		return extra.fields
-	default:
-		// A re-run that found LESS is the model being unlucky on a longer
-		// prompt, not new knowledge, and silently replacing a good profile
-		// with a worse one is a regression the caller cannot see.
-		return current
 	}
+	return mergeProfileFields(current, extra.fields)
+}
+
+// mergeProfileFields folds a re-run's profile into the first pass's, keeping
+// every field either of them grounded.
+//
+// Picking the LONGER of the two lists throws away work: the passes read
+// different evidence, so the second can ground `usp` and `history` while
+// missing an `industry` the first had, and a count comparison silently drops
+// it. Both answers are gated the same way, so a field present in either is a
+// field the site supports.
+//
+// The re-run wins a field they both claim: it read the whole crawl, so its
+// value rests on more of the site than the early pass could see.
+func mergeProfileFields(first, second []evidencedField) []evidencedField {
+	if len(second) == 0 {
+		return first
+	}
+	merged := append([]evidencedField(nil), second...)
+	claimed := make(map[string]bool, len(second))
+	for _, field := range second {
+		claimed[field.Field] = true
+	}
+	for _, field := range first {
+		if !claimed[field.Field] {
+			merged = append(merged, field)
+		}
+	}
+	return merged
 }
 
 // profileGrowthFactor is how much bigger the corpus must be before the

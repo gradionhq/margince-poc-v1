@@ -396,3 +396,40 @@ func TestALargeCrawlIsProfiledOnEverythingItFound(t *testing.T) {
 			len(extraction.fields))
 	}
 }
+
+func TestARerunNeverDiscardsAFieldTheFirstPassGrounded(t *testing.T) {
+	// The two passes read different evidence, so the second can ground
+	// fields the first missed while missing one the first had. Choosing the
+	// LONGER list would drop that field silently -- both answers went
+	// through the same gate, so a field either pass grounded is a field the
+	// site supports.
+	first := []evidencedField{
+		{Field: "industry", Value: "Retail software"},
+		{Field: "display_name", Value: "Acme"},
+	}
+	second := []evidencedField{
+		{Field: "display_name", Value: "Acme SE"},
+		{Field: "usp", Value: "Fastest onboarding in the segment"},
+	}
+
+	merged := mergeProfileFields(first, second)
+
+	got := map[string]string{}
+	for _, field := range merged {
+		got[field.Field] = field.Value
+	}
+	if _, kept := got["industry"]; !kept {
+		t.Errorf("the re-run dropped `industry`, which the first pass grounded: %v", got)
+	}
+	if _, added := got["usp"]; !added {
+		t.Errorf("the merge lost `usp`, which only the re-run found: %v", got)
+	}
+	// The re-run read the whole crawl, so its value for a contested field is
+	// the better grounded one.
+	if got["display_name"] != "Acme SE" {
+		t.Errorf("display_name = %q, want the re-run's value", got["display_name"])
+	}
+	if len(merged) != 3 {
+		t.Errorf("merged %d fields, want 3 distinct ones: %v", len(merged), got)
+	}
+}
