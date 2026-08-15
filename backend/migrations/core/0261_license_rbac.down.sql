@@ -1,4 +1,4 @@
--- Reverse of 0260: removes the object from the five roles the up grants it to.
+-- Reverse of 0261: removes the object from the five roles the up grants it to.
 -- Naming them rather than every is_system row keeps a rollback off roles this
 -- migration never touched; within those five a key the up wrote and a key the
 -- bootstrap seed wrote are the same key, and down-then-up restores it either way.
