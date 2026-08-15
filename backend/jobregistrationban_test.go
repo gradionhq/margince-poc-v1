@@ -274,7 +274,10 @@ func TestTheOwningConfigLintsTheTaggedLanes(t *testing.T) {
 		t.Fatal("no config enables forbidigo, so there is no owner to hold to anything")
 	}
 	tags := readGolangciConfig(t, owner).Run.BuildTags
-	for _, tag := range []string{"integration", "livesmoke"} {
+	// `bench` carries a sharper version of the same obligation: the by-hand
+	// benchmark lane is run by NO scheduled job, so lint and `go vet -tags
+	// 'integration bench'` are the only passes that ever compile those files.
+	for _, tag := range []string{"integration", "livesmoke", "bench"} {
 		if !slices.Contains(tags, tag) {
 			t.Errorf("%s owns forbidigo but does not declare the %q build tag, so the %s-only files are linted by nothing", owner, tag, tag)
 		}

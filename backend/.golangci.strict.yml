@@ -11,10 +11,11 @@ version: "2"
 
 run:
   # The baseline lints only untagged code; this pass also covers the
-  # integration and livesmoke lanes so new test-harness code is gated too.
+  # integration, livesmoke and bench lanes so new test-harness code is gated too.
   build-tags:
     - integration
     - livesmoke
+    - bench
 
 issues:
   # Only findings introduced after the merge-base with origin/main fail.

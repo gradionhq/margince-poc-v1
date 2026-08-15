@@ -11,6 +11,10 @@ run:
   build-tags:
     - integration
     - livesmoke
+    # The by-hand benchmark lane (make bench-record / bench-capture). It needs
+    # this more than the others do: no scheduled job runs those files, so lint
+    # and `go vet -tags 'integration bench'` are the only passes that read them.
+    - bench
 
 linters:
   default: standard
