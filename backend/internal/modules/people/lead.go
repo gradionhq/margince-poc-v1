@@ -162,11 +162,11 @@ func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []
 	id := ids.New[ids.LeadKind]()
 	// The initial score is the §3 fit component — a fresh lead has no
 	// behavioral history yet; signal recompute moves it later.
-	fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
+	fit := ScoreLeadDetail(deref(in.Title), in.Source, nil, time.Now().UTC())
 	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
 	args := []any{
 		id, workspaceID(ctx), in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-		in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
+		in.LinkedInURL, in.Status, fit.Score, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
 	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
@@ -183,6 +183,11 @@ func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []
 			return ids.LeadID{}, mapped
 		}
 		return ids.LeadID{}, fmt.Errorf("insert lead: %w", err)
+	}
+	// The first point in the series, written with the score it explains
+	// (ADR-0105 §1). A lead created and never recomputed still opens.
+	if err := appendLeadScoreHistory(ctx, tx, id, fit.Score, fit, nil); err != nil {
+		return ids.LeadID{}, err
 	}
 	return id, nil
 }

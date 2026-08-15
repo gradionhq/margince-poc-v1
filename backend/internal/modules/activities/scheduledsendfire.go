@@ -240,8 +240,45 @@ func (s *Store) holdInTx(ctx context.Context, tx pgx.Tx, id ids.UUID, reason str
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("scheduled send: %s was no longer pending when it was held", id)
 	}
+	if err := s.notifyHeld(ctx, tx, id, reason); err != nil {
+		return err
+	}
 	_, err = storekit.Audit(ctx, tx, "hold", "scheduled_send", id, nil, map[string]any{"reason": reason})
 	return err
+}
+
+// notifyHeld puts the stopped message in front of its rep, in the SAME
+// transaction as the hold: a hold that committed without its item would be a
+// message that stopped and told nobody, which is the whole failure this closes.
+//
+// A surface with no notifier wired holds silently rather than refusing to hold.
+// Refusing would leave the message pending and let a gate's refusal turn into a
+// send — the one outcome worse than a quiet stop.
+func (s *Store) notifyHeld(ctx context.Context, tx pgx.Tx, id ids.UUID, reason string) error {
+	if s.heldNotifier == nil {
+		return nil
+	}
+	var (
+		scheduledBy ids.UUID
+		payloadRaw  []byte
+		scheduledAt time.Time
+	)
+	if err := tx.QueryRow(ctx, `
+		SELECT scheduled_by, payload, scheduled_at FROM scheduled_send WHERE id = $1`,
+		id).Scan(&scheduledBy, &payloadRaw, &scheduledAt); err != nil {
+		return fmt.Errorf("scheduled send: reading the held message for its rep: %w", err)
+	}
+	var payload scheduledPayload
+	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
+		return fmt.Errorf("scheduled send: reading the held message's subject: %w", err)
+	}
+	return s.heldNotifier.NotifyHeldInTx(ctx, tx, HeldNotice{
+		ScheduledSendID: id,
+		ScheduledBy:     scheduledBy,
+		Reason:          reason,
+		Subject:         payload.Subject,
+		ScheduledAt:     scheduledAt,
+	})
 }
 
 // holdReasonFor maps a gate's refusal to the reason a rep is shown.

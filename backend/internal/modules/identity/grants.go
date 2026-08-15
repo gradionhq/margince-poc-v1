@@ -12,6 +12,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -173,6 +174,9 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		if !subjectExists {
 			return apperrors.ErrNotFound
 		}
+		if err := refuseWriteGrantToReadSeat(ctx, tx, in); err != nil {
+			return err
+		}
 		row := tx.QueryRow(ctx, `
 			INSERT INTO record_grant (workspace_id, record_type, record_id, subject_type, subject_id,
 			                          access, granted_by, reason, expires_at)
@@ -194,6 +198,38 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		return err
 	})
 	return out, err
+}
+
+// refuseWriteGrantToReadSeat holds the receiving half of the seat ceiling
+// (AAD-AC-4): a read seat may be handed a record to READ, which is exactly
+// the authority its licence already carries, but never one to write.
+//
+// The granting half is enforced a layer up — sharing is a POST, so a
+// read-seat grantor never reaches here — and it is not the same rule. A
+// full-seat admin sharing a deal for editing with a read-seat colleague is
+// the case this closes: the grant would have widened that colleague's row
+// scope onto a record the seat ceiling then refuses every write to, which
+// is a grant that reads as authority and cannot be exercised.
+//
+// A `team` subject is deliberately out of scope: a team is not a seat, and
+// refusing a whole team because one member reads is a wider rule than the
+// AC states. The read seats inside it are still refused every write at
+// their own admission, so no authority leaks — the grant is just less
+// useful to them than to their colleagues.
+func refuseWriteGrantToReadSeat(ctx context.Context, tx pgx.Tx, in CreateGrantInput) error {
+	if in.Access != string(crmcontracts.RecordGrantAccessWrite) || in.SubjectType == "team" {
+		return nil
+	}
+	var seat string
+	if err := tx.QueryRow(ctx,
+		`SELECT seat_type FROM app_user WHERE id = $1`, in.SubjectID).Scan(&seat); err != nil {
+		return fmt.Errorf("read the subject's seat: %w", err)
+	}
+	if !principal.SeatType(seat).CanMutate() {
+		return fmt.Errorf("a write grant needs a full seat; the subject holds %q: %w",
+			seat, apperrors.ErrSeatTierInsufficient)
+	}
+	return nil
 }
 
 func (s *Service) RevokeRecordGrant(ctx context.Context, id ids.UUID) error {

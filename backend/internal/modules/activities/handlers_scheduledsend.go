@@ -22,6 +22,14 @@ func (h Handlers) WithScheduleTimer(timer ScheduleTimer) Handlers {
 	return h
 }
 
+// WithHeldNotifier returns handlers whose store raises the inbox card when a
+// message is stopped. The notifier lives on the STORE because that is where a
+// hold is written, and the handlers carry their own store instance.
+func (h Handlers) WithHeldNotifier(notifier HeldNotifier) Handlers {
+	h.store = h.store.WithHeldNotifier(notifier)
+	return h
+}
+
 // ListScheduledSends answers with the caller's own waiting messages.
 func (h Handlers) ListScheduledSends(w http.ResponseWriter, r *http.Request, params crmcontracts.ListScheduledSendsParams) {
 	status := ""

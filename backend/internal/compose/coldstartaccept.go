@@ -60,6 +60,14 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
+	// A held message is the one kind with BOTH halves registered, because its
+	// subject is already waiting: Accept re-arms it, Reject abandons it, and a
+	// card whose buttons only dismissed it would report a decision the message
+	// never heard (#1312, ADR-0104 §5).
+	if sendStore, timer, ok := heldSendActors(pool); ok {
+		svc.WithEffect(heldScheduledSendKind, heldAcceptEffect(svc, sendStore, timer))
+		svc.WithDeclinedEffect(heldScheduledSendKind, heldDeclineEffect(sendStore))
+	}
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(InstallationDB(pool), DealsInstallation())))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(InstallationDB(pool))))
 	svc.WithEffect(TranscriptProposalKind, transcriptProposalEffect(svc, activities.NewStore(InstallationDB(pool))))

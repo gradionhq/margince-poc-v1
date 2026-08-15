@@ -908,6 +908,60 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     await waitFor(() => expect(screen.getByText("overridden")).toBeTruthy());
   });
 
+  it("explains the score with its factors and the arithmetic that reconciles them", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({
+          score: 46,
+          explained: true,
+          current: {
+            score: 46,
+            score_computed: 46,
+            raw_sum: 45.6,
+            rounded_sum: 46,
+            computed_at: "2026-06-04T00:00:00Z",
+            factors: [
+              { factor: "decision_maker_title", points: 15 },
+              { factor: "reply", points: 22.6, base_points: 25 },
+            ],
+          },
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Decision-maker title")).toBeTruthy(),
+    );
+    expect(screen.getByText("They replied")).toBeTruthy();
+    // The decay is shown as arithmetic a reader can check, not asserted.
+    expect(screen.getByText("25 halving every 14 days")).toBeTruthy();
+    expect(
+      screen.getByText("45.60 adds up, rounds to 46, scored 46"),
+    ).toBeTruthy();
+  });
+
+  it("says a pre-existing score is not yet explained rather than showing an empty breakdown", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 72, explained: false });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    // An empty factor list would read as "nothing contributed", which is a
+    // different and false claim about a score that predates the series.
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This score predates the breakdown. The next update will explain it.",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
   it("names the owner 'You' when the lead is owned by the current user", async () => {
     stubFetchWithMe(
       async () => jsonResponse({ ...lead, owner_id: "u-9" }),
