@@ -1203,10 +1203,13 @@ export const vi = {
   "lead.overrideScore": "Ghi đè điểm",
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
-  "lead.machineComputed": "Điểm do máy tính toán",
   "lead.shortfall.lead": "Điểm này đang dựa trên:",
   "lead.shortfall.engagementMoves":
     "Phản hồi hoặc cuộc họp là thứ thay đổi điểm nhiều nhất.",
+  "lead.shortfall.noSource":
+    "Chưa có nguồn — không ghi nhận lead này đến từ đâu.",
+  "lead.shortfall.sourcePenalised":
+    "Đến từ “{source}”, điều này làm giảm điểm.",
   "lead.shortfall.noTitle": "Chưa có chức danh.",
   "lead.shortfall.titleNotSenior":
     "“{title}” không thuộc nhóm chức danh mà mô hình tìm.",
@@ -1215,8 +1218,6 @@ export const vi = {
   "lead.scoreNotStoredYet":
     "Phần giải thích cho điểm này chưa được lưu — lần cập nhật tới sẽ hiển thị.",
   "lead.scoreLoading": "Đang tải lý do…",
-  "lead.scoreNotYetExplained":
-    "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",
   "lead.scoreNoFactors": "Chưa có gì cộng vào điểm này.",
   "lead.scoreFactorsExplainMachine":
     "Bạn đã tự đặt điểm này. Các yếu tố bên dưới giải thích giá trị của mô hình: {score}.",
@@ -1237,7 +1238,6 @@ export const vi = {
   "lead.marker": "Lead",
   "lead.assign": "Giao",
   "lead.assignToMe": "Giao cho tôi",
-  "lead.assignToSomeone": "Giao cho người khác",
   "lead.assignTo": "Giao lead này cho",
   "lead.assignChoose": "Chọn một đồng nghiệp",
   "lead.assignNobodyElse": "Không có người nào khác để giao lead này.",

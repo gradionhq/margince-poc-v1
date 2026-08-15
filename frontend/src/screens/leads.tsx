@@ -336,14 +336,17 @@ function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
 // with the decay shown as arithmetic rather than asserted.
 //
 // The read serves what was STORED with the score, so a lead scored before
-// this shipped honestly says it has no explanation yet instead of showing
-// an empty list, which would read as "nothing contributed".
 // The decision-maker title pattern the score uses (formulas §3.1). Mirrored
 // here ONLY to say why a title earned nothing; the score itself is computed
 // server-side and this never adds to it.
 const DECISION_MAKER_TITLE =
   /(chief|vp|head|director|founder|owner|c[a-z]o)\b/i;
 const HIGH_INTENT_SOURCES = new Set(["inbound", "webform", "referral"]);
+// The server PENALISES these five points rather than merely granting nothing
+// (leadscore.go). Calling that "no buying intent on its own" would soften a
+// subtraction into a neutral, which is a different and kinder claim than the
+// model made.
+const LOW_INTENT_SOURCES = new Set(["import", "crawl"]);
 
 // What a lead is missing, in the model's own terms — shown when no retained
 // decomposition exists yet.
@@ -361,7 +364,13 @@ function ScoreShortfall({ lead }: Readonly<{ lead: Lead }>) {
   } else if (!DECISION_MAKER_TITLE.test(lead.title)) {
     missing.push(t("lead.shortfall.titleNotSenior", { title: lead.title }));
   }
-  if (!lead.source || !HIGH_INTENT_SOURCES.has(lead.source)) {
+  if (!lead.source) {
+    // Split exactly as the title pair above is: interpolating an absent value
+    // would print "Came in as undefined" at a rep.
+    missing.push(t("lead.shortfall.noSource"));
+  } else if (LOW_INTENT_SOURCES.has(lead.source)) {
+    missing.push(t("lead.shortfall.sourcePenalised", { source: lead.source }));
+  } else if (!HIGH_INTENT_SOURCES.has(lead.source)) {
     missing.push(t("lead.shortfall.sourceNoIntent", { source: lead.source }));
   }
   // Deliberately NOT a claim that no reply or meeting exists. Engagement lives
@@ -574,6 +583,7 @@ function LeadOwner({
         <Button
           small
           disabled={pending}
+          reason={lead.archived_at ? t("lead.terminalDisqualified") : undefined}
           aria-expanded={picking}
           aria-controls={pickerId}
           onClick={() => setPicking(!picking)}
@@ -794,7 +804,13 @@ function LeadLifecycle({
           // "Machine-computed score" was a label with no value beside it,
           // naming what the badge above already says. The override is a rare
           // action and stands alone.
-          <Button small onClick={() => setOverriding(true)}>
+          <Button
+            small
+            reason={
+              lead.archived_at ? t("lead.terminalDisqualified") : undefined
+            }
+            onClick={() => setOverriding(true)}
+          >
             {t("lead.overrideScore")}
           </Button>
         )}
@@ -952,9 +968,14 @@ function LeadOverviewPane({
               </div>
             </Modal>
           </div>
-          <LeadLifecycle lead={lead} id={id} onChanged={onLifecycleChanged} />
         </>
       )}
+      {/* Outside the terminal gate: a disqualified lead still has a score,
+          a status and an owner, and a reader who opens it came to see them.
+          Hiding the whole body left the page blank below the tab bar, which
+          reads as a broken render rather than a closed lead. The controls
+          inside it are individually disabled by their own state. */}
+      <LeadLifecycle lead={lead} id={id} onChanged={onLifecycleChanged} />
       <CustomFieldsCard object="lead" record={lead} />
     </>
   );
@@ -987,8 +1008,7 @@ function LeadActions({
       {!lead.archived_at && (
         <Button
           variant="primary"
-          disabled={!promoteEligible(lead)}
-          title={
+          reason={
             promoteEligible(lead) ? undefined : t("lead.promoteIneligible")
           }
           onClick={onPromote}

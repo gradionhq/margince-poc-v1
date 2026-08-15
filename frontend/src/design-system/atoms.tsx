@@ -27,11 +27,26 @@ export function Button({
   variant = "ghost",
   small,
   className,
+  reason,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   small?: boolean;
+  /**
+   * Why this action is unavailable. Passing it DISABLES the button, renders
+   * the explanation beside it, and points the control at that text with
+   * `aria-describedby` — the same contract `Switch.reason` carries, and for
+   * the same reason: a `title` on a disabled button is announced by no screen
+   * reader and a disabled button cannot be focused, so a reason that lives
+   * only in `title` reaches nobody who needed it.
+   *
+   * STATE-4a decides WHEN to use it: a control blocked by state rather than
+   * permission — an archived record, a frozen setting — stays visible and
+   * says why, because the reason is the information and it can change.
+   */
+  reason?: string;
 }) {
+  const reasonId = useId();
   const classes = [
     "btn",
     `btn-${variant}`,
@@ -40,7 +55,26 @@ export function Button({
   ]
     .filter(Boolean)
     .join(" ");
-  return <button type="button" className={classes} {...rest} />;
+  const button = (
+    <button
+      type="button"
+      className={classes}
+      disabled={rest.disabled || reason !== undefined}
+      aria-describedby={reason === undefined ? undefined : reasonId}
+      {...rest}
+    />
+  );
+  if (reason === undefined) {
+    return button;
+  }
+  return (
+    <span className="btn-with-reason">
+      {button}
+      <span id={reasonId} className="t-caption">
+        {reason}
+      </span>
+    </span>
+  );
 }
 
 export function Badge({
