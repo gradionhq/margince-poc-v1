@@ -123,6 +123,16 @@ var (
 	// attempted a mutate/send/approve/grant (403 seat_tier_insufficient,
 	// A62/ADR-0047).
 	ErrSeatTierInsufficient = errors.New("seat tier insufficient")
+
+	// ErrSeatLimitReached: this INSTALLATION has no licensed full seat left,
+	// so a seat may not be created (403 seat_limit_reached).
+	//
+	// Distinct from ErrSeatTierInsufficient, which is about the CALLER's own
+	// seat and never clears by an admin's action, and from ErrBudgetExceeded,
+	// which is metered and refills on its own — nothing about this one clears
+	// with time, and telling a caller to retry would be advice that can only
+	// ever fail. It is the licensed ceiling (A36/ADR-0029), not a quota.
+	ErrSeatLimitReached = errors.New("seat limit reached")
 )
 
 // Overlay sentinels — only reachable when workspace.sor_mode = overlay

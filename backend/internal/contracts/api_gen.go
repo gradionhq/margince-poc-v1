@@ -14585,8 +14585,10 @@ type LicenseEntitlement struct {
 	// grant carrying no seat count — which is not a grant of zero.
 	SeatsGranted *int `json:"seats_granted,omitempty"`
 
-	// SeatsUsed Full seats in use: not deactivated. Read seats are unlimited and never counted
-	// (A62/ADR-0047).
+	// SeatsUsed Full seats in use: every one the installation has not withdrawn — neither
+	// deactivated nor suspended — agent seats included. Read seats are unlimited and
+	// never counted (A62/ADR-0047). This is the number a seat creation is refused
+	// against, so the meter and the ceiling can never disagree.
 	SeatsUsed int `json:"seats_used"`
 
 	// State Whether a license was verified, none was configured, or one was refused. A client

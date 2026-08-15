@@ -60,12 +60,29 @@ func (s *SeatUsageStore) FullSeatsInUse(ctx context.Context) (int, error) {
 	}
 	var used int
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT count(*) FROM app_user
-			  WHERE seat_type = 'full' AND status <> 'deactivated'`).Scan(&used)
+		return tx.QueryRow(ctx, fullSeatsInUseQuery).Scan(&used)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("identity: counting full seats in use: %w", err)
 	}
 	return used, nil
 }
+
+// fullSeatsInUseQuery is the ONE count the license is measured against: the
+// meter an admin reads on the entitlement screen and the ceiling that refuses
+// them a seat run this same statement. A meter nobody is held to and a ceiling
+// nobody can see are the same defect from two sides, and the only way the two
+// cannot drift is that there is one of them.
+//
+// The predicate is the three decisions above: full seats only, agents included,
+// and neither a suspended nor a deactivated seat — both are access the
+// installation has already withdrawn, and an admin who suspended somebody to
+// free a seat has to actually get it back.
+//
+// It names the statuses that do NOT count rather than the one that does. A seat
+// exists until the installation withdraws it, so a status added later should
+// count until somebody decides otherwise: the wrong way round would silently
+// stop metering a state nobody had thought about, and an installation would
+// issue seats its license never granted.
+const fullSeatsInUseQuery = `SELECT count(*) FROM app_user
+	 WHERE seat_type = 'full' AND status NOT IN ('suspended', 'deactivated')`

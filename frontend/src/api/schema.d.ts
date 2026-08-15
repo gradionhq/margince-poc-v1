@@ -4370,21 +4370,24 @@ export interface paths {
          *     the process runs, so this reports what the installation last resolved rather than
          *     asking anything.
          *
-         *     `state` is the posture: `valid` (a license the module honored), `absent` (none
-         *     configured — a supported state that runs), or `rejected` (one the module refused; an
-         *     installation in that state does not serve, so a client never sees it from a live
-         *     server).
+         *     `state` is the posture: `valid` (a license the module honored), `absent` (no license
+         *     configured, which only a non-production installation may run as), or `rejected` (one
+         *     the module refused). A serving process boots on a license or does not boot, so a client
+         *     reading this from a live server sees `valid` — or `absent` on a development
+         *     installation.
          *
          *     `seats_granted` is ABSENT when there is no seat cap to report — no license, or one
          *     whose grant carries no seat count. That is not the same as a grant of zero seats, and a
          *     client that renders a missing value as `0` would tell an admin their license permits
-         *     nobody. `seats_used` counts full seats that are not deactivated; read seats are
-         *     unlimited and never metered (A62/ADR-0047).
+         *     nobody. `seats_used` counts every full seat the installation has not withdrawn —
+         *     neither deactivated nor suspended; read seats are unlimited and never metered
+         *     (A62/ADR-0047).
          *
          *     `over_limit` is the server's own verdict on the pair, so a client cannot arrive at a
-         *     different answer than the one the installation acts on. Being over the limit is
-         *     reported, never enforced here: the workspace keeps working, which is P7's
-         *     warning-then-grace rather than a silent mid-month lockout.
+         *     different answer than the one the installation acts on. Nobody is ever demoted or
+         *     evicted by it and no session ends — what an exhausted entitlement stops is the NEXT
+         *     full seat, refused at `POST /users` and at reactivation with `seat_limit_reached`.
+         *     That is P7's warning-then-refusal rather than a silent mid-month lockout.
          *
          *     Admin/ops-only, read included: a seat meter is the installation's commercial standing,
          *     and a rep reads their own seat elsewhere (UC-ADMIN-03 F1). Governed by the `license`
@@ -8334,8 +8337,10 @@ export interface components {
              */
             seats_granted?: number;
             /**
-             * @description Full seats in use: not deactivated. Read seats are unlimited and never counted
-             *     (A62/ADR-0047).
+             * @description Full seats in use: every one the installation has not withdrawn — neither
+             *     deactivated nor suspended — agent seats included. Read seats are unlimited and
+             *     never counted (A62/ADR-0047). This is the number a seat creation is refused
+             *     against, so the meter and the ceiling can never disagree.
              */
             seats_used: number;
             /**
@@ -27111,7 +27116,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /** @description Refused, with the reason distinguished by the problem `code`: `permission_denied` (the caller is not an admin), or `seat_limit_reached` — every full seat this installation's license grants is in use. An invited member is a full seat, so no member is created; the `detail` carries the granted and used counts, and an admin resolves it by deactivating a member or licensing more seats. Nothing about it clears on its own, so a client must not retry it. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Not found, with the reason distinguished by the problem `code`: `unknown_role` — this organization defines no role with the requested key. The `role` enum is documentation, not binding validation, so a mistyped key reaches the server and must say which of the two things was not found. */
             404: {
                 headers: {
@@ -27242,7 +27255,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /** @description Refused, with the reason distinguished by the problem `code`: `permission_denied` (the caller is not an admin), or `seat_limit_reached` — a deactivated member counts against nothing, so returning a FULL seat to active takes one exactly as an invite does, and every seat this installation's license grants is in use. The member stays deactivated. A read seat is never refused here: read seats are unlimited and never counted. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             404: components["responses"]["NotFound"];
             /** @description Refused with `code: not_deactivated` — only a deactivated member can be reactivated, and this one is in some other state. Both reachable states need a different action, not this one: an `invited` member has never set a password, and a `suspended` member is held for a reason that reactivating would clear without it ever being resolved. (An `active` member is a no-op and answers 200, not this.) */
             409: {

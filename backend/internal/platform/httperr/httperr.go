@@ -48,6 +48,7 @@ var mapping = []struct {
 	{apperrors.ErrRequiresApproval, http.StatusForbidden, "approval_required"},
 	{apperrors.ErrApprovalTokenInvalid, http.StatusForbidden, "approval_token_invalid"},
 	{apperrors.ErrSeatTierInsufficient, http.StatusForbidden, "seat_tier_insufficient"},
+	{apperrors.ErrSeatLimitReached, http.StatusForbidden, "seat_limit_reached"},
 	{apperrors.ErrConsentNotGranted, http.StatusConflict, "consent_not_granted"},
 	{apperrors.ErrBudgetExceeded, http.StatusTooManyRequests, "rate_limited"},
 	{apperrors.ErrModeNotOverlay, http.StatusNotFound, "mode_not_overlay"},

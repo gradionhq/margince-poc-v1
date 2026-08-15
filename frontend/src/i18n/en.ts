@@ -3984,7 +3984,7 @@ export const en = {
   "license.meter.label": "{used} of {granted} seats in use",
   "license.over.title": "You are over your seat entitlement",
   "license.over.body":
-    "{used} seats are in use and the license grants {granted}. Nothing is blocked and nobody loses access — remove a seat, or raise the entitlement, to come back inside it.",
+    "{used} seats are in use and the license grants {granted}. Nobody loses access and no seat is taken away — but no new member can be invited until you are back inside the entitlement. Deactivate a member, or raise the entitlement.",
   "license.holder.title": "Licensed to",
   "license.holder.org": "Organization",
   "license.holder.contact": "Contact",
@@ -3999,7 +3999,7 @@ export const en = {
   "license.renewal.body":
     "The license expires on {expiry}. Nothing changes before that date.",
   "license.counting":
-    "Full seats that are not deactivated, agents included. Read-only seats are unlimited and never counted.",
+    "Full seats that are neither deactivated nor suspended, agents included. Read-only seats are unlimited and never counted. This is the count a new member is admitted against.",
   "settings.group.you": "You",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",

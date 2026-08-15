@@ -46,8 +46,12 @@ type Watcher struct {
 }
 
 // NewWatcher resolves the posture once and refuses a rejected one, so the
-// caller's boot fails before the role serves. An absent license is not a
-// refusal: an unlicensed installation runs.
+// caller's boot fails before the role serves.
+//
+// An absent license is a posture here, not a refusal. Whether an installation
+// may RUN unlicensed depends on the deployment posture rather than on the
+// license, so that decision is the composition root's (compose.EnsureLicense)
+// and this package reports what it found.
 func NewWatcher(ctx context.Context, source TokenSource, now func() time.Time, log *slog.Logger, env runtimeenv.Environment) (*Watcher, error) {
 	token, err := source()
 	if err != nil {

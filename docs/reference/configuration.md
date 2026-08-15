@@ -733,9 +733,18 @@ Three postures, and what each one does at boot:
 
 | posture | boot | reported as |
 |---|---|---|
-| **no token configured** | boots, with a warning naming the bundled module | `margince_license_posture{state="absent"} 1` |
+| **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev`, `staging` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+**A production installation serves on a license or it does not serve.** The
+posture decides it, and `MARGINCE_ENV` is fail-closed, so an installation that
+names nothing is production and is held to a license. The refusal names both
+ways out — configure the token, or name the installation non-production — because
+the operator reading it is either licensed and missing the reference, or running
+a development installation that never said so. A refused license refuses the
+boot in *every* posture: naming yourself non-production is how you say you have
+no license, not a way to run one the module has judged.
 
 A refusal covers an untrusted signature, the wrong issuer, expiry past the grace
 period the module carries, and no grant for this product at this generation. A
@@ -753,8 +762,20 @@ variable) each time, so a license renewed in place takes effect within a day
 without a restart. Anything that is not a verdict — an unreadable token, a module
 that failed to run — leaves the posture the process last resolved and is logged
 as itself: none of those is evidence about the license, and degrading on one would
-report a refusal that no license caused. Enforcement of the granted seat count is
-not implemented yet (issue #1190).
+report a refusal that no license caused.
+
+**The granted seat count is enforced where a seat comes into use.** Once every
+licensed full seat is taken, inviting a member and reactivating a deactivated
+full seat are refused with `403 seat_limit_reached`, carrying the granted and
+used counts. Nothing already in use is touched: no seat is demoted, no session
+ends, and a license that lapses mid-month refuses the NEXT seat rather than
+taking away the ones people are working in (P7). Read seats are unlimited and
+never counted; a suspended or deactivated seat frees its own, so an admin at the
+ceiling can make room. A license carrying no seat count caps nothing, and so
+does an unlicensed development installation — the ceiling is read live, so a
+license renewed in place raises it on the next re-check without a restart. The
+number an admin is refused against is the number the entitlement screen and
+`margince_license_seats` report: one count, one statement.
 
 **Which authority a license must come from.** A production installation honors
 exactly one: `margince-license-authority`. That is not redundant with the bundled

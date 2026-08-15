@@ -3978,7 +3978,7 @@ export const de = {
   "license.meter.label": "{used} von {granted} Sitzplätzen belegt",
   "license.over.title": "Sie überschreiten Ihre Sitzplatzgrenze",
   "license.over.body":
-    "{used} Sitzplätze sind belegt, die Lizenz gewährt {granted}. Es wird nichts blockiert und niemand verliert den Zugang — geben Sie einen Sitzplatz frei oder erhöhen Sie die Grenze.",
+    "{used} Sitzplätze sind belegt, die Lizenz gewährt {granted}. Niemand verliert den Zugang und kein Sitzplatz wird entzogen — aber es kann kein neues Mitglied eingeladen werden, solange die Grenze überschritten ist. Deaktivieren Sie ein Mitglied oder erhöhen Sie die Grenze.",
   "license.holder.title": "Lizenziert für",
   "license.holder.org": "Organisation",
   "license.holder.contact": "Kontakt",
@@ -3993,7 +3993,7 @@ export const de = {
   "license.renewal.body":
     "Die Lizenz läuft am {expiry} ab. Vor diesem Datum ändert sich nichts.",
   "license.counting":
-    "Volle Sitzplätze, die nicht deaktiviert sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt.",
+    "Volle Sitzplätze, die weder deaktiviert noch gesperrt sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt. Gegen diese Zahl wird ein neues Mitglied zugelassen.",
   "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",

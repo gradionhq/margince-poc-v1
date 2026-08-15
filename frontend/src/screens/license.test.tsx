@@ -172,9 +172,11 @@ describe("LicenseCard", () => {
     const alert = await waitFor(() => screen.getByRole("alert"));
     expect(alert.textContent).toContain("11");
     expect(alert.textContent).toContain("10");
-    // The copy has to say the workspace keeps working, or an admin reads a
-    // warning about seats as a lockout in progress (P7).
-    expect(alert.textContent).toMatch(/nothing is blocked/i);
+    // The copy has to say both halves, because an admin acts on the difference:
+    // nobody currently working loses anything (P7), and the next invitation is
+    // the thing that will not go through.
+    expect(alert.textContent).toMatch(/nobody loses access/i);
+    expect(alert.textContent).toMatch(/no new member can be invited/i);
     // The meter still reads, clamped by the component rather than misreporting:
     // the value is the truth and the maximum is the entitlement.
     const meter = screen.getByRole("meter");
