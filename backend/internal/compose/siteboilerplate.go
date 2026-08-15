@@ -63,6 +63,14 @@ const (
 	// ~5,800 runes; a page left with a few hundred was never a page with a
 	// header, it was a page that repeats its neighbours.
 	boilerplateMinSurvivingRunes = 400
+	// boilerplateMaxBlockBytes caps how far two pages are compared. A header
+	// is at most a few thousand runes; scanning further only lets a hostile
+	// corpus set the cost.
+	boilerplateMaxBlockBytes = 24_000
+	// boilerplateMaxCorpusBytes is the total text this will look at. Past
+	// it the pages are returned untouched -- the profile lane still works,
+	// it just keeps the chrome, which is the pre-existing behaviour.
+	boilerplateMaxCorpusBytes = 4 << 20
 )
 
 // stripSharedPrefix removes the navigation chrome that opens most of a site's
@@ -74,6 +82,15 @@ func stripSharedPrefix(pages []crawlPage) []crawlPage {
 	out := make([]crawlPage, len(pages))
 	copy(out, pages)
 	if len(pages) < boilerplateMinPages {
+		return out
+	}
+	total := 0
+	for _, page := range pages {
+		total += len(page.Text)
+	}
+	if total > boilerplateMaxCorpusBytes {
+		// Fail open: keeping the chrome is the old behaviour, and it beats
+		// spending unbounded CPU on a corpus the crawled site chose.
 		return out
 	}
 
@@ -96,7 +113,13 @@ func stripSharedPrefix(pages []crawlPage) []crawlPage {
 		if utf8.RuneCountInString(page.Text[:at]) > chromeSearchRunes {
 			continue
 		}
-		trimmed := strings.TrimSpace(page.Text[:at] + " " + page.Text[at+len(prefix):])
+		// Keep ONLY what follows the chrome. Joining the lead-in to the
+		// tail would create a sentence the page never contained, and that
+		// spliced string becomes the evidence quote a human is shown when
+		// approving the proposal -- the citation gate would be satisfied by
+		// text formed at the join rather than by the site's own writing.
+		// The lead-in is the page's <title> and is restated in the body.
+		trimmed := strings.TrimSpace(page.Text[at+len(prefix):])
 		// Never hand back an empty page: a page that is ONLY chrome keeps
 		// its text, so the reader still sees it exists rather than
 		// silently losing a URL from the corpus.
@@ -115,6 +138,11 @@ func stripSharedPrefix(pages []crawlPage) []crawlPage {
 // zero.
 const chromeSearchRunes = 300
 
+// chromeMaxStarts bounds how many candidate offsets are tried per page. Each
+// one is compared against every other page, so an adversarial corpus of very
+// short words would otherwise turn this quadratic in page length.
+const chromeMaxStarts = 60
+
 // sharedOpening finds the longest opening that enough pages begin with,
 // allowing each page a short unique lead-in first.
 //
@@ -126,7 +154,7 @@ func sharedOpening(pages []crawlPage) string {
 	best := ""
 	// Try each page as the reference. A site whose FIRST page is atypical
 	// (a landing page with no menu) would otherwise defeat the whole check.
-	for _, candidate := range pages {
+	for i, candidate := range pages {
 		if utf8.RuneCountInString(candidate.Text) < boilerplateMinRunes {
 			continue
 		}
@@ -134,7 +162,7 @@ func sharedOpening(pages []crawlPage) string {
 		// as the chrome candidate. Anchoring on a mid-page offset is what
 		// lets a menu be found under a per-page <title>.
 		for _, start := range chromeStarts(candidate.Text) {
-			block := blockFrom(candidate, start, pages)
+			block := blockFrom(candidate, i, start, pages)
 			if utf8.RuneCountInString(block) > utf8.RuneCountInString(best) {
 				best = block
 			}
@@ -145,11 +173,13 @@ func sharedOpening(pages []crawlPage) string {
 
 // blockFrom narrows one candidate opening against every other page and
 // answers the shared run, or "" when the pages do not agree it is chrome.
-func blockFrom(candidate crawlPage, start int, pages []crawlPage) string {
+func blockFrom(candidate crawlPage, self, start int, pages []crawlPage) string {
 	common := candidate.Text[start:]
 	agreeing := 0
-	for _, other := range pages {
-		if other.URL == candidate.URL {
+	for j, other := range pages {
+		// Identity by INDEX: a corpus carrying the same URL twice would
+		// otherwise skip every page as "self" and silently strip nothing.
+		if j == self {
 			continue
 		}
 		shared := longestSharedRun(common, other.Text)
@@ -186,6 +216,14 @@ func chromeStarts(text string) []int {
 	for i := 1; i < limit; i++ {
 		if text[i-1] == ' ' && text[i] != ' ' {
 			starts = append(starts, i)
+			// The offsets are tried against every other page, so an
+			// input of single letters ("a a a a ...") would otherwise
+			// make this quadratic on a corpus a hostile site controls.
+			// A menu begins within the first few dozen words or it is
+			// not a menu.
+			if len(starts) >= chromeMaxStarts {
+				return starts
+			}
 		}
 	}
 	return starts
@@ -224,7 +262,7 @@ func blockDominatesPages(block string, pages []crawlPage) bool {
 			continue
 		}
 		carrying++
-		remainder := strings.TrimSpace(page.Text[:at] + " " + page.Text[at+len(block):])
+		remainder := strings.TrimSpace(page.Text[at+len(block):])
 		if utf8.RuneCountInString(remainder) < boilerplateMinSurvivingRunes {
 			dominated++
 		}
@@ -250,7 +288,7 @@ func tooLargeAShare(prefix string, pages []crawlPage) bool {
 			continue
 		}
 		carrying++
-		remainder := strings.TrimSpace(page.Text[:at] + " " + page.Text[at+len(prefix):])
+		remainder := strings.TrimSpace(page.Text[at+len(prefix):])
 		if utf8.RuneCountInString(remainder) < boilerplateMinRemainderRunes {
 			stubs++
 		}
@@ -267,6 +305,14 @@ func commonPrefix(a, b string) string {
 	limit := len(a)
 	if len(b) < limit {
 		limit = len(b)
+	}
+	// Chrome is a header, never a whole page, so the comparison stops at a
+	// header's worth of text. Without this the scan runs to end-of-page and
+	// the nested search becomes quadratic in page length: a site serving 40
+	// pages of 800 KB that all open alike cost 2m18s of a worker goroutine,
+	// which the deep read accepts from any attacker-chosen URL.
+	if limit > boilerplateMaxBlockBytes {
+		limit = boilerplateMaxBlockBytes
 	}
 	end := 0
 	for end < limit && a[end] == b[end] {

@@ -4,8 +4,10 @@
 package compose
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The mega-menu that opens every page of a large B2B site. Long enough to
@@ -168,5 +170,51 @@ func TestProfileExcerptSpendsItsBudgetOnRealTextNotChrome(t *testing.T) {
 	if !strings.Contains(corpus.String(), claim) {
 		t.Fatalf("the excerpt lost the company's own sentence; got %.200q",
 			corpus.String())
+	}
+}
+
+func TestAHostileCorpusCannotBurnAWorkerGoroutine(t *testing.T) {
+	// The deep read accepts an attacker-chosen URL (POST /company/site-reads
+	// creates an unbound dossier), so the crawled site chooses this input.
+	// Before the comparison was bounded, forty pages that all opened alike
+	// cost minutes of CPU per read -- enough to occupy the workers by
+	// repeating the call.
+	pages := make([]crawlPage, 0, 40)
+	opening := strings.Repeat("a ", 200_000)
+	for i := 0; i < 40; i++ {
+		pages = append(pages, crawlPage{
+			URL:  fmt.Sprintf("https://hostile.test/p%d", i),
+			Text: opening + fmt.Sprintf("%d", i),
+		})
+	}
+
+	start := time.Now()
+	stripSharedPrefix(pages)
+
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("a hostile corpus took %v; the comparison is unbounded again", elapsed)
+	}
+}
+
+func TestTheCutNeverInventsAPassageThePageDidNotContain(t *testing.T) {
+	// The surviving text becomes the evidence quote a human is shown when
+	// approving a staged proposal, and the citation gate checks containment
+	// against it. Joining the pre-chrome lead-in to the post-chrome body
+	// would form a sentence that appears nowhere on the page.
+	pages := pagesWithChrome(
+		"Our competitor Globex is the market leader in this segment.",
+		"Careers. We are hiring engineers in Berlin and Hamburg.",
+		"Contact. Reach the team at the Dortmund office any weekday.",
+		"Services. Consulting, implementation and long-term support.",
+	)
+	for i := range pages {
+		pages[i].Text = fmt.Sprintf("Page %d title ", i) + pages[i].Text
+	}
+
+	for i, page := range stripSharedPrefix(pages) {
+		if !strings.Contains(pages[i].Text, page.Text) {
+			t.Errorf("page %d now carries text the source never had:\n%.140q",
+				i, page.Text)
+		}
 	}
 }
