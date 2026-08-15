@@ -141,18 +141,19 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 	// Who this message fires as. Read under a system scope, because resolving
 	// the scheduler is what tells us whose authority to adopt — the answer
 	// cannot come from the authority we are still deciding.
-	scheduler, kind, err := w.scheduler(sendWorkerScope(wsCtx), id)
+	sched, err := w.scheduler(sendWorkerScope(wsCtx), id)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	if scheduler == (ids.UUID{}) {
+	if sched.UserID == (ids.UUID{}) {
 		// The row is gone, cancelled, or already finished. The alarm rang for
 		// a message that no longer wants sending, which is the ordinary way a
 		// cancelled send stops.
 		return nil
 	}
+	scheduler := sched.UserID
 
-	fireCtx, gone, err := w.fireAs(wsCtx, scheduler, kind)
+	fireCtx, gone, err := w.fireAs(wsCtx, sched)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
@@ -194,26 +195,52 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 	return nil
 }
 
-// scheduler reads who a pending scheduled message fires as, and what kind of
-// principal that is. A zero id means there is nothing to fire.
-func (w *scheduledSendWorker) scheduler(ctx context.Context, id ids.UUID) (ids.UUID, string, error) {
+// schedulerOf is who a pending scheduled message fires as: the authorizing
+// human, the kind of principal that scheduled it, and — when that was an
+// agent — the agent's own identity as core 0257 recorded it.
+type schedulerOf struct {
+	UserID ids.UUID
+	Kind   string
+	// AgentActorID is the acting agent's principal id. Empty for a human, and
+	// empty for an agent row scheduled before 0257 existed to record one.
+	AgentActorID    string
+	AgentPassport   ids.UUID
+	AgentOnBehalfOf ids.UUID
+}
+
+// scheduler reads who a pending scheduled message fires as. A zero UserID means
+// there is nothing to fire.
+func (w *scheduledSendWorker) scheduler(ctx context.Context, id ids.UUID) (schedulerOf, error) {
 	var (
-		userID ids.UUID
-		kind   string
+		out      schedulerOf
+		actorID  *string
+		passport *ids.UUID
+		behalf   *ids.UUID
 	)
 	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT scheduled_by, principal_kind
+			SELECT scheduled_by, principal_kind,
+			       agent_actor_id, agent_passport_id, agent_on_behalf_of
 			  FROM scheduled_send
-			 WHERE id = $1 AND status = 'scheduled'`, id).Scan(&userID, &kind)
+			 WHERE id = $1 AND status = 'scheduled'`, id).
+			Scan(&out.UserID, &out.Kind, &actorID, &passport, &behalf)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.UUID{}, "", nil
+		return schedulerOf{}, nil
 	}
 	if err != nil {
-		return ids.UUID{}, "", fmt.Errorf("comms_scheduled_send: reading who scheduled %s: %w", id, err)
+		return schedulerOf{}, fmt.Errorf("comms_scheduled_send: reading who scheduled %s: %w", id, err)
 	}
-	return userID, kind, nil
+	if actorID != nil {
+		out.AgentActorID = *actorID
+	}
+	if passport != nil {
+		out.AgentPassport = *passport
+	}
+	if behalf != nil {
+		out.AgentOnBehalfOf = *behalf
+	}
+	return out, nil
 }
 
 // fireAs rebuilds the authority this message fires under, live.
@@ -227,7 +254,13 @@ func (w *scheduledSendWorker) scheduler(ctx context.Context, id ids.UUID) (ids.U
 // an agent-scheduled message fired as a human would go out over the approver's
 // signature — something the identical immediate send would never do
 // (ADR-0104 §4).
-func (w *scheduledSendWorker) fireAs(ctx context.Context, userID ids.UUID, kind string) (context.Context, bool, error) {
+//
+// The agent's IDENTITY is preserved too, from what core 0257 stored at schedule
+// time. Deriving it from the human's id instead names an actor that never
+// existed and collapses every agent acting for one person into it, which breaks
+// the attribution ADR-0055 depends on.
+func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (context.Context, bool, error) {
+	userID := sched.UserID
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return nil, false, errors.New("comms_scheduled_send: firing outside workspace context")
@@ -264,11 +297,24 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, userID ids.UUID, kind 
 		// fire below carries the same human underneath.
 		OnBehalfOf: userID,
 	}
-	if kind == "agent" {
+	if sched.Kind == "agent" {
 		// An agent acting under this human's authority — which is what it was
-		// when the message was scheduled, and what it must still be now.
+		// when the message was scheduled, and what it must still be now. The
+		// grants above stay the HUMAN's: "agent ≤ human" is a ceiling, and a
+		// stored identity must name the actor without widening what it may do.
 		actor.Type = principal.PrincipalAgent
-		actor.ID = "agent:" + userID.String()
+		actor.ID = sched.AgentActorID
+		actor.PassportID = sched.AgentPassport
+		if !sched.AgentOnBehalfOf.IsZero() {
+			actor.OnBehalfOf = sched.AgentOnBehalfOf
+		}
+		if actor.ID == "" {
+			// Scheduled before 0257, so the row never recorded which agent it
+			// was and cannot be given one now. The derived id is what those
+			// rows have always fired under; keeping it confines the invented
+			// identity to them rather than putting a blank actor in the audit.
+			actor.ID = "agent:" + userID.String()
+		}
 	}
 	fireCtx := principal.WithActor(ctx, actor)
 	return principal.WithCorrelationID(fireCtx, ids.NewV7()), false, nil

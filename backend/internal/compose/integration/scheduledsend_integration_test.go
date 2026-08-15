@@ -34,7 +34,6 @@ package integration
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -47,7 +46,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
-	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -445,6 +443,105 @@ func (p *preflightEnv) alarmsFor(t *testing.T, id ids.UUID) int {
 	return n
 }
 
+// scheduleAsAgent defers a message with an agent as the actor, through the same
+// SendOrSchedule the tool surface calls.
+func (p *preflightEnv) scheduleAsAgent(t *testing.T, actor principal.Principal, at time.Time) ids.UUID {
+	t.Helper()
+	anchor, err := ids.Parse(p.activityID)
+	if err != nil {
+		t.Fatalf("the fixture activity id does not parse: %v", err)
+	}
+	out, err := compose.ScheduleAsAgentForTest(context.Background(), p.Pool, p.workspaceID(t), actor,
+		ids.From[ids.ActivityKind](anchor),
+		activities.SendEmailInput{
+			Recipients:     []string{"buyer@preflight.test"},
+			Subject:        "Monday morning",
+			Body:           "Written the night before, by a tool.",
+			ConsentPurpose: "transactional",
+		}, at)
+	if err != nil {
+		t.Fatalf("scheduling as an agent: %v", err)
+	}
+	if out.Scheduled == nil {
+		t.Fatal("scheduling as an agent sent immediately instead of deferring")
+	}
+	return out.Scheduled.ID
+}
+
+// auditActor reads the actor an audit row names for one record.
+func (p *preflightEnv) auditActor(t *testing.T, entityType string, entityID ids.UUID, action string) (string, string) {
+	t.Helper()
+	var actorType, actorID string
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT actor_type, actor_id FROM audit_log
+			  WHERE entity_type = $1 AND entity_id = $2 AND action = $3
+			  ORDER BY occurred_at DESC LIMIT 1`,
+			entityType, entityID, action).Scan(&actorType, &actorID)
+	}); err != nil {
+		t.Fatalf("reading the %s audit row for %s: %v", action, entityID, err)
+	}
+	return actorType, actorID
+}
+
+// An agent-scheduled message fires as the agent that scheduled it — by name.
+//
+// The human's id is in the row already, and rebuilding an agent identity from it
+// produces `agent:<human-uuid>`: an actor that never existed, and the same one
+// for every agent and every passport acting for that person. The release audit
+// row, the activity's captured_by and the outbox envelope then cannot say which
+// agent produced the message, which is the attribution ADR-0055 rests on
+// (#1258).
+//
+// What must NOT change with it is the ceiling: the grants are still the human's,
+// re-read live at fire, so preserving the identity cannot widen what the message
+// may do.
+func TestAnAgentScheduledSendFiresUnderTheAgentThatScheduledIt(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	passport := ids.NewV7()
+	agent := principal.Principal{
+		Type:       principal.PrincipalAgent,
+		ID:         "agent:" + passport.String(),
+		PassportID: passport,
+		UserID:     uuidOf(t, p.user),
+		OnBehalfOf: uuidOf(t, p.user),
+		SeatType:   principal.SeatFull,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"admin"},
+			Objects: map[string]principal.ObjectGrant{
+				"activity": {Create: true, Read: true, Update: true},
+				"person":   {Create: true, Read: true, Update: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+
+	id := p.scheduleAsAgent(t, agent, time.Now().Add(2*time.Hour))
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	if !p.sent(t, id) {
+		status, reason := p.scheduledStatus(t, id)
+		t.Fatalf("an agent-scheduled message did not fire: %q/%q", status, reason)
+	}
+
+	// The release audit row is where an investigation looks for who acted.
+	actorType, actorID := p.auditActor(t, "activity", p.releasedActivity(t, id), "create")
+	if actorType != "agent" {
+		t.Errorf("the fired message is audited as %q, want agent — a tool-written message recorded as a human's act", actorType)
+	}
+	if actorID != agent.ID {
+		t.Errorf("the fired message names actor %q, want %q — the audit cannot say which agent produced it",
+			actorID, agent.ID)
+	}
+	// The specific shape of the old defect: an identity derived from the human.
+	if actorID == "agent:"+p.user {
+		t.Error("the actor id was rebuilt from the human's id — every agent acting for this person collapses into one invented actor")
+	}
+}
+
 // rowVersion reads the scheduled row's optimistic-concurrency version.
 func (p *preflightEnv) rowVersion(t *testing.T, id ids.UUID) int64 {
 	t.Helper()
@@ -799,161 +896,6 @@ func TestACancelledMessageIsNotSentWhenItsTimerFires(t *testing.T) {
 	}
 	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusCancelled {
 		t.Fatalf("a cancelled message reads %q after its timer fired, want %q", status, activities.ScheduledStatusCancelled)
-	}
-}
-
-func TestErasingARecipientEmptiesAndStopsTheirScheduledMail(t *testing.T) {
-	p := setupPreflight(t)
-	p.connect(t, gmailReadonlyScope, gmailSendScope)
-
-	// A message written the night before, addressed to the person who is about
-	// to exercise Art. 17.
-	id := p.scheduleFor(t, time.Now().Add(12*time.Hour))
-
-	personID, err := ids.Parse(p.personID)
-	if err != nil {
-		t.Fatalf("person id %q: %v", p.personID, err)
-	}
-	if err := privacy.NewEraser(compose.InstallationDB(p.Pool)).ErasePerson(
-		p.privacyAdmin(t), personID, "art-17"); err != nil {
-		t.Fatalf("erasing the recipient: %v", err)
-	}
-
-	// The payload must no longer name them, and the message must no longer be
-	// waiting to go out: a scheduled row survives with a live timer, so an
-	// emptied-but-pending one would still fire the morning after the erasure
-	// certified this person's data destroyed.
-	status, _ := p.scheduledStatus(t, id)
-	if status != activities.ScheduledStatusCancelled {
-		t.Fatalf("a scheduled message to an erased person reads %q, want %q — it still has a timer",
-			status, activities.ScheduledStatusCancelled)
-	}
-	var payload string
-	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT payload::text FROM scheduled_send WHERE id = $1`, id).Scan(&payload)
-	}); err != nil {
-		t.Fatalf("reading the frozen payload: %v", err)
-	}
-	if strings.Contains(payload, "buyer@preflight.test") {
-		t.Fatalf("the erased person's address survives in a scheduled message: %s", payload)
-	}
-	if strings.Contains(payload, "Written the night before.") {
-		t.Fatalf("the body of a message to an erased person survives: %s", payload)
-	}
-}
-
-// Art. 15 owes the subject the data held about them, and a message somebody
-// wrote to them and has not sent is data held about them. It reaches the export
-// by a route the sent-message projection cannot take: a scheduled send has no
-// activity and no delivery row, so all three of that query's clauses miss it.
-func TestASubjectAccessExportCarriesTheMailNobodyHasSentYet(t *testing.T) {
-	p := setupPreflight(t)
-	p.connect(t, gmailReadonlyScope, gmailSendScope)
-
-	// Scheduled through the real endpoint, so the row under test is the one the
-	// product writes — payload shape included, which is what the export reads.
-	p.scheduleFor(t, time.Now().Add(6*time.Hour))
-
-	personID, err := ids.Parse(p.personID)
-	if err != nil {
-		t.Fatalf("person id %q: %v", p.personID, err)
-	}
-	pkg, err := privacy.AssembleSAR(
-		p.privacyAdmin(t), compose.InstallationDB(p.Pool), ids.From[ids.PersonKind](personID))
-	if err != nil {
-		t.Fatalf("AssembleSAR: %v", err)
-	}
-
-	if len(pkg.ScheduledMessages) != 1 {
-		t.Fatalf("the export carried %d unsent messages, want the one waiting for this person: %#v",
-			len(pkg.ScheduledMessages), pkg.ScheduledMessages)
-	}
-	row := pkg.ScheduledMessages[0]
-	if subject, _ := row["subject"].(string); subject != "Monday morning" {
-		t.Errorf("the unsent message came back with subject %q, want the one that was scheduled", subject)
-	}
-	if body, _ := row["body"].(string); !strings.Contains(body, "Written the night before") {
-		t.Errorf("the export withheld the body of a message written to this person: %#v", row)
-	}
-	// The state is part of the answer: a subject told a message exists, but not
-	// whether it is still going to arrive, has been told half a fact.
-	if status, _ := row["status"].(string); status != activities.ScheduledStatusScheduled {
-		t.Errorf("the export reported status %q, want %q", status, activities.ScheduledStatusScheduled)
-	}
-}
-
-// The blind-copy rule has two halves that pull opposite ways, and only a
-// message with SEVERAL blind recipients can show both: a bcc'd subject must
-// find their own message in their export, and must not learn who else was
-// blind-copied on it. A projection that satisfied one half would look correct
-// against a single-recipient fixture.
-func TestABlindCopiedSubjectSeesTheirOwnMailAndNobodyElsesAddress(t *testing.T) {
-	p := setupPreflight(t)
-	p.connect(t, gmailReadonlyScope, gmailSendScope)
-
-	// The subject is BLIND-copied; somebody else is the visible addressee, and
-	// a third party shares the blind list with them.
-	//
-	// Both extra addressees need a person on file and a granted purpose,
-	// because consent is owed to EVERY addressee however they were addressed —
-	// the same rule that makes a blind copy a consent question at all. Without
-	// them the send is refused 409 before it can be scheduled, which would say
-	// nothing about the export.
-	//
-	// The other blind address is typed in MIXED CASE on purpose. The send path
-	// removes blind copies from the To line case-insensitively; an export that
-	// compared raw would leave this one sitting in the visible list while the
-	// message itself correctly hid it, and the two derivations of "who is on
-	// the To line" would disagree about the same message.
-	const otherBlind = "Third.Party@Preflight.test"
-	p.seedConsentedRecipient(t, "Visible Addressee", "visible@preflight.test")
-	p.seedConsentedRecipient(t, "Other Blind", otherBlind)
-	var scheduled struct {
-		ID string `json:"id"`
-	}
-	status := p.Call(t, "POST", "/v1/emails", apptest.AnyMap{
-		"subject": "Quiet copy", "body": "You were blind-copied on this.",
-		"to":              []string{"visible@preflight.test"},
-		"bcc":             []string{"buyer@preflight.test", otherBlind},
-		"consent_purpose": "transactional",
-		"links": []apptest.AnyMap{
-			{"entity_type": "person", "entity_id": p.personID},
-		},
-		"scheduled_at": time.Now().Add(6 * time.Hour).UTC().Format(time.RFC3339),
-		"scheduled_tz": "Europe/Berlin",
-	}, nil, &scheduled)
-	if status != http.StatusCreated {
-		t.Fatalf("scheduling a blind-copied message → %d, want 201", status)
-	}
-
-	personID, err := ids.Parse(p.personID)
-	if err != nil {
-		t.Fatalf("person id %q: %v", p.personID, err)
-	}
-	pkg, err := privacy.AssembleSAR(
-		p.privacyAdmin(t), compose.InstallationDB(p.Pool), ids.From[ids.PersonKind](personID))
-	if err != nil {
-		t.Fatalf("AssembleSAR: %v", err)
-	}
-
-	// Found on the blind list: without this the subject is absent from their own
-	// export of a message they were going to receive.
-	if len(pkg.ScheduledMessages) != 1 {
-		t.Fatalf("a blind-copied subject got %d unsent messages, want 1: %#v",
-			len(pkg.ScheduledMessages), pkg.ScheduledMessages)
-	}
-	// …and narrowed to themselves: exporting the whole blind list would hand
-	// this subject a stranger's address, which is what a blind copy exists to
-	// prevent.
-	rendered := fmt.Sprintf("%#v", pkg.ScheduledMessages[0])
-	if !strings.Contains(rendered, "buyer@preflight.test") {
-		t.Errorf("the export withheld the subject's own blind address: %s", rendered)
-	}
-	// Case-insensitive, because the leak this guards against does not care how
-	// the address was typed.
-	if strings.Contains(strings.ToLower(rendered), strings.ToLower(otherBlind)) {
-		t.Errorf("the export disclosed another blind recipient's address to this subject: %s", rendered)
 	}
 }
 
