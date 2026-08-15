@@ -191,29 +191,30 @@ func predicateFor(p principal.Principal, table string, arg func(any) int, captur
 	}
 }
 
-// EnsureCanShare holds the bound the contract puts on `createRecordGrant`:
-// "flat explicit grants only — no sharing hierarchies, criteria-rules, or
-// grant-of-grant delegation." A share received is not a licence to re-share,
-// so the record must sit in the caller's OWN scope — owner, team, or
-// unbounded — and the grant arm that widens every read path is deliberately
-// not consulted here.
+// EnsureCanGrant holds ADR-0039's scope-intersection rule: "a granter can
+// never share wider than they hold." Only `write` can be wider than something,
+// so `read` needs no probe — EnsureLinkTarget has already proven the caller can
+// see the record, and passing on sight they hold is what UC-E11-08 F1's screen
+// state ("Can't grant write — you only have read here") describes as allowed.
 //
-// This is the difference between seeing a record and administering who else
-// may see it. EnsureVisible cannot make it, because a grant satisfies it by
-// design; without a separate probe the person a record was shared WITH could
-// administer that same share — hand it to a colleague, widen its access, or
-// clear the expiry that time-boxed it — all on authority the share itself
-// handed them.
+// For `write` the question is whether the caller's own authority over the row
+// is write-level: owner/team/all scope, or a live grant that says `write`. The
+// visibility arm cannot answer it, because it counts every live grant by design
+// — which is exactly how a `read`-share holder would otherwise pass on an
+// authority their sharer withheld.
 //
 // Out of scope answers ErrPermissionDenied, not ErrNotFound: the caller has
 // already proven they can see the row, so existence-hiding has nothing left to
 // hide and a not-found would send them looking for a typo.
-func EnsureCanShare(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+func EnsureCanGrant(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, access string) error {
 	// The primitive rejects an unknown name itself, like every sibling here:
 	// the record type reaching this comes from a request body, and its caller's
 	// own allowlist is a second line rather than the only one.
 	if !shareableTables[table] {
 		return fmt.Errorf("auth: %q is not a shareable table", table)
+	}
+	if access != grantAccessWrite {
+		return nil
 	}
 	p, err := rbacActor(ctx)
 	if err != nil {
@@ -226,10 +227,18 @@ func EnsureCanShare(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) e
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
 	owner := OwnerPredicate(p, arg)("")
+	me, teams := arg(p.UserID), arg(p.TeamIDs)
 
 	var permitted bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(
-		`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND %s)`, table, idPos, owner),
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND (%s OR EXISTS (
+		   SELECT 1 FROM record_grant rg
+		   WHERE rg.record_type = '%s' AND rg.record_id = %s.id
+		     AND rg.access = '%s'
+		     AND (rg.expires_at IS NULL OR rg.expires_at > now())
+		     AND ((rg.subject_type = 'user' AND rg.subject_id = $%d)
+		       OR (rg.subject_type = 'team' AND rg.subject_id = ANY($%d))))))`,
+		table, idPos, owner, table, table, grantAccessWrite, me, teams),
 		args...).Scan(&permitted); err != nil {
 		return err
 	}
@@ -238,6 +247,10 @@ func EnsureCanShare(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) e
 	}
 	return nil
 }
+
+// grantAccessWrite is the wider of record_grant's two access levels. Spelled
+// once here because this file both compares against it and embeds it in SQL.
+const grantAccessWrite = "write"
 
 // ScopeClause renders the own/team/all row-visibility predicate over an
 // owner_id column (B-EP03.3a). arg registers a query argument and
