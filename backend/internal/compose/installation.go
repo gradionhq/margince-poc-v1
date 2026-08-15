@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -90,10 +91,12 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 }
 
 // setupTokenFile is where the plaintext claim credential is left for the
-// operator, relative to the process working directory — the same shape
-// margince.yaml's password_file uses, so a container mounting /app/secrets
-// covers both without a second convention.
-const setupTokenFile = "secrets/setup-token"
+// operator, relative to the process working directory. It joins the config/
+// directory the installation's other local secrets already live in
+// (margince-admin-password, margince-license), which is the directory
+// .gitignore anchors — a credential written anywhere else lands untracked in a
+// working tree that is a public repository.
+const setupTokenFile = "config/margince-setup-token" // #nosec G101 -- a path, not a credential; the token itself is never a literal
 
 // announceSetupToken mints the claim credential when none is outstanding and
 // puts it where the operator will find it: the server log, and a 0600 file
@@ -110,8 +113,12 @@ const setupTokenFile = "secrets/setup-token"
 func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Logger) error {
 	raw, err := svc.MintSetupToken(ctx)
 	if errors.Is(err, identity.ErrSetupTokenExists) {
-		log.Warn("installation is unprovisioned and a setup token is already outstanding — the one issued earlier is still the credential; use the operator CLI to replace it if it was lost",
-			"token_file", setupTokenFile)
+		abs, pathErr := filepath.Abs(setupTokenFile)
+		if pathErr != nil {
+			abs = setupTokenFile
+		}
+		log.Warn("installation is unprovisioned and a setup token is already outstanding — the one issued earlier is still the credential; if it was lost, replace it with `margince-migrate setup-token`",
+			"token_file", abs)
 		return nil
 	}
 	if err != nil {
@@ -129,6 +136,15 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 
 // writeSetupTokenFile writes the plaintext 0600 and returns the path it used,
 // reporting rather than returning a write failure — see announceSetupToken.
+//
+// O_EXCL|O_NOFOLLOW rather than os.WriteFile, because what is written here is a
+// credential that claims the installation. WriteFile is O_CREATE|O_TRUNC: it
+// follows a symlink and leaves an existing file's mode alone, so anything that
+// can write this directory before first boot — a group-writable /app, a shared
+// volume, a sidecar — can pre-create the path 0666 and read the credential, or
+// point it at a file the server user may overwrite. Refusing an existing entry
+// is the honest outcome: the operator sees the write error next to the token
+// itself in the log.
 func writeSetupTokenFile(raw string) (path string, err error) {
 	abs, err := filepath.Abs(setupTokenFile)
 	if err != nil {
@@ -137,7 +153,15 @@ func writeSetupTokenFile(raw string) (path string, err error) {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return abs, err
 	}
-	return abs, os.WriteFile(abs, []byte(raw), 0o600)
+	// #nosec G304 -- abs derives from the compile-time constant above via filepath.Abs; no request or configuration value reaches this path
+	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return abs, err
+	}
+	if _, err := f.WriteString(raw); err != nil {
+		return abs, errors.Join(err, f.Close())
+	}
+	return abs, f.Close()
 }
 
 // configuredSeed lays down every module's per-workspace defaults inside

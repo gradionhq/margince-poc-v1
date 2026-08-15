@@ -11,13 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-// ErrNoSetupToken means no unconsumed setup token exists: either this
-// installation was never minted one (it is provisioned, or configured with a
-// bootstrap_admin) or the token has already been spent.
-var ErrNoSetupToken = errors.New("identity: no outstanding setup token")
 
 // ErrSetupTokenMismatch means a claim presented a token that is not the
 // outstanding one. It is deliberately indistinguishable from ErrNoSetupToken at
@@ -25,20 +21,41 @@ var ErrNoSetupToken = errors.New("identity: no outstanding setup token")
 // tells them whether an installation is claimable and worth guessing at.
 var ErrSetupTokenMismatch = errors.New("identity: setup token does not match")
 
+// ErrSetupTokenExists means a token is already outstanding, so no new one was
+// minted and the existing one is still the credential.
+var ErrSetupTokenExists = errors.New("identity: a setup token is already outstanding")
+
 // MintSetupToken issues the single-use credential that authorizes claiming an
 // unprovisioned installation, returning the plaintext ONCE — only its hash is
 // stored, so a database copy cannot be replayed into a claim.
 //
-// Minting is idempotent by omission rather than by upsert: when a token is
-// already outstanding it returns ErrSetupTokenExists and keeps the existing
-// one, because a boot that silently replaced it would invalidate the token an
-// operator had already read out of the log and handed on.
+// It refuses on an installation that already holds an organization. That is not
+// belt-and-braces: SetupTokenOutstanding reports what this writes, so a token
+// minted against a live installation would make it answer "claimable" to any
+// stranger, and the SPA would render a claim screen for an installation that
+// cannot be claimed.
+//
+// An outstanding token is kept, not replaced: a boot that silently minted a
+// fresh one would invalidate the token an operator had already read out of the
+// log and handed on. Under the installation advisory lock — the same one boot
+// and claim take — so two api replicas starting together cannot both pass the
+// EXISTS check and race each other into the unique index.
 func (s *Service) MintSetupToken(ctx context.Context) (raw string, err error) {
 	raw, hash, err := mintSessionToken()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("identity: minting the setup token: %w", err)
 	}
 	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
+			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
+		}
+		existing, err := activeWorkspaces(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			return ErrAlreadyProvisioned
+		}
 		var outstanding bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM setup_token WHERE consumed_at IS NULL)`).Scan(&outstanding); err != nil {
@@ -49,6 +66,13 @@ func (s *Service) MintSetupToken(ctx context.Context) (raw string, err error) {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO setup_token (token_hash) VALUES ($1)`, hash); err != nil {
+			// The partial unique index is the real guarantee; the check above
+			// only lets us say so in words. Report both the same way, so a boot
+			// that loses a race it should not be in reports "already
+			// outstanding" rather than dying on a raw constraint violation.
+			if storekit.IsUniqueViolation(err) {
+				return ErrSetupTokenExists
+			}
 			return fmt.Errorf("identity: recording the setup token: %w", err)
 		}
 		return nil
@@ -59,9 +83,50 @@ func (s *Service) MintSetupToken(ctx context.Context) (raw string, err error) {
 	return raw, nil
 }
 
-// ErrSetupTokenExists means a token is already outstanding, so no new one was
-// minted and the existing one is still the credential.
-var ErrSetupTokenExists = errors.New("identity: a setup token is already outstanding")
+// RotateSetupToken retires whatever is outstanding and issues a fresh
+// credential, for the one case MintSetupToken cannot serve: a token lost before
+// it was used. Without it the single-outstanding rule makes a lost token
+// permanent — the installation stays unclaimable forever and only hand-written
+// SQL against production gets it back.
+//
+// Deliberately NOT reachable over HTTP. It invalidates a live claim credential,
+// which is exactly what an attacker wants when the operator holds one; ADR-0061
+// §4 puts re-bootstrap on an operator-only CLI for the same reason, and this is
+// that path.
+//
+// It refuses on a provisioned installation, where there is nothing to claim.
+func (s *Service) RotateSetupToken(ctx context.Context) (raw string, err error) {
+	raw, hash, err := mintSessionToken()
+	if err != nil {
+		return "", fmt.Errorf("identity: minting the setup token: %w", err)
+	}
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
+			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
+		}
+		existing, err := activeWorkspaces(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			return ErrAlreadyProvisioned
+		}
+		// Retire first, so the single-outstanding index admits the new row —
+		// and so the old credential stops working the moment this commits,
+		// rather than both being live until someone spends one.
+		if err := retireSetupTokens(ctx, tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO setup_token (token_hash) VALUES ($1)`, hash); err != nil {
+			return fmt.Errorf("identity: recording the setup token: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return raw, nil
+}
 
 // consumeSetupToken spends the outstanding token, refusing anything that is not
 // it. It runs INSIDE the caller's transaction: consuming the token and creating
@@ -81,6 +146,18 @@ func consumeSetupToken(ctx context.Context, tx pgx.Tx, presented string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSetupTokenMismatch
+	}
+	return nil
+}
+
+// retireSetupTokens marks every outstanding claim credential spent, in the
+// caller's transaction. Idempotent and unconditional: an installation that
+// holds an organization has nothing left to claim, so a token that survives it
+// is a live credential with no legitimate use.
+func retireSetupTokens(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx,
+		`UPDATE setup_token SET consumed_at = now() WHERE consumed_at IS NULL`); err != nil {
+		return fmt.Errorf("identity: retiring outstanding setup tokens: %w", err)
 	}
 	return nil
 }
@@ -105,6 +182,16 @@ var ErrAlreadyProvisioned = errors.New("identity: installation is already provis
 // The provisioned check runs BEFORE the token is consumed, so a claim aimed at
 // a live installation is refused without spending anything.
 func (s *Service) ClaimInstallation(ctx context.Context, token string, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
+	// Refuse a provisioned installation WITHOUT taking the lock. This route is
+	// unauthenticated and stays mounted for the life of the installation, so
+	// the common case by far is a stranger reaching a live one; making that
+	// path queue on the same advisory lock boot uses would let anyone stall
+	// every other request behind a pool connection they hold for free. The
+	// authoritative check still happens under the lock below — this one only
+	// declines to pay for a question already answered.
+	if cached := s.installation.Load(); cached != nil {
+		return ids.WorkspaceID{}, ErrAlreadyProvisioned
+	}
 	var wsID ids.WorkspaceID
 	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {

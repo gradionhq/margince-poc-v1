@@ -17,6 +17,9 @@ import (
 	"io"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
 // dbExists answers whether a database of that name is present on the cluster.
@@ -54,6 +57,40 @@ func orgExists(ctx context.Context, conn *pgx.Conn, stdout io.Writer) error {
 	}
 	if _, err := fmt.Fprintf(stdout, "%t\n", exists); err != nil {
 		return fmt.Errorf("migrate org-exists: writing the answer: %w", err)
+	}
+	return nil
+}
+
+// rotateSetupToken issues a fresh claim credential for an unprovisioned
+// installation, retiring whatever was outstanding. It is the operator's way
+// back from a setup token lost before first use — without it the
+// single-outstanding rule makes that loss permanent, and only hand-written SQL
+// against production recovers it.
+//
+// A CLI and not an HTTP route, for the reason ADR-0061 §4 gives: rotating
+// invalidates a live claim credential, which is precisely what an attacker
+// wants while the operator still holds one. Reaching it requires the owner DSN.
+//
+// It opens a pool rather than reusing this command's single connection because
+// the identity service owns the rule — the advisory lock, the provisioned
+// refusal, the retire-then-issue order — and a second spelling here would drift
+// from it.
+func rotateSetupToken(ctx context.Context, dsn string, stdout io.Writer) error {
+	pool, err := database.NewPool(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("migrate setup-token: opening a pool: %w", err)
+	}
+	defer pool.Close()
+
+	raw, err := identity.NewService(pool).RotateSetupToken(ctx)
+	if errors.Is(err, identity.ErrAlreadyProvisioned) {
+		return errors.New("migrate setup-token: this installation already has an organization — there is nothing left to claim; use `migrate reset-password` to recover an account")
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "%s\n", raw); err != nil {
+		return fmt.Errorf("migrate setup-token: writing the token: %w", err)
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -15,18 +16,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
-
-// writeSetupJSON answers on the operational mux, which has no contract
-// serializer of its own — these two routes are outside crm.yaml for the same
-// reason /healthz is.
-func writeSetupJSON[T setupStatusResponse | setupClaimResponse](w http.ResponseWriter, status int, body T) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	//craft:ignore swallowed-errors the status line is already written, so a failed encode cannot become an error response; the client sees a truncated body and the server's write error surfaces in the access log
-	_ = json.NewEncoder(w).Encode(body)
-}
 
 // The claim surface (ADR-0105). It sits on the operational mux beside the
 // health probes rather than under /v1, for the reason that shapes everything
@@ -41,6 +34,16 @@ func writeSetupJSON[T setupStatusResponse | setupClaimResponse](w http.ResponseW
 // setupStatusResponse tells a caller whether this installation is waiting to be
 // claimed. It discloses no token and no organization detail: a stranger already
 // learns as much from any request that answers 503.
+// setupLimiter throttles the pre-tenant edge per client IP, the way every other
+// unauthenticated edge on this mux does. Without it an anonymous caller opens a
+// transaction and (before the short-circuit in ClaimInstallation) queued on the
+// installation advisory lock on every request — a pool connection held for
+// free, and the operator's one legitimate claim contending in the same queue.
+//
+// 20/min is below the booking edge's 60: a human claims an installation once,
+// and a client retrying more than that is not the case being served.
+func newSetupLimiter() *ratelimit.Limiter { return ratelimit.New(20, time.Minute) }
+
 // setupClaimResponse names the organization a claim created, so the caller
 // can go straight to signing in rather than probing for it.
 type setupClaimResponse struct {
@@ -65,20 +68,28 @@ type setupClaimRequest struct {
 }
 
 // setupStatus answers whether a claim is possible.
-func setupStatus(svc *identity.Service) http.HandlerFunc {
+func setupStatus(svc *identity.Service, limit *ratelimit.Limiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !limit.Allow(httpserver.ClientIP(r)) {
+			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
+			return
+		}
 		outstanding, err := svc.SetupTokenOutstanding(r.Context())
 		if err != nil {
 			httperr.Write(w, r, err)
 			return
 		}
-		writeSetupJSON(w, http.StatusOK, setupStatusResponse{Claimable: outstanding})
+		httperr.WriteJSON(w, http.StatusOK, setupStatusResponse{Claimable: outstanding})
 	}
 }
 
 // setupClaim creates the organization and its first admin from a claim.
-func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Seeds) http.HandlerFunc {
+func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Seeds, limit *ratelimit.Limiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !limit.Allow(httpserver.ClientIP(r)) {
+			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
+			return
+		}
 		var in setupClaimRequest
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 		dec.DisallowUnknownFields()
@@ -118,6 +129,6 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 			httperr.Write(w, r, err)
 			return
 		}
-		writeSetupJSON(w, http.StatusCreated, setupClaimResponse{WorkspaceID: wsID.String()})
+		httperr.WriteJSON(w, http.StatusCreated, setupClaimResponse{WorkspaceID: wsID.String()})
 	}
 }

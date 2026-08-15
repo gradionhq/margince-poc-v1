@@ -226,6 +226,17 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	if err := seedAgentSeat(ctx, tx, wsID, boot); err != nil {
 		return ids.WorkspaceID{}, err
 	}
+	// Any outstanding claim credential is retired here, on BOTH paths. The
+	// claim path has already spent it; the configured path never issued one but
+	// may be running on an installation that was minted a token by an earlier
+	// unprovisioned boot. Left alive, that token would sit in a log pipeline
+	// while /setup/status advertised the installation as claimable — inert only
+	// while an organization exists, and live again the moment one is archived or
+	// the database is restored empty. The organization is what retires it, not
+	// whichever path created the organization.
+	if err := retireSetupTokens(ctx, tx); err != nil {
+		return ids.WorkspaceID{}, err
+	}
 	// Who did this. A configured bootstrap is a SYSTEM event — no human signed
 	// in, and naming one would make the record assert something false. A CLAIM
 	// is the opposite: someone presented the operator's token and chose their

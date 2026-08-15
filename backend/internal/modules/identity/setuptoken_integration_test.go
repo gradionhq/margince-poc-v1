@@ -11,12 +11,15 @@ package identity
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // newSetupService builds the service on the package's shared pools, which
@@ -39,21 +42,8 @@ func claimInput(org string) InstallationBootstrap {
 	}
 }
 
-// archiveWorkspaces clears the harness's own organization so the service under
-// test sees the unprovisioned state a real first boot sees.
-func archiveWorkspaces(t *testing.T, svc *Service) {
-	t.Helper()
-	if err := database.WithInfraTx(context.Background(), svc.db.Pool(), func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `UPDATE workspace SET archived_at = now() WHERE archived_at IS NULL`)
-		return err
-	}); err != nil {
-		t.Fatalf("clearing the harness workspace: %v", err)
-	}
-}
-
 func TestClaimCreatesTheOrganizationAndSpendsTheToken(t *testing.T) {
 	svc := newSetupService(t)
-	archiveWorkspaces(t, svc)
 	ctx := context.Background()
 
 	token, err := svc.MintSetupToken(ctx)
@@ -82,7 +72,6 @@ func TestClaimCreatesTheOrganizationAndSpendsTheToken(t *testing.T) {
 
 func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 	svc := newSetupService(t)
-	archiveWorkspaces(t, svc)
 	ctx := context.Background()
 
 	token, err := svc.MintSetupToken(ctx)
@@ -115,7 +104,6 @@ func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 
 func TestConfiguredBootstrapStaysASystemEvent(t *testing.T) {
 	svc := newSetupService(t)
-	archiveWorkspaces(t, svc)
 	ctx := context.Background()
 
 	wsID, created, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
@@ -140,7 +128,6 @@ func TestConfiguredBootstrapStaysASystemEvent(t *testing.T) {
 
 func TestAWrongTokenIsRefusedAndLeavesTheInstallationClaimable(t *testing.T) {
 	svc := newSetupService(t)
-	archiveWorkspaces(t, svc)
 	ctx := context.Background()
 
 	if _, err := svc.MintSetupToken(ctx); err != nil {
@@ -161,37 +148,40 @@ func TestAWrongTokenIsRefusedAndLeavesTheInstallationClaimable(t *testing.T) {
 	}
 }
 
-func TestClaimingAProvisionedInstallationIsRefusedWithoutSpendingTheToken(t *testing.T) {
+// A claim aimed at a live installation is refused, and refused as ITSELF — a
+// caller holding what was once a valid token gets the true reason rather than a
+// token failure, because that an installation is provisioned is already visible
+// from every other request.
+//
+// The token is minted BEFORE provisioning because that is now the only order
+// the service permits: minting against a live installation is refused outright,
+// and provisioning retires whatever was outstanding. Both are the point.
+func TestClaimingAProvisionedInstallationIsRefused(t *testing.T) {
 	svc := newSetupService(t)
 	ctx := context.Background()
-	// Provision it the configured way first, so the claim below meets a real
-	// organization rather than an empty database.
+
+	token, err := svc.MintSetupToken(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("incumbent"), nil
 	}, nil); err != nil {
 		t.Fatalf("seeding the provisioned installation: %v", err)
 	}
 
-	token, err := svc.MintSetupToken(ctx)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := svc.ClaimInstallation(ctx, token, claimInput("second"), nil); !errors.Is(err, ErrAlreadyProvisioned) {
+		t.Fatalf("claiming a provisioned installation returned %v, want ErrAlreadyProvisioned", err)
 	}
-	_, err = svc.ClaimInstallation(ctx, token, claimInput("second"), nil)
-	if !errors.Is(err, ErrAlreadyProvisioned) {
-		t.Fatalf("claiming a provisioned installation returned %v, want ErrAlreadyProvisioned — a valid token deserves the true reason", err)
-	}
-	outstanding, err := svc.SetupTokenOutstanding(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !outstanding {
-		t.Error("the token was spent by a claim that created nothing")
+	// And minting a fresh one is refused too, so nothing can re-open the claim
+	// surface on a live installation.
+	if _, err := svc.MintSetupToken(ctx); !errors.Is(err, ErrAlreadyProvisioned) {
+		t.Errorf("minting on a provisioned installation returned %v, want ErrAlreadyProvisioned — /setup/status would advertise it as claimable", err)
 	}
 }
 
 func TestASecondTokenIsNotMintedWhileOneIsOutstanding(t *testing.T) {
 	svc := newSetupService(t)
-	archiveWorkspaces(t, svc)
 	ctx := context.Background()
 
 	first, err := svc.MintSetupToken(ctx)
@@ -205,5 +195,111 @@ func TestASecondTokenIsNotMintedWhileOneIsOutstanding(t *testing.T) {
 	// would invalidate what an operator had already read out of the log.
 	if _, err := svc.ClaimInstallation(ctx, first, claimInput("firsttoken"), nil); err != nil {
 		t.Fatalf("the originally minted token no longer claims: %v", err)
+	}
+}
+
+// The two claims 0252 makes in prose, asserted against the database rather than
+// trusted. Both are one query in a lane that already has Postgres.
+
+func TestOnlyTheHashOfTheSetupTokenIsStored(t *testing.T) {
+	svc := newSetupService(t)
+	ctx := context.Background()
+
+	raw, err := svc.MintSetupToken(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT token_hash FROM setup_token WHERE consumed_at IS NULL`).Scan(&stored)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if stored == raw {
+		t.Fatal("the plaintext setup token is stored in the database — a backup would be replayable into a claim")
+	}
+	sum := sha256.Sum256([]byte(raw))
+	if stored != hex.EncodeToString(sum[:]) {
+		t.Errorf("stored value is neither the plaintext nor its sha256; the claim path compares hashes, so this row could never match")
+	}
+}
+
+func TestTheDatabaseRefusesASecondOutstandingToken(t *testing.T) {
+	svc := newSetupService(t)
+	ctx := context.Background()
+
+	if _, err := svc.MintSetupToken(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Straight past the Go-level EXISTS check, which is the arm that loses a
+	// race between two booting replicas. The partial unique index is the
+	// guarantee; this proves the guarantee, not the check in front of it.
+	err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO setup_token (token_hash) VALUES ('a-second-outstanding-token')`)
+		return err
+	})
+	if !storekit.IsUniqueViolation(err) {
+		t.Fatalf("a second unconsumed setup token was accepted (err = %v) — two live claim credentials, and revoking one would not revoke the other", err)
+	}
+}
+
+func TestAConfiguredBootstrapRetiresAnOutstandingToken(t *testing.T) {
+	svc := newSetupService(t)
+	ctx := context.Background()
+
+	// An unprovisioned boot minted a token; the operator then chose the
+	// configured path instead and restarted.
+	if _, err := svc.MintSetupToken(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+		return claimInput("configuredafter"), nil
+	}, nil); err != nil {
+		t.Fatalf("configured bootstrap: %v", err)
+	}
+	outstanding, err := svc.SetupTokenOutstanding(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outstanding {
+		t.Error("a token minted before a configured bootstrap is still outstanding — /setup/status would advertise a provisioned installation as claimable, and the credential goes live again the moment the organization is archived")
+	}
+}
+
+// The claim body is untrusted and the route is unauthenticated, so the password
+// floor the configured path and the reset endpoint both apply has to hold here
+// too. Without it `"admin_password": ""` mints a loginable root account — an
+// absent JSON key decodes to exactly that.
+func TestAClaimCannotSetAnEmptyOrShortAdminPassword(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+	}{
+		{"absent or empty", ""},
+		{"under the floor", "short"},
+		{"one below the floor", "elevenchars"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newSetupService(t)
+			ctx := context.Background()
+			token, err := svc.MintSetupToken(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := claimInput("weakpw")
+			in.AdminPassword = tc.password
+			if _, err := svc.ClaimInstallation(ctx, token, in, nil); err == nil {
+				t.Fatal("the claim created a root account with a password below the floor")
+			}
+			// And the refusal must not have spent the credential: an operator
+			// mistyping a password cannot be how they lose the installation.
+			outstanding, err := svc.SetupTokenOutstanding(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !outstanding {
+				t.Error("a rejected claim consumed the setup token")
+			}
+		})
 	}
 }
