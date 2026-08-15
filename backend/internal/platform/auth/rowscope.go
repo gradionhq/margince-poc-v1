@@ -191,6 +191,54 @@ func predicateFor(p principal.Principal, table string, arg func(any) int, captur
 	}
 }
 
+// EnsureCanShare holds the bound the contract puts on `createRecordGrant`:
+// "flat explicit grants only — no sharing hierarchies, criteria-rules, or
+// grant-of-grant delegation." A share received is not a licence to re-share,
+// so the record must sit in the caller's OWN scope — owner, team, or
+// unbounded — and the grant arm that widens every read path is deliberately
+// not consulted here.
+//
+// This is the difference between seeing a record and administering who else
+// may see it. EnsureVisible cannot make it, because a grant satisfies it by
+// design; without a separate probe the person a record was shared WITH could
+// administer that same share — hand it to a colleague, widen its access, or
+// clear the expiry that time-boxed it — all on authority the share itself
+// handed them.
+//
+// Out of scope answers ErrPermissionDenied, not ErrNotFound: the caller has
+// already proven they can see the row, so existence-hiding has nothing left to
+// hide and a not-found would send them looking for a typo.
+func EnsureCanShare(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+	// The primitive rejects an unknown name itself, like every sibling here:
+	// the record type reaching this comes from a request body, and its caller's
+	// own allowlist is a second line rather than the only one.
+	if !shareableTables[table] {
+		return fmt.Errorf("auth: %q is not a shareable table", table)
+	}
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return err
+	}
+	if Unbounded(p) {
+		return nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+	owner := OwnerPredicate(p, arg)("")
+
+	var permitted bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(
+		`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND %s)`, table, idPos, owner),
+		args...).Scan(&permitted); err != nil {
+		return err
+	}
+	if !permitted {
+		return apperrors.ErrPermissionDenied
+	}
+	return nil
+}
+
 // ScopeClause renders the own/team/all row-visibility predicate over an
 // owner_id column (B-EP03.3a). arg registers a query argument and
 // returns its 1-based position, matching the list builders' convention.

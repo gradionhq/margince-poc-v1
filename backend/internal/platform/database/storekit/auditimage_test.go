@@ -15,11 +15,11 @@ import "testing"
 // a nil map (the shape a store builds an image in), a nil slice, a nil
 // pointer — and each must reach the column as SQL NULL.
 //
-// The nil-map row is the one that has cost this tree twice: capture's
-// own-domain registry stored JSON `null` for a first registration until it was
-// found, and identity's record-grant upsert reproduced it from scratch a
-// module away. Both are call sites of this one function, which is why the rule
-// lives here rather than in either of them.
+// The nil-map row is the one that matters: a store that assembles its image in
+// a `map[string]any` and leaves it nil hands this an interface carrying a
+// typed nil, which reads as present to a bare `v == nil`. The rule lives at
+// the seam rather than in any one writer because every writer spells absence
+// its own way and only the column has to be consistent.
 func TestAnAbsentImageIsSQLNullWhateverKindOfNilCarriesIt(t *testing.T) {
 	var (
 		nilMap   map[string]any
@@ -54,9 +54,8 @@ func TestAnAbsentImageIsSQLNullWhateverKindOfNilCarriesIt(t *testing.T) {
 // everything falsy.
 func TestAnEmptyImageIsStillAnImage(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		want string
-		// craft:ignore naked-any it is the audit seam's own parameter type
+		name  string
+		want  string
 		image any
 	}{
 		{"empty map", `{}`, map[string]any{}},

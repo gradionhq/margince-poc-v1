@@ -397,10 +397,9 @@ func auditOnboardingState(
 	after OnboardingState,
 ) error {
 	action := "create"
-	// `any`: a nil map is not an untyped nil, so declaring this as
-	// map[string]any would store JSON null instead of SQL NULL on the first
-	// write (see storekit.marshalOrNil).
-	var beforeImage any
+	// Left nil on the first write: the audit seam renders an absent image as
+	// SQL NULL whichever kind of nil carries it.
+	var beforeImage map[string]any
 	if before != nil {
 		action = "update"
 		beforeImage = onboardingAuditImage(*before)

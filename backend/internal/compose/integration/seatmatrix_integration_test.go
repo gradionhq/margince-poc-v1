@@ -146,9 +146,9 @@ func TestTheSeatCeilingHoldsForEverySeededRoleAndAction(t *testing.T) {
 				allowed++
 				// The granted leg has to SUCCEED, not merely avoid the
 				// seat code: an action refused for an unrelated reason —
-				// a malformed body, a tuple already granted by the
-				// previous role — would otherwise read as "the ceiling
-				// let it through" while proving nothing about the ceiling.
+				// a malformed body, a record the acting role cannot
+				// reach — would otherwise read as "the ceiling let it
+				// through" while proving nothing about the ceiling.
 				if status >= http.StatusBadRequest {
 					t.Errorf("full seat / role %q / %s → %d %q, but the seeded document grants %s.%s",
 						role.key, action.class, status, code, action.object, action.verb)
@@ -262,10 +262,12 @@ func TestAReAssertCannotWalkAWriteGrantPastTheSeatCeiling(t *testing.T) {
 }
 
 // resetSeatFixtures returns the records the matrix acts on to the state
-// seedSeatFixtures left them in — the deal on its birth stage, and no grant
-// on the tuple the share action asserts. Written with the owner connection
-// because this is fixture bookkeeping between cells, not an operation the
-// matrix is measuring.
+// seedSeatFixtures left them in — the deal on its birth stage, and no grant on
+// the tuple the share action asserts. The grant half no longer decides whether
+// the next cell's share SUCCEEDS, because a re-assert is an upsert; it keeps
+// each cell measuring a first share, so one cell's leftover access cannot be
+// what the next one reads back. Written with the owner connection because this
+// is fixture bookkeeping between cells, not an operation the matrix measures.
 func resetSeatFixtures(t *testing.T, e *apptest.AppEnv, f seatFixtures) {
 	t.Helper()
 	if _, err := e.Owner.Exec(t.Context(),

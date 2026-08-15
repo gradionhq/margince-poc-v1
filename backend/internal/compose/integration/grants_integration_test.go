@@ -12,6 +12,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -19,10 +20,14 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The widening itself is a platform/auth property, so it is asserted at
@@ -69,6 +74,112 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	}
 }
 
+// Scope-intersection (crm.yaml: "A grant can never exceed the granting
+// principal's own access"). The visibility arm counts every live grant
+// regardless of its access, because write satisfies read — so a `read` share
+// is enough to pass EnsureLinkTarget, and without a separate probe the person
+// it was shared with could hand on write: to a colleague, or by re-asserting
+// their own grant onto themselves.
+//
+// The re-assert half is what makes this urgent rather than theoretical. A
+// first `write` grant to a subject who already holds `read` used to be refused
+// by the unique constraint; the upsert accepts it, so the only thing standing
+// between a read share and a write one is this rule.
+func TestAShareIsNotALicenceToReShare(t *testing.T) {
+	e := SetupSearch(t)
+	// Owned by rep3 in team2, so rep1 in team1 has no path to it but a share.
+	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Out Of Scope', $3, 'manual', 'human:x')`, e.Rep3)
+	colleague := e.Seed(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'colleague@search.test', 'Colleague')`)
+	svc := identity.NewService(e.Pool)
+	expiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+
+	share := func(as context.Context, in identity.CreateGrantInput) error {
+		in.RecordType, in.RecordID, in.SubjectType = "person", foreign, "user"
+		_, err := svc.CreateRecordGrant(as, in)
+		return err
+	}
+	// The owner shares through the real writer — a hand-inserted row would set
+	// a scene production cannot reach.
+	owner := grantingPrincipal(e, e.Rep3, principal.RowScopeOwn, nil)
+	// A team-scoped rep who may update people: the ordinary shape of a
+	// colleague, and the only thing that ever kept them off a record outside
+	// their team is the row scope, which the share below widens.
+	rep := grantingPrincipal(e, e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
+
+	if err := share(owner, identity.CreateGrantInput{
+		SubjectID: e.Rep1, Access: "read", ExpiresAt: &expiry,
+	}); err != nil {
+		t.Fatalf("owner shares read, time-boxed → %v", err)
+	}
+
+	// Rep1 can now READ the record. Three things they must still not do, and
+	// the third is the one the upsert would otherwise have handed them.
+	for _, tc := range []struct {
+		name string
+		in   identity.CreateGrantInput
+	}{
+		{"pass the record on to a colleague", identity.CreateGrantInput{SubjectID: colleague, Access: "read"}},
+		{"widen their own share to write", identity.CreateGrantInput{SubjectID: e.Rep1, Access: "write"}},
+		{"clear the expiry that time-boxed it", identity.CreateGrantInput{SubjectID: e.Rep1, Access: "read"}},
+	} {
+		if err := share(rep, tc.in); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("%s → %v, want permission-denied", tc.name, err)
+		}
+	}
+
+	// The allow arm, without which every assertion above would pass against a
+	// probe that refused everyone: the OWNER may still administer the share,
+	// including clearing the expiry they set.
+	if err := share(owner, identity.CreateGrantInput{SubjectID: e.Rep1, Access: "read"}); err != nil {
+		t.Fatalf("owner re-asserts their own share → %v", err)
+	}
+
+	// The time box survived every refusal and yielded only to the owner. Read
+	// back, because a 403 raised after the upsert ran is indistinguishable from
+	// one raised instead of it.
+	var access string
+	var expiresAt *time.Time
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT access, expires_at FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
+			foreign, e.Rep1).Scan(&access, &expiresAt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if access != "read" {
+		t.Errorf("the share reads %q after three refused widenings, want read", access)
+	}
+	if expiresAt != nil {
+		t.Errorf("expires_at = %v after the owner cleared it, want null", expiresAt)
+	}
+	var colleagueGrants int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
+			foreign, colleague).Scan(&colleagueGrants)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if colleagueGrants != 0 {
+		t.Errorf("%d grants reached a colleague the sharer never named", colleagueGrants)
+	}
+}
+
+// grantingPrincipal mints a human who may read and update people at one row
+// scope — the two permissions sharing a record needs, and nothing else, so a
+// refusal in these tests can only come from the rule under test.
+func grantingPrincipal(e *SearchEnv, user ids.UUID, scope principal.RowScope, teams []ids.UUID) context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+		TeamIDs: teams,
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"person": {Read: true, Update: true}},
+			RowScope: scope,
+		},
+	})
+}
+
 func TestRecordGrantHTTPLifecycle(t *testing.T) {
 	e := setupRelationships(t)
 
@@ -83,17 +194,10 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 	}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("grant to missing subject → %d, want 404", status)
 	}
-	var admin struct {
-		User struct {
-			ID string `json:"id"`
-		} `json:"user"`
-	}
-	if status := e.Call(t, "GET", "/v1/me", nil, nil, &admin); status != http.StatusOK {
-		t.Fatalf("me → %d", status)
-	}
+	subject := meUserID(t, e)
 	if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
 		"record_type": "person", "record_id": e.personID,
-		"subject_type": "user", "subject_id": admin.User.ID,
+		"subject_type": "user", "subject_id": subject,
 		"access": "write", "reason": "deal desk assist",
 	}, nil, &grant); status != http.StatusCreated {
 		t.Fatalf("create grant → %d", status)
@@ -147,8 +251,9 @@ func TestReAssertingAGrantUpdatesTheSameRow(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create grant → %d", status)
 	}
-	if first.ExpiresAt == nil {
-		t.Fatal("the created grant dropped its expiry, so the reset below would prove nothing")
+	if first.ExpiresAt == nil || !first.ExpiresAt.Equal(expiry) {
+		t.Fatalf("created grant's expiry = %v, want %v — the reset below proves nothing without it",
+			first.ExpiresAt, expiry)
 	}
 
 	// An upgrade: same tuple, wider access, no expiry and no reason. Every

@@ -350,9 +350,6 @@ func JSONArg(m map[string]any) any {
 // silently misses the row. The image is absent either way; only the column
 // stops saying so.
 //
-// TestAnAbsentImageIsSQLNullWhateverKindOfNilCarriesIt holds the rule, and
-// capture's own-domain registry is the write that found it the first time.
-//
 //craft:ignore naked-any marshals the audit seam's schemaless before/after images (see Audit)
 func marshalOrNil(v any) ([]byte, error) {
 	if v == nil || isNilValue(v) {
@@ -361,14 +358,16 @@ func marshalOrNil(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// isNilValue reports whether v is an interface carrying a typed nil of a kind
-// that can be nil. Kinds that cannot be are answered false without reflection
-// on their contents, so a zero struct or an empty map stays an image.
+// isNilValue reports whether v carries a typed nil of a kind that can be one.
+// Kinds that cannot be are answered false without inspecting their contents,
+// so a zero struct or an empty map stays an image. reflect.Interface is absent
+// deliberately: ValueOf resolves to the dynamic type, so an interface kind
+// never reaches here.
 //
 //craft:ignore naked-any the same audit-seam value marshalOrNil inspects
 func isNilValue(v any) bool {
 	switch rv := reflect.ValueOf(v); rv.Kind() {
-	case reflect.Map, reflect.Slice, reflect.Pointer, reflect.Interface:
+	case reflect.Map, reflect.Slice, reflect.Pointer:
 		return rv.IsNil()
 	default:
 		return false
