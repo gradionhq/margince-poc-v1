@@ -37,12 +37,16 @@ func TestPublicIPClassifiesReservedRanges(t *testing.T) {
 		{"2001::1", false},              // Teredo, inside the 2001::/23 protocol assignments
 		{"2001:20::1", false},           // ORCHIDv2, same block
 		{"100::1", false},               // discard-only
+		{"100:0:0:1::1", false},         // dummy prefix
 		{"5f00::1", false},              // SRv6 SIDs
 		{"fec0::1", false},              // deprecated site-local
 		{"::0.1.2.3", false},            // IPv4-compatible ::/96
+		{"::ffff:0:a9fe:a9fe", false},   // IPv4-translated → 169.254.169.254, the third 4-in-6 spelling
 		{"::ffff:8.8.8.8", true},        // IPv4-mapped public — still reachable
 		{"::ffff:127.0.0.1", false},     // IPv4-mapped loopback — the same host, another spelling
 		{"2606:4700::1111", true},       // an ordinary public v6 neighbour of the blocks above
+		{"2001:200::1", true},           // the first RIR allocation, one bit past 2001::/23
+		{"2001:4860:4860::8888", true},  // ordinary public resolver, above the blanket
 	}
 	for _, c := range cases {
 		ip := net.ParseIP(c.ip)

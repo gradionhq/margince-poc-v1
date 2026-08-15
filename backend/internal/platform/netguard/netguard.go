@@ -14,27 +14,36 @@ import (
 	"syscall"
 )
 
-// reservedNets are the non-public ranges the stdlib predicates miss — every
-// IANA special-purpose entry whose "Globally Reachable" is False and that
+// reservedNets are the non-public ranges the stdlib predicates miss: every IANA
+// special-purpose range that is not globally reachable and that
 // IsLoopback/IsPrivate/IsLinkLocalUnicast/IsMulticast/IsUnspecified do not
-// already cover.
+// already cover, plus two blankets taken whole, described below.
 //
-// Three groups, because they are refused for three different reasons. Ranges
-// that are simply not routable to anyone (this-network 0.0.0.0/8 — only the
-// exact 0.0.0.0 is IsUnspecified, but the whole block routes to loopback on
-// Linux — CGNAT, benchmarking, documentation, protocol assignments, broadcast,
-// discard-only, SRv6 SIDs, deprecated site-local). Ranges that EMBED another
-// address and are therefore a way to name an internal one: both NAT64 prefixes
-// (the well-known 64:ff9b::/96 and the local-use 64:ff9b:1::/48 — e.g.
-// 64:ff9b::a9fe:a9fe is link-local metadata wearing a v6 address), 6to4
-// 2002::/16, and IPv4-compatible ::/96. And 2001::/23 whole, which is where
-// Teredo, AMT and ORCHIDv2 live — each an encapsulation or an identifier
-// rather than a host this server has business dialing.
+// Two groups, because they are refused for two different reasons. Ranges that
+// reach nobody, so a request to one is a request to this deployment or to
+// nothing: this-network 0.0.0.0/8 (only the exact 0.0.0.0 is IsUnspecified, but
+// the whole block routes to loopback on Linux), CGNAT, benchmarking,
+// documentation (v4, 2001:db8::/32 and the newer 3fff::/20), protocol
+// assignments, broadcast, discard-only 100::/64, the dummy prefix
+// 100:0:0:1::/64, SRv6 SIDs and deprecated site-local.
 //
-// IPv4-mapped (::ffff:0:0/96) is deliberately NOT here: it is the same host by
-// another spelling, and both the stdlib predicates and net.IPNet.Contains
-// normalize it, so ::ffff:127.0.0.1 is already refused as loopback while
-// ::ffff:8.8.8.8 stays reachable.
+// And ranges that CARRY another address inside them, which is how an internal
+// address is named without looking like one: both NAT64 prefixes (well-known
+// 64:ff9b::/96 and local-use 64:ff9b:1::/48 — 64:ff9b::a9fe:a9fe is link-local
+// metadata wearing a v6 address), 6to4 2002::/16 with its relay anycast
+// 192.88.99.0/24 (2002:7f00:1::1 is 127.0.0.1), IPv4-compatible ::/96 and
+// IPv4-translated ::ffff:0:0:0/96.
+//
+// The two blankets are 2001::/23 and the NAT64 prefixes. Both hold entries IANA
+// marks globally reachable, so they are wider than the rule above: what lives
+// there is Teredo, AMT and ORCHIDv2 — encapsulations and identifiers, not hosts
+// this deployment has business dialing on a tenant's say-so.
+//
+// IPv4-MAPPED ::ffff:0:0/96 is deliberately NOT here, and is not the same thing
+// as IPv4-translated one paragraph up: it is an ordinary host under a second
+// spelling, and both the stdlib predicates and net.IPNet.Contains fold it
+// through To4(), so ::ffff:127.0.0.1 is already refused as loopback while
+// ::ffff:8.8.8.8 stays reachable. Listing it would block the public internet.
 var reservedNets = func() []*net.IPNet {
 	// These literal reserved/special-use ranges ARE the guard: the SSRF
 	// denylist must name them explicitly. NOSONAR: hardcoding them is the point.
@@ -42,8 +51,9 @@ var reservedNets = func() []*net.IPNet {
 		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", // NOSONAR
 		"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", // NOSONAR
 		"203.0.113.0/24", "240.0.0.0/4", // NOSONAR
-		"100::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20",
-		"5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10", "::/96",
+		"100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16",
+		"3fff::/20", "5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10",
+		"::ffff:0:0:0/96", "::/96",
 	}
 	nets := make([]*net.IPNet, len(cidrs))
 	for i, c := range cidrs {

@@ -184,19 +184,30 @@ func refusePrivate(_, address string, _ syscall.RawConn) error {
 }
 
 // reservedCIDRs are the non-public ranges the stdlib predicates miss: the
-// this-network block, CGNAT, benchmark, documentation, protocol-assignment and
-// broadcast, plus the IPv6 ranges that translate to IPv4 internals — NAT64 and
-// IPv4-compatible — which To4()/IsPrivate() do not catch. Naming them IS the
-// guard, so they are literals.
+// this-network block, CGNAT, benchmark, documentation, protocol-assignment,
+// broadcast and discard space, plus the IPv6 ranges that carry an IPv4 address
+// inside them — both NAT64 prefixes, 6to4 and its relay anycast, IPv4-compatible
+// and IPv4-translated — which To4()/IsPrivate() do not catch, and which are
+// therefore how an internal address is named without looking like one. Naming
+// them IS the guard, so they are literals.
+//
+// This list is the core's netguard.reservedNets, and the two are the same list
+// or this unit is the way around the core's guard. Only the core module can see
+// both files, so the comparison lives there
+// (TestTheExtensionCopyOfTheEgressDenylistMatchesTheCore); when it fails, the
+// answer is to copy the core's list here, never to relax the test.
 //
 // They stay TEXT and are parsed per dial rather than once at import, because a
 // unit's root package may hold no initializer that calls anything (see the
-// error constants above). Eleven ParseCIDRs on a call that is about to cross a
+// error constants above). A parse per CIDR on a call that is about to cross a
 // network is not a cost worth engineering around.
 var reservedCIDRs = []string{
 	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
-	"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
-	"2001:db8::/32", "64:ff9b::/96", "::/96",
+	"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24",
+	"203.0.113.0/24", "240.0.0.0/4",
+	"100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16",
+	"3fff::/20", "5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10",
+	"::ffff:0:0:0/96", "::/96",
 }
 
 // publicIP reports whether ip is a globally routable unicast address.
