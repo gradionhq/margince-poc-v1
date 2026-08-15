@@ -3739,6 +3739,7 @@ export const de = {
   "captureActivity.scope.workspace": "Gemeinsame Kanäle",
   "captureActivity.scopeNote":
     "Gezählt ab dem Moment, in dem ein Connector eine Nachricht an dieses CRM übergibt. Was ein Connector auf seiner Seite gefiltert hat — eine Chat-Reaktion, eine Mail-Regel — ist nicht enthalten. Umfasst Nachrichten; Lead-Erfassung wird hier nicht gezeigt.",
+  "captureActivity.loadMore": "Mehr laden",
   "captureActivity.empty":
     "keine Erfassungsaktivität in den letzten 24 Stunden",
   "captureActivity.contentNotStored": "Inhalt nicht gespeichert",

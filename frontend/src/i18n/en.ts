@@ -3746,6 +3746,7 @@ export const en = {
   "captureActivity.scope.workspace": "Shared channels",
   "captureActivity.scopeNote":
     "Counted from the point a connector hands a message to this CRM. What a connector filtered on its own side — a chat reaction, a mail rule — is not included. Covers messages; lead capture is not shown here.",
+  "captureActivity.loadMore": "Load more",
   "captureActivity.empty": "no capture activity in the last 24 hours",
   "captureActivity.contentNotStored": "content not stored",
   "captureActivity.contentNone": "no sender recorded",

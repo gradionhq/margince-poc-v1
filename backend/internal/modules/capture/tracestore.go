@@ -185,16 +185,26 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		where += fmt.Sprintf(" AND (t.occurred_at, t.id) < ($%d, $%d)",
 			addArg(decoded.CreatedAt), addArg(decoded.ID))
 	}
-	// LEFT JOIN, on activity_id rather than on an address: the trace holds no
-	// address unless an operator enabled payloads, and the answer must not
-	// depend on a diagnostic posture.
+	// Resolution is joined through the ACTIVITY's counterparty address, not
+	// through activity_id.
+	//
+	// The ledger keeps one open question per address and records the FIRST
+	// activity that raised it, so joining ids answers only a sender's first
+	// message: their second and later ones would read "waiting on a verdict"
+	// forever, after the verdict had landed. One sender's answer covers every
+	// message they sent, which is what this join says.
+	//
+	// Through the activity rather than through t.counterparty because the trace
+	// holds no address unless an operator enabled payloads, and what a member is
+	// told must not depend on a diagnostic posture. The activity is the member's
+	// own message, so its sender's disposition is theirs to know.
 	rows, err := tx.Query(ctx, storekit.SQLf(`
 		SELECT t.id, t.connector, t.outcome, coalesce(t.reason, ''), t.activity_id,
 		       d.status, coalesce(d.kind, ''), d.resolved_at,
 		       coalesce(t.counterparty, ''), coalesce(t.subject, ''), t.occurred_at
 		  FROM capture_trace t
-		  LEFT JOIN capture_pending_counterparty d
-		         ON d.workspace_id = t.workspace_id AND d.activity_id = t.activity_id
+		  LEFT JOIN activity a ON a.id = t.activity_id
+		  LEFT JOIN capture_pending_counterparty d ON d.email = a.counterparty_email
 		 WHERE %s
 		 ORDER BY t.occurred_at DESC, t.id DESC
 		 LIMIT %d`, where, n+1), args...)
@@ -273,9 +283,19 @@ func (s *TraceStore) hideUnreadableLinks(ctx context.Context, tx pgx.Tx, entries
 	}
 	args := []any{linked}
 	addArg := func(v any) int { args = append(args, v); return len(args) }
-	scope, err := auth.ScopeClauseFor(ctx, "activity", "a", addArg)
+	// ActivityScopeClause, not the generic one: an activity has no owner, so it
+	// inherits the sensitivity of the records it attaches to — visible when ANY
+	// linked person, organization or deal is, and visible to everyone when it
+	// has no links at all (a workspace-shared note). The generic clause refuses
+	// this table outright, which is how the wrong one announces itself.
+	scope, err := auth.ActivityScopeClause(ctx, "a", addArg)
 	if err != nil {
 		return err
+	}
+	if scope == "" {
+		// An unbounded reader sees every one of them; the probe would be a
+		// round trip to learn nothing.
+		return nil
 	}
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT a.id FROM activity a WHERE a.id = ANY($1) AND %s`, scope), args...)

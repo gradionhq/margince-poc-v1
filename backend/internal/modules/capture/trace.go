@@ -169,11 +169,11 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	if err := in.validate(); err != nil {
 		return err
 	}
-	counterparty, subject, err := tracePayload(ctx, tx, in, payloads)
-	if err != nil {
-		return err
+	counterparty, subject, payloadErr := tracePayload(ctx, tx, in, payloads)
+	if payloadErr != nil {
+		return payloadErr
 	}
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
 		                           outcome, reason, activity_id, counterparty, subject)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
@@ -191,12 +191,18 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	if err != nil {
 		return fmt.Errorf("capture: recording the pipeline trace: %w", err)
 	}
-	// After the statement, so a rolled-back capture does not leave the operator
-	// a count of messages that never landed. It still counts a decision this
-	// transaction later abandons — a counter cannot un-count — which is the
-	// honest limit of a process counter and the reason the member's screen reads
-	// the table instead.
-	countTraced(in.Outcome)
+	// Only what the statement actually inserted. ON CONFLICT DO NOTHING swallows
+	// a replayed decision, and the internal gate fires before the dedupe
+	// watermark — so counting the call rather than the row would inflate
+	// `internal` by one per re-walked poll and disagree with the funnel beside
+	// it, which counts rows.
+	//
+	// It still counts a decision this transaction later abandons: a counter
+	// cannot un-count, which is the honest limit of a process counter and part
+	// of why the member's screen reads the table instead.
+	if tag.RowsAffected() > 0 {
+		countTraced(in.Outcome)
+	}
 	return nil
 }
 
@@ -214,6 +220,18 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 // is an operator's opt-in diagnostic posture rather than the steady state.
 func tracePayload(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) (*string, *string, error) {
 	address := strings.ToLower(strings.TrimSpace(in.Counterparty))
+	// An unattributable row carries no content, whatever the posture.
+	//
+	// A zero UserID means one of two things: a workspace-owned channel binding,
+	// which genuinely has no member — or a personal connector whose principal
+	// arrived without one, which is the `no_granting_human` fault. The row is
+	// written either way, because a member is owed the answer that their message
+	// was handled; but the second case is ALSO the class a manager can read, and
+	// a fault must not be the thing that carries somebody's mail across that
+	// boundary. ChannelIdentity is what tells the two apart.
+	if in.UserID.IsZero() && !in.ChannelIdentity {
+		return nil, nil, nil
+	}
 	if !payloads || address == "" {
 		// No payload posture, or nothing to say: the columns stay NULL rather
 		// than being written and masked. A column never populated cannot leak.

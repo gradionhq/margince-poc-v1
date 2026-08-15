@@ -214,7 +214,26 @@ func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.
 	if _, err := recordDisposition(ctx, tx, row); err != nil {
 		return true, "", err
 	}
-	return true, reason, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
+	// The TRACE gets the class, not this reason. The registry's answer embeds
+	// the matched domain or prefix ("transactional_infra:sendgrid.net"), which
+	// is a sender-derived string — and the trace's reason column promises a
+	// class this installation chose, never content, whatever the payload
+	// posture says. The breadcrumb beside it keeps the full detail, where an
+	// operator debugging a wrong registry entry needs it.
+	return true, traceSuppressionClass(reason), s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
+}
+
+// traceSuppressionClass reduces the registry's reason to its stable class.
+//
+// It is also what keeps the rendered vocabulary closed: the screen resolves a
+// reason through an i18n catalog, and a value carrying a domain matches no key
+// and would render as the key itself.
+func traceSuppressionClass(reason string) string {
+	class, _, found := strings.Cut(reason, ":")
+	if !found || class == "" {
+		return reason
+	}
+	return class
 }
 
 // transactionalInput builds the transactional-gate input from a captured

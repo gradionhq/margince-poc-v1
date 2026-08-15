@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import "./capture-activity.css";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import {
+  Button,
   SectionHeader,
   SegmentedControl,
   StatCard,
@@ -84,44 +85,71 @@ export function CaptureActivityTab() {
 
 function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
   const t = useT();
-  const query = useQuery({
+  // Paged, because the window is 24 hours and a busy mailbox fills more than
+  // one page of it. Without this the funnel could honestly say 300 captured
+  // while the list showed 50 and nothing said the rest existed.
+  const query = useInfiniteQuery({
     queryKey: ["capture-activity", scope],
-    queryFn: async () => {
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
       const path =
         scope === "workspace"
           ? "/capture/activity/workspace"
           : "/capture/activity";
-      const { data, error } = await api.GET(path, {});
+      const { data, error } = await api.GET(path, {
+        params: { query: { cursor: pageParam ?? undefined } },
+      });
       if (error) throwProblem(error);
       return data as CaptureActivity;
     },
+    getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
 
   return (
     <QueryGate query={query}>
-      {(window) => (
-        <>
-          <CaptureFunnel funnel={window.funnel} />
-          <p className="capture-activity__scope-note">
-            {t("captureActivity.scopeNote")}
-          </p>
-          {window.data.length === 0 ? (
-            <SurfaceState state="empty" emptyLabel={t("captureActivity.empty")}>
-              {null}
-            </SurfaceState>
-          ) : (
-            <ul className="capture-activity__list">
-              {window.data.map((entry) => (
-                <CaptureEntryRow
-                  key={entry.id}
-                  entry={entry}
-                  payloads={window.payload_capture_enabled}
-                />
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+      {(loaded) => {
+        // The funnel is a property of the WINDOW, not of the loaded pages, so
+        // it comes off the first page and does not grow as more are fetched.
+        const first = loaded.pages[0];
+        const entries = loaded.pages.flatMap((page) => page.data);
+        return (
+          <>
+            <CaptureFunnel funnel={first.funnel} />
+            <p className="capture-activity__scope-note">
+              {t("captureActivity.scopeNote")}
+            </p>
+            {entries.length === 0 ? (
+              <SurfaceState
+                state="empty"
+                emptyLabel={t("captureActivity.empty")}
+              >
+                {null}
+              </SurfaceState>
+            ) : (
+              <>
+                <ul className="capture-activity__list">
+                  {entries.map((entry) => (
+                    <CaptureEntryRow
+                      key={entry.id}
+                      entry={entry}
+                      payloads={first.payload_capture_enabled}
+                    />
+                  ))}
+                </ul>
+                {query.hasNextPage && (
+                  <Button
+                    small
+                    disabled={query.isFetchingNextPage}
+                    onClick={() => void query.fetchNextPage()}
+                  >
+                    {t("captureActivity.loadMore")}
+                  </Button>
+                )}
+              </>
+            )}
+          </>
+        );
+      }}
     </QueryGate>
   );
 }

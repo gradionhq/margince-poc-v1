@@ -3718,6 +3718,7 @@ export const vi = {
   "captureActivity.scope.workspace": "Kênh dùng chung",
   "captureActivity.scopeNote":
     "Được tính từ lúc connector chuyển tin nhắn cho CRM này. Những gì connector đã lọc ở phía nó — một biểu tượng cảm xúc, một quy tắc thư — không nằm trong đây. Bao gồm tin nhắn; việc thu thập lead không hiển thị ở đây.",
+  "captureActivity.loadMore": "Tải thêm",
   "captureActivity.empty": "không có hoạt động thu thập trong 24 giờ qua",
   "captureActivity.contentNotStored": "nội dung không được lưu",
   "captureActivity.contentNone": "không ghi nhận người gửi",
