@@ -1,4 +1,4 @@
--- 0261: `contract` — the agreements an account has signed (ADR-0109/A160).
+-- 0262: `contract` — the agreements an account has signed (ADR-0109/A160).
 --
 -- The record is not the paper. The signed PDF is an attachment like any other
 -- file; this table is what can be counted, filtered, summed and watched for a

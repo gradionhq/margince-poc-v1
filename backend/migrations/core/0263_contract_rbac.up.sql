@@ -1,4 +1,4 @@
--- 0262: backfill the `contract` RBAC object into EXISTING workspaces' seeded
+-- 0263: backfill the `contract` RBAC object into EXISTING workspaces' seeded
 -- role documents. New workspaces get it from the code-side seed
 -- (identity/internal/policy). Shipping a new object without this backfill is how
 -- one "works on a fresh database and 403s everywhere else".
