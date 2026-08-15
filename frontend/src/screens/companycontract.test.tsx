@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { components } from "../api/schema";
+
+type Contract = components["schemas"]["Contract"];
+
 import { contractValues } from "./companycommercial";
 
 // The rule the server and this card both hold: a three-year total and a
@@ -46,5 +50,65 @@ describe("contractValues", () => {
     expect(
       contractValues({ active_count: 3, cancellation_pending: false }, "en"),
     ).toHaveLength(0);
+  });
+});
+
+import { contractValue } from "./companycontracts";
+
+// A contract as the wire actually carries it: every server-owned field present,
+// so a fixture cannot pass a check the real payload would fail.
+function contractRow(
+  over: Partial<Contract> & Pick<Contract, "value_basis">,
+): Contract {
+  return {
+    id: "c-1",
+    organization_id: "o-1",
+    title: "Agreement",
+    source: "manual",
+    status: "active",
+    under_contract: true,
+    auto_renew: false,
+    version: 1,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...over,
+  };
+}
+
+// A row's value must say which KIND of figure it is. A reader who cannot tell a
+// three-year total from a per-year figure has been handed a number they will
+// misuse, and the row is the last place that distinction can be drawn.
+describe("contractValue", () => {
+  it("marks an annualized figure so it cannot read as a total", () => {
+    const annual = contractValue(
+      contractRow({
+        value_basis: "annualized_12m",
+        value_minor: 12_000_000,
+        currency: "EUR",
+      }),
+      "en",
+    );
+    const total = contractValue(
+      contractRow({
+        value_basis: "total",
+        value_minor: 30_000_000,
+        currency: "EUR",
+      }),
+      "en",
+    );
+
+    expect(annual).toMatch(/\/ a$/);
+    expect(total).not.toMatch(/\/ a$/);
+  });
+
+  it("draws nothing rather than a bare number when the currency is missing", () => {
+    // Half a money pair cannot be rendered: an amount with no currency is a
+    // figure the reader would supply their own units for.
+    expect(
+      contractValue(
+        contractRow({ value_basis: "total", value_minor: 5_000 }),
+        "en",
+      ),
+    ).toBe("");
   });
 });

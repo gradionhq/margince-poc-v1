@@ -67,6 +67,7 @@ import {
 import { NewDealAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
 import { CompanyContractState, CompanyLastOffer } from "./companycommercial";
+import { CompanyContractsCard } from "./companycontracts";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { DossierPanel } from "./companydossier";
 import { type CitedRecord, EvidenceModal } from "./companyevidence";
@@ -2406,7 +2407,12 @@ function CompanyRecordBody({
           gives them. The grid keeps its compact card for the reader who only
           wants to know whether there IS paperwork. */}
       {!overlay && tab === "documents" && (
-        <CompanyDocumentsCard orgId={org.id} />
+        <>
+          {/* The agreements come first: contract paper is what a reader opens
+              this tab for, and the library beneath it is everything else. */}
+          <CompanyContractsCard orgId={org.id} />
+          <CompanyDocumentsCard orgId={org.id} />
+        </>
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
           Partner put a panel from one tab on top of another, and a reader who
