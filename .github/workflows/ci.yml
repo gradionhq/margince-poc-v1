@@ -276,7 +276,8 @@ jobs:
       - name: Gate binaries onto PATH
         run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
       # The backend half of the merge gate in one pass:
-      # check-craft-doc, image pins, contract-breaking, test-lanes, file-length,
+      # check-craft-doc, image pins, contract-breaking, migration-versions,
+      # test-lanes, file-length,
       # RLS store-path, jurisdiction isolation, then the backend gate (build,
       # vet, lint, arch-lint, unit + fitness tests, contract drift). The frontend
       # half (`make check-fe`) is the separate `frontend` job — no toolchain
@@ -286,6 +287,7 @@ jobs:
         env:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
+          MIGRATION_VERSIONS_REQUIRE_BASE: "1"
         run: make check-backend
       # Refresh the shared cache from main only. On a PR this step does not run,
       # so the twelve shards and this job never race to write the same key and a
