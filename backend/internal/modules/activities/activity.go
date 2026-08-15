@@ -29,8 +29,17 @@ const fieldKind = "kind"
 // direct-log path (this package's only emit site of the event's two) — it
 // never names a source_system, which is exclusive to the capture
 // auto-create path (capture/sink.go's own local builder).
-func activityCapturedPayload(kind string) crmcontracts.PublicEventActivityCaptured {
-	return crmcontracts.PublicEventActivityCaptured{Kind: kind}
+func activityCapturedPayload(kind, channelProvider string) crmcontracts.PublicEventActivityCaptured {
+	p := crmcontracts.PublicEventActivityCaptured{Kind: kind}
+	// Carried only when there is one, so the envelope's omitempty leaves it
+	// absent rather than publishing an empty transport. A subscriber reads the
+	// pair: since ADR-0107/A158 the kind alone no longer says what carried a
+	// message, and without this field they could not tell one transport from
+	// another at all.
+	if channelProvider != "" {
+		p.ChannelProvider = &channelProvider
+	}
+	return p
 }
 
 type LogActivityInput struct {
@@ -38,9 +47,10 @@ type LogActivityInput struct {
 	// ChannelProvider names the messaging transport that carried this activity —
 	// a channel_provider row — and is empty for anything that did not travel on
 	// one. Separate from Kind because they answer separate questions: what sort
-	// of interaction happened, versus how it travelled. Only the outbound
-	// channel reply sets it today; a hand-logged activity has no transport to
-	// name, and there is no request field for one.
+	// of interaction happened, versus how it travelled (ADR-0107/A158).
+	//
+	// Non-empty exactly when Kind is KindMessage, which the database enforces in
+	// both directions; a mismatch is a 422 from the CHECK, not a silent write.
 	ChannelProvider string
 	Subject         *string
 	Body            *string
@@ -158,7 +168,7 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	}
 	// activity.captured is the first-class verb — emitted instead of a
 	// generic activity.created, never in addition (events.md §1).
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCapturedPayload(in.Kind)); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCapturedPayload(in.Kind, in.ChannelProvider)); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
 	out, err := readActivity(ctx, tx, id, storekit.LiveOnly)
@@ -216,10 +226,16 @@ func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived sto
 }
 
 type ListActivitiesInput struct {
-	Cursor     *string
-	Limit      *int
-	Kind       *string
-	EntityType *string
+	Cursor *string
+	Limit  *int
+	Kind   *string
+	// ChannelProvider narrows to messages carried by ONE transport. Since the
+	// kind stopped naming the transport (ADR-0107/A158) this is the only way to
+	// ask the question `kind=telegram` used to answer, and it is a separate dial
+	// from Kind rather than a second spelling of it: the two compose, so "every
+	// message on telegram" and "every message" are both askable.
+	ChannelProvider *string
+	EntityType      *string
 	// note: EntityType+EntityID is the polymorphic activity_link filter —
 	// the target is ANY entity kind, so the id stays untyped (rule 6).
 	EntityID *ids.UUID
@@ -295,7 +311,7 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	return activities, page, nil
 }
 
-const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occurred_at, a.direction,
+const activityColumns = `a.id, a.workspace_id, a.kind, a.channel_provider, a.subject, a.body, a.occurred_at, a.direction,
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at,
 	a.thread_key, a.capture_label, a.bulk_mail_attested`
@@ -399,11 +415,11 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	var id, wsID ids.UUID
 	var assigneeID *ids.UUID
 	var kind string
-	var direction, meetingStatus, threadKey, captureLabel *string
+	var channelProvider, direction, meetingStatus, threadKey, captureLabel *string
 	var bulkMailAttested bool
 	var version int64
 
-	err := row.Scan(&id, &wsID, &kind, &a.Subject, &a.Body, &a.OccurredAt, &direction,
+	err := row.Scan(&id, &wsID, &kind, &channelProvider, &a.Subject, &a.Body, &a.OccurredAt, &direction,
 		&a.DueAt, &a.RemindAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
 		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt,
 		&threadKey, &captureLabel, &bulkMailAttested)
@@ -414,6 +430,7 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	a.Id = openapi_types.UUID(id)
 	a.AssigneeId = uuidPtr(assigneeID)
 	a.Kind = crmcontracts.ActivityKind(kind)
+	a.ChannelProvider = channelProvider
 	if direction != nil {
 		d := crmcontracts.ActivityDirection(*direction)
 		a.Direction = &d

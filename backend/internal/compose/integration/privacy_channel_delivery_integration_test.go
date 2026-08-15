@@ -80,9 +80,9 @@ func seedChannelDelivery(t *testing.T, e *Env, age, body, status string, person 
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, body, direction, occurred_at,
+			INSERT INTO activity (id, workspace_id, kind, channel_provider, body, direction, occurred_at,
 			                      source, captured_by, source_system, source_id)
-			VALUES ($1, `+wsClause+`, 'telegram', $2, 'outbound', now() - $3::interval,
+			VALUES ($1, `+wsClause+`, 'message', 'telegram', $2, 'outbound', now() - $3::interval,
 			        'connector:telegram', 'human:x', 'telegram', $4)`,
 			out.activity, body, age, out.activity.String()); err != nil {
 			return err

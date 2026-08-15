@@ -352,7 +352,7 @@ func attachPersonReachability(ctx context.Context, tx pgx.Tx, idx map[openapi_ty
 			since = blockedAt
 		}
 		r := crmcontracts.PersonReachability{
-			Provider:  crmcontracts.PersonReachabilityProvider(provider),
+			Provider:  provider,
 			Reachable: blockedAtPtr == nil,
 			Since:     since,
 		}

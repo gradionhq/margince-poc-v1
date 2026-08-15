@@ -298,8 +298,7 @@ const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
   "note",
   "call",
   "task",
-  "whatsapp",
-  "telegram",
+  "message",
 ];
 
 /**
@@ -349,7 +348,11 @@ type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
 // MESSAGE_KINDS is every channel a human conversation arrives on. Kept as a
 // list rather than "not a meeting and not a task" so a kind added later is
 // classified deliberately instead of falling into messages by default.
-const MESSAGE_KINDS = ["email", "whatsapp", "telegram", "call"];
+//
+// One member covers every messaging transport since ADR-0107/A158: a new
+// connector files under `message` and is classified here without this list
+// having to learn its name, which is the whole point of the narrowing.
+const MESSAGE_KINDS = ["email", "message", "call"];
 
 /**
  * useTimelineFilter keeps the filter per RECORD.
@@ -388,8 +391,8 @@ function matchesFilter(activity: Activity, filter: TimelineFilter): boolean {
 const TIMELINE_TITLE_MAX = 140;
 
 // timelineTitle is what the row says the activity WAS. A subject is the natural
-// title, but a channel message has none — Telegram carries text, not a subject
-// line — so a subject-only title rendered the literal word "telegram" on every
+// title, but a channel message has none — a chat carries text, not a subject
+// line — so a subject-only title rendered the literal word "message" on every
 // row and made the conversation invisible on the record it belongs to. The
 // body is the title for anything that has no subject, which is also why the
 // connector fills it for a wordless message ("photo", "voice"): capture's

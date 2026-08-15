@@ -2540,8 +2540,9 @@ export interface paths {
          *     → 🟡 confirm-first: an agent caller must supply an approval token; a human caller's own
          *     action is the approval.
          *
-         *     The `{id}` activity is the conversation being answered, and its `kind` names the channel
-         *     the reply transmits through (`telegram`). The RECIPIENT is not named by the caller: it is
+         *     The `{id}` activity is the conversation being answered, and its `channel_provider` names
+         *     the transport the reply transmits through — NOT its `kind`, which since ADR-0107/A158 says
+         *     only that the interaction was a message. The RECIPIENT is not named by the caller: it is
          *     the channel identity of the person that conversation is with, so a reply can only reach
          *     the human who opened it. A person with no live channel identity, or one who blocked the
          *     workspace's bot, is refused with 422 before anything is staged.
@@ -8904,8 +8905,7 @@ export interface components {
          *     `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
          */
         PersonReachability: {
-            /** @enum {string} */
-            provider: "telegram";
+            provider: components["schemas"]["ProviderRef"];
             reachable: boolean;
             /**
              * Format: date-time
@@ -10747,7 +10747,14 @@ export interface components {
             /** @description The thread key, or the activity id for a meeting or a standalone message that has none. */
             key: string;
             /** @enum {string} */
-            channel: "email" | "meeting" | "call" | "note" | "whatsapp" | "telegram";
+            channel: "email" | "meeting" | "call" | "note" | "message";
+            /**
+             * @description Which transport carried the thread — non-null exactly when `channel=message`
+             *     (ADR-0107/A158). A renderer that printed `channel` alone used to get the provider
+             *     name for free; it must now read both, or a Telegram thread and a Dispact thread
+             *     become indistinguishable.
+             */
+            channel_provider?: components["schemas"]["ProviderRef"] | null;
             /**
              * @description Which way the LAST message in the thread went. `internal` for a meeting or note that has no direction.
              * @enum {string}
@@ -12009,12 +12016,20 @@ export interface components {
          *     `duration_seconds` only for meeting/call; `direction` is null for note/task. Setting a
          *     disallowed field for the kind returns `422 code: field_not_valid_for_kind` (the API rejects
          *     what the DB CHECK would reject, rather than 500-ing at write time).
+         *     `channel_provider` is the same kind of constraint in both directions: non-null exactly
+         *     when `kind=message` (ADR-0107/A158).
          */
         Activity: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "email" | "call" | "meeting" | "note" | "task" | "whatsapp" | "telegram";
+            kind: "email" | "call" | "meeting" | "note" | "task" | "message";
+            /**
+             * @description Which transport carried this message — non-null exactly when `kind=message`.
+             *     The kind says what sort of interaction happened; this says what carried it. They
+             *     are separate axes, and reading one off the other is what ADR-0107 retired.
+             */
+            channel_provider?: components["schemas"]["ProviderRef"] | null;
             subject?: string | null;
             body?: string | null;
             /** Format: date-time */
@@ -12082,9 +12097,25 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
+        /**
+         * @description A reference to a messaging transport registered in THIS installation
+         *     (ADR-0107/A158). Deliberately a pattern-constrained string rather than an enum:
+         *     which providers exist is a deployment fact — what this binary composed, including
+         *     any extension unit present under `extensions/` — so an enum here would assert that
+         *     the legal set is identical in every installation, which is false. The contract
+         *     states the invariant; `GET /v1/channel-providers` resolves the live set.
+         */
+        ProviderRef: string;
         CreateActivityRequest: {
             /** @enum {string} */
-            kind: "email" | "call" | "meeting" | "note" | "task" | "whatsapp" | "telegram";
+            kind: "email" | "call" | "meeting" | "note" | "task" | "message";
+            /**
+             * @description Which transport carried this message. REQUIRED when `kind=message` and MUST be
+             *     null otherwise; violating either direction returns
+             *     `422 code: field_not_valid_for_kind`. Must name a provider this installation has
+             *     registered.
+             */
+            channel_provider?: components["schemas"]["ProviderRef"] | null;
             subject?: string | null;
             body?: string | null;
             /** Format: date-time */
@@ -20170,7 +20201,13 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
-                kind?: "email" | "call" | "meeting" | "note" | "task" | "whatsapp" | "telegram";
+                kind?: "email" | "call" | "meeting" | "note" | "task" | "message";
+                /**
+                 * @description Filter to messages carried by one transport. Since `kind=message` no longer names
+                 *     the transport, this is the only way to ask the question `kind=telegram` used to
+                 *     answer (ADR-0107/A158).
+                 */
+                channel_provider?: components["schemas"]["ProviderRef"];
                 /** @description Filter to activities linked to an entity type (with entity_id). */
                 entity_type?: "person" | "organization" | "deal";
                 entity_id?: string;

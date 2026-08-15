@@ -60,7 +60,11 @@ func oneRecord(entity datasource.EntityType, id ids.UUID, fields string, version
 // behind it.
 type channelKindSet map[string]bool
 
-func (s channelKindSet) IsChannelKind(kind string) bool { return s[kind] }
+func (s channelKindSet) IsChannelKind(kind string) bool { return kind == "message" }
+
+// CanSendOnProvider is the set's real question since the kind stopped naming a
+// transport: the map now holds PROVIDERS this installation can reply on.
+func (s channelKindSet) CanSendOnProvider(provider string) bool { return s[provider] }
 
 // Every command that pins a version answers both of its questions from ONE
 // reading of the record. Two readings are two moments, and the authority
@@ -82,7 +86,7 @@ func TestEachAnchoredCommandReadsItsRecordOnce(t *testing.T) {
 		},
 		{
 			"send_message",
-			oneRecord(datasource.EntityActivity, id, `{"kind":"telegram"}`, 3),
+			oneRecord(datasource.EntityActivity, id, `{"kind":"message","channel_provider":"telegram"}`, 3),
 			func(p *tallyingProvider) GovernedCall {
 				return NewSendMessageCall(p, channelKindSet{"telegram": true},
 					SendMessageCommand{ActivityID: id, Body: "hello"})
@@ -177,7 +181,7 @@ func TestTheSinglePurposeGuardsRefuseWhatExecutionWouldRefuse(t *testing.T) {
 		},
 		{
 			"a channel reply with a whitespace-only body",
-			NewSendMessageCall(oneRecord(datasource.EntityActivity, id, `{"kind":"telegram"}`, 1),
+			NewSendMessageCall(oneRecord(datasource.EntityActivity, id, `{"kind":"message","channel_provider":"telegram"}`, 1),
 				channelKindSet{"telegram": true}, SendMessageCommand{ActivityID: id, Body: "   "}),
 			"empty or whitespace-only",
 		},

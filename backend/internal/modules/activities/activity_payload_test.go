@@ -30,9 +30,10 @@ import (
 
 // TestActivityCapturedPayload_DirectLog proves the direct-log path
 // (activity.go's logActivityInTx) sets kind only — no source_system, since
-// that field is exclusive to the capture auto-create path.
+// that field is exclusive to the capture auto-create path, and no
+// channel_provider, since a meeting travelled on no transport.
 func TestActivityCapturedPayload_DirectLog(t *testing.T) {
-	payload := activityCapturedPayload("meeting")
+	payload := activityCapturedPayload("meeting", "")
 
 	if !reflect.DeepEqual(payload.EventType(), "activity.captured") {
 		t.Errorf("got %v, want %v", payload.EventType(), "activity.captured")

@@ -26,8 +26,14 @@ import (
 // sit in the surrounding statement.
 //
 // Correspondence under GoBD §147 AO is a Handelsbrief: EXTERNAL business
-// communication (email, call, meeting, whatsapp, telegram). An internal note
-// and a task are not correspondence and carry no statutory floor, so their
+// communication (email, call, meeting, message). The rule is stated as an
+// EXCLUSION, so the narrowing at ADR-0107/A158 carried every channel message
+// into the floor automatically where telegram and whatsapp used to enter it by
+// name — and that decision ratifies the outcome rather than tolerating it: a
+// message to a customer is external business correspondence whichever transport
+// carried it, and a transport arriving later should not have to be remembered
+// here to be protected. An internal note and a task are not correspondence and
+// carry no statutory floor, so their
 // bodies fall to the workspace policy like any other record. That boundary is
 // not just prose: TestStatutoryFloorShieldsCorrespondenceFromDestruction pins
 // it (a 400-day email survives, a same-age note is erased), so flipping the

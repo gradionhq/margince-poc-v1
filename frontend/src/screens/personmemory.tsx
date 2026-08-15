@@ -96,6 +96,24 @@ type Row = {
   tone: "success" | "warn" | "accent" | undefined;
 };
 
+// The display key for the channel column. Since ADR-0107/A158 a message names
+// its transport separately, so the kind alone renders every channel row as the
+// bare word "message" — a Telegram thread and a Dispact thread become
+// indistinguishable. Folding the provider in restores exactly what the column
+// showed before the narrowing, and falls back to the kind when a row has no
+// transport (mail, calls, meetings, notes).
+//
+// It renders an UNKNOWN provider as its raw id rather than blanking: until the
+// discovery endpoint ships display labels, an id a human can read beats an
+// empty cell, and a provider this build has never heard of is precisely the
+// case an extension unit creates.
+function channelKeyOf(
+  kind: string,
+  provider: string | null | undefined,
+): string {
+  return provider ?? kind;
+}
+
 function fromEntry(
   entry: NonNullable<Person360["conversation_memory"]>[number],
   t: ReturnType<typeof useT>,
@@ -105,8 +123,11 @@ function fromEntry(
     key: entry.key,
     date: dayMonth(entry.occurred_at),
     time: clock(entry.occurred_at),
-    channel: entry.channel,
-    channelLabel: labelFor(entry.channel, t),
+    channel: channelKeyOf(entry.channel, entry.channel_provider),
+    channelLabel: labelFor(
+      channelKeyOf(entry.channel, entry.channel_provider),
+      t,
+    ),
     title: entry.title,
     summary: entry.summary,
     status,
@@ -128,9 +149,11 @@ function foldActivities(view: Person360, t: ReturnType<typeof useT>): Row[] {
         key: row.id,
         date: dayMonth(row.occurred_at),
         time: clock(row.occurred_at),
-        channel: row.kind,
-        channelLabel: labelFor(row.kind, t),
-        title: row.subject ?? labelFor(row.kind, t),
+        channel: channelKeyOf(row.kind, row.channel_provider),
+        channelLabel: labelFor(channelKeyOf(row.kind, row.channel_provider), t),
+        title:
+          row.subject ??
+          labelFor(channelKeyOf(row.kind, row.channel_provider), t),
         summary: row.body ?? "",
         status,
         statusLabel: statusLabel(status, t),

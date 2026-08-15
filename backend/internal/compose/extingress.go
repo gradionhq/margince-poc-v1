@@ -81,6 +81,9 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}
+	if err := refuseUnsupportedMessageKind(rec); err != nil {
+		return extension.Result{}, err
+	}
 	// Whether this ROLE can accept a record at all is answered before the
 	// call's context is rebound: it costs nothing, it is the same answer for
 	// every call, and a deployment fault should not read as a refusal about
@@ -178,28 +181,37 @@ func (r *callRuntime) ingressAuthority(ctx context.Context, on extension.UserID)
 // id, which is what makes the sink's own "a connector cannot claim to be
 // another one" check pass by construction rather than by the unit getting it
 // right.
+// refuseUnsupportedMessageKind stops a unit landing a channel message it has no
+// way to describe.
+//
+// Since ADR-0107/A158 a message names its transport in a separate field, and the
+// extension record shape has no such field until slice 2 gives a unit a declared
+// channel. Landing one anyway would write a message with no transport, which the
+// database refuses with a CHECK — a 500 reported to the unit as "the core could
+// not land this record", when the truth is specific and actionable.
+func refuseUnsupportedMessageKind(rec extension.Record) error {
+	if rec.Activity.Kind != activities.KindMessage {
+		return nil
+	}
+	return fmt.Errorf("%w: a unit cannot land a %q activity yet — a message must name the transport that carried it, and the extension record has no channel to name it in",
+		extension.ErrInvalid, activities.KindMessage)
+}
+
 func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecord {
 	return connector.NormalizedRecord{
 		EntityType: datasource.EntityActivity,
 		NaturalKey: r.naturalKey(rec),
 		Fields: capture.ActivityFields{
 			Kind: rec.Activity.Kind,
-			// A unit landing a kind that IS a registered transport is landing a
-			// channel record, and the row records the transport. Without this a
-			// unit could write a channel-looking activity carrying no transport —
-			// repliable by the kind test the agent surface still applies, and
-			// refused by the send path, which reads the column.
-			//
-			// A unit supplies no transport of its own yet, so this only ever fires
-			// for a kind that names a CORE connector, which a unit has no business
-			// claiming. The slice that gives a unit a declared channel is the one
-			// that turns this into a refusal — a unit may land its own provider and
-			// no other — rather than a normalization.
-			ChannelProvider: activities.ChannelProviderForKind(rec.Activity.Kind),
-			Subject:         rec.Activity.Subject,
-			Body:            rec.Activity.Body,
-			OccurredAt:      rec.Activity.OccurredAt,
-			Direction:       rec.Activity.Direction,
+			// No transport, and no way for a unit to name one yet: the extension
+			// record shape carries no channel, so a unit landing KindMessage is
+			// refused before it gets here (refuseUnsupportedMessageKind). Slice 2
+			// gives a unit a declared channel and turns that refusal into a
+			// bounded permission — a unit may land its own provider and no other.
+			Subject:    rec.Activity.Subject,
+			Body:       rec.Activity.Body,
+			OccurredAt: rec.Activity.OccurredAt,
+			Direction:  rec.Activity.Direction,
 		},
 		Source:     r.sourceSystem(rec.System),
 		CapturedBy: ingressPrincipalPrefix + r.unit,

@@ -5,33 +5,57 @@ package activities
 
 import "testing"
 
-// The set is derived, not a fixed literal: register a kind nobody shipped
-// with, and it is admitted; call SetChannelProviders again with a smaller
-// set, and the kind dropped from it stops being admitted. A guard that only
-// proves the fixed case (telegram is a channel) would pass even if the map
-// went back to a hardcoded literal under the hood.
-func TestIsChannelKindIsDerivedFromSetChannelProviders(t *testing.T) {
-	// Restored to the pre-registry default, not nil/empty: a later test in
-	// this package that assumes telegram is still a channel kind (the
-	// compose-level drift test does exactly that) must not see the set this
-	// test leaves behind — including on a t.Fatal, which is why this is a
-	// defer rather than a final call.
+// The two questions this module answers about a channel are DIFFERENT questions
+// since ADR-0107/A158, and the split is the thing worth guarding: whether a row
+// is a channel conversation at all is a fact about its kind, while whether a
+// reply can leave this installation is a fact about the composed transport set.
+//
+// Collapsing them back into one — deriving IsChannelKind from the registry again
+// — would make a message on a registered-but-uncomposed transport (whatsapp
+// today) read as "not a conversation", which is the misreport the decision
+// removed.
+func TestIsChannelKindIsTheKindAndNotTheRegistry(t *testing.T) {
+	// Restored to the pre-registry default, not nil/empty: later tests in this
+	// package assume telegram is still composed, including on a t.Fatal — which
+	// is why this is a defer rather than a final call.
+	defer SetChannelProviders([]string{"telegram"})
+
+	// Emptying the registry entirely must not change what a message IS.
+	SetChannelProviders([]string{})
+	if !IsChannelKind(KindMessage) {
+		t.Errorf("%q stopped being a channel conversation when the registry emptied; the kind is a fact about the row, not about what this binary composed", KindMessage)
+	}
+
+	for _, kind := range []string{"email", "note", "task", "call", "meeting", "telegram"} {
+		if IsChannelKind(kind) {
+			t.Errorf("%q is treated as a channel conversation; only %q is one", kind, KindMessage)
+		}
+	}
+}
+
+// CanSendOnProvider is the half that IS derived: register a transport nobody
+// shipped with and it becomes sendable; drop it and it stops. A guard that only
+// proved the fixed case (telegram sends) would pass even if the map went back to
+// a hardcoded literal underneath.
+func TestCanSendOnProviderIsDerivedFromSetChannelProviders(t *testing.T) {
 	defer SetChannelProviders([]string{"telegram"})
 
 	SetChannelProviders([]string{"telegram", "fake-unit-provider"})
-	if !IsChannelKind("fake-unit-provider") {
-		t.Error("a provider just registered is not recognised as a channel kind")
+	if !CanSendOnProvider("fake-unit-provider") {
+		t.Error("a transport just registered cannot be sent on")
 	}
 
 	SetChannelProviders([]string{"telegram"})
-	if IsChannelKind("fake-unit-provider") {
-		t.Error("a provider no longer registered is still recognised as a channel kind")
+	if CanSendOnProvider("fake-unit-provider") {
+		t.Error("a transport no longer registered can still be sent on")
 	}
-
-	if !IsChannelKind("telegram") {
-		t.Error("telegram, still registered, stopped being recognised")
+	if !CanSendOnProvider("telegram") {
+		t.Error("telegram, still registered, stopped being sendable")
 	}
-	if IsChannelKind("email") {
-		t.Error("email is not a channel kind and must never be admitted")
+	// A registered transport this binary did not compose is the case the split
+	// exists for: whatsapp is a channel_provider row, so a message may name it,
+	// and no reply can leave here for it.
+	if CanSendOnProvider("whatsapp") {
+		t.Error("whatsapp reports as sendable; no connector is composed for it, so an approved reply would have no path to happening")
 	}
 }

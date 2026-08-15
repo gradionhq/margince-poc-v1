@@ -450,15 +450,16 @@ func bothDoorsRegistry(staging agents.Approvals) *agents.Registry {
 // A second fixture rather than a `kind` added to seamRecord, because the other
 // one's silence is load-bearing: TestAChannelReplyOnANonChannelAnchorStagesNothing
 // reaches its refusal precisely because seamRecord carries no kind at all.
-// `telegram` is the one kind activities.IsChannelKind admits today; if that
-// stops being true, the REST door refuses here and the comparison reports it
-// rather than passing on a reply neither door would make.
+// `message` is the one kind activities.IsChannelKind admits, and the anchor
+// names the transport that carried it separately (ADR-0107/A158) — the REST
+// door reads BOTH before staging, so a fixture naming only the kind would be
+// refused for having no sendable transport.
 type channelAnchor struct{ seamRecord }
 
 func (channelAnchor) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
 	return datasource.Record{
 		Ref:       ref,
-		Fields:    json.RawMessage(`{"name":"Acme","kind":"telegram"}`),
+		Fields:    json.RawMessage(`{"name":"Acme","kind":"message","channel_provider":"telegram"}`),
 		Version:   4,
 		Freshness: datasource.FreshnessInfo{Authoritative: true},
 	}, nil

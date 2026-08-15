@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 38 |
 | Resources | 8 |
-| Tool catalog | 107.4 KB |
+| Tool catalog | 107.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28264 |
+| Approx. wire tokens | 28322 |
 | Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -30,9 +30,9 @@ budget in `agenttooldescriptions_test.go`.
 |---|---:|---:|---|
 | Output schemas | 45.0 KB | 41% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 28.5 KB | 26% | Yes, every step |
-| Input schemas | 25.7 KB | 23% | Yes, every step |
+| Input schemas | 26.0 KB | 24% | Yes, every step |
 | _Names, annotations, punctuation_ | 8.1 KB | 7% | Partly |
-| **Description + input schema** | **54.2 KB** | **50%** | **the recurring cost** |
+| **Description + input schema** | **54.5 KB** | **50%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -75,7 +75,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
-| [`log_activity`](#log_activity) | Log an activity |  |  | 3.1 KB |
+| [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
@@ -2964,6 +2964,10 @@ Record something that happened — a call, a meeting, a note, a message — on t
     "body": {
       "type": "string"
     },
+    "channel_provider": {
+      "description": "Which messaging transport carried this — required when kind is \"message\", and not allowed otherwise. Name a provider this installation has registered; list_channel_providers reports them.",
+      "type": "string"
+    },
     "direction": {
       "enum": [
         "inbound",
@@ -2988,8 +2992,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
         "meeting",
         "note",
         "task",
-        "whatsapp",
-        "telegram"
+        "message"
       ],
       "type": "string"
     },

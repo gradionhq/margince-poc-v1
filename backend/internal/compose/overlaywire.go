@@ -298,6 +298,13 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 	syncedAt := rec.Freshness.LastSyncedAt
 	kind := crmcontracts.ActivityKind(fieldString(fields, "kind"))
 	if !kind.Valid() {
+		// Stays `note`, and ADR-0107/A158 names the decision rather than
+		// leaving it to inertia. An incumbent's chat engagement is tempting to
+		// map to `message` now that one exists — and it must not be: a message
+		// names the transport that carried it, a mirror carries no transport
+		// axis at all, and a message with no provider is a row the CHECK
+		// refuses. `note` says "something happened, we did not model what",
+		// which is exactly true of an engagement kind this build cannot read.
 		kind = crmcontracts.ActivityKindNote
 	}
 	act := crmcontracts.Activity{

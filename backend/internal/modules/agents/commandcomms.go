@@ -36,8 +36,15 @@ import (
 // activities.IsChannelKind either way — the same test the store's own
 // SendMessage refuses on — so the two doors cannot come to disagree about a
 // kind.
+//
+// It asks TWO questions since ADR-0107/A158, because one no longer implies the
+// other: whether the anchor is a channel conversation at all, and whether this
+// installation composed a transport that can carry a reply on the provider it
+// names. Before the split, a kind that was a channel WAS a provider this
+// installation had, so a single test answered both.
 type ChannelKinds interface {
 	IsChannelKind(kind string) bool
+	CanSendOnProvider(provider string) bool
 }
 
 // SendEmailCommand is one mail reply, whichever door asked for it.
@@ -201,7 +208,8 @@ func (r *sendMessageResolver) Guards(ctx context.Context, cmd SendMessageCommand
 		return &BadArgsError{Cause: fmt.Errorf("body is empty or whitespace-only; a channel provider rejects a text-less message")}
 	}
 	var anchor struct {
-		Kind string `json:"kind"`
+		Kind            string `json:"kind"`
+		ChannelProvider string `json:"channel_provider"`
 	}
 	if err := json.Unmarshal(rec.Fields, &anchor); err != nil {
 		return fmt.Errorf("crmagents: activity %s read back with unreadable fields: %w", cmd.ActivityID, err)
@@ -211,6 +219,18 @@ func (r *sendMessageResolver) Guards(ctx context.Context, cmd SendMessageCommand
 			Cause: fmt.Errorf("activity %s is a %q activity, not a messaging-channel conversation",
 				cmd.ActivityID, anchor.Kind),
 			Guidance: "reply on the channel the conversation was held on",
+		}
+	}
+	// Refused HERE rather than at execution, and the timing is the point: this
+	// runs before staging, and staging costs the human the one-shot approval
+	// they only get to spend once. A message on a transport this installation
+	// never composed would otherwise be approved and then fail — a yes with no
+	// path to happening, which is exactly what these guards exist to prevent.
+	if !r.channels.CanSendOnProvider(anchor.ChannelProvider) {
+		return &BadArgsError{
+			Cause: fmt.Errorf("activity %s was carried by %q, which this installation has no connector for",
+				cmd.ActivityID, anchor.ChannelProvider),
+			Guidance: "no reply can be sent on this transport; answer the person another way",
 		}
 	}
 	return nil

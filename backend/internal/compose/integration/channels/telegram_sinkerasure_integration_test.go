@@ -89,7 +89,7 @@ func inboundChannelRecordAt(account, body string, at time.Time) connector.Normal
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: "telegram", SourceID: key},
 		Fields: capture.ActivityFields{
-			Kind: "telegram", Body: body, Direction: connector.DirectionInbound,
+			Kind: "message", ChannelProvider: "telegram", Body: body, Direction: connector.DirectionInbound,
 			OccurredAt: at,
 		},
 		Source:     "telegram:" + key,

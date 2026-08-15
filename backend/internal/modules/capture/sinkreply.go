@@ -72,21 +72,31 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	// policy stops reply-detecting threads whose outbound legs have aged out,
 	// even for a customer replying today. That follows the formula rather than
 	// this file's choosing, and it is the behaviour the spec pins.
-	// Matched within ONE medium. thread_key is a single flat namespace holding
-	// both a mail thread root and a channel's `<provider>:<bot>:<chat>` key, and
-	// the mail half is attacker-supplied: it is the message's own References
-	// root, so a sender chooses it verbatim. Without this a forged References
+	// Matched within ONE medium, and this is a security control rather than a
+	// convenience. thread_key is a single flat namespace holding both a mail
+	// thread root and a channel's `<provider>:<bot>:<chat>` key, and the mail
+	// half is attacker-supplied: it is the message's own References root, so a
+	// sender chooses it verbatim. Without the medium match, a forged References
 	// header naming a Telegram conversation — whose parts are both discoverable,
 	// a bot id being public and a private chat's id being the user's own —
 	// manufactures a reply fact against a conversation that sender was never in.
 	// A reply is answered on the medium it arrived on, so a cross-medium match
 	// could never have been actionable anyway.
+	//
+	// It matches on the PAIR because kind alone stopped discriminating at
+	// ADR-0107/A158: every channel row now carries kind='message' whatever
+	// carried it, so kind separates mail from channel but no longer one
+	// transport from another — and the same forgery would then reach across
+	// providers instead of across media. IS NOT DISTINCT FROM is what lets one
+	// statement serve both: mail compares NULL to NULL and matches, a channel
+	// compares provider to provider.
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM activity
 		WHERE thread_key = $1 AND direction = 'outbound' AND kind = $2
-		  AND archived_at IS NULL AND id <> $3
+		  AND channel_provider IS NOT DISTINCT FROM NULLIF($3, '')
+		  AND archived_at IS NULL AND id <> $4
 		ORDER BY occurred_at DESC LIMIT 1`,
-		rec.ThreadKey, fields.Kind, id).Scan(&matched)
+		rec.ThreadKey, fields.Kind, fields.ChannelProvider, id).Scan(&matched)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

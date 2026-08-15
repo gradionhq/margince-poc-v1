@@ -457,8 +457,10 @@ export interface components {
         };
         /** @description Payload for activity.captured — the first-class capture verb, emitted instead of (never alongside) a generic activity.created (events.md §1). Two emit sites: the direct-log path (activities/activity.go) that sets kind only, and the capture ingestion path (capture/sink.go) that also names its originating source system. */
         PublicEventActivityCaptured: {
-            /** @description The activity kind (email | call | meeting | note | whatsapp | telegram). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation. */
+            /** @description The activity kind (email | call | meeting | note | task | message). Decoded by automation/handlers_event.go's post_meeting_recap trigger — this field's JSON key is a binding contract, not just documentation. Since ADR-0107/A158 the kind no longer names a messaging transport: every channel message is `message`, and channel_provider says what carried it. */
             kind: string;
+            /** @description Which transport carried the message — present exactly when kind is `message`, absent otherwise. Without this field a consumer could no longer tell a Telegram message from any other, which the pre-ADR-0107 `kind` told them for free; the envelope is additionalProperties:false, so it has to be named here to be sayable at all. */
+            channel_provider?: string;
             /** @description The originating source system (capture ingestion only; absent on a direct log). */
             source_system?: string;
         };

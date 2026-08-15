@@ -64,24 +64,34 @@ func (c *recordingComms) SendMessage(_ context.Context, anchor ids.UUID, in Send
 // installation's one wired channel provider, without importing that module
 // (agents may not import a sibling): "telegram" is the only kind
 // send_message can ever reply on, so it is the only one this double admits.
-func (c *recordingComms) IsChannelKind(kind string) bool { return kind == "telegram" }
+func (c *recordingComms) IsChannelKind(kind string) bool { return kind == "message" }
+
+// CanSendOnProvider mirrors a single-transport installation: telegram composes,
+// nothing else does.
+func (c *recordingComms) CanSendOnProvider(provider string) bool { return provider == "telegram" }
 
 // nativeActivityProvider serves the anchor as a row this database owns —
 // Freshness.Authoritative true, the only case an approval can be released for.
 type nativeActivityProvider struct {
 	datasource.SystemOfRecordProvider
 	version int64
-	// kind is the anchor activity's kind; empty defaults to "telegram" so
-	// existing call sites that don't care about the kind stay a channel.
+	// kind is the anchor activity's kind; empty defaults to the message kind
+	// so existing call sites that don't care about the kind stay a channel.
+	// The transport is stamped alongside it, since the two axes are read
+	// separately (ADR-0107/A158) and an anchor naming only one is refused.
 	kind string
 }
 
 func (p nativeActivityProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
 	kind := p.kind
 	if kind == "" {
-		kind = "telegram"
+		kind = "message"
 	}
-	fields, err := json.Marshal(map[string]string{"kind": kind})
+	anchor := map[string]string{"kind": kind}
+	if kind == "message" {
+		anchor["channel_provider"] = "telegram"
+	}
+	fields, err := json.Marshal(anchor)
 	if err != nil {
 		return datasource.Record{}, err
 	}
@@ -99,7 +109,7 @@ type mirroredActivityProvider struct {
 }
 
 func (mirroredActivityProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
-	return datasource.Record{Ref: ref, Fields: json.RawMessage(`{"kind":"telegram"}`)}, nil
+	return datasource.Record{Ref: ref, Fields: json.RawMessage(`{"kind":"message","channel_provider":"telegram"}`)}, nil
 }
 
 // The channel reply governs exactly as the mail send does: same scope, same

@@ -191,13 +191,12 @@ func (e ActivityDirection) Valid() bool {
 
 // Defines values for ActivityKind.
 const (
-	ActivityKindCall     ActivityKind = "call"
-	ActivityKindEmail    ActivityKind = "email"
-	ActivityKindMeeting  ActivityKind = "meeting"
-	ActivityKindNote     ActivityKind = "note"
-	ActivityKindTask     ActivityKind = "task"
-	ActivityKindTelegram ActivityKind = "telegram"
-	ActivityKindWhatsapp ActivityKind = "whatsapp"
+	ActivityKindCall    ActivityKind = "call"
+	ActivityKindEmail   ActivityKind = "email"
+	ActivityKindMeeting ActivityKind = "meeting"
+	ActivityKindMessage ActivityKind = "message"
+	ActivityKindNote    ActivityKind = "note"
+	ActivityKindTask    ActivityKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the ActivityKind enum.
@@ -209,13 +208,11 @@ func (e ActivityKind) Valid() bool {
 		return true
 	case ActivityKindMeeting:
 		return true
+	case ActivityKindMessage:
+		return true
 	case ActivityKindNote:
 		return true
 	case ActivityKindTask:
-		return true
-	case ActivityKindTelegram:
-		return true
-	case ActivityKindWhatsapp:
 		return true
 	default:
 		return false
@@ -2576,12 +2573,11 @@ func (e ConversationClaimKind) Valid() bool {
 
 // Defines values for ConversationMemoryEntryChannel.
 const (
-	ConversationMemoryEntryChannelCall     ConversationMemoryEntryChannel = "call"
-	ConversationMemoryEntryChannelEmail    ConversationMemoryEntryChannel = "email"
-	ConversationMemoryEntryChannelMeeting  ConversationMemoryEntryChannel = "meeting"
-	ConversationMemoryEntryChannelNote     ConversationMemoryEntryChannel = "note"
-	ConversationMemoryEntryChannelTelegram ConversationMemoryEntryChannel = "telegram"
-	ConversationMemoryEntryChannelWhatsapp ConversationMemoryEntryChannel = "whatsapp"
+	ConversationMemoryEntryChannelCall    ConversationMemoryEntryChannel = "call"
+	ConversationMemoryEntryChannelEmail   ConversationMemoryEntryChannel = "email"
+	ConversationMemoryEntryChannelMeeting ConversationMemoryEntryChannel = "meeting"
+	ConversationMemoryEntryChannelMessage ConversationMemoryEntryChannel = "message"
+	ConversationMemoryEntryChannelNote    ConversationMemoryEntryChannel = "note"
 )
 
 // Valid indicates whether the value is a known member of the ConversationMemoryEntryChannel enum.
@@ -2593,11 +2589,9 @@ func (e ConversationMemoryEntryChannel) Valid() bool {
 		return true
 	case ConversationMemoryEntryChannelMeeting:
 		return true
+	case ConversationMemoryEntryChannelMessage:
+		return true
 	case ConversationMemoryEntryChannelNote:
-		return true
-	case ConversationMemoryEntryChannelTelegram:
-		return true
-	case ConversationMemoryEntryChannelWhatsapp:
 		return true
 	default:
 		return false
@@ -2672,13 +2666,12 @@ func (e CreateActivityRequestDirection) Valid() bool {
 
 // Defines values for CreateActivityRequestKind.
 const (
-	CreateActivityRequestKindCall     CreateActivityRequestKind = "call"
-	CreateActivityRequestKindEmail    CreateActivityRequestKind = "email"
-	CreateActivityRequestKindMeeting  CreateActivityRequestKind = "meeting"
-	CreateActivityRequestKindNote     CreateActivityRequestKind = "note"
-	CreateActivityRequestKindTask     CreateActivityRequestKind = "task"
-	CreateActivityRequestKindTelegram CreateActivityRequestKind = "telegram"
-	CreateActivityRequestKindWhatsapp CreateActivityRequestKind = "whatsapp"
+	CreateActivityRequestKindCall    CreateActivityRequestKind = "call"
+	CreateActivityRequestKindEmail   CreateActivityRequestKind = "email"
+	CreateActivityRequestKindMeeting CreateActivityRequestKind = "meeting"
+	CreateActivityRequestKindMessage CreateActivityRequestKind = "message"
+	CreateActivityRequestKindNote    CreateActivityRequestKind = "note"
+	CreateActivityRequestKindTask    CreateActivityRequestKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestKind enum.
@@ -2690,13 +2683,11 @@ func (e CreateActivityRequestKind) Valid() bool {
 		return true
 	case CreateActivityRequestKindMeeting:
 		return true
+	case CreateActivityRequestKindMessage:
+		return true
 	case CreateActivityRequestKindNote:
 		return true
 	case CreateActivityRequestKindTask:
-		return true
-	case CreateActivityRequestKindTelegram:
-		return true
-	case CreateActivityRequestKindWhatsapp:
 		return true
 	default:
 		return false
@@ -6435,21 +6426,6 @@ func (e PersonProviderProfileState) Valid() bool {
 	}
 }
 
-// Defines values for PersonReachabilityProvider.
-const (
-	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
-)
-
-// Valid indicates whether the value is a known member of the PersonReachabilityProvider enum.
-func (e PersonReachabilityProvider) Valid() bool {
-	switch e {
-	case PersonReachabilityProviderTelegram:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for PersonRelationshipChangeFromBucket.
 const (
 	PersonRelationshipChangeFromBucketModerate PersonRelationshipChangeFromBucket = "moderate"
@@ -9149,13 +9125,12 @@ func (e ProfileFieldKey) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
-	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
-	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
-	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
-	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
-	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
-	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall    ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail   ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindMessage ListActivitiesParamsKind = "message"
+	ListActivitiesParamsKindNote    ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask    ListActivitiesParamsKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
@@ -9167,13 +9142,11 @@ func (e ListActivitiesParamsKind) Valid() bool {
 		return true
 	case ListActivitiesParamsKindMeeting:
 		return true
+	case ListActivitiesParamsKindMessage:
+		return true
 	case ListActivitiesParamsKindNote:
 		return true
 	case ListActivitiesParamsKindTask:
-		return true
-	case ListActivitiesParamsKindTelegram:
-		return true
-	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -10292,6 +10265,8 @@ type AccountEmailDraft struct {
 // `duration_seconds` only for meeting/call; `direction` is null for note/task. Setting a
 // disallowed field for the kind returns `422 code: field_not_valid_for_kind` (the API rejects
 // what the DB CHECK would reject, rather than 500-ing at write time).
+// `channel_provider` is the same kind of constraint in both directions: non-null exactly
+// when `kind=message` (ADR-0107/A158).
 type Activity struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 
@@ -10306,8 +10281,13 @@ type Activity struct {
 	CaptureLabel *ActivityCaptureLabel `json:"capture_label,omitempty"`
 
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
-	CapturedBy *string   `json:"captured_by,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// ChannelProvider Which transport carried this message — non-null exactly when `kind=message`.
+	// The kind says what sort of interaction happened; this says what carried it. They
+	// are separate axes, and reading one off the other is what ADR-0107 retired.
+	ChannelProvider *ProviderRef `json:"channel_provider,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
 
 	// Direction inbound/outbound for email/call; null for note/task.
 	Direction *ActivityDirection `json:"direction,omitempty"`
@@ -12285,6 +12265,12 @@ type ConversationMemoryEntry struct {
 	ActivityCount int                            `json:"activity_count"`
 	Channel       ConversationMemoryEntryChannel `json:"channel"`
 
+	// ChannelProvider Which transport carried the thread — non-null exactly when `channel=message`
+	// (ADR-0107/A158). A renderer that printed `channel` alone used to get the provider
+	// name for free; it must now read both, or a Telegram thread and a Dispact thread
+	// become indistinguishable.
+	ChannelProvider *ProviderRef `json:"channel_provider,omitempty"`
+
 	// Direction Which way the LAST message in the thread went. `internal` for a meeting or note that has no direction.
 	Direction ConversationMemoryEntryDirection `json:"direction"`
 
@@ -12321,8 +12307,14 @@ type ConversationMemoryEntryStatus string
 
 // CreateActivityRequest defines model for CreateActivityRequest.
 type CreateActivityRequest struct {
-	AssigneeId      *openapi_types.UUID             `json:"assignee_id,omitempty"`
-	Body            *string                         `json:"body,omitempty"`
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+	Body       *string             `json:"body,omitempty"`
+
+	// ChannelProvider Which transport carried this message. REQUIRED when `kind=message` and MUST be
+	// null otherwise; violating either direction returns
+	// `422 code: field_not_valid_for_kind`. Must name a provider this installation has
+	// registered.
+	ChannelProvider *ProviderRef                    `json:"channel_provider,omitempty"`
 	Direction       *CreateActivityRequestDirection `json:"direction,omitempty"`
 	DueAt           *time.Time                      `json:"due_at,omitempty"`
 	DurationSeconds *int                            `json:"duration_seconds,omitempty"`
@@ -16877,15 +16869,18 @@ type PersonProviderProfileState string
 // PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
 // `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
 type PersonReachability struct {
-	Provider  PersonReachabilityProvider `json:"provider"`
-	Reachable bool                       `json:"reachable"`
+	// Provider A reference to a messaging transport registered in THIS installation
+	// (ADR-0107/A158). Deliberately a pattern-constrained string rather than an enum:
+	// which providers exist is a deployment fact — what this binary composed, including
+	// any extension unit present under `extensions/` — so an enum here would assert that
+	// the legal set is identical in every installation, which is false. The contract
+	// states the invariant; `GET /v1/channel-providers` resolves the live set.
+	Provider  ProviderRef `json:"provider"`
+	Reachable bool        `json:"reachable"`
 
 	// Since When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
 	Since time.Time `json:"since"`
 }
-
-// PersonReachabilityProvider defines model for PersonReachability.Provider.
-type PersonReachabilityProvider string
 
 // PersonRelationshipChange One thing that happened to a relationship, with the evidence for it. Derived at read
 // by folding the §4 curve over a window that ends in the past, so it needs no table and
@@ -17287,6 +17282,14 @@ type ProviderPoolBudget struct {
 // per-category choices are authoritative, and the descriptor validates the value, so a second
 // provider may declare different presets without a contract change.
 type ProviderPreset = string
+
+// ProviderRef A reference to a messaging transport registered in THIS installation
+// (ADR-0107/A158). Deliberately a pattern-constrained string rather than an enum:
+// which providers exist is a deployment fact — what this binary composed, including
+// any extension unit present under `extensions/` — so an enum here would assert that
+// the legal set is identical in every installation, which is false. The contract
+// states the invariant; `GET /v1/channel-providers` resolves the live set.
+type ProviderRef = string
 
 // ProviderRun defines model for ProviderRun.
 type ProviderRun struct {
@@ -19529,6 +19532,11 @@ type ListActivitiesParams struct {
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
 	IncludeArchived *IncludeArchived          `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 	Kind            *ListActivitiesParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// ChannelProvider Filter to messages carried by one transport. Since `kind=message` no longer names
+	// the transport, this is the only way to ask the question `kind=telegram` used to
+	// answer (ADR-0107/A158).
+	ChannelProvider *ProviderRef `form:"channel_provider,omitempty" json:"channel_provider,omitempty"`
 
 	// EntityType Filter to activities linked to an entity type (with entity_id).
 	EntityType *ListActivitiesParamsEntityType `form:"entity_type,omitempty" json:"entity_type,omitempty"`
@@ -32390,6 +32398,19 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "channel_provider" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "channel_provider", r.URL.Query(), &params.ChannelProvider, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "channel_provider"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel_provider", Err: err})
 		}
 		return
 	}

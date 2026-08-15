@@ -28,7 +28,7 @@ import (
 // its originating source system — the field the direct-log path
 // (activities/activity.go) never sets.
 func TestActivityCaptureEventPayload(t *testing.T) {
-	payload := activityCaptureEventPayload("email", "gmail")
+	payload := activityCaptureEventPayload("email", "", "gmail")
 
 	if !reflect.DeepEqual(payload.EventType(), "activity.captured") {
 		t.Errorf("got %v, want %v", payload.EventType(), "activity.captured")

@@ -817,7 +817,7 @@ function purposeOptions(
 // so it keeps the anchored path and never reaches the account arm.
 async function sendFrom(args: {
   activityId?: string;
-  isTelegram: boolean;
+  isChannelReply: boolean;
   mail: {
     subject: string;
     body: string;
@@ -831,7 +831,7 @@ async function sendFrom(args: {
   channelBody: { body: string; consent_purpose: string };
   links: { entity_type: RelinkKind; entity_id: string }[];
 }) {
-  if (args.isTelegram) {
+  if (args.isChannelReply) {
     if (!args.activityId) {
       // A channel reply answers a conversation the person opened; there is no
       // way to start one with a stranger from a company page. Falling through
@@ -882,10 +882,10 @@ export function scheduleFields(local: string): {
 }
 
 function canSendCompose(
-  isTelegram: boolean,
+  isChannelReply: boolean,
   fields: { to: string[]; subject: string; body: string; purpose: string },
 ): boolean {
-  if (isTelegram) {
+  if (isChannelReply) {
     return fields.body.trim() !== "" && fields.purpose !== "";
   }
   return (
@@ -988,7 +988,7 @@ function MailSendNotices({
 }
 
 // The 🟡 confirm-first composer (draftEmail + sendEmail), extended for a
-// captured messaging channel (sendMessage): on a `kind === "telegram"`
+// captured messaging channel (sendMessage): on a `kind === "message"`
 // activity the reply posts /activities/{id}/send-message instead, dropping
 // subject and Cc — a channel has no concept of either, and the recipient is
 // never named by the caller (design §9.3): the server resolves it from the
@@ -1087,7 +1087,11 @@ export function ComposeModal({
   const queryClient = useQueryClient();
   const purposes = useConsentPurposes();
   const voiceProfile = useVoiceProfile();
-  const isTelegram = kind === "telegram";
+  // Which ENDPOINT the reply posts to is a question about the kind, not the
+  // transport: every channel message goes to send-message whatever carried it,
+  // and the server resolves the recipient from the conversation's own channel
+  // identity (design §9.3).
+  const isChannelReply = kind === "message";
   const [to, setTo] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
@@ -1129,7 +1133,7 @@ export function ComposeModal({
   // message on a company page, over mail. A channel reply resolves its
   // recipient server-side and has no draft endpoint at all.
   const groundable =
-    !activityId && entityType === "organization" && !isTelegram;
+    !activityId && entityType === "organization" && !isChannelReply;
 
   // An emptied body no longer holds the served draft, so everything that
   // describes those words goes with it: the reference would bind the next
@@ -1233,7 +1237,7 @@ export function ComposeModal({
       };
       const { data, error, response } = await sendFrom({
         activityId,
-        isTelegram,
+        isChannelReply,
         mail,
         channelBody: { body, consent_purpose: purpose },
         links: [{ entity_type: entityType, entity_id: entityId }],
@@ -1272,7 +1276,12 @@ export function ComposeModal({
   const refusal = refusalOf(send.error);
   const sendError =
     send.isError && refusal === null ? problemMessageOf(send.error, t) : null;
-  const canSend = canSendCompose(isTelegram, { to, subject, body, purpose });
+  const canSend = canSendCompose(isChannelReply, {
+    to,
+    subject,
+    body,
+    purpose,
+  });
   // While a rejection is in flight the draft it names is being disposed of, so
   // nothing else on this surface may act on that draft: sending would race the
   // rejection for the signal, and re-drafting would hand the rep words the
@@ -1331,7 +1340,7 @@ export function ComposeModal({
       open={open}
       onClose={onClose}
       title={t(
-        isTelegram
+        isChannelReply
           ? "compose.sendMessageConfirmTitle"
           : "compose.sendConfirmTitle",
       )}
@@ -1356,7 +1365,7 @@ export function ComposeModal({
         {/* AI drafting is mail-only — there is no draft-message endpoint, and
             a channel reply's recipient is resolved server-side, so neither
             the draft controls nor the To/Cc/Subject fields apply to it. */}
-        {!isTelegram && (
+        {!isChannelReply && (
           <MailOnlyFields
             intent={intent}
             onIntentChange={setIntent}
@@ -1395,7 +1404,7 @@ export function ComposeModal({
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 
-        {!isTelegram && (
+        {!isChannelReply && (
           <label className="field">
             <span className="t-label">{t("compose.sendLaterLabel")}</span>
             <TextInput
@@ -1406,13 +1415,15 @@ export function ComposeModal({
             <span className="t-caption">{t("compose.sendLaterHint")}</span>
           </label>
         )}
-        {!isTelegram && <MailSendNotices to={to} cc={cc} purpose={purpose} />}
+        {!isChannelReply && (
+          <MailSendNotices to={to} cc={cc} purpose={purpose} />
+        )}
         {sendUnavailable && (
           <p className="t-caption">{t("compose.sendUnavailable")}</p>
         )}
         <SendRefusal refusal={refusal} personId={personId} />
         <p className="t-caption">
-          {t(isTelegram ? "compose.sendMessageBody" : "compose.sendBody")}
+          {t(isChannelReply ? "compose.sendMessageBody" : "compose.sendBody")}
         </p>
       </div>
     </ConfirmModal>
@@ -1428,9 +1439,10 @@ export function ComposeModal({
 // (e.g. a deal timeline, which has no single person to check) gets the
 // pre-existing behaviour of always offering the reply — this only ever turns
 // the action OFF, never on, for a row it cannot verify.
-function useTelegramReachable(
+function useChannelReachable(
   isChannel: boolean,
   personId: string | undefined,
+  provider: string | undefined,
 ) {
   const person = useQuery({
     queryKey: ["person", personId],
@@ -1444,8 +1456,12 @@ function useTelegramReachable(
     enabled: isChannel && personId != null,
   });
   if (!isChannel || personId == null) return true;
+  // Matched against the row's OWN transport. A hardcoded "telegram" here would
+  // withhold the reply on every other transport's rows and offer it on a
+  // Telegram-reachable person's rows whatever carried the conversation — the
+  // kind stopped naming the transport at ADR-0107/A158, so the row has to say.
   return (person.data?.reachability ?? []).some(
-    (channel) => channel.provider === "telegram" && channel.reachable,
+    (channel) => channel.provider === provider && channel.reachable,
   );
 }
 
@@ -1456,9 +1472,9 @@ function useTelegramReachable(
 // RFC822 identity to thread against and simply starts a conversation — which is
 // how the backend already reads it. Gating the composer on an email row instead
 // makes a fresh workspace, whose only rows are logged notes, unable to send at
-// all. A `telegram` row carries the opposite gate: it is withheld, not always
-// offered, when the person behind it cannot be reached (see
-// useTelegramReachable above).
+// all. A `message` row carries the opposite gate: it is withheld, not always
+// offered, when the person behind it cannot be reached on the transport that
+// carried it (see useChannelReachable above).
 //
 // Relink, because an activity shown on a 360 timeline is by construction already
 // linked to the entity whose timeline renders it, so re-associating it to the
@@ -1480,9 +1496,10 @@ export function TimelineActions({
   const t = useT();
   const [reply, setReply] = useState(false);
   const [relink, setRelink] = useState(false);
-  const reachable = useTelegramReachable(
-    activity.kind === "telegram",
+  const reachable = useChannelReachable(
+    activity.kind === "message",
     personId,
+    activity.channel_provider ?? undefined,
   );
   return (
     <>

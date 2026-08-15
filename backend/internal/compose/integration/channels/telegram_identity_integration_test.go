@@ -264,7 +264,7 @@ func channelRecordFor(u telegramUpdate) connector.NormalizedRecord {
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: "telegram", SourceID: u.naturalKey()},
 		Fields: capture.ActivityFields{
-			Kind: "telegram", Body: u.text, Direction: connector.DirectionInbound,
+			Kind: "message", ChannelProvider: "telegram", Body: u.text, Direction: connector.DirectionInbound,
 			OccurredAt: time.Unix(telegramProviderDate, 0).UTC(),
 		},
 		Source:     "telegram:" + u.naturalKey(),

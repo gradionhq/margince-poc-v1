@@ -37,7 +37,7 @@ func init() {
 
 func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	e := Setup(t)
-	email, note, janEmail := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	email, note, janEmail, message := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
@@ -56,6 +56,20 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
 			VALUES ($1, `+wsClause+`, 'note', 'Old scratch note', 'ephemeral', now() - interval '400 days', 'capture', 'connector:t')`,
 			note); err != nil {
+			return err
+		}
+		// A channel message is a Handelsbrief too, and ADR-0107/A158 RATIFIES
+		// that rather than leaving it to fall out of the predicate's shape.
+		// The rule is stated as an exclusion (everything but task and note), so
+		// the narrowing carried every transport into the floor at once where
+		// telegram and whatsapp used to enter it by name — and that is correct:
+		// a message to a customer is external business correspondence whichever
+		// transport carried it. Pinned here so a later narrowing of the
+		// predicate to a NAMED list fails instead of silently unshielding it.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, channel_provider, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'message', 'telegram', NULL, 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
+			message); err != nil {
 			return err
 		}
 		// The §147(4) boundary: a January email six-and-a-half years old.
@@ -77,12 +91,15 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var emailBody, noteBody, janBody *string
+	var emailBody, noteBody, janBody, messageBody *string
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, email).Scan(&emailBody); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, janEmail).Scan(&janBody); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, message).Scan(&messageBody); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, note).Scan(&noteBody)
@@ -95,6 +112,9 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 	if janBody == nil {
 		t.Error("the §147(4) anchor failed: a January email inside its calendar-year-end window was destroyed (occurrence anchoring erases it ~11 months early)")
+	}
+	if messageBody == nil {
+		t.Error("the GoBD floor failed: a 400-day-old channel message was destroyed against the 6-year statute — a message is correspondence whatever transport carried it")
 	}
 	if noteBody != nil {
 		t.Error("the floor over-shielded: a plain note past the policy age survived")
