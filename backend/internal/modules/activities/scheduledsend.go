@@ -455,10 +455,15 @@ type agentProvenance struct {
 
 // provenanceOf captures the acting agent, or nothing at all for a human.
 //
-// OnBehalfOf falls back to the actor's own UserID: a tool call carries the
-// human it acts for there, but an agent principal assembled with only a UserID
-// still names a real human, and the column is what makes the row's agent arm
-// complete. Both spellings mean the same person.
+// OnBehalfOf falls back to the actor's own UserID, and the two cannot name
+// different people on any real agent path: identity mints an agent principal
+// from one value (AgentIdentity.Principal sets UserID and OnBehalfOf from the
+// same a.OnBehalfOf), and auth.Admit derives the agent's seat and RBAC from
+// OnBehalfOf, so an agent whose two fields disagreed would already be acting
+// under a ceiling belonging to somebody other than its UserID. The fallback is
+// for an agent principal assembled with only a UserID, which still names a real
+// human — and the column has to be non-NULL for the row's agent arm to be
+// complete.
 func provenanceOf(p principal.Principal) agentProvenance {
 	if p.Type == principal.PrincipalHuman {
 		return agentProvenance{}
@@ -471,9 +476,15 @@ func provenanceOf(p principal.Principal) agentProvenance {
 	out := agentProvenance{ActorID: &actorID, OnBehalfOf: &behalf}
 	if !p.PassportID.IsZero() {
 		// A passport is how an agent's scopes were granted, so an action taken
-		// under one names it. An agent acting without a passport (an in-process
-		// workflow) legitimately has none, and NULL says so rather than
-		// borrowing an id from somewhere else.
+		// under one names it, and NULL says none was involved rather than that
+		// one was lost.
+		//
+		// Every agent that can reach a send today carries one — the tool surface
+		// is the only agent door to SendOrSchedule. But a passport-less agent
+		// principal is a real shape in this codebase (compose/extjobsrun.go
+		// mints one for an extension tick, with an agent's own app_user id as
+		// UserID and no OnBehalfOf), so this stays conditional rather than
+		// assuming the passport is always there.
 		out.PassportID = &p.PassportID
 	}
 	return out
