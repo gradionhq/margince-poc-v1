@@ -1,4 +1,4 @@
--- 0248: the connect-time backfill window reaches 24 and 60 months.
+-- 0250: the connect-time backfill window reaches 24 and 60 months.
 --
 -- ADR-0106/A157 widens CAP-PARAM-4's closed set from {3, 6, 12} to
 -- {3, 6, 12, 24, 60}. The set stays CLOSED and stays a picker — an unbounded

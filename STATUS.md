@@ -49,6 +49,7 @@ needs the whole file to start a session.
 - Shipped 2026-08-11 (batman, follow-up): a same-kind consumer-mail re-add stays on the create grant, so a rep retrying a lost response gets the existing entry instead of a 403 (PR #888, found by the Codex review of #872). Open upstream: spec capture.md CAP-PARAM-5 predates the workspace consumer-mail surface entirely (still says baseline + margince.yaml, no UI) — reconcile in the spec repo.
 - Shipped 2026-08-11 (batman): own-email-domains card moved to a new admin-group Capture settings tab; any seat (not just admin/ops) may add a consumer-mail `extra` domain — `capture_settings` gained `create` for rep/manager/admin/ops (policy.go + migration 0210) while `never` carve-outs/overwrites/removal stay on `update`; new `GET /capture/consumer-mail-baseline` makes the shipped ~8.7k-domain list searchable in the card (PR #872). No fast-track-debt issues filed — all review findings were fixed in the PR.
 - Shipped 2026-08-11 (batman): an accepted `offer_summary` and the company form now fill `organization.description`, the header's one-line answer (PR #869, the description half of #847); the silent skip of a 501–2000-char summary is filed as #870 (fast-track-debt).
+- [Blocked on ratification — the transport axis leaves the activity kind (SP5, 2026-08-14)](#blocked-on-ratification--the-transport-axis-leaves-the-activity-kind-sp5-2026-08-14)
 - [Open — the person record page V2, and what it still owes (2026-08-11)](#open--the-person-record-page-v2-and-what-it-still-owes-2026-08-11)
 - [Open — the app shell restructure and the one-h1 rule it establishes (2026-08-11)](#open--the-app-shell-restructure-and-the-one-h1-rule-it-establishes-2026-08-11)
 - [Open — the finance offline ledger drifts out of its timeliness window (#798, 2026-08-10)](#open--the-finance-offline-ledger-drifts-out-of-its-timeliness-window-798-2026-08-10)
@@ -82,6 +83,61 @@ needs the whole file to start a session.
 - [Upstream spec raises owed from 2026-07-31](#upstream-spec-raises-owed-from-2026-07-31)
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
+
+## Blocked on ratification — the transport axis leaves the activity kind (SP5, 2026-08-14)
+
+`activity.kind` has been carrying two different facts at once: what kind of
+interaction something was, and which transport carried it. `kind='telegram'` is
+not a kind of interaction — it is a medium — and the conflation is what stops a
+second channel unit from filing a message without inventing an enum member for
+itself.
+
+**The first slice shipped** ([#1293](https://github.com/gradionhq/margince-poc-v1/pull/1293),
+core migration `0247`): `activity.channel_provider` is a real column, FK'd into
+the `channel_provider` registry, backfilled *from that registry* — exact today
+precisely because the old model stored the provider in the kind. Every writer
+records it (capture's sink, telegram's normalizer, the ingest bridge, the
+outbound reply, the hand-log INSERT, the REST/agent mapping, the extension
+ingress), and the send path reads the column instead of deriving the provider
+from the kind. `kind` is deliberately untouched, so nothing is narrowed yet and
+the slice is fully revertible. `channel_provider_provider_fkey` is dropped: it
+asserted every transport is also an interaction kind, which is the very claim
+being retired.
+
+Two guards were worth the diff. The boot reconcile no longer mints
+`activity_kind` rows, so the members the next slice removes stay removed rather
+than reappearing at the next boot. And the review round found that both REST and
+`log_activity` still accepted `kind: "telegram"` with no transport, which would
+have made a row written *after* the migration unrepliable while an identical row
+written before it stayed repliable — same data, different behaviour decided by
+write date. The transport is now recorded at the write.
+
+**Everything after that needs a human, and this is the blocker.** ADR-0106/A157
+([margince-foundation#1301](https://github.com/gradionhq/margince-foundation/pull/1301))
+is still `Proposed`, and says of itself that the narrowing does not proceed until
+it is ratified and `specs/contract/crm.yaml` carries it. That is not deference:
+the next slice removes members from a shipped normative enum and migrates a hot
+table in one change, and once `kind` stops carrying the provider name no down
+migration can reconstruct which rows were which transport — a revert does not
+undo it. The ADR also deliberately leaves one question open, whether the new
+member is `message`, `chat` or `channel_message`; renaming an enum member after
+the contract mirrors it is another pre-live resync, so picking it unsupervised
+would decide it by merge.
+
+Three slices wait on that act, each already planned to the task in
+`.tmp/ext-core-write-port/PLAN-06-kind-narrowing.md`: **1b**, the narrowing
+itself (backfill, enum removal, contract mirror, ~fourteen readers, the
+frontend's send routing, five fitness functions); **1c**, `GET
+/v1/channel-providers` plus provider display metadata, additive and able to land
+either side of 1b; and **2**, the unit `Channel` surface with the Dispact
+exemplar, which DESIGN-SP5 §14 says is never split from it. When ratification
+lands, read the ratified member name out of the ADR first and substitute it
+throughout the plan before writing any code.
+
+Two things slice 2's UAT needs arranged ahead of it, neither of which exists
+yet: a Dispact per-member `api-token` deposited through the unit's own Connect
+flow (it is not an env var, and no `.env.local` carries one), and the send
+capability itself, which is what that slice builds.
 
 ## Open — the person record page V2, and what it still owes (2026-08-11)
 
