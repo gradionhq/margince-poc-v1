@@ -151,12 +151,20 @@ func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.
 // WithdrawInTx takes one live proposal off the inbox on the caller's
 // transaction: forced expiry, audited with the reason, deliberately event-free.
 //
-// The mechanism is supersession's — backdate expires_at a full day, so the row
-// reads expired under both the database clock and the service clock that
-// effectiveStatus judges with. Withdrawal is not a new status: the CHECK and the
-// public ApprovalStatus enum stay closed, and expiry is already invisible on the
-// bus (no subscriber can observe a TTL lapse either), so nothing a consumer
-// relies on changes.
+// The mechanism is supersession's — write the terminal status AND backdate
+// expires_at a full day, so the row reads expired under the database clock and
+// the service clock effectiveStatus judges with, whichever a reader consults.
+// Withdrawal is not a new status: the CHECK and the public ApprovalStatus enum
+// stay closed.
+//
+// The status is written rather than left to derivation, and that is what keeps
+// this event-free. A back-dated row that stayed 'pending' is still a candidate
+// the expiry sweep will pick up, and the sweep DOES publish — it would turn a
+// deliberate withdrawal into approval.decided/expired minutes later, telling
+// every consumer that nobody answered a question somebody deliberately
+// retracted. Writing the terminal status takes the row out of that candidate
+// set, which is also what stops a non-expiring kind's withdrawn rows from
+// collecting at the front of every sweep batch.
 //
 // It exists so an owner of the underlying question can retract it when the
 // question stops being one — the capture ledger ageing out an unanswered review
@@ -180,8 +188,15 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 		}
 		return false, fmt.Errorf("lock approval to withdraw: %w", err)
 	}
+	// Terminal, not merely back-dated. A row left 'pending' with a past
+	// expires_at reads as expired everywhere (effectiveStatus) while remaining a
+	// candidate the sweep will pick up — and the sweep would then audit it as
+	// "nobody decided this", which is a false statement about a card somebody
+	// withdrew on purpose. For a non-expiring kind it is worse: those rows sort
+	// first by expires_at and never leave the batch, so enough of them fill
+	// every window and no genuinely-due approval is ever swept again.
 	tag, err := tx.Exec(ctx, `
-		UPDATE approval SET expires_at = now() - interval '1 day'
+		UPDATE approval SET expires_at = now() - interval '1 day', status = 'expired'
 		 WHERE id = $1 AND status = 'pending'`, id)
 	if err != nil {
 		return false, fmt.Errorf("withdraw approval: %w", err)

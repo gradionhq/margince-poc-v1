@@ -222,3 +222,85 @@ func TestErasureLeavesALookalikeAddressAlone(t *testing.T) {
 		t.Error("erasing t_m@example.com destroyed the staged message written to tim@example.com — the wildcard was never escaped")
 	}
 }
+
+// An address is matched as a whole address, not as a substring of one.
+//
+// Escaping the LIKE metacharacters was only half the fix: a neutralised address
+// dropped into '%addr%' still matches anywhere inside a longer one.
+// `m@example.com` is a valid address and a suffix of `tim@example.com`, so
+// erasing the first would destroy every staged message written to the second —
+// live work belonging to somebody the request was never about — and hand their
+// message body to the wrong subject in an Art. 15 export.
+//
+// The lookalike test above proves the wildcard case; this proves the substring
+// case, and they fail for different reasons.
+func TestErasureLeavesAnAddressThatMerelyContainsTheSubjectsAlone(t *testing.T) {
+	e := integration.Setup(t)
+	subject := e.SeedPerson(t, "Suffix Subject", nil)
+	e.WsExec(t, `
+		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
+		VALUES ($1, $2, 'm@example.com', true, 'test', 'human:seed')`, e.WS, subject)
+
+	bystander, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
+		Kind:           "held_draft",
+		ProposedChange: json.RawMessage(`{"to":"tim@example.com","subject":"Q3","body":"numbers attached"}`),
+		DiffHash:       "suffix-" + ids.NewV7().String(),
+		Summary:        "a draft to tim@example.com, who merely contains the subject",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(),
+		ids.From[ids.PersonKind](subject).UUID, "subject request"); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM approval
+		WHERE id = $1 AND status = 'pending'
+		  AND proposed_change::text ILIKE '%numbers attached%'`, bystander); n != 1 {
+		t.Error("erasing m@example.com destroyed the staged message written to tim@example.com — the match was never anchored to an address boundary")
+	}
+}
+
+// And the subject's own message is still reached, which is the half an
+// over-tightened anchor would silently break: a scrub that destroys nothing is
+// indistinguishable from one that works, until somebody exercises Art. 17.
+func TestErasureStillReachesTheSubjectsOwnStagedMessage(t *testing.T) {
+	e := integration.Setup(t)
+	subject, approvalID := erasureSubject(t, e)
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), subject.UUID, "subject request"); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval
+		WHERE id = $1 AND status = 'expired' AND proposed_change = '{}'::jsonb`, approvalID); n != 1 {
+		t.Error("the subject's own staged message survived erasure — the anchor is too tight and the scrub reaches nothing")
+	}
+}
+
+// The bound redactWorkflowRuns admits to, held as a test so it cannot widen
+// silently. A run is reached by the addresses it names and by nothing else —
+// workflow_run carries no target column — so a subject with no recorded address
+// gets no run scrub. If that ever stops being true this fails, which is the
+// point: the limitation should be discovered here rather than by a regulator.
+func TestAnAutomationRunIsReachedByAddressAndNothingElse(t *testing.T) {
+	e := integration.Setup(t)
+	subject := e.SeedPerson(t, "No Address At All", nil)
+	handler := "wf_noaddr_" + ids.NewV7().String()
+	e.WsExec(t, `
+		INSERT INTO workflow_run (handler, idempotency_key, trigger_event, planned, status)
+		VALUES ($1, $2, $3, $4, 'applied')`,
+		handler, handler+":1", ids.NewV7(),
+		[]byte(`[{"Kind":"draft_email","Args":{"note":"about No Address At All"}}]`))
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(),
+		ids.From[ids.PersonKind](subject).UUID, "subject request"); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM workflow_run
+		WHERE handler = $1 AND planned::text ILIKE '%No Address At All%'`, handler); n != 1 {
+		t.Log("run scrub now reaches a subject named without an address — widen the doc bound on redactWorkflowRuns, it is out of date")
+		t.Fail()
+	}
+}

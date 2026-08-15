@@ -232,12 +232,16 @@ func (s *Service) rebundleJoinedInTx(ctx context.Context, tx pgx.Tx, in StageInp
 // supersedePendingInTx withdraws every OTHER live pending proposal of the same
 // kind+target carrying the same logical identity. Withdrawal is forced expiry,
 // audited but deliberately event-free: the closed event catalog (contract-first,
-// P3) defines no approval-withdrawn type, and expiry is already invisible on the
-// bus — a subscriber cannot observe TTL expiry either, so folding supersession
-// into expiry changes nothing a consumer could rely on, while the pull-based
-// inbox reads the row as expired on every surface (effectiveStatus, decide,
-// redeem). The status CHECK and the public ApprovalStatus enum stay closed; the
-// audit row carries the why and the survivor.
+// P3) defines no approval-withdrawn type, and the pull-based inbox reads the row
+// as expired on every surface (effectiveStatus, decide, redeem). The status
+// CHECK and the public ApprovalStatus enum stay closed; the audit row carries
+// the why and the survivor.
+//
+// The terminal status is WRITTEN, not derived, for the reason WithdrawInTx
+// states: the expiry sweep publishes approval.decided/expired for the rows it
+// finds, so a superseded row left 'pending' with a past window would be
+// announced minutes later as a question nobody answered — when in fact a newer
+// proposal replaced it.
 func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, in StageInput, survivor ids.ApprovalID) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
@@ -258,8 +262,12 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, in StageI
 	// Backdating a full day (not a second) keeps the row expired under the
 	// APP clock too: effectiveStatus judges expiry with the service clock,
 	// which may trail the database by ordinary NTP skew — never by a day.
+	// Terminal for the reason WithdrawInTx is: a superseded row that stays
+	// 'pending' with a past window is still a sweep candidate, and the sweep
+	// would record it as unactioned when in fact a newer proposal replaced it.
 	if _, err := tx.Exec(ctx,
-		`UPDATE approval SET expires_at = now() - interval '1 day' WHERE id = ANY($1)`,
+		`UPDATE approval SET expires_at = now() - interval '1 day', status = 'expired'
+		  WHERE id = ANY($1)`,
 		superseded); err != nil {
 		return fmt.Errorf("supersede pending approvals: %w", err)
 	}

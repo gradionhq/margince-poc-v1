@@ -16,10 +16,12 @@ package compose
 // second spelling of a reassignment an automation made. What the approval adds
 // is the human, and the human is on the decision's own audit row.
 //
-// One field differs on purpose. The 🟢 branch stamps Source "system"; this
+// Two things differ, both on purpose. The 🟢 branch stamps Source "system"; this
 // stamps "system:assign-owner-release", so the provenance column can tell a
-// reassignment that ran on its own from one a human had to release first. That
-// is a distinction worth keeping, not an accident of two code paths.
+// reassignment that ran on its own from one a human had to release first. And
+// this write carries IfVersion, which the 🟢 branch has no use for: it writes
+// immediately, while a release writes against a record that has been sitting in
+// an inbox. Both are distinctions worth keeping, not accidents of two code paths.
 
 import (
 	"context"

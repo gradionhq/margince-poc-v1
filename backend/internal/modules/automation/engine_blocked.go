@@ -107,8 +107,10 @@ func CompleteApprovedRun(ctx context.Context, db *database.DB, approvalID ids.Ap
 // runBlockedReasonFor maps a verdict onto the run outcome it produces, and says
 // whether it produces one at all.
 //
-// A table rather than a condition, because the set is the decision: approved is
-// absent on purpose (the effect lands through redemption, not here), and a
+// A table rather than a condition, because the set is the decision. It answers
+// only "does this verdict BLOCK", so approved is absent by construction rather
+// than unhandled — the caller acts on approved separately, completing the run
+// for an asking-only kind and leaving it to the release executor otherwise. A
 // verdict this build has not met yet blocks nothing rather than being guessed
 // at. The reason is the human-facing half of the run record, so it says which
 // kind of no it was — somebody reading run history needs to tell "a colleague
@@ -128,9 +130,12 @@ func runBlockedReasonFor(verdict string) (string, bool) {
 // on the run parked behind one staged approval, matching on the
 // approval_id field the Apply path stamped into detail — never on the
 // whole reason string, so a wording change can never break the match.
-// Both refusals arrive the same way: the expiry sweep writes an 'expired'
-// verdict and emits approval.decided from the same transaction, so a window
-// that closed reaches this entry point exactly as a rejection does.
+// The two refusals that arrive ON THE BUS arrive the same way: the expiry sweep
+// writes an 'expired' verdict and emits approval.decided from the same
+// transaction, so a window that closed reaches this entry point exactly as a
+// rejection does. A third refusal never reaches here at all — erasure withdraws
+// an approval and ends the run behind it by direct SQL in its own transaction,
+// because a destruction must not depend on a consumer running.
 // Idempotent: only a still-parked run flips, so a redelivered decision
 // changes nothing.
 func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.ApprovalID, reason string) error {
@@ -197,10 +202,13 @@ func CompleteApprovedRunTx(ctx context.Context, tx pgx.Tx, approvalID ids.Approv
 // so its stagings are hidden from every inbox and cannot be decided by anyone,
 // while the run that raised them waits forever.
 //
-// Derived from the switch that stages them (applyOne) rather than restated: a
-// kind that starts staging and is not added here would reintroduce exactly the
-// blind spot this exists to close, so the list and the switch are read
-// together by TestEveryKindAnAutomationCanStageIsDecidable.
+// Hand-maintained, and the gates that read it cannot tell if it falls behind
+// applyOne — they check that everything LISTED here is decidable and
+// executable, not that everything applyOne stages is listed. A kind that starts
+// staging without being added here is invisible to all of them, which is the
+// blind spot this whole area exists to close, so the switch and this list are
+// kept adjacent and TestStageableKindsMatchesTheStagingSwitch reads the source
+// of applyOne to hold them together.
 func StageableKinds() []string {
 	return []string{
 		string(workflow.ActionEmitFlowEvent),

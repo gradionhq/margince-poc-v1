@@ -124,7 +124,14 @@ func AssembleSAR(ctx context.Context, db *database.DB, personID ids.PersonID) (S
 		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
-		sections := sarSections(&pkg)
+		// The subject's addresses and lead twins, read BEFORE the sections run:
+		// the staged-approvals section matches on them, and unlike erasure this
+		// path destroys nothing, so they are still there to read.
+		emails, leads, err := subjectReach(ctx, tx, personID)
+		if err != nil {
+			return err
+		}
+		sections := sarSections(&pkg, personID, emails, leads)
 
 		subject, err := rowMaps(ctx, tx, `
 			SELECT p.id, p.full_name, p.first_name, p.last_name, p.title,
@@ -144,7 +151,11 @@ func AssembleSAR(ctx context.Context, db *database.DB, personID ids.PersonID) (S
 		}
 
 		for _, section := range sections {
-			rows, err := rowMaps(ctx, tx, section.query, personID)
+			args := section.args
+			if args == nil {
+				args = []any{personID}
+			}
+			rows, err := rowMaps(ctx, tx, section.query, args...)
 			if err != nil {
 				return err
 			}
@@ -187,6 +198,13 @@ func appendSubjectCustomValues(ctx context.Context, tx pgx.Tx, personID ids.Pers
 type sarSection struct {
 	dest  *[]map[string]any
 	query string
+	// args overrides the default single person-id argument. Only the staged
+	// approvals section needs it: it reaches rows by the subject's addresses
+	// and lead twins as well as by their person id, through the SAME predicate
+	// erasure uses — and that predicate takes those as bound parameters rather
+	// than rebuilding them in SQL, so the export and the erasure cannot come to
+	// different conclusions about which rows are the subject's.
+	args []any
 }
 
 // sarSections is the Art. 15 gather list: the exact set of tables that hold
@@ -194,10 +212,10 @@ type sarSection struct {
 // query set is compliance-critical — adding or dropping a source changes what
 // the export owes the data subject. It is assembled chapter by chapter, and the
 // order the chapters concatenate in is the order the export runs them in.
-func sarSections(pkg *SARPackage) []sarSection {
+func sarSections(pkg *SARPackage, personID ids.PersonID, emails []string, leads []ids.UUID) []sarSection {
 	sections := sarIdentitySections(pkg)
 	sections = append(sections, sarRecordSections(pkg)...)
-	sections = append(sections, sarMessagingSections(pkg)...)
+	sections = append(sections, sarMessagingSections(pkg, personID, emails, leads)...)
 	sections = append(sections, sarConsentSections(pkg)...)
 	return append(sections, sarProvenanceSections(pkg)...)
 }
@@ -214,17 +232,17 @@ func sarIdentitySections(pkg *SARPackage) []sarSection {
 		// Without it every identifier in the export reads as current, so the
 		// subject cannot tell a retirement that happened from one that did not —
 		// in the very package they would check it in.
-		{&pkg.Emails, `SELECT email, email_type, is_primary, archived_at FROM person_email WHERE person_id = $1`},
-		{&pkg.Phones, `SELECT phone, phone_type, archived_at FROM person_phone WHERE person_id = $1`},
+		{&pkg.Emails, `SELECT email, email_type, is_primary, archived_at FROM person_email WHERE person_id = $1`, nil},
+		{&pkg.Phones, `SELECT phone, phone_type, archived_at FROM person_phone WHERE person_id = $1`, nil},
 		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at, archived_at
-		   FROM person_channel_identity WHERE person_id = $1`},
+		   FROM person_channel_identity WHERE person_id = $1`, nil},
 		{&pkg.InteractionParticipation, `SELECT ap.activity_id, ap.role, ap.address, ap.created_at,
 		       a.kind, a.occurred_at, a.direction
 		   FROM activity_participant ap
 		   JOIN activity a ON a.id = ap.activity_id
 		  WHERE ap.person_id = $1
 		     OR (ap.address IS NOT NULL AND ap.address IN (
-		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))`, nil},
 		// The same reach erasure uses: matched, or carrying their address, or
 		// bearing their name at an employer they actually work for. Art. 15
 		// owes what is HELD, and an unmatched ghost holds their name and
@@ -248,7 +266,7 @@ func sarIdentitySections(pkg *SARPackage) []sarSection {
 		             SELECT 1 FROM relationship r
 		              WHERE r.person_id = $1 AND r.kind = 'employment'
 		                AND r.archived_at IS NULL
-		                AND r.organization_id = g.matched_org_id))`},
+		                AND r.organization_id = g.matched_org_id))`, nil},
 	}
 }
 
@@ -258,25 +276,25 @@ func sarIdentitySections(pkg *SARPackage) []sarSection {
 func sarRecordSections(pkg *SARPackage) []sarSection {
 	return []sarSection{
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
-		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
+		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`, nil},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
 		   FROM deal d JOIN relationship r ON r.deal_id = d.id
-		   WHERE r.kind = 'deal_stakeholder' AND r.person_id = $1 AND r.archived_at IS NULL`},
+		   WHERE r.kind = 'deal_stakeholder' AND r.person_id = $1 AND r.archived_at IS NULL`, nil},
 		{&pkg.Leads, `SELECT l.id, l.full_name, l.email, l.title, l.company_name, l.status, l.created_at
 		   FROM lead l
 		   WHERE l.promoted_person_id = $1
 		      OR l.id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
 		      OR (l.email IS NOT NULL AND EXISTS (
-		            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`},
+		            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`, nil},
 		{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
 		   FROM activity a JOIN activity_link l ON l.activity_id = a.id
-		   WHERE l.person_id = $1`},
+		   WHERE l.person_id = $1`, nil},
 		{&pkg.Attachments, `SELECT at.id, at.entity_type, at.entity_id, at.filename,
 		      at.content_type, at.byte_size, at.created_at
 		   FROM attachment at
 		   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
 		      OR (at.entity_type = 'activity' AND at.entity_id IN (
-		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
+		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`, nil},
 	}
 }
 
@@ -286,10 +304,10 @@ func sarConsentSections(pkg *SARPackage) []sarSection {
 	return []sarSection{
 		{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
 		   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
-		   WHERE pc.person_id = $1`},
+		   WHERE pc.person_id = $1`, nil},
 		{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
 		   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
-		   WHERE ce.person_id = $1`},
+		   WHERE ce.person_id = $1`, nil},
 	}
 }
 
@@ -321,21 +339,21 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		      OR EXISTS (SELECT 1 FROM person_channel_identity pci WHERE pci.person_id = $1
 		                 AND rc.source_system = pci.provider
 		                 AND (rc.payload->'message'->'from'->>'id' = pci.channel_user_id
-		                      OR rc.payload->'my_chat_member'->'chat'->>'id' = pci.channel_user_id))`},
+		                      OR rc.payload->'my_chat_member'->'chat'->>'id' = pci.channel_user_id))`, nil},
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
-		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
+		   WHERE fp.object_type = 'person' AND fp.object_id = $1`, nil},
 		{&pkg.EnrichedFields, `SELECT ppf.field, ppf.value, ppf.evidence_snippet, ppf.source_ref,
 		          ppf.confidence, ppf.source, ppf.captured_by, ppf.updated_at
 		   FROM person_profile_field ppf
-		   WHERE ppf.person_id = $1`},
+		   WHERE ppf.person_id = $1`, nil},
 		// claim_key is exported as it stands: it is a hash of the claim's
 		// path, so it names WHICH claim was decided without carrying the
 		// asserted value, which the ledger never stores in the first place.
 		{&pkg.Corrections, `SELECT af.claim_kind, af.claim_key, af.verdict, af.corrected_value, af.note,
 		          af.captured_by, af.created_at, af.updated_at
 		   FROM ai_feedback af
-		   WHERE af.subject_type = 'person' AND af.subject_id = $1`},
+		   WHERE af.subject_type = 'person' AND af.subject_id = $1`, nil},
 		// validation_status is deliberately absent: no writer populates that
 		// column, and the per-value validation the provider reports lives
 		// INSIDE value_json, which this exports whole. A column exported as
@@ -344,14 +362,14 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		{&pkg.ProviderClaims, `SELECT ppc.provider, ppc.claim_key, ppc.value_json, ppc.confidence,
 		          ppc.source, ppc.captured_by, ppc.retrieved_at
 		   FROM person_provider_claim ppc
-		   WHERE ppc.person_id = $1`},
+		   WHERE ppc.person_id = $1`, nil},
 		// The run history carries no credential and no vault reference: the
 		// closed safe status code is a product reason, never a provider body.
 		{&pkg.ProviderRuns, `SELECT pr.provider, pr.trigger, pr.state, pr.skip_reason,
 		          pr.requested_categories, pr.claims_unwritten, pr.last_safe_status_code,
 		          pr.submitted_at, pr.completed_at, pr.created_at
 		   FROM provider_run pr
-		   WHERE pr.person_id = $1`},
+		   WHERE pr.person_id = $1`, nil},
 	}
 }
 
@@ -373,6 +391,55 @@ func rowMaps(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]map[s
 			row[field.Name] = values[i]
 		}
 		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// subjectReach reads the two things beyond a person id that identify the
+// subject in a staged proposal: the addresses a message to them carries, and
+// the lead rows that were the same human before promotion.
+//
+// Read here rather than derived inside the query so the export can hand the
+// SAME bound parameters to subjectApprovalMatch that the erasure hands it.
+// Erasure cannot read them at that point — it has already destroyed them — so
+// the predicate takes them as arguments and each caller supplies them from
+// wherever it still can.
+func subjectReach(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]string, []ids.UUID, error) {
+	emails, err := subjectStrings(ctx, tx,
+		`SELECT email FROM person_email WHERE person_id = $1 AND email <> ''`, personID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the subject's addresses for the export: %w", err)
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM lead WHERE promoted_person_id = $1`, personID.UUID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the subject's lead twins for the export: %w", err)
+	}
+	defer rows.Close()
+	leads := []ids.UUID{}
+	for rows.Next() {
+		var id ids.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, nil, err
+		}
+		leads = append(leads, id)
+	}
+	return emails, leads, rows.Err()
+}
+
+// subjectStrings runs a one-column text query into a slice.
+func subjectStrings(ctx context.Context, tx pgx.Tx, query string, personID ids.PersonID) ([]string, error) {
+	rows, err := tx.Query(ctx, query, personID.UUID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
 	}
 	return out, rows.Err()
 }

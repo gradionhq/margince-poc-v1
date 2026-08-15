@@ -105,7 +105,7 @@ func TestApprovingAnAskingOnlyStagingCompletesItsRun(t *testing.T) {
 		t.Fatalf("Decide(approve) → %v", err)
 	}
 	engine := NewWorkflowEngine(e.DB())
-	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "approved")); err != nil {
+	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "approved", kind)); err != nil {
 		t.Fatalf("HandleApprovalDecided → %v", err)
 	}
 	if got := runStatus(t, e, handler); got != "applied" {
@@ -127,7 +127,7 @@ func TestRefusingAnAskingOnlyStagingStillBlocksItsRun(t *testing.T) {
 		t.Fatalf("Decide(reject) → %v", err)
 	}
 	engine := NewWorkflowEngine(e.DB())
-	env := decidedEnvelope(t, id, "rejected")
+	env := decidedEnvelope(t, id, "rejected", kind)
 	if err := engine.HandleApprovalDecided(context.Background(), env); err != nil {
 		t.Fatal(err)
 	}
@@ -154,10 +154,10 @@ func TestACompletionDoesNotReviveABlockedRun(t *testing.T) {
 	id, handler := parkedRun(t, e, svc, kind, person, `{"note":"needs a human"}`)
 	engine := NewWorkflowEngine(e.DB())
 
-	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "rejected")); err != nil {
+	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "rejected", kind)); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "approved")); err != nil {
+	if err := engine.HandleApprovalDecided(context.Background(), decidedEnvelope(t, id, "approved", kind)); err != nil {
 		t.Fatal(err)
 	}
 	if got := runStatus(t, e, handler); got != "blocked" {
@@ -166,13 +166,16 @@ func TestACompletionDoesNotReviveABlockedRun(t *testing.T) {
 }
 
 // decidedEnvelope builds the approval.decided event the relay would deliver.
-// The kind is the asking-only one on purpose: it is the arm this consumer acts
-// on, and the write-proposing arm is asserted in the automation package where
-// the executor it must not race is out of scope.
-func decidedEnvelope(t *testing.T, id ids.ApprovalID, verdict string) kevents.Envelope {
+//
+// The kind is a PARAMETER and not a constant, because the consumer branches on
+// it: hardcoding the asking-only kind made the per-kind loop below hand every
+// kind an envelope claiming to be asking-only, so the consumer completed each
+// run itself and the loop passed whether or not the kind's own executor did —
+// which is the exact failure that loop exists to detect.
+func decidedEnvelope(t *testing.T, id ids.ApprovalID, verdict, kind string) kevents.Envelope {
 	t.Helper()
 	payload, err := json.Marshal(map[string]string{
-		"verdict": verdict, "kind": string(workflow.ActionEmitFlowEvent),
+		"verdict": verdict, "kind": kind,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +252,7 @@ func TestAFailedReassignmentDoesNotMarkItsRunApplied(t *testing.T) {
 // The census in approval_kinds_test.go proves a release executor is registered.
 // Registration is not execution: an executor that performs its write and forgets
 // CompleteApprovedRunTx satisfies that census and still strands its run in
-// requires_approval — the defect #1304 is about, one layer in. This runs the real
+// requires_approval, which is the defect one layer in. This runs the real
 // decision against a real database for each kind and asserts the run stopped
 // waiting, so the next kind added is held to the outcome rather than the wiring.
 //
@@ -284,7 +287,7 @@ func TestApprovingAnyStageableKindLeavesItsRunTerminal(t *testing.T) {
 			// Asking-only kinds finish through the decision consumer, which the
 			// relay drives; write-proposing kinds finish inside their executor.
 			if err := NewWorkflowEngine(e.DB()).HandleApprovalDecided(
-				context.Background(), decidedEnvelope(t, id, "approved")); err != nil {
+				context.Background(), decidedEnvelope(t, id, "approved", kind)); err != nil {
 				t.Fatal(err)
 			}
 			if got := runStatus(t, e, handler); got == "requires_approval" {

@@ -43,11 +43,13 @@ import (
 // vocabulary, and the two drift the first time either side moves — which for a
 // status a poll branches on means an approved proposal read as still pending.
 //
-// StatusExpired is spelled here rather than aliased because it is not a stored
-// value: the status CHECK knows nothing about it, and effectiveStatus derives
-// it from a pending row past its window. The two places that DID spell it
-// (effectiveStatus, the bundle outcome probe) read this constant now, so the
-// derived status has one definition like the stored three.
+// StatusExpired is spelled here rather than aliased because it is both DERIVED
+// and STORED, which is exactly why it needs one definition. effectiveStatus
+// derives it for a pending row past its window; the expiry sweep, a withdrawal
+// and an erasure all write it into the column (the CHECK has always admitted
+// it). A reader that handled only the derived case would miss the stored rows,
+// and one that handled only the stored case would miss the window that has
+// closed but not yet been swept.
 const (
 	StatusPending  = statusPending
 	StatusApproved = approvalStatusApproved

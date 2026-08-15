@@ -43,17 +43,18 @@ import (
 // a lock the inbox waits behind.
 const expirySweepBatch = 200
 
-// ExpiredApproval is one staging the clock decided against, and what a caller
-// needs to finish the job outside this module.
+// ExpiredApproval is one staging the clock decided against.
 //
-// Kind and TargetType/TargetID are here rather than looked up again because the
-// row they came from is already gone from `pending` by the time a caller acts on
-// it — a second read would race the next sweep.
+// The id alone, deliberately. An earlier shape carried the kind and target so a
+// caller could "finish the job outside this module", but no caller may: the run
+// transition rides the approval.decided event this sweep emits, precisely so
+// the job reaches no other module (jobs_approvalexpiry.go says why at length).
+// Fields whose only justification is a caller the design forbids are fields
+// nobody reads, and the sweep's own tests are the only thing that would notice
+// them go wrong.
 type ExpiredApproval struct {
-	ID         ids.ApprovalID
-	Kind       string
-	TargetType string
-	TargetID   ids.UUID
+	ID   ids.ApprovalID
+	Kind string
 }
 
 // ExpireDue writes the terminal outcome for every staging whose window has
@@ -111,35 +112,36 @@ func (s *Service) ExpireDue(ctx context.Context) ([]ExpiredApproval, error) {
 func (s *Service) dueForExpiry(ctx context.Context) ([]ExpiredApproval, error) {
 	var due []ExpiredApproval
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The exempt kinds are excluded HERE rather than after the read. A
+		// filter applied to the batch is not the same query as a filter applied
+		// to the table: exempt rows inside the window consume slots and produce
+		// nothing, so enough of them fill every batch and starve every
+		// genuinely-due approval behind them. The list is bound from the same
+		// map ExpiresNever reads, so there is still one definition of exempt.
 		rows, err := tx.Query(ctx, `
-			SELECT id, kind, target_entity_type, target_entity_id
+			SELECT id, kind
 			  FROM approval
-			 WHERE status = 'pending' AND expires_at <= $1
+			 WHERE status = 'pending'
+			   AND expires_at <= $1
+			   AND kind <> ALL($3::text[])
 			 ORDER BY expires_at
-			 LIMIT $2`, s.now().UTC(), expirySweepBatch)
+			 LIMIT $2`, s.now().UTC(), expirySweepBatch, neverExpiringKinds())
 		if err != nil {
 			return fmt.Errorf("crmapprovals: reading the stagings whose window closed: %w", err)
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var a ExpiredApproval
-			var targetType *string
-			var targetID *ids.UUID
-			if err := rows.Scan(&a.ID, &a.Kind, &targetType, &targetID); err != nil {
+			if err := rows.Scan(&a.ID, &a.Kind); err != nil {
 				return err
 			}
-			// A kind that never expires is filtered HERE rather than in SQL: the
-			// exemption is a Go predicate the read path already owns, and a
-			// second copy of it as a SQL literal list is the drift this file's
-			// header warns about.
+			// Belt and braces on the exemption the query already applies. The
+			// SQL filter is the one that matters — a Go filter after the LIMIT
+			// lets exempt rows consume batch slots — and this second check costs
+			// nothing while making a future query edit that drops the clause
+			// fail the sweep's own tests rather than production.
 			if ExpiresNever(a.Kind) {
 				continue
-			}
-			if targetType != nil {
-				a.TargetType = *targetType
-			}
-			if targetID != nil {
-				a.TargetID = *targetID
 			}
 			due = append(due, a)
 		}

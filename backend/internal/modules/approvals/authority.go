@@ -234,9 +234,12 @@ var targetResolvedGrants = map[string]principal.Action{
 	// update (automation/catalog_actions.go). Pinning it to one object would
 	// gate the wrong entity every time the trigger fired on another.
 	//
-	// It releases the IDENTICAL write the 🟢 branch performs straight through
-	// the provider, so deciding it takes exactly the authority performing it
-	// takes — the rule disqualify_lead states above.
+	// It releases the same write the 🟢 branch performs, against the same record
+	// through the same provider, so deciding it takes exactly the authority
+	// performing it takes — the rule disqualify_lead states above. (What the
+	// release adds beyond that write — its own provenance and the redeemed
+	// version pin — is enumerated in compose/assignownerrelease.go and changes
+	// nothing about the grant.)
 	"assign_owner":   principal.ActionUpdate,
 	"archive_record": principal.ActionDelete,
 	"merge_records":  principal.ActionUpdate,

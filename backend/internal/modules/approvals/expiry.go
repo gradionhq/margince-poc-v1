@@ -11,7 +11,10 @@ package approvals
 // (effectiveStatus, via ExpiresNever) — and a policy whose halves live apart is
 // one that can drift into stamping a row non-expiring and reading it expired.
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // stagingTTL bounds how long an unactioned staging stays approvable; a
 // week-old agent intention should be re-proposed against fresh state.
@@ -78,6 +81,22 @@ func ttlFor(kind string, override *time.Duration) time.Duration {
 // must too. Add a kind here only when nothing reaps its subject: for anything
 // that ages out on its own, the default TTL is the right answer.
 var noExpiryKinds = map[string]bool{KindScheduledSendHeld: true}
+
+// neverExpiringKinds is the same set as a slice, for the sweep's SQL.
+//
+// The sweep used to filter these in Go, AFTER its LIMIT, which is a different
+// query than the one it reads as. An exempt row inside the batch window
+// consumed a slot and produced nothing, so a large enough population of them
+// could fill every batch and starve every genuinely-due approval behind them.
+// Derived from the map rather than restated, so the two cannot drift.
+func neverExpiringKinds() []string {
+	kinds := make([]string, 0, len(noExpiryKinds))
+	for kind := range noExpiryKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
 
 // unusedExpiryPlaceholder fills expires_at for a kind whose expiry is never
 // read. NOT a TTL: ExpiresNever is what makes these rows non-expiring, and this
