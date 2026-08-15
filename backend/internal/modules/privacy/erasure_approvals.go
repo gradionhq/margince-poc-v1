@@ -51,12 +51,55 @@ import (
 // copy of the case under review, which is the recurring miss this codebase has
 // a rule about.
 //
+// What it deliberately does NOT match is EVIDENCE, and that asymmetry is the
+// point rather than an omission. Evidence quotes a source record verbatim, so
+// the erasure's entitlement to destroy a quotation is exactly its entitlement
+// to destroy what was quoted — which redactApprovalsCitingActivities decides by
+// CITATION, from the ids the timeline scrub actually redacted, already filtered
+// for legal hold and the statutory floor. Matching the quoted TEXT here would
+// add precisely the rows those filters excluded: a proposal read out of a
+// held, floor-shielded or shared meeting, destroyed on an erasure that leaves
+// the meeting itself standing — another subject's live work gone, spoliating
+// held evidence, and the address still readable in the source it was read from.
+// The export widens onto evidence instead (sarmessages.go), where
+// over-inclusion is admin-mediated and recoverable and over-destruction is not.
+//
 // $1 person, $2 lead ids, $3 ANCHORED address patterns from addressPatterns.
 const subjectApprovalMatch = `
 	   (target_entity_type = 'person' AND target_entity_id = $1)
 	OR (target_entity_type = 'lead'   AND target_entity_id = ANY($2::uuid[]))
 	OR proposed_change::text ~* ANY($3::text[])
 	OR summary               ~* ANY($3::text[])`
+
+// blankStagedProposal is what emptying a staged proposal IS: the payload, the
+// summary a human reads, and the material it was read out of.
+//
+// One spelling because three statements in this package perform it, and a
+// content column added to one of them is a content column the other two leave
+// behind — which is exactly how the quotation came to outlive an erasure that
+// emptied everything beside it.
+const blankStagedProposal = `proposed_change = '{}'::jsonb,
+	       summary         = '',
+	       evidence        = NULL`
+
+// The reasons this package writes onto a proposal it withdraws. Three, because
+// a colleague finding a card gone is owed the difference between a person who
+// asked to be forgotten, a source record that was destroyed with them, and a
+// policy that ended the material's window.
+//
+// subjectWithdrawal is written by the scrub below and READ BACK by the
+// agent-run statement that ends the runs parked behind those rows, so it has to
+// be one spelling rather than two literals that happen to agree: a single
+// character of divergence stops the runs being ended, and nothing fails.
+const (
+	subjectWithdrawal = "withdrawn: the person it names exercised erasure"
+	// ErasedSourceWithdrawal names a card withdrawn because the record it
+	// quotes was destroyed by the Art. 17 cascade.
+	ErasedSourceWithdrawal = "withdrawn: the record it was read from was erased"
+	// AgedOutSourceWithdrawal names one withdrawn because that record reached
+	// the end of its retention window.
+	AgedOutSourceWithdrawal = "withdrawn: the record it was read from reached the end of its retention window"
+)
 
 // addressPatterns turns the subject's addresses into regexes that match each
 // address AND NOTHING ELSE.
@@ -132,11 +175,9 @@ func redactStagedApprovals(ctx context.Context, tx pgx.Tx, subject ids.PersonID,
 	rows, err := tx.Query(ctx, `
 		WITH withdrawn AS (
 			UPDATE approval
-			   SET proposed_change = '{}'::jsonb,
-			       summary = '',
-			       evidence = NULL,
+			   SET `+blankStagedProposal+`,
 			       status = 'expired',
-			       decision_reason = 'withdrawn: the person it names exercised erasure',
+			       decision_reason = '`+subjectWithdrawal+`',
 			       decided_at = now()
 			 WHERE status = 'pending' AND (`+subjectApprovalMatch+`)
 			RETURNING id
@@ -144,7 +185,7 @@ func redactStagedApprovals(ctx context.Context, tx pgx.Tx, subject ids.PersonID,
 		UPDATE workflow_run
 		   SET status = 'blocked',
 		       detail = jsonb_build_object('reason',
-		           'the approval it waited on was withdrawn: the person it names exercised erasure')
+		           'the approval it waited on was `+subjectWithdrawal+`')
 		 WHERE status = 'requires_approval'
 		   AND detail->>'approval_id' IN (SELECT id::text FROM withdrawn)`,
 		subject.UUID, leadIDs, addresses)
@@ -170,24 +211,116 @@ func redactStagedApprovals(ctx context.Context, tx pgx.Tx, subject ids.PersonID,
 		   SET status = 'failed',
 		       pending = NULL,
 		       trace = '[]'::jsonb,
-		       degrade_reason = 'the approval it waited on was withdrawn: the person it names exercised erasure'
+		       degrade_reason = 'the approval it waited on was `+subjectWithdrawal+`'
 		 WHERE status = 'awaiting_approval'
 		   AND approval_id IN (
 		         SELECT id FROM approval
 		          WHERE status = 'expired'
-		            AND decision_reason = 'withdrawn: the person it names exercised erasure')`); err != nil {
+		            AND decision_reason = '`+subjectWithdrawal+`')`); err != nil {
 		return fmt.Errorf("ending the agent runs waiting on the withdrawn approvals: %w", err)
 	}
 
 	// Then the ones somebody already decided: payload gone, verdict intact.
 	if _, err := tx.Exec(ctx, `
 		UPDATE approval
-		   SET proposed_change = '{}'::jsonb,
-		       summary = '',
-		       evidence = NULL
+		   SET `+blankStagedProposal+`
 		 WHERE status <> 'pending' AND (`+subjectApprovalMatch+`)`,
 		subject.UUID, leadIDs, addresses); err != nil {
 		return fmt.Errorf("emptying the decided approvals naming the subject: %w", err)
+	}
+	return nil
+}
+
+// evidenceArray is the evidence column read as the array it always is when a
+// producer wrote it. jsonb_array_elements RAISES on a value that is not an
+// array, and the predicates below run inside the destructive engines' single
+// transactions: one malformed row would abort a whole cascade, turning a
+// request the workspace must honour into an error nobody can clear from
+// outside. NULL — every approval staged before core 0244 — reads as no
+// evidence, which is what it is.
+const evidenceArray = `CASE WHEN jsonb_typeof(evidence) = 'array' THEN evidence ELSE '[]'::jsonb END`
+
+// evidenceCitesActivity matches a staging whose evidence quotes one of the
+// activities named in $1, compared as text because that is how the citation is
+// stored.
+const evidenceCitesActivity = `
+	EXISTS (
+	  SELECT 1 FROM jsonb_array_elements(` + evidenceArray + `) AS item
+	   WHERE item->>'source_type' = 'activity'
+	     AND item->>'source_id' = ANY($1::text[]))`
+
+// evidenceCitesSubjectActivity matches a staging whose evidence quotes any
+// activity the subject ($1) is linked to.
+//
+// It exists so the Art. 15 export lists the rows the cascade destroys. Erasure
+// reaches a quotation two ways — the address patterns, and the citation of an
+// activity it redacted — and the export shares only the first, so without this
+// a subject would be told nothing was staged about them and then have it
+// destroyed on the strength of the same reading. That is precisely the
+// two-different-answers failure subjectApprovalMatch is shared to prevent.
+//
+// The bound it does not cover, stated rather than implied: the cascade also
+// redacts UNLINKED mail matched by the subject's address alone, and a staging
+// quoting one of those rows is reachable here only if the quotation carries the
+// address itself. There is no link to walk for a row that by definition has
+// none.
+const evidenceCitesSubjectActivity = `
+	EXISTS (
+	  SELECT 1 FROM jsonb_array_elements(` + evidenceArray + `) AS item
+	  JOIN activity_link cited
+	    ON cited.activity_id::text = item->>'source_id'
+	   WHERE item->>'source_type' = 'activity' AND cited.person_id = $1)`
+
+// redactApprovalsCitingActivities empties every proposal whose evidence quotes
+// one of the activities whose content has just been destroyed, and expires the
+// ones a human could still act on.
+//
+// Evidence is a VERBATIM quotation of the record a claim was read out of — for
+// a transcript proposal, up to 500 characters of the meeting's own lines per
+// claim (approvals/evidence.go) — and that is the point of it: a human confirms
+// a proposal by checking the text rather than by trusting the model. It is
+// therefore a second copy of the body the caller just nulled, and nothing else
+// in either engine reaches it. A proposal read from a meeting targets the
+// ACTIVITY, never the person, so the target arms of subjectApprovalMatch cannot
+// fire; and a transcript quotes people by NAME, so the address patterns usually
+// cannot either. Left alone, the timeline row is a tombstone while a card in
+// the inbox still quotes what was said in the meeting.
+//
+// Keyed on what the evidence CITES rather than on what it says, because the
+// citation is the tie that survives the redaction: once the body is NULL there
+// is no text left to match against, and the quote is the only place those words
+// still exist.
+//
+// Pending rows are expired for the reason the subject scrub expires them — a
+// blanked card left decidable is one a colleague can still approve, and
+// approving it would run its effect against an empty payload.
+//
+// What it does NOT do, stated because the scrub above makes a point of doing
+// it: it ends no parked workflow_run or agent_run. A run parks behind an
+// approval it STAGED, and every producer of evidence today is the transcript
+// reader (compose/transcriptproposerun.go), which stages its proposals from a
+// job and parks nothing behind them — so the set of rows this could orphan is
+// empty by construction, not by luck. The day a kind that parks a run also
+// fills evidence, the run teardown belongs here too, keyed off the ids expired
+// rather than off a reason string. Until then the erasure's ordering carries
+// it: this runs AFTER redactStagedApprovals, so a proposal that answers to both
+// is withdrawn there, with its run ended, before this statement sees it.
+func redactApprovalsCitingActivities(ctx context.Context, tx pgx.Tx, activities []ids.UUID, reason string) error {
+	if len(activities) == 0 {
+		return nil
+	}
+	cited := make([]string, 0, len(activities))
+	for _, activity := range activities {
+		cited = append(cited, activity.String())
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE approval
+		   SET `+blankStagedProposal+`,
+		       status          = CASE WHEN status = 'pending' THEN 'expired' ELSE status END,
+		       decision_reason = CASE WHEN status = 'pending' THEN $2 ELSE decision_reason END,
+		       decided_at      = CASE WHEN status = 'pending' THEN now() ELSE decided_at END
+		 WHERE `+evidenceCitesActivity, cited, reason); err != nil {
+		return fmt.Errorf("emptying the proposals quoting the destroyed records: %w", err)
 	}
 	return nil
 }

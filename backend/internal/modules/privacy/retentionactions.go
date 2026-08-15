@@ -189,6 +189,17 @@ func (s *RetentionService) eraseActivityContent(ctx context.Context, tx pgx.Tx, 
 		err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
 	}
 	if err == nil {
+		// A proposal read out of this body quotes it verbatim, so it ages out
+		// on the body's schedule too. The transcript window (365 days) is the
+		// one this bites: the sweep visits a transcript ONCE — its selector
+		// requires a body, and this statement removes it — so a quotation left
+		// behind here is never revisited by anything.
+		err = redactApprovalsCitingActivities(ctx, tx, []ids.UUID{id}, AgedOutSourceWithdrawal)
+	}
+	if err == nil {
+		err = purgeTranscriptReadings(ctx, tx, []ids.UUID{id})
+	}
+	if err == nil {
 		// An outbound message ages out on the schedule of the activity
 		// it belongs to: the send log holds the same recipients,
 		// subject and body, and a policy that emptied one while the
