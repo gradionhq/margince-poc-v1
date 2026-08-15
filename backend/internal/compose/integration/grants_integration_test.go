@@ -85,83 +85,76 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 // first `write` grant to a subject who already holds `read` used to be refused
 // by the unique constraint; the upsert accepts it, so the only thing standing
 // between a read share and a write one is this rule.
-func TestAShareIsNotALicenceToReShare(t *testing.T) {
+// ADR-0039's scope-intersection rule, which is narrower-or-equal rather than
+// a ban on sharing a share: "a granter can never share wider than they hold."
+// UC-E11-08 F1 puts a screen state on it — "Can't grant write — you only have
+// read here" — so passing `read` on is a supported flow and only `write` is
+// refused.
+//
+// The gate that admits any of this is EnsureLinkTarget, and the visibility arm
+// counts every live grant regardless of access, so a read-share holder passes
+// it. Without a separate probe they could hand on the authority their own
+// sharer withheld — and the upsert makes that reachable on a second call where
+// the unique constraint used to end it.
+func TestAReadShareCanBePassedOnButNotWidened(t *testing.T) {
 	e := SetupSearch(t)
 	// Owned by rep3 in team2, so rep1 in team1 has no path to it but a share.
 	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Out Of Scope', $3, 'manual', 'human:x')`, e.Rep3)
 	colleague := e.Seed(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'colleague@search.test', 'Colleague')`)
 	svc := identity.NewService(e.Pool)
-	expiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 
-	share := func(as context.Context, in identity.CreateGrantInput) error {
-		in.RecordType, in.RecordID, in.SubjectType = "person", foreign, "user"
-		_, err := svc.CreateRecordGrant(as, in)
+	// Every grant below goes through the real writer, including the ones that
+	// set the scene: a hand-inserted row would prove the rule against a state
+	// production cannot reach.
+	share := func(as context.Context, subject ids.UUID, access string) error {
+		_, err := svc.CreateRecordGrant(as, identity.CreateGrantInput{
+			RecordType: "person", RecordID: foreign,
+			SubjectType: "user", SubjectID: subject, Access: access,
+		})
 		return err
 	}
-	// The owner shares through the real writer — a hand-inserted row would set
-	// a scene production cannot reach.
 	owner := grantingPrincipal(e, e.Rep3, principal.RowScopeOwn, nil)
-	// A team-scoped rep who may update people: the ordinary shape of a
-	// colleague, and the only thing that ever kept them off a record outside
-	// their team is the row scope, which the share below widens.
 	rep := grantingPrincipal(e, e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
 
-	if err := share(owner, identity.CreateGrantInput{
-		SubjectID: e.Rep1, Access: "read", ExpiresAt: &expiry,
-	}); err != nil {
-		t.Fatalf("owner shares read, time-boxed → %v", err)
+	if err := share(owner, e.Rep1, "read"); err != nil {
+		t.Fatalf("owner shares read → %v", err)
 	}
 
-	// Rep1 can now READ the record. Three things they must still not do, and
-	// the third is the one the upsert would otherwise have handed them.
-	for _, tc := range []struct {
-		name string
-		in   identity.CreateGrantInput
-	}{
-		{"pass the record on to a colleague", identity.CreateGrantInput{SubjectID: colleague, Access: "read"}},
-		{"widen their own share to write", identity.CreateGrantInput{SubjectID: e.Rep1, Access: "write"}},
-		{"clear the expiry that time-boxed it", identity.CreateGrantInput{SubjectID: e.Rep1, Access: "read"}},
-	} {
-		if err := share(rep, tc.in); !errors.Is(err, apperrors.ErrPermissionDenied) {
-			t.Errorf("%s → %v, want permission-denied", tc.name, err)
-		}
+	// Holding `read`, rep1 may pass `read` on…
+	if err := share(rep, colleague, "read"); err != nil {
+		t.Errorf("passing read on from a read share → %v, want allowed (UC-E11-08 F1)", err)
+	}
+	// …and is refused `write`, in both directions: onto a colleague, and onto
+	// themselves by re-asserting their own grant.
+	if err := share(rep, colleague, "write"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("granting write from a read share → %v, want permission-denied", err)
+	}
+	if err := share(rep, e.Rep1, "write"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("re-asserting one's own read grant as write → %v, want permission-denied", err)
 	}
 
-	// The allow arm, without which every assertion above would pass against a
-	// probe that refused everyone: the OWNER may still administer the share,
-	// including clearing the expiry they set.
-	if err := share(owner, identity.CreateGrantInput{SubjectID: e.Rep1, Access: "read"}); err != nil {
-		t.Fatalf("owner re-asserts their own share → %v", err)
+	// The allow arm for `write`, without which the refusals above would pass
+	// against a probe that refused every write: once the owner upgrades rep1,
+	// the same caller may pass write on. Same record, one column different.
+	if err := share(owner, e.Rep1, "write"); err != nil {
+		t.Fatalf("owner upgrades the share to write → %v", err)
+	}
+	if err := share(rep, colleague, "write"); err != nil {
+		t.Errorf("passing write on while holding write → %v, want allowed", err)
 	}
 
-	// The time box survived every refusal and yielded only to the owner. Read
-	// back, because a 403 raised after the upsert ran is indistinguishable from
-	// one raised instead of it.
+	// Read back, because a 403 raised after the upsert ran is indistinguishable
+	// from one raised instead of it.
 	var access string
-	var expiresAt *time.Time
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT access, expires_at FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
-			foreign, e.Rep1).Scan(&access, &expiresAt)
+			`SELECT access FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
+			foreign, colleague).Scan(&access)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if access != "read" {
-		t.Errorf("the share reads %q after three refused widenings, want read", access)
-	}
-	if expiresAt != nil {
-		t.Errorf("expires_at = %v after the owner cleared it, want null", expiresAt)
-	}
-	var colleagueGrants int
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
-			foreign, colleague).Scan(&colleagueGrants)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if colleagueGrants != 0 {
-		t.Errorf("%d grants reached a colleague the sharer never named", colleagueGrants)
+	if access != "write" {
+		t.Fatalf("the colleague's grant reads %q, want write", access)
 	}
 }
 

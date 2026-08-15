@@ -174,19 +174,17 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		if !subjectExists {
 			return apperrors.ErrNotFound
 		}
-		// Administering a share is not the same authority as reading the record,
-		// and EnsureLinkTarget above only proves the second: the grant arm
-		// satisfies it, so the person a record was shared WITH passes it. This
-		// is what stops them administering that same share — and it binds a
-		// re-assert exactly as it binds a first share, because the upsert makes
-		// the second call a real write where the unique constraint used to end
-		// it. Narrowing it to new rows would hand the beneficiary of a
-		// time-boxed share the power to clear its expiry.
-		if err := auth.EnsureCanShare(ctx, tx, in.RecordType, in.RecordID); err != nil {
+		// Two rules bound a `write` grant and they judge different people.
+		// Scope-intersection (ADR-0039) judges the GRANTOR: EnsureLinkTarget
+		// above is satisfied by the grant arm, so a caller holding only a `read`
+		// share passes it, and this is what stops them passing on an authority
+		// their own sharer withheld. The seat ceiling (AAD-AC-4) judges the
+		// RECIPIENT. Both read the ASSERTED access, so both bind a re-assert
+		// exactly as they bind a first share — the upsert makes the second call
+		// a real write where the unique constraint used to end it.
+		if err := auth.EnsureCanGrant(ctx, tx, in.RecordType, in.RecordID, in.Access); err != nil {
 			return err
 		}
-		// The seat ceiling judges the RECIPIENT, and judges the ASSERTED access,
-		// so it too binds a re-assert as hard as a first share.
 		if err := refuseWriteGrantToReadSeat(ctx, tx, in); err != nil {
 			return err
 		}

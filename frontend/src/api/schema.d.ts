@@ -5363,10 +5363,9 @@ export interface paths {
          *     `granted_by` all take the values of the new request, so a field the caller omits is cleared and
          *     accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
          *     same share, not a new one. A grant can never exceed the granting principal's own access
-         *     (scope-intersection), and a grant is not itself a licence to share: administering a record's
-         *     grants requires that record in the caller's OWN scope (owner/team/all), because a caller whose
-         *     only claim to it is a share would otherwise be exercising the grant-of-grant delegation this
-         *     operation excludes. Audited (`action: record_share`). Bounded:
+         *     (scope-intersection, ADR-0039: a granter can never share wider than they hold — a caller
+         *     holding only `read` on the record may pass `read` on and is refused `write`).
+         *     Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
          *
          *     The seat ceiling binds the RECIPIENT as well (AAD-AC-4): a `write` grant to a user on a `read`
