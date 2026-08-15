@@ -15,6 +15,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -142,9 +143,18 @@ func (w *documentExtractWorker) declineUnread(ctx context.Context, args Document
 // newDocumentExtractWorker assembles the worker-role reading. brain may be nil
 // — a picked-up reading then finishes failed with an actionable message rather
 // than sitting queued behind a worker that cannot read it.
-func newDocumentExtractWorker(pool *pgxpool.Pool, brain documentCompleter, log *slog.Logger) *documentExtractWorker {
+//
+// The BLOBSTORE is not optional in the same way, and forgetting it is the bug
+// this signature exists to make hard: a store without one answers
+// ErrBlobstoreUnconfigured for every document, so every reading in the
+// installation fails with "this installation stores no document bytes" while the
+// bytes sit right there. A nil blob is still legal — a role genuinely without an
+// object store says so honestly — but it has to be passed to be nil.
+func newDocumentExtractWorker(
+	pool *pgxpool.Pool, brain documentCompleter, blob blobstore.Store, log *slog.Logger,
+) *documentExtractWorker {
 	worker := &documentExtractWorker{
-		activities: activities.NewStore(InstallationDB(pool)),
+		activities: activities.NewStore(InstallationDB(pool)).WithBlobstore(blob),
 		log:        log,
 	}
 	if brain != nil {
