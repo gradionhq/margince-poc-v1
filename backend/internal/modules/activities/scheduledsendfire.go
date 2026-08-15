@@ -17,10 +17,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -128,19 +126,15 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 // transaction — a scheduler whose account is gone, a timer whose attempts ran
 // out. Refusals found during the fire are held inside it, under the row's own
 // lock.
-// observed is the row version the caller acted on, and it is REQUIRED. A hold is
-// refused when the row has moved since — a rep who rescheduled between a failed
-// attempt and this hold has made a NEWER decision, and holding their fresh
-// intention under the old attempt's verdict would take a message they just
-// re-armed and stop it again, for a reason about the version before theirs.
+// observed is the row version the caller acted on. A hold is refused when the
+// row has moved since: a rep who rescheduled between a failed attempt and this
+// hold has made a newer decision, and stopping their fresh intention for a
+// reason about the older one would undo a choice they just made.
 //
-// A caller that never got far enough to observe a version must read one HERE,
-// under the claim, rather than passing zero: an unconditional arm would put the
-// original defect back, and the recovery sweep cannot repair it because that
-// sweep only looks at rows still `scheduled` — a wrongly-held row is invisible
-// to it. Zero is therefore not "skip the check", it is "check against whatever
-// this transaction finds", which for a caller with nothing newer to compare is
-// the same row it would have acted on anyway.
+// Zero means the caller observed no version, so the claim taken here is the
+// observation and the hold proceeds against the row this transaction finds. A
+// wrongly-held row cannot be repaired by the recovery sweep — that sweep reads
+// only rows still `scheduled` — so the guard has to be right on the way in.
 func (s *Store) HoldScheduledSend(ctx context.Context, id ids.UUID, reason string, observed int64) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		claimed, found, err := s.claimForFire(ctx, tx, id)
@@ -349,29 +343,31 @@ func holdReasonFor(err error) (string, bool) {
 
 // OverdueScheduledSends returns messages whose moment has passed and which are
 // still waiting — the shape a message takes when the job that should have fired
-// it is gone.
-//
-// A scheduled row is armed by a River job and by nothing else. A job discarded
-// after exhausting its attempts, or lost to an outage that spanned the whole
-// ladder, leaves the row `scheduled` with no timer: nothing will wake it, and
-// the rep is told nothing because being told is what the fire path does. This is
-// the only read that can see that state.
+// it is gone. Why that state exists and what the caller does about it is in
+// compose/scheduledsendrecovery.go, which is the only caller.
 //
 // `olderThan` keeps it off messages that are merely mid-flight: a row due
 // seconds ago is far more likely to have a job about to run than a job that
 // vanished, and re-arming it would race the real one. The claim lock makes that
 // race safe rather than harmful, but a sweep that fights the normal path on
 // every pass is a sweep nobody can read the logs of.
-// Each result carries its OWN workspace, and the read runs on the installation
-// pool rather than a workspace-bound transaction: this pass has no tenant of its
-// own — it is looking for rows nobody is watching, wherever they are — and the
-// caller binds each message's workspace before touching it. A pass that took one
-// workspace from its context could only ever recover that one.
-func (s *Store) OverdueScheduledSends(ctx context.Context, pool *pgxpool.Pool, olderThan time.Duration, limit int) ([]OverdueScheduledSend, error) {
-	var out []OverdueScheduledSend
-	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+//
+// Bound to the caller's workspace like every other read here, which on this
+// product is the installation's one live organization (ADR-0061). An
+// installation-wide read would additionally reach rows belonging to an ARCHIVED
+// workspace — the tenant-scope sweep left those in place rather than deleting
+// them (core 0217) — and re-arming one transmits mail on behalf of an
+// organization somebody switched off.
+//
+// Being workspace-bound is also what keeps it cheap: this is exactly the shape
+// core 0242's idx_scheduled_send_due was built for, so it walks that partial
+// index in scheduled_at order and stops at the limit. Dropping the workspace
+// predicate would cost a sequential scan over every scheduled row.
+func (s *Store) OverdueScheduledSends(ctx context.Context, olderThan time.Duration, limit int) ([]ids.UUID, error) {
+	var out []ids.UUID
+	err := s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, workspace_id FROM scheduled_send
+			SELECT id FROM scheduled_send
 			 WHERE status = 'scheduled' AND scheduled_at < $1
 			 ORDER BY scheduled_at ASC
 			 LIMIT $2`, s.now().Add(-olderThan), limit)
@@ -380,22 +376,15 @@ func (s *Store) OverdueScheduledSends(ctx context.Context, pool *pgxpool.Pool, o
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var row OverdueScheduledSend
-			if err := rows.Scan(&row.ID, &row.Workspace); err != nil {
+			var id ids.UUID
+			if err := rows.Scan(&id); err != nil {
 				return fmt.Errorf("scheduled send: reading an overdue message: %w", err)
 			}
-			out = append(out, row)
+			out = append(out, id)
 		}
 		return rows.Err()
 	})
 	return out, err
-}
-
-// OverdueScheduledSend is one message whose moment has passed and whose alarm is
-// gone, with the workspace a caller must bind before acting on it.
-type OverdueScheduledSend struct {
-	ID        ids.UUID
-	Workspace ids.UUID
 }
 
 // RearmScheduledSend enqueues a fresh alarm for a message whose own alarm is

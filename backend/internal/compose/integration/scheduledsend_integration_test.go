@@ -662,11 +662,10 @@ func TestARejectionThatCannotCancelLeavesTheCardRetryable(t *testing.T) {
 	}
 }
 
-// #1257a. A message whose alarm ran out of attempts is held — but bound to the
-// version that attempt saw. A rep who rescheduled in between has made a NEWER
-// decision, and holding their fresh intention under the old attempt's verdict
-// would stop a message they had just re-armed, for a reason about the version
-// before theirs.
+// A message whose alarm ran out of attempts is held, bound to the version that
+// attempt saw. A rep who rescheduled in between has made a newer decision, and
+// stopping their fresh intention for a reason about the older one would undo a
+// choice they had just made.
 func TestAStaleAttemptDoesNotHoldAMessageTheRepJustRescheduled(t *testing.T) {
 	p := setupPreflight(t)
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
@@ -691,9 +690,9 @@ func TestAStaleAttemptDoesNotHoldAMessageTheRepJustRescheduled(t *testing.T) {
 	}
 }
 
-// #1257b. A message left scheduled with no live alarm is the one failure the
-// send path cannot see: nothing wakes it and nobody is told, because being told
-// is what the fire path does and the fire path never runs.
+// A message left scheduled with no live alarm is the one failure the send path
+// cannot see: nothing wakes it and nobody is told, because being told is what
+// the fire path does and the fire path never runs.
 //
 // Simulated by scheduling a message and letting its moment pass without ever
 // driving the timer — which is exactly the state a discarded job leaves behind.

@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "269049cee118fb4f2d2dac61a32964a06971627f8ac8ce535bf991298047cb07"
+const JobContractHash = "7d13e83a1319dce4f29a3643f3a273b86ce2e0f6563c58320327d8d0a0b8fbe3"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -221,8 +221,8 @@ var specs = map[string]Spec{
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner:    OptsCaller,
 		Cadence:      Cadence{Fixed: 15 * time.Minute},
-		Registration: Registration{When: []string{"SendDelivery"}},
-		Fault:        FaultPolicy{NilAfterLogging: "A batch of independent messages, and one that cannot be re-armed must not strand the others: the pass logs that message and carries on. The retry policy is the CADENCE — this runs every 15 minutes and re-reads what is still overdue, so a message that failed here is picked up by the next pass without the ladder having to remember it. Failing the whole job instead would re-run the messages that already succeeded, and a permanently unreadable row would then block every other recovery behind it forever."},
+		Registration: Registration{When: []string{"SendRegistry", "SendDelivery"}},
+		Fault:        FaultPolicy{NilAfterLogging: "A batch of independent messages, and one that cannot be re-armed must not strand the others: the pass logs that message and carries on. The retry policy is the CADENCE — this runs every 15 minutes and re-reads what is still overdue, so a message that failed here is picked up by the next pass without the ladder having to remember it. Failing the whole job instead would re-run the messages that already succeeded, and a permanently unreadable row would then block every other recovery behind it forever. What the cadence cannot heal is a row that fails deterministically, so the summary line carries a `failed` count: a number that stays non-zero across passes is the signal that no amount of re-running will fix that message."},
 	},
 	"comms_send_email": {
 		Kind:         "comms_send_email",

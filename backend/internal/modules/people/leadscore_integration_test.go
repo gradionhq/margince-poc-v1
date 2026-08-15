@@ -251,13 +251,16 @@ func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
 	}
 	leadID := ids.From[ids.LeadKind](ids.UUID(lead.Id))
 
-	// A rep in the same workspace, restricted to their OWN rows, who does not
-	// own that lead. The lead grants are real — this is a row-scope refusal,
-	// not an object-permission one, which is the case the probe exists for.
+	// A rep in the same workspace, restricted to their OWN rows. `base.owner` is
+	// a fixture role name, not this lead's owner — the lead above belongs to
+	// base.teammate, so to this caller it is somebody else's row. The lead grants
+	// are real, so what refuses below is row scope and not a missing permission,
+	// which is the case the probe exists for.
+	notTheLeadsOwner := base.owner
 	stranger := principal.WithCorrelationID(
 		principal.WithWorkspaceID(context.Background(), base.ws), ids.NewV7())
 	stranger = principal.WithActor(stranger, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + base.owner.String(), UserID: base.owner,
+		Type: principal.PrincipalHuman, ID: "human:" + notTheLeadsOwner.String(), UserID: notTheLeadsOwner,
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"rep"},
 			Objects:  map[string]principal.ObjectGrant{"lead": {Read: true, Update: true}},

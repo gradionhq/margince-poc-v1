@@ -484,7 +484,7 @@ kinds:
     timeout: 2m
     opts_owner: caller
     cadence: 15m
-    registration: {when: [SendDelivery], absent: registers_nothing}
+    registration: {when: [SendRegistry, SendDelivery], absent: registers_nothing}
     args: {}
     fault:
       nil_after_logging: >-
@@ -495,7 +495,10 @@ kinds:
         next pass without the ladder having to remember it. Failing the whole
         job instead would re-run the messages that already succeeded, and a
         permanently unreadable row would then block every other recovery behind
-        it forever.
+        it forever. What the cadence cannot heal is a row that fails
+        deterministically, so the summary line carries a `failed` count: a
+        number that stays non-zero across passes is the signal that no amount of
+        re-running will fix that message.
     reason: >-
       The one pass that can find a message nothing will ever wake. A scheduled
       row is armed by a River job and by nothing else, so a job discarded after

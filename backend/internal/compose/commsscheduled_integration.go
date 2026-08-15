@@ -20,6 +20,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -63,21 +64,19 @@ func HoldScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspace
 }
 
 // DriveScheduledSendRecoveryForTest runs one recovery pass through the
-// PRODUCTION worker, on the context River actually hands it.
+// PRODUCTION worker, on the bare context River actually hands it.
 //
-// No workspace is injected, and that absence is the point: this pass has no
-// tenant of its own, and an earlier version of this helper bound one — which
-// made the lane prove the HELPER worked while production could not re-arm
-// anything at all, because the alarm it enqueues refuses without a workspace and
-// the worker had none to give. The binding now happens per message, from the row
-// itself, which is the only place it can honestly come from.
+// No workspace is injected, deliberately: River gives this periodic job no
+// tenant, so a helper that supplied one would prove the HELPER works while
+// production resolved nothing. The worker resolves the installation itself,
+// which is the behaviour under test.
 func DriveScheduledSendRecoveryForTest(ctx context.Context, pool *pgxpool.Pool) error {
 	inserter, err := jobs.NewInserter(pool, slog.New(slog.DiscardHandler))
 	if err != nil {
 		return err
 	}
 	worker := newScheduledSendRecoveryWorker(
-		pool, sendStore(pool, SendPath{}), NewScheduleTimer(inserter), slog.New(slog.DiscardHandler))
+		identity.NewService(pool), sendStore(pool, SendPath{}), NewScheduleTimer(inserter), slog.New(slog.DiscardHandler))
 	return worker.Work(ctx, &river.Job[ScheduledSendRecoveryArgs]{
 		JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 1},
 	})
