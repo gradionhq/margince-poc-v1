@@ -72,6 +72,11 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 type CaptureConfig struct {
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
+	// TracePayloads is capture.trace_payloads: the 24-hour trace keeps each
+	// message's sender and subject. Off by default and settable only in the
+	// deployment file — a member must not be able to turn on retention of their
+	// colleagues' subjects.
+	TracePayloads bool
 	// Logger carries the process logger to the post-commit steps the Sink
 	// drives, where a fault is reported rather than returned (nothing may fail
 	// a capture). Nil falls back to the default logger — the site_lead accept
@@ -120,6 +125,7 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 	return CaptureConfig{
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
+		TracePayloads:      c.TracePayloads,
 		Logger:             log,
 	}
 }
@@ -191,7 +197,11 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// inbound channel message reaches the SAME module through its own
 		// contract — one adapter serving two seams, so the two ensures cannot
 		// drift onto different dedupe implementations.
-		WithChannelEnsurer(ensurer)
+		WithChannelEnsurer(ensurer).
+		// The 24-hour trace's payload posture. It rides the Sink because the
+		// Sink is where a payload would be written, and it is a deployment
+		// decision rather than a workspace one -- there is no API that flips it.
+		WithTracePayloads(cfg.TracePayloads)
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

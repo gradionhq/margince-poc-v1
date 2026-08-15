@@ -43,6 +43,7 @@ import (
 // needs no address and so works with payloads off.
 type TraceOutcome string
 
+// The five, in the order a message meets them.
 const (
 	TraceCaptured   TraceOutcome = "captured"
 	TraceInternal   TraceOutcome = "internal"
@@ -228,11 +229,11 @@ func traceSourceID(sourceID string, channelIdentity bool) string {
 // clampRunes bounds text by RUNES rather than bytes, so a multi-byte subject is
 // cut at a character boundary and the column's CHECK sees what this function
 // counted.
-func clampRunes(text string, max int) string {
-	if utf8.RuneCountInString(text) <= max {
+func clampRunes(text string, limit int) string {
+	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}
-	return string([]rune(text)[:max])
+	return string([]rune(text)[:limit])
 }
 
 func nonEmpty(text string) *string {

@@ -6600,6 +6600,65 @@ paths:
   # (`extra`), or is taken back out of the baseline that claimed it (`never`).
   # Workspace-shared and admin-curated — whether a domain can name a company is
   # a statement about the domain, not about who reads its mail.
+  /capture/activity:
+    get:
+      tags: [Capture]
+      operationId: listMyCaptureActivity
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: What the capture pipeline did with your messages in the last 24 hours.
+      description: |
+        The CALLER'S OWN rows, across every connector they have connected, newest first. No RBAC
+        object gates it and none can widen it: a member's own capture traffic is their own data,
+        and the workspace view (`listWorkspaceCaptureActivity`) returns shared-channel rows only.
+
+        The funnel PARTITIONS the window — one row per message, counted under the most specific
+        thing that happened to it — so the counts sum to the messages seen. What a connector
+        filtered on its own side (a chat reaction, a mail label rule) is not here: those numbers
+        mean different things per connector and a shared total would be a fiction.
+
+        Covers captured MESSAGES. Lead capture is a different shape with its own outcomes and is
+        deliberately out of scope.
+
+        `payload_capture_enabled` reports the deployment's `capture.trace_payloads` posture, so a
+        client can tell "the operator did not enable this" from "this row has no payload".
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The 24-hour funnel and one page of entries, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureActivityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /capture/activity/workspace:
+    get:
+      tags: [Capture]
+      operationId: listWorkspaceCaptureActivity
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The same window for the workspace's shared channel connections.
+      description: |
+        Rows from connections the WORKSPACE owns — a Telegram bot, a Zalo OA — where one binding
+        carries every seat's inbound traffic and no single member owns it. Governed by the
+        `capture_trace` RBAC object.
+
+        It NEVER returns a member's personal rows. Those are personal data and no grant reaches
+        them: an admin debugging a shared channel has no business reading whose mail arrived when.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The 24-hour funnel and one page of entries, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureActivityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /capture/consumer-mail-domains:
     get:
       tags: [Capture]
@@ -12378,6 +12437,89 @@ components:
           description: |
             ISO-4217 code. Refused with `setting_frozen` once any deal has frozen a conversion
             rate against the current base.
+
+    CaptureActivityResponse:
+      type: object
+      required: [funnel, data, page, payload_capture_enabled, window_hours]
+      properties:
+        funnel:
+          $ref: '#/components/schemas/CaptureActivityFunnel'
+        data: { type: array, items: { $ref: '#/components/schemas/CaptureTraceEntry' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+        payload_capture_enabled:
+          type: boolean
+          description: >-
+            The deployment's `capture.trace_payloads` posture. False means no entry in this
+            window carries `counterparty` or `subject` because the operator did not turn payload
+            capture on — as against an individual row that simply has none.
+        window_hours: { type: integer, description: 'The window these counts cover. Fixed at 24.' }
+
+    CaptureActivityFunnel:
+      type: object
+      description: >-
+        One count per outcome over the window. These PARTITION the messages seen — one row per
+        message, under the most specific outcome that applied — so they sum to the total. Absent
+        keys are zero.
+      properties:
+        captured:   { type: integer, description: 'Landed; the sender was known or became known.' }
+        internal:   { type: integer, description: 'Never landed: every party was on the workspace''s own mail domains.' }
+        suppressed: { type: integer, description: 'Landed; the sender is mail infrastructure, so no record was derived.' }
+        deferred:   { type: integer, description: 'Landed; the sender is a stranger and the question is open.' }
+        fault:      { type: integer, description: 'The derivation failed. The message itself is unaffected unless the reason says otherwise.' }
+
+    CaptureTraceEntry:
+      type: object
+      required: [id, connector, outcome, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        connector:
+          type: string
+          description: >-
+            The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`),
+            never a display label — resolve one through /v1/channel-providers.
+        outcome:
+          type: string
+          enum: [captured, internal, suppressed, deferred, fault]
+        reason:
+          type: [string, 'null']
+          description: >-
+            A class this installation chose, never a provider's text and never content. The ones
+            that change what the outcome MEANS: `deferral_capped` (no verdict is coming — a
+            ceiling refused the question), `noise_prior` and `decided_prior` (it landed, but a
+            prior decision means no record will appear), `internal_only`, `no_granting_human`,
+            `invisible_incumbent`, `derivation_failed`.
+        activity_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The timeline row this message became. Present only where one exists AND the caller
+            may read it — an entry whose activity moved out of their row scope still lists, with
+            no link, rather than handing back an existence proof.
+        resolution:
+          $ref: '#/components/schemas/CaptureTraceResolution'
+        counterparty:
+          type: [string, 'null']
+          description: 'Only when payload_capture_enabled, and never for an erased subject.'
+        subject:
+          type: [string, 'null']
+          description: 'Only when payload_capture_enabled, and never for an erased subject.'
+        occurred_at: { type: string, format: date-time }
+
+    CaptureTraceResolution:
+      type: [object, 'null']
+      description: >-
+        What later became of a DEFERRED message's sender, read from the disposition ledger rather
+        than copied into the trace: the ledger is keyed by sender and the trace by message, and one
+        sender's answer covers several messages.
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, unsure, real, noise, rejected, suppressed]
+        kind:
+          type: [string, 'null']
+          description: 'Who wrote, when the verdict said: person | role_mailbox | organization_sender | newsletter | transactional | spam.'
+        resolved_at: { type: [string, 'null'], format: date-time }
 
     CaptureSettings:
       type: object
@@ -18612,7 +18754,7 @@ components:
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
          channel_connection, import_run, installation_settings, finance, integrations,
-         retention_policy]
+         retention_policy, capture_trace]
 
     RbacAction:
       type: string

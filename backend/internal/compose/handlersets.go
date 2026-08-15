@@ -43,6 +43,7 @@ import (
 type (
 	authHandlers           = identity.Handlers
 	channelHandlers        = capture.ChannelHandlers
+	traceHandlers          = capture.TraceHandlers
 	peopleHandlers         = people.Handlers
 	dealsHandlers          = deals.Handlers
 	activitiesHandlers     = activities.Handlers

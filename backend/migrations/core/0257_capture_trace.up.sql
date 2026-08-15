@@ -1,4 +1,4 @@
--- 0253: what the capture pipeline DID with one message, for 24 hours.
+-- 0257: what the capture pipeline DID with one message, for 24 hours.
 --
 -- The pipeline is fully instrumented for writes and invisible to the people it
 -- acts for: a member whose message never reached the timeline has no way to ask

@@ -88,6 +88,7 @@ type Server struct {
 	blockedDomainHandlers
 	importHandlers
 	channelHandlers
+	traceHandlers
 	filteredExportHandlers
 	overlayExportHandlers
 	orgRollupHandlers

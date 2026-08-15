@@ -1449,6 +1449,63 @@ func (e CaptureConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for CaptureTraceEntryOutcome.
+const (
+	CaptureTraceEntryOutcomeCaptured   CaptureTraceEntryOutcome = "captured"
+	CaptureTraceEntryOutcomeDeferred   CaptureTraceEntryOutcome = "deferred"
+	CaptureTraceEntryOutcomeFault      CaptureTraceEntryOutcome = "fault"
+	CaptureTraceEntryOutcomeInternal   CaptureTraceEntryOutcome = "internal"
+	CaptureTraceEntryOutcomeSuppressed CaptureTraceEntryOutcome = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the CaptureTraceEntryOutcome enum.
+func (e CaptureTraceEntryOutcome) Valid() bool {
+	switch e {
+	case CaptureTraceEntryOutcomeCaptured:
+		return true
+	case CaptureTraceEntryOutcomeDeferred:
+		return true
+	case CaptureTraceEntryOutcomeFault:
+		return true
+	case CaptureTraceEntryOutcomeInternal:
+		return true
+	case CaptureTraceEntryOutcomeSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CaptureTraceResolutionStatus.
+const (
+	CaptureTraceResolutionStatusNoise      CaptureTraceResolutionStatus = "noise"
+	CaptureTraceResolutionStatusPending    CaptureTraceResolutionStatus = "pending"
+	CaptureTraceResolutionStatusReal       CaptureTraceResolutionStatus = "real"
+	CaptureTraceResolutionStatusRejected   CaptureTraceResolutionStatus = "rejected"
+	CaptureTraceResolutionStatusSuppressed CaptureTraceResolutionStatus = "suppressed"
+	CaptureTraceResolutionStatusUnsure     CaptureTraceResolutionStatus = "unsure"
+)
+
+// Valid indicates whether the value is a known member of the CaptureTraceResolutionStatus enum.
+func (e CaptureTraceResolutionStatus) Valid() bool {
+	switch e {
+	case CaptureTraceResolutionStatusNoise:
+		return true
+	case CaptureTraceResolutionStatusPending:
+		return true
+	case CaptureTraceResolutionStatusReal:
+		return true
+	case CaptureTraceResolutionStatusRejected:
+		return true
+	case CaptureTraceResolutionStatusSuppressed:
+		return true
+	case CaptureTraceResolutionStatusUnsure:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChangeUserRoleRequestRole.
 const (
 	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
@@ -11389,6 +11446,39 @@ type BriefSnoozeRequest struct {
 	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
+// CaptureActivityFunnel One count per outcome over the window. These PARTITION the messages seen — one row per message, under the most specific outcome that applied — so they sum to the total. Absent keys are zero.
+type CaptureActivityFunnel struct {
+	// Captured Landed; the sender was known or became known.
+	Captured *int `json:"captured,omitempty"`
+
+	// Deferred Landed; the sender is a stranger and the question is open.
+	Deferred *int `json:"deferred,omitempty"`
+
+	// Fault The derivation failed. The message itself is unaffected unless the reason says otherwise.
+	Fault *int `json:"fault,omitempty"`
+
+	// Internal Never landed: every party was on the workspace's own mail domains.
+	Internal *int `json:"internal,omitempty"`
+
+	// Suppressed Landed; the sender is mail infrastructure, so no record was derived.
+	Suppressed *int `json:"suppressed,omitempty"`
+}
+
+// CaptureActivityResponse defines model for CaptureActivityResponse.
+type CaptureActivityResponse struct {
+	Data []CaptureTraceEntry `json:"data"`
+
+	// Funnel One count per outcome over the window. These PARTITION the messages seen — one row per message, under the most specific outcome that applied — so they sum to the total. Absent keys are zero.
+	Funnel CaptureActivityFunnel `json:"funnel"`
+	Page   PageInfo              `json:"page"`
+
+	// PayloadCaptureEnabled The deployment's `capture.trace_payloads` posture. False means no entry in this window carries `counterparty` or `subject` because the operator did not turn payload capture on — as against an individual row that simply has none.
+	PayloadCaptureEnabled bool `json:"payload_capture_enabled"`
+
+	// WindowHours The window these counts cover. Fixed at 24.
+	WindowHours int `json:"window_hours"`
+}
+
 // CaptureConnection A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
 // credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
 // server-side by `credential_ref`.
@@ -11460,6 +11550,44 @@ type CaptureSettings struct {
 	// under a daily spend cap. Default is ON (the testing posture).
 	AutoEnrich bool `json:"auto_enrich"`
 }
+
+// CaptureTraceEntry defines model for CaptureTraceEntry.
+type CaptureTraceEntry struct {
+	// ActivityId The timeline row this message became. Present only where one exists AND the caller may read it — an entry whose activity moved out of their row scope still lists, with no link, rather than handing back an existence proof.
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+	// Connector The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label — resolve one through /v1/channel-providers.
+	Connector string `json:"connector"`
+
+	// Counterparty Only when payload_capture_enabled, and never for an erased subject.
+	Counterparty *string                  `json:"counterparty,omitempty"`
+	Id           openapi_types.UUID       `json:"id"`
+	OccurredAt   time.Time                `json:"occurred_at"`
+	Outcome      CaptureTraceEntryOutcome `json:"outcome"`
+
+	// Reason A class this installation chose, never a provider's text and never content. The ones that change what the outcome MEANS: `deferral_capped` (no verdict is coming — a ceiling refused the question), `noise_prior` and `decided_prior` (it landed, but a prior decision means no record will appear), `internal_only`, `no_granting_human`, `invisible_incumbent`, `derivation_failed`.
+	Reason *string `json:"reason,omitempty"`
+
+	// Resolution What later became of a DEFERRED message's sender, read from the disposition ledger rather than copied into the trace: the ledger is keyed by sender and the trace by message, and one sender's answer covers several messages.
+	Resolution *CaptureTraceResolution `json:"resolution,omitempty"`
+
+	// Subject Only when payload_capture_enabled, and never for an erased subject.
+	Subject *string `json:"subject,omitempty"`
+}
+
+// CaptureTraceEntryOutcome defines model for CaptureTraceEntry.Outcome.
+type CaptureTraceEntryOutcome string
+
+// CaptureTraceResolution What later became of a DEFERRED message's sender, read from the disposition ledger rather than copied into the trace: the ledger is keyed by sender and the trace by message, and one sender's answer covers several messages.
+type CaptureTraceResolution struct {
+	// Kind Who wrote, when the verdict said: person | role_mailbox | organization_sender | newsletter | transactional | spam.
+	Kind       *string                      `json:"kind,omitempty"`
+	ResolvedAt *time.Time                   `json:"resolved_at,omitempty"`
+	Status     CaptureTraceResolutionStatus `json:"status"`
+}
+
+// CaptureTraceResolutionStatus defines model for CaptureTraceResolution.Status.
+type CaptureTraceResolutionStatus string
 
 // ChangeUserRoleRequest defines model for ChangeUserRoleRequest.
 type ChangeUserRoleRequest struct {
@@ -20126,6 +20254,38 @@ type BookMeetingParams struct {
 
 // BookMeetingJSONBodyLinksEntityType defines parameters for BookMeeting.
 type BookMeetingJSONBodyLinksEntityType string
+
+// ListMyCaptureActivityParams defines parameters for ListMyCaptureActivity.
+type ListMyCaptureActivityParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListWorkspaceCaptureActivityParams defines parameters for ListWorkspaceCaptureActivity.
+type ListWorkspaceCaptureActivityParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // ListConsumerMailBaselineParams defines parameters for ListConsumerMailBaseline.
 type ListConsumerMailBaselineParams struct {
@@ -29281,6 +29441,12 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// What the capture pipeline did with your messages in the last 24 hours.
+	// (GET /capture/activity)
+	ListMyCaptureActivity(w http.ResponseWriter, r *http.Request, params ListMyCaptureActivityParams)
+	// The same window for the workspace's shared channel connections.
+	// (GET /capture/activity/workspace)
+	ListWorkspaceCaptureActivity(w http.ResponseWriter, r *http.Request, params ListWorkspaceCaptureActivityParams)
 	// The domains refused a company, and why.
 	// (GET /capture/blocked-domains)
 	ListBlockedDomains(w http.ResponseWriter, r *http.Request)
@@ -30592,6 +30758,18 @@ func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Req
 // Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 // (POST /brief/items/{itemId}/snooze)
 func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the capture pipeline did with your messages in the last 24 hours.
+// (GET /capture/activity)
+func (_ Unimplemented) ListMyCaptureActivity(w http.ResponseWriter, r *http.Request, params ListMyCaptureActivityParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The same window for the workspace's shared channel connections.
+// (GET /capture/activity/workspace)
+func (_ Unimplemented) ListWorkspaceCaptureActivity(w http.ResponseWriter, r *http.Request, params ListWorkspaceCaptureActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35039,6 +35217,110 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SnoozeBriefItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyCaptureActivity operation middleware
+func (siw *ServerInterfaceWrapper) ListMyCaptureActivity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyCaptureActivityParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyCaptureActivity(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceCaptureActivity operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceCaptureActivity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceCaptureActivityParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceCaptureActivity(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -49714,6 +49996,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/activity", wrapper.ListMyCaptureActivity)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/activity/workspace", wrapper.ListWorkspaceCaptureActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/blocked-domains", wrapper.ListBlockedDomains)

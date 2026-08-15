@@ -40,7 +40,7 @@ func traceWorkspace(t *testing.T) (context.Context, *database.DB) {
 }
 
 // writeTrace runs one Trace on its own transaction and fails the test on error.
-func writeTrace(t *testing.T, ctx context.Context, db *database.DB, in capture.TraceEntry, payloads bool) {
+func writeTrace(ctx context.Context, t *testing.T, db *database.DB, in capture.TraceEntry, payloads bool) {
 	t.Helper()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return capture.Trace(ctx, tx, in, payloads)
@@ -50,7 +50,7 @@ func writeTrace(t *testing.T, ctx context.Context, db *database.DB, in capture.T
 }
 
 // traceRows counts the rows recorded for one source id.
-func traceRows(t *testing.T, ctx context.Context, db *database.DB, sourceID string) int {
+func traceRows(ctx context.Context, t *testing.T, db *database.DB, sourceID string) int {
 	t.Helper()
 	var n int
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
@@ -77,10 +77,10 @@ func TestAReplayedDecisionRecordsOneRow(t *testing.T) {
 	entry := mailTrace("m-replay", capture.TraceInternal)
 	entry.Reason = "internal_only"
 
-	writeTrace(t, ctx, db, entry, false)
-	writeTrace(t, ctx, db, entry, false)
+	writeTrace(ctx, t, db, entry, false)
+	writeTrace(ctx, t, db, entry, false)
 
-	if got := traceRows(t, ctx, db, "m-replay"); got != 1 {
+	if got := traceRows(ctx, t, db, "m-replay"); got != 1 {
 		t.Errorf("rows after a replayed decision = %d, want 1", got)
 	}
 }
@@ -93,10 +93,10 @@ func TestTwoMembersEachKeepTheirOwnRowForOneMessage(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	first, second := mailTrace("m-shared", capture.TraceCaptured), mailTrace("m-shared", capture.TraceCaptured)
 
-	writeTrace(t, ctx, db, first, false)
-	writeTrace(t, ctx, db, second, false)
+	writeTrace(ctx, t, db, first, false)
+	writeTrace(ctx, t, db, second, false)
 
-	if got := traceRows(t, ctx, db, "m-shared"); got != 2 {
+	if got := traceRows(ctx, t, db, "m-shared"); got != 2 {
 		t.Errorf("rows for one message in two mailboxes = %d, want 2 (one per member)", got)
 	}
 }
@@ -111,8 +111,8 @@ func TestWorkspaceOwnedRowsCarryNoMemberAndStillDedupe(t *testing.T) {
 		Outcome: capture.TraceCaptured, ChannelIdentity: true,
 	}
 
-	writeTrace(t, ctx, db, entry, false)
-	writeTrace(t, ctx, db, entry, false)
+	writeTrace(ctx, t, db, entry, false)
+	writeTrace(ctx, t, db, entry, false)
 
 	var rows int
 	var userID *ids.UUID
@@ -139,7 +139,7 @@ func TestWorkspaceOwnedRowsCarryNoMemberAndStillDedupe(t *testing.T) {
 func TestAChannelAccountIdIsHashedNeverStored(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	const accountID = "chat-77:9001"
-	writeTrace(t, ctx, db, capture.TraceEntry{
+	writeTrace(ctx, t, db, capture.TraceEntry{
 		Connector: "telegram", SourceSystem: "telegram", SourceID: accountID,
 		Outcome: capture.TraceCaptured, ChannelIdentity: true,
 	}, false)
@@ -163,7 +163,7 @@ func TestAChannelAccountIdIsHashedNeverStored(t *testing.T) {
 // support question answerable.
 func TestAMailMessageIdIsKept(t *testing.T) {
 	ctx, db := traceWorkspace(t)
-	writeTrace(t, ctx, db, mailTrace("<abc@mail.example>", capture.TraceCaptured), false)
+	writeTrace(ctx, t, db, mailTrace("<abc@mail.example>", capture.TraceCaptured), false)
 
 	var stored string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
@@ -183,7 +183,7 @@ func TestWithPayloadsOffNoContentIsStored(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	entry := mailTrace("m-nocontent", capture.TraceInternal)
 	entry.Counterparty, entry.Subject = "colleague@acme.com", "Meeting recap"
-	writeTrace(t, ctx, db, entry, false)
+	writeTrace(ctx, t, db, entry, false)
 
 	var counterparty, subject *string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
@@ -205,7 +205,7 @@ func TestWithPayloadsOnContentIsBoundedAndNormalized(t *testing.T) {
 	entry := mailTrace("m-content", capture.TraceInternal)
 	entry.Counterparty = "  Colleague@ACME.com  "
 	entry.Subject = strings.Repeat("é", capture.MaxCapturedSubjectChars+40)
-	writeTrace(t, ctx, db, entry, true)
+	writeTrace(ctx, t, db, entry, true)
 
 	var counterparty, subject string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
@@ -264,7 +264,7 @@ func TestAnErasedAddressIsNeverWrittenEvenWithPayloadsOn(t *testing.T) {
 
 	entry := mailTrace("m-erased", capture.TraceCaptured)
 	entry.Counterparty, entry.Subject = erased, "Please delete my data"
-	writeTrace(t, ctx, db, entry, true)
+	writeTrace(ctx, t, db, entry, true)
 
 	var counterparty, subject *string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {

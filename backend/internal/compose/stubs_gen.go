@@ -267,6 +267,14 @@ func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemI
 	httperr.NotImplemented(w, r, "SnoozeBriefItem")
 }
 
+func (stubs) ListMyCaptureActivity(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListMyCaptureActivityParams) {
+	httperr.NotImplemented(w, r, "ListMyCaptureActivity")
+}
+
+func (stubs) ListWorkspaceCaptureActivity(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListWorkspaceCaptureActivityParams) {
+	httperr.NotImplemented(w, r, "ListWorkspaceCaptureActivity")
+}
+
 func (stubs) ListBlockedDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListBlockedDomains")
 }
