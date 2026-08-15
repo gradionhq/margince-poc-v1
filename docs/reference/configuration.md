@@ -690,6 +690,21 @@ seeded alongside on first run; both are gitignored. `--config` reaches
 **both** the api and worker, so a posture like `ai.capture_payloads` applies
 to every role. Delete `config/margince.yaml` and re-run `make dev` to reset.
 
+`capture.trace_payloads` (default `false`) turns on payload capture in the
+24-hour Capture activity trace every member sees under Settings. With it off,
+the trace records what the pipeline decided about each message and nothing about
+the message itself — no address, no subject. With it on, each traced message
+additionally keeps its sender and a bounded subject for 24 hours, **including
+messages dropped because every party was internal to your own domains**, which
+is the case an operator turns it on to diagnose.
+
+It is settable only here, deliberately: there is no API and no in-app switch,
+because it retains correspondence the CRM otherwise refuses to store, and that
+is a decision for whoever runs the installation rather than for the people whose
+colleagues' mail it is. The hourly sweep deletes payloads with the rows carrying
+them, an erased subject's address is never written whatever the posture says,
+and an Art. 17 request inside the window reaches what is already there.
+
 `company_context.rollout` is the ordered server-side company-context capability:
 `off` disables context reads, injection, and the new onboarding surface; `read`
 enables the canonical read model and Company Context settings; `tasks` also

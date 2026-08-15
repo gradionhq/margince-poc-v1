@@ -833,7 +833,15 @@ function navGroupTabs(heading: HTMLElement): string[] {
 // it would regress passport minting for every seat that is not an admin; and
 // `connections` because a mailbox and a LinkedIn network nobody else can see are
 // that person's, not the installation's configuration.
-const PERSONAL_TABS = ["Account", "Writing voice", "Agents", "Connections"];
+const PERSONAL_TABS = [
+  "Account",
+  "Writing voice",
+  "Agents",
+  "Connections",
+  // What those connections DID. Personal like the rest of this group and
+  // ungated for the same reason: it answers only for the caller's own traffic.
+  "Capture activity",
+];
 
 // The eight Organization entries, in the order they are declared.
 const ORG_TABS = [
@@ -947,7 +955,7 @@ describe("SettingsScreen Organization group", () => {
   // inside each entry gate themselves, so no case below needs a write to reach a
   // page and none of them proves anything by granting one.
 
-  it("renders the twelve entries in their declared order, split across the two groups", async () => {
+  it("renders the thirteen entries in their declared order, split across the two groups", async () => {
     vi.stubGlobal(
       "fetch",
       orgNavBackend({ roles: ["admin"], allow: EVERY_TAB_GRANTED }),
@@ -1132,7 +1140,7 @@ describe("SettingsScreen Organization group", () => {
     },
   );
 
-  it("reaches all twelve entries for a seeded ops, whose reindex read opens Maintenance", async () => {
+  it("reaches all thirteen entries for a seeded ops, whose reindex read opens Maintenance", async () => {
     // Maintenance is the one entry that genuinely narrows, and it narrows to
     // admin/ops rather than to admin: ops holds the reindex read, so the entry
     // opens on the grant and not on a role name — which is what lets an edited
