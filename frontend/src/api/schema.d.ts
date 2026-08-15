@@ -5359,8 +5359,14 @@ export interface paths {
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
          *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
          *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
-         *     re-asserting upgrades/downgrades `access` and resets `expires_at`. A grant can never exceed the
-         *     granting principal's own access (scope-intersection). Audited (`action: record_share`). Bounded:
+         *     a re-assert RESTATES the grant rather than amending it: `access`, `expires_at`, `reason` and
+         *     `granted_by` all take the values of the new request, so a field the caller omits is cleared and
+         *     accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
+         *     same share, not a new one. A grant can never exceed the granting principal's own access
+         *     (scope-intersection), and a grant is not itself a licence to share: administering a record's
+         *     grants requires that record in the caller's OWN scope (owner/team/all), because a caller whose
+         *     only claim to it is a share would otherwise be exercising the grant-of-grant delegation this
+         *     operation excludes. Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
          *
          *     The seat ceiling binds the RECIPIENT as well (AAD-AC-4): a `write` grant to a user on a `read`
