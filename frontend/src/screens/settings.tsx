@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Activity,
   Building2,
   ChevronDown,
   Database,
@@ -63,6 +64,7 @@ import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import { AutomationsAdmin } from "./automations";
+import { CaptureActivityTab } from "./capture-activity";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
@@ -169,6 +171,7 @@ const SETTINGS_TABS = [
   { id: "voice", icon: Mic, group: "you" },
   { id: "agents", icon: KeyRound, group: "you" },
   { id: "connections", icon: Plug, group: "you" },
+  { id: "capture-activity", icon: Activity, group: "you" },
   { id: "general", icon: Building2, group: "org" },
   { id: "people", icon: UsersRound, group: "org" },
   { id: "integrations", icon: Webhook, group: "org" },
@@ -213,6 +216,10 @@ function tabContent(id: SettingsTabId): ReactNode {
       );
     case "connections":
       return <ConnectionsTab />;
+    // Beside `connections` and after it on purpose: that tab says what you are
+    // connected to, this one says what those connections did with your mail.
+    case "capture-activity":
+      return <CaptureActivityTab />;
     case "integrations":
       return <IntegrationsTab />;
     case "capture":

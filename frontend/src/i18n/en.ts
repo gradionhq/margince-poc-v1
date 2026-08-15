@@ -3738,6 +3738,42 @@ export const en = {
   "settings.tab.data-model": "Data model",
   "settings.tab.ai": "AI",
   "settings.tab.privacy": "Privacy & audit",
+  "settings.tab.capture-activity": "Capture activity",
+  "captureActivity.title": "Capture activity",
+  "captureActivity.sub": "What happened to your messages in the last 24 hours.",
+  "captureActivity.scope.label": "Whose activity",
+  "captureActivity.scope.mine": "Mine",
+  "captureActivity.scope.workspace": "Shared channels",
+  "captureActivity.scopeNote":
+    "Counted from the point a connector hands a message to this CRM. What a connector filtered on its own side — a chat reaction, a mail rule — is not included. Covers messages; lead capture is not shown here.",
+  "captureActivity.empty": "no capture activity in the last 24 hours",
+  "captureActivity.contentNotStored": "content not stored",
+  "captureActivity.contentNone": "no sender recorded",
+  "captureActivity.outcome.captured": "Captured",
+  "captureActivity.outcome.internal": "Dropped as internal",
+  "captureActivity.outcome.suppressed": "No contact (infrastructure)",
+  "captureActivity.outcome.deferred": "Waiting on a verdict",
+  "captureActivity.outcome.fault": "Derivation failed",
+  "captureActivity.reason.internal_only": "every party was on your own domains",
+  "captureActivity.reason.deferral_capped":
+    "not queued — the open-question limit was reached, so no verdict is coming",
+  "captureActivity.reason.noise_prior":
+    "a previous verdict judged this sender noise, so it will be archived",
+  "captureActivity.reason.decided_prior":
+    "this sender was already decided, so no contact will be created",
+  "captureActivity.reason.no_granting_human":
+    "the connection named no member to act for",
+  "captureActivity.reason.invisible_incumbent":
+    "it matched a record outside what you can see",
+  "captureActivity.reason.derivation_failed":
+    "the contact step failed; the message itself is unaffected",
+  "captureActivity.reason.no_counterparty": "no sender this CRM could record",
+  "captureActivity.resolution.pending": "still waiting",
+  "captureActivity.resolution.unsure": "sent to the review queue",
+  "captureActivity.resolution.real": "judged a real contact",
+  "captureActivity.resolution.noise": "judged noise",
+  "captureActivity.resolution.rejected": "declined by a human",
+  "captureActivity.resolution.suppressed": "suppressed",
   "settings.tab.maintenance": "Maintenance",
   "settings.group.you": "You",
   "settings.group.org": "Organization",

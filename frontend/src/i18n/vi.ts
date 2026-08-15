@@ -3709,6 +3709,45 @@ export const vi = {
   "settings.tab.data-model": "Mô hình dữ liệu",
   "settings.tab.ai": "AI",
   "settings.tab.privacy": "Quyền riêng tư & kiểm toán",
+  "settings.tab.capture-activity": "Hoạt động thu thập",
+  "captureActivity.title": "Hoạt động thu thập",
+  "captureActivity.sub":
+    "Điều gì đã xảy ra với tin nhắn của bạn trong 24 giờ qua.",
+  "captureActivity.scope.label": "Hoạt động của ai",
+  "captureActivity.scope.mine": "Của tôi",
+  "captureActivity.scope.workspace": "Kênh dùng chung",
+  "captureActivity.scopeNote":
+    "Được tính từ lúc connector chuyển tin nhắn cho CRM này. Những gì connector đã lọc ở phía nó — một biểu tượng cảm xúc, một quy tắc thư — không nằm trong đây. Bao gồm tin nhắn; việc thu thập lead không hiển thị ở đây.",
+  "captureActivity.empty": "không có hoạt động thu thập trong 24 giờ qua",
+  "captureActivity.contentNotStored": "nội dung không được lưu",
+  "captureActivity.contentNone": "không ghi nhận người gửi",
+  "captureActivity.outcome.captured": "Đã thu thập",
+  "captureActivity.outcome.internal": "Bỏ qua vì nội bộ",
+  "captureActivity.outcome.suppressed": "Không tạo liên hệ (hạ tầng)",
+  "captureActivity.outcome.deferred": "Đang chờ phán quyết",
+  "captureActivity.outcome.fault": "Suy ra liên hệ thất bại",
+  "captureActivity.reason.internal_only":
+    "mọi bên đều thuộc tên miền của chính bạn",
+  "captureActivity.reason.deferral_capped":
+    "chưa xếp hàng — đã chạm giới hạn câu hỏi mở, sẽ không có phán quyết",
+  "captureActivity.reason.noise_prior":
+    "một phán quyết trước đã xem người gửi này là nhiễu, tin nhắn sẽ được lưu trữ",
+  "captureActivity.reason.decided_prior":
+    "người gửi này đã được quyết định, sẽ không tạo liên hệ",
+  "captureActivity.reason.no_granting_human":
+    "kết nối không nêu thành viên nào để hành động thay",
+  "captureActivity.reason.invisible_incumbent":
+    "nó khớp với bản ghi ngoài phạm vi bạn thấy",
+  "captureActivity.reason.derivation_failed":
+    "bước tạo liên hệ thất bại; bản thân tin nhắn không bị ảnh hưởng",
+  "captureActivity.reason.no_counterparty":
+    "không có người gửi nào CRM có thể ghi nhận",
+  "captureActivity.resolution.pending": "vẫn đang chờ",
+  "captureActivity.resolution.unsure": "đã gửi vào hàng chờ duyệt",
+  "captureActivity.resolution.real": "được xem là liên hệ thật",
+  "captureActivity.resolution.noise": "được xem là nhiễu",
+  "captureActivity.resolution.rejected": "bị người dùng từ chối",
+  "captureActivity.resolution.suppressed": "bị chặn",
   "settings.tab.maintenance": "Bảo trì",
   "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",

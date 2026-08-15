@@ -1,0 +1,94 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion
+ *
+ * Settings → Capture activity. Every value is a token: the surface has to be
+ * right in both themes, and a literal colour is the one thing that cannot be.
+ */
+
+.capture-activity__scope-note {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+  margin: var(--space-3) 0;
+}
+
+.capture-activity__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* One row per message, read left to right as when → where → what happened.
+ * It folds to a stack rather than scrolling sideways: this is a settings
+ * surface inside a column, and a horizontally scrolling list of one's own mail
+ * is a worse answer than a taller one. */
+.capture-activity__row {
+  align-items: baseline;
+  border-bottom: 1px solid var(--borderSubtle);
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(9rem, auto) minmax(6rem, auto) minmax(
+      12rem,
+      1fr
+    ) 2fr auto;
+  padding: var(--space-2) 0;
+}
+
+@media (max-width: 48rem) {
+  .capture-activity__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
+.capture-activity__when,
+.capture-activity__connector {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+}
+
+.capture-activity__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The reason is the half that changes what the outcome MEANS — a capped
+ * deferral is not waiting for anything — so it is quieter than the outcome but
+ * never hidden behind an interaction. */
+.capture-activity__reason {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+}
+
+.capture-activity__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.capture-activity__from,
+.capture-activity__subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-activity__subject {
+  color: var(--textMeta);
+}
+
+/* "content not stored" is a statement about the installation's posture, not a
+ * missing value, so it reads as prose rather than as an empty field. */
+.capture-activity__content--absent {
+  color: var(--textTertiary);
+  font-style: italic;
+}
+
+.capture-activity__resolution {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+}
