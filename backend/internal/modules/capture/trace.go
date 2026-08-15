@@ -141,15 +141,21 @@ var traceOutcomeTotals sync.Map // TraceOutcome -> *atomic.Uint64
 func TraceOutcomeTotals() map[string]uint64 {
 	out := map[string]uint64{}
 	traceOutcomeTotals.Range(func(key, value any) bool {
-		out[string(key.(TraceOutcome))] = value.(*atomic.Uint64).Load()
+		outcome, isOutcome := key.(TraceOutcome)
+		counter, isCounter := value.(*atomic.Uint64)
+		if isOutcome && isCounter {
+			out[string(outcome)] = counter.Load()
+		}
 		return true
 	})
 	return out
 }
 
 func countTraced(outcome TraceOutcome) {
-	counter, _ := traceOutcomeTotals.LoadOrStore(outcome, &atomic.Uint64{})
-	counter.(*atomic.Uint64).Add(1)
+	stored, _ := traceOutcomeTotals.LoadOrStore(outcome, &atomic.Uint64{})
+	if counter, ok := stored.(*atomic.Uint64); ok {
+		counter.Add(1)
+	}
 }
 
 // Trace records one decision on the CALLER's transaction, so a trace can

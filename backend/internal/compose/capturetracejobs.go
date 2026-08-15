@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // traceRetention is the window the sweep enforces, and the same one the read
@@ -67,6 +68,22 @@ func (w *captureTraceSweepWorkspaceWorker) Work(ctx context.Context, job *river.
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
+	// Bound HERE rather than in a helper, and assigned rather than called: a
+	// queue carries no principal to inherit, and both of these return a new
+	// context and mutate nothing, so an unassigned call reads like a binding and
+	// leaves the store holding a context with no actor in it.
+	//
+	// A SYSTEM principal rather than any member's: expiring a diagnostic trace
+	// is the installation keeping its own retention promise, and there is no
+	// human on whose authority one of these rows should or should not go.
+	wsCtx = principal.WithActor(wsCtx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: traceSweepActorID,
+	})
+	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
+
 	_, err = capture.NewTraceStore(InstallationDB(w.pool)).SweepOlderThan(wsCtx, traceRetention)
 	return jobs.FaultContext(ctx, err)
 }
+
+// traceSweepActorID names the sweep in whatever it touches.
+const traceSweepActorID = "system:capture-trace-sweep"
