@@ -20,7 +20,7 @@ func TestAPerWorkspaceJobBindsTheWorkspaceItNames(t *testing.T) {
 	t.Parallel()
 	ws := ids.NewV7()
 
-	db, err := workspaceJobDB(nil, PrivacyRetentionWorkspaceArgs{Workspace: ws})
+	db, err := workspaceJobDB(nil, IdempotencyRetentionWorkspaceArgs{Workspace: ws})
 	if err != nil {
 		t.Fatalf("a job naming a workspace was refused: %v", err)
 	}
@@ -40,11 +40,11 @@ func TestAPerWorkspaceJobBindsTheWorkspaceItNames(t *testing.T) {
 func TestAWorkspaceScopedJobWithNoWorkspaceIsRefused(t *testing.T) {
 	t.Parallel()
 
-	_, err := workspaceJobDB(nil, PrivacyRetentionWorkspaceArgs{})
+	_, err := workspaceJobDB(nil, IdempotencyRetentionWorkspaceArgs{})
 	if err == nil {
 		t.Fatal("a workspace-scoped job with no workspace was bound; it must be refused before any SQL runs")
 	}
-	if !strings.Contains(err.Error(), PrivacyRetentionWorkspaceArgs{}.Kind()) {
+	if !strings.Contains(err.Error(), IdempotencyRetentionWorkspaceArgs{}.Kind()) {
 		t.Errorf("the refusal must name the job kind, got %q", err)
 	}
 }

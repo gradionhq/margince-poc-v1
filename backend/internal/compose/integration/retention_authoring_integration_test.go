@@ -66,8 +66,8 @@ func retentionAdminCtx(ws ids.UUID, grant principal.ObjectGrant) context.Context
 func insertPolicyDirectly(e *Env, objectType string, category *string, retainDays int, action string) error {
 	return database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)`,
+			INSERT INTO retention_policy (object_type, category, retain_days, action)
+			VALUES ($1, $2, $3, $4)`,
 			objectType, category, retainDays, action)
 		return err
 	})
@@ -211,7 +211,7 @@ func TestRetainOnlyPostureSuppressesDestructionButNotArchival(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -255,7 +255,7 @@ func TestRetainOnlyPostureSuppressesDestructionButNotArchival(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -438,7 +438,7 @@ func TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade(t *testing
 	}
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -466,7 +466,7 @@ func TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, withContent); n != 0 {
@@ -519,7 +519,7 @@ func TestAPolicyWithNoExecutorCannotBeAuthoredAndCannotStopThePass(t *testing.T)
 	staleLead, _, staleDeal, _ := seedOverAgeRecords(t, e)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("a policy with no executor aborted the whole pass: %v", err)
 	}
 
@@ -574,7 +574,7 @@ func TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote(t *testing.T
 		noteID)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

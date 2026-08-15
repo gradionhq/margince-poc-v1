@@ -137,8 +137,8 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 	}
 	for _, email := range emails {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('email', $1)
 			ON CONFLICT DO NOTHING`, storekit.SuppressionHash(email)); err != nil {
 			return 0, 0, err
 		}

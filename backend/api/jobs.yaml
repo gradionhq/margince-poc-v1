@@ -975,19 +975,14 @@ kinds:
       competing with live capture for the same rows, then a yield. A caught-up
       workspace stops at the first empty batch.
 
+  # One job, not a dispatcher and a child (ADR-0103 §1): it keeps the
+  # dispatcher's kind and cadence and the child's queue, timeout and attempt
+  # cap. The dispatcher enumerated EVERY workspace including archived ones,
+  # because archiving does not un-store the subject data inside one — that
+  # obligation is the pass's own now rather than the enumeration's.
   privacy_retention:
-    role: dispatcher
-    go_type: PrivacyRetentionArgs
-    queue: default
-    timeout: 2m
-    opts_owner: caller
-    cadence: {operator: PrivacyRetention.Interval, schedule_when_positive: PrivacyRetention.Interval}
-    fans_out_to: privacy_retention_workspace
-    fan_out_unit: workspace
-
-  privacy_retention_workspace:
     role: worker
-    go_type: PrivacyRetentionWorkspaceArgs
+    go_type: PrivacyRetentionArgs
     queue: privacy_retention
     timeout:
       derived: privacyRetentionPassTimeout
@@ -997,9 +992,8 @@ kinds:
         times its batch bound times its per-record allowance — and the margin
         covers the policy read and the per-stage due-list reads between records.
     max_attempts: 3
-    opts_owner: fan_out
-    args:
-      Workspace: id
+    opts_owner: args
+    cadence: {operator: PrivacyRetention.Interval, schedule_when_positive: PrivacyRetention.Interval}
 
   provider_run_submit:
     role: worker

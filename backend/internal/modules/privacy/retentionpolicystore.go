@@ -224,8 +224,8 @@ func (s *PolicyStore) Create(ctx context.Context, in PolicyInput) (Policy, error
 		}
 		err = tx.QueryRow(ctx, `
 			INSERT INTO retention_policy
-			  (workspace_id, object_type, category, retain_days, action, lawful_basis, enabled)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+			  (object_type, category, retain_days, action, lawful_basis, enabled)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			RETURNING id`,
 			in.Scope.ObjectType, in.Scope.CategoryPtr(), in.RetainDays,
 			in.Action, in.LawfulBasis, in.Enabled).Scan(&out.ID)

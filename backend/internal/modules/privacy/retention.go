@@ -179,12 +179,16 @@ type retentionPolicy struct {
 	Action     string
 }
 
-// EvaluateWorkspace is ONE workspace's retention pass — the workspace the
-// caller's context is already bound to, with no enumeration of its own. Its
-// error is the tenant's verdict and belongs to whoever asked for the pass: a
-// pass that failed and reported success leaves subject data stored past its
-// policy with nothing recording that it happened.
-func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
+// EvaluateInstallation is the installation's retention pass, with no
+// enumeration of its own. Its error belongs to whoever asked for the pass: one
+// that failed and reported success leaves subject data stored past its policy
+// with nothing recording that it happened.
+//
+// The name is deliberately specific rather than a bare Evaluate: the scope gate
+// in retentionscope_test.go matches its sink BY NAME, so a common name would
+// make thirty-six unrelated declarations look like sanctioned destinations for
+// a context that cannot be denied.
+func (s *RetentionService) EvaluateInstallation(ctx context.Context) error {
 	var policies []retentionPolicy
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `

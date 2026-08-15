@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "87f7a1edd9fd7a5b44682a215d67f57deac57e4fa8df82f40d3e221843b7b57e"
+const JobContractHash = "5c41de82ae8b470b0ad6e144bace4a67ca156f0bb0a2313da957495b058b0ad5"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -527,25 +527,14 @@ var specs = map[string]Spec{
 		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"privacy_retention": {
-		Kind:       "privacy_retention",
-		GoType:     "PrivacyRetentionArgs",
-		Role:       Dispatcher,
-		Queue:      "default",
-		Timeout:    TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit: FanOutWorkspace,
-		FanOutTo:   "privacy_retention_workspace",
-		OptsOwner:  OptsCaller,
-		Cadence:    Cadence{OperatorField: "PrivacyRetention.Interval", ScheduleWhenPositive: "PrivacyRetention.Interval"},
-	},
-	"privacy_retention_workspace": {
-		Kind:        "privacy_retention_workspace",
-		GoType:      "PrivacyRetentionWorkspaceArgs",
+		Kind:        "privacy_retention",
+		GoType:      "PrivacyRetentionArgs",
 		Role:        Worker,
 		Queue:       "privacy_retention",
 		Timeout:     TimeoutPolicy{Fixed: 305 * time.Minute, DerivedFrom: "privacyRetentionPassTimeout"},
 		MaxAttempts: 3,
-		OptsOwner:   OptsFanOut,
-		Args:        []ArgField{{Name: "Workspace"}},
+		OptsOwner:   OptsArgs,
+		Cadence:     Cadence{OperatorField: "PrivacyRetention.Interval", ScheduleWhenPositive: "PrivacyRetention.Interval"},
 	},
 	"provider_run_poll": {
 		Kind:         "provider_run_poll",

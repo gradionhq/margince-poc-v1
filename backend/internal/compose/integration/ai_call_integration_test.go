@@ -255,7 +255,7 @@ func TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows(t *testing.T) {
 	underAge := seedEmbedCall(t, e, 10)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -291,11 +291,11 @@ func TestAICallPayloadRetentionAgesOutContentKeepingMetadata(t *testing.T) {
 	callID := seedAgedPayload(t, e, 400, `{"messages":[{"role":"user","content":"old chatter"}]}`)
 
 	// The bootstrap-seeded payload policy: 365-day erase of the content.
-	e.WsExec(t, `INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'ai_call_payload', 'content', 365, 'erase')`)
+	e.WsExec(t, `INSERT INTO retention_policy (object_type, category, retain_days, action)
+		VALUES ('ai_call_payload', 'content', 365, 'erase')`)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.EvaluateWorkspace(RetentionPassCtx(e.WS)); err != nil {
+	if err := svc.EvaluateInstallation(RetentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

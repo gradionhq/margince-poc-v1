@@ -134,8 +134,8 @@ func SeedRetentionPolicies(t *testing.T, e *Env) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
-			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, v.o, v.c, v.d, v.a
+			INSERT INTO retention_policy (object_type, category, retain_days, action)
+			SELECT v.o, v.c, v.d, v.a
 			FROM (VALUES
 			  ('lead', 'unconverted', 365, 'anonymize'),
 			  ('activity', NULL, 1095, 'archive'),

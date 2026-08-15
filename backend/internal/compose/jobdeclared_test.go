@@ -515,4 +515,5 @@ var argsForKind = map[string]river.JobArgs{
 	AgentSchedulerArgs{}.Kind():     AgentSchedulerArgs{},
 	AgentTaskRetentionArgs{}.Kind(): AgentTaskRetentionArgs{},
 	ApprovalExpiryArgs{}.Kind():     ApprovalExpiryArgs{},
+	PrivacyRetentionArgs{}.Kind():   PrivacyRetentionArgs{},
 }

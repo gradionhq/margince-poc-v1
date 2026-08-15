@@ -106,8 +106,8 @@ func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, identities []channel
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'channel_identity', $1)
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('channel_identity', $1)
 			ON CONFLICT DO NOTHING`,
 			storekit.ChannelIdentityHash(identity.Provider, identity.ChannelUserID)); err != nil {
 			return 0, err

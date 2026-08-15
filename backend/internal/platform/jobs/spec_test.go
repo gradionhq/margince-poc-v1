@@ -15,7 +15,7 @@ import (
 // operator diffing two lists by hand, and one that stopped at the first
 // missing kind would send them round the loop once per kind.
 func TestMustBeTotalNamesEveryUndeclaredKind(t *testing.T) {
-	err := MustBeTotal([]string{"privacy_retention_workspace", "zeta_kind", "alpha_kind"})
+	err := MustBeTotal([]string{"idempotency_retention_workspace", "zeta_kind", "alpha_kind"})
 	if err == nil {
 		t.Fatal("two undeclared kinds passed the totality check — a kind with no Spec runs at River's one-minute default")
 	}
@@ -23,7 +23,7 @@ func TestMustBeTotalNamesEveryUndeclaredKind(t *testing.T) {
 	if want := "alpha_kind, zeta_kind"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error is %q, want it to name %q", err, want)
 	}
-	if strings.Contains(err.Error(), "privacy_retention_workspace") {
+	if strings.Contains(err.Error(), "idempotency_retention_workspace") {
 		t.Errorf("error names a DECLARED kind: %q", err)
 	}
 }

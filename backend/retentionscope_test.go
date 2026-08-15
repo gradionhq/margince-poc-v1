@@ -18,7 +18,7 @@ import (
 // the package that call must live in.
 const (
 	retentionScopeBuilder   = "RetentionPassCtx"
-	retentionScopeSink      = "EvaluateWorkspace"
+	retentionScopeSink      = "EvaluateInstallation"
 	retentionScopeSinkOwner = "internal/modules/privacy"
 )
 
@@ -111,7 +111,7 @@ func TestRetentionPassCtxOnlyDrivesTheRetentionPass(t *testing.T) {
 //
 // That gate matches its sink by bare name with the qualifier stripped, because
 // resolving a method's receiver from the AST alone is more machinery than the
-// check is worth. The cost is that ANY function named EvaluateWorkspace would
+// check is worth. The cost is that ANY function named EvaluateInstallation would
 // inherit sink status — a two-line shim in a suite, or a second evaluator landing
 // in automation or consent, and an unboundable context becomes admissible without
 // anyone editing this file. So the name-only match is made true by derivation

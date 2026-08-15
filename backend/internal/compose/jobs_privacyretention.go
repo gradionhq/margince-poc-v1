@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -96,73 +97,57 @@ func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunner
 				return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 			})
 	}
-	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool})
-	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{pool: pool, retention: retention})
+	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{
+		pool: pool, retention: retention, identity: identity.NewService(pool),
+	})
 	return periodicFor(cfg, PrivacyRetentionArgs{})
 }
 
-// PrivacyRetentionArgs schedules one fleet-wide retention pass.
+// PrivacyRetentionArgs evaluates the retention policies.
+//
+// It used to be a dispatcher that enumerated every workspace and enqueued one
+// child per tenant. Under one installation that enumeration reads a single row,
+// so the pair collapsed into this (ADR-0091 §5, ADR-0103 §1).
 type PrivacyRetentionArgs struct{}
 
-// Kind is the stable job identifier River persists in river_job.
+// Kind is the stable job identifier River persists in river_job. It is the
+// DISPATCHER's old kind, deliberately: it is the name operators alert on.
 func (PrivacyRetentionArgs) Kind() string { return "privacy_retention" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
-func (PrivacyRetentionArgs) FleetWide() {}
+// InsertOpts carries the attempt cap the declaration publishes, because the
+// periodic insert supplies uniqueness and no attempt policy of its own. Held
+// equal to api/jobs.yaml by TestArgsOwnedAttemptCapsMatchTheirDeclaration.
+func (PrivacyRetentionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue:       privacyRetentionQueue,
+		MaxAttempts: 3,
+		UniqueOpts:  river.UniqueOpts{ByState: activeSweepStates},
+	}
+}
 
-// privacyRetentionWorker is the dispatcher. It enumerates EVERY workspace,
-// archived ones included: archiving a workspace does not un-store the subject
-// data inside it, and storage limitation is owed on the tenants nobody looks at
-// any more exactly as much as on the ones in daily use.
+// privacyRetentionWorker evaluates the policies and acts on what is due.
 type privacyRetentionWorker struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	retention func(*database.DB) *privacy.RetentionService
+	identity  *identity.Service
 }
 
 func (w *privacyRetentionWorker) Work(ctx context.Context, _ *river.Job[PrivacyRetentionArgs]) error {
-	workspaces, err := enumerateEveryWorkspace(ctx, w.pool)
+	// The installation is bound because the erasure and scrub writes this pass
+	// drives still stamp a workspace from the context (storekit.MustWorkspace);
+	// it retires with that helper (ADR-0091 §5).
+	passCtx, err := installationJobCtx(ctx, w.identity)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind()),
-		func(ws ids.UUID) river.JobArgs { return PrivacyRetentionWorkspaceArgs{Workspace: ws} }))
-}
-
-// PrivacyRetentionWorkspaceArgs evaluates one workspace's retention policies.
-type PrivacyRetentionWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (PrivacyRetentionWorkspaceArgs) Kind() string { return "privacy_retention_workspace" }
-
-// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
-func (a PrivacyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// privacyRetentionWorkspaceWorker evaluates one workspace.
-type privacyRetentionWorkspaceWorker struct {
-	pool      *pgxpool.Pool
-	retention func(*database.DB) *privacy.RetentionService
-}
-
-func (w *privacyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[PrivacyRetentionWorkspaceArgs]) error {
-	wsCtx, err := workspaceJobCtx(ctx, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	db, err := workspaceJobDB(w.pool, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, w.retention(db).EvaluateWorkspace(retentionPassProvenance(wsCtx)))
+	return jobs.FaultContext(ctx, w.retention(InstallationDB(w.pool)).EvaluateInstallation(retentionPassProvenance(passCtx)))
 }
 
 // retentionPassProvenance names who acted and under which pass. The engine
 // writes an audit row and an outbox event per record it retires, so without
-// this those rows would carry no actor and no correlation id — the workspace
-// binding alone says which tenant's data moved, never that the machine moved
-// it on a schedule, which is the whole answer a retention audit is read for.
+// this those rows would carry no actor and no correlation id — never that the
+// machine moved it on a schedule, which is the whole answer a retention audit
+// is read for.
 func retentionPassProvenance(ctx context.Context) context.Context {
 	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 	return principal.WithCorrelationID(ctx, ids.NewV7())

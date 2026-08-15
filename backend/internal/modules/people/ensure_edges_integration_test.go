@@ -269,8 +269,8 @@ func TestEnsureCounterpartySuppressedAddressStaysDead(t *testing.T) {
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-			VALUES ($1, 'email', $2)`, e.ws, storekit.SuppressionHash("dead@ensure.test"))
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('email', $1)`, storekit.SuppressionHash("dead@ensure.test"))
 		return err
 	}); err != nil {
 		t.Fatal(err)
