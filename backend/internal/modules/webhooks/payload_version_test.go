@@ -722,10 +722,11 @@ func TestApprovalDecidedWireSnapshot(t *testing.T) {
 	edited := true
 	diffHash := "sha256:abc123"
 	editedChange := map[string]interface{}{"stage_id": approvalSnapshotTargetID.String()}
+	decidedBy := openapi_types.UUID(approvalSnapshotDecidedBy)
 	sample := crmcontracts.PublicEventApprovalDecided{
 		Kind:         "advance_deal",
-		Verdict:      "approved",
-		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
+		Verdict:      crmcontracts.Approved,
+		DecidedBy:    &decidedBy,
 		Edited:       &edited,
 		DiffHash:     &diffHash,
 		EditedChange: &editedChange,
@@ -751,10 +752,11 @@ func TestApprovalDecidedKeyBindingIsStable(t *testing.T) {
 		"note":     "moved after the call",
 		"nested":   map[string]interface{}{"amount_minor": float64(50000)},
 	}
+	decidedBy := openapi_types.UUID(approvalSnapshotDecidedBy)
 	sample := crmcontracts.PublicEventApprovalDecided{
 		Kind:         "advance_deal",
-		Verdict:      "rejected",
-		DecidedBy:    openapi_types.UUID(approvalSnapshotDecidedBy),
+		Verdict:      crmcontracts.Rejected,
+		DecidedBy:    &decidedBy,
 		EditedChange: &editedChange,
 	}
 	raw, err := json.Marshal(sample)
@@ -815,4 +817,33 @@ func TestColdstartRejectedWireSnapshot(t *testing.T) {
 		DecidedBy:  openapi_types.UUID(approvalSnapshotDecidedBy),
 	}
 	assertWireSnapshot(t, sample.EventType(), events.VersionOf(sample.EventType()), sample)
+}
+
+// The expiry verdict, which is the one with no deciding human.
+//
+// A closed window is a real verdict written by the sweep, not a rendering, and
+// automation's run consumer matches it by the literal string "expired" the same
+// way it matches "rejected". decided_by must be ABSENT rather than present-and-
+// zero: a subscriber reading it would otherwise attribute a refusal to a user id
+// that resolves to nobody, and "nobody decided this" is the fact the payload
+// exists to carry.
+func TestApprovalDecidedCarriesTheExpiredVerdictWithNoDecider(t *testing.T) {
+	sample := crmcontracts.PublicEventApprovalDecided{
+		Kind:    "advance_deal",
+		Verdict: crmcontracts.Expired,
+	}
+	raw, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if decoded["verdict"] != "expired" {
+		t.Errorf("verdict = %v, want \"expired\" — the run consumer matches this literal", decoded["verdict"])
+	}
+	if v, present := decoded["decided_by"]; present {
+		t.Errorf("decided_by = %v is on the wire for an expiry — it names a human who never decided", v)
+	}
 }

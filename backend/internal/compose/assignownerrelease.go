@@ -11,11 +11,15 @@ package compose
 // not, so approving the card spent a human's decision on nothing: no owner
 // moved, and the run that raised it stayed in requires_approval permanently.
 //
-// The effect performs the IDENTICAL write the 🟢 branch performs — same
-// provider call, same patch, same system provenance — because a reassignment a
-// human released must not be a second spelling of a reassignment an automation
-// made. What the approval adds is the human, and the human is on the decision's
-// own audit row.
+// The effect performs the same write the 🟢 branch performs — same provider,
+// same ref, same patch — because a reassignment a human released must not be a
+// second spelling of a reassignment an automation made. What the approval adds
+// is the human, and the human is on the decision's own audit row.
+//
+// One field differs on purpose. The 🟢 branch stamps Source "system"; this
+// stamps "system:assign-owner-release", so the provenance column can tell a
+// reassignment that ran on its own from one a human had to release first. That
+// is a distinction worth keeping, not an accident of two code paths.
 
 import (
 	"context"

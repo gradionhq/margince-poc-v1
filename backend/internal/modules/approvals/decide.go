@@ -237,8 +237,13 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 	auditEvidence := map[string]any{
 		approvalKeyKind: a.Kind, "verdict": verdict, approvalKeyReason: reason,
 	}
+	// decided_by is a pointer because ONE verdict has no decider: the expiry
+	// sweep's. A human decision always names theirs, so it is always set here.
+	decider := openapi_types.UUID(p.UserID)
 	decidedPayload := crmcontracts.PublicEventApprovalDecided{
-		Kind: a.Kind, Verdict: verdict, DecidedBy: openapi_types.UUID(p.UserID),
+		Kind:      a.Kind,
+		Verdict:   crmcontracts.PublicEventApprovalDecidedVerdict(verdict),
+		DecidedBy: &decider,
 	}
 	if edited != nil {
 		// A step-up carries nothing a human should rewrite. Its payload IS the

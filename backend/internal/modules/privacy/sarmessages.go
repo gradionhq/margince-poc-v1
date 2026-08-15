@@ -154,6 +154,17 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		// export — Art. 15 owes them what is held, and a staged message naming
 		// them is held about them whatever kind wrote it.
 		//
+		// Loose about SHAPE is not loose about WHO. The address is escaped
+		// before it becomes a LIKE pattern, because `_` is legal and common in
+		// a local part and unescaped it matches any character: t_m@corp.com
+		// would pull in the staged message written to tim@corp.com and hand a
+		// third party's body and addressee to a subject it was never about.
+		// That is a disclosure, not an over-inclusive export.
+		//
+		// The lead arm is here for the reason the erasure scrub has one: a
+		// staging about the subject before they were promoted targets the lead
+		// row and often carries no address at all, so neither other arm sees it.
+		//
 		// The proposal is returned whole, for the same reason the sent
 		// messages' recipient lists are: this assembly is admin-mediated, so
 		// the disclosure is a human handing a package to a subject rather than
@@ -162,9 +173,13 @@ func sarMessagingSections(pkg *SARPackage) []sarSection {
 		      a.created_at, a.expires_at, a.decided_at
 		   FROM approval a
 		   WHERE (a.target_entity_type = 'person' AND a.target_entity_id = $1)
+		      OR (a.target_entity_type = 'lead' AND a.target_entity_id IN (
+		            SELECT id FROM lead WHERE promoted_person_id = $1))
 		      OR EXISTS (
 		           SELECT 1 FROM person_email e
 		            WHERE e.person_id = $1
-		              AND a.proposed_change::text ILIKE '%' || e.email || '%')`},
+		              AND a.proposed_change::text ILIKE
+		                  '%' || replace(replace(replace(e.email, '\', '\\'), '%', '\%'), '_', '\_') || '%'
+		                  ESCAPE '\')`},
 	}
 }

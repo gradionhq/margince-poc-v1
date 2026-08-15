@@ -73,17 +73,25 @@ func (s *Service) ExpireDue(ctx context.Context) ([]ExpiredApproval, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One bad row must not starve the rest. Candidates come back oldest-first
+	// and the batch is capped, so returning on the first failure would let a
+	// single permanently-failing approval occupy the front of every batch on
+	// every tick — and nothing behind it would ever expire again. The pass
+	// continues and reports the failures together, which keeps the job's own
+	// retry honest without making the queue depend on the worst row in it.
 	expired := make([]ExpiredApproval, 0, len(due))
+	var failures []error
 	for _, candidate := range due {
 		ok, err := s.expireOne(ctx, candidate.ID)
 		if err != nil {
-			return expired, err
+			failures = append(failures, fmt.Errorf("approval %s: %w", candidate.ID, err))
+			continue
 		}
 		if ok {
 			expired = append(expired, candidate)
 		}
 	}
-	return expired, nil
+	return expired, errors.Join(failures...)
 }
 
 // dueForExpiry reads the candidates. It is a plain read outside any
@@ -182,8 +190,11 @@ func (s *Service) expireOne(ctx context.Context, id ids.ApprovalID) (bool, error
 		// — a consumer that acts on a rejection must act on this too, and one
 		// that had to learn a second event type to notice would be one more
 		// place for the two to disagree.
+		// DecidedBy is left unset, and the contract makes that expressible: an
+		// expiry has no deciding human, and a zero uuid here would attribute a
+		// refusal to a user id that resolves to nobody.
 		if err := s.emit(ctx, tx, p, auditID, id.UUID, crmcontracts.PublicEventApprovalDecided{
-			Kind: a.Kind, Verdict: StatusExpired,
+			Kind: a.Kind, Verdict: crmcontracts.Expired,
 		}); err != nil {
 			return err
 		}

@@ -156,12 +156,18 @@ func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.Appr
 // the other, so run history showed a firing still waiting for a decision a
 // human had already given, and the effect it authorized had already run.
 //
-// It takes the CALLER's transaction, and that is the whole point. The release
-// redeems the approval and performs its effect in one transaction; the run
-// transition belongs in that same commit, or a crash between them recreates the
-// permanently-parked run this exists to prevent — with the message already
-// sent. There is no reconciler to lean on, so the commit boundary is the
-// guarantee.
+// It takes the CALLER's transaction, for the releases that HAVE one to lend.
+// A held draft redeems and sends in a single transaction (compose/heldrelease.go)
+// and the run transition belongs in that same commit: a crash between them would
+// recreate the permanently-parked run this exists to prevent, with the message
+// already sent, and there is no reconciler to lean on.
+//
+// Not every release can do that, and the difference is the record port rather
+// than a lapse. A reassignment writes through datasource.SystemOfRecordProvider,
+// a frozen seam with no transaction-taking variant, so it cannot be joined —
+// that path calls CompleteApprovedRun after its write instead, and accepts a
+// crash gap that leaves the run parked rather than lying. Which shape a kind
+// gets is decided by whether its write can be joined, never by preference.
 //
 // Idempotent by predicate, exactly like MarkRunBlocked: only a still-parked run
 // flips, so a redelivered or re-driven release changes nothing. Matching on the

@@ -155,3 +155,70 @@ func TestSubjectAccessIncludesAStagedMessageNobodyHasDecided(t *testing.T) {
 			len(pkg.StagedMessages))
 	}
 }
+
+// Withdrawing a staged approval must end the run waiting behind it.
+//
+// This is the defect the rest of this PR abolishes, reappearing through the
+// destructive path. Everywhere else a withdrawal reaches its parked run by
+// riding approval.decided; erasure emits no such event, and the expiry sweep
+// cannot repair it either because that sweep scans for pending and an erased
+// row is already terminal. Left alone the run waits forever — created by the
+// destruction that was supposed to leave nothing behind.
+func TestErasureBlocksTheRunWaitingOnTheApprovalItWithdraws(t *testing.T) {
+	e := integration.Setup(t)
+	subject, approvalID := erasureSubject(t, e)
+	handler := "wf_erasure_" + ids.NewV7().String()
+	e.WsExec(t, `
+		INSERT INTO workflow_run (handler, idempotency_key, trigger_event, planned, status, detail)
+		VALUES ($1, $2, $3, '[]'::jsonb, 'requires_approval', jsonb_build_object('approval_id', $4::text))`,
+		handler, handler+":1", ids.NewV7(), approvalID.String())
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), subject.UUID, "subject request"); err != nil {
+		t.Fatalf("ErasePerson → %v", err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM workflow_run
+		WHERE handler = $1 AND status = 'requires_approval'`, handler); n != 0 {
+		t.Error("the run is still waiting on an approval erasure withdrew — it will wait forever, and nothing downstream will ever look at it again")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM workflow_run
+		WHERE handler = $1 AND status = 'blocked'`, handler); n != 1 {
+		t.Error("the run did not end as blocked — a firing whose approval was withdrawn is a firing that never happened")
+	}
+}
+
+// An address is matched as itself, not as a pattern.
+//
+// `_` is legal and common in a local part, and unescaped in a LIKE it matches
+// any single character. Erasing t_m@ would then blank and withdraw the staged
+// message written to tim@ — destroying a colleague's pending work on a request
+// that was never about them, and putting their message in the wrong person's
+// Art. 15 export.
+func TestErasureLeavesALookalikeAddressAlone(t *testing.T) {
+	e := integration.Setup(t)
+	subject := e.SeedPerson(t, "Pattern Subject", nil)
+	e.WsExec(t, `
+		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
+		VALUES ($1, $2, 't_m@example.com', true, 'test', 'human:seed')`, e.WS, subject)
+
+	bystander, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
+		Kind:           "held_draft",
+		ProposedChange: json.RawMessage(`{"to":"tim@example.com","subject":"Lunch","body":"see you at one"}`),
+		DiffHash:       "lookalike-" + ids.NewV7().String(),
+		Summary:        "a draft to tim@example.com, who is not the subject",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(),
+		ids.From[ids.PersonKind](subject).UUID, "subject request"); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM approval
+		WHERE id = $1 AND status = 'pending'
+		  AND proposed_change::text ILIKE '%see you at one%'`, bystander); n != 1 {
+		t.Error("erasing t_m@example.com destroyed the staged message written to tim@example.com — the wildcard was never escaped")
+	}
+}

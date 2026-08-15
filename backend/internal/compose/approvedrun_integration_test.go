@@ -59,7 +59,7 @@ func parkedRun(t *testing.T, e *integration.Env, svc *approvals.Service, kind st
 	handler := "wf_" + ids.NewV7().String()
 	e.WsExec(t, `
 		INSERT INTO workflow_run (handler, idempotency_key, trigger_event, planned, status, detail)
-		VALUES ($1, $2, $3, '{}'::jsonb, 'requires_approval', jsonb_build_object('approval_id', $4::text))`,
+		VALUES ($1, $2, $3, '[]'::jsonb, 'requires_approval', jsonb_build_object('approval_id', $4::text))`,
 		handler, handler+":1", ids.NewV7(), id.String())
 	return id, handler
 }
@@ -208,8 +208,8 @@ func TestApprovingAReassignmentMovesTheOwnerAndCompletesItsRun(t *testing.T) {
 	if got := runStatus(t, e, handler); got != "applied" {
 		t.Errorf("run is %q after the reassignment it staged was approved and performed, want applied", got)
 	}
-	// Single-use: the redemption commits with the run transition, so the card
-	// cannot be spent twice on the same write.
+	// Single-use: the redemption consumes the card, so a second decision on the
+	// same approval is refused whatever happened to the write after it.
 	if _, err := svc.Decide(decider(e), id, true, nil); err == nil {
 		t.Error("an already-released reassignment was approvable again")
 	}
@@ -241,5 +241,59 @@ func TestAFailedReassignmentDoesNotMarkItsRunApplied(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND owner_id IS NOT NULL`, person); n != 0 {
 		t.Error("the failed reassignment left an owner on the record")
+	}
+}
+
+// Approving EVERY stageable kind must leave its run terminal.
+//
+// The census in approval_kinds_test.go proves a release executor is registered.
+// Registration is not execution: an executor that performs its write and forgets
+// CompleteApprovedRunTx satisfies that census and still strands its run in
+// requires_approval — the defect #1304 is about, one layer in. This runs the real
+// decision against a real database for each kind and asserts the run stopped
+// waiting, so the next kind added is held to the outcome rather than the wiring.
+//
+// The send-path kinds (lateApprovalEffects) are not registered on this service
+// and have their own suite; skipping them here is scoped, not silent — the loop
+// says which kinds it covered.
+func TestApprovingAnyStageableKindLeavesItsRunTerminal(t *testing.T) {
+	e := integration.Setup(t)
+	svc := approvalsServiceWithEffects(e.Pool)
+	registered := map[string]bool{}
+	for _, kind := range svc.EffectKinds() {
+		registered[kind] = true
+	}
+	for _, kind := range automation.AskingOnlyKinds() {
+		registered[kind] = true
+	}
+
+	covered := 0
+	for _, kind := range automation.StageableKinds() {
+		if !registered[kind] {
+			t.Logf("skipping %q: registered late with the send path, covered by its own suite", kind)
+			continue
+		}
+		t.Run(kind, func(t *testing.T) {
+			person := e.SeedPerson(t, "Terminal Run "+kind, nil)
+			id, handler := parkedRun(t, e, svc, kind, person,
+				`{"owner_id":"`+e.Rep1.String()+`"}`)
+
+			if _, err := svc.Decide(decider(e), id, true, nil); err != nil {
+				t.Fatalf("Decide(approve) → %v", err)
+			}
+			// Asking-only kinds finish through the decision consumer, which the
+			// relay drives; write-proposing kinds finish inside their executor.
+			if err := NewWorkflowEngine(e.DB()).HandleApprovalDecided(
+				context.Background(), decidedEnvelope(t, id, "approved")); err != nil {
+				t.Fatal(err)
+			}
+			if got := runStatus(t, e, handler); got == "requires_approval" {
+				t.Errorf("run behind an approved %q staging is still waiting — its executor ran but never completed the run", kind)
+			}
+		})
+		covered++
+	}
+	if covered == 0 {
+		t.Fatal("no stageable kind was covered — the scan found nothing to check, which means it is broken")
 	}
 }

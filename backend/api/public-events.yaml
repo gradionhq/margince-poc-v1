@@ -2226,31 +2226,40 @@ components:
       x-entity-type: approval
       x-version: 1
       description: >-
-        Payload for approval.decided — a human approved or rejected a
-        staged approval (approvals/decide.go). verdict and edited_change
-        are decoded BY NAME outside this module — automation's
-        blocked-run consumer matches verdict (automation/engine_blocked.go),
-        the Surface-B runner's resume consumer reads edited_change
-        (compose/runnerservice.go) — see the JSON-tag regression tests in
-        internal/modules/webhooks. edited/diff_hash/edited_change are
-        present only on the ADR-0036 §4 modify-then-approve arm, where the
-        human's edited payload replaced the staged change under a freshly
-        computed diff_hash.
+        Payload for approval.decided — a staged approval reached a verdict
+        (approvals/decide.go, approvals/expiresweep.go). kind, verdict and
+        edited_change are decoded BY NAME outside this module — automation's
+        run consumer matches BOTH verdict and kind
+        (automation/engine_blocked.go), the Surface-B runner's resume consumer
+        reads edited_change (compose/runnerservice.go) — see the JSON-tag
+        regression tests in internal/modules/webhooks.
+        edited/diff_hash/edited_change are present only on the ADR-0036 §4
+        modify-then-approve arm, where the human's edited payload replaced the
+        staged change under a freshly computed diff_hash.
       required:
         - kind
         - verdict
-        - decided_by
       properties:
         kind:
           type: string
           description: The decided staging's kind.
         verdict:
           type: string
-          description: The decision outcome (approved | rejected).
+          enum: [approved, rejected, expired]
+          description: >-
+            The decision outcome. `expired` is the window closing on a staging
+            nobody answered (APPR-PARAM-1's "unactioned means rejected"): it is
+            a real verdict written by the expiry sweep, not a rendering, and it
+            is the one verdict with no deciding human — consumers that treat a
+            refusal as a refusal must handle it alongside `rejected`.
         decided_by:
           type: string
           format: uuid
-          description: The deciding human's user id.
+          description: >-
+            The deciding human's user id. ABSENT on the `expired` verdict, and
+            that absence is the payload's own statement that nobody decided
+            this — a zero or placeholder id here would put a phantom user's name
+            on a refusal no person made.
         edited:
           type: boolean
           description: >-

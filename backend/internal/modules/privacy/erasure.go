@@ -136,7 +136,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		}
 		// And the ones nobody has DECIDED yet, one step earlier in the same life
 		// — a staged draft and the run that composed it (erasure_approvals.go).
-		if err := redactStagedApprovals(ctx, tx, subject, emails); err != nil {
+		if err := redactStagedApprovals(ctx, tx, subject, leadsWiped, emails); err != nil {
 			return err
 		}
 		if err := redactWorkflowRuns(ctx, tx, emails); err != nil {
