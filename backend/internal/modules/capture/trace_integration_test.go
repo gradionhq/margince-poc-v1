@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -238,5 +239,47 @@ func TestATraceWithoutANaturalKeyIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "natural key") {
 		t.Errorf("error = %q, want it to name the missing natural key", err)
+	}
+}
+
+// Deletion sticks at the WRITE, not only in the erasure sweep. recordDisposition
+// already refuses to re-materialize an erased address in the ledger; a
+// diagnostic table in payload mode is exactly where it would otherwise come
+// back, so the trace asks the same list.
+func TestAnErasedAddressIsNeverWrittenEvenWithPayloadsOn(t *testing.T) {
+	ctx, db := traceWorkspace(t)
+	const erased = "gone@client.io"
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		// Seeded through storekit's own hashing rule, not a literal: writer and
+		// reader must normalize identically or a stray space resurrects an
+		// erased subject, which is the bug this table exists to prevent.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)`,
+			storekit.SuppressionHash(erased))
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the suppression list: %v", err)
+	}
+
+	entry := mailTrace("m-erased", capture.TraceCaptured)
+	entry.Counterparty, entry.Subject = erased, "Please delete my data"
+	writeTrace(t, ctx, db, entry, true)
+
+	var counterparty, subject *string
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT counterparty, subject FROM capture_trace WHERE source_id = 'm-erased'`).
+			Scan(&counterparty, &subject)
+	}); err != nil {
+		t.Fatalf("reading the row: %v", err)
+	}
+	// The decision is still traced — the member is owed the answer that their
+	// message was handled — but with no trace of who.
+	if counterparty != nil {
+		t.Errorf("stored counterparty = %q for an erased subject, want NULL", *counterparty)
+	}
+	if subject != nil {
+		t.Errorf("stored subject = %q for an erased subject, want NULL", *subject)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -36,6 +37,10 @@ type Sink struct {
 	// files is the timeline module's attachment writer. Nil is a role that
 	// keeps no files: messages still land, and their attachments do not.
 	files FileKeeper
+	// tracePayloads is the deployment's capture.trace_payloads posture: with it
+	// on, the 24-hour trace keeps each message's sender and subject. Off is the
+	// default and the only value a member can cause.
+	tracePayloads bool
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -141,7 +146,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 		if skip {
 			internalOnly = true
-			return s.logBreadcrumbTx(ctx, tx, actionCaptureInternalDropped, rec, reasonInternalOnly)
+			if err := s.logBreadcrumbTx(ctx, tx, actionCaptureInternalDropped, rec, reasonInternalOnly); err != nil {
+				return err
+			}
+			// The member's own answer to "why did this never appear". The
+			// breadcrumb above is the operator's and says nothing about whose
+			// mailbox this was; this says it was theirs and that the drop was
+			// deliberate.
+			return s.traceTx(ctx, tx, rec, TraceInternal, reasonInternalOnly)
 		}
 
 		if err := storeRawCapture(ctx, tx, rec); err != nil {
@@ -162,6 +174,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	})
 	if err != nil {
+		// The transaction rolled back and took any trace inside it, so this one
+		// is written afterwards on its own -- the pattern logEnsureFault already
+		// uses, and for the same reason.
+		if errors.Is(err, errInvisibleIncumbent) {
+			if traceErr := s.traceAfterRollback(ctx, rec, TraceFault, TraceReasonInvisibleIncumbent); traceErr != nil {
+				slog.ErrorContext(ctx, "capture: recording the invisible-incumbent trace", "err", traceErr, "cause", err)
+			}
+		}
 		return datasource.EntityRef{}, err
 	}
 	if internalOnly {
@@ -308,6 +328,13 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	// The trace runs LAST, so it can carry the reason the ladder just settled on:
+	// a message from a sender a previous verdict judged noise commits exactly
+	// like any other and is then archived by the hide sweep, and a trace saying
+	// only "captured" would answer "why did this not appear" with "it did".
+	if err := s.traceActivity(ctx, tx, rec, id.UUID, decision); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	return ref, true, decision, nil
 }
 
@@ -441,9 +468,17 @@ func defaultOccurredAt(occurredAt time.Time) time.Time {
 // The natural key names the skip, never the captured address or the
 // incumbent's id — a skip must re-store neither PII nor an existence proof.
 func skipInvisibleIncumbent(rec connector.NormalizedRecord, object string) error {
-	return fmt.Errorf("capture: %s/%s resolves onto a %s outside the granting human's row scope: %w",
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, object, connector.ErrSkip)
+	return fmt.Errorf("capture: %s/%s resolves onto a %s: %w: %w",
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, object, errInvisibleIncumbent, connector.ErrSkip)
 }
+
+// errInvisibleIncumbent distinguishes this skip from the other one the capture
+// transaction can raise. Both wrap connector.ErrSkip, and the caller must tell
+// them apart: this one is traced, because from the member's side a message they
+// can see in their own mailbox simply never arrives and they deserve to know
+// why. The erased-channel skip is NOT traced -- writing one would re-store what
+// the erasure just removed.
+var errInvisibleIncumbent = errors.New("the incumbent row is outside the granting human's row scope")
 
 // captureSource is the provenance channel column value; the natural
 // key's system is the honest channel name.

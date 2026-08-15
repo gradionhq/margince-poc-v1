@@ -62,8 +62,7 @@ CREATE TABLE capture_trace (
                  CHECK (connector ~ '^[a-z][a-z0-9_:.-]*$' AND char_length(connector) <= 96),
 
   -- The message's natural key, and the ONLY thing the unique index below has to
-  -- work with -- the links are activity_id and disposition_id, so nothing reads
-  -- this to find a record.
+  -- work with -- activity_id is the link, so nothing reads this to find a row.
   --
   -- ADR-0082 §1 permits a drop to record "the connector, the source system and
   -- the external id", but that was written about MAIL, where the external id is
@@ -79,25 +78,43 @@ CREATE TABLE capture_trace (
   source_system  text NOT NULL CHECK (length(source_system) > 0),
   source_id      text NOT NULL CHECK (length(source_id) > 0),
 
+  -- ONE row per message, and these five PARTITION it: a message either never
+  -- landed (internal) or landed and its sender was settled one of four ways.
+  --
+  -- The verdict engine's outcomes are deliberately absent. They are facts about
+  -- a SENDER's open question, not about a message, and the disposition ledger
+  -- already records them with an owner, a status, a kind and its timestamps. A
+  -- copy here would need the sender's question filed under one arbitrary message
+  -- of the several it covers, and would collide with itself the moment a sender
+  -- were re-judged inside the window. The read joins the ledger instead, on
+  -- activity_id, which needs no address and so works with payloads off.
   outcome        text NOT NULL CHECK (outcome IN (
-                   'captured','internal','suppressed','deferred',
-                   'verdict_real','verdict_noise','unsure','fault')),
+                   'captured','internal','suppressed','deferred','fault')),
 
   -- A CLASS this installation chose, never a provider's message and never
   -- content: it is rendered on a screen, and a remote party's prose is not this
   -- installation's to display.
   reason         text NULL,
 
-  -- Links, set only where a row legitimately exists to link to. Neither is an
-  -- FK: both targets can be erased or retention-swept independently, and a
-  -- trace that blocked an erasure would invert its own purpose.
+  -- The row this message became, when it became one. Not an FK: the activity
+  -- can be erased or retention-swept independently, and a trace that blocked an
+  -- erasure would invert its own purpose.
+  --
+  -- It is also the JOIN to the disposition ledger, which is how a deferred
+  -- message shows what later became of its sender without this table storing a
+  -- second copy of that answer -- or an address to join on, which it does not
+  -- have unless an operator turned payloads on.
   activity_id    uuid NULL,
-  disposition_id uuid NULL,
 
   -- Layer 2, NULL unless capture.trace_payloads is on (deployconfig, off by
   -- default, settable only in margince.yaml). Bounded on write, normalized
   -- lower-case so the privacy engine's erasure predicate is index-backed
   -- equality rather than a scan.
+  --
+  -- An ERASED subject's address is never written here whatever the posture says:
+  -- Trace consults the same suppression list recordDisposition does, for the
+  -- same reason it does -- deletion sticks at the write, and a diagnostic table
+  -- is exactly where an erased address would otherwise re-materialize.
   counterparty   text NULL CHECK (counterparty IS NULL OR char_length(counterparty) <= 320),
   subject        text NULL CHECK (subject IS NULL OR char_length(subject) <= 300),
 

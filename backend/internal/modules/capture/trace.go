@@ -26,39 +26,29 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// TraceOutcome is what the pipeline did. Two vocabularies live in one column
-// because they share a row shape, but they do NOT share a unit and must never
-// be summed together: the ingress values are per MESSAGE, the resolution values
-// are per SENDER. One stranger who writes five times is five deferred messages
-// and one resolution.
+// TraceOutcome is what the pipeline did with one MESSAGE. The five values
+// partition it: a message either never landed, or landed and had its sender
+// settled one of four ways.
+//
+// The verdict engine's answers are deliberately NOT here. They are facts about
+// a sender's open question rather than about a message — the disposition ledger
+// already holds them, with an owner, a status, a kind and its timestamps — and
+// copying them in would file a sender's answer under one arbitrary message of
+// the several it covers, then collide with itself the moment that sender were
+// re-judged inside the window. The read joins the ledger on activity_id, which
+// needs no address and so works with payloads off.
 type TraceOutcome string
 
-// The ingress outcomes — one per message, written by the Sink.
-//
-// TraceCaptured and TraceFault can BOTH apply to one message: a derivation
-// fault is contained by a savepoint and the message still commits. That is why
-// these are not a partition and the read reports them as counts rather than as
-// shares of a total.
 const (
 	TraceCaptured   TraceOutcome = "captured"
 	TraceInternal   TraceOutcome = "internal"
 	TraceSuppressed TraceOutcome = "suppressed"
 	TraceDeferred   TraceOutcome = "deferred"
 	TraceFault      TraceOutcome = "fault"
-)
-
-// The resolution outcomes — one per sender, written by the verdict engine and
-// by the human decisions that close what it could not settle.
-const (
-	TraceVerdictReal  TraceOutcome = "verdict_real"
-	TraceVerdictNoise TraceOutcome = "verdict_noise"
-	TraceUnsure       TraceOutcome = "unsure"
-	TraceAccepted     TraceOutcome = "accepted"
-	TraceDeclined     TraceOutcome = "declined"
-	TraceAgedOut      TraceOutcome = "aged_out"
 )
 
 // The reasons that change what an outcome MEANS, rather than merely annotating
@@ -80,6 +70,15 @@ const (
 	// TraceReasonNoGrantingHuman is the derivation fault that returns before the
 	// guarded arm, so it reaches no other fault path.
 	TraceReasonNoGrantingHuman = "no_granting_human"
+	// gateFaultReason is the tier ladder failing on its own terms. It is a CLASS
+	// and never the gate's error text: that text carries table and constraint
+	// names, and this one is rendered on a member's screen.
+	gateFaultReason = "derivation_failed"
+	// traceReasonNoCounterparty is a message that landed and named nobody a
+	// record could be created for -- an automated notice with no readable
+	// sender, or a colleague-only thread whose external party left. Unexported:
+	// no call site outside this module has occasion to state it.
+	traceReasonNoCounterparty = "no_counterparty"
 	// TraceReasonInvisibleIncumbent is a replayed message whose incumbent row
 	// lies outside the reader's row scope. It is refused as an error from inside
 	// the capture transaction, so its trace CANNOT be written there.
@@ -111,8 +110,7 @@ type TraceEntry struct {
 	Outcome TraceOutcome
 	Reason  string
 
-	ActivityID    ids.UUID
-	DispositionID ids.UUID
+	ActivityID ids.UUID
 
 	// ChannelIdentity reports that SourceID is a provider ACCOUNT id rather than
 	// a message id — which is personal data, and is hashed on write.
@@ -135,17 +133,15 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	if err := in.validate(); err != nil {
 		return err
 	}
-	var counterparty, subject *string
-	if payloads {
-		counterparty = nonEmpty(strings.ToLower(strings.TrimSpace(clampRunes(in.Counterparty, maxTraceAddressChars))))
-		subject = nonEmpty(clampRunes(in.Subject, maxTraceSubjectChars))
+	counterparty, subject, err := tracePayload(ctx, tx, in, payloads)
+	if err != nil {
+		return err
 	}
-	_, err := tx.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
-		                           outcome, reason, activity_id, disposition_id,
-		                           counterparty, subject)
+		                           outcome, reason, activity_id, counterparty, subject)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10)
+		        $1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9)
 		-- The conflict target SPELLS the index's expression, COALESCE and all: a
 		-- bare column list does not match an expression index, and Postgres
 		-- answers that with an error on every insert -- which, on the capture
@@ -154,12 +150,45 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 		             source_system, source_id, outcome) DO NOTHING`,
 		nullableID(in.UserID), in.Connector, in.SourceSystem,
 		traceSourceID(in.SourceID, in.ChannelIdentity),
-		string(in.Outcome), in.Reason, nullableID(in.ActivityID), nullableID(in.DispositionID),
+		string(in.Outcome), in.Reason, nullableID(in.ActivityID),
 		counterparty, subject)
 	if err != nil {
 		return fmt.Errorf("capture: recording the pipeline trace: %w", err)
 	}
 	return nil
+}
+
+// tracePayload decides what content this row may carry, and is the only place
+// that decides it.
+//
+// DELETION STICKS AT THE WRITE. recordDisposition already refuses to write an
+// erased subject's address into the ledger, for the reason its own comment
+// gives: a fresh row would restore that address and their header display name
+// in a new table. A diagnostic trace is exactly such a table, and payload mode
+// is exactly when it would happen — so it asks the same list, rather than
+// leaving the invariant to hold in one module and not the one beside it.
+//
+// The check costs a query per traced message, and only in payload mode, which
+// is an operator's opt-in diagnostic posture rather than the steady state.
+func tracePayload(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) (*string, *string, error) {
+	address := strings.ToLower(strings.TrimSpace(in.Counterparty))
+	if !payloads || address == "" {
+		// No payload posture, or nothing to say: the columns stay NULL rather
+		// than being written and masked. A column never populated cannot leak.
+		return nil, nil, nil
+	}
+	suppressed, err := storekit.EmailSuppressed(ctx, tx, address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("capture: checking the suppression list for a trace payload: %w", err)
+	}
+	if suppressed {
+		// The decision is still traced — a member is owed the answer that their
+		// message was handled — but with no trace of WHO, which is the part the
+		// erasure removed.
+		return nil, nil, nil
+	}
+	return nonEmpty(clampRunes(address, maxTraceAddressChars)),
+		nonEmpty(clampRunes(in.Subject, maxTraceSubjectChars)), nil
 }
 
 // validate refuses an entry that would record a decision nobody can read back.

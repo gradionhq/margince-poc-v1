@@ -197,24 +197,24 @@ func isDecliningReply(text string) bool {
 // counterparty: on an introduction it is the outsider a colleague copied, and
 // asking the registry about the colleague's own domain would test a domain that
 // is never infrastructure instead of the one that might be.
-func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, subject connector.Counterparty, row dispositionRow, corresponded bool) (bool, error) {
+func (s *Sink) registrySuppresses(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, subject connector.Counterparty, row dispositionRow, corresponded bool) (bool, string, error) {
 	if s.transactional == nil {
-		return false, nil
+		return false, "", nil
 	}
 	suppress, reason := s.transactional.Suppress(transactionalInput(subject))
 	if !suppress {
-		return false, nil
+		return false, "", nil
 	}
 	if corresponded {
-		return false, s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
+		return false, "", s.logBreadcrumbTx(ctx, tx, "capture_correspondence_spared", rec, reason)
 	}
 	row.Status, row.Reason = PendingStatusSuppressed, reason
 	// A suppression asks nothing and so is never capped; the flag is only
 	// meaningful for the deferring tier.
 	if _, err := recordDisposition(ctx, tx, row); err != nil {
-		return true, err
+		return true, "", err
 	}
-	return true, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
+	return true, reason, s.logBreadcrumbTx(ctx, tx, "capture_transactional_suppressed", rec, reason)
 }
 
 // transactionalInput builds the transactional-gate input from a captured
