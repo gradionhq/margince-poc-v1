@@ -32,6 +32,17 @@ type RecordKind string
 // side cannot keep.
 const KindActivity RecordKind = "activity"
 
+// ActivityKindMessage is the timeline kind a message on a messaging channel
+// lands as, published here because a unit cannot reach the core's own
+// vocabulary and would otherwise spell the string blind.
+//
+// It is the ONE kind whose transport is separable from it (ADR-0107/A158): a
+// message names what carried it on ActivityFields.ChannelProvider, and every
+// other kind names nothing there. A fitness test outside this package holds
+// this constant equal to the core's own, so the two cannot drift into a unit
+// filing a kind the core no longer calls a message.
+const ActivityKindMessage = "message"
+
 // IngressSource is one provider a unit brings records in from: the unit's own
 // stable key for it, and which kinds it lands.
 //
@@ -120,6 +131,16 @@ type Counterparty struct {
 	// Direction is relative to the connected member: a message they received is
 	// inbound. A record with no honest direction leaves it empty.
 	Direction string
+	// ChannelIdentity is the channel twin of Email: the account this party holds
+	// at a messaging provider, for a record that has no address to carry.
+	//
+	// It is what makes a captured message REPLIABLE. The core binds it to the
+	// person it resolves, and the reply path resolves its recipient from that
+	// binding — so a channel record that leaves this empty lands a message
+	// nobody can answer, which looks exactly like a message with no reply box.
+	//
+	// Zero for every record that identifies its counterparty by address.
+	ChannelIdentity ChannelIdentity
 }
 
 // ActivityFields is a captured interaction bound for the timeline. It mirrors
@@ -129,6 +150,16 @@ type ActivityFields struct {
 	// Kind is the timeline kind — the core admits a closed set, and a value
 	// outside it is refused rather than coerced.
 	Kind string
+	// ChannelProvider is the transport that carried this record, and it is
+	// meaningful for exactly one kind: ActivityKindMessage.
+	//
+	// The pairing rule — a message names a transport, nothing else does, and a
+	// unit may name only a transport it DECLARED — is enforced by the core at
+	// the write door rather than here. This package does not know the core's
+	// kind vocabulary and cannot see which channels the calling unit declared,
+	// so a rule spelled here would be a second version of one that can disagree
+	// with the first.
+	ChannelProvider string
 	// Subject and Body are the message as a human reads it. Both are bounded
 	// (see the Max* constants): a provider is a remote party, and an unbounded
 	// field is that party choosing how much this installation stores.
@@ -168,6 +199,10 @@ const (
 	// MaxThreadKeyLength caps the conversation key, which is stored on the
 	// activity and joined against.
 	MaxThreadKeyLength = 512
+	// MaxChannelUserIDLength caps a provider's own account id. It is indexed
+	// (the identity binding is unique per provider and account) and it is
+	// remote-party text like every other bound here.
+	MaxChannelUserIDLength = 256
 )
 
 // Record is one provider record on its way into the CRM.
@@ -271,8 +306,23 @@ func (r Record) validateKey() error {
 }
 
 func (r Record) validateAddresses() error {
+	// A record that names no ADDRESS at all may name no addresses: a chat
+	// message can have none anywhere in it, and the core's own shape already
+	// says so — connector.NormalizedRecord treats an empty set as "I cannot
+	// enumerate the parties", which the internal-message gate reads as NOT
+	// internal and keeps. Refusing it here would have turned away every record
+	// from a provider that issues opaque account ids and no mail, before it
+	// reached a core that would have accepted it.
+	//
+	// The condition is the counterparty's EMAIL rather than "is this a channel
+	// record", because that is the partition the core itself draws: a record
+	// naming its human by a channel account and one naming nobody at all are
+	// the same case here, and both are legal.
 	if len(r.Addresses) == 0 {
-		return errors.New("extension: the record names no addresses — the internal-message gate reads every party from this set, and over an empty one it answers \"not internal\" and keeps the record, so leaving it empty disables the gate rather than passing it")
+		if r.Counterparty.Email == "" {
+			return nil
+		}
+		return errors.New("extension: the record names an address for its counterparty and no addresses at all — the internal-message gate reads every party from that set, and over an empty one it answers \"not internal\" and keeps the record, so leaving it empty disables the gate rather than passing it")
 	}
 	if len(r.Addresses) > MaxAddresses {
 		return fmt.Errorf("extension: the record names %d addresses, over the cap of %d", len(r.Addresses), MaxAddresses)
@@ -298,6 +348,41 @@ func (c Counterparty) validate() error {
 	if c.Direction != "" && c.Direction != DirectionInbound && c.Direction != DirectionOutbound {
 		return fmt.Errorf("extension: %q is not a direction (%q, %q, or empty for a record with no honest direction)",
 			c.Direction, DirectionInbound, DirectionOutbound)
+	}
+	// A counterparty is named by an address OR by a channel identity, never
+	// both — the core's own rule (capture's ErrCounterpartyNamedTwice), restated
+	// here so a unit learns it from its own grammar rather than from an
+	// unattributable "the core could not land this record". The two are
+	// different resolution ladders that mint the person differently, and a
+	// record supplying both is asking which one it meant.
+	if c.Email != "" && (c.ChannelIdentity.Provider != "" || c.ChannelIdentity.ChannelUserID != "") {
+		return errors.New("extension: the counterparty is named by an address AND by a channel identity — a record names its human one way, because the two resolve through different ladders and nothing here can decide which was meant")
+	}
+	return c.ChannelIdentity.validate()
+}
+
+// validate refuses a HALF-stated channel identity, which is the shape that
+// looks populated and routes nowhere.
+//
+// Either both the provider and the account id are present or neither is. One
+// without the other reaches the core as a binding it cannot key — and the core
+// would drop it rather than fail, so the record would land, look ordinary, and
+// carry no reply address, which is indistinguishable from a provider that
+// simply does not identify its senders.
+func (c ChannelIdentity) validate() error {
+	switch {
+	case c.Provider == "" && c.ChannelUserID == "":
+		return nil
+	case c.Provider == "":
+		return errors.New("extension: the channel identity names an account with no provider — the binding is keyed on the pair, so half of it binds nothing")
+	case c.ChannelUserID == "":
+		return errors.New("extension: the channel identity names a provider with no account id — a party identified only by transport cannot be replied to")
+	case !providerGrammar.MatchString(c.Provider):
+		return fmt.Errorf("extension: channel identity provider %q must start with a letter and contain only lower-case letters, digits and underscores", c.Provider)
+	case len(c.ChannelUserID) > MaxChannelUserIDLength:
+		return fmt.Errorf("extension: the channel account id is %d bytes, over the %d-byte cap", len(c.ChannelUserID), MaxChannelUserIDLength)
+	case utf8.RuneCountInString(c.DisplayName) > MaxDisplayNameRunes:
+		return fmt.Errorf("extension: the channel identity display name is over the %d-rune cap", MaxDisplayNameRunes)
 	}
 	return nil
 }

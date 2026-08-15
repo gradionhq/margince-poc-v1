@@ -64,6 +64,23 @@ type extensionCore struct {
 	// passes in.
 	unattended bool
 	deps       extensionRuntimeBinding
+	// unit is which extension this port is writing for, and it is here for one
+	// reason: what a unit may name at this door is bounded by what that unit
+	// DECLARED. Taken from the Runtime rather than from the request, for the
+	// reason every other derived identity here is.
+	unit string
+}
+
+// providerNamed reads the transport off the transcoded request, where it is
+// optional. An absent field and an empty one are ONE answer — "this record
+// names no transport" — because the pairing rule asks whether a transport was
+// named, and a nil pointer answering differently from an empty string would be
+// two spellings of one record with two outcomes.
+func providerNamed(ref *crmcontracts.ProviderRef) string {
+	if ref == nil {
+		return ""
+	}
+	return string(*ref)
 }
 
 //nolint:ireturn // returning the published repo IS the seam: a unit holds extension.ActivityRepo, never a core type.
@@ -104,12 +121,12 @@ func (a extensionActivities) Create(ctx context.Context, in crm.CreateActivityRe
 	if err != nil {
 		return crm.Activity{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err)
 	}
-	// The SAME refusal the ingress door applies, because a unit has two ways to
+	// The SAME rule the ingress door applies, because a unit has two ways to
 	// write an activity and the rule is about the unit, not about the door. This
 	// one is the dangerous half: the published request carries channel_provider,
 	// so without this a unit could name a core connector's transport and mint a
 	// valid send anchor for a conversation it does not own.
-	if err := refuseUnitMessageKind(string(request.Kind)); err != nil {
+	if err := refuseUndeclaredTransport(a.core.unit, string(request.Kind), providerNamed(request.ChannelProvider)); err != nil {
 		return crm.Activity{}, err
 	}
 	mapped, err := activities.LogActivityInputFrom(request)

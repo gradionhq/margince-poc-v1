@@ -148,6 +148,15 @@ func validateExtensionSet(exts []extension.Extension) error {
 	seen := make(map[extension.Name]bool, len(exts))
 	namespaces := make(map[string]extension.Name, len(exts))
 	packCodes := make(map[jurisdiction.Code]extension.Name, len(exts))
+	// Which provider each unit has claimed — a fact about the composed SET, so
+	// it is accumulated across the loop rather than asked of one declaration.
+	//
+	// The OTHER collision, against a core connector, is deliberately not here:
+	// the core's own transport set is decided when the capture registry is
+	// constructed, which can happen after this runs, so asking now would answer
+	// from an empty set and pass a collision it could not see. The reconcile
+	// holds that one, where both sets exist.
+	claimedProviders := make(map[string]extension.Name)
 	for _, e := range exts {
 		if err := e.Name.Validate(); err != nil {
 			return fmt.Errorf("compose: %w", err)
@@ -178,6 +187,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 			return err
 		}
 		if err := preflightIngress(e); err != nil {
+			return err
+		}
+		if err := preflightChannels(e, claimedProviders); err != nil {
 			return err
 		}
 	}
@@ -351,47 +363,6 @@ func preflightSecrets(e extension.Extension) error {
 			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
 		}
 		seen[req] = true
-	}
-	return nil
-}
-
-// preflightIngress validates one unit's declared ingress sources through the
-// same published IngressSource.Validate the manifest generator runs, and
-// rejects the same system declared twice.
-//
-// A duplicate is not harmless here the way a duplicate description would be:
-// the system key is half of every landed record's natural key, so two entries
-// naming one system are two declarations an operator resolves separately about
-// one provenance namespace — and if they ever disagree about Lands, which of
-// them the port answered from would be declaration order.
-func preflightIngress(e extension.Extension) error {
-	seen := make(map[string]bool, len(e.Ingress))
-	for _, source := range e.Ingress {
-		if err := source.Validate(); err != nil {
-			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
-		}
-		if seen[source.System] {
-			return fmt.Errorf("compose: extension %q declares ingress source %q twice", e.Name, source.System)
-		}
-		seen[source.System] = true
-	}
-	return nil
-}
-
-// preflightJobs validates one unit's scheduled jobs through the same published
-// Job.Validate the manifest generator runs, and rejects a job name declared
-// twice within the unit — the same fail-closed boundary preflightTools holds,
-// for a declaration that reached the composed set outside the generator path.
-func preflightJobs(e extension.Extension) error {
-	seen := make(map[string]bool, len(e.Jobs))
-	for _, job := range e.Jobs {
-		if err := job.Validate(); err != nil {
-			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
-		}
-		if seen[job.Name] {
-			return fmt.Errorf("compose: extension %q declares job %q twice", e.Name, job.Name)
-		}
-		seen[job.Name] = true
 	}
 	return nil
 }

@@ -81,7 +81,10 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}
-	if err := refuseUnitMessageKind(rec.Activity.Kind); err != nil {
+	if err := refuseUndeclaredTransport(r.unit, rec.Activity.Kind, rec.Activity.ChannelProvider); err != nil {
+		return extension.Result{}, err
+	}
+	if err := refuseUnitIdentity(r.unit, rec.Counterparty.ChannelIdentity.Provider); err != nil {
 		return extension.Result{}, err
 	}
 	// Whether this ROLE can accept a record at all is answered before the
@@ -188,13 +191,14 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 		NaturalKey: r.naturalKey(rec),
 		Fields: capture.ActivityFields{
 			Kind: rec.Activity.Kind,
-			// No transport, and no way for a unit to name one yet: the extension
-			// record shape carries no channel, so a unit landing KindMessage is
-			// refused before it gets here (refuseUnitMessageKind).
-			Subject:    rec.Activity.Subject,
-			Body:       rec.Activity.Body,
-			OccurredAt: rec.Activity.OccurredAt,
-			Direction:  rec.Activity.Direction,
+			// The transport the unit named, already held to what it DECLARED
+			// (refuseUndeclaredTransport) — so this carries a provider the
+			// installation registered rather than a string the unit chose.
+			ChannelProvider: rec.Activity.ChannelProvider,
+			Subject:         rec.Activity.Subject,
+			Body:            rec.Activity.Body,
+			OccurredAt:      rec.Activity.OccurredAt,
+			Direction:       rec.Activity.Direction,
 		},
 		Source:     r.sourceSystem(rec.System),
 		CapturedBy: ingressPrincipalPrefix + r.unit,
@@ -206,32 +210,89 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 			DisplayName: rec.Counterparty.DisplayName,
 			Domain:      rec.Counterparty.Domain,
 			Direction:   rec.Counterparty.Direction,
+			// The binding that makes the record repliable, held to the same
+			// declared set the activity's own transport is (refuseUnitIdentity):
+			// a unit that could bind an identity under a core connector's
+			// provider would be writing into the table the workspace's own
+			// reply path resolves its recipients from.
+			//
+			// DisplayName lands on Username, which is the core's display-only
+			// field for exactly this: a handle nothing routes, authorizes or
+			// deduplicates on. The two names differ because the core's is
+			// Telegram-shaped and the published one is not, and renaming either
+			// would be a change at a security-sensitive identity for a word.
+			ChannelIdentity: connector.ChannelIdentity{
+				Provider:      rec.Counterparty.ChannelIdentity.Provider,
+				ChannelUserID: rec.Counterparty.ChannelIdentity.ChannelUserID,
+				Username:      rec.Counterparty.ChannelIdentity.DisplayName,
+			},
 		},
 	}
 }
 
-// refuseUnitMessageKind stops a unit filing a channel message on ANY of its
+// refuseUndeclaredTransport holds the kind/transport pairing on ANY of a unit's
 // write doors, and it is deliberately one function rather than a check at each.
 //
-// A unit has no channel of its own until slice 2, so it may not claim a
-// transport it does not own. The two doors fail differently without this and
-// only one of them is obvious: capture ingress carries no provider field at all,
-// so a message would violate the CHECK and surface as an unattributable 500 —
-// while the core-write door DOES carry channel_provider, so a unit could name a
-// core connector's transport and mint a row that is a valid SEND ANCHOR. A rep
-// or an approved agent replying on it would transmit a real message from the
-// workspace's bot to whoever the unit linked: the unit picks the target, the
-// human supplies the authority. It would also inherit the GoBD statutory floor,
-// pinning unit-supplied text past the workspace's own retention policy.
+// It is a BOUNDED PERMISSION, and the bound is the point. A unit may file a
+// message on a transport it DECLARED (extension.Channel) and on no other. What
+// it may not do is name somebody else's: the core-write door carries
+// channel_provider on the published request, so a unit naming `telegram` would
+// mint a row that is a valid SEND ANCHOR for a conversation it does not own —
+// a rep or an approved agent replying on it would transmit a real message from
+// the workspace's bot to whoever the unit linked, the unit picking the target
+// and the human supplying the authority. It would also inherit that transport's
+// statutory retention floor, pinning unit-supplied text past the workspace's
+// own policy.
 //
-// Slice 2 turns this from a refusal into a bounded permission — a unit may name
-// its own declared provider and no other.
-func refuseUnitMessageKind(kind string) error {
+// The other direction is refused too, and it is the quieter defect: a NON-message
+// naming a transport is a record claiming to have travelled somewhere it did
+// not. The send path reads the provider column and not the kind since
+// ADR-0107/A158, so such a row would be repliable — a note that answers back.
+func refuseUndeclaredTransport(unit, kind, provider string) error {
 	if kind != activities.KindMessage {
+		if provider == "" {
+			return nil
+		}
+		return fmt.Errorf("%w: a %q activity names the transport %q — only a %q carries one, and a record claiming a transport it did not travel on is one the reply path would answer on",
+			extension.ErrInvalid, kind, provider, activities.KindMessage)
+	}
+	if provider == "" {
+		return fmt.Errorf("%w: a %q activity names no transport — a message that does not say what carried it cannot be replied to on anything",
+			extension.ErrInvalid, activities.KindMessage)
+	}
+	for _, declared := range composedChannelsFor(unit) {
+		if declared.Provider == provider {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: this unit does not supply the transport %q — a unit may file a message on a channel it declared and on no other",
+		extension.ErrInvalid, provider)
+}
+
+// refuseUnitIdentity holds a record's counterparty BINDING to the same declared
+// set its transport is held to.
+//
+// It is a second check rather than a reuse of the pairing above because it
+// answers about a different row. The activity's provider decides where a reply
+// would be SENT; this one writes person_channel_identity, which is where the
+// core's reply path resolves WHO it is sent to. A unit able to bind an identity
+// under `telegram` could attach an account it controls to somebody else's person
+// record, and the next Telegram reply a rep writes on that person's conversation
+// would go to the unit's account instead — no message the unit filed involved.
+//
+// An empty provider is a record that identifies its counterparty by address, and
+// binds nothing.
+func refuseUnitIdentity(unit, provider string) error {
+	if provider == "" {
 		return nil
 	}
-	return fmt.Errorf("%w: a unit cannot file a %q activity — a message must name the transport that carried it, and a unit may not claim a transport it does not supply",
-		extension.ErrInvalid, activities.KindMessage)
+	for _, declared := range composedChannelsFor(unit) {
+		if declared.Provider == provider {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: this unit does not supply the transport %q, so it cannot bind an account on it — the reply path resolves its recipients from those bindings",
+		extension.ErrInvalid, provider)
 }
 
 // naturalKey is the idempotency key the database's unique index enforces. Its

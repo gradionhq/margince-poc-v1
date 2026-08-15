@@ -7,17 +7,17 @@ package compose
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// A provider not already seeded is inserted, with transport='core' (this
-// reconcile only ever handles core connectors — a unit's declared channel is
-// its own later slice).
+// A core connector not already seeded is inserted, with transport='core'.
 func TestReconcileChannelProvidersInsertsAnUnseenProvider(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := context.Background()
@@ -132,6 +132,185 @@ func TestReconcileChannelProvidersNeverDeletesARetiredRow(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("telegram's row was deleted when it dropped out of the composed set (count=%d)", count)
+	}
+}
+
+// A UNIT's declared channel becomes a registry row of its own — and until it
+// does, no message can reference it: activity.channel_provider is a foreign key
+// into this table, so a captured chat message would be refused by the database
+// rather than landing under an unregistered name.
+//
+// What the row SAYS is the other half. transport='unit' is what the send path
+// branches on to resolve a per-member credential instead of the workspace's bot,
+// and credential_model='per_member' is what an operator reads to know that
+// connecting is each member's own act rather than an admin's one-time binding.
+func TestReconcileChannelProvidersRegistersAUnitsDeclaredTransport(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	owner := integration.OwnerConn(t)
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "mine", extension.Channel{
+		Provider: "mine_chat", Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DELETE FROM channel_provider WHERE provider = 'mine_chat'`); err != nil {
+			t.Errorf("cleaning up channel_provider: %v", err)
+		}
+	})
+
+	if err := reconcileChannelProviders(ctx, e.Pool, []string{capture.ProviderTelegram}); err != nil {
+		t.Fatalf("reconcileChannelProviders: %v", err)
+	}
+
+	var transport, credentialModel, label string
+	var supplies bool
+	if err := owner.QueryRow(ctx,
+		`SELECT transport, credential_model, label, supplies_transport
+		   FROM channel_provider WHERE provider = 'mine_chat'`).
+		Scan(&transport, &credentialModel, &label, &supplies); err != nil {
+		t.Fatalf("querying the unit's row: %v", err)
+	}
+	switch {
+	case transport != "unit":
+		t.Errorf("transport = %q, want unit — the send path branches on it to resolve a per-member credential", transport)
+	case credentialModel != "per_member":
+		t.Errorf("credential_model = %q, want per_member — a unit holds one sealed secret per member and no installation credential", credentialModel)
+	case label != "Mine Chat":
+		t.Errorf("label = %q, want a name derived from the id — this endpoint is readable by every seat, so nothing an operator typed belongs in it", label)
+	case !supplies:
+		t.Errorf("supplies_transport = false for a channel that declares a Send")
+	}
+
+	// And the in-memory half, which is what actually lets a reply leave: the send
+	// path's own pre-flight reads this set, so a unit transport left out of it
+	// would register, publish, capture — and park every reply a rep wrote under
+	// "this installation cannot send on that", which is the one failure a rep
+	// cannot tell from a broken provider.
+	if !activities.CanSendOnProvider("mine_chat") {
+		t.Error("the unit's transport is not in the sendable set; every reply on it would be refused before it was staged")
+	}
+	// Without narrowing the core's: a unit declaring a channel must not
+	// deregister the workspace's own bot.
+	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
+		t.Error("registering a unit transport dropped the core connector out of the sendable set")
+	}
+}
+
+// A capture-only unit registers its provider and is NOT sendable. The two are
+// separate columns because the difference is real and a rep sees it: the
+// timeline can name what carried a message on a transport nothing can answer on.
+func TestReconcileChannelProvidersRegistersACaptureOnlyUnitTransportAsUnsendable(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	owner := integration.OwnerConn(t)
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "mine", extension.Channel{Provider: "mine_chat"})
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DELETE FROM channel_provider WHERE provider = 'mine_chat'`); err != nil {
+			t.Errorf("cleaning up channel_provider: %v", err)
+		}
+	})
+
+	if err := reconcileChannelProviders(ctx, e.Pool, []string{capture.ProviderTelegram}); err != nil {
+		t.Fatalf("reconcileChannelProviders: %v", err)
+	}
+
+	var supplies bool
+	if err := owner.QueryRow(ctx,
+		`SELECT supplies_transport FROM channel_provider WHERE provider = 'mine_chat'`).Scan(&supplies); err != nil {
+		t.Fatalf("querying the unit's row: %v", err)
+	}
+	if supplies {
+		t.Error("a channel declaring no Send was registered as supplying transport")
+	}
+	if activities.CanSendOnProvider("mine_chat") {
+		t.Error("a capture-only transport is in the sendable set; a reply would be staged against a unit that cannot transmit")
+	}
+}
+
+// A unit SHADOWING a core connector fails the boot, and this is the sharpest
+// failure the whole surface has: every Telegram reply a rep wrote would leave on
+// the unit's per-member credential instead of the workspace's bot — the same
+// message, sent by a different person, with nothing on the screen different.
+//
+// It is refused HERE rather than in the extension preflight because this is the
+// first point at which both sets exist: the core's transports are decided when
+// the capture registry is built, which can happen after extension registration,
+// so the preflight would answer from an empty set and pass the collision it
+// exists to catch.
+func TestReconcileChannelProvidersRefusesAUnitThatShadowsACoreConnector(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	declaresTransport(t, "impostor", extension.Channel{
+		Provider: capture.ProviderTelegram, Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+
+	err := reconcileChannelProviders(ctx, e.Pool, []string{capture.ProviderTelegram})
+
+	if err == nil {
+		t.Fatal("a unit declaring the core's own transport was accepted; every reply on it would leave under the unit's credential")
+	}
+	if !strings.Contains(err.Error(), capture.ProviderTelegram) {
+		t.Errorf("the refusal %q does not name the transport in dispute, which is the one thing an operator must rename", err)
+	}
+	// And it refuses BEFORE writing anything: a boot that dies with the row
+	// already re-pointed would leave the collision installed.
+	var transport string
+	if qErr := integration.OwnerConn(t).QueryRow(ctx,
+		`SELECT transport FROM channel_provider WHERE provider = $1`, capture.ProviderTelegram).Scan(&transport); qErr != nil {
+		t.Fatalf("querying channel_provider: %v", qErr)
+	}
+	if transport != "core" {
+		t.Errorf("telegram's transport is now %q; the refused reconcile rewrote the row it was refusing", transport)
+	}
+}
+
+// A unit may not seize a transport the REGISTRY reserves for the core, even
+// when this binary composed no connector for it — and `whatsapp` is exactly
+// that shape: registered by migration so a hand-logged WhatsApp message can say
+// what carried it, with no Go connector behind it.
+//
+// It is the case a composed-set check misses, and it shipped that way once.
+// `capture.Registry.ChannelProviders` returns only connectors implementing the
+// message seam, so a unit declaring `whatsapp` passed the collision check, the
+// upsert re-pointed the core row at the unit, and every previously-unrepliable
+// WhatsApp conversation in the installation became one the unit transmits — on
+// its own credential, with nothing on any screen different.
+func TestReconcileChannelProvidersRefusesAUnitThatSeizesARegisteredCoreTransport(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	defer activities.SetChannelProviders([]string{capture.ProviderTelegram})
+	defer comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	// whatsapp is deliberately NOT in the composed set below, which is the
+	// truth about this binary: nothing composes a WhatsApp connector.
+	declaresTransport(t, "impostor", extension.Channel{
+		Provider: "whatsapp", Send: (&capturedSend{}).send, Live: answersLive(true, nil),
+	})
+
+	err := reconcileChannelProviders(ctx, e.Pool, []string{capture.ProviderTelegram})
+
+	if err == nil {
+		t.Fatal("a unit seized a registered core transport it composed no connector for; every hand-logged conversation on it became repliable by the unit")
+	}
+	var transport string
+	var supplies bool
+	if qErr := integration.OwnerConn(t).QueryRow(ctx,
+		`SELECT transport, supplies_transport FROM channel_provider WHERE provider = 'whatsapp'`).
+		Scan(&transport, &supplies); qErr != nil {
+		t.Fatalf("querying channel_provider: %v", qErr)
+	}
+	if transport != "core" {
+		t.Errorf("whatsapp's transport is now %q; the refused reconcile rewrote the row it was refusing", transport)
+	}
+	if supplies {
+		t.Error("whatsapp is now marked as supplying transport; this installation composes no connector for it")
+	}
+	if activities.CanSendOnProvider("whatsapp") {
+		t.Error("whatsapp entered the sendable set, so every hand-logged WhatsApp conversation would now accept a reply")
 	}
 }
 

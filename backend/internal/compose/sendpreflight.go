@@ -112,6 +112,14 @@ func (m mailboxAuthority) SendCapable(ctx context.Context, provider string) (boo
 		// here rather than at transmission.
 		return false, nil
 	}
+	// A UNIT-supplied transport is asked FIRST, and it has to be: the channel arm
+	// below reads channel_connection, which is the workspace-bot binding table a
+	// unit never writes (DESIGN-SP5 §7). Left to fall through, every unit send
+	// would be refused here — before staging, with a message telling the rep to
+	// have an admin bind a bot that has nothing to do with this transport.
+	if transport, supplied := composedUnitTransport(provider); supplied {
+		return unitSendCapable(ctx, transport, ids.From[ids.UserKind](actor.UserID))
+	}
 	scope, capability := comms.SendScopeFor(provider)
 	switch capability {
 	case comms.CannotSend:

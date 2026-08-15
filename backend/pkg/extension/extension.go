@@ -199,6 +199,16 @@ type Extension struct {
 	// a tool is a governed capability and appears in manifest.generated.json.
 	Tools []Tool
 
+	// Channels are the messaging providers this unit supplies TRANSPORT for
+	// (ADR-0107/A158). Separate from Ingress because the two are neither
+	// implied by nor sufficient for each other: a unit may capture a provider
+	// it cannot send on, and the channel declaration is what says which.
+	//
+	// A channel names a PROVIDER, never an activity kind. The kind a channel
+	// message lands under is the core's and is fixed by the contract; letting a
+	// unit name one would undo the axis split from outside the core.
+	Channels []Channel
+
 	// Secrets are the secret keys the unit declares it will use, by name and
 	// scope. Like a Tool's tier these are REQUESTS an operator resolves, not
 	// facts: declaring a key mints nothing and reads nothing, and the live

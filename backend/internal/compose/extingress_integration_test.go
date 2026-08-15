@@ -27,6 +27,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/extsecrets"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -40,6 +43,11 @@ const (
 	ingressProbeSystem  = "probe-chat"
 	ingressProbeSource  = "ext:" + ingressUnit + ":" + ingressProbeSystem
 	ingressProbeCapture = "connector:ext:" + ingressUnit
+	// The transport the probe unit supplies. It is SNAKE where the ingress
+	// system above is kebab, and that is the rule rather than a typo: a
+	// provider is a channel_provider row and satisfies that column's own
+	// grammar, which is not the ingress declaration's.
+	ingressProbeProvider = "probe_chat"
 )
 
 // ingressEnv is the runtime env plus everything an ingest needs to be allowed
@@ -53,9 +61,15 @@ type ingressEnv struct {
 func setupIngress(t *testing.T) *ingressEnv {
 	t.Helper()
 	e := setupExtRuntime(t)
-	composeIngressFor(t, ingressUnit, extension.IngressSource{
-		System: ingressProbeSystem, Lands: []extension.RecordKind{extension.KindActivity},
-	})
+	composeCapturingUnit(t, ingressUnit,
+		// The probe unit SUPPLIES a transport as well as capturing from one, which
+		// is the shape a channel unit actually has — and what a unit may name on a
+		// message is bounded by this declaration, so a set without it would leave
+		// the message tests refused for a reason the test never chose.
+		[]extension.Channel{{Provider: ingressProbeProvider}},
+		extension.IngressSource{
+			System: ingressProbeSystem, Lands: []extension.RecordKind{extension.KindActivity},
+		})
 	bindCaptureForTest(t, e)
 	grantCapture(t, e, e.Rep1)
 	depositCredential(t, e, e.Rep1)
@@ -248,6 +262,143 @@ func TestAUnitsRecordLandsAsAnActivityWithEvidenceAndTheWriteShape(t *testing.T)
 	if got := e.countAsWorkspace(t,
 		`SELECT count(*) FROM event_outbox WHERE envelope->'entity'->>'id' = $1`, activityID.String()); got == 0 {
 		t.Error("the landing published no event — an audit row with no event is the write shape half-kept")
+	}
+}
+
+// aChannelMessage is the same record as a message on the unit's own transport,
+// naming the account it can be answered at.
+func aChannelMessage(key, senderEmail, account string) extension.Record {
+	rec := aProviderRecord(key, senderEmail)
+	rec.Activity.Kind = extension.ActivityKindMessage
+	rec.Activity.ChannelProvider = ingressProbeProvider
+	// ONE naming, never both: the core refuses a counterparty named by an
+	// address AND by a channel account, because the two resolve through
+	// different ladders. A channel record is named by the account it can be
+	// answered at, so the address goes.
+	rec.Counterparty = extension.Counterparty{
+		DisplayName: "A Sender", Direction: extension.DirectionInbound,
+		ChannelIdentity: extension.ChannelIdentity{
+			Provider: ingressProbeProvider, ChannelUserID: account, DisplayName: "A Sender",
+		},
+	}
+	// The addresses stay: they are a different question — every party the
+	// message names, which is what the internal-colleague gate reads, and an
+	// empty set disables that gate rather than passing it.
+	rec.Addresses = []string{senderEmail, "a@authz.test"}
+	return rec
+}
+
+// registerProbeTransport puts the unit's transport in the registry, through the
+// real reconcile.
+//
+// It is not optional bookkeeping: activity.channel_provider is a foreign key
+// into channel_provider, so a captured message naming an unregistered transport
+// is refused by the database — which is exactly the failure a unit channel would
+// have if the boot reconcile did not write it.
+func registerProbeTransport(t *testing.T, e *ingressEnv) {
+	t.Helper()
+	// The reconcile sets BOTH packages' in-memory sendable snapshots to what it
+	// was passed. Restore the pre-registry default rather than leaving this
+	// test's set behind, or a later test in the same process sees an
+	// installation with no Telegram transport — which is a failure that names
+	// somebody else's code.
+	t.Cleanup(func() {
+		activities.SetChannelProviders([]string{capture.ProviderTelegram})
+		comms.SetChannelProviders([]string{capture.ProviderTelegram})
+	})
+	if err := reconcileChannelProviders(context.Background(), e.Pool, []string{capture.ProviderTelegram}); err != nil {
+		t.Fatalf("registering the unit's transport: %v", err)
+	}
+	t.Cleanup(func() {
+		// In dependency order, and the order itself is the finding: the registry
+		// row is a foreign-key parent of every message filed on it AND of every
+		// identity bound on it, which is what stops a live transport being
+		// deregistered out from under the conversations that reference it. That
+		// is also why the boot reconcile never deletes.
+		owner := integration.OwnerConn(t)
+		for _, statement := range []string{
+			`DELETE FROM activity WHERE channel_provider = $1`,
+			`DELETE FROM person_channel_identity WHERE provider = $1`,
+			`DELETE FROM channel_provider WHERE provider = $1`,
+		} {
+			if _, err := owner.Exec(context.Background(), statement, ingressProbeProvider); err != nil {
+				t.Errorf("cleaning up after the probe transport (%s): %v", statement, err)
+			}
+		}
+	})
+}
+
+// A unit's captured chat message lands as a MESSAGE on the unit's own transport,
+// with the account it can be answered at bound to the person behind it.
+//
+// This is the whole point of the slice, and each half is separately load-bearing.
+// The kind and the provider are the two axes stated separately (ADR-0107/A158):
+// the send path reads the PROVIDER column, so a message filed as a `note` — which
+// is what this unit landed before it supplied a channel — is a conversation
+// nothing can reply on. And the identity binding is what the reply path resolves
+// its recipient FROM: without it the message is repliable in principle and
+// answers "nobody on this conversation can be reached" in practice.
+func TestAUnitsChannelMessageLandsAsARepliableConversation(t *testing.T) {
+	e := setupIngress(t)
+	registerProbeTransport(t, e)
+	rt := e.ingestingRuntime()
+
+	result, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()),
+		aChannelMessage("ws-7:3001", "someone@gmail.com", "probe-channel-1"))
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if result.Disposition != extension.DispositionAccepted {
+		t.Fatalf("disposition = %q, want accepted", result.Disposition)
+	}
+
+	var kind, provider string
+	e.readAsWorkspace(t, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT kind, coalesce(channel_provider, '') FROM activity WHERE id = $1`,
+			ids.MustParse(result.Ref.ID)).Scan(&kind, &provider)
+	})
+	if kind != extension.ActivityKindMessage {
+		t.Errorf("kind = %q, want %q — the timeline must know this was a message at all", kind, extension.ActivityKindMessage)
+	}
+	if provider != ingressProbeProvider {
+		t.Errorf("channel_provider = %q, want %q — the send path reads this column, and an empty one is a conversation no reply can leave on",
+			provider, ingressProbeProvider)
+	}
+
+	// The binding, which is what makes the recipient resolvable — and it names
+	// the account the UNIT reported, not one derived from the address.
+	if got := e.countAsWorkspace(t,
+		`SELECT count(*) FROM person_channel_identity WHERE provider = $1 AND channel_user_id = $2`,
+		ingressProbeProvider, "probe-channel-1"); got != 1 {
+		t.Errorf("channel identity bindings = %d, want the one the reply path resolves its recipient from", got)
+	}
+}
+
+// A unit naming a transport it does NOT supply is refused, and nothing lands.
+//
+// This is the sharpest refusal on the write door: `telegram` is a real
+// registered transport with a real workspace bot behind it, so the row would be
+// a valid SEND ANCHOR for a conversation the unit does not own — a rep replying
+// on it would transmit a message from the workspace's own bot to whoever the
+// unit linked, the unit choosing the target and the human supplying the
+// authority.
+func TestAUnitCannotFileAMessageOnACoreConnectorsTransport(t *testing.T) {
+	e := setupIngress(t)
+	rt := e.ingestingRuntime()
+
+	stolen := aChannelMessage("ws-7:3002", "someone@gmail.com", "probe-channel-2")
+	stolen.Activity.ChannelProvider = "telegram"
+	stolen.Counterparty.ChannelIdentity.Provider = "telegram"
+
+	_, err := rt.Ingest(context.Background(), extension.UserID(e.member.String()), stolen)
+
+	if !errors.Is(err, extension.ErrInvalid) {
+		t.Fatalf("Ingest → %v, want extension.ErrInvalid — a unit may name only a transport it declared", err)
+	}
+	if got := e.countAsWorkspace(t,
+		`SELECT count(*) FROM activity WHERE source = $1 AND source_id = $2`, ingressProbeSource, "ws-7:3002"); got != 0 {
+		t.Errorf("activity rows = %d, want none — the refusal must land nothing, not land it and complain", got)
 	}
 }
 

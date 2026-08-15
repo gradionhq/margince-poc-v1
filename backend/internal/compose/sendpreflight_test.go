@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 type stubGrants struct {
@@ -172,5 +173,71 @@ func assertLookupsAsked(t *testing.T, grants *stubGrants, provider string, wantG
 	}
 	if grants.channelCalls != wantChannelCalls {
 		t.Fatalf("the channel-binding lookup was asked %d time(s), want %d", grants.channelCalls, wantChannelCalls)
+	}
+}
+
+// The UNIT arm, which is a different table question again — or rather, no table
+// question at all.
+//
+// This is the defect DESIGN-SP5 §8.1 warns about and the slice-2 plan missed: a
+// unit-supplied transport falling through to the channel arm asks
+// ChannelSendCapable, which reads channel_connection — the workspace-bot binding
+// a unit never writes. Every unit reply was then refused at the composer, and
+// the refusal a rep reads is "ask an admin to bind a bot", about a bot that has
+// nothing to do with the transport they are replying on.
+//
+// So the assertion that matters most here is the NEGATIVE one: the workspace
+// lookup must not be asked at all.
+func TestSendCapableAsksTheUnitRatherThanTheWorkspaceBotTable(t *testing.T) {
+	human := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:x", UserID: ids.NewV7(),
+	})
+	unreachable := errors.New("the provider timed out")
+
+	for name, tc := range map[string]struct {
+		channel extension.Channel
+		want    bool
+		wantErr error
+	}{
+		"a live connection can send": {
+			channel: extension.Channel{Provider: "mine_chat", Send: (&capturedSend{}).send, Live: answersLive(true, nil)},
+			want:    true,
+		},
+		"a member who disconnected cannot": {
+			channel: extension.Channel{Provider: "mine_chat", Send: (&capturedSend{}).send, Live: answersLive(false, nil)},
+		},
+		"a capture-only transport cannot": {
+			channel: extension.Channel{Provider: "mine_chat"},
+		},
+		// A pre-flight that cannot ask must not answer — the mail arm's own
+		// rule, applied here so a rep is never told at the composer something
+		// the transmission will contradict.
+		"a unit that could not answer reports the fault": {
+			channel: extension.Channel{Provider: "mine_chat", Send: (&capturedSend{}).send, Live: answersLive(false, unreachable)},
+			wantErr: unreachable,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			declaresTransport(t, "mine", tc.channel)
+			grants := &stubGrants{channelBound: true}
+			authority := mailboxAuthority{grants: grants, mailAppConfigured: func(string) bool { return false }}
+
+			got, err := authority.SendCapable(human, "mine_chat")
+
+			if got != tc.want {
+				t.Errorf("SendCapable = %v, want %v", got, tc.want)
+			}
+			switch {
+			case tc.wantErr != nil && !errors.Is(err, tc.wantErr):
+				t.Errorf("SendCapable error = %v, want it to match %v", err, tc.wantErr)
+			case tc.wantErr == nil && err != nil:
+				t.Errorf("SendCapable error = %v, want none", err)
+			}
+			// The stub is wired to answer "a bot IS bound", so a fall-through
+			// would make even the refusal cases pass for the wrong reason.
+			if grants.channelCalls != 0 {
+				t.Errorf("the workspace bot table was read %d time(s) for a unit transport; a unit never writes it, and asking it is what refused every unit reply", grants.channelCalls)
+			}
+		})
 	}
 }

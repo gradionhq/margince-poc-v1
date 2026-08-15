@@ -77,7 +77,7 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 		// The two that DISABLE the internal-message gate rather than failing
 		// it: over an empty set the gate answers "not internal" and keeps the
 		// record, and a blank element is a party it skips.
-		"no addresses at all": func(r *extension.Record) { r.Addresses = nil },
+		"no addresses on a record that names one": func(r *extension.Record) { r.Addresses = nil },
 		"a blank address among real ones": func(r *extension.Record) {
 			r.Addresses = []string{"sender@acme.test", "  "}
 		},
@@ -87,6 +87,35 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 		"a raw record over the cap": func(r *extension.Record) {
 			r.Raw = make([]byte, extension.MaxRawBytes+1)
 		},
+		// A HALF-stated channel identity, either way round. It is the shape that
+		// looks populated and routes nowhere: the core keys the binding on the
+		// pair, so half of it binds nothing — and the record would still land,
+		// read as ordinary, and carry no reply address.
+		//
+		// Each of these clears the ADDRESS, or the record would be refused for
+		// naming its human twice and every one of them would pass for a reason
+		// it is not testing.
+		"a channel account with no provider": namedByAccount(extension.ChannelIdentity{ChannelUserID: "G-1c7u1r29"}),
+		"a channel provider with no account": namedByAccount(extension.ChannelIdentity{Provider: "dispact"}),
+		// The provider is a channel_provider row and has to satisfy that column's
+		// own grammar, which is snake and not kebab — the difference DESIGN-SP5 §9
+		// got wrong once already.
+		"a channel provider the registry grammar refuses": namedByAccount(
+			extension.ChannelIdentity{Provider: "deal-room", ChannelUserID: "G-1"}),
+		"a channel account id over the cap": namedByAccount(extension.ChannelIdentity{
+			Provider: "dispact", ChannelUserID: strings.Repeat("g", extension.MaxChannelUserIDLength+1),
+		}),
+		"a channel display name over the cap": namedByAccount(extension.ChannelIdentity{
+			Provider: "dispact", ChannelUserID: "G-1", DisplayName: strings.Repeat("n", extension.MaxDisplayNameRunes+1),
+		}),
+		// Named TWICE — the address KEPT this time. The core refuses it
+		// (ErrCounterpartyNamedTwice) because an address and a channel account
+		// resolve through different ladders, and the published grammar refuses it
+		// here so a unit reads the reason rather than an unattributable "the core
+		// could not land this record".
+		"a counterparty named by an address and by an account": func(r *extension.Record) {
+			r.Counterparty.ChannelIdentity = extension.ChannelIdentity{Provider: "dispact", ChannelUserID: "G-1"}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := aValidRecord()
@@ -95,6 +124,72 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 				t.Fatalf("the grammar accepted %s", name)
 			}
 		})
+	}
+}
+
+// namedByAccount rewrites the fixture into the channel shape: the address
+// dropped, the account named. It is the one legal way to state a channel
+// counterparty, so every damage to that account has to start from it.
+func namedByAccount(identity extension.ChannelIdentity) func(*extension.Record) {
+	return func(r *extension.Record) {
+		r.Counterparty.Email = ""
+		r.Counterparty.Domain = ""
+		r.Counterparty.ChannelIdentity = identity
+	}
+}
+
+// A record that names no address ANYWHERE may name no addresses, and this is
+// the case a channel-only provider is made of: opaque account ids, a display
+// name, and no mail in the message at all.
+//
+// Refusing it would have turned such a record away at the published grammar,
+// before it reached a core that accepts it — connector.NormalizedRecord reads an
+// empty set as "I cannot enumerate the parties", which the internal-message gate
+// answers as not-internal and keeps.
+func TestARecordThatNamesNoAddressMayNameNoAddresses(t *testing.T) {
+	rec := aValidRecord()
+	rec.Activity.Kind = extension.ActivityKindMessage
+	rec.Activity.ChannelProvider = "dispact"
+	namedByAccount(extension.ChannelIdentity{Provider: "dispact", ChannelUserID: "G-1"})(&rec)
+	rec.Addresses = nil
+
+	if err := rec.Validate(); err != nil {
+		t.Fatalf("a channel-only record with no addresses was refused: %v", err)
+	}
+
+	// And the mirror, which is what keeps the exemption from swallowing the
+	// rule: a record that DOES name an address still owes the whole party set,
+	// or the gate it belongs to is silently disabled.
+	mail := aValidRecord()
+	mail.Addresses = nil
+	if err := mail.Validate(); err == nil {
+		t.Error("a mail-shaped record with no addresses was accepted; the internal-colleague gate reads that set and keeps everything over an empty one")
+	}
+}
+
+// A record identifying its counterparty by ADDRESS binds no channel identity,
+// and that empty pair must stay legal — every mail record in the product is
+// this shape, and a rule that refused it would close the ingress surface it was
+// meant to bound.
+func TestARecordMayIdentifyItsCounterpartyByAddressAlone(t *testing.T) {
+	rec := aValidRecord()
+	rec.Counterparty.ChannelIdentity = extension.ChannelIdentity{}
+	if err := rec.Validate(); err != nil {
+		t.Fatalf("a record with no channel identity was refused: %v", err)
+	}
+}
+
+// A channel record states BOTH halves of the identity, and the pair is what
+// makes the message repliable at all.
+func TestAChannelRecordMayNameTheAccountItCanBeAnsweredAt(t *testing.T) {
+	rec := aValidRecord()
+	rec.Activity.Kind = extension.ActivityKindMessage
+	rec.Activity.ChannelProvider = "dispact"
+	namedByAccount(extension.ChannelIdentity{
+		Provider: "dispact", ChannelUserID: "G-1c7u1r29", DisplayName: "A Sender",
+	})(&rec)
+	if err := rec.Validate(); err != nil {
+		t.Fatalf("a well-formed channel record was refused: %v", err)
 	}
 }
 

@@ -68,7 +68,18 @@ func recordFor(item inboxItem, sender, member providerUser, providerWorkspace st
 		// share one provenance namespace across every connection.
 		Key: fmt.Sprintf("%s:%d", providerWorkspace, item.ID),
 		Activity: extension.ActivityFields{
-			Kind: "note",
+			// A message, on this unit's own transport — the two axes stated
+			// separately (ADR-0107/A158). It landed as a `note` before this unit
+			// supplied a channel, which was honest then and is not now: a note
+			// carries no transport, so nothing could be replied to and every
+			// captured conversation was a dead end on the timeline.
+			//
+			// The provider is a LITERAL rather than the `provider` constant, for
+			// the reason the ingress declaration is one: the core holds a unit to
+			// the channels it DECLARED, and that declaration is read statically
+			// from the AST without compiling the unit. A test holds the two equal.
+			Kind:            extension.ActivityKindMessage,
+			ChannelProvider: "dispact",
 			// The provider's title is the human-readable "who did what"; the
 			// body is the message preview. Neither is fetched in full: a CRM
 			// timeline entry is a pointer to a conversation, not a copy of it.
@@ -81,19 +92,67 @@ func recordFor(item inboxItem, sender, member providerUser, providerWorkspace st
 		// rule. A bare channel id would share activity.thread_key with every
 		// other source, where two of them can collide and join a stranger's
 		// conversation onto this one.
-		ThreadKey: fmt.Sprintf("dispact:%s:%s", providerWorkspace, item.ChannelID),
-		Counterparty: extension.Counterparty{
-			Email:       sender.Email,
-			DisplayName: sender.name(),
-			Domain:      mailDomain(sender.Email),
-			Direction:   extension.DirectionInbound,
-		},
-		Addresses: []string{sender.Email, member.Email},
+		ThreadKey:    fmt.Sprintf("dispact:%s:%s", providerWorkspace, item.ChannelID),
+		Counterparty: counterpartyOf(item, sender),
+		Addresses:    []string{sender.Email, member.Email},
 		// The provider's record as received, kept as evidence. It is the
 		// original document rather than a re-encoding of the fields above, so
 		// what the installation stores is what the provider said.
 		Raw: item.Raw,
 	}, nil
+}
+
+// directMessageTypes are the notification types whose channel is a PAIR: this
+// member and the sender, and nobody else. They are the subset of directedTypes
+// that carries a reply address.
+var directMessageTypes = map[string]bool{
+	"dm":              true,
+	"dm_thread_reply": true,
+}
+
+// counterpartyOf names the human at the other end, ONE way — by the account
+// they can be answered at, or by their address, and never both.
+//
+// The exclusivity is the core's rule (capture's ErrCounterpartyNamedTwice) and
+// it is a real choice rather than a formality: the two are different resolution
+// ladders. An address goes through the mail ladder, where a corporate domain is
+// DEFERRED to the pending inbox and only a freemail sender mints a person; a
+// channel account goes through the channel ladder, which binds the account to a
+// person the reply path can then resolve.
+//
+// A DIRECT MESSAGE is named by the SENDER'S OWN ACCOUNT ID, not by the channel
+// the message arrived in. The core keys the binding on (provider, account id)
+// and treats that row as the person: it is what an erasure suppresses and what
+// the reply path resolves. Keying it on a conversation instead would make the
+// same colleague two people when they DM two members, and an erasure armed for
+// one of those would leave their other chats capturable. The send resolves the
+// conversation from the account when it needs one (client.dmChannelWith).
+//
+// A MENTION IN A SHARED CHANNEL is named by address instead. The room gives
+// this unit no per-person address to bind, and a reply resolved from the room
+// would post in front of everyone in it.
+//
+// A mention is therefore captured, reads on the timeline, and is not answerable
+// on this transport. That is the honest state for a room this unit has no
+// private conversation in.
+func counterpartyOf(item inboxItem, sender providerUser) extension.Counterparty {
+	if !directMessageTypes[item.Type] {
+		return extension.Counterparty{
+			Email:       sender.Email,
+			DisplayName: sender.name(),
+			Domain:      mailDomain(sender.Email),
+			Direction:   extension.DirectionInbound,
+		}
+	}
+	return extension.Counterparty{
+		DisplayName: sender.name(),
+		Direction:   extension.DirectionInbound,
+		ChannelIdentity: extension.ChannelIdentity{
+			Provider:      "dispact",
+			ChannelUserID: sender.ID,
+			DisplayName:   sender.name(),
+		},
+	}
 }
 
 // mailDomain is the lower-cased domain half of an address, or empty when there

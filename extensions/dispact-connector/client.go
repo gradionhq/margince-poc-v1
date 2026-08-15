@@ -49,6 +49,18 @@ const (
 	// cannot act on. It fails the tick rather than advancing over records
 	// nobody has seen.
 	errProvider dispactError = "dispact: the provider answered something this unit cannot use"
+
+	// errUnanswered marks a request that WENT OUT and whose outcome never came
+	// back: the connection failed mid-flight, or the answer could not be read.
+	// It always accompanies errTransient rather than replacing it, because for
+	// a READ the two are the same fact — the next tick asks again.
+	//
+	// For a SEND they are not. The message may be at the recipient and may not,
+	// and this provider offers no idempotency key and no prior-send lookup, so
+	// no later attempt could ever find out. A retry there messages a customer
+	// twice with nothing able to detect it, which is why the send path maps
+	// this — and only this — onto the core's own unknown-outcome class.
+	errUnanswered dispactError = "dispact: the provider never reported the outcome"
 )
 
 // dispactError is one of this unit's own refusal classes.
@@ -408,7 +420,10 @@ func (c *client) do(req *http.Request, into any) error {
 		// answering it as a token problem would tell a member to re-paste a
 		// token that is fine. The tick fails, the class is recorded, and the
 		// next tick meets the same wall.
-		return fmt.Errorf("%w: %s", errTransient, err.Error())
+		//
+		// errUnanswered rides along because the SEND path needs the distinction
+		// a poll does not: the request may have arrived. See there.
+		return fmt.Errorf("%w: %w: %s", errTransient, errUnanswered, err.Error())
 	}
 	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for this call's result
 	defer func() { _ = resp.Body.Close() }()
@@ -420,7 +435,9 @@ func (c *client) do(req *http.Request, into any) error {
 	// stores.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("%w: reading the answer: %s", errTransient, err.Error())
+		// Also unanswered: the provider accepted the request and this side
+		// never learned what it decided.
+		return fmt.Errorf("%w: %w: reading the answer: %s", errTransient, errUnanswered, err.Error())
 	}
 	if len(body) > maxResponseBytes {
 		return fmt.Errorf("%w: the answer is over the %d-byte cap", errProvider, maxResponseBytes)

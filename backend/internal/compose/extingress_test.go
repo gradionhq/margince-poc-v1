@@ -34,10 +34,20 @@ import (
 // is not serving, which is the reason composedIngressFor reads this one.
 func composeIngressFor(t *testing.T, unit string, sources ...extension.IngressSource) {
 	t.Helper()
+	composeCapturingUnit(t, unit, nil, sources...)
+}
+
+// composeCapturingUnit is the same, for a unit that also SUPPLIES a transport.
+// The two are one function because what a unit may file is decided by both
+// declarations together: the source it captures from, and the channel it is
+// allowed to name on a message.
+func composeCapturingUnit(t *testing.T, unit string, channels []extension.Channel, sources ...extension.IngressSource) {
+	t.Helper()
 	composeUnit(t, extension.Extension{
-		Name:    extension.Name(unit),
-		Version: "1.0.0",
-		Ingress: sources,
+		Name:     extension.Name(unit),
+		Version:  "1.0.0",
+		Ingress:  sources,
+		Channels: channels,
 		// The user-scoped credential a member deposits, declared — because
 		// what the port reads as consent is a secret under a key this unit
 		// DECLARES, and a composed set without one describes a unit no member
