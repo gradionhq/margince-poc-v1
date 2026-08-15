@@ -38,12 +38,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// This scaffolder's whole output IS stdout — it tells an engineer which files
-	// it wrote and what to do next. Routing that through slog would put a
-	// human-facing instruction into a log stream nobody is reading.
-	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
+	// This scaffolder's whole output IS stdout: which files it wrote, and what
+	// the engineer does next.
 	fmt.Printf("scaffolded:\n  %s\n  %s\n\n", handlerPath, testPath)
-	//nolint:forbidigo // as above — the next-steps text is this tool's output
 	fmt.Print(nextSteps(args[0]))
 }
 

@@ -97,7 +97,7 @@ func cmdVersion() int {
 	if err != nil {
 		return fail("gate version: %v", err)
 	}
-	fmt.Println(t.String()) //nolint:forbidigo // CLI stdout output, not logging
+	fmt.Println(t.String())
 	return 0
 }
 

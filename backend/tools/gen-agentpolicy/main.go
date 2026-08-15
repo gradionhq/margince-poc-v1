@@ -100,10 +100,6 @@ func main() {
 	if err := os.WriteFile(*out, formatted, 0o600); err != nil {
 		log.Fatalf("gen-agentpolicy: %v", err)
 	}
-	// A generator's completion line belongs on stdout, which is its interface to
-	// the make lane that ran it. The forbidigo rule this waives exists to keep
-	// fmt.Print out of the SERVER, where structured logs are the contract.
-	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("%d agent policies generated\n", len(policies))
 }
 

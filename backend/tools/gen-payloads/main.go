@@ -45,7 +45,6 @@ func main() {
 			log.Fatalf("gen-payloads: %s: %v", g.Source, err)
 		}
 	}
-	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("gen-payloads: %d group(s) generated\n", len(groups))
 }
 

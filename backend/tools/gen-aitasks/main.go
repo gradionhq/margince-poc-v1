@@ -67,7 +67,6 @@ func main() {
 		log.Fatalf("gen-aitasks: writing %s: %v", *outSchemaPath, err)
 	}
 
-	//nolint:forbidigo // a CLI reporting its own result to stdout, not a server logging an event
 	fmt.Printf("%d tasks, %d tiers generated\n", len(c.Tasks), len(c.Tiers))
 }
 
