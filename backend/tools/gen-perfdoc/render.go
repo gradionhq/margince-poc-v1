@@ -101,12 +101,24 @@ func findMeasurement(records map[string]record, budget publishedBudget) (found, 
 // verdict says whether the measurement held, in words rather than a symbol so
 // the column survives being pasted into a procurement answer.
 //
-// A caveat SUPPRESSES "within budget" rather than decorating it. The run did
-// not meet the condition the budget binds under, so whether the bound holds is
-// not a question this measurement answered — and "within budget (but…)" is read
-// as a pass by everyone who skims.
+// `>=`, not `>`: every published budget is a STRICT bound — "< 100 ms",
+// "< 300 ms" — so a p95 landing exactly on the number does not satisfy it.
+// search.BenchReport.Gate() and the mobile spec's toBeLessThan read the same
+// bound the same way; a page that disagreed with the gate about a run would be
+// worse than no page.
+//
+// A caveat suppresses a PASS and never a BREACH, which is deliberate and is the
+// asymmetry to understand before changing it. A caveat says the run did not meet
+// the condition the budget binds under — today, only that PERF-7 was measured on
+// a tier below mid-market. That tier is strictly SMALLER in every seeded
+// dimension, and measured slower at mid-market than at SMB (9.9 ms vs 8.9 ms),
+// so a breach on the small one is real evidence about the large one, while a
+// pass on it proves nothing. Reporting "inconclusive" over a blown budget would
+// hide the single number a reader most needs. If a future caveat ever describes
+// a condition HARDER than the real one, that asymmetry stops holding and this
+// has to be revisited rather than extended.
 func verdict(m measurement) string {
-	if m.P95Ms > m.BudgetMs {
+	if m.P95Ms >= m.BudgetMs {
 		if m.Caveat != "" {
 			return fmt.Sprintf("**OVER BUDGET** — %s", m.Caveat)
 		}

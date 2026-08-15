@@ -20,7 +20,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -110,8 +112,14 @@ func main() {
 // statement about that checkout.
 func loadRecords(dir string) (map[string]record, error) {
 	records := map[string]record{}
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
+	// Rooted at the record directory rather than joining names onto it. An
+	// fs.FS cannot be walked out of, so a name that tried to reach outside it
+	// resolves to nothing instead of being opened — which is the property
+	// gosec's G304 actually asks about. Rooting the reads answers the question;
+	// a waiver would only have declined to.
+	fsys := os.DirFS(dir)
+	entries, err := fs.ReadDir(fsys, ".")
+	if errors.Is(err, fs.ErrNotExist) {
 		return records, nil
 	}
 	if err != nil {
@@ -121,7 +129,7 @@ func loadRecords(dir string) (map[string]record, error) {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		body, err := fs.ReadFile(fsys, entry.Name())
 		if err != nil {
 			return nil, err
 		}

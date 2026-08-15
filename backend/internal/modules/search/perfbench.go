@@ -86,10 +86,18 @@ type BenchReport struct {
 // Gate is the CI verdict: any canonical query whose p95 breaches its
 // budget fails the build. The error names every breach so a red run
 // says what regressed, not just that something did.
+//
+// The comparison is `>=`, not `>`, because every published budget is
+// written as a STRICT bound — "< 200 ms", "< 300 ms" (06-nonfunctional
+// §6.1). A p95 landing exactly on the number does not satisfy "under
+// it", and the two other readers of these budgets already agree: the
+// mobile spec asserts toBeLessThan, and the published page renders the
+// same boundary as a breach. Three readings of one bound have to match,
+// or the page and the gate disagree about a run neither can explain.
 func (r BenchReport) Gate() error {
 	var breaches []string
 	for _, q := range r.Queries {
-		if q.P95 > q.Budget {
+		if q.P95 >= q.Budget {
 			breaches = append(breaches,
 				fmt.Sprintf("%s p95 %s over the %s budget (tier %s, %d samples)",
 					q.Query, q.P95, q.Budget, r.Tier, q.Samples))
