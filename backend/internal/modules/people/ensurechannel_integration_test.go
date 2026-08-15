@@ -61,8 +61,8 @@ func (e *dedupeEnv) channelEnsureInput(ctx context.Context, t *testing.T, ci con
 	activityID := ids.New[ids.ActivityKind]()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, body, direction, source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'telegram', 'hello', 'inbound', 'telegram', $3, 'telegram:seed', $4)`,
+			INSERT INTO activity (id, workspace_id, kind, channel_provider, body, direction, source_system, source_id, source, captured_by)
+			VALUES ($1, $2, 'message', 'telegram', 'hello', 'inbound', 'telegram', $3, 'telegram:seed', $4)`,
 			activityID, e.ws, activityID.String(), channelCapturedBy)
 		return err
 	}); err != nil {

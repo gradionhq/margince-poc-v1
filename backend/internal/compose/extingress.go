@@ -81,6 +81,9 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}
+	if err := refuseUnitMessageKind(rec.Activity.Kind); err != nil {
+		return extension.Result{}, err
+	}
 	// Whether this ROLE can accept a record at all is answered before the
 	// call's context is rebound: it costs nothing, it is the same answer for
 	// every call, and a deployment fault should not read as a refusal about
@@ -178,28 +181,20 @@ func (r *callRuntime) ingressAuthority(ctx context.Context, on extension.UserID)
 // id, which is what makes the sink's own "a connector cannot claim to be
 // another one" check pass by construction rather than by the unit getting it
 // right.
+
 func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecord {
 	return connector.NormalizedRecord{
 		EntityType: datasource.EntityActivity,
 		NaturalKey: r.naturalKey(rec),
 		Fields: capture.ActivityFields{
 			Kind: rec.Activity.Kind,
-			// A unit landing a kind that IS a registered transport is landing a
-			// channel record, and the row records the transport. Without this a
-			// unit could write a channel-looking activity carrying no transport —
-			// repliable by the kind test the agent surface still applies, and
-			// refused by the send path, which reads the column.
-			//
-			// A unit supplies no transport of its own yet, so this only ever fires
-			// for a kind that names a CORE connector, which a unit has no business
-			// claiming. The slice that gives a unit a declared channel is the one
-			// that turns this into a refusal — a unit may land its own provider and
-			// no other — rather than a normalization.
-			ChannelProvider: activities.ChannelProviderForKind(rec.Activity.Kind),
-			Subject:         rec.Activity.Subject,
-			Body:            rec.Activity.Body,
-			OccurredAt:      rec.Activity.OccurredAt,
-			Direction:       rec.Activity.Direction,
+			// No transport, and no way for a unit to name one yet: the extension
+			// record shape carries no channel, so a unit landing KindMessage is
+			// refused before it gets here (refuseUnitMessageKind).
+			Subject:    rec.Activity.Subject,
+			Body:       rec.Activity.Body,
+			OccurredAt: rec.Activity.OccurredAt,
+			Direction:  rec.Activity.Direction,
 		},
 		Source:     r.sourceSystem(rec.System),
 		CapturedBy: ingressPrincipalPrefix + r.unit,
@@ -213,6 +208,30 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 			Direction:   rec.Counterparty.Direction,
 		},
 	}
+}
+
+// refuseUnitMessageKind stops a unit filing a channel message on ANY of its
+// write doors, and it is deliberately one function rather than a check at each.
+//
+// A unit has no channel of its own until slice 2, so it may not claim a
+// transport it does not own. The two doors fail differently without this and
+// only one of them is obvious: capture ingress carries no provider field at all,
+// so a message would violate the CHECK and surface as an unattributable 500 —
+// while the core-write door DOES carry channel_provider, so a unit could name a
+// core connector's transport and mint a row that is a valid SEND ANCHOR. A rep
+// or an approved agent replying on it would transmit a real message from the
+// workspace's bot to whoever the unit linked: the unit picks the target, the
+// human supplies the authority. It would also inherit the GoBD statutory floor,
+// pinning unit-supplied text past the workspace's own retention policy.
+//
+// Slice 2 turns this from a refusal into a bounded permission — a unit may name
+// its own declared provider and no other.
+func refuseUnitMessageKind(kind string) error {
+	if kind != activities.KindMessage {
+		return nil
+	}
+	return fmt.Errorf("%w: a unit cannot file a %q activity — a message must name the transport that carried it, and a unit may not claim a transport it does not supply",
+		extension.ErrInvalid, activities.KindMessage)
 }
 
 // naturalKey is the idempotency key the database's unique index enforces. Its

@@ -27,10 +27,14 @@ package compose
 // it is where the conversion under test lives.
 
 import (
+	"errors"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -186,4 +190,48 @@ func fieldsOf(t reflect.Type) map[string]bool {
 		out[t.Field(i).Name] = true
 	}
 	return out
+}
+
+// A unit has TWO doors it can write an activity through, and the rule that it
+// may not claim a messaging transport is about the unit rather than about a
+// door. This walks both against the same refusal, because the failure mode is
+// asymmetric and only one half is loud: capture ingress carries no provider
+// field, so a message there dies on the CHECK as an unattributable 500 — while
+// the core-write door DOES carry channel_provider, so a unit could name a core
+// connector's transport and mint a row that is a valid SEND ANCHOR for a
+// conversation it does not own.
+//
+// Two halves, because the rule and its reach can fail separately: the block
+// below pins what the refusal DOES, and the source assertion after it pins that
+// both doors actually call it — which is the half that regresses, since a door
+// can be added or rewritten without anyone noticing the gate went missing.
+func TestAUnitMayNotFileAMessageThroughEitherDoor(t *testing.T) {
+	if err := refuseUnitMessageKind(activities.KindMessage); err == nil {
+		t.Fatalf("a unit filing %q was permitted; it would mint a send anchor for a transport the unit does not supply", activities.KindMessage)
+	} else if !errors.Is(err, extension.ErrInvalid) {
+		t.Errorf("the refusal is %v, want extension.ErrInvalid so the unit reads it as a bad record rather than a core fault", err)
+	}
+
+	// And it refuses ONLY that: a unit's ordinary records must still land, or
+	// the guard has quietly closed the ingress surface it was meant to bound.
+	for _, kind := range []string{"note", "email", "call", "meeting", "task"} {
+		if err := refuseUnitMessageKind(kind); err != nil {
+			t.Errorf("a unit filing %q was refused (%v); only the message kind is withheld", kind, err)
+		}
+	}
+
+	// Both doors reach it. A behavioural walk of the core-write door needs a
+	// live pool and transaction, so this is a source assertion instead — the
+	// same shape as the repo's other whole-tree greps, and it fails loudly when
+	// a door stops calling the gate rather than when someone happens to test
+	// that door.
+	for _, door := range []string{"extingress.go", "extcore.go"} {
+		src, err := os.ReadFile(door)
+		if err != nil {
+			t.Fatalf("reading %s: %v", door, err)
+		}
+		if !strings.Contains(string(src), "refuseUnitMessageKind(") {
+			t.Errorf("%s writes an activity for a unit and does not call refuseUnitMessageKind; that door can mint a message a unit has no transport for", door)
+		}
+	}
 }

@@ -91,7 +91,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: "telegram", SourceID: "8100:4242:7"},
 		Fields: capture.ActivityFields{
-			Kind: "telegram", Body: "hello there", Direction: connector.DirectionInbound,
+			Kind: "message", ChannelProvider: "telegram", Body: "hello there", Direction: connector.DirectionInbound,
 			OccurredAt: time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC),
 		},
 		Source:     "telegram:8100:4242:7",

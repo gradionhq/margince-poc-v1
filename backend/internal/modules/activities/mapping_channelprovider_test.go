@@ -3,82 +3,104 @@
 
 package activities
 
-// A caller naming a kind that is also a registered transport is naming the
-// transport, and the mapped input records it. Without this, a hand-logged or
-// agent-logged channel activity would store no transport and be unrepliable —
-// while an identical row written before the column existed stayed repliable,
-// because the migration backfilled that one. Same data, different behaviour
-// decided by write date.
+// The kind and the transport are two axes, and the mapping holds them against
+// each other in BOTH directions (ADR-0107/A158): a message names what carried
+// it, and nothing else names anything.
 //
-// These are mirrored deliberately: the positive case alone would pass just as
-// well if the mapping recorded the kind as a transport unconditionally, which
-// would put 'note' and 'email' in a column that references the provider registry
-// and fail the foreign key at the insert.
+// Both directions are asserted deliberately. The forward case alone would pass
+// just as well if the mapping copied any provider it was handed onto any kind,
+// which would put a transport on a note — a row the database then refuses with
+// a CHECK the caller cannot see, reported as a 500 rather than as the field
+// fault it is.
+//
+// The predecessor of this file tested the opposite rule: that a caller naming
+// `kind: "telegram"` had that read back as a transport. That inference is gone,
+// because the caller now has a field to say it in.
 
 import (
+	"errors"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
-func TestLogActivityInputRecordsTheTransportForAChannelKind(t *testing.T) {
-	// Set explicitly rather than leaning on the package's pre-registry default:
-	// what this asserts is a rule about the REGISTERED set, and a test that only
-	// passes while a particular default happens to be in place is asserting the
-	// default.
-	t.Cleanup(func() { SetChannelProviders([]string{"telegram"}) })
-	SetChannelProviders([]string{"telegram"})
+func TestLogActivityInputCarriesTheTransportTheCallerNamed(t *testing.T) {
+	provider := "telegram"
 
 	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
-		Kind: crmcontracts.CreateActivityRequestKindTelegram,
+		Kind:            crmcontracts.CreateActivityRequestKindMessage,
+		ChannelProvider: &provider,
+		Source:          "human",
 	})
 	if err != nil {
-		t.Fatalf("mapping a telegram activity: %v", err)
+		t.Fatalf("mapping a message: %v", err)
 	}
 	if in.ChannelProvider != "telegram" {
-		t.Fatalf("ChannelProvider = %q, want telegram — a hand-logged channel activity that records no transport cannot be replied to", in.ChannelProvider)
+		t.Fatalf("ChannelProvider = %q, want telegram — a message that records no transport cannot be replied to", in.ChannelProvider)
 	}
-	if in.Kind != "telegram" {
-		t.Fatalf("Kind = %q, want telegram: the transport is recorded ALONGSIDE the kind, never instead of it", in.Kind)
+	if in.Kind != KindMessage {
+		t.Fatalf("Kind = %q, want %q: the transport is recorded ALONGSIDE the kind, never instead of it", in.Kind, KindMessage)
 	}
 }
 
-func TestLogActivityInputRecordsNoTransportForANonChannelKind(t *testing.T) {
-	t.Cleanup(func() { SetChannelProviders([]string{"telegram"}) })
-	SetChannelProviders([]string{"telegram"})
+// A message with no transport is refused HERE, as a field fault naming
+// channel_provider, rather than reaching the database CHECK that enforces the
+// same rule and surfacing as an unattributable 500.
+func TestLogActivityInputRefusesAMessageWithNoTransport(t *testing.T) {
+	_, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
+		Kind:   crmcontracts.CreateActivityRequestKindMessage,
+		Source: "human",
+	})
+
+	var fault *MessageProviderError
+	if !errors.As(err, &fault) {
+		t.Fatalf("err = %v, want a MessageProviderError — a message with no transport must be a 422 naming the field, not a constraint violation", err)
+	}
+	if field, _, _ := fault.FieldFault(); field != "channel_provider" {
+		t.Fatalf("FieldFault names %q, want channel_provider — the caller has to be told which field to fix", field)
+	}
+}
+
+// The reverse direction, which is the one a test suite forgets: a kind that
+// travelled on nothing must not acquire a transport. The column references the
+// provider registry, so a note carrying one is both meaningless and a row the
+// CHECK refuses.
+func TestLogActivityInputRefusesATransportOnAKindThatTravelledOnNothing(t *testing.T) {
+	provider := "telegram"
 
 	for _, kind := range []crmcontracts.CreateActivityRequestKind{
 		crmcontracts.CreateActivityRequestKindNote,
 		crmcontracts.CreateActivityRequestKindEmail,
 		crmcontracts.CreateActivityRequestKindMeeting,
+		crmcontracts.CreateActivityRequestKindCall,
+		crmcontracts.CreateActivityRequestKindTask,
 	} {
-		in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{Kind: kind})
-		if err != nil {
-			t.Fatalf("mapping a %s activity: %v", kind, err)
-		}
-		if in.ChannelProvider != "" {
-			t.Errorf("kind %s recorded transport %q, want none — the column references the provider registry, "+
-				"so a kind that names no transport must store NULL or fail the foreign key", kind, in.ChannelProvider)
+		_, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
+			Kind:            kind,
+			ChannelProvider: &provider,
+			Source:          "human",
+		})
+		var fault *MessageProviderError
+		if !errors.As(err, &fault) {
+			t.Errorf("kind %s accepted a transport (err = %v), want a MessageProviderError — only a message travels on one", kind, err)
 		}
 	}
 }
 
-// A provider that is not registered in THIS installation is not a transport here,
-// whatever the contract's kind enum still admits. The registry is the authority,
-// so an installation that composes no telegram connector records no telegram
-// transport — and the row is refused by the foreign key rather than pointing at a
-// provider nothing can deliver on.
-func TestLogActivityInputRecordsNoTransportWhenTheProviderIsNotRegistered(t *testing.T) {
-	t.Cleanup(func() { SetChannelProviders([]string{"telegram"}) })
-	SetChannelProviders([]string{})
-
-	in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{
-		Kind: crmcontracts.CreateActivityRequestKindTelegram,
-	})
-	if err != nil {
-		t.Fatalf("mapping a telegram activity with no registered providers: %v", err)
-	}
-	if in.ChannelProvider != "" {
-		t.Fatalf("ChannelProvider = %q with an empty registry, want none", in.ChannelProvider)
+// Every other kind still maps cleanly when it names no transport, which is what
+// stops the rule above from being satisfied by refusing everything.
+func TestLogActivityInputAcceptsANonMessageWithNoTransport(t *testing.T) {
+	for _, kind := range []crmcontracts.CreateActivityRequestKind{
+		crmcontracts.CreateActivityRequestKindNote,
+		crmcontracts.CreateActivityRequestKindEmail,
+		crmcontracts.CreateActivityRequestKindMeeting,
+	} {
+		in, err := LogActivityInputFrom(crmcontracts.CreateActivityRequest{Kind: kind, Source: "human"})
+		if err != nil {
+			t.Fatalf("mapping a %s activity: %v", kind, err)
+		}
+		if in.ChannelProvider != "" {
+			t.Errorf("kind %s recorded transport %q, want none", kind, in.ChannelProvider)
+		}
 	}
 }

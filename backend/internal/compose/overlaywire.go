@@ -280,6 +280,28 @@ func overlayWireLead(ctx context.Context, rec datasource.Record) (crmcontracts.L
 	return lead, nil
 }
 
+// incumbentActivityKind maps an incumbent's activity type onto one this build
+// can actually store. The READ path (this file) and the flip IMPORT path
+// (flipwriters.go) ask the identical question, so they ask it once: an
+// incumbent names its own vocabulary, and a kind this contract does not admit
+// renders as an unreadable value on the read side and fails the activity_kind
+// foreign key with a bare constraint name on the write side.
+//
+// `message` is refused specifically, not merely unrecognised kinds, and
+// ADR-0107/A158 names the decision rather than leaving it to inertia. An
+// incumbent's chat engagement is tempting to map there now that the kind
+// exists — and it must not be: a message names the transport that carried it, a
+// mirror carries no transport axis at all, and a message with no provider is a
+// row the CHECK refuses. `note` says "something happened, we did not model
+// what", which is exactly true of an engagement kind this build cannot read.
+func incumbentActivityKind(incumbent string) string {
+	kind := crmcontracts.ActivityKind(incumbent)
+	if !kind.Valid() || kind == crmcontracts.ActivityKindMessage {
+		return string(crmcontracts.ActivityKindNote)
+	}
+	return incumbent
+}
+
 // overlayWireActivity assembles the contract Activity from a mirror
 // record. kind rides the mapper's lowercased engagement type when it
 // lands on the contract enum; an engagement kind the contract doesn't
@@ -296,10 +318,7 @@ func overlayWireActivity(ctx context.Context, rec datasource.Record) (crmcontrac
 		return crmcontracts.Activity{}, err
 	}
 	syncedAt := rec.Freshness.LastSyncedAt
-	kind := crmcontracts.ActivityKind(fieldString(fields, "kind"))
-	if !kind.Valid() {
-		kind = crmcontracts.ActivityKindNote
-	}
+	kind := crmcontracts.ActivityKind(incumbentActivityKind(fieldString(fields, "kind")))
 	act := crmcontracts.Activity{
 		Id:         openapi_types.UUID(rec.Ref.ID),
 		Source:     overlaySource,

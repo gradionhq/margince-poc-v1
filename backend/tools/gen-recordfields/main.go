@@ -62,6 +62,12 @@ type node struct {
 	Items      *node            `yaml:"items"`
 	Properties map[string]*node `yaml:"properties"`
 	Required   []string         `yaml:"required"`
+	// AllOf carries the one-element wrapper the contract uses to attach a
+	// description (or nullability) to a $ref without overriding the ref itself,
+	// which JSON Schema does not otherwise allow. Unwrapped in resolve: without
+	// it such a property has no `type` keyword of its own and renders as the
+	// bare word "value", telling a model nothing about what it may send.
+	AllOf []*node `yaml:"allOf"`
 }
 
 func main() {
@@ -382,6 +388,14 @@ func typeNames(resolved *node) map[string]bool {
 // would then promise a field takes "value" where the contract pins a structure.
 func resolve(prop *node, all schemas) (*node, error) {
 	seen := 0
+	// A single-element allOf is a $ref with a sibling annotation, so it resolves
+	// to what the ref names. More than one element composes a shape this
+	// renderer has no vocabulary for, and it is left alone rather than guessed
+	// at — half a composed schema described as if it were the whole is worse
+	// than "value".
+	for prop != nil && prop.Ref == "" && len(prop.AllOf) == 1 {
+		prop = prop.AllOf[0]
+	}
 	for prop != nil && prop.Ref != "" {
 		const prefix = "#/components/schemas/"
 		if !strings.HasPrefix(prop.Ref, prefix) {

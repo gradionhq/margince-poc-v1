@@ -597,8 +597,7 @@ const EXCHANGE_KINDS: ReadonlySet<string> = new Set([
   "call",
   "meeting",
   "note",
-  "whatsapp",
-  "telegram",
+  "message",
 ]);
 
 /**

@@ -124,7 +124,7 @@ func (c *channelSendEnv) seedInboundMessage(t *testing.T) {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (workspace_id, kind, channel_provider, body, occurred_at, direction,
 			                      source_system, source_id, source, captured_by, thread_key)
-			VALUES ($1, 'telegram', 'telegram', 'Is this still available?', now(), 'inbound',
+			VALUES ($1, 'message', 'telegram', 'Is this still available?', now(), 'inbound',
 			        'telegram', '8100:770011:5', 'telegram:8100:770011:5', 'connector:telegram', $2)
 			RETURNING id`, c.ws, channelSendThreadKey).Scan(&c.activityID); err != nil {
 			return err
@@ -449,8 +449,8 @@ func TestSentMessageLandsAsAnOutboundActivity(t *testing.T) {
 	}, nil, &sent); status != http.StatusAccepted {
 		t.Fatalf("human reply → %d", status)
 	}
-	if sent.Kind != "telegram" || sent.Direction != "outbound" || sent.Body != "On its way." {
-		t.Fatalf("logged activity = %+v, want an outbound telegram activity carrying the sent text", sent)
+	if sent.Kind != "message" || sent.Direction != "outbound" || sent.Body != "On its way." {
+		t.Fatalf("logged activity = %+v, want an outbound message carrying the sent text", sent)
 	}
 
 	var threadKey, linkedPerson string

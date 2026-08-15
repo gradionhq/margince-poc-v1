@@ -80,7 +80,7 @@ func newestMessage(
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT a.id, a.direction, a.occurred_at
 		FROM activity a
-		WHERE a.kind IN ('email','whatsapp','telegram','call','meeting') AND a.archived_at IS NULL AND %[1]s
+		WHERE a.kind IN ('email','message','call','meeting') AND a.archived_at IS NULL AND %[1]s
 		  AND %[2]s
 		ORDER BY a.occurred_at DESC, a.id DESC
 		LIMIT 1`, activityScope, activities.OrgLinkedActivityExists(orgPos)), args...).

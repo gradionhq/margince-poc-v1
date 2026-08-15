@@ -445,7 +445,7 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 	ext := row.ExternalID
 	sourceSystem := w.importSourceSystem()
 	in := activities.LogActivityInput{
-		Kind:         fieldString(row.Fields, "kind"),
+		Kind:         incumbentActivityKind(fieldString(row.Fields, "kind")),
 		Subject:      fieldStringPtr(row.Fields, "subject"),
 		Body:         fieldStringPtr(row.Fields, "body"),
 		Direction:    fieldStringPtr(row.Fields, "direction"),

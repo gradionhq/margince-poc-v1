@@ -54,13 +54,12 @@ func (e ActivityDirection) Valid() bool {
 
 // Defines values for ActivityKind.
 const (
-	ActivityKindCall     ActivityKind = "call"
-	ActivityKindEmail    ActivityKind = "email"
-	ActivityKindMeeting  ActivityKind = "meeting"
-	ActivityKindNote     ActivityKind = "note"
-	ActivityKindTask     ActivityKind = "task"
-	ActivityKindTelegram ActivityKind = "telegram"
-	ActivityKindWhatsapp ActivityKind = "whatsapp"
+	ActivityKindCall    ActivityKind = "call"
+	ActivityKindEmail   ActivityKind = "email"
+	ActivityKindMeeting ActivityKind = "meeting"
+	ActivityKindMessage ActivityKind = "message"
+	ActivityKindNote    ActivityKind = "note"
+	ActivityKindTask    ActivityKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the ActivityKind enum.
@@ -72,13 +71,11 @@ func (e ActivityKind) Valid() bool {
 		return true
 	case ActivityKindMeeting:
 		return true
+	case ActivityKindMessage:
+		return true
 	case ActivityKindNote:
 		return true
 	case ActivityKindTask:
-		return true
-	case ActivityKindTelegram:
-		return true
-	case ActivityKindWhatsapp:
 		return true
 	default:
 		return false
@@ -162,13 +159,12 @@ func (e CreateActivityRequestDirection) Valid() bool {
 
 // Defines values for CreateActivityRequestKind.
 const (
-	CreateActivityRequestKindCall     CreateActivityRequestKind = "call"
-	CreateActivityRequestKindEmail    CreateActivityRequestKind = "email"
-	CreateActivityRequestKindMeeting  CreateActivityRequestKind = "meeting"
-	CreateActivityRequestKindNote     CreateActivityRequestKind = "note"
-	CreateActivityRequestKindTask     CreateActivityRequestKind = "task"
-	CreateActivityRequestKindTelegram CreateActivityRequestKind = "telegram"
-	CreateActivityRequestKindWhatsapp CreateActivityRequestKind = "whatsapp"
+	CreateActivityRequestKindCall    CreateActivityRequestKind = "call"
+	CreateActivityRequestKindEmail   CreateActivityRequestKind = "email"
+	CreateActivityRequestKindMeeting CreateActivityRequestKind = "meeting"
+	CreateActivityRequestKindMessage CreateActivityRequestKind = "message"
+	CreateActivityRequestKindNote    CreateActivityRequestKind = "note"
+	CreateActivityRequestKindTask    CreateActivityRequestKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestKind enum.
@@ -180,13 +176,11 @@ func (e CreateActivityRequestKind) Valid() bool {
 		return true
 	case CreateActivityRequestKindMeeting:
 		return true
+	case CreateActivityRequestKindMessage:
+		return true
 	case CreateActivityRequestKindNote:
 		return true
 	case CreateActivityRequestKindTask:
-		return true
-	case CreateActivityRequestKindTelegram:
-		return true
-	case CreateActivityRequestKindWhatsapp:
 		return true
 	default:
 		return false
@@ -251,6 +245,8 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 // `duration_seconds` only for meeting/call; `direction` is null for note/task. Setting a
 // disallowed field for the kind returns `422 code: field_not_valid_for_kind` (the API rejects
 // what the DB CHECK would reject, rather than 500-ing at write time).
+// `channel_provider` is the same kind of constraint in both directions: non-null exactly
+// when `kind=message` (ADR-0107/A158).
 type Activity struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 
@@ -265,8 +261,13 @@ type Activity struct {
 	CaptureLabel *ActivityCaptureLabel `json:"capture_label,omitempty"`
 
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
-	CapturedBy *string   `json:"captured_by,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// ChannelProvider Which transport carried this message — non-null exactly when `kind=message`.
+	// The kind says what sort of interaction happened; this says what carried it. They
+	// are separate axes, and reading one off the other is what ADR-0107 retired.
+	ChannelProvider *ProviderRef `json:"channel_provider,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
 
 	// Direction inbound/outbound for email/call; null for note/task.
 	Direction *ActivityDirection `json:"direction,omitempty"`
@@ -339,8 +340,14 @@ type ActivityLinkEntityType string
 
 // CreateActivityRequest defines model for CreateActivityRequest.
 type CreateActivityRequest struct {
-	AssigneeId      *string                         `json:"assignee_id,omitempty"`
-	Body            *string                         `json:"body,omitempty"`
+	AssigneeId *string `json:"assignee_id,omitempty"`
+	Body       *string `json:"body,omitempty"`
+
+	// ChannelProvider Which transport carried this message. REQUIRED when `kind=message` and MUST be
+	// null otherwise; violating either direction returns
+	// `422 code: field_not_valid_for_kind`. Must name a provider this installation has
+	// registered.
+	ChannelProvider *ProviderRef                    `json:"channel_provider,omitempty"`
 	Direction       *CreateActivityRequestDirection `json:"direction,omitempty"`
 	DueAt           *time.Time                      `json:"due_at,omitempty"`
 	DurationSeconds *int                            `json:"duration_seconds,omitempty"`
@@ -372,6 +379,14 @@ type CreateActivityRequestLinksEntityType string
 
 // CreateActivityRequestMeetingStatus defines model for CreateActivityRequest.MeetingStatus.
 type CreateActivityRequestMeetingStatus string
+
+// ProviderRef A reference to a messaging transport registered in THIS installation
+// (ADR-0107/A158). Deliberately a pattern-constrained string rather than an enum:
+// which providers exist is a deployment fact — what this binary composed, including
+// any extension unit present under `extensions/` — so an enum here would assert that
+// the legal set is identical in every installation, which is false. The contract
+// states the invariant; `GET /v1/channel-providers` resolves the live set.
+type ProviderRef = string
 
 // RowVersion Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 // Echoed back as the `version` field on every mutable entity. To make a write conditional,

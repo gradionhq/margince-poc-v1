@@ -325,6 +325,13 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 			// answering it unfiltered would hand back unrelated items as if
 			// they were the rest of that conversation.
 			{"thread_key", params.ThreadKey != nil},
+			// The mirror has no transport axis at all: an incumbent CRM stores
+			// its own idea of an activity type and nothing that maps to a
+			// channel_provider row here. Answering the filter unfiltered would
+			// return every mirrored activity as though "only messages carried by
+			// telegram" had been applied, which reads as a much larger
+			// conversation than the one that exists.
+			{"channel_provider", params.ChannelProvider != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireActivity,
 		func(data []crmcontracts.Activity, page crmcontracts.PageInfo) any {

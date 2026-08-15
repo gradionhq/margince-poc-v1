@@ -127,7 +127,16 @@ var searchBranches = []searchBranch{
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
 	{entity: "project", table: "project", title: "name", snippet: "NULL"},
-	{entity: "activity", table: "activity", title: "coalesce(subject, kind)", snippet: "left(coalesce(body, ''), 200)", activityWalk: true},
+	// `entity` stays a literal and `table` takes the constant, which looks
+	// inconsistent and is not: TestContextAnchorEnumMatchesTheSearchableEntities
+	// AST-parses the `entity` values and can only read literals, while goconst
+	// counts the repeats. Splitting them satisfies both without a waiver.
+	//
+	// The title folds the provider in ahead of the kind: since ADR-0107/A158 a
+	// message's kind is the bare word "message", so a subject-less chat would
+	// render identically for every transport. coalesce falls through to the kind
+	// for everything that never travelled on one.
+	{entity: "activity", table: entityActivity, title: "coalesce(subject, channel_provider, kind)", snippet: "left(coalesce(body, ''), 200)", activityWalk: true},
 }
 
 // Search runs the ranked cross-object query (contract /search). Every

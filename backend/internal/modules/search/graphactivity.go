@@ -227,7 +227,7 @@ func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graph
 	var title, kind string
 	var occurredAt time.Time
 	err := tx.QueryRow(ctx, `
-		SELECT coalesce(subject, kind), kind, occurred_at
+		SELECT coalesce(subject, channel_provider, kind), kind, occurred_at
 		  FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID).
 		Scan(&title, &kind, &occurredAt)
 	if err != nil {

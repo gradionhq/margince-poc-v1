@@ -72,39 +72,36 @@ func SetChannelProviders(providers []string) {
 	channelProvidersMu.Unlock()
 }
 
-// ChannelProviderForKind answers which transport a caller naming this kind is
-// naming, and empty when the kind names none.
-//
-// It exists because the two vocabularies still overlap: while a channel is spelled
-// the same as a kind, a caller who says `kind: "telegram"` is stating a transport
-// and has no other field to state it in. Recording it at the write is what keeps a
-// hand-logged channel activity repliable, and what keeps every channel row's
-// transport non-NULL — the invariant the kind-narrowing slice's CHECK will depend
-// on already being true.
-//
-// Exported because the extension-ingress bridge in the composition root has the
-// same input shape to translate, and one spelling of this rule is the point.
-//
-// It disappears with that slice: once the contract carries a provider of its own,
-// the caller says it directly and nothing infers it.
-func ChannelProviderForKind(kind string) string {
-	if IsChannelKind(kind) {
-		return kind
-	}
-	return ""
-}
+// KindMessage is the one interaction kind that names a channel conversation
+// (ADR-0107/A158). Which transport carried it is activity.channel_provider, a
+// separate axis — reading one off the other is exactly what that decision
+// retired.
+const KindMessage = "message"
 
 // IsChannelKind reports whether an activity kind names a messaging-channel
-// conversation this module can answer.
+// conversation.
 //
-// Exported so the composition root — which imports both this module and the
-// capture providers — can hold the two spellings of a provider name against each
-// other. Drift here is silent: a kind this set does not carry reads as "not a
-// channel conversation" and refuses every reply on it.
+// Since the narrowing this is a comparison, not a set membership test: every
+// channel message is `message` regardless of transport. Kept as a function
+// rather than inlined at its callers because those callers ask a domain
+// question — "is this conversation repliable in principle" — and the answer
+// changing shape once already is the argument for it having one name.
 func IsChannelKind(kind string) bool {
+	return kind == KindMessage
+}
+
+// CanSendOnProvider reports whether this installation composed a transport
+// that can carry a reply on the given provider.
+//
+// This is deliberately NOT the same question as IsChannelKind. A row may name a
+// perfectly real transport this binary did not compose — whatsapp is registered
+// but has no connector — and the honest answer there is "this is a message, and
+// no reply can leave this installation for it". Answering both questions with
+// one set is what let a kind stand in for a transport in the first place.
+func CanSendOnProvider(provider string) bool {
 	channelProvidersMu.RLock()
 	defer channelProvidersMu.RUnlock()
-	return channelProviders[kind]
+	return channelProviders[provider]
 }
 
 // SendMessageInput is one consented channel reply. There is no recipient field
@@ -279,12 +276,12 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 	if strings.TrimSpace(in.Body) == "" {
 		return crmcontracts.Activity{}, errEmptyMessageBody
 	}
-	// The transport is READ, not recovered by reading the anchor's kind back as a
-	// provider name. Those are two vocabularies that coincide for every channel
-	// shipped so far, and the coincidence is not a rule: a transport that names
-	// no interaction kind makes the old derivation answer "not a channel
-	// conversation" for a conversation that plainly is one. An empty provider is
-	// the anchor saying it never travelled on a channel.
+	// The transport is READ, never recovered from the anchor's kind. Since
+	// ADR-0107/A158 the kind names no transport at all, so there is nothing left
+	// to derive from — and before it, the two vocabularies merely coincided for
+	// the channels shipped so far, which was never a rule. An empty provider is
+	// the anchor saying it never travelled on a channel, which the database now
+	// guarantees is true exactly when the kind is not a message.
 	provider, err := s.channelProviderOf(ctx, anchorID)
 	if err != nil {
 		return crmcontracts.Activity{}, err
@@ -453,13 +450,13 @@ type outboundChannelMessage struct {
 func (m outboundChannelMessage) activity() LogActivityInput {
 	direction := "outbound"
 	return LogActivityInput{
-		// Kind and ChannelProvider are both the provider here only because every
-		// channel this path can reach today is spelled the same in both
-		// vocabularies. ChannelProvider is the one the NEXT send resolves from;
-		// Kind is what the timeline calls it. Capture's reply-match still reads
-		// kind — moving it is the kind-narrowing slice's work, because until then
-		// kind is what separates a channel thread from a mail one.
-		Kind:            m.provider,
+		// The two axes, stated separately (ADR-0107/A158). The reply IS a
+		// message; what carries it is the anchor's own transport. Capture's
+		// reply-match reads the PAIR — kind to separate mail from channel,
+		// provider to separate one transport from another — so an outbound leg
+		// filed with either half wrong is a conversation the next inbound
+		// message cannot match into.
+		Kind:            KindMessage,
 		ChannelProvider: m.provider,
 		Body:            &m.in.Body,
 		Direction:       &direction,

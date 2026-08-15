@@ -5,7 +5,6 @@ import {
   MessageCircle,
   PencilLine,
   Phone,
-  Send,
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -283,15 +282,7 @@ export type TimelineEntry = {
   // was changed about it are one chronology to the person reading them — kept
   // apart, a rep comparing "we told them X" against "someone set stage to Y"
   // had to hold two orderings in their head.
-  kind:
-    | "email"
-    | "meeting"
-    | "note"
-    | "call"
-    | "task"
-    | "whatsapp"
-    | "telegram"
-    | "change";
+  kind: "email" | "meeting" | "note" | "call" | "task" | "message" | "change";
   title: string;
   atIso: string;
   provenance: Provenance;
@@ -350,14 +341,18 @@ export type TimelineEntry = {
   detail?: ReactNode;
 };
 
+// One icon for every kind, and ONE for every messaging transport: since
+// ADR-0107/A158 the timeline no longer knows a Telegram row from a WhatsApp one
+// by its kind, so a per-transport icon here would be a map this file cannot
+// keep — an extension unit's transport has no entry and never will. The row
+// names its transport in the label instead.
 const TIMELINE_ICON = {
   email: Mail,
   meeting: CalendarClock,
   note: StickyNote,
   call: Phone,
   task: CheckSquare,
-  whatsapp: MessageCircle,
-  telegram: Send,
+  message: MessageCircle,
   change: PencilLine,
 } as const;
 
