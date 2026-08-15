@@ -97,7 +97,15 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	// non_production field, so the three can never disagree about which one is
 	// live.
 	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
-	opts := []compose.Option{compose.WithDataReset(schemaPool, deployCfg.Seeds, env)}
+	opts := []compose.Option{
+		compose.WithDataReset(schemaPool, deployCfg.Seeds, env),
+		// The same seeds reach the ADR-0105 claim route, so an installation
+		// provisioned by claim lays down the module defaults this file asks
+		// for rather than the built-in ones. Always applied, including the
+		// zero value: an unconfigured `seeds` section means built-in defaults
+		// on both provisioning paths, which is the behaviour to preserve.
+		compose.WithBootstrapSeeds(deployCfg.Seeds),
+	}
 	reset, err := newResetLane(env, pool, rdb, logger)
 	if err != nil {
 		return nil, nil, err

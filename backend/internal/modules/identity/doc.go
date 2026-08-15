@@ -6,7 +6,7 @@
 // in-app — there is no separate identity service (P7 on-prem).
 //
 // Tables owned: workspace, app_user, team, team_membership, session,
-// passport, role, role_assignment. Role policy documents live ONLY in
+// passport, role, role_assignment, setup_token. Role policy documents live ONLY in
 // internal/policy. Imports shared + platform + the
 // generated contract only; never a sibling module — the workspace
 // bootstrap's default-pipeline seed is injected at the composition root.
