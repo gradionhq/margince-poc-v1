@@ -19,9 +19,9 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -33,10 +33,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// TestGetAttachmentExtractionDefaultsToHonestlyEmpty proves the production
-// default (no WithExtractor call) answers a valid empty extraction — never
-// a 501 — once the attachment clears the scan gate.
-func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
+// TestGetAttachmentExtractionOfAnUnreadDocumentIs404 proves the honest
+// difference between nobody having asked and a reading that got nothing: a
+// document nothing has read has no reading to report, which is a 404 rather
+// than an empty body a client would render as "read it, found none".
+func TestGetAttachmentExtractionOfAnUnreadDocumentIs404(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
@@ -50,25 +51,16 @@ func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
 	h.GetAttachmentExtraction(rec, req, att.Id)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
-	var got crmcontracts.AttachmentExtraction
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(got.Fields) != 0 || len(got.Omitted) != 0 {
-		t.Errorf("extraction = %+v, want {fields:[],omitted:[]}", got)
-	}
-	if !strings.Contains(rec.Body.String(), `"fields":[]`) || !strings.Contains(rec.Body.String(), `"omitted":[]`) {
-		t.Errorf("wire body = %s, want empty arrays not null", rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (body %s)", rec.Code, rec.Body.String())
 	}
 }
 
-// TestGetAttachmentExtractionPartitionsFixtureEvidence proves the wired
-// Fixture extractor's grounded/omitted split rides the wire shape intact:
-// two grounded fields with their evidence, one honestly omitted.
-func TestGetAttachmentExtractionPartitionsFixtureEvidence(t *testing.T) {
+// TestGetAttachmentExtractionPartitionsAStoredReading proves a finished
+// reading's grounded/omitted split rides the wire shape intact: two grounded
+// fields with their evidence, one honestly omitted, and the reading's own
+// status alongside them.
+func TestGetAttachmentExtractionPartitionsAStoredReading(t *testing.T) {
 	e := Setup(t)
 	base := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
@@ -77,14 +69,12 @@ func TestGetAttachmentExtractionPartitionsFixtureEvidence(t *testing.T) {
 	att := uploadDealAttachment(ctx, t, base, deal, "quote.pdf", []byte("quote bytes"))
 	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 
-	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{
-		att.Id.String(): {
-			{Field: "amount_minor", Value: "150000", SourceQuote: "Total: $1,500.00", PageOrSection: "p.1", Confidence: "high"},
-			{Field: "currency", Value: "USD", SourceQuote: "$1,500.00 USD", PageOrSection: "p.1", Confidence: "medium"},
-			{Field: "expected_close_date", Omitted: true, OmittedReason: "not_stated_in_file"},
-		},
-	}}
-	h := base.WithExtractor(fx)
+	seedExtractionReading(ctx, t, e, ids.UUID(att.Id), []extraction.ExtractedField{
+		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: $1,500.00", PageOrSection: "p.1", Confidence: "high"},
+		{Field: "currency", Value: "USD", SourceQuote: "$1,500.00 USD", PageOrSection: "p.1", Confidence: "medium"},
+		{Field: "expected_close_date", Omitted: true, OmittedReason: "not_stated_in_file"},
+	})
+	h := base
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
@@ -120,6 +110,7 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	org := e.SeedOrg(t, "Non-Deal Parent", &e.Rep1)
 	att := uploadScanTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
 	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
+	seedExtractionReading(ctx, t, e, ids.UUID(att.Id), nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
@@ -129,58 +120,80 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	}
 }
 
-// TestGetAttachmentExtractionRefusesWhileScanning proves the extraction
-// read's defense-in-depth scan gate (RD-T05): a fresh upload defaults to
-// 'scanning' (0070), and the read must refuse it with the same typed 409
-// the raw-byte download answers — before the extractor ever sees the
-// bytes. Inert today under the NoOp/Fixture seams; essential the moment a
-// real extractor reads unvetted content.
-func TestGetAttachmentExtractionRefusesWhileScanning(t *testing.T) {
+// TestStartExtractionReadRefusesWhileScanning proves the scan gate (RD-T05)
+// where it now lives: at the START of a reading.
+//
+// The gate exists so unvetted bytes never reach a model, and the reading is
+// where bytes are read — so that is where it has to fire. Asserting it on the
+// POLL instead would be asserting it on an operation that touches no bytes at
+// all, and would go on passing after the gate had been removed from the one
+// path that matters.
+func TestStartExtractionReadRefusesWhileScanning(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
-	person := e.SeedPerson(t, "Extraction Scan Gate", &e.Rep1)
-	att := uploadScanTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Scan Gate Reading", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(ctx, t, h, deal, "report.pdf", []byte("PDF-BYTES"))
+	// Left at the upload default ('scanning') — never marked clean.
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
-	h.GetAttachmentExtraction(rec, req, att.Id)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("extraction read while scanning: status %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	_, _, err := activities.NewStore(e.DB()).StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
+	if !errors.Is(err, activities.ErrScanPending) {
+		t.Fatalf("start a reading while scanning: err = %v, want ErrScanPending", err)
 	}
-	var p scanProblem
-	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-		t.Fatalf("decode scan_pending problem: %v", err)
-	}
-	if p.Code != "scan_pending" {
-		t.Errorf("code = %q, want scan_pending", p.Code)
+	if n := e.WsCount(t, `SELECT count(*) FROM attachment_extraction`); n != 0 {
+		t.Errorf("the refused start still created %d reading(s), want 0", n)
 	}
 }
 
-// TestGetAttachmentExtractionRefusesWhenBlocked mirrors the scanning case
-// for a quarantined verdict — terminal, never read.
-func TestGetAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
+// TestStartExtractionReadRefusesWhenBlocked mirrors the scanning case for a
+// quarantined verdict — terminal, never read.
+func TestStartExtractionReadRefusesWhenBlocked(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
-	person := e.SeedPerson(t, "Extraction Blocked Gate", &e.Rep1)
-	att := uploadScanTestAttachment(ctx, t, h, person, "malware.bin", []byte("EVIL"))
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Blocked Gate Reading", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(ctx, t, h, deal, "malware.bin", []byte("EVIL"))
 	if _, err := e.Activities.MarkScanResult(ctx, ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
 		t.Fatalf("MarkScanResult(blocked): %v", err)
 	}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
-	h.GetAttachmentExtraction(rec, req, att.Id)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("extraction read while blocked: status %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	_, _, err := activities.NewStore(e.DB()).StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
+	if !errors.Is(err, activities.ErrAttachmentBlocked) {
+		t.Fatalf("start a reading while blocked: err = %v, want ErrAttachmentBlocked", err)
 	}
-	var p scanProblem
-	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-		t.Fatalf("decode attachment_blocked problem: %v", err)
+	if n := e.WsCount(t, `SELECT count(*) FROM attachment_extraction`); n != 0 {
+		t.Errorf("the refused start still created %d reading(s), want 0", n)
 	}
-	if p.Code != "attachment_blocked" {
-		t.Errorf("code = %q, want attachment_blocked", p.Code)
+}
+
+// TestStartExtractionReadTwiceJoinsTheOneInFlight proves the idempotence the
+// in-flight index buys (RD-AC-N-6): pressing the button twice attaches to the
+// reading already running rather than paying for the same document twice.
+func TestStartExtractionReadTwiceJoinsTheOneInFlight(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	ctx := e.Admin()
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Idempotent Reading", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(ctx, t, h, deal, "quote.pdf", []byte("quote bytes"))
+	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
+	store := activities.NewStore(e.DB())
+
+	first, joined, err := store.StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
+	if err != nil || joined {
+		t.Fatalf("first start: read %v joined %v err %v, want a fresh reading", first.ID, joined, err)
+	}
+	second, joined, err := store.StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
+	if err != nil {
+		t.Fatalf("second start: %v", err)
+	}
+	if !joined || second.ID != first.ID {
+		t.Errorf("second start = %v (joined %v), want the SAME reading %v", second.ID, joined, first.ID)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM attachment_extraction`); n != 1 {
+		t.Errorf("readings after pressing twice = %d, want 1", n)
 	}
 }
 

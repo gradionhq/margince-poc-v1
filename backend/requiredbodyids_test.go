@@ -58,6 +58,7 @@ var probedRequiredIDBodies = map[string]bool{
 	"MergeOrganizationJSONBody":      true,
 	"RelinkActivityJSONBody":         true,
 	"DraftAccountEmailJSONBody":      true,
+	"AcceptExtractionRequest":        true,
 }
 
 // unguardedRequiredIDBodies is what is left, and both entries are WAIVERS rather

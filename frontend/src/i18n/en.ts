@@ -1647,6 +1647,45 @@ export const en = {
   "docs.download": "Download",
   "docs.scanning": "Scanning — not yet downloadable",
   "docs.blocked": "Blocked by the scanner",
+
+  // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must
+  // stay apart in the words as well as in the data: not answered yet, answered
+  // and states none of them, could not be read at all.
+  "extraction.neverRead": "Nobody has read this file for deal fields yet.",
+  "extraction.readIt": "Read this file",
+  "extraction.readAgain": "Try reading it again",
+  "extraction.starting": "Starting…",
+  "extraction.startFailed":
+    "That file could not be sent for reading. Nothing was changed.",
+  "extraction.loading": "Checking whether this file has been read…",
+  "extraction.reading": "Reading this file…",
+  "extraction.failed": "This file could not be read.",
+  "extraction.groundedNothing":
+    "AI read this file and it states none of the deal fields.",
+  "extraction.heading.one":
+    "AI read this file — {count} field it can ground, staged for your record (accept to persist)",
+  "extraction.heading.other":
+    "AI read this file — {count} fields it can ground, staged for your record (accept to persist)",
+  "extraction.accept.one": "Accept {count} field",
+  "extraction.accept.other": "Accept {count} fields",
+  "extraction.dismiss": "Dismiss",
+  "extraction.dismissed": "Nothing was written. The file stays attached.",
+  "extraction.acceptedLabel": "Accepted fields",
+  "extraction.acceptedHeading.one":
+    "{count} field accepted to the deal — original snippets retained",
+  "extraction.acceptedHeading.other":
+    "{count} fields accepted to the deal — original snippets retained",
+  "extraction.acceptFailed":
+    "Those fields were not written. Nothing on the deal changed.",
+  "extraction.edit": "Edit",
+  "extraction.editValue": "Edit {field}",
+  "extraction.omitted.notStated": "omitted (not stated in this file)",
+  "extraction.omitted.notConfident":
+    "omitted (this file says something, but not clearly enough to accept)",
+  "extraction.field.name": "Deal name",
+  "extraction.field.amount": "Amount",
+  "extraction.field.currency": "Currency",
+  "extraction.field.closeDate": "Expected close date",
   "docs.category.all": "All",
   "docs.category.contract": "Contract",
   "docs.category.offer": "Offer",

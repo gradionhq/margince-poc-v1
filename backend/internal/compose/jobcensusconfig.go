@@ -90,6 +90,7 @@ func censusJobConfig() JobRunnerConfig {
 		VerdictBrain:           seam,
 		DeepReadBrain:          seam,
 		TranscriptProposeBrain: seam,
+		DocumentExtractBrain:   censusDocumentSeam{},
 		VoiceBrain:             seam,
 		Embedder:               seam,
 		AgentScheduler:         AgentSchedulerConfig{Interval: censusInterval, Service: &RunnerService{}},
@@ -149,6 +150,14 @@ func (censusSeam) Complete(context.Context, model.Request) (model.Response, erro
 func (censusSeam) Embed(context.Context, model.EmbedRequest) (model.Embeddings, error) {
 	return model.Embeddings{}, errCensusSeam
 }
+
+// censusDocumentSeam is censusSeam for the one lane that must also answer what
+// it can carry. It declares nothing: the census asks only whether a lane is
+// supplied, and a stand-in that claimed carriage would be answering a question
+// about a binding that does not exist.
+type censusDocumentSeam struct{ censusSeam }
+
+func (censusDocumentSeam) AttachmentMIMEs() []string { return nil }
 
 // EmbedIdentity answers a BOUND lane. The drift sweep registers nothing behind
 // an unbound one — an empty identity is what --ai-fake leaves, and there is

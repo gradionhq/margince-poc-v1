@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
@@ -8,8 +8,9 @@ import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { throwProblem, useMe } from "./common";
 import { RECORD_ZONE } from "./company360";
+import { DocumentExtractionPanel } from "./documentextraction";
 
 // The account's documents: the contracts, offers and legal files a rep goes
 // looking for before a call.
@@ -53,6 +54,21 @@ const STATE_LABELS: Record<DocState, MessageKey> = {
 // not a candidate. The rest are equal citizens and get no tone.
 const STATE_TONE: Partial<Record<DocState, "warn">> = { superseded: "warn" };
 
+// Whether this reader may write what a document says onto a deal.
+//
+// Read from /me's own effective grants rather than assumed: reading a document
+// and writing what it says are different authorities, and a panel that offered
+// Accept to a seat holding only the first would hand out a button whose every
+// press is a 403. The grant is ABSENT from the map when it was never given —
+// the generated index signature cannot say so — which is why it is widened and
+// read fail-closed.
+function useCanWriteDeals(): boolean {
+  const me = useMe();
+  const objects: Readonly<Record<string, { update?: boolean } | undefined>> =
+    me.data?.authorization?.objects ?? {};
+  return objects.deal?.update === true;
+}
+
 // A FILTERED read that found nothing is not an empty account. SectionCard's
 // empty state replaces the whole body — filters included — so reporting it here
 // would strand the reader on a category with no matches and no control left to
@@ -76,6 +92,7 @@ function documentsState(
 }
 
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
+  const canWriteDeals = useCanWriteDeals();
   const t = useT();
   const { locale } = useLocale();
   const [category, setCategory] = useState<Category | "">("");
@@ -139,25 +156,42 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
           </PanelBody>
         ) : (
           documents.map((doc) => (
-            <PanelRow key={doc.id} className="docs-row">
-              {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
-              {/* The title if somebody gave it one, else the filename. A
+            <Fragment key={doc.id}>
+              <PanelRow className="docs-row">
+                {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
+                {/* The title if somebody gave it one, else the filename. A
                   display name is what a reader looks for; the filename is
                   what arrived. */}
-              <span className="docs-name">{doc.title || doc.filename}</span>
-              {doc.category && (
-                <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
+                <span className="docs-name">{doc.title || doc.filename}</span>
+                {doc.category && (
+                  <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
+                )}
+                {doc.doc_state && (
+                  <Badge tone={STATE_TONE[doc.doc_state]}>
+                    {t(STATE_LABELS[doc.doc_state])}
+                  </Badge>
+                )}
+                <span className="t-caption">
+                  {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
+                </span>
+                <DownloadState doc={doc} />
+              </PanelRow>
+              {/* The staged reading sits UNDER its own row rather than inside it:
+                what it offers is about the document above it, and a panel wedged
+                into a list row would push the filename and the download out of
+                line for every file that has never been read. Only a deal-scoped
+                file gets one, because a deal is the only record the accept can
+                write to — offering it on a person's CV would be offering an act
+                that can only be refused. */}
+              {doc.entity_type === "deal" && (
+                <PanelRow className="docs-row">
+                  <DocumentExtractionPanel
+                    attachmentId={doc.id}
+                    canAccept={canWriteDeals}
+                  />
+                </PanelRow>
               )}
-              {doc.doc_state && (
-                <Badge tone={STATE_TONE[doc.doc_state]}>
-                  {t(STATE_LABELS[doc.doc_state])}
-                </Badge>
-              )}
-              <span className="t-caption">
-                {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
-              </span>
-              <DownloadState doc={doc} />
-            </PanelRow>
+            </Fragment>
           ))
         )
       ) : (

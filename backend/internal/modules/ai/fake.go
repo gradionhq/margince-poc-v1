@@ -25,6 +25,7 @@ type FakeClient struct {
 	steps     []FakeStep
 	calls     []FakeCall
 	embedDims int
+	carriage  []string
 }
 
 // FakeStep is one scripted Complete outcome beyond what Script's bare
@@ -55,7 +56,17 @@ type FakeCall struct {
 const fakeEmbedDims = 1024
 
 func NewFakeClient() *FakeClient {
-	return &FakeClient{embedDims: fakeEmbedDims}
+	return &FakeClient{embedDims: fakeEmbedDims, carriage: carriesImagesAndPDF}
+}
+
+// CarryingNothing makes the fake declare a text-only wire, so a test can drive
+// what a caller does when its binding cannot carry a document at all — the one
+// thing the default carriage cannot express.
+func (f *FakeClient) CarryingNothing() *FakeClient {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.carriage = carriesNothing
+	return f
 }
 
 // Script queues completion texts returned in order by Complete/Stream.
@@ -88,6 +99,13 @@ func (f *FakeClient) Calls() []FakeCall {
 }
 
 func (f *FakeClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	// The fake obeys map-or-reject like every real adapter: a media type it does
+	// not declare gets the sentinel, never a silent drop. Without this the fake
+	// is the one client whose offline behaviour differs from production exactly
+	// where a test would fail to notice.
+	if err := attachmentUnsupported("fake", req.Attachments, f.Caps().AttachmentMIMEs); err != nil {
+		return model.Response{}, err
+	}
 	payload, report, err := sendablePayload(ctx, fakeWire(req), req.SecretStripper)
 	if err != nil {
 		return model.Response{}, err
@@ -147,8 +165,20 @@ func (f *FakeClient) Embed(ctx context.Context, req model.EmbedRequest) (model.E
 	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
 }
 
+// Caps declares the fake carries documents by default, because the fake stands
+// in for a real model on every offline lane: a fake that quietly declared less
+// would send every offline test down the cannot-carry fallback and prove
+// nothing about the path that actually ships. CarryingNothing is how a test
+// asks for the other side deliberately.
 func (f *FakeClient) Caps() model.Capabilities {
-	return model.Capabilities{Streaming: true, EmbedDims: f.embedDims, LocalOnly: true}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return model.Capabilities{
+		Streaming:       true,
+		EmbedDims:       f.embedDims,
+		LocalOnly:       true,
+		AttachmentMIMEs: f.carriage,
+	}
 }
 
 func (f *FakeClient) record(call FakeCall) {
@@ -196,11 +226,29 @@ func (f *FakeClient) nextStep(payload []byte) FakeStep {
 // conformance tested against the fake carries over to the cloud path.
 func fakeWire(req model.Request) map[string]any {
 	return map[string]any{
-		"model":    req.Model,
-		"system":   req.System,
-		"messages": wireMessages("", req.Messages),
-		"tools":    req.Tools,
+		"model":       req.Model,
+		"system":      req.System,
+		"messages":    wireMessages("", req.Messages),
+		"tools":       req.Tools,
+		"attachments": fakeAttachmentWire(req.Attachments),
 	}
+}
+
+// fakeAttachmentWire renders each carried attachment as its media type, its
+// name and its SIZE rather than its bytes. The recorded payload is what tests
+// assert on and what the secret stripper runs over, and a megabyte of base64 in
+// every one would make both useless — while omitting attachments entirely,
+// which this wire did before documents reached it, made the fake the one
+// adapter that silently dropped an input every real adapter must map or refuse.
+func fakeAttachmentWire(atts []model.Attachment) []map[string]any {
+	if len(atts) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(atts))
+	for _, a := range atts {
+		out = append(out, map[string]any{"mime": a.MIME, "name": a.Name, "bytes": len(a.Bytes), "uri": a.URI})
+	}
+	return out
 }
 
 // deterministicVector expands an FNV seed of the text through an

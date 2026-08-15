@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // AppEnv is the heaviest of the three exported fixtures: a real compose handler
@@ -318,6 +319,36 @@ func applyRiverSchema(t *testing.T) {
 // honest about the path under test.
 func (e *AppEnv) DB() *database.DB {
 	return compose.InstallationDB(e.Pool)
+}
+
+// DealWriterContext binds a context on the installation's own workspace holding
+// exactly deal read+update, for the few HTTP suites that must SEED state no
+// endpoint creates on its own — a run record a background worker would normally
+// fill in.
+//
+// The grant is narrow on purpose, and it is not a copy of the lower harness's
+// admin fixture: a seeding context that granted everything would let a suite
+// set up a state the authority under test could never have reached, and the
+// wire assertions after it would then be measuring a situation production
+// cannot produce. Everything a client can do goes through Call.
+func (e *AppEnv) DealWriterContext(t *testing.T) context.Context {
+	t.Helper()
+	var wsID ids.UUID
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&wsID); err != nil {
+		t.Fatalf("workspace lookup for %q: %v", e.Slug, err)
+	}
+	ctx := principal.WithWorkspaceID(context.Background(), wsID)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	user := ids.NewV7()
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+		Permissions: principal.Permissions{
+			Objects: map[string]principal.ObjectGrant{
+				"deal": {Read: true, Update: true},
+			},
+		},
+	})
 }
 
 // DBFor pins a handle to another workspace, for the suites that seed a second

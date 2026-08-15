@@ -76,6 +76,7 @@ type Server struct {
 	onboardingStateHandlers
 	siteReadHandlers
 	transcriptReadHandlers
+	documentReadHandlers
 	scrapeHandlers
 	connectorHandlers
 	backfillHandlers
@@ -409,11 +410,11 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
 		quotasHandlers:       quotas.NewHandlers(InstallationDB(pool), identity.BaseCurrencyOf),
-		// The accept-write's default engine rides the honest-empty NoOp
-		// extractor (nothing is ever grounded, so nothing is acceptable);
-		// WithExtractor rebuilds it together with the activities read so
-		// both surfaces answer from the SAME seam.
-		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
+		// The accept-write needs no option to wire: it resolves the reading a
+		// human was already shown (RD-AC-N-5) rather than producing one, so it
+		// works wherever the readings do. An attachment that has never been read
+		// simply has no grounded field to accept, and the accept says so.
+		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool)},
 		// Outbound webhooks (E10/S-E10.6): the read surface works
 		// unconditionally; create/rotate/replay need a deployment signing
 		// key, wired by WithWebhookSigningKey (the api role sources it from

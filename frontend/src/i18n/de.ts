@@ -1643,6 +1643,47 @@ export const de = {
   "docs.download": "Herunterladen",
   "docs.scanning": "Wird geprüft — noch nicht herunterladbar",
   "docs.blocked": "Vom Scanner blockiert",
+
+  // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
+  // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen
+  // und keines der Felder genannt, gar nicht lesbar.
+  "extraction.neverRead":
+    "Diese Datei wurde noch nicht auf Deal-Felder gelesen.",
+  "extraction.readIt": "Diese Datei lesen",
+  "extraction.readAgain": "Erneut versuchen zu lesen",
+  "extraction.starting": "Wird gestartet…",
+  "extraction.startFailed":
+    "Diese Datei konnte nicht zum Lesen übergeben werden. Es wurde nichts geändert.",
+  "extraction.loading": "Prüfe, ob diese Datei bereits gelesen wurde…",
+  "extraction.reading": "Diese Datei wird gelesen…",
+  "extraction.failed": "Diese Datei konnte nicht gelesen werden.",
+  "extraction.groundedNothing":
+    "Die KI hat diese Datei gelesen — sie nennt keines der Deal-Felder.",
+  "extraction.heading.one":
+    "Die KI hat diese Datei gelesen — {count} belegbares Feld, für Ihren Datensatz vorbereitet (zum Übernehmen bestätigen)",
+  "extraction.heading.other":
+    "Die KI hat diese Datei gelesen — {count} belegbare Felder, für Ihren Datensatz vorbereitet (zum Übernehmen bestätigen)",
+  "extraction.accept.one": "{count} Feld übernehmen",
+  "extraction.accept.other": "{count} Felder übernehmen",
+  "extraction.dismiss": "Verwerfen",
+  "extraction.dismissed":
+    "Es wurde nichts geschrieben. Die Datei bleibt angehängt.",
+  "extraction.acceptedLabel": "Übernommene Felder",
+  "extraction.acceptedHeading.one":
+    "{count} Feld in den Deal übernommen — die Originalauszüge bleiben erhalten",
+  "extraction.acceptedHeading.other":
+    "{count} Felder in den Deal übernommen — die Originalauszüge bleiben erhalten",
+  "extraction.acceptFailed":
+    "Diese Felder wurden nicht geschrieben. Am Deal hat sich nichts geändert.",
+  "extraction.edit": "Bearbeiten",
+  "extraction.editValue": "{field} bearbeiten",
+  "extraction.omitted.notStated": "ausgelassen (in dieser Datei nicht genannt)",
+  "extraction.omitted.notConfident":
+    "ausgelassen (die Datei sagt etwas dazu, aber nicht klar genug zum Übernehmen)",
+  "extraction.field.name": "Deal-Name",
+  "extraction.field.amount": "Betrag",
+  "extraction.field.currency": "Währung",
+  "extraction.field.closeDate": "Erwartetes Abschlussdatum",
   "docs.category.all": "Alle",
   "docs.category.contract": "Vertrag",
   "docs.category.offer": "Angebot",

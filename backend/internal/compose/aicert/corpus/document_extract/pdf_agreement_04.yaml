@@ -1,0 +1,63 @@
+name: pdf_agreement_read_as_a_document_part
+task: document_extract
+site: fields
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The BYTES lane (RD-PARAM-N-4): the file goes to the model as an input part,
+# not as text this build extracted. It is the lane the issue's headline cases
+# take and the one the text lane's verbatim quote check cannot reach
+# (RD-AC-N-4) — grounding here is held by the prompt and by this rubric, and
+# certifying only the text lane would certify the easier half.
+#
+# The fixture is a generated PDF rather than a photographed page. It is honest
+# about what it exercises: the attachment part reaching a model and being read
+# off the page layout, not optical recognition of a camera image. A binding
+# that cannot carry application/pdf never reaches this scenario at all — the
+# case refuses a media type no adapter accepts before any call is made.
+fixture:
+  filename: mcc-2026-0442-service-agreement.pdf
+  mime: application/pdf
+  # One line, unwrapped: a folded scalar would join the parts with spaces and
+  # a wrapped one would keep the newlines, and base64 admits neither.
+  bytes: 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
+expect:
+  outcome: accepted
+  answer:
+    name: Cold Chain Monitoring, Rostock depot
+    amount_minor: "8740000"
+    currency: EUR
+    expected_close_date: "2027-03-15"
+  rubric: >
+    A service agreement laid out as a real document: a letterhead, numbered
+    sections, a charges block and two dates. Score whether the reading located
+    each value on the page and read it correctly.
+
+    The charges block is the first judgement. "EUR 87,400.00" is the annual
+    service charge and the only money on the page; the other two lines carry
+    no figure at all. Report the printed figure and let the product scale it
+    to minor units — a reading that reports 87400 has understated the
+    agreement a hundredfold, which is the error a page of numbers makes
+    easiest and a reviewer catches least.
+
+    The dates are the second. The document carries an issue date (3 November
+    2026) and a target cutover (15 March 2027), and it says explicitly that
+    charges begin on cutover rather than on signature. The cutover is when
+    this piece of business is expected to close. The twenty-four month term
+    and the three months' notice are durations, not dates, and a reading that
+    turns either into an expected close date has computed a date the document
+    does not state.
+
+    The name is what the agreement is FOR — the service and its site — not the
+    supplier on the letterhead, not the customer, and not the agreement
+    number, all three of which sit within a few lines of it.
+
+    Because this is the bytes lane, quotes cannot be checked against a text
+    layer by the product. Judge them yourself: a quote should be text that
+    actually appears on the page, copied rather than reworded, and the
+    page_or_section should name where — a section number or heading a reader
+    could turn to. A confident value whose quote is a paraphrase of the page
+    is the failure this lane exists to be watched for.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -1113,6 +1113,37 @@ kinds:
       forever; registered it fails with a message that says the installation has
       no model configured.
 
+  document_extract:
+    role: worker
+    go_type: DocumentExtractArgs
+    queue: transcript_read
+    timeout: 4m
+    opts_owner: caller
+    registration: {when: [DocumentExtractBrain], absent: registers_anyway}
+    args:
+      Workspace: id
+      AttachmentID: id
+      ExtractionReadID: id
+      RequestedBy: id
+    reason: >-
+      Four minutes is one model call with the structured lane's
+      retry-and-escalate headroom, plus the terminal write. Same wall as the
+      transcript reading and for the same arithmetic — a document is one
+      document, not a crawl.
+
+      It shares the transcript_read queue rather than minting its own, because
+      it is the same species of work: one long model call with a human watching
+      a spinner for it. What that pool exists to keep it away from is the
+      background sweeps on ai_capture, and that separation is what matters here
+      too; two interactive readings contending for two workers is the pool
+      behaving as designed.
+
+      Registered even with no model lane bound, because the alternative is a
+      queued reading nobody picks up — which, to the rep watching it, is
+      indistinguishable from one still being worked. Unregistered it would sit
+      forever; registered it fails with a message that says the installation has
+      no model configured.
+
   telegram_ingest:
     role: worker
     go_type: TelegramIngestArgs

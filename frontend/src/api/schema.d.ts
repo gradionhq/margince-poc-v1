@@ -6956,19 +6956,49 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+         * The newest reading of this attachment — its progress, what it grounded, and what it honestly omitted.
          * @description Every returned field carries a non-empty source_quote/page_or_section/confidence,
          *     or is listed in `omitted` with reason "not_stated_in_file" — never a guessed value
-         *     (RD-T10). Backed by the injectable `shared/ports/extraction.Extractor` seam; the
-         *     production default returns an honest `{fields: [], omitted: []}` (no
-         *     document-extraction/OCR/LLM pipeline exists or is built by this ticket). Valid for
-         *     any entity_type — a non-deal attachment or the empty-seam default both honestly
-         *     return zero fields; the same parent-visibility gate as `downloadAttachment`/
-         *     `listAttachments` applies.
+         *     (RD-AC-N-3). Valid for any entity_type; the same parent-visibility gate as
+         *     `downloadAttachment`/`listAttachments` applies.
+         *
+         *     This is a POLL, not the reading itself: `readAttachmentForFields` starts one and
+         *     this reports it. `status` separates the three answers a rep must be able to tell
+         *     apart (RD-AC-N-2) — `queued`/`running` (not answered yet), `done` (read it; zero
+         *     grounded fields is a CORRECT answer for a document that states none of them, and
+         *     `status_detail` says so), and `failed` (could not read it at all).
+         *
+         *     404 when this attachment has never been read — the honest difference between
+         *     nobody asking and a reading that got nothing.
          */
         get: operations["getAttachmentExtraction"];
         put?: never;
-        post?: never;
+        /**
+         * Read this attached document for the deal facts it states — a background reading that ends in staged, evidence-carrying fields.
+         * @description RD-WIRE-N-1. Reads the document for the four deal-writable facts (RD-PARAM-N-3)
+         *     and stages what it can ground, each carrying the quote it was read from. NOTHING
+         *     is written to any record until a human accepts it through
+         *     `acceptAttachmentExtraction`.
+         *
+         *     Asynchronous: answers 202 with the reading to poll, because a model call takes
+         *     seconds and can fail and so cannot happen inside the request that asks for it —
+         *     `readTranscriptForNextSteps` and the deep read are the same shape for the same
+         *     reason. Re-issuing while a reading is in flight answers the SAME reading
+         *     (idempotent per attachment), so pressing the button twice does not pay for the
+         *     document twice.
+         *
+         *     The scan gate applies here, at the door: a `scanning` or `blocked` attachment
+         *     refuses with the same typed 409 the raw download answers, before any bytes could
+         *     reach a model.
+         *
+         *     Requires UPDATE on the attachment's own parent record, which is the authority the
+         *     attachment surface gates every write behind. Note this is not identical to the
+         *     accept's: the accept writes a DEAL and is deal-only, so a person- or org-scoped
+         *     attachment can be read by someone who could never accept the result. That is
+         *     deliberate — the read is valid for any entity_type and is worth having on its own —
+         *     but it does mean a reading can be paid for and then have nowhere to land.
+         */
+        post: operations["readAttachmentForFields"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12254,18 +12284,69 @@ export interface components {
             /** @enum {string} */
             confidence: "high" | "medium";
         };
-        /** @description A field the extractor could not ground in the document text (evidence-or-omit; never guessed). */
+        /**
+         * @description A field the reading did not offer (evidence-or-omit; never guessed). The two
+         *     reasons are different answers and a surface renders them differently: the document
+         *     is SILENT about the field, versus the document says something the reading could
+         *     not hold steadily enough to put in front of a human — the second sends a rep to
+         *     the document, the first tells them not to bother.
+         */
         OmittedExtractionField: {
             field: string;
             /** @enum {string} */
-            reason: "not_stated_in_file";
+            reason: "not_stated_in_file" | "not_confidently_stated";
         };
-        /** @description The staged extraction for one attachment — grounded fields plus what was honestly omitted. */
+        /**
+         * @description One reading of one attachment — its progress, the fields it grounded, and what it
+         *     honestly omitted. A reading that is still running carries empty lists; that is not
+         *     the same answer as a finished reading that grounded nothing, which is why `status`
+         *     is required rather than inferable from the lists (RD-AC-N-2).
+         */
         AttachmentExtraction: {
+            /**
+             * Format: uuid
+             * @description This reading's own id.
+             */
+            id: string;
+            /**
+             * @description queued/running are live; done and failed are terminal. `done` with zero grounded fields is a correct answer, not a failure.
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+            /**
+             * @description Why the reading ended as it did, in words a rep can act on. Always present on
+             *     `failed`, and on a `done` reading that grounded nothing — an empty result that
+             *     does not explain itself reads as a broken feature.
+             */
+            status_detail?: string | null;
             fields: components["schemas"]["ExtractedField"][];
             omitted: components["schemas"]["OmittedExtractionField"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+        };
+        /** @description The reading `readAttachmentForFields` started, or the one already in flight it joined. */
+        AttachmentReadStarted: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "queued" | "running";
+            /** @description true when this request attached to a reading already in flight rather than starting a new one — the document is read, and paid for, once. */
+            joined: boolean;
         };
         AcceptExtractionRequest: {
+            /**
+             * Format: uuid
+             * @description The reading these values were read from — the `id` of the
+             *     `AttachmentExtraction` the human was actually shown. Required, and not
+             *     inferable: resolving "the newest reading" instead would let a reading started
+             *     by someone else between the display and the click decide what gets written,
+             *     which is precisely the divergence storing the fields exists to prevent
+             *     (RD-AC-N-5). A reading belonging to another attachment, or one that never
+             *     existed, is a 404.
+             */
+            extraction_id: string;
             /** @description Field names to accept onto the deal; each is checked against the deal-update allowlist. */
             field_keys: string[];
             /**
@@ -29231,7 +29312,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The staged extraction (possibly empty). */
+            /** @description The newest reading of this attachment. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -29242,6 +29323,50 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    readAttachmentForFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reading is queued; poll it with `getAttachmentExtraction`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentReadStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The attachment is still being scanned, or was blocked by the scanner. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     acceptAttachmentExtraction: {

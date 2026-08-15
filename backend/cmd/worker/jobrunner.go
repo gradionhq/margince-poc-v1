@@ -186,6 +186,7 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		EnrichBrain:            modelPath.Enrich,
 		SignalExtractBrain:     modelPath.SignalExtract,
 		TranscriptProposeBrain: modelPath.TranscriptPropose,
+		DocumentExtractBrain:   modelPath.DocumentExtract,
 		OverlayVault:           configuredVault,
 		OverlayInterval:        cfg.overlayInterval,
 		OverlayBackfillLimit:   cfg.overlayBackfillLimit,

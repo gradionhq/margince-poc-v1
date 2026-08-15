@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
@@ -104,7 +105,7 @@ type acceptProblemWire struct {
 // assertAcceptHTTPHappyPath drives the accept over the wire — the edited
 // amount lands as human provenance, the extracted currency as
 // ai-extracted — and reads the deal back through the API.
-func assertAcceptHTTPHappyPath(t *testing.T, e *apptest.AppEnv, attID, dealID string) {
+func assertAcceptHTTPHappyPath(t *testing.T, e *apptest.AppEnv, attID, dealID, readingID string) {
 	t.Helper()
 	var resp struct {
 		DealID   string `json:"deal_id"`
@@ -115,8 +116,9 @@ func assertAcceptHTTPHappyPath(t *testing.T, e *apptest.AppEnv, attID, dealID st
 		} `json:"accepted"`
 	}
 	status := e.Call(t, "POST", "/v1/attachments/"+attID+"/extraction:accept", apptest.AnyMap{
-		"field_keys": []string{"amount_minor", "currency"},
-		"edits":      apptest.AnyMap{"amount_minor": "200000"},
+		"extraction_id": readingID,
+		"field_keys":    []string{"amount_minor", "currency"},
+		"edits":         apptest.AnyMap{"amount_minor": "200000"},
 	}, nil, &resp)
 	if status != http.StatusOK {
 		t.Fatalf("accept = %d %+v", status, resp)
@@ -151,9 +153,12 @@ func assertAcceptHTTPNonDeal422(t *testing.T, e *apptest.AppEnv) {
 	}
 	personAtt := uploadAttachmentHTTP(e, t, "person", person["id"].(string), "cv.pdf")
 
+	// The entity-type refusal fires before the accept resolves a reading, so a
+	// person-scoped attachment needs none — and naming one it could not have is
+	// what proves the order.
 	var problem acceptProblemWire
 	status := e.Call(t, "POST", "/v1/attachments/"+personAtt+"/extraction:accept", apptest.AnyMap{
-		"field_keys": []string{"amount_minor"},
+		"extraction_id": ids.NewV7().String(), "field_keys": []string{"amount_minor"},
 	}, nil, &problem)
 	if status != http.StatusUnprocessableEntity || problem.Code != "unsupported_entity_type" {
 		t.Errorf("non-deal accept = %d code %q, want 422 unsupported_entity_type", status, problem.Code)
@@ -162,11 +167,13 @@ func assertAcceptHTTPNonDeal422(t *testing.T, e *apptest.AppEnv) {
 
 // assertAcceptHTTPValidation422 posts the given field_keys and checks the
 // validation_error problem names exactly one offending field/code.
-func assertAcceptHTTPValidation422(t *testing.T, e *apptest.AppEnv, attID string, fieldKeys []string, wantField, wantCode string) {
+func assertAcceptHTTPValidation422(
+	t *testing.T, e *apptest.AppEnv, attID, readingID string, fieldKeys []string, wantField, wantCode string,
+) {
 	t.Helper()
 	var problem acceptProblemWire
 	status := e.Call(t, "POST", "/v1/attachments/"+attID+"/extraction:accept", apptest.AnyMap{
-		"field_keys": fieldKeys,
+		"extraction_id": readingID, "field_keys": fieldKeys,
 	}, nil, &problem)
 	if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
 		t.Fatalf("field_keys %v = %d code %q, want 422 validation_error", fieldKeys, status, problem.Code)
@@ -177,11 +184,7 @@ func assertAcceptHTTPValidation422(t *testing.T, e *apptest.AppEnv, attID string
 }
 
 func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
-	// One extractor instance feeds BOTH the activities read and the accept
-	// write (the compose.WithExtractor wiring); its map fills in after the
-	// upload mints the attachment id.
-	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{}}
-	e := apptest.SetupAppWithOptions(t, compose.WithExtractor(fx), compose.WithBlobstore(blobstore.NewMemory()))
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(blobstore.NewMemory()))
 	e.BootstrapWorkspace(t)
 	stages := apptest.DiscoverSeededPipeline(t, e)
 
@@ -194,36 +197,81 @@ func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
 	}
 	dealID := deal["id"].(string)
 	attID := uploadAttachmentHTTP(e, t, "deal", dealID, "quote.pdf")
-	fx.Fields[attID] = []extraction.ExtractedField{
+	// This suite exercises the accept-write's own validation, not the scan gate
+	// (TestAcceptAttachmentExtractionScanGateHTTP owns that) — clear the upload
+	// default ('scanning') so every subtest below reaches the reading. The
+	// reading is seeded AFTER, because starting one is itself scan-gated.
+	markAttachmentCleanHTTP(e, t, attID)
+	readingID := seedExtractionReadingHTTP(e, t, attID, []extraction.ExtractedField{
 		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
 		{Field: "currency", Value: "EUR", SourceQuote: "all amounts in EUR", PageOrSection: "p.2", Confidence: "medium"},
-	}
-	// This suite exercises the accept-write's own validation, not the scan
-	// gate (TestAcceptAttachmentExtractionScanGateHTTP owns that) — clear
-	// the upload default ('scanning') so every subtest below reaches the
-	// extractor.
-	markAttachmentCleanHTTP(e, t, attID)
+	})
 
 	t.Run("200 persists the fields and flips the edited provenance", func(t *testing.T) {
-		assertAcceptHTTPHappyPath(t, e, attID, dealID)
+		assertAcceptHTTPHappyPath(t, e, attID, dealID, readingID)
 	})
 	t.Run("422 unsupported_entity_type for a non-deal attachment", func(t *testing.T) {
 		assertAcceptHTTPNonDeal422(t, e)
 	})
 	t.Run("422 validation_error for empty field_keys", func(t *testing.T) {
-		assertAcceptHTTPValidation422(t, e, attID, []string{}, "field_keys", "required")
+		assertAcceptHTTPValidation422(t, e, attID, readingID, []string{}, "field_keys", "required")
 	})
 	t.Run("422 validation_error naming the ungrounded key", func(t *testing.T) {
-		assertAcceptHTTPValidation422(t, e, attID, []string{"probability"}, "field_keys[0]", "not_grounded")
+		assertAcceptHTTPValidation422(t, e, attID, readingID, []string{"probability"}, "field_keys[0]", "not_grounded")
 	})
 	t.Run("404 for a missing attachment", func(t *testing.T) {
 		status := e.Call(t, "POST", "/v1/attachments/"+ids.NewV7().String()+"/extraction:accept", apptest.AnyMap{
-			"field_keys": []string{"amount_minor"},
+			"extraction_id": readingID, "field_keys": []string{"amount_minor"},
 		}, nil, nil)
 		if status != http.StatusNotFound {
 			t.Errorf("missing attachment accept = %d, want 404", status)
 		}
 	})
+	t.Run("404 for a reading this document never had", func(t *testing.T) {
+		status := e.Call(t, "POST", "/v1/attachments/"+attID+"/extraction:accept", apptest.AnyMap{
+			"extraction_id": ids.NewV7().String(), "field_keys": []string{"amount_minor"},
+		}, nil, nil)
+		if status != http.StatusNotFound {
+			t.Errorf("accept naming an unknown reading = %d, want 404", status)
+		}
+	})
+}
+
+// seedExtractionReadingHTTP writes one finished reading through the production
+// store and answers its id, for the wire suites whose subject is the ACCEPT.
+//
+// Starting a reading over HTTP would need a job runner and a worker and a model
+// to finish one, none of which this suite is about; writing the row by hand
+// would prove nothing about the writer that fills it in production. Driving the
+// real store is the middle path, and it is the same path the lower harness
+// takes.
+func seedExtractionReadingHTTP(
+	e *apptest.AppEnv, t *testing.T, attachmentID string, fields []extraction.ExtractedField,
+) string {
+	t.Helper()
+	ctx := e.DealWriterContext(t)
+	store := activities.NewStore(e.DB())
+	id, err := ids.Parse(attachmentID)
+	if err != nil {
+		t.Fatalf("parse attachment id %q: %v", attachmentID, err)
+	}
+	read, _, err := store.StartExtractionReadQueued(ctx, id, "seed", nil)
+	if err != nil {
+		t.Fatalf("StartExtractionReadQueued: %v", err)
+	}
+	claim, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease)
+	if err != nil {
+		t.Fatalf("BeginExtractionRead: %v", err)
+	}
+	if claim.StartedAt == nil {
+		t.Fatal("a claimed reading carries no start time")
+	}
+	if err := store.FinishExtractionRead(ctx, read.ID, activities.ExtractionReadOutcome{
+		Status: activities.ExtractionReadDone, Fields: fields, ClaimedAt: *claim.StartedAt,
+	}); err != nil {
+		t.Fatalf("FinishExtractionRead: %v", err)
+	}
+	return read.ID.String()
 }
 
 // TestAcceptAttachmentExtractionScanGateHTTP proves the wire-level 409:
@@ -233,8 +281,7 @@ func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
 // left untouched — never a 200 that would let unvetted content reach a
 // deal field.
 func TestAcceptAttachmentExtractionScanGateHTTP(t *testing.T) {
-	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{}}
-	e := apptest.SetupAppWithOptions(t, compose.WithExtractor(fx), compose.WithBlobstore(blobstore.NewMemory()))
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(blobstore.NewMemory()))
 	e.BootstrapWorkspace(t)
 	stages := apptest.DiscoverSeededPipeline(t, e)
 
@@ -247,13 +294,13 @@ func TestAcceptAttachmentExtractionScanGateHTTP(t *testing.T) {
 	}
 	dealID := deal["id"].(string)
 	attID := uploadAttachmentHTTP(e, t, "deal", dealID, "quote.pdf")
-	fx.Fields[attID] = []extraction.ExtractedField{
-		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
-	}
+	// No reading is seeded: starting one is itself scan-gated, and the accept's
+	// own gate fires before it resolves a reading anyway. A test that seeded one
+	// would not notice if that order ever reversed.
 
 	var problem acceptProblemWire
 	status := e.Call(t, "POST", "/v1/attachments/"+attID+"/extraction:accept", apptest.AnyMap{
-		"field_keys": []string{"amount_minor"},
+		"extraction_id": ids.NewV7().String(), "field_keys": []string{"amount_minor"},
 	}, nil, &problem)
 	if status != http.StatusConflict || problem.Code != "scan_pending" {
 		t.Fatalf("accept while scanning = %d code %q, want 409 scan_pending", status, problem.Code)

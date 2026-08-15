@@ -29,7 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -463,20 +462,6 @@ func WithScrape(fetch PageFetcher, brain completer) Option {
 			people:    people.NewStore(InstallationDB(pool)),
 			approvals: approvals.NewService(InstallationDB(pool)),
 		}}
-	}
-}
-
-// WithExtractor wires the staged AI-extraction seam ONCE for both
-// surfaces that consume it: the activities read (getAttachmentExtraction)
-// and the accept-write re-run the SAME extractor, so what the accept
-// validates field_keys against is exactly what the read staged. Without
-// it both fall back to the honest-empty NoOp — the read answers
-// {fields: [], omitted: []} and the accept refuses every key as
-// not_grounded, never writing an unevidenced value.
-func WithExtractor(extractor extraction.Extractor) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.activitiesHandlers = s.WithExtractor(extractor)
-		s.attachmentExtractionHandlers = attachmentExtractionHandlers{accept: NewExtractionAccept(pool, extractor)}
 	}
 }
 

@@ -255,6 +255,14 @@ func workspaceRefusalDrivers() map[string]func(context.Context) error {
 				ctx, &river.Job[TranscriptProposeArgs]{Args: TranscriptProposeArgs{}})
 		},
 
+		// The document reading refuses before it reaches the store, so a worker
+		// with no extractor and no store is enough to prove it: an unbound
+		// workspace is answered by the guard, not by a nil deref.
+		DocumentExtractArgs{}.Kind(): func(ctx context.Context) error {
+			return (&documentExtractWorker{log: slog.New(slog.DiscardHandler)}).Work(
+				ctx, &river.Job[DocumentExtractArgs]{Args: DocumentExtractArgs{}})
+		},
+
 		// The reindex worker takes its LAST attempt out of the pending set
 		// before returning, which is a store write; the row here is given an
 		// attempt below its cap so the refusal is what the call answers with,

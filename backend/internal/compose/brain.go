@@ -94,6 +94,11 @@ type ModelPath struct {
 	// in, this one cites the transcript LINES, which is what makes a proposal
 	// checkable against the text on screen.
 	TranscriptPropose completer
+	// DocumentExtract is the RD-WIRE-N-1 lane that reads one attached document
+	// for the deal facts it states. It is the only lane whose input may be
+	// BYTES rather than prose, which is why it is typed as a documentCompleter:
+	// it has to be able to ask what its binding can carry before it sends any.
+	DocumentExtract documentCompleter
 	// Enrich is the §2.9 evidence-or-omit signature field extraction lane.
 	Enrich completer
 	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
@@ -230,6 +235,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		CaptureCounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
 		SignalExtract:              brain(ai.TaskSignalExtract),
 		TranscriptPropose:          brain(ai.TaskTranscriptPropose),
+		DocumentExtract:            brain(ai.TaskDocumentExtract),
 		Enrich:                     brain(ai.TaskEnrich),
 		VoiceBuild:                 brain(ai.TaskVoiceBuild),
 		Embedder:                   router,
@@ -284,6 +290,11 @@ type routerBrain struct {
 	task           ai.Task
 	companyContext *companyContextProvider
 }
+
+// AttachmentMIMEs answers what a caller may hand this lane as a document part:
+// what every bound rung of the task's ladder declares it carries. A lane whose
+// task is never handed one simply never asks.
+func (b routerBrain) AttachmentMIMEs() []string { return b.router.AttachmentMIMEs(b.task) }
 
 func (b routerBrain) Complete(ctx context.Context, req model.Request) (model.Response, error) {
 	prepared, err := b.companyContext.Prepare(ctx, b.task, req)

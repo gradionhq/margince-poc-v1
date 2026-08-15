@@ -102,6 +102,16 @@ func (s *Store) now() time.Time {
 	return s.clock()
 }
 
+// HasBlobstore reports whether this store can reach document bytes at all.
+//
+// It exists for one wiring test, and the bug it guards is invisible at runtime
+// in the worst way: a store built without a blobstore answers every document
+// read with "this installation stores no document bytes", which is a true
+// sentence about the STORE and a false one about the installation — the bytes
+// are there, and the role that was supposed to read them was assembled without
+// a handle to them.
+func (s *Store) HasBlobstore() bool { return s.blob != nil }
+
 // WithBlobstore returns a store that backs the attachment endpoints with the
 // given object store. It returns a copy so the base store stays unchanged.
 func (s *Store) WithBlobstore(blob blobstore.Store) *Store {

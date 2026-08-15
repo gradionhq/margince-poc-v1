@@ -15,75 +15,48 @@ package activities
 import (
 	"net/http"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// WithExtractor returns handlers whose extraction read is backed by the
-// given staged AI-extraction seam. Mirrors WithBlobstore's shape. Without
-// it (or when passed nil) the read falls back to extraction.NoOpExtractor —
-// an honest empty answer, never a 501: the contract validly returns
-// `{fields: [], omitted: []}` when no document-extraction/OCR/LLM pipeline
-// is wired. There is no boot flag selecting a real provider yet — the
-// future provider rides modules/ai's CompleteStructured, injected the same
-// way a module never imports a sibling.
-func (h Handlers) WithExtractor(extractor extraction.Extractor) Handlers {
-	h.extractor = extractor
-	return h
-}
-
-// extractorOrNoOp answers the wired extractor, or the honest-empty default
-// when none was configured.
+// GetAttachmentExtraction answers the poll with the newest reading of this
+// attachment: its status, the fields it grounded, and what it honestly omitted
+// (RD-WIRE-N-2). A pure read — zero writes, no model call, no extractor here at
+// all. The reading itself is compose orchestration behind a 202, because a
+// model call takes seconds and can fail and so cannot happen inside the request
+// that asks for it.
 //
-//nolint:ireturn // the seam has two providers (wired or the honest no-op default) behind one Extractor; returning the interface is the design.
-func (h Handlers) extractorOrNoOp() extraction.Extractor {
-	if h.extractor == nil {
-		return extraction.NoOpExtractor{}
-	}
-	return h.extractor
-}
-
-// GetAttachmentExtraction is a pure read — zero writes. It runs the wired
-// Extractor against the attachment's already-persisted bytes and partitions
-// the result into grounded fields[] (each carrying its source_quote /
-// page_or_section / confidence) and honestly omitted[] fields — never a
-// guessed value (the evidence-or-omit invariant). Valid for ANY
-// entity_type: a non-deal attachment reads fine, since accepting fields
-// onto a deal (not this op) is what's deal-only. scan_status DOES gate
-// here (defense-in-depth, RD-T05): a 'scanning' or 'blocked' row refuses
-// with the same typed 409 the raw-byte download answers, BEFORE the
-// extractor ever sees the bytes — inert today under the NoOp/Fixture
-// seams, essential the moment a real extractor reads unvetted content.
+// 404 when this attachment has never been read, which is the honest difference
+// between nobody asking and a reading that got nothing. Valid for ANY
+// entity_type: a non-deal attachment reads fine, since accepting fields onto a
+// deal (not this op) is what is deal-only.
 func (h Handlers) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	att, err := h.store.GetAttachmentMeta(r.Context(), ids.UUID(id))
+	read, err := h.store.LatestExtractionRead(r.Context(), ids.UUID(id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	if err := EnsureAttachmentScanClean(att.ScanStatus); err != nil {
-		writeAttachmentErr(w, r, err)
-		return
-	}
-	fields, err := h.extractorOrNoOp().Extract(r.Context(), att.Id.String())
-	if err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, partitionExtraction(fields))
+	httperr.WriteJSON(w, http.StatusOK, extractionReport(read))
 }
 
-// partitionExtraction maps the Tier-0 extraction result onto the contract's
-// wire shape, splitting a grounded field (always carrying its evidence)
-// from one the extractor honestly could not ground. Both slices stay
-// non-nil even when empty, so the wire body is `[]`, never `null`.
-func partitionExtraction(fields []extraction.ExtractedField) crmcontracts.AttachmentExtraction {
+// extractionReport maps the run record onto the contract's wire shape,
+// splitting a grounded field (always carrying its evidence) from one the
+// reading honestly could not offer. Both slices stay non-nil even when empty,
+// so the wire body is `[]`, never `null`.
+func extractionReport(read ExtractionRead) crmcontracts.AttachmentExtraction {
 	out := crmcontracts.AttachmentExtraction{
-		Fields:  make([]crmcontracts.ExtractedField, 0, len(fields)),
-		Omitted: make([]crmcontracts.OmittedExtractionField, 0),
+		Id:           openapi_types.UUID(read.ID),
+		Status:       crmcontracts.AttachmentExtractionStatus(read.Status),
+		StatusDetail: read.StatusDetail,
+		CreatedAt:    read.CreatedAt,
+		FinishedAt:   read.FinishedAt,
+		Fields:       make([]crmcontracts.ExtractedField, 0, len(read.Fields)),
+		Omitted:      make([]crmcontracts.OmittedExtractionField, 0),
 	}
-	for _, f := range fields {
+	for _, f := range read.Fields {
 		if f.Omitted {
 			out.Omitted = append(out.Omitted, crmcontracts.OmittedExtractionField{
 				Field:  f.Field,

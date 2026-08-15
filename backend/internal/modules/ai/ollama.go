@@ -263,7 +263,7 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 func (c *ollamaClient) Caps() model.Capabilities {
 	// EmbedDims stays 0 (unknown): the width is a property of whichever
 	// model the deployment pulled, discovered from the first Embed call.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true}
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true, AttachmentMIMEs: carriesNothing}
 }
 
 // chat sends one non-streaming /api/chat call; chatStream requests the
@@ -280,7 +280,7 @@ func (c *ollamaClient) chatStream(ctx context.Context, req model.Request) (io.Re
 func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	// Local vision is out of scope here — reject any attachment rather than
 	// silently drop it (spec §3.8, the map-or-reject invariant).
-	if err := attachmentUnsupported("ollama", req.Attachments, rejectAllAttachments); err != nil {
+	if err := attachmentUnsupported("ollama", req.Attachments, carriesNothing); err != nil {
 		return nil, err
 	}
 	wire := ollamaWire{Model: req.Model, Stream: stream}

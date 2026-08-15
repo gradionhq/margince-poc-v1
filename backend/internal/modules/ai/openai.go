@@ -188,13 +188,13 @@ func (c *openaiClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 }
 
 func (c *openaiClient) Caps() model.Capabilities {
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false}
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: carriesImagesAndPDF}
 }
 
 func (c *openaiClient) post(ctx context.Context, path string, req model.Request, stream bool) (io.ReadCloser, error) {
 	// OpenAI carries image and PDF/file parts natively; reject any other MIME
 	// rather than silently drop it (spec §3.8).
-	if err := attachmentUnsupported("openai", req.Attachments, func(m string) bool { return isImage(m) || m == "application/pdf" }); err != nil {
+	if err := attachmentUnsupported("openai", req.Attachments, carriesImagesAndPDF); err != nil {
 		return nil, err
 	}
 	// Native Responses-API tool mapping is a follow-up; reject tools rather than
