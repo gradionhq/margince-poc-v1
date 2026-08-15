@@ -26,7 +26,7 @@ import (
 )
 
 // secondWorkspace seeds a neighbour tenant and returns a handle bound to it.
-func secondWorkspace(t *testing.T, ctx context.Context) (context.Context, *database.DB) {
+func secondWorkspace(ctx context.Context, t *testing.T) (context.Context, *database.DB) {
 	t.Helper()
 	owner, pool := setupCaptureDB(t)
 	ws := ids.NewV7()
@@ -47,7 +47,7 @@ func TestAnotherWorkspacesVerdictNeverReachesThisOne(t *testing.T) {
 	seedDeferredMessage(mine, t, db, me, "tenancy-mine", shared, false)
 
 	// The neighbour: the same address, judged and resolved.
-	neighbourCtx, neighbourDB := secondWorkspace(t, context.Background())
+	neighbourCtx, neighbourDB := secondWorkspace(context.Background(), t)
 	neighbour := ids.NewV7()
 	seedDeferredMessage(neighbourCtx, t, neighbourDB, neighbour, "tenancy-theirs", shared, true)
 
