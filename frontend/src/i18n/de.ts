@@ -2449,6 +2449,8 @@ export const de = {
   "backfill.window3m": "3 Monate",
   "backfill.window6m": "6 Monate",
   "backfill.window12m": "12 Monate",
+  "backfill.window24m": "2 Jahre",
+  "backfill.window60m": "5 Jahre",
   "backfill.previewCta": "Erst den Umfang zeigen",
   "backfill.previewLoading": "Postfach wird gezählt…",
   "backfill.estimateMessages": "Nachrichten in diesem Zeitraum:",
@@ -3220,6 +3222,8 @@ export const de = {
   "ob.backread.window3m": "3 Monate — aktueller Kontext",
   "ob.backread.window6m": "6 Monate — empfohlen",
   "ob.backread.window12m": "12 Monate — ganzer Vertriebszyklus",
+  "ob.backread.window24m": "2 Jahre — die Beziehung, nicht nur der Deal",
+  "ob.backread.window60m": "5 Jahre — alles, was das Postfach noch hat",
   "ob.backread.estimate": "Etwa {messages} Nachrichten in diesem Zeitraum.",
   "ob.backread.estimateHeuristic":
     "Aus dem Postfach geschätzt, noch nicht gezählt.",

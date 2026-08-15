@@ -126,6 +126,42 @@ afterEach(() => {
 });
 
 describe("the connect-time backfill payoff", () => {
+  // The multi-year reach (ADR-0106) is only real if the picker offers it and
+  // the chosen value reaches the server: the window set is stated in five
+  // places, and this is the one a human touches.
+  it("offers the whole window set, and previews the multi-year one against the server", async () => {
+    const calls = stubApi({
+      statuses: [statusNone],
+      preview: previewOf(90210),
+    });
+    render(<BackfillPanel provider="gmail" />);
+    await screen.findByRole("radiogroup");
+
+    for (const label of [
+      "3 months",
+      "6 months",
+      "12 months",
+      "2 years",
+      "5 years",
+    ]) {
+      expect(screen.getByRole("radio", { name: label })).toBeTruthy();
+    }
+    // 6 months stays the default: a multi-year import is offered, never
+    // defaulted into — it spends the customer's own inference budget.
+    expect(
+      (screen.getByRole("radio", { name: "6 months" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+
+    await userEvent.click(screen.getByRole("radio", { name: "5 years" }));
+    await waitFor(async () => {
+      const previews = requestsTo(calls, "/backfill/preview", "POST");
+      const last = previews.at(-1);
+      expect(last).toBeTruthy();
+      expect(await last?.clone().json()).toMatchObject({ window: "60m" });
+    });
+  });
+
   it("auto-loads the scope estimate without a click, and does not spend until start", async () => {
     const calls = stubApi({ statuses: [statusNone], preview: previewOf(1234) });
     render(<BackfillPanel provider="gmail" />);
@@ -244,6 +280,26 @@ describe("honest capability and staleness", () => {
     // Not a retryable error state: no window picker offered for a provider
     // that structurally can't run this op.
     expect(screen.queryByRole("radiogroup")).toBeNull();
+  });
+
+  // The estimate is a floor: Gmail's exact count is capped at a page budget,
+  // and a multi-year window reaches that cap far more often. A run that scans
+  // past its own denominator has no percentage to show, and a full bar over a
+  // still-running import would be the one number on this screen that lies.
+  it("drops the percentage once a run scans past its own estimate", () => {
+    render(
+      <BackfillPanel
+        provider="gmail"
+        initial={{
+          ...countsStatus("running", { captured: 900, messages_scanned: 900 }),
+          estimated_messages: 500,
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    // The absolute counts stay: scanned and captured, both past the floor.
+    expect(screen.getAllByText(/900/).length).toBeGreaterThan(0);
   });
 
   it("does not animate a running run whose updated_at is stale", () => {

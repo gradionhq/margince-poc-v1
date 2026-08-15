@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,8 +25,33 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// The CAP-PARAM-4 window set. "none" is expressed by never starting a run.
-var backfillWindows = map[int]bool{3: true, 6: true, 12: true}
+// BackfillWindowMonths is the CAP-PARAM-4 window set, in reach order.
+// "none" is expressed by never starting a run.
+//
+// The set is CLOSED and stays a picker (ADR-0063, widened to 24/60 by
+// ADR-0106): an unbounded window is an unbounded bill, and the picker is
+// where the customer consents to it.
+//
+// Exported because the transport used to keep its own switch over the same
+// values — the `<n>m` wire enum in one file, the months here — and a
+// widening that reached this one and not that one made every new window
+// answer 422 at the door while every gate stayed green. There is one
+// statement of the set in Go now, and the wire mapping is derived from it.
+// The contract enums and the capture_backfill CHECK are pinned against it
+// by TestTheBackfillWindowSetIsOneSet.
+func BackfillWindowMonths() []int { return slices.Clone(backfillWindowMonths) }
+
+var backfillWindowMonths = []int{3, 6, 12, 24, 60}
+
+var backfillWindows = windowSet(backfillWindowMonths)
+
+func windowSet(months []int) map[int]bool {
+	out := make(map[int]bool, len(months))
+	for _, m := range months {
+		out[m] = true
+	}
+	return out
+}
 
 // ErrWindowInvalid marks a window outside the offered set (422).
 var ErrWindowInvalid = errors.New("capture: the backfill window is not in the offered set")

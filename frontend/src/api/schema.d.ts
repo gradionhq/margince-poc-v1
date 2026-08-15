@@ -8083,15 +8083,15 @@ export interface components {
         };
         BackfillPreviewRequest: {
             /**
-             * @description The CAP-PARAM-4 window; default UI selection is 6m.
+             * @description The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
              * @enum {string}
              */
-            window: "none" | "3m" | "6m" | "12m";
+            window: "none" | "3m" | "6m" | "12m" | "24m" | "60m";
         };
         /** @description The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task. */
         BackfillPreview: {
             /** @enum {string} */
-            window: "none" | "3m" | "6m" | "12m";
+            window: "none" | "3m" | "6m" | "12m" | "24m" | "60m";
             /** @description Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count). */
             estimated_messages: number;
             /** @description The estimator's input-anchored token figure across classify+enrich+embeddings for that count; absent on estimator fault (ADR-0068). */
@@ -8113,7 +8113,7 @@ export interface components {
              * @description `none` is expressed by never calling this op. Widen-only versus a prior run.
              * @enum {string}
              */
-            window: "3m" | "6m" | "12m";
+            window: "3m" | "6m" | "12m" | "24m" | "60m";
         };
         /** @description The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1). */
         BackfillStatus: {
@@ -8122,7 +8122,7 @@ export interface components {
             /** Format: uuid */
             backfill_id?: string | null;
             /** @enum {string|null} */
-            window?: "3m" | "6m" | "12m" | null;
+            window?: "3m" | "6m" | "12m" | "24m" | "60m" | null;
             /** @description The previewed count the user consented to — the progress fraction's denominator. */
             estimated_messages?: number | null;
             counts?: {
