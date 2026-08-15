@@ -8,7 +8,7 @@
 // It carries a TYPE and no interface. It used to hold an Extractor seam with a
 // no-op production default, from when a reading was a function call made inside
 // the request that asked for it. A reading is now a durable record the surface
-// polls (records-depth RD-DDL-4, migrations/core/0251), because a model call
+// polls (records-depth RD-DDL-4, migrations/core/0252), because a model call
 // takes seconds and can fail — so there is no call left to abstract, and the one
 // thing two packages still have to agree on is the shape of a field.
 //

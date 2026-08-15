@@ -1,4 +1,4 @@
--- 0251: one reading of one attached document, and what it grounded.
+-- 0252: one reading of one attached document, and what it grounded.
 --
 -- RD-DDL-4. Reading a document is a model call that takes seconds and can
 -- fail, so it cannot happen inside the request that asks for it. This row is
