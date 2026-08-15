@@ -36,7 +36,11 @@ func (CaptureTraceSweepArgs) Kind() string { return "capture_trace_sweep" }
 
 // FleetWide marks this a dispatcher: it enumerates and enqueues, and does no
 // tenant work of its own (jobs.FleetWide).
-func (CaptureTraceSweepArgs) FleetWide() {}
+func (CaptureTraceSweepArgs) FleetWide() {
+	// Intentionally empty: jobs.FleetWide is a marker interface, and the method
+	// exists to be satisfied rather than called. The dispatcher's work is
+	// Work(), which enumerates the fleet.
+}
 
 type captureTraceSweepWorker struct {
 	pool *pgxpool.Pool

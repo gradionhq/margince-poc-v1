@@ -174,14 +174,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	})
 	if err != nil {
-		// The transaction rolled back and took any trace inside it, so this one
-		// is written afterwards on its own -- the pattern logEnsureFault already
-		// uses, and for the same reason.
-		if errors.Is(err, errInvisibleIncumbent) {
-			if traceErr := s.traceAfterRollback(ctx, rec, TraceFault, TraceReasonInvisibleIncumbent); traceErr != nil {
-				slog.ErrorContext(ctx, "capture: recording the invisible-incumbent trace", "err", traceErr, "cause", err)
-			}
-		}
+		s.traceDoomedTransaction(ctx, rec, err)
 		return datasource.EntityRef{}, err
 	}
 	if internalOnly {
@@ -214,6 +207,25 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	}
 	return ref, nil
+}
+
+// traceDoomedTransaction records the one decision whose own transaction did not
+// survive to carry it.
+//
+// skipInvisibleIncumbent is returned as an error from inside the capture
+// transaction, so a trace written there rolls back with it — and from the
+// member's side that outcome is a message sitting in their own mailbox that
+// simply never arrives, which is exactly what this surface exists to explain.
+//
+// Best effort: the message did not land either way, and failing a capture in
+// order to record why it failed would be the tail wagging the dog.
+func (s *Sink) traceDoomedTransaction(ctx context.Context, rec connector.NormalizedRecord, cause error) {
+	if !errors.Is(cause, errInvisibleIncumbent) {
+		return
+	}
+	if err := s.traceAfterRollback(ctx, rec, TraceFault, TraceReasonInvisibleIncumbent); err != nil {
+		slog.ErrorContext(ctx, "capture: recording the invisible-incumbent trace", "err", err, "cause", cause)
+	}
 }
 
 // storeRawCapture appends the provider's original bytes under the natural
