@@ -229,6 +229,60 @@ describe("auth boundary states (login spec §4)", () => {
     );
   });
 
+  // ADR-0105: "not ready" is two product states, and only one of them has
+  // something the person in front of the browser can do.
+  it("offers the claim screen when the unready installation is waiting to be claimed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(JSON.stringify({ code: "x" }), {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        if (url.endsWith("/setup/status")) {
+          return new Response(JSON.stringify({ claimable: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    mount();
+    expect(
+      await screen.findByRole("heading", { name: "Claim this installation" }),
+    ).toBeTruthy();
+    // The availability message is REPLACED, not stacked beside it.
+    expect(screen.queryByText("Installation not ready")).toBeNull();
+  });
+
+  it("keeps the availability message when the setup probe cannot answer", async () => {
+    // A probe that fails must not replace a true message with a claim screen
+    // the installation may not actually offer.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/setup/status")) throw new TypeError("probe down");
+        if (url.endsWith("/v1/me")) {
+          return new Response(JSON.stringify({ code: "x" }), {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    mount();
+    expect(await screen.findByText("Installation not ready")).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Claim this installation" }),
+    ).toBeNull();
+  });
+
   it("renders the connection problem when the probe cannot reach the API at all", async () => {
     vi.stubGlobal(
       "fetch",
