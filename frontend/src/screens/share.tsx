@@ -72,7 +72,7 @@ function isRecordType(value: string): value is RecordType {
 export function ShareAction({
   recordType,
   recordId,
-  disabledReason,
+  disabledReasonId,
 }: Readonly<{
   recordType: RecordType;
   recordId: string;
@@ -81,12 +81,12 @@ export function ShareAction({
   // rather than permission — an archived record — stays visible and
   // disabled WITH the reason, because the reason is the information and
   // hiding the control hides a fact the reader needs.
-  disabledReason?: string;
+  disabledReasonId?: string;
 }>) {
   const t = useT();
   return (
     <Button
-      reason={disabledReason}
+      reasonId={disabledReasonId}
       small
       data-testid="share-record"
       onClick={() =>

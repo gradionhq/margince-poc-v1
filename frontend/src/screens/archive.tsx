@@ -47,7 +47,7 @@ export function ArchiveAction<Archived extends { id: string }>({
   invalidate,
   recordKey,
   onArchived,
-  disabledReason,
+  disabledReasonId,
 }: Readonly<{
   label: string;
   confirmText: string;
@@ -60,7 +60,7 @@ export function ArchiveAction<Archived extends { id: string }>({
   // rather than permission — an archived record — stays visible and
   // disabled WITH the reason, because the reason is the information and
   // hiding the control hides a fact the reader needs.
-  disabledReason?: string;
+  disabledReasonId?: string;
 }>) {
   const t = useT();
   const headingId = useId();
@@ -80,7 +80,7 @@ export function ArchiveAction<Archived extends { id: string }>({
       <Button
         small
         variant="danger"
-        reason={disabledReason}
+        reasonId={disabledReasonId}
         onClick={() => setConfirming(true)}
         data-testid="archive-record"
       >
