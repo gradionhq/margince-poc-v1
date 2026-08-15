@@ -57,6 +57,11 @@ const (
 	// authorize, which turns one consent page into an outbound request the
 	// client controls the rate of; without a ceiling a rotated redirect_uris
 	// list would take a year to be believed.
+	//
+	// The floor bounds a KNOWN client only. A fetch that fails writes no row, and
+	// a client_id never seen before has none, so neither is cached and a caller
+	// naming a fresh URL each time still gets one outbound request per authorize.
+	// What bounds that is the authorize rate limit, not this.
 	cimdMinCache = 5 * time.Minute
 	cimdMaxCache = 24 * time.Hour
 )
@@ -88,12 +93,18 @@ type cimdDocument struct {
 // PRESENTED string against the document's own claim: a normalizer here would
 // mean the string this server compares is not the string the client sent.
 //
-// A "." or ".." path segment is refused for the same reason and is the sharpest
-// case of it: /a/../b and /b are one document to every server that will ever
-// serve it and two distinct client ids here, so a document published once would
-// speak for unboundedly many identities — each with its own row and its own
-// redirect list. Refused in the DECODED path, so %2e%2e is the same refusal as
-// .. rather than a way around it.
+// A "." or ".." path segment is refused because the profile prohibits it and
+// because /a/../c.json and /c.json are one document to the server that serves
+// them and two client ids here, each with its own row and its own redirect
+// list. It is checked on the DECODED path, so %2e%2e is the same refusal.
+//
+// It is hygiene, NOT the gate, and the difference matters to whoever edits this
+// next: other spellings normalize on some origin servers and not here (a
+// ";params" segment, a backslash, overlong UTF-8), so this can never be the
+// reason a document is trusted. What makes a document speak for its own URL and
+// no other is the byte-for-byte equality check in validCIMD, which holds with
+// or without this. Removing that one is removing the mechanism's security;
+// removing this one costs tidiness.
 func cimdClientID(raw string) error {
 	if !strings.HasPrefix(raw, "https://") {
 		return errNotCIMD

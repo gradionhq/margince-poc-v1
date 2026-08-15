@@ -114,8 +114,8 @@ func TestARedirectInADocumentIsHeldToTheSameRuleAsARegisteredOne(t *testing.T) {
 	}
 }
 
-// reachableCIMDClient points the package's fetch at the production client with
-// ONLY its transport replaced, and restores it when the test ends.
+// useReachableCIMDClient points the package's fetch at the production client
+// with ONLY its transport replaced, and restores it when the test ends.
 //
 // The dialer is what has to go and the only thing that may: netguard refuses a
 // loopback address in its Control hook and httptest listens on one, so with the
@@ -125,7 +125,7 @@ func TestARedirectInADocumentIsHeldToTheSameRuleAsARegisteredOne(t *testing.T) {
 // mean deleting it from the client changes nothing about the tests that claim
 // to hold it. The address guard keeps its own test, which is the only one in
 // this file that uses the real client whole.
-func reachableCIMDClient(t *testing.T) {
+func useReachableCIMDClient(t *testing.T) {
 	t.Helper()
 	guarded := cimdClient
 	reachable := *guarded
@@ -138,7 +138,7 @@ func reachableCIMDClient(t *testing.T) {
 // a malformed input: an oversized body spends this server's memory, and a
 // non-JSON answer or a 404 is a page that was never a metadata document.
 func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
-	reachableCIMDClient(t)
+	useReachableCIMDClient(t)
 
 	oversized := strings.Repeat("x", cimdMaxDocument+1)
 	cases := map[string]http.HandlerFunc{
@@ -163,9 +163,8 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 	}
 
 	// The control, and it is load-bearing: a VALID document must be accepted
-	// through the same client. Without it every refusal above could still be a
-	// connect failure wearing a different name, which is the defect this test
-	// had before the swap.
+	// through the same client. Without it every refusal above could equally be a
+	// connect failure wearing a different name.
 	valid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		//craft:ignore swallowed-errors a test server's write failure is the client hanging up
@@ -188,7 +187,7 @@ func TestTheFetchRefusesWhatIsNotAMetadataDocument(t *testing.T) {
 // the one the caller presented, not the one that answered — so a document
 // published anywhere would speak for a client id belonging to somewhere else.
 func TestTheFetchDoesNotFollowARedirect(t *testing.T) {
-	reachableCIMDClient(t)
+	useReachableCIMDClient(t)
 
 	// The first server is bound but not serving yet, so its own URL is known
 	// before the second server has to name it. A variable written after both are
@@ -210,8 +209,16 @@ func TestTheFetchDoesNotFollowARedirect(t *testing.T) {
 	first.Start()
 	defer first.Close()
 
-	if _, _, err := fetchCIMD(t.Context(), clientID); err == nil {
+	_, _, err := fetchCIMD(t.Context(), clientID)
+
+	if err == nil {
 		t.Fatal("the fetch followed a redirect: the document that answered was published at a URL the client_id equality check never saw")
+	}
+	// And it must be the 30x itself that refused it. Any other refusal means the
+	// hop was taken and something downstream caught the result, which is the
+	// redirect policy being untested rather than held.
+	if !strings.Contains(err.Error(), "answered 302") {
+		t.Fatalf("the fetch failed with %q, want the redirect refused as a status this server does not accept", err)
 	}
 }
 
