@@ -1,4 +1,4 @@
--- 0258: a scheduled message remembers WHICH agent scheduled it.
+-- 0260: a scheduled message remembers WHICH agent scheduled it.
 --
 -- The row already stores the authorizing human (`scheduled_by`) and whether the
 -- actor was a human or an agent (`principal_kind`). That is enough to fire with
@@ -23,7 +23,7 @@
 -- already exist. A backfill would have to invent the very identity this
 -- migration exists to stop inventing: a pre-existing agent-scheduled row cannot
 -- say which agent it was, and NULL is the honest record of that. The fire path
--- reads it as "no stored provenance" and falls back to the pre-0258 behaviour
+-- reads it as "no stored provenance" and falls back to the pre-0260 behaviour
 -- for those rows only.
 ALTER TABLE scheduled_send
   ADD COLUMN agent_actor_id  text NULL,
@@ -49,7 +49,7 @@ ALTER TABLE scheduled_send
 --
 -- The all-NULL arm is only for the rows that already exist. An agent-scheduled
 -- row written before this migration has no provenance and cannot be given one,
--- so the fire path reads a NULL actor id as the pre-0258 row it is. A row
+-- so the fire path reads a NULL actor id as the pre-0260 row it is. A row
 -- written AFTER this migration always names its agent — which is what keeps
 -- that reading unambiguous, and why agent_actor_id is required whenever any
 -- provenance is present rather than the three travelling as one block.

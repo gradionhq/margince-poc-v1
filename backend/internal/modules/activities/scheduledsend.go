@@ -195,9 +195,14 @@ const (
 const (
 	HeldConsentWithdrawn = "consent_withdrawn"
 	HeldSenderInactive   = "sender_inactive"
-	HeldMissedWindow     = "missed_window"
-	HeldTimerExhausted   = "timer_exhausted"
-	HeldSendRefused      = "send_refused"
+	// HeldPassportRevoked is its own reason rather than sender_inactive: the
+	// human is fine, and telling them their account is inactive would send them
+	// to the wrong place. What stopped the message is the agent credential it
+	// was scheduled under.
+	HeldPassportRevoked = "passport_revoked"
+	HeldMissedWindow    = "missed_window"
+	HeldTimerExhausted  = "timer_exhausted"
+	HeldSendRefused     = "send_refused"
 )
 
 // InvalidScheduleError refuses a due moment the server will not accept. It maps
@@ -431,69 +436,4 @@ func principalKind(p principal.Principal) string {
 		return "human"
 	}
 	return "agent"
-}
-
-// agentProvenance is WHO scheduled a message when the actor was not a human,
-// frozen at schedule time.
-//
-// The human's id is already in `scheduled_by` and is not enough: two agents, or
-// two passports, acting for the same person are the same human and different
-// actors, and an audit trail has to tell them apart. Rebuilding an agent
-// identity from the human's id at fire invents an actor that never existed,
-// which is the attribution chain ADR-0055 rests on.
-//
-// This is a RECORD, not authority. The fire path still re-reads the human's
-// live seat and grants and holds the message if they no longer permit it — a
-// revoked passport must stop the send, and a stored one must never resurrect
-// it. What is stored answers "who asked for this"; what is read live answers
-// "may it still go".
-type agentProvenance struct {
-	ActorID    *string
-	PassportID *ids.UUID
-	OnBehalfOf *ids.UUID
-}
-
-// provenanceOf captures the acting agent, or nothing at all for a human.
-//
-// agent_on_behalf_of is the HUMAN behind the agent, and it is taken only from
-// OnBehalfOf — never from UserID, which is a different fact.
-//
-// On the agent path that can reach a send the two hold the same value anyway:
-// identity mints the principal from one field (AgentIdentity.Principal sets
-// UserID and OnBehalfOf from the same a.OnBehalfOf). But a passport-less agent
-// principal exists in this tree whose UserID is an AGENT's own app_user row —
-// compose/extjobsrun.go selects it `WHERE id = $1 AND is_agent` — and copying
-// that into a column meaning "the human behind this" would write an agent's id
-// where a human's belongs. The fire path then hands it to actor.OnBehalfOf,
-// which auth.Admit reads to derive seat and RBAC: a fabricated authority, which
-// is the same class of defect this whole record exists to end.
-//
-// An agent with no OnBehalfOf therefore stores its id and NO human, rather than
-// either a guess or nothing at all. Storing nothing would be worse than the
-// guess: a new row with no actor id is indistinguishable from a pre-0258 row,
-// and the fire path reads that as "this row cannot say which agent it was" and
-// falls back to the derived `agent:<human-uuid>` — putting back the invented
-// identity for exactly the actor whose real id was in hand.
-func provenanceOf(p principal.Principal) agentProvenance {
-	if p.Type == principal.PrincipalHuman {
-		return agentProvenance{}
-	}
-	actorID := p.ID
-	out := agentProvenance{ActorID: &actorID}
-	if !p.OnBehalfOf.IsZero() {
-		behalf := p.OnBehalfOf
-		out.OnBehalfOf = &behalf
-	}
-	if !p.PassportID.IsZero() {
-		// A passport is how an agent's scopes were granted, so an action taken
-		// under one names it, and NULL says none was involved rather than that
-		// one was lost.
-		//
-		// Every agent that can reach a send today carries one — the tool surface
-		// is the only agent door to SendOrSchedule, and its principals are
-		// passport-minted. This stays conditional rather than
-		// assuming the passport is always there.
-		out.PassportID = &p.PassportID
-	}
-	return out
 }

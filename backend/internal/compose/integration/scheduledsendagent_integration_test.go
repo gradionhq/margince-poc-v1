@@ -6,7 +6,7 @@
 package integration
 
 // WHICH agent scheduled a message, and what the record says when there is no
-// human behind it (ADR-0055, core 0258).
+// human behind it (ADR-0055, core 0260).
 //
 // Separate from the scheduling mechanics because the subject is different: not
 // whether a deferred message fires correctly, but whether the audit trail can
@@ -17,11 +17,12 @@ package integration
 // There were two wrong answers available, and both were briefly written here:
 // copying the principal's UserID into the "human behind this" column (which for
 // a passport-less agent is an AGENT's own app_user row), and storing nothing at
-// all (which makes a new row indistinguishable from a pre-0258 one, so the fire
+// all (which makes a new row indistinguishable from a pre-0260 one, so the fire
 // path invents the identity again). The tests below pin the third answer.
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -91,7 +92,11 @@ func TestAnAgentScheduledSendFiresUnderTheAgentThatScheduledIt(t *testing.T) {
 	p := setupPreflight(t)
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
 
-	passport := ids.NewV7()
+	// A REAL passport row, not an invented id: the fire path re-authenticates
+	// the stored passport, so an agent carrying one that was never issued is
+	// correctly refused. Scheduling under a live credential is what the case
+	// under test actually is.
+	passport := p.issuePassport(t)
 	agent := principal.Principal{
 		Type:       principal.PrincipalAgent,
 		ID:         "agent:" + passport.String(),
@@ -145,7 +150,7 @@ func TestAnAgentScheduledSendFiresUnderTheAgentThatScheduledIt(t *testing.T) {
 // RBAC — a fabricated authority.
 //
 // Storing NOTHING is also wrong, and less obviously so: a new row with no actor
-// id is indistinguishable from a pre-0258 row, and the fire path reads that as
+// id is indistinguishable from a pre-0260 row, and the fire path reads that as
 // "cannot say which agent" and falls back to `agent:<human-uuid>` — restoring
 // the invented identity for exactly the actor whose real id was in hand.
 //
@@ -215,3 +220,99 @@ func (p *preflightEnv) storedProvenance(t *testing.T, id ids.UUID) (actorID *str
 }
 
 // rowVersion reads the scheduled row's optimistic-concurrency version.
+
+// A revoked passport stops the message, even though the human is untouched.
+//
+// This is the case the live re-read of the HUMAN's authority cannot see. The
+// rep is still active with the same grants, so EffectiveAuthority answers
+// exactly as it did at schedule time — and a message an operator revoked an
+// agent's credential to stop would go out anyway, under a credential nobody
+// honours any more.
+//
+// The stored passport therefore has to be re-authenticated at fire, not merely
+// restored onto the principal. AuthenticateAgentByID re-runs the same liveness
+// rules the token path runs (revocation, expiry, the granting human's status),
+// which is what makes "may it still go" a question asked now rather than at
+// schedule time.
+func TestARevokedPassportHoldsTheMessageItWasScheduledUnder(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	passport := p.issuePassport(t)
+	agent := principal.Principal{
+		Type:       principal.PrincipalAgent,
+		ID:         "agent:" + passport.String(),
+		PassportID: passport,
+		UserID:     uuidOf(t, p.user),
+		OnBehalfOf: uuidOf(t, p.user),
+		SeatType:   principal.SeatFull,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"admin"},
+			Objects: map[string]principal.ObjectGrant{
+				"activity": {Create: true, Read: true, Update: true},
+				"person":   {Create: true, Read: true, Update: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+
+	id := p.scheduleAsAgent(t, agent, time.Now().Add(2*time.Hour))
+	before := p.countDeliveries(t)
+
+	// The operator revokes the credential. The HUMAN is deliberately left
+	// alone: that is what makes this the case the human-authority re-read
+	// cannot catch.
+	p.revokePassport(t, passport)
+
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	status, reason := p.scheduledStatus(t, id)
+	if status != activities.ScheduledStatusHeld {
+		t.Fatalf("a message scheduled under a revoked passport reads %q/%q — it sent under a credential nobody honours",
+			status, reason)
+	}
+	if reason != activities.HeldPassportRevoked {
+		t.Errorf("held for %q, want %q — a rep told their account is inactive would look in the wrong place",
+			reason, activities.HeldPassportRevoked)
+	}
+	if after := p.countDeliveries(t); after != before {
+		t.Errorf("deliveries went %d → %d — the message reached the machinery despite the hold", before, after)
+	}
+}
+
+// issuePassport mints a live passport for the fixture human and returns its id.
+func (p *preflightEnv) issuePassport(t *testing.T) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`INSERT INTO passport (id, workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+			 VALUES ($1, (SELECT id FROM workspace WHERE slug = $2), $3, $3, 'scheduled-send probe',
+			         ARRAY['read','write'], $4, now() + interval '30 days')`,
+			id, p.Slug, uuidOf(t, p.user), "probe-"+id.String())
+		return err
+	}); err != nil {
+		t.Fatalf("issuing a passport: %v", err)
+	}
+	return id
+}
+
+// revokePassport stamps revoked_at, which is the one field the agent liveness
+// query filters on.
+func (p *preflightEnv) revokePassport(t *testing.T, passport ids.UUID) {
+	t.Helper()
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(context.Background(),
+			`UPDATE passport SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, passport)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return fmt.Errorf("revoking %s affected %d rows, want 1", passport, tag.RowsAffected())
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("revoking the passport: %v", err)
+	}
+}

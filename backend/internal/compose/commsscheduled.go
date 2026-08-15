@@ -153,17 +153,20 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 	}
 	scheduler := sched.UserID
 
-	fireCtx, gone, err := w.fireAs(wsCtx, sched)
+	fireCtx, refused, err := w.fireAs(wsCtx, sched)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	if gone {
-		// The scheduler lost their account or their seat. Holding under a
-		// system scope, because the authority we would otherwise hold under is
-		// exactly the one that just failed to resolve.
+	if refused != "" {
+		// The authority this message needs is gone — the scheduler's seat, or
+		// the agent passport it was scheduled under. Holding under a system
+		// scope, because the authority we would otherwise hold under is exactly
+		// the one that just failed to resolve, and naming the reason fireAs
+		// found rather than one blanket "sender_inactive": a rep sent to check
+		// their account when their passport was revoked looks in the wrong place.
 		// No observation is possible: this refuses before the fire path ever
 		// claims the row, so the hold's own claim is the first read of it.
-		if err := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldSenderInactive, activities.UnobservedVersion); err != nil {
+		if err := w.hold(w.holdScope(wsCtx, scheduler), id, refused, activities.UnobservedVersion); err != nil {
 			return jobs.FaultContext(ctx, err)
 		}
 		return nil
@@ -197,12 +200,12 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 
 // schedulerOf is who a pending scheduled message fires as: the authorizing
 // human, the kind of principal that scheduled it, and — when that was an
-// agent — the agent's own identity as core 0258 recorded it.
+// agent — the agent's own identity as core 0260 recorded it.
 type schedulerOf struct {
 	UserID ids.UUID
 	Kind   string
 	// AgentActorID is the acting agent's principal id. Empty for a human, and
-	// empty for an agent row scheduled before 0258 existed to record one.
+	// empty for an agent row scheduled before 0260 existed to record one.
 	AgentActorID    string
 	AgentPassport   ids.UUID
 	AgentOnBehalfOf ids.UUID
@@ -255,15 +258,15 @@ func (w *scheduledSendWorker) scheduler(ctx context.Context, id ids.UUID) (sched
 // signature — something the identical immediate send would never do
 // (ADR-0104 §4).
 //
-// The agent's IDENTITY is preserved too, from what core 0258 stored at schedule
+// The agent's IDENTITY is preserved too, from what core 0260 stored at schedule
 // time. Deriving it from the human's id instead names an actor that never
 // existed and collapses every agent acting for one person into it, which breaks
 // the attribution ADR-0055 depends on.
-func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (context.Context, bool, error) {
+func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (context.Context, string, error) {
 	userID := sched.UserID
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return nil, false, errors.New("comms_scheduled_send: firing outside workspace context")
+		return nil, "", errors.New("comms_scheduled_send: firing outside workspace context")
 	}
 	// ONE snapshot of grants and seat. Read separately they can compose an
 	// authority the member never held — permissions from before a role change
@@ -271,17 +274,17 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (co
 	// exists to close, and both are ceilings on this same act.
 	rbac, seat, err := w.authority.EffectiveAuthority(ctx, ws, userID)
 	if errors.Is(err, apperrors.ErrNotFound) {
-		return nil, true, nil
+		return nil, activities.HeldSenderInactive, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("comms_scheduled_send: reading the sender's authority: %w", err)
+		return nil, "", fmt.Errorf("comms_scheduled_send: reading the sender's authority: %w", err)
 	}
 	if !seat.CanMutate() {
 		// A read seat may not transmit, and the dispatcher would refuse this
 		// message at the far end anyway. Holding here means the rep is told
 		// their seat is the problem, rather than finding a released row whose
 		// delivery silently parked.
-		return nil, true, nil
+		return nil, activities.HeldSenderInactive, nil
 	}
 
 	actor := principal.Principal{
@@ -302,6 +305,14 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (co
 		// when the message was scheduled, and what it must still be now. The
 		// grants above stay the HUMAN's: "agent ≤ human" is a ceiling, and a
 		// stored identity must name the actor without widening what it may do.
+		//
+		live, err := w.passportStillLive(ctx, sched.AgentPassport, userID)
+		if err != nil {
+			return nil, "", err
+		}
+		if !live {
+			return nil, activities.HeldPassportRevoked, nil
+		}
 		actor.Type = principal.PrincipalAgent
 		actor.ID = sched.AgentActorID
 		actor.PassportID = sched.AgentPassport
@@ -309,7 +320,7 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (co
 			actor.OnBehalfOf = sched.AgentOnBehalfOf
 		}
 		if actor.ID == "" {
-			// Scheduled before 0258, so the row never recorded which agent it
+			// Scheduled before 0260, so the row never recorded which agent it
 			// was and cannot be given one now. The derived id is what those
 			// rows have always fired under; keeping it confines the invented
 			// identity to them rather than putting a blank actor in the audit.
@@ -317,7 +328,39 @@ func (w *scheduledSendWorker) fireAs(ctx context.Context, sched schedulerOf) (co
 		}
 	}
 	fireCtx := principal.WithActor(ctx, actor)
-	return principal.WithCorrelationID(fireCtx, ids.NewV7()), false, nil
+	return principal.WithCorrelationID(fireCtx, ids.NewV7()), "", nil
+}
+
+// passportStillLive re-authenticates the passport a message was scheduled under.
+//
+// The passport is RE-AUTHENTICATED, not merely restored onto the principal. The
+// human's EffectiveAuthority cannot see a revoked passport — the human is still
+// active with the same grants — so a message an operator revoked an agent's
+// credential to stop would otherwise go out under a credential nobody honours.
+// AuthenticateAgentByID re-runs the liveness rules the token path runs
+// (revocation, expiry, the granting human's status, the connection the passport
+// belongs to), which is the same reason the Surface-B scheduler resolves by id
+// rather than trusting what it enqueued.
+//
+// A zero passport is live by definition: the agent presented none, so there is
+// no credential to revoke. Those messages are governed by the human's authority
+// alone, exactly as they were before this check existed.
+func (w *scheduledSendWorker) passportStillLive(ctx context.Context, passport, scheduler ids.UUID) (bool, error) {
+	if passport.IsZero() {
+		return true, nil
+	}
+	live, err := w.authority.AuthenticateAgentByID(ctx, ids.From[ids.PassportKind](passport))
+	if errors.Is(err, apperrors.ErrNotFound) {
+		// Revoked, expired, or its human is gone.
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("comms_scheduled_send: re-authenticating the scheduling passport: %w", err)
+	}
+	// It must still belong to the human this row is charged to. A passport that
+	// has moved to somebody else is not the credential this message was
+	// scheduled under, whatever its id says.
+	return live.OnBehalfOf.UUID == scheduler, nil
 }
 
 // holdScope is the system scope a hold runs under, naming the rep it acts FOR.
