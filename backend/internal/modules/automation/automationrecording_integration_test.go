@@ -182,14 +182,19 @@ func assertRecordedOutcomes(t *testing.T, fx *autoFixture, wantRuns int, stagedA
 	}
 }
 
-// assertRejectionBlocksParkedRun proves the approval loop's terminal
-// outcome: an APPROVED decision keeps the run parked (the effect lands
-// through redemption, not this consumer); a REJECTED one records
-// 'blocked' with which approval and why.
+// assertRejectionBlocksParkedRun proves the approval loop's terminal outcome for
+// a kind that PROPOSES A WRITE: approving keeps the run parked, because the
+// release executor completes it inside the transaction that performs the write,
+// and a REJECTED one records 'blocked' with which approval and why.
+//
+// The kind on the envelope is what selects that arm, so it is stated rather than
+// left off: assign_owner here is any write-proposing staging. The other arm — a
+// kind whose whole effect is the asking, which this consumer completes itself —
+// is proven in compose, where the release executors it must not race are wired.
 func assertRejectionBlocksParkedRun(t *testing.T, fx *autoFixture, engine *WorkflowEngine, stagedApproval ids.ApprovalID) {
 	t.Helper()
 	decided := func(verdict string) kevents.Envelope {
-		payload, err := json.Marshal(map[string]string{"verdict": verdict})
+		payload, err := json.Marshal(map[string]string{"verdict": verdict, "kind": "assign_owner"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +209,7 @@ func assertRejectionBlocksParkedRun(t *testing.T, fx *autoFixture, engine *Workf
 		t.Fatal(err)
 	}
 	if run := fx.runsByHandler(t)["wf_staged"]; run.status != "requires_approval" {
-		t.Fatalf("an approved decision moved the run to %q — only redemption may complete it", run.status)
+		t.Fatalf("an approved write-proposing staging moved the run to %q — only the executor that performs the write may complete it", run.status)
 	}
 	if err := engine.HandleApprovalDecided(context.Background(), decided("rejected")); err != nil {
 		t.Fatal(err)

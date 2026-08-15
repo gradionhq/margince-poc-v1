@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // approvalsHandlersWithEffects wires the approvals HTTP surface with
@@ -68,6 +69,14 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 		svc.WithEffect(heldScheduledSendKind, heldAcceptEffect(svc, sendStore, timer))
 		svc.WithDeclinedEffect(heldScheduledSendKind, heldDeclineEffect(sendStore))
 	}
+	// The provider is rebuilt exactly as workflows.go builds the one an
+	// automation writes through, rather than a plainer one: a released
+	// reassignment must reach the same overlay-aware dispatcher the 🟢 branch
+	// reaches, or approving at scale would write into a different record surface
+	// than reassigning a single record does.
+	svc.WithEffect(string(workflow.ActionAssignOwner), assignOwnerReleaseEffect(svc,
+		NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
+		InstallationDB(pool)))
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(InstallationDB(pool), DealsInstallation())))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(InstallationDB(pool))))
 	svc.WithEffect(TranscriptProposalKind, transcriptProposalEffect(svc, activities.NewStore(InstallationDB(pool))))

@@ -77,8 +77,13 @@ func (p confirmationRequiredStagingProbe) Plan(_ context.Context, ev workflow.Ev
 	if err != nil {
 		return workflow.Effect{}, err
 	}
+	// emit_flow_event, which is request_approval's executor and the kind an
+	// automation can actually plan into the staging arm. advance_deal is still
+	// a live 🟡 staging kind — an agent's own advance_deal stages under it and
+	// redeems by token (ADR-0055) — but no automation plans one, so its arm here
+	// was removed rather than left staging cards no executor could release.
 	return workflow.Effect{Actions: []workflow.Action{{
-		Kind: workflow.ActionAdvanceDeal, Target: ev.Entity, Args: args,
+		Kind: workflow.ActionEmitFlowEvent, Target: ev.Entity, Args: args,
 	}}}, nil
 }
 
@@ -152,8 +157,8 @@ func TestConfirmationRequiredActionStagesARealApprovalAndRejectionBlocksTheRun(t
 	}); err != nil {
 		t.Fatalf("no approval row behind the run's approval_id: %v", err)
 	}
-	if kind != string(workflow.ActionAdvanceDeal) || approvalStatus != "pending" {
-		t.Fatalf("approval row = (kind=%q, status=%q), want (advance_deal, pending)", kind, approvalStatus)
+	if kind != string(workflow.ActionEmitFlowEvent) || approvalStatus != "pending" {
+		t.Fatalf("approval row = (kind=%q, status=%q), want (emit_flow_event, pending)", kind, approvalStatus)
 	}
 
 	// Reject: Decide emits approval.decided on the SAME outbox the
