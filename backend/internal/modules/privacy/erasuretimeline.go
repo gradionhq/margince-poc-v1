@@ -99,6 +99,21 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		}
 		rawPurged += tag.RowsAffected()
 	}
+	// The 24-hour capture trace, when the deployment enabled payload capture.
+	// The sweep bounds exposure to a day; it does not ANSWER an erasure made
+	// inside that day, and a request honoured everywhere except one diagnostic
+	// table is not honoured.
+	//
+	// Exact equality rather than the ILIKE the lanes around it use: this column
+	// is written normalized (lower-cased, trimmed) and indexed, so the crude
+	// content match those need — they search whole payloads — buys nothing here
+	// and would scan.
+	for _, email := range emails {
+		if _, execErr := tx.Exec(ctx,
+			`DELETE FROM capture_trace WHERE counterparty = lower($1)`, email); execErr != nil {
+			return 0, 0, execErr
+		}
+	}
 	channelRawPurged, err := purgeChannelRawCapture(ctx, tx, identities)
 	if err != nil {
 		return 0, 0, err

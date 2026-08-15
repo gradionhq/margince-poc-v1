@@ -22,6 +22,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -123,6 +125,33 @@ type TraceEntry struct {
 	Subject      string
 }
 
+// traceOutcomeTotals counts what this PROCESS has traced since it started, one
+// counter per outcome.
+//
+// A counter rather than a gauge over the table, and in memory rather than in
+// SQL, for two reasons. /metrics is process-global and binds no workspace, so a
+// windowed query would have to read every tenant's rows on every scrape — of a
+// table whose whole lifecycle is insert-then-delete, competing with the writes
+// and the sweep. And "how many messages were dropped as internal" is a rate an
+// operator alerts on, which is what a monotonic counter is for; the 24-hour
+// window belongs to the member's screen, not to a scrape.
+var traceOutcomeTotals sync.Map // TraceOutcome -> *atomic.Uint64
+
+// TraceOutcomeTotals reports this process's counts, for the metrics endpoint.
+func TraceOutcomeTotals() map[string]uint64 {
+	out := map[string]uint64{}
+	traceOutcomeTotals.Range(func(key, value any) bool {
+		out[string(key.(TraceOutcome))] = value.(*atomic.Uint64).Load()
+		return true
+	})
+	return out
+}
+
+func countTraced(outcome TraceOutcome) {
+	counter, _ := traceOutcomeTotals.LoadOrStore(outcome, &atomic.Uint64{})
+	counter.(*atomic.Uint64).Add(1)
+}
+
 // Trace records one decision on the CALLER's transaction, so a trace can
 // neither outlive nor precede the thing it describes: a rolled-back capture
 // leaves no explanation of a message that does not exist.
@@ -156,6 +185,12 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	if err != nil {
 		return fmt.Errorf("capture: recording the pipeline trace: %w", err)
 	}
+	// After the statement, so a rolled-back capture does not leave the operator
+	// a count of messages that never landed. It still counts a decision this
+	// transaction later abandons — a counter cannot un-count — which is the
+	// honest limit of a process counter and the reason the member's screen reads
+	// the table instead.
+	countTraced(in.Outcome)
 	return nil
 }
 
