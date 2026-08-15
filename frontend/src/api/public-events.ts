@@ -962,17 +962,20 @@ export interface components {
              */
             expires_at: string;
         };
-        /** @description Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash. */
+        /** @description Payload for approval.decided — a staged approval reached a verdict (approvals/decide.go, approvals/expiresweep.go). kind, verdict and edited_change are decoded BY NAME outside this module — automation's run consumer matches BOTH verdict and kind (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash. */
         PublicEventApprovalDecided: {
             /** @description The decided staging's kind. */
             kind: string;
-            /** @description The decision outcome (approved | rejected). */
-            verdict: string;
+            /**
+             * @description The decision outcome. `expired` is the window closing on a staging nobody answered (APPR-PARAM-1's "unactioned means rejected"): it is a real verdict written by the expiry sweep, not a rendering, and it is the one verdict with no deciding human — consumers that treat a refusal as a refusal must handle it alongside `rejected`.
+             * @enum {string}
+             */
+            verdict: "approved" | "rejected" | "expired";
             /**
              * Format: uuid
-             * @description The deciding human's user id.
+             * @description The deciding human's user id. ABSENT on the `expired` verdict, and that absence is the payload's own statement that nobody decided this — a zero or placeholder id here would put a phantom user's name on a refusal no person made.
              */
-            decided_by: string;
+            decided_by?: string;
             /** @description True when the human edited the proposed change before approving (present only on the modify-then-approve arm). */
             edited?: boolean;
             /** @description The edited change's freshly computed diff_hash (present only on the modify-then-approve arm). */
@@ -1036,4 +1039,5 @@ type ReadonlyArray<T> = [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
 export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
+export const publicEventApprovalDecidedVerdictValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventApprovalDecided"]["verdict"]> = ["approved", "rejected", "expired"];
 export type operations = Record<string, never>;

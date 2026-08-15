@@ -62,10 +62,11 @@ func workflowEngineWithDrafter(db *database.DB, drafter activities.EmailDrafter)
 		Provider:  NewDispatcher(NewProvider(db.Pool()), NewOverlayProvider(db.Pool(), failClosedOverlayMeter(), nil), db.Pool()),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(db)},
 		Lists:     listsAdapter{store: collections.NewStore(db)},
-		// The zero SendPath is the honest one here: a send_email action
-		// stages an approval instead of sending, and automation.Comms
-		// declares DraftEmail alone, so no send is reachable from this
-		// surface to configure.
+		// The zero SendPath is the honest one here: automation.Comms declares
+		// DraftEmail alone, so no send is reachable from this surface to
+		// configure. What an automation composes waits as a held draft, and
+		// THAT release sends through the fully-wired store the send path builds
+		// (lateApprovalEffects) rather than anything configured here.
 		Comms: newCommsAdapter(db.Pool(), drafter, SendPath{}),
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a

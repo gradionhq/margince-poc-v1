@@ -44,7 +44,7 @@ func TestApplyActionsStagesAConfirmationRequiredActionInsteadOfDeadEnding(t *tes
 	fake := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
 	target := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
 	action := workflow.Action{
-		Kind:   workflow.ActionSendEmail,
+		Kind:   workflow.ActionEmitFlowEvent,
 		Target: target,
 		Args:   json.RawMessage(`{"template":"follow_up"}`),
 	}
@@ -69,8 +69,8 @@ func TestApplyActionsStagesAConfirmationRequiredActionInsteadOfDeadEnding(t *tes
 		t.Fatalf("Stage called %d times, want exactly 1", len(fake.calls))
 	}
 	got := fake.calls[0]
-	if got.Kind != string(workflow.ActionSendEmail) {
-		t.Errorf("StageRequest.Kind = %q, want %q", got.Kind, workflow.ActionSendEmail)
+	if got.Kind != string(workflow.ActionEmitFlowEvent) {
+		t.Errorf("StageRequest.Kind = %q, want %q", got.Kind, workflow.ActionEmitFlowEvent)
 	}
 	if got.TargetType != string(datasource.EntityDeal) || got.TargetID != target.ID {
 		t.Errorf("StageRequest target = (%q, %v), want (%q, %v)", got.TargetType, got.TargetID, datasource.EntityDeal, target.ID)
@@ -115,7 +115,7 @@ func TestApplyActionsNeverSwallowsAStageFailure(t *testing.T) {
 	stageErr := errors.New("approvals: database is down")
 	fake := &fakeApprovals{err: stageErr}
 	action := workflow.Action{
-		Kind:   workflow.ActionAdvanceDeal,
+		Kind:   workflow.ActionEmitFlowEvent,
 		Target: datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()},
 		Args:   json.RawMessage(`{"to_stage_id":"11111111-1111-7111-8111-111111111111"}`),
 	}
@@ -128,5 +128,40 @@ func TestApplyActionsNeverSwallowsAStageFailure(t *testing.T) {
 	var staged *workflow.StagedApprovalError
 	if errors.As(err, &staged) {
 		t.Error("a failed Stage call must not be reported as a successful staging")
+	}
+}
+
+// A kind an automation cannot plan must REFUSE, not stage.
+//
+// advance_deal and send_email shared the staging arm until the release
+// executors were audited: the action catalog is closed and emits neither, so
+// the arm could only ever produce a card no firing raised — and had one, no
+// executor was registered to run on approval, so approving it would have spent
+// a human's decision on nothing. A loud refusal is the honest outcome, and it
+// is the same one the other declared-but-unbuilt kinds give.
+func TestAKindNoAutomationCanPlanRefusesInsteadOfStaging(t *testing.T) {
+	for _, kind := range []workflow.ActionKind{workflow.ActionAdvanceDeal, workflow.ActionSendEmail} {
+		t.Run(string(kind), func(t *testing.T) {
+			fake := &fakeApprovals{id: ids.New[ids.ApprovalKind]()}
+			action := workflow.Action{
+				Kind:   kind,
+				Target: datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()},
+				Args:   json.RawMessage(`{}`),
+			}
+
+			_, err := ApplyActions(context.Background(), Executors{Approvals: fake},
+				workflow.Effect{Actions: []workflow.Action{action}})
+
+			if err == nil {
+				t.Fatal("a kind with no executor reported success")
+			}
+			var staged *workflow.StagedApprovalError
+			if errors.As(err, &staged) {
+				t.Error("the kind staged a card nothing can execute on approval")
+			}
+			if len(fake.calls) != 0 {
+				t.Errorf("Stage was called %d times for a kind that cannot be planned", len(fake.calls))
+			}
+		})
 	}
 }

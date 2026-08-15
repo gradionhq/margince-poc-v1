@@ -1005,6 +1005,7 @@ const (
 	AuditLogEntryActionDisconnect         AuditLogEntryAction = "disconnect"
 	AuditLogEntryActionDisqualify         AuditLogEntryAction = "disqualify"
 	AuditLogEntryActionErase              AuditLogEntryAction = "erase"
+	AuditLogEntryActionExpire             AuditLogEntryAction = "expire"
 	AuditLogEntryActionExport             AuditLogEntryAction = "export"
 	AuditLogEntryActionHold               AuditLogEntryAction = "hold"
 	AuditLogEntryActionImport             AuditLogEntryAction = "import"
@@ -1058,6 +1059,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionDisqualify:
 		return true
 	case AuditLogEntryActionErase:
+		return true
+	case AuditLogEntryActionExpire:
 		return true
 	case AuditLogEntryActionExport:
 		return true

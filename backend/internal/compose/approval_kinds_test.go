@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -499,4 +500,71 @@ func parsePackageFiles(t *testing.T, fset *token.FileSet, dir string) []*ast.Fil
 		t.Fatalf("no Go files parsed from %s — this gate would resolve nothing", dir)
 	}
 	return files
+}
+
+// Every kind an AUTOMATION can stage must be decidable, which is a strictly
+// wider obligation than the one above and was not being checked.
+//
+// The test above holds kinds with a REGISTERED EFFECT to a grant mapping. An
+// automation stages kinds that have no compose-registered effect at all — it
+// parks its run and waits for a human — so every one of those was invisible to
+// it. Two of them, assign_owner and emit_flow_event, had no mapping: their
+// stagings were written, hidden from every inbox by requireDecisionGrants
+// failing closed, and could not be decided by anybody, while the run that
+// raised them stayed in requires_approval permanently.
+//
+// The list comes from the automation package rather than being restated here,
+// so a kind that starts staging is caught by this gate rather than by whoever
+// eventually notices a run that never finished.
+func TestEveryKindAnAutomationCanStageIsDecidable(t *testing.T) {
+	kinds := automation.StageableKinds()
+	if len(kinds) == 0 {
+		t.Fatal("the automation package reports no stageable kinds — the scan found nothing to check, which means it is broken")
+	}
+	for _, kind := range kinds {
+		if !approvals.KindHasDecisionGrants(kind) {
+			t.Errorf("an automation can stage %q but no decision-grant mapping exists for it — its stagings are hidden from every inbox and undecidable, and the run behind each one waits forever", kind)
+		}
+	}
+}
+
+// Every stageable kind must EXECUTE on approval, one way or the other.
+//
+// Decidable is not the same as actionable. A kind can have a grant mapping,
+// display in the inbox, take a human's yes — and then run nothing, because
+// release executors are registered per kind and it has none. That is the worse
+// half of the same defect: the human believes they authorized the work, the
+// approval is decided, and no owner moved.
+//
+// So each stageable kind must be in exactly one bucket. Either its whole effect
+// is the asking (request_approval, whose yes IS the outcome — the run completes
+// off the decision event), or a release executor performs its write and
+// completes the run inside that write's transaction. Anything in neither bucket
+// is a card that lies about what approving it does.
+func TestEveryStageableKindEitherAsksOnlyOrHasAReleaseEffect(t *testing.T) {
+	svc := approvalsServiceWithEffects(nil)
+	registered := map[string]bool{}
+	for _, kind := range svc.EffectKinds() {
+		registered[kind] = true
+	}
+	// The send-path kinds register later than this service is built (see
+	// lateApprovalEffects) — they are effects nonetheless, and a gate that
+	// could not see them would read a held draft as unactionable.
+	for kind := range lateApprovalEffects {
+		registered[kind] = true
+	}
+	asksOnly := map[string]bool{}
+	for _, kind := range automation.AskingOnlyKinds() {
+		asksOnly[kind] = true
+	}
+	for _, kind := range automation.StageableKinds() {
+		if asksOnly[kind] == registered[kind] {
+			complaint := "in neither bucket: no release executor, and not declared asking-only"
+			if asksOnly[kind] {
+				complaint = "declared asking-only AND has a release executor — two answers to which one finishes its run"
+			}
+			t.Errorf("an automation can stage %q, and it is %s — a human approving it is told work was authorized that nothing performs, or is told twice",
+				kind, complaint)
+		}
+	}
 }

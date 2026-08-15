@@ -12,10 +12,14 @@ package approvals
 // redemption-time version pin were both evaluated against, before the edit
 // existed.
 //
-// The gap that makes this load-bearing: every server-proposed effect resolves
-// the record it writes from an entity id INSIDE the payload rather than from
-// approval.target_entity_id, and several run under a system principal, which
-// makes auth.Require return nil and empties every row-scope clause. So an edit
+// The gap that makes this load-bearing: nearly every server-proposed effect
+// resolves the record it writes from an entity id INSIDE the payload rather
+// than from approval.target_entity_id, and several run under a system
+// principal, which makes auth.Require return nil and empties every row-scope
+// clause. (The exception proves the rule rather than weakening it: the
+// assign_owner release reads the target from the immutable target columns via
+// StagedTarget, which an edit cannot reach at all — it does not need this pin,
+// and a kind that resolved its record that way would not.) So an edit
 // that swaps an id turns an approval a human legitimately holds into a write
 // against a record their own row scope hides — while the version pin still
 // passes, because it re-reads the untouched original target. Pinning the

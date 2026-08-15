@@ -16,34 +16,54 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
-// HandleApprovalDecided is the engine-side approval.decided consumer: a
-// REJECTED decision on a workflow staging lands as the parked run's
-// terminal 'blocked' outcome. An approval keeps the run parked in
-// requires_approval — the effect lands through redemption, not through
-// this consumer — and a decision on a non-workflow approval matches no
-// run row and is a normal no-op, so the consumer never needs to know
-// which approvals are workflow stagings up front.
+// HandleApprovalDecided is the engine-side approval.decided consumer: it turns a
+// decision into the parked run's terminal outcome. A decision on a non-workflow
+// approval matches no run row and is a normal no-op, so the consumer never needs
+// to know which approvals are workflow stagings up front.
+//
+// Which outcome depends on the verdict AND the kind, because approving is not
+// one thing. For a kind whose whole effect is the asking (AskingOnlyKinds —
+// request_approval), the human's yes is the last thing that had to happen, so
+// the run completes here. For a kind that proposes a write, the run completes
+// inside the transaction its release executor performs the write in, and this
+// consumer leaves it alone: completing it here would race that executor and
+// report as done a write that might still fail.
+//
+// TWO verdicts refuse, and the second one is why the run stops waiting at all.
+// A human rejecting says no; a closed window says no on nobody's behalf
+// ("unactioned means rejected", APPR-PARAM-1). The expiry sweep writes that
+// verdict in the same transaction as the approval and emits this event through
+// the outbox, so the run is ended by the same delivery guarantee a rejection
+// has — rather than by a second loop somewhere that has to be kept in step.
+// Without the expired arm a staging nobody answered left its run in
+// requires_approval permanently, which AUTO-AC-10 expects to see as blocked.
 func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.Envelope) error {
 	if env.Type != "approval.decided" {
 		return nil
 	}
 	var payload struct {
 		Verdict string `json:"verdict"`
+		Kind    string `json:"kind"`
 	}
 	if len(env.Payload) > 0 {
 		if err := json.Unmarshal(env.Payload, &payload); err != nil {
 			return fmt.Errorf("crmagents: approval.decided payload: %w", err)
 		}
 	}
-	if payload.Verdict != "rejected" {
+	reason, refused := runBlockedReasonFor(payload.Verdict)
+	completes := payload.Verdict == "approved" && slices.Contains(AskingOnlyKinds(), payload.Kind)
+	if !refused && !completes {
 		return nil
 	}
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
@@ -53,17 +73,69 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 		return err
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, ws.UUID)
-	return e.MarkRunBlocked(wsCtx, approvalID,
-		"approval "+approvalID.String()+" was rejected by the deciding human")
+	if completes {
+		return CompleteApprovedRun(wsCtx, e.db, approvalID)
+	}
+	return e.MarkRunBlocked(wsCtx, approvalID, "approval "+approvalID.String()+" "+reason)
+}
+
+// CompleteApprovedRun lands the terminal 'applied' outcome on a parked run in a
+// transaction of its own — CompleteApprovedRunTx for callers with no transaction
+// to lend it.
+//
+// Two callers, and the difference between them is what each is allowed to
+// promise. The decision consumer above uses it for an asking-only kind, where
+// the human's yes IS the outcome and there is no write to join. A release
+// executor uses it after its write has returned, because the record port it
+// writes through owns its own transaction and cannot be joined — so the
+// transition follows the write rather than sharing its commit, and a write that
+// failed leaves the run parked instead of claiming success.
+//
+// Idempotent by predicate either way: only a still-parked run flips, so
+// redelivery, retry, and a second executor pass all change nothing.
+//
+// A package function taking the handle, for the same reason CompleteApprovedRunTx
+// is one: a release executor reaching it runs on the decision path, where no
+// engine exists, and constructing one purely to reach a transition would be a
+// dependency that exists to satisfy a receiver.
+func CompleteApprovedRun(ctx context.Context, db *database.DB, approvalID ids.ApprovalID) error {
+	return db.Tx(ctx, func(tx pgx.Tx) error {
+		return CompleteApprovedRunTx(ctx, tx, approvalID)
+	})
+}
+
+// runBlockedReasonFor maps a verdict onto the run outcome it produces, and says
+// whether it produces one at all.
+//
+// A table rather than a condition, because the set is the decision. It answers
+// only "does this verdict BLOCK", so approved is absent by construction rather
+// than unhandled — the caller acts on approved separately, completing the run
+// for an asking-only kind and leaving it to the release executor otherwise. A
+// verdict this build has not met yet blocks nothing rather than being guessed
+// at. The reason is the human-facing half of the run record, so it says which
+// kind of no it was — somebody reading run history needs to tell "a colleague
+// declined this" from "nobody ever looked".
+func runBlockedReasonFor(verdict string) (string, bool) {
+	switch verdict {
+	case "rejected":
+		return "was rejected by the deciding human", true
+	case "expired":
+		return "expired with nobody deciding it", true
+	default:
+		return "", false
+	}
 }
 
 // MarkRunBlocked lands the terminal 'blocked' outcome (with its reason)
 // on the run parked behind one staged approval, matching on the
 // approval_id field the Apply path stamped into detail — never on the
 // whole reason string, so a wording change can never break the match.
-// Approval expiry has no bus signal today (expiry is computed lazily at
-// read time, never swept) — an expiry sweeper, when one exists, records
-// its outcome through this same entry point with an "expired" reason.
+// The two refusals that arrive ON THE BUS arrive the same way: the expiry sweep
+// writes an 'expired' verdict and emits approval.decided from the same
+// transaction, so a window that closed reaches this entry point exactly as a
+// rejection does. A third refusal never reaches here at all — erasure withdraws
+// an approval and ends the run behind it by direct SQL in its own transaction,
+// because a destruction must not depend on a consumer running.
 // Idempotent: only a still-parked run flips, so a redelivered decision
 // changes nothing.
 func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.ApprovalID, reason string) error {
@@ -89,12 +161,18 @@ func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.Appr
 // the other, so run history showed a firing still waiting for a decision a
 // human had already given, and the effect it authorized had already run.
 //
-// It takes the CALLER's transaction, and that is the whole point. The release
-// redeems the approval and performs its effect in one transaction; the run
-// transition belongs in that same commit, or a crash between them recreates the
-// permanently-parked run this exists to prevent — with the message already
-// sent. There is no reconciler to lean on, so the commit boundary is the
-// guarantee.
+// It takes the CALLER's transaction, for the releases that HAVE one to lend.
+// A held draft redeems and sends in a single transaction (compose/heldrelease.go)
+// and the run transition belongs in that same commit: a crash between them would
+// recreate the permanently-parked run this exists to prevent, with the message
+// already sent, and there is no reconciler to lean on.
+//
+// Not every release can do that, and the difference is the record port rather
+// than a lapse. A reassignment writes through datasource.SystemOfRecordProvider,
+// a frozen seam with no transaction-taking variant, so it cannot be joined —
+// that path calls CompleteApprovedRun after its write instead, and accepts a
+// crash gap that leaves the run parked rather than lying. Which shape a kind
+// gets is decided by whether its write can be joined, never by preference.
 //
 // Idempotent by predicate, exactly like MarkRunBlocked: only a still-parked run
 // flips, so a redelivered or re-driven release changes nothing. Matching on the
@@ -112,4 +190,43 @@ func CompleteApprovedRunTx(ctx context.Context, tx pgx.Tx, approvalID ids.Approv
 		return fmt.Errorf("automation: completing the run a released approval unparked: %w", err)
 	}
 	return nil
+}
+
+// StageableKinds are the approval kinds a firing can put in front of a human.
+//
+// Exported so the composition layer can hold every one of them to a
+// decision-grant mapping. That gate has existed for kinds with a registered
+// effect, and these have none — an automation stages them and no compose
+// executor runs on approval — so they were invisible to it. A kind missing from
+// approvals' grant map is not merely inert: requireDecisionGrants fails closed,
+// so its stagings are hidden from every inbox and cannot be decided by anyone,
+// while the run that raised them waits forever.
+//
+// Hand-maintained, and the gates that read it cannot tell if it falls behind
+// applyOne — they check that everything LISTED here is decidable and
+// executable, not that everything applyOne stages is listed. A kind that starts
+// staging without being added here is invisible to all of them, which is the
+// blind spot this whole area exists to close, so the switch and this list are
+// kept adjacent and TestStageableKindsMatchesTheStagingSwitch reads the source
+// of applyOne to hold them together.
+func StageableKinds() []string {
+	return []string{
+		string(workflow.ActionEmitFlowEvent),
+		string(workflow.ActionAssignOwner),
+		HeldDraftKind,
+	}
+}
+
+// AskingOnlyKinds are the stageable kinds whose whole effect is the asking.
+//
+// There is exactly one, and it is not a category waiting to be filled:
+// request_approval stages under emit_flow_event and its action IS the
+// confirm-first act, so a human answering it leaves nothing further to run.
+// Every OTHER stageable kind proposes a write, and approving one with no
+// release executor would complete a run that did nothing — which is why the two
+// sets are stated separately and checked against each other in composition
+// (TestEveryStageableKindEitherAsksOnlyOrHasAReleaseEffect) rather than left for
+// whoever adds the next kind to remember.
+func AskingOnlyKinds() []string {
+	return []string{string(workflow.ActionEmitFlowEvent)}
 }

@@ -85,6 +85,7 @@ const (
 	approvalStatusApproved = "approved"
 	approvalStatusRejected = "rejected"
 	approvalKeyKind        = "kind"
+	approvalKeyReason      = "reason"
 )
 
 // ApprovedEffect executes what an approved staging of its kind proposed.

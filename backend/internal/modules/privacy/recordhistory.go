@@ -86,6 +86,12 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	"cancel":     "cancelled",
 	"release":    "released for sending",
 	"hold":       "held for review",
+	// Nobody did this, and the phrase has to say so while still composing into
+	// "<actor> <verb> the record" — "expired unactioned the record" is not a
+	// sentence. Not "rejected", because the ledger's job here is to tell a
+	// reader that no one ANSWERED: a column of these is work going unattended,
+	// which no count of rejections would show.
+	"expire": "let the decision window close on",
 }
 
 // RecordHistoryFilter carries the validated query surface of

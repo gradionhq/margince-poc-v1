@@ -300,19 +300,25 @@ func applyOne(ctx context.Context, ex Executors, action workflow.Action) (workfl
 		// applyAssignOwner's own branch (🟢 write vs 🟡 stage) is proven
 		// against a synthetic scaled scope by its unit tests.
 		return action, nil, applyAssignOwner(ctx, ex, action, AssignOwnerScope{})
-	case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
-		// The 🟡 kinds — request_approval's own executor is
-		// ActionEmitFlowEvent, confirm-first by its very nature, same as
-		// advance_deal-to-won/lost and send_email. A deterministic handler
-		// carrying one of these stages the action for a human decision
-		// instead of dead-ending: the run parks behind the resulting
-		// approval id (runOne), and resuming a released staging is the token
-		// path a later slice adds.
+	case workflow.ActionEmitFlowEvent:
+		// request_approval's own executor, confirm-first by its very nature: the
+		// action IS the asking, so staging it is executing it. A deterministic
+		// handler carrying it parks its run behind the resulting approval id
+		// (runOne), and the human's answer finishes the run — approve completes
+		// it, refuse blocks it (engine_blocked.go).
+		//
+		// advance_deal and send_email used to share this arm and no longer do.
+		// Nothing plans them: the action catalog is closed and neither appears
+		// among the seven executors it can emit, so the arm staged cards no
+		// firing could raise — and had one, approving it would have run no
+		// effect, because the release executors are registered per kind and
+		// these have none. A card whose approval does nothing is worse than a
+		// refusal, so they join the declared-but-unbuilt kinds below and say so.
 		id, err := stageForApproval(ctx, ex.Approvals, action)
 		if err != nil {
 			return action, nil, err
 		}
-		// The ZERO action, not this one: these kinds produced nothing before
+		// The ZERO action, not this one: the kind produced nothing before
 		// staging, so there is no artifact for the run record. Returning the
 		// planned action here would put an unexecuted write into `applied`.
 		return workflow.Action{}, &workflow.StagedApprovalError{ApprovalID: id}, nil
@@ -334,7 +340,8 @@ func applyOne(ctx context.Context, ex Executors, action workflow.Action) (workfl
 			return recorded, nil, err
 		}
 		return recorded, &workflow.StagedApprovalError{ApprovalID: id}, nil
-	case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
+	case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob,
+		workflow.ActionAdvanceDeal, workflow.ActionSendEmail:
 		// Declared kinds whose executors ride later slices; refusing loudly
 		// beats silently claiming success.
 		return action, nil, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)

@@ -10,7 +10,8 @@
 //
 // Tables owned: erasure_suppression. Everything else this module
 // touches it deliberately does NOT own: erasure and retention write
-// person, lead, activity, deal, embedding and raw_capture rows because
+// person, lead, activity, deal, embedding, raw_capture, approval and
+// workflow_run rows because
 // a data-subject obligation must reach every store that holds the
 // subject, in ONE transaction per record (the sanctioned
 // single-transaction exception to the module-boundary rule) — routing

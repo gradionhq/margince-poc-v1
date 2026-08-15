@@ -741,6 +741,31 @@ kinds:
       loses all of it and starts over. The cap has to clear the refold of the
       longest-history tenant, and the daily cadence leaves the room to do it.
 
+  # One job, not a dispatcher and a child (ADR-0103 §1): one indexed scan over
+  # an installation-wide table, so there is nothing to fan out over.
+  approval_expiry:
+    role: worker
+    go_type: ApprovalExpiryArgs
+    queue: default
+    timeout: 2m
+    max_attempts: 1
+    opts_owner: args
+    cadence: 5m
+    reason: >-
+      Expiry is a REFUSAL nobody chose ("unactioned means rejected",
+      APPR-PARAM-1), so the lag between a window closing and the refusal being
+      recorded is time a human spends able to approve something the record will
+      say expired, and time an automation spends parked behind a decision
+      already taken against it. Five minutes keeps that window shorter than
+      anyone's attention on an inbox. The pass itself is one indexed scan and at
+      most a bounded batch of small audited transactions, so a tick that finds
+      nothing costs a single query — which is what most ticks do, because
+      stagings expire in ones and twos rather than in floods.
+
+      One attempt, not three: the retry is the next tick, five minutes away, and
+      every row this pass did not reach is still due then. A backing-off row
+      would only suppress that tick.
+
   # One job, not a dispatcher and a child (ADR-0103 §1). The delete it runs was
   # already table-wide once agent_task lost its tenant column, so the fan-out
   # was N identical passes over the same rows.

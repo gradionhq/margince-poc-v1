@@ -17,7 +17,6 @@ package privacy
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -133,6 +132,14 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// reach them — and a scheduled one would otherwise fire the morning
 		// after this erasure certified the data destroyed.
 		if err := redactScheduledSends(ctx, tx, emails); err != nil {
+			return err
+		}
+		// And the ones nobody has DECIDED yet, one step earlier in the same life
+		// — a staged draft and the run that composed it (erasure_approvals.go).
+		if err := redactStagedApprovals(ctx, tx, subject, leadsWiped, emails); err != nil {
+			return err
+		}
+		if err := redactWorkflowRuns(ctx, tx, emails); err != nil {
 			return err
 		}
 		// Purge the subject's attachment bytes and rows together, inside the
@@ -422,32 +429,6 @@ func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string
 		}
 	}
 	return nil
-}
-
-// lowercased normalizes identifiers for SQL ANY matching.
-func lowercased(values []string) []string {
-	out := make([]string, len(values))
-	for i, v := range values {
-		out[i] = strings.ToLower(strings.TrimSpace(v))
-	}
-	return out
-}
-
-func collectStrings(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]string, error) {
-	rows, err := tx.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
 }
 
 // anonymizeLeadTwins wipes the subject's segregated lead rows and everything

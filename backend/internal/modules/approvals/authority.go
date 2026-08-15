@@ -188,6 +188,18 @@ var decisionGrants = map[string][]grantRequirement{
 	// somebody who may read the transcript but not add to the timeline could
 	// otherwise release a task they could not have logged themselves.
 	"transcript_proposal": {{objectActivity, principal.ActionCreate}},
+	// An automation's request_approval stages under emit_flow_event, and that
+	// action IS the confirm-first act: approving it performs no downstream
+	// write, it finishes the asking. The grant is the one the action catalog
+	// already pins for request_approval (PermissionPinned activity:create,
+	// automation/catalog_actions.go) — the same "create something for a human
+	// to act on" shape send_email, book_meeting and deal_follow_up carry, which
+	// is the precedent that catalog entry cites by name.
+	//
+	// Not an empty set, which would make it decidable by everyone: the
+	// automation's owner needed activity:create to raise the card, and somebody
+	// who could not have raised it must not be the one who answers it.
+	"emit_flow_event": {{objectActivity, principal.ActionCreate}},
 	// Releasing a held draft SENDS it, so the approver needs exactly what
 	// sending takes — the same grant send_email carries, for the same reason.
 	// The consent gate runs inside the release whoever approved it, and the
@@ -216,6 +228,19 @@ var decisionGrants = map[string][]grantRequirement{
 // the composition layer's satisfiability gate. A second copy would let that gate
 // certify a route whose real decision demands a different object.
 var targetResolvedGrants = map[string]principal.Action{
+	// A reassignment at scale (AUTO-T07's 🟡 branch) writes owner_id onto
+	// whatever the firing named, so the grant is resolved from the target the
+	// way the action catalog resolves it: PermissionTargetScoped with verb
+	// update (automation/catalog_actions.go). Pinning it to one object would
+	// gate the wrong entity every time the trigger fired on another.
+	//
+	// It releases the same write the 🟢 branch performs, against the same record
+	// through the same provider, so deciding it takes exactly the authority
+	// performing it takes — the rule disqualify_lead states above. (What the
+	// release adds beyond that write — its own provenance and the redeemed
+	// version pin — is enumerated in compose/assignownerrelease.go and changes
+	// nothing about the grant.)
+	"assign_owner":   principal.ActionUpdate,
 	"archive_record": principal.ActionDelete,
 	"merge_records":  principal.ActionUpdate,
 	"update_record":  principal.ActionUpdate,

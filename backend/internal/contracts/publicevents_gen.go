@@ -9,6 +9,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for PublicEventApprovalDecidedVerdict.
+const (
+	Approved PublicEventApprovalDecidedVerdict = "approved"
+	Expired  PublicEventApprovalDecidedVerdict = "expired"
+	Rejected PublicEventApprovalDecidedVerdict = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the PublicEventApprovalDecidedVerdict enum.
+func (e PublicEventApprovalDecidedVerdict) Valid() bool {
+	switch e {
+	case Approved:
+		return true
+	case Expired:
+		return true
+	case Rejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SubscribableEventType.
 const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
@@ -306,10 +327,10 @@ type PublicEventActor struct {
 	Type string `json:"type"`
 }
 
-// PublicEventApprovalDecided Payload for approval.decided — a human approved or rejected a staged approval (approvals/decide.go). verdict and edited_change are decoded BY NAME outside this module — automation's blocked-run consumer matches verdict (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash.
+// PublicEventApprovalDecided Payload for approval.decided — a staged approval reached a verdict (approvals/decide.go, approvals/expiresweep.go). kind, verdict and edited_change are decoded BY NAME outside this module — automation's run consumer matches BOTH verdict and kind (automation/engine_blocked.go), the Surface-B runner's resume consumer reads edited_change (compose/runnerservice.go) — see the JSON-tag regression tests in internal/modules/webhooks. edited/diff_hash/edited_change are present only on the ADR-0036 §4 modify-then-approve arm, where the human's edited payload replaced the staged change under a freshly computed diff_hash.
 type PublicEventApprovalDecided struct {
-	// DecidedBy The deciding human's user id.
-	DecidedBy openapi_types.UUID `json:"decided_by"`
+	// DecidedBy The deciding human's user id. ABSENT on the `expired` verdict, and that absence is the payload's own statement that nobody decided this — a zero or placeholder id here would put a phantom user's name on a refusal no person made.
+	DecidedBy *openapi_types.UUID `json:"decided_by,omitempty"`
 
 	// DiffHash The edited change's freshly computed diff_hash (present only on the modify-then-approve arm).
 	DiffHash *string `json:"diff_hash,omitempty"`
@@ -323,9 +344,12 @@ type PublicEventApprovalDecided struct {
 	// Kind The decided staging's kind.
 	Kind string `json:"kind"`
 
-	// Verdict The decision outcome (approved | rejected).
-	Verdict string `json:"verdict"`
+	// Verdict The decision outcome. `expired` is the window closing on a staging nobody answered (APPR-PARAM-1's "unactioned means rejected"): it is a real verdict written by the expiry sweep, not a rendering, and it is the one verdict with no deciding human — consumers that treat a refusal as a refusal must handle it alongside `rejected`.
+	Verdict PublicEventApprovalDecidedVerdict `json:"verdict"`
 }
+
+// PublicEventApprovalDecidedVerdict The decision outcome. `expired` is the window closing on a staging nobody answered (APPR-PARAM-1's "unactioned means rejected"): it is a real verdict written by the expiry sweep, not a rendering, and it is the one verdict with no deciding human — consumers that treat a refusal as a refusal must handle it alongside `rejected`.
+type PublicEventApprovalDecidedVerdict string
 
 // PublicEventApprovalRequested Payload for approval.requested — an agent's 🟡 call was staged pending a human decision (ADR-0036, approvals/staging.go's StageInTx). The staged approval row's own id is the event's entity ref; this payload names what was staged, its polymorphic target, and when the staging lapses into expired if undecided.
 type PublicEventApprovalRequested struct {
