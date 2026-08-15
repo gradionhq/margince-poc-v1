@@ -1190,14 +1190,14 @@ export const de = {
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
-  "lead.shortfall.lead": "Auf diesen Score zahlt bisher nichts ein:",
+  "lead.shortfall.lead": "Womit dieser Score arbeitet:",
+  "lead.shortfall.engagementMoves":
+    "Am stärksten bewegen ihn eine Antwort oder ein Termin.",
   "lead.shortfall.noTitle": "Keine Position hinterlegt.",
   "lead.shortfall.titleNotSenior":
     "„{title}“ gehört nicht zu den Positionen, auf die das Modell achtet.",
   "lead.shortfall.sourceNoIntent":
     "Kam über „{source}“ herein — daraus allein spricht noch kein Kaufinteresse.",
-  "lead.shortfall.noEngagement":
-    "Noch keine Antwort, kein Termin — das bewegt den Score am stärksten.",
   "lead.scoreNotStoredYet":
     "Die Aufschlüsselung zu diesem Score ist noch nicht gespeichert — die nächste Aktualisierung zeigt sie.",
   "lead.scoreLoading": "Begründung wird geladen…",

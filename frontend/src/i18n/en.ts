@@ -1198,14 +1198,14 @@ export const en = {
   "lead.clearOverride": "Clear override",
   "lead.overrideReason": "Reason",
   "lead.machineComputed": "Machine-computed score",
-  "lead.shortfall.lead": "Nothing counts toward this score yet:",
+  "lead.shortfall.lead": "What this score has to work with:",
+  "lead.shortfall.engagementMoves":
+    "A reply or a meeting is what moves it most.",
   "lead.shortfall.noTitle": "No job title on record.",
   "lead.shortfall.titleNotSenior":
     "“{title}” isn’t one of the senior titles the model looks for.",
   "lead.shortfall.sourceNoIntent":
     "Came in as “{source}”, which carries no buying intent on its own.",
-  "lead.shortfall.noEngagement":
-    "No reply or meeting yet — that’s what moves the score most.",
   "lead.scoreNotStoredYet":
     "The breakdown for this score isn’t stored yet — the next update will show it.",
   "lead.scoreLoading": "Working out why…",

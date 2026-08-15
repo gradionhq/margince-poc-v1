@@ -364,9 +364,12 @@ function ScoreShortfall({ lead }: Readonly<{ lead: Lead }>) {
   if (!lead.source || !HIGH_INTENT_SOURCES.has(lead.source)) {
     missing.push(t("lead.shortfall.sourceNoIntent", { source: lead.source }));
   }
-  // Behavioral points are the only ones that move after capture, so this line
-  // is the actionable one: it names what would change the score.
-  missing.push(t("lead.shortfall.noEngagement"));
+  // Deliberately NOT a claim that no reply or meeting exists. Engagement lives
+  // in linked activities the client never reads, and a decayed reply can round
+  // to nothing while still being a reply — "no reply yet" would be a statement
+  // about the prospect this page cannot support. What it CAN say is what
+  // would move the score, which is the actionable half anyway.
+  missing.push(t("lead.shortfall.engagementMoves"));
 
   return (
     <div
