@@ -165,8 +165,10 @@ func profileExcerptPages(pages []crawlPage) []crawlPage {
 	return out
 }
 
-// extractProfile runs the one profile call and gates its reply against
-// the globally numbered excerpt index.
+// extractProfile runs one profile call and gates its reply against the
+// globally numbered excerpt index. The read may call it twice — see
+// reprofileOverWholeCrawl — so this must stay free of state that assumes
+// a single invocation.
 func (x evidenceExtractor) extractProfile(ctx context.Context, pages []crawlPage) ([]evidencedField, error) {
 	excerpts := profileExcerptPages(pages)
 	idx := newSnippetIndex(excerpts)

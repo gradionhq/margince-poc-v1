@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -196,7 +197,10 @@ func streamFixtureSite(n int) *fakeSite {
 // page-count trigger on a large crawl and via the end-of-crawl fallback
 // on a small one — and the merge is commit-ordered regardless of
 // completion scheduling.
-func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T) {
+func TestCrawlAndExtractStreamsDeterministicallyAndProfilesTheWholeCrawl(t *testing.T) {
+	// The first size crosses the trigger and then keeps crawling, so the
+	// profile is asked again on the finished corpus; the second ends below
+	// the trigger and is profiled once, on everything it has.
 	for _, pages := range []int{profileTriggerNonLegalPages + 4, 3} {
 		site := streamFixtureSite(pages)
 		var profileCalls atomic.Int32
@@ -224,8 +228,16 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		if extraction.err != nil {
 			t.Fatalf("clean lanes reported an error: %v", extraction.err)
 		}
-		if got := profileCalls.Load(); got != 1 {
-			t.Fatalf("profile lane fired %d times for %d pages, want exactly once", got, pages)
+		wantProfileCalls := int32(1)
+		if pages >= profileTriggerNonLegalPages*profileGrowthFactor {
+			// The crawl at least doubled after the trigger, so the early
+			// answer was drawn from a fraction of the evidence and is asked
+			// again over the whole of it.
+			wantProfileCalls = 2
+		}
+		if got := profileCalls.Load(); got != wantProfileCalls {
+			t.Fatalf("profile lane fired %d times for %d pages, want %d",
+				got, pages, wantProfileCalls)
 		}
 		if len(extraction.merged.facts) != pages {
 			t.Fatalf("facts = %d, want one per catalog page (%d)", len(extraction.merged.facts), pages)
@@ -320,4 +332,211 @@ func TestExtractSiteProgressCountsEveryPage(t *testing.T) {
 	if maxDone != len(extractFixturePages()) {
 		t.Fatalf("progress reached %d, want every page (%d)", maxDone, len(extractFixturePages()))
 	}
+}
+
+// growingProfileFake answers the profile lane by how much evidence it was
+// shown: a prompt carrying the later pages yields the richer profile. That
+// is the real asymmetry -- the About and team pages arrive after the
+// trigger, so the first call cannot see them.
+type growingProfileFake struct {
+	laneFake
+	profile *atomic.Int32
+}
+
+func (f growingProfileFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		f.profile.Add(1)
+		if strings.Contains(req.Messages[0].Content, "Audit 20") {
+			// The whole crawl is in the prompt. This pass grounds fields the
+			// early one could not see -- and DELIBERATELY not `industry`, so
+			// a merge that dropped the first pass's work would be visible.
+			return model.Response{Text: `{"fields":[` +
+				`{"f":"display_name","v":"Acme","e":"s0","c":0.9},` +
+				`{"f":"usp","v":"Audit 20","e":"s0","c":0.9}]}`}, nil
+		}
+		// The early pass sees only the first pages, and grounds `industry`.
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
+}
+
+func TestALargeCrawlIsProfiledOnEverythingItFound(t *testing.T) {
+	// A 40-page site was profiled from the first 8 pages and never asked
+	// again, so every page the crawl found afterwards -- About, team,
+	// services -- reached the fact lane but never the profile.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var profileCalls atomic.Int32
+	brain := growingProfileFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		profile:  &profileCalls,
+	}
+	for i := 0; i < pages; i++ {
+		pageURL := fmt.Sprintf("%s/services-%02d", seedURL, i)
+		brain.pageReplies[pageURL] = fmt.Sprintf(
+			`{"facts":[{"f":"service","v":"Audit %02d — catalog line","e":"s0"}]}`, i)
+	}
+	crawler := testSiteCrawler(site)
+	// Commit a few pages per round, the way a real crawl arrives. With the
+	// whole site landing in one wave the trigger already sees everything
+	// and a second pass would be pointless -- which is itself correct, and
+	// is what the sibling test covers.
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if extraction.err != nil {
+		t.Fatalf("clean lanes reported an error: %v", extraction.err)
+	}
+	if got := profileCalls.Load(); got != 2 {
+		t.Fatalf("profile lane fired %d times, want 2 (early answer, then the whole crawl)", got)
+	}
+	// Assert by NAME, not by count: a count is satisfied by the re-run's
+	// output alone, so it stays green even if the merge is deleted and the
+	// first pass's work is thrown away.
+	grounded := map[string]bool{}
+	for _, field := range extraction.fields {
+		grounded[field.Field] = true
+	}
+	for _, want := range []string{"industry", "display_name", "usp"} {
+		if !grounded[want] {
+			t.Errorf("%q is missing; the read kept %v", want, grounded)
+		}
+	}
+}
+
+func TestARerunNeverDiscardsAFieldTheFirstPassGrounded(t *testing.T) {
+	// The two passes read different evidence, so the second can ground
+	// fields the first missed while missing one the first had. Choosing the
+	// LONGER list would drop that field silently -- both answers went
+	// through the same gate, so a field either pass grounded is a field the
+	// site supports.
+	first := []evidencedField{
+		{Field: "industry", Value: "Retail software"},
+		{Field: "display_name", Value: "Acme"},
+	}
+	second := []evidencedField{
+		{Field: "display_name", Value: "Acme SE"},
+		{Field: "usp", Value: "Fastest onboarding in the segment"},
+	}
+
+	merged := mergeProfileFields(first, second)
+
+	got := map[string]string{}
+	for _, field := range merged {
+		got[field.Field] = field.Value
+	}
+	if _, kept := got["industry"]; !kept {
+		t.Errorf("the re-run dropped `industry`, which the first pass grounded: %v", got)
+	}
+	if _, added := got["usp"]; !added {
+		t.Errorf("the merge lost `usp`, which only the re-run found: %v", got)
+	}
+	// The re-run read the whole crawl, so its value for a contested field is
+	// the better grounded one.
+	if got["display_name"] != "Acme SE" {
+		t.Errorf("display_name = %q, want the re-run's value", got["display_name"])
+	}
+	if len(merged) != 3 {
+		t.Errorf("merged %d fields, want 3 distinct ones: %v", len(merged), got)
+	}
+}
+
+// budgetDeferringFake fails the FIRST profile call the way an over-budget
+// workspace does, and answers the second normally.
+type budgetDeferringFake struct {
+	laneFake
+	calls *atomic.Int32
+}
+
+func (f budgetDeferringFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		if f.calls.Add(1) == 1 {
+			return model.Response{}, &ai.BudgetDeferralError{}
+		}
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
+}
+
+func TestAnOverBudgetFirstPassIsNotAskedAgainWithABiggerPrompt(t *testing.T) {
+	// A budget deferral means the workspace is over its token threshold.
+	// Asking again over the WHOLE crawl spends more against an allowance
+	// that is already exhausted, and defers a second time.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var calls atomic.Int32
+	brain := budgetDeferringFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		calls:    &calls,
+	}
+	for i := 0; i < pages; i++ {
+		brain.pageReplies[fmt.Sprintf("%s/services-%02d", seedURL, i)] = `{"facts":[]}`
+	}
+	crawler := testSiteCrawler(site)
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("profile lane called %d times after a budget deferral, want 1", got)
+	}
+	// The deferral must still reach the caller: it is how the read is
+	// re-queued rather than shipped half-done.
+	if extraction.err == nil {
+		t.Error("the budget deferral was swallowed; the read cannot be re-queued")
+	}
+}
+
+func TestARerunThatRescuesAFailedFirstPassLeavesTheReadWhole(t *testing.T) {
+	// The first pass failed and the re-run answered, so the lane produced
+	// its profile. Reporting the read partial would warn a user about
+	// nothing missing.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var calls atomic.Int32
+	brain := failThenAnswerFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		calls:    &calls,
+	}
+	for i := 0; i < pages; i++ {
+		brain.pageReplies[fmt.Sprintf("%s/services-%02d", seedURL, i)] = `{"facts":[]}`
+	}
+	crawler := testSiteCrawler(site)
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if len(extraction.fields) == 0 {
+		t.Fatal("the re-run's profile was lost")
+	}
+	if extraction.err != nil {
+		t.Errorf("the read reports an error though the re-run answered: %v", extraction.err)
+	}
+}
+
+// failThenAnswerFake fails the first profile call with an ordinary provider
+// error -- not a budget deferral -- and answers the second.
+type failThenAnswerFake struct {
+	laneFake
+	calls *atomic.Int32
+}
+
+func (f failThenAnswerFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		if f.calls.Add(1) == 1 {
+			return model.Response{}, errors.New("provider unavailable")
+		}
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
 }

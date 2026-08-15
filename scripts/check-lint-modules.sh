@@ -67,8 +67,13 @@ fi
 # a type-checkable package; it has nothing to say here. They are NOT unchecked
 # code: the craft gate, the license header test and the tree-wide gofmt gate all
 # cover fixtures/, and none of the three needs to typecheck to do its job.
+# `s#/\?go\.mod$##` reads as an optional slash under GNU sed and as a LITERAL
+# backslash-slash under the BSD sed macOS ships, so on a developer laptop every
+# path kept its `/go.mod` suffix, `cd` failed with "Not a directory", and the
+# gate reported findings in eight modules it had never entered. Two plain
+# substitutions say the same thing in both dialects.
 modules="$(git ls-files '*go.mod' \
-  | sed 's#/\?go\.mod$##' \
+  | sed -e 's#/go\.mod$##' -e 's#^go\.mod$#.#' \
   | grep -v '^backend$' \
   | grep -v '^fixtures/' \
   | sort)"
