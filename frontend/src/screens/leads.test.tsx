@@ -971,9 +971,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
         ),
       ).toBeTruthy(),
     );
-    expect(
-      screen.queryByText("Nothing counts toward this score yet:"),
-    ).toBeNull();
+    expect(screen.queryByText("What this score has to work with:")).toBeNull();
   });
 
   it("says why a lead scores nothing rather than explaining our storage history", async () => {
@@ -991,13 +989,14 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     // prospect rather than an unassessed one (ADR-0108 §4).
     await waitFor(() =>
       expect(
-        screen.getByText("Nothing counts toward this score yet:"),
+        screen.getByText("What this score has to work with:"),
       ).toBeTruthy(),
     );
+    // Deliberately NOT "no reply yet": engagement lives in linked activities
+    // this client never reads, so the page states what MOVES the score rather
+    // than asserting the prospect has done nothing.
     expect(
-      screen.getByText(
-        "No reply or meeting yet — that\u2019s what moves the score most.",
-      ),
+      screen.getByText("A reply or a meeting is what moves it most."),
     ).toBeTruthy();
   });
 

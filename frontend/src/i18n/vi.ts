@@ -1204,14 +1204,14 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
-  "lead.shortfall.lead": "Chưa có gì cộng vào điểm này:",
+  "lead.shortfall.lead": "Điểm này đang dựa trên:",
+  "lead.shortfall.engagementMoves":
+    "Phản hồi hoặc cuộc họp là thứ thay đổi điểm nhiều nhất.",
   "lead.shortfall.noTitle": "Chưa có chức danh.",
   "lead.shortfall.titleNotSenior":
     "“{title}” không thuộc nhóm chức danh mà mô hình tìm.",
   "lead.shortfall.sourceNoIntent":
     "Đến từ “{source}”, tự nó chưa thể hiện ý định mua.",
-  "lead.shortfall.noEngagement":
-    "Chưa có phản hồi hay cuộc họp — đó mới là thứ thay đổi điểm nhiều nhất.",
   "lead.scoreNotStoredYet":
     "Phần giải thích cho điểm này chưa được lưu — lần cập nhật tới sẽ hiển thị.",
   "lead.scoreLoading": "Đang tải lý do…",
