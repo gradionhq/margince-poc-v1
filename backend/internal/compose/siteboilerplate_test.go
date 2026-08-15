@@ -218,3 +218,42 @@ func TestTheCutNeverInventsAPassageThePageDidNotContain(t *testing.T) {
 		}
 	}
 }
+
+func TestEachLanguageLosesItsOwnMenu(t *testing.T) {
+	// A multilingual site carries one menu per language, and no single menu
+	// is on a majority of pages: arvato.com crawls in four languages, so its
+	// largest covers 10 of 38. One pass strips one menu and leaves the other
+	// locales carrying theirs, so the search has to repeat.
+	const englishMenu = "Products Solutions Industries Resources Company " +
+		"Partners Support Login Logout Language English Deutsch Nederlands " +
+		"Automotive Consumer Products Healthcare Retail Technology Careers " +
+		"Investors Press Contact About us Why we exist Customers "
+	const germanMenu = "Produkte Lösungen Branchen Ressourcen Unternehmen " +
+		"Partner Support Anmelden Abmelden Sprache English Deutsch Nederlands " +
+		"Automobil Konsumgüter Gesundheit Handel Technologie Karriere " +
+		"Investoren Presse Kontakt Über uns Warum es uns gibt Kunden "
+
+	var pages []crawlPage
+	for i, menu := range []string{englishMenu, germanMenu} {
+		for j := 0; j < 4; j++ {
+			body := fmt.Sprintf("Page %d-%d. ", i, j) +
+				filler(fmt.Sprintf("topic %d-%d", i, j))
+			pages = append(pages, crawlPage{
+				URL:  fmt.Sprintf("https://example.test/l%d/p%d", i, j),
+				Text: fmt.Sprintf("Title %d-%d ", i, j) + menu + body,
+			})
+		}
+	}
+
+	stripped := stripSharedPrefix(pages)
+
+	for i, page := range stripped {
+		if strings.Contains(page.Text, "Investors Press Contact") ||
+			strings.Contains(page.Text, "Investoren Presse Kontakt") {
+			t.Errorf("page %d kept its menu: %.90q", i, page.Text)
+		}
+		if !strings.Contains(page.Text, "topic") {
+			t.Errorf("page %d lost its own text: %.90q", i, page.Text)
+		}
+	}
+}

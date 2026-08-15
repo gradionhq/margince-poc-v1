@@ -97,8 +97,18 @@ func legalIdentityPath(rawURL string) bool {
 		return false
 	}
 	last := segments[len(segments)-1]
-	if containsAny(last, "impressum", "imprint") || last == "legal-notice" || last == "publisher" {
+	if containsAny(last, "impressum", "imprint") || last == "legal-notice" {
 		return true
+	}
+	// "publisher" is an imprint only at the TOP of a site, because it is also
+	// an ordinary industry a company sells to. arvato.com publishes
+	// /industries/publisher in four languages, and reading those as legal
+	// pages cost the profile lane its whole budget: six of its 38 pages were
+	// counted as legal, which both starves the commercial evidence the
+	// profile is built from and votes in the multi-entity census that decides
+	// whether the legal fields are withheld at all.
+	if last == "publisher" {
+		return len(segments) == 1
 	}
 	if last != "legal" {
 		return false

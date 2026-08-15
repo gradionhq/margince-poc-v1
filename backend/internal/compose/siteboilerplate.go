@@ -37,8 +37,17 @@ const (
 	// evidence would cut real text from a small site.
 	boilerplateMinPages = 4
 	// boilerplateMinShare is the fraction of pages that must carry the
-	// prefix. A menu is on nearly every page; a section header is not.
-	boilerplateMinShare = 0.6
+	// prefix. A menu is on nearly every page of ONE language; a section
+	// header is on a few.
+	//
+	// A quarter, not a majority, because a multilingual site has one menu
+	// per language: arvato.com crawls in English, German, Dutch and
+	// Portuguese, so its largest single menu covers 9 of 38 pages (26%) and
+	// a 60% bar found nothing on the site that needed it most. Each menu is
+	// still removed from the pages that carry it — the trimming is per page
+	// — and the other guards keep a section heading shared by a handful of
+	// pages from qualifying.
+	boilerplateMinShare = 0.25
 	// boilerplateMinRunes is the shortest prefix worth removing. Below
 	// this the win is noise and the risk of eating a real sentence is real.
 	boilerplateMinRunes = 200
@@ -71,6 +80,10 @@ const (
 	// it the pages are returned untouched -- the profile lane still works,
 	// it just keeps the chrome, which is the pre-existing behaviour.
 	boilerplateMaxCorpusBytes = 4 << 20
+	// boilerplateMaxRounds bounds the per-language passes. A site with more
+	// menus than this keeps the rest of its chrome, which is the old
+	// behaviour and costs only excerpt budget.
+	boilerplateMaxRounds = 6
 )
 
 // stripSharedPrefix removes the navigation chrome that opens most of a site's
@@ -94,11 +107,27 @@ func stripSharedPrefix(pages []crawlPage) []crawlPage {
 		return out
 	}
 
-	prefix := sharedOpening(pages)
+	// A multilingual site has one menu PER LANGUAGE, and each covers only
+	// its own pages: arvato.com's largest covers 10 of 38. One pass removes
+	// one menu and leaves the other locales carrying theirs, so the search
+	// repeats on what remains until nothing more qualifies.
+	for round := 0; round < boilerplateMaxRounds; round++ {
+		if !stripOneSharedBlock(out) {
+			break
+		}
+	}
+	return out
+}
+
+// stripOneSharedBlock finds the single most-shared opening in pages and cuts
+// it from every page carrying it, in place. Reports whether it cut anything.
+func stripOneSharedBlock(out []crawlPage) bool {
+	prefix := sharedOpening(out)
 	if utf8.RuneCountInString(prefix) < boilerplateMinRunes {
-		return out
+		return false
 	}
 
+	cut := false
 	for i, page := range out {
 		// The block may sit behind the page's own title, so cut it out
 		// wherever it starts rather than only at rune zero.
@@ -127,8 +156,9 @@ func stripSharedPrefix(pages []crawlPage) []crawlPage {
 			continue
 		}
 		out[i].Text = trimmed
+		cut = true
 	}
-	return out
+	return cut
 }
 
 // chromeSearchRunes is how far into a page the shared header may start. Real
@@ -142,6 +172,11 @@ const chromeSearchRunes = 300
 // one is compared against every other page, so an adversarial corpus of very
 // short words would otherwise turn this quadratic in page length.
 const chromeMaxStarts = 60
+
+// chromeAnchorRunes is how many of a candidate's opening characters are
+// looked for in another page. Long enough to be distinctive, short enough
+// that a page which starts the menu at a different character still matches.
+const chromeAnchorRunes = 60
 
 // sharedOpening finds the longest opening that enough pages begin with,
 // allowing each page a short unique lead-in first.
@@ -231,20 +266,33 @@ func chromeStarts(text string) []int {
 
 // longestSharedRun returns the longest run of `head` that also appears near
 // the top of `other`, cut back to a word boundary.
+// It anchors on the head's first WORDS rather than scanning every offset:
+// the same menu begins at a different character in each page (arvato's pages
+// open with titles of different lengths), so requiring the match to start on
+// a word boundary in BOTH pages found nothing — the boundaries do not line
+// up. Locating the head's opening words inside the other page finds the run
+// wherever it sits.
 func longestSharedRun(head, other string) string {
+	anchor := head
+	if runes := []rune(anchor); len(runes) > chromeAnchorRunes {
+		anchor = string(runes[:chromeAnchorRunes])
+	}
+	if strings.TrimSpace(anchor) == "" {
+		return ""
+	}
 	limit := len(other)
 	if runes := []rune(other); len(runes) > chromeSearchRunes {
 		limit = len(string(runes[:chromeSearchRunes]))
 	}
-	for start := 0; start < limit; start++ {
-		if start > 0 && (other[start-1] != ' ' || other[start] == ' ') {
-			continue
-		}
-		if shared := commonPrefix(head, other[start:]); utf8.RuneCountInString(shared) >= boilerplateMinRunes {
-			return shared
-		}
+	at := strings.Index(other[:min(limit+len(anchor), len(other))], anchor)
+	if at < 0 {
+		return ""
 	}
-	return ""
+	shared := commonPrefix(head, other[at:])
+	if utf8.RuneCountInString(shared) < boilerplateMinRunes {
+		return ""
+	}
+	return shared
 }
 
 // blockDominatesPages reports whether removing the shared run would leave a
