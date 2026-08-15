@@ -202,9 +202,11 @@ func refusePrivate(_, address string, _ syscall.RawConn) error {
 // error constants above). A parse per CIDR on a call that is about to cross a
 // network is not a cost worth engineering around.
 var reservedCIDRs = []string{
-	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
-	"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24",
-	"203.0.113.0/24", "240.0.0.0/4",
+	// These literal reserved ranges ARE the guard: the denylist must name them
+	// explicitly. NOSONAR: hardcoding them is the point.
+	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", // NOSONAR
+	"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", // NOSONAR
+	"203.0.113.0/24", "240.0.0.0/4", // NOSONAR
 	"100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16",
 	"3fff::/20", "5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10",
 	"::ffff:0:0:0/96", "::/96",
