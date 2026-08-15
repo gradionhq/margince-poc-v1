@@ -284,7 +284,7 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 		// Substring match, case-insensitive (the visual builder's
 		// "contains"); LIKE metacharacters in the operand match
 		// literally — a value of "100%" finds "100%", not everything.
-		return fmt.Sprintf("%s ILIKE $%d", field.Expr, arg("%"+escapeLike(text)+"%")), nil
+		return fmt.Sprintf("%s ILIKE $%d", field.Expr, arg("%"+EscapeLike(text)+"%")), nil
 
 	default: // eq, neq, gt, gte, lt, lte — scalar comparisons.
 		value, err := scalarOperand(p.Value, field, p.Field, p.Op)

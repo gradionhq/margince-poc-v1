@@ -12,7 +12,6 @@ package storekit
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -278,10 +277,8 @@ func scalarBoolOperand(value any, invalid func(string) error) (any, error) {
 	return b, nil
 }
 
-// escapeLike makes a user string safe as a LIKE/ILIKE operand: the
-// metacharacters % _ and the escape character \ match themselves.
-// Postgres' default LIKE escape is backslash, so no ESCAPE clause is
-// needed.
-func escapeLike(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
-}
+// A LIKE/ILIKE operand is escaped through EscapeLike (suppression.go),
+// which this package already exports for the erasure purge: the metacharacters
+// % and _ and the escape character itself must match themselves, and Postgres'
+// default LIKE escape is backslash, so the compiled predicate needs no ESCAPE
+// clause of its own.
