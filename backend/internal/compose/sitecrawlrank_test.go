@@ -75,3 +75,34 @@ func TestUntakenCandidatesIncludesLinksDiscoveredByAStoppingCommit(t *testing.T)
 		t.Fatalf("new queue entries without a taken slot are untaken, got %+v", got)
 	}
 }
+
+func TestAnIndustryPageNamedPublisherIsNotAnImprint(t *testing.T) {
+	// "publisher" names an imprint at the top of a site and an ordinary
+	// industry everywhere else. arvato.com publishes /industries/publisher
+	// in four languages; reading those as legal pages counted six of its 38
+	// pages as legal, which starves the commercial evidence the profile is
+	// built from and votes in the census that withholds the legal fields.
+	legal := []string{
+		"https://example.test/publisher",
+		"https://example.test/de/publisher",
+		"https://example.test/impressum",
+	}
+	for _, rawURL := range legal {
+		if !legalIdentityPath(rawURL) {
+			t.Errorf("%s should be read as the site's imprint", rawURL)
+		}
+	}
+
+	notLegal := []string{
+		"https://example.test/industries/publisher",
+		"https://example.test/de/branchen/publisher",
+		"https://example.test/nl/branches/publisher",
+		"https://example.test/pt/setores/publisher",
+		"https://example.test/solutions/publisher",
+	}
+	for _, rawURL := range notLegal {
+		if legalIdentityPath(rawURL) {
+			t.Errorf("%s is an industry page, not the site's imprint", rawURL)
+		}
+	}
+}
