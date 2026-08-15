@@ -105,6 +105,9 @@ type Server struct {
 	// reads the package's own boot-written accessors — so it is embedded as the
 	// zero value rather than assembled in serverassembly.go.
 	extensionsHandlers
+	// The transport directory (handlers_channelproviders.go), stateless for the
+	// same reason and embedded the same way.
+	channelProvidersHandlers
 	org360Handlers
 	person360Handlers
 	personBriefHandlers

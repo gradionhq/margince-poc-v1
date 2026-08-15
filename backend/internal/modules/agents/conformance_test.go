@@ -132,6 +132,16 @@ func textBlock(t *testing.T, res map[string]any) string {
 // read Specs() — but the registrars refuse a nil seam, which is the point: a
 // surface that cannot ground its answer registers no tool, so a nil would
 // silently shrink the very set these walks claim to cover.
+// inertChannelProviderDirectory answers the transport directory with nothing.
+// The walks it feeds check SHAPES — that every tool's schema encodes and every
+// tool's arguments dispatch — so an empty answer exercises them exactly as a
+// populated one would, without inventing a provider set no installation has.
+type inertChannelProviderDirectory struct{}
+
+func (inertChannelProviderDirectory) ChannelProviders(context.Context) ([]ChannelProviderEntry, error) {
+	return nil, nil
+}
+
 type inertRetriever struct{}
 
 func (inertRetriever) Search(context.Context, retrieval.Query) (retrieval.Result, error) {
@@ -159,6 +169,7 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterPipelineTool(r, func(context.Context) ([]Pipeline, error) { return nil, nil })
 	RegisterReportTool(r, nil, probeReportCatalog)
 	RegisterIntentTools(r, inertRetriever{})
+	RegisterChannelProviderTools(r, inertChannelProviderDirectory{})
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })

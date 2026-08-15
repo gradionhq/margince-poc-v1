@@ -100,6 +100,10 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"list_records", `{"record_type":"deal","filters":{"pipeline_id":"` + pipeline.String() + `"}}`},
 		{"list_records", `{"record_type":"person","limit":5}`},
 		{"run_report", `{"report":"deals-by-stage"}`},
+		// No arguments: the directory answers what the installation composed, so
+		// there is nothing for a caller to narrow by — and the empty object is
+		// the shape the schema declares.
+		{"list_channel_providers", `{}`},
 		{"search_records", `{"q":"Conformance"}`},
 		{"search_records", `{"q":"Conformance","record_type":"person","limit":5}`},
 		// A query that matches nothing: the empty answer has to keep the shape

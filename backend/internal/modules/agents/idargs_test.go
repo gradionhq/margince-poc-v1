@@ -181,6 +181,7 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 		return nil, errSeamReached
 	}, probeReportCatalog)
 	RegisterIntentTools(r, inertRetriever{})
+	RegisterChannelProviderTools(r, inertChannelProviderDirectory{})
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, errSeamReached },
 		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", errSeamReached })

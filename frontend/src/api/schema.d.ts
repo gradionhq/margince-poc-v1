@@ -2143,6 +2143,40 @@ export interface paths {
         patch: operations["updateStage"];
         trace?: never;
     };
+    "/channel-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which messaging transports THIS installation has registered.
+         * @description The resolver for `ProviderRef` (ADR-0107/A158). Because a provider vocabulary is a
+         *     deployment fact rather than an installation-independent one, the contract cannot
+         *     enumerate it; this operation moves that typing from build time to a runtime
+         *     capability document. A client renders `label` wherever it would otherwise print a
+         *     raw provider id.
+         *
+         *     Readable by any authenticated seat: a provider id plus a display label is not
+         *     privileged, and every member's timeline needs it. `label` therefore carries nothing
+         *     an administrator configured — no workspace names, no bot handles, no endpoints.
+         *
+         *     Reports what this binary COMPOSED, not what this workspace has connected.
+         *     `supplies_transport` is a build-time fact; whether the caller can actually send on a
+         *     provider depends on `channel_connection`, a tenant table, and is answered by the send
+         *     pre-flight instead. Publishing that here would re-conflate a deployment fact with a
+         *     tenant fact — the same conflation this decision removes.
+         */
+        get: operations["listChannelProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities": {
         parameters: {
             query?: never;
@@ -12136,6 +12170,36 @@ export interface components {
          *     states the invariant; `GET /v1/channel-providers` resolves the live set.
          */
         ProviderRef: string;
+        /** @description Every messaging transport this installation has registered (ADR-0107/A158). */
+        ChannelProviderDirectory: {
+            data: components["schemas"]["ChannelProviderEntry"][];
+        };
+        /** @description One registered transport, as the directory publishes it. */
+        ChannelProviderEntry: {
+            provider: components["schemas"]["ProviderRef"];
+            /**
+             * @description Human-readable transport name, e.g. `Telegram`. Ships with the provider and is
+             *     never operator-configured — the directory is readable by every authenticated
+             *     seat, so anything an administrator typed would make this a disclosure decision
+             *     rather than a display one.
+             */
+            label: string;
+            /**
+             * @description How a connection to this transport is credentialed — one shared bot for the
+             *     installation, or a secret each member deposits. Closed on purpose, unlike the
+             *     provider vocabulary: this describes the SHAPE of a credential, which is
+             *     installation-independent.
+             * @enum {string}
+             */
+            credential_model: "workspace_bot" | "per_member";
+            /**
+             * @description Whether this provider can carry an outbound message at all; a capture-only
+             *     transport reports false. Deliberately NOT "can this workspace send" — that
+             *     reads `channel_connection`, a tenant table, and answering both here would
+             *     re-conflate a deployment fact with a tenant one.
+             */
+            supplies_transport: boolean;
+        };
         CreateActivityRequest: {
             /** @enum {string} */
             kind: "email" | "call" | "meeting" | "note" | "task" | "message";
@@ -20251,6 +20315,27 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listChannelProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every transport registered in this installation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelProviderDirectory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listActivities: {

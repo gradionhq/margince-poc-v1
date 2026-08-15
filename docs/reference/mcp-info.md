@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 38 |
+| Tools | 39 |
 | Resources | 8 |
-| Tool catalog | 107.6 KB |
+| Tool catalog | 109.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28322 |
+| Approx. wire tokens | 28835 |
 | Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 45.0 KB | 41% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 28.5 KB | 26% | Yes, every step |
-| Input schemas | 26.0 KB | 24% | Yes, every step |
-| _Names, annotations, punctuation_ | 8.1 KB | 7% | Partly |
-| **Description + input schema** | **54.5 KB** | **50%** | **the recurring cost** |
+| Output schemas | 46.1 KB | 42% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 29.2 KB | 26% | Yes, every step |
+| Input schemas | 26.0 KB | 23% | Yes, every step |
+| _Names, annotations, punctuation_ | 8.3 KB | 7% | Partly |
+| **Description + input schema** | **55.2 KB** | **50%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,7 +55,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (38)
+### Tools (39)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -73,6 +73,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
 | [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
+| [`list_channel_providers`](#list_channel_providers) | List messaging transports | yes |  | 2.0 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
@@ -2517,6 +2518,145 @@ Find a warm route into a company: who we already know there, and which colleague
         "candidates_truncated",
         "organization_id",
         "routes"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### list_channel_providers
+
+**List messaging transports**
+
+Find out which messaging transports exist in THIS installation, and what each is called. It reports what the installation composed, not what this workspace has connected. supplies_transport=false means the transport cannot carry an outbound message at all, so a reply on it will be refused however the conversation was captured. To read the messages themselves, use search_records on activities and filter by channel_provider. Carry the `provider` value verbatim: log_activity requires it as channel_provider whenever kind is "message", and a value not in this list fails a foreign key. Use `label` only for display. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "providers": {
+          "items": {
+            "properties": {
+              "credential_model": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "supplies_transport": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "credential_model",
+              "label",
+              "provider",
+              "supplies_transport"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "providers"
       ],
       "type": "object"
     },

@@ -176,6 +176,10 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 		},
 	}
 	agents.RegisterIntentTools(registry, retriever)
+	// The transport directory, read from this package's boot snapshot — the
+	// composed set is the composition root's fact, so the module takes it as a
+	// seam rather than enumerating connectors it may not reach.
+	agents.RegisterChannelProviderTools(registry, channelProviderDirectory{})
 	// search_context takes the provider as well, for the reason query_workspace
 	// does: the retriever answers refs and excerpts, and every record behind
 	// them is READ BACK through the datasource seam — where the trust tier is
