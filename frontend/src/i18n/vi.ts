@@ -1613,6 +1613,45 @@ export const vi = {
   "docs.download": "Tải xuống",
   "docs.scanning": "Đang quét — chưa tải xuống được",
   "docs.blocked": "Bị trình quét chặn",
+
+  // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả
+  // trong câu chữ: chưa trả lời, đã đọc và không nêu trường nào, và không đọc
+  // được.
+  "extraction.neverRead": "Chưa ai đọc tệp này để lấy các trường của deal.",
+  "extraction.readIt": "Đọc tệp này",
+  "extraction.readAgain": "Thử đọc lại",
+  "extraction.starting": "Đang bắt đầu…",
+  "extraction.startFailed":
+    "Không gửi được tệp này để đọc. Không có gì bị thay đổi.",
+  "extraction.loading": "Đang kiểm tra xem tệp này đã được đọc chưa…",
+  "extraction.reading": "Đang đọc tệp này…",
+  "extraction.failed": "Không đọc được tệp này.",
+  "extraction.groundedNothing":
+    "AI đã đọc tệp này và tệp không nêu trường nào của deal.",
+  "extraction.heading.one":
+    "AI đã đọc tệp này — {count} trường có căn cứ, đã chuẩn bị cho hồ sơ của bạn (xác nhận để lưu)",
+  "extraction.heading.other":
+    "AI đã đọc tệp này — {count} trường có căn cứ, đã chuẩn bị cho hồ sơ của bạn (xác nhận để lưu)",
+  "extraction.accept.one": "Xác nhận {count} trường",
+  "extraction.accept.other": "Xác nhận {count} trường",
+  "extraction.dismiss": "Bỏ qua",
+  "extraction.dismissed": "Không có gì được ghi. Tệp vẫn được đính kèm.",
+  "extraction.acceptedLabel": "Các trường đã xác nhận",
+  "extraction.acceptedHeading.one":
+    "{count} trường đã lưu vào deal — vẫn giữ nguyên trích đoạn gốc",
+  "extraction.acceptedHeading.other":
+    "{count} trường đã lưu vào deal — vẫn giữ nguyên trích đoạn gốc",
+  "extraction.acceptFailed":
+    "Các trường đó không được ghi. Deal không thay đổi gì.",
+  "extraction.edit": "Sửa",
+  "extraction.editValue": "Sửa {field}",
+  "extraction.omitted.notStated": "bỏ qua (tệp này không nêu)",
+  "extraction.omitted.notConfident":
+    "bỏ qua (tệp có nói tới, nhưng chưa đủ rõ để xác nhận)",
+  "extraction.field.name": "Tên deal",
+  "extraction.field.amount": "Số tiền",
+  "extraction.field.currency": "Tiền tệ",
+  "extraction.field.closeDate": "Ngày dự kiến chốt",
   "docs.category.all": "Tất cả",
   "docs.category.contract": "Hợp đồng",
   "docs.category.offer": "Báo giá",

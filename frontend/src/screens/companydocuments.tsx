@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
@@ -8,6 +8,7 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
+import { DocumentExtractionPanel } from "./documentextraction";
 import { RECORD_ZONE, SectionPart, type SectionState } from "./company360";
 
 // The account's documents: the contracts, offers and legal files a rep goes
@@ -138,7 +139,8 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
           </PanelBody>
         ) : (
           documents.map((doc) => (
-            <PanelRow key={doc.id} className="docs-row">
+            <Fragment key={doc.id}>
+            <PanelRow className="docs-row">
               {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
               {/* The title if somebody gave it one, else the filename. A
                   display name is what a reader looks for; the filename is
@@ -157,6 +159,19 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
               </span>
               <DownloadState doc={doc} />
             </PanelRow>
+            {/* The staged reading sits UNDER its own row rather than inside it:
+                what it offers is about the document above it, and a panel wedged
+                into a list row would push the filename and the download out of
+                line for every file that has never been read. Only a deal-scoped
+                file gets one, because a deal is the only record the accept can
+                write to — offering it on a person's CV would be offering an act
+                that can only be refused. */}
+            {doc.entity_type === "deal" && (
+              <PanelRow className="docs-row">
+                <DocumentExtractionPanel attachmentId={doc.id} canAccept />
+              </PanelRow>
+            )}
+            </Fragment>
           ))
         )
       ) : (
