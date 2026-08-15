@@ -188,6 +188,15 @@ var decisionGrants = map[string][]grantRequirement{
 	// somebody who may read the transcript but not add to the timeline could
 	// otherwise release a task they could not have logged themselves.
 	"transcript_proposal": {{objectActivity, principal.ActionCreate}},
+	// Releasing a held draft SENDS it, so the approver needs exactly what
+	// sending takes — the same grant send_email carries, for the same reason.
+	// The consent gate runs inside the release whoever approved it, and the
+	// seat check runs on the decision, so this grant is the object half only.
+	// Deliberately identical to send_email rather than lighter: a draft an
+	// automation composed is still a message this human is putting their name
+	// on, and "an automation wrote it" is not a reason to release it on
+	// weaker authority than typing it would have taken.
+	"held_draft": {{objectActivity, principal.ActionCreate}},
 }
 
 // targetResolvedGrants are the kinds whose decision grant is not fixed by the

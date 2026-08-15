@@ -59,6 +59,16 @@ type StageRequest struct {
 	TargetType     string
 	TargetID       ids.UUID
 	Summary        string
+	// JoinPending asks the approvals seam to collapse an identical live
+	// proposal instead of inserting a second one.
+	//
+	// A firing reaches staging more than once — the bus is at-least-once and a
+	// scan can re-evaluate the same candidate — and without this an identical
+	// re-stage mints a second inbox row. The identical diff hash does NOT
+	// prevent that on its own: it is what the join MATCHES on, not what
+	// performs the join, and the run claim that stops most redeliveries sits
+	// upstream of Apply rather than of this seam.
+	JoinPending bool
 }
 
 // Lists is the add_to_list seam onto collections' static-list
@@ -74,11 +84,21 @@ type Lists interface {
 // tool proposes over — agents.Comms.DraftEmail structurally satisfies
 // this interface, so compose reuses the one adapter rather than
 // wrapping it a second time). Applying draft_email means the draft was
-// computed, full stop — the send is a separate, approval-gated act
-// (ActionSendEmail, already 🟡 in ApplyActions' switch), never a side
-// effect of this call.
+// computed and STAGED for a human, never transmitted: the send is the
+// approval-gated completion of the action (AUTO-NOTE-1), and it happens
+// when a human releases it, not as a side effect of this call.
 type Comms interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
+	// ReplyAddress answers the one address a reply to this anchor goes to.
+	//
+	// Staging resolves it rather than leaving it to the release, because the
+	// addressee is half of what a human is being asked to approve: a draft
+	// that shows its words and hides its recipient is not something anybody
+	// can meaningfully say yes to. It also fails the firing HERE, where the
+	// run records a visible outcome an operator can act on, instead of
+	// discovering at release time that the automation was pointed at a thread
+	// with no counterparty on it.
+	ReplyAddress(ctx context.Context, anchor ids.UUID) (string, error)
 }
 
 // Notifier is the notify seam onto a real delivery transport. This repo
@@ -101,6 +121,17 @@ type Notifier interface {
 // run history sees why nothing was sent instead of a silent gap or a
 // fabricated success.
 var ErrNoNotificationTransport = errors.New("automation: no notification transport configured")
+
+// ErrNoApprovalStaging refuses a firing that composed something needing a human
+// decision in a composition that wired no staging seam.
+//
+// Unlike the notification case this is a WIRING defect rather than an
+// out-of-scope environment: every process role that runs automations injects
+// the approvals seam, so reaching this means a composition changed and a draft
+// would otherwise have nowhere to wait. It is a 'failed' run and not a
+// 'skipped' one for that reason — silently discarding a composed message and
+// calling the run healthy is the one outcome that must not happen.
+var ErrNoApprovalStaging = errors.New("automation: no approval staging configured, so a drafted message cannot be held for review")
 
 // Executors bundles every seam ApplyActions may drive a typed action
 // through. One struct rather than a five-parameter signature: adding a

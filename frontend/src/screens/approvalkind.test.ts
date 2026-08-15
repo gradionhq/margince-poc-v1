@@ -34,6 +34,7 @@ const STAGEABLE_KINDS = [
   "deepread",
   "enrich",
   "fx_rate_proposal",
+  "held_draft",
   "lifecycle_change",
   "merge_records",
   "org_name_promotion",

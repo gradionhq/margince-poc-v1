@@ -904,6 +904,7 @@ export const de = {
   "approval.kind.update_record": "Datensatz ändern",
   "approval.kind.create_record": "Datensatz anlegen",
   "approval.kind.send_email": "E-Mail senden",
+  "approval.kind.held_draft": "Entworfene E-Mail prüfen",
   "approval.kind.book_meeting": "Termin buchen",
   "approval.kind.send_offer": "Angebot senden",
   "approval.kind.quota_release": "Einen Agenten weiterarbeiten lassen",
@@ -1341,6 +1342,8 @@ export const de = {
   "inbox.tab.pending": "Ausstehend",
   "inbox.tab.decided": "Entschieden",
   "inbox.rejectReason": "Begründung",
+  "inbox.draftSubject": "Betreff",
+  "inbox.draftBody": "Nachricht",
   "inbox.rejectReasonHint":
     "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
   "inbox.tokenTitle": "Freigabe-Token",

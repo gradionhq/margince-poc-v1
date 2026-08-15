@@ -682,6 +682,18 @@ export function ApprovalRow({
                         }))
                       }
                     />
+                  ) : entry.as === "textarea" ? (
+                    <Textarea
+                      {...control}
+                      rows={12}
+                      value={draft[entry.field] ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [entry.field]: event.target.value,
+                        }))
+                      }
+                    />
                   ) : (
                     <TextInput
                       {...control}

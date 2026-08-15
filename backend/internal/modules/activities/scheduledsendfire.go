@@ -79,7 +79,7 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 		if err != nil {
 			return err
 		}
-		prepared, err := s.prepareSend(ctx, origin, in, gate, stager)
+		prepared, err := s.PrepareSend(ctx, origin, in, gate, stager)
 		if err != nil {
 			// A gate refused. That is an answer about the world now, not a
 			// transient fault, so retrying cannot heal it: hold for a human and
@@ -90,7 +90,7 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 			}
 			return err
 		}
-		sent, err := s.sendPreparedTx(ctx, tx, origin, prepared, stager)
+		sent, err := s.SendPreparedTx(ctx, tx, origin, prepared, stager)
 		if err != nil {
 			return err
 		}

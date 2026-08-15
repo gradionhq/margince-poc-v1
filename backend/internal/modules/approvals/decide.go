@@ -74,6 +74,9 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	}
 	p, _ := principal.Actor(ctx)
 
+	if err := s.runPrecheck(ctx, id, approve, edited); err != nil {
+		return row{}, err
+	}
 	var a row
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
@@ -101,6 +104,44 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 		return a, err
 	}
 	return a, s.runDecisionEffect(ctx, id, a, approve)
+}
+
+// runPrecheck asks a kind that registered one whether its effect could run,
+// BEFORE anything is decided.
+//
+// The whole value is in the ordering. A refusal here leaves the approval
+// pending: the human is told what is wrong, fixes it, and approves the same row
+// again. The identical refusal one step later — after the decision transaction
+// commits — leaves an approved row nothing can decide again and no surface can
+// re-drive, which for a send means the message is simply lost.
+//
+// Only on approve, and only for a server-proposed staging, matching the effect
+// it preflights exactly: an agent-minted row reaches no executor, so
+// preflighting one would refuse a decision over an effect never going to run.
+//
+// A kind with no precheck registered is unchanged in every respect.
+func (s *Service) runPrecheck(ctx context.Context, id ids.ApprovalID, approve bool, edited json.RawMessage) error {
+	if !approve || len(s.prechecks) == 0 {
+		return nil
+	}
+	a, err := s.Get(ctx, id)
+	if err != nil {
+		// Not this function's refusal to make. The decision below re-reads the
+		// row under its own authority gate and answers about scope, existence
+		// and status there; answering here would decide the same question from
+		// the place with less context, and would turn a 404 into whatever this
+		// path happened to return.
+		return nil //nolint:nilerr // the decision re-reads and refuses properly
+	}
+	check, ok := s.prechecks[a.Kind]
+	if !ok || !serverProposed(a) {
+		return nil
+	}
+	// Both, because the kind may need to compare them. What is preflighted is
+	// the payload about to be approved — on a modify-then-approve the human's
+	// edit, since clearing the staged original would clear a message nobody is
+	// going to send — and what is compared against is what was staged.
+	return check(ctx, a.ProposedChange, edited)
 }
 
 // runDecisionEffect runs what a COMMITTED decision releases: a step-up's window

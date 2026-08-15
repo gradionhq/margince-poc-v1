@@ -79,3 +79,37 @@ func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.Appr
 		return err
 	})
 }
+
+// CompleteApprovedRunTx lands the terminal 'applied' outcome on the run parked
+// behind one released approval — the mirror of MarkRunBlocked's rejection arm,
+// and the half that until now did not exist.
+//
+// Without it an APPROVED staging left its run reading requires_approval
+// forever: the rejection consumer terminated one verdict and nothing terminated
+// the other, so run history showed a firing still waiting for a decision a
+// human had already given, and the effect it authorized had already run.
+//
+// It takes the CALLER's transaction, and that is the whole point. The release
+// redeems the approval and performs its effect in one transaction; the run
+// transition belongs in that same commit, or a crash between them recreates the
+// permanently-parked run this exists to prevent — with the message already
+// sent. There is no reconciler to lean on, so the commit boundary is the
+// guarantee.
+//
+// Idempotent by predicate, exactly like MarkRunBlocked: only a still-parked run
+// flips, so a redelivered or re-driven release changes nothing. Matching on the
+// approval_id field rather than a status string means a run that was blocked or
+// completed by another path is simply not found, which is the correct no-op.
+// A package function rather than a method: it reads no engine state and needs
+// no handle, and the release that drives it runs on the approvals decision path
+// where no engine exists. Constructing one purely to reach a transition would
+// be a dependency that exists to satisfy a receiver.
+func CompleteApprovedRunTx(ctx context.Context, tx pgx.Tx, approvalID ids.ApprovalID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE workflow_run SET status = 'applied'
+		WHERE status = 'requires_approval' AND detail->>'approval_id' = $1`,
+		approvalID.String()); err != nil {
+		return fmt.Errorf("automation: completing the run a released approval unparked: %w", err)
+	}
+	return nil
+}

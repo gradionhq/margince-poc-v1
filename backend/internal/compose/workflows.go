@@ -111,5 +111,6 @@ func (a automationApprovalsAdapter) Stage(ctx context.Context, in automation.Sta
 		TargetType:     in.TargetType,
 		TargetID:       in.TargetID,
 		Summary:        in.Summary,
+		JoinPending:    in.JoinPending,
 	})
 }
