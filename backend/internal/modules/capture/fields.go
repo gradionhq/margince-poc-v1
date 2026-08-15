@@ -11,7 +11,7 @@ import "time"
 
 // ActivityFields is a captured interaction bound for the timeline.
 type ActivityFields struct {
-	Kind string // email | call | meeting | note | whatsapp | telegram
+	Kind string // email | call | meeting | note | task | message
 
 	// ChannelProvider names the messaging transport that carried this record —
 	// a channel_provider row — and is empty for anything that did not arrive on

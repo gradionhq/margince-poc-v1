@@ -114,10 +114,11 @@ func TestInboundThenReplyRoundTrip(t *testing.T) {
 	// 4. The rep answers from that conversation. Their own action IS the
 	//    approval, so no token and no idempotency key ride the request.
 	var sent struct {
-		ID        string `json:"id"`
-		Kind      string `json:"kind"`
-		Direction string `json:"direction"`
-		Body      string `json:"body"`
+		ID              string `json:"id"`
+		Kind            string `json:"kind"`
+		ChannelProvider string `json:"channel_provider"`
+		Direction       string `json:"direction"`
+		Body            string `json:"body"`
 	}
 	status := c.Call(t, "POST", "/v1/activities/"+activityID+"/send-message", apptest.AnyMap{
 		"body": reply, "consent_purpose": "transactional",
@@ -125,8 +126,13 @@ func TestInboundThenReplyRoundTrip(t *testing.T) {
 	if status != http.StatusAccepted {
 		t.Fatalf("the rep's reply → %d, want 202", status)
 	}
-	if sent.Kind != "telegram" || sent.Direction != "outbound" || sent.Body != reply {
-		t.Fatalf("the logged reply = %+v, want an outbound telegram activity carrying the rep's text", sent)
+	// BOTH axes, which is the whole point of the split: the reply is a message
+	// (what happened) carried by telegram (how it travelled). Asserting the kind
+	// alone would pass on a reply filed with the wrong transport — and the wrong
+	// transport is what the NEXT inbound message fails to match into.
+	if sent.Kind != "message" || sent.ChannelProvider != "telegram" ||
+		sent.Direction != "outbound" || sent.Body != reply {
+		t.Fatalf("the logged reply = %+v, want an outbound message on telegram carrying the rep's text", sent)
 	}
 
 	// 5. The delivery machinery carried it to Telegram.

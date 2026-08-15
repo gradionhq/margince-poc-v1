@@ -151,7 +151,7 @@ func TestNewCaptureRegistrySetsTheActivitiesAndCommsChannelSnapshots(t *testing.
 
 	NewCaptureRegistry(e.Pool, nil, CaptureConfig{})
 
-	if !activities.IsChannelKind(capture.ProviderTelegram) {
+	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
 		t.Error("NewCaptureRegistry did not set activities' channel-provider snapshot")
 	}
 	if _, capability := comms.SendScopeFor(capture.ProviderTelegram); capability != comms.SendsWithoutScope {
@@ -182,7 +182,7 @@ func TestNewCaptureRegistryReconcilesBeforeTheInstallationIsBootstrapped(t *test
 
 	NewCaptureRegistry(e.Pool, nil, CaptureConfig{})
 
-	if !activities.IsChannelKind(capture.ProviderTelegram) {
+	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
 		t.Error("NewCaptureRegistry did not reconcile with no organization bootstrapped yet")
 	}
 }

@@ -93,12 +93,17 @@ func TestActivityChannelProviderReferencesTheRegistry(t *testing.T) {
 // The provider name is one no unit could ever be called, deliberately: naming a
 // real extension here would make the test pass or fail on whether that unit
 // happens to be composed, which is a different question from the one it asks.
+//
+// The kind is `message` for a subtler reason: since ADR-0107/A158 a non-message
+// carrying a provider trips activity_message_has_provider FIRST, so the insert
+// would fail for the wrong reason and this test would report a passing FK it
+// never actually reached.
 func TestActivityChannelProviderFKRefusesAnUnregisteredProvider(t *testing.T) {
 	e := integration.Setup(t)
 
 	_, err := integration.OwnerConn(t).Exec(context.Background(), `
 		INSERT INTO activity (workspace_id, kind, channel_provider, source, captured_by)
-		VALUES ($1, 'note', 'no_such_transport', 'manual', 'test')`, e.WS)
+		VALUES ($1, 'message', 'no_such_transport', 'manual', 'test')`, e.WS)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "activity_channel_provider_fkey" {
 		t.Fatalf("insert failed with %v, want a foreign_key_violation on activity_channel_provider_fkey specifically — "+

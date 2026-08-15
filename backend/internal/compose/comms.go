@@ -191,6 +191,12 @@ func (c commsAdapter) SendMessage(ctx context.Context, anchor ids.UUID, in agent
 // eventual refusal can never drift onto two different answers for the same kind.
 func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
 
+// CanSendOnProvider delegates to activities.CanSendOnProvider for the same
+// reason: the pre-staging refusal and the store's own must answer alike.
+func (c commsAdapter) CanSendOnProvider(provider string) bool {
+	return activities.CanSendOnProvider(provider)
+}
+
 // channelKinds is that same question WITHOUT the send machinery around it, for
 // the REST admission gate: its send_message resolver must refuse a non-channel
 // anchor before a human is asked about the reply, and it has no reason to hold
@@ -203,6 +209,10 @@ func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChan
 type channelKinds struct{}
 
 func (channelKinds) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
+func (channelKinds) CanSendOnProvider(provider string) bool {
+	return activities.CanSendOnProvider(provider)
+}
 
 var _ agents.ChannelKinds = channelKinds{}
 

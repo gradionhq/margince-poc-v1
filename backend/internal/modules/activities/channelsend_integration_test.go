@@ -78,13 +78,14 @@ func (e *sendEnv) channelStore(reach ChannelReachability) *Store {
 // leaves behind, carrying BOTH the kind and the transport that brought it.
 func (e *sendEnv) seedChannelAnchor(t *testing.T) ids.ActivityID {
 	t.Helper()
-	return e.seedAnchorWithTransport(t, "telegram", "telegram")
+	return e.seedAnchorWithTransport(t, KindMessage, "telegram")
 }
 
 // seedAnchorWithoutProvider writes an activity that never travelled on a
-// messaging channel: a kind, and no transport. Mail is the honest example, and a
-// channel-shaped KIND with no provider is the interesting one — see
-// TestSendMessageRefusesAChannelKindThatCarriesNoProvider.
+// messaging channel: a kind, and no transport. Mail is the honest example, and
+// since ADR-0107/A158 it is the ONLY shape this helper can write — a message
+// with no transport is refused by the schema, which
+// TestTheDatabaseRefusesAKindAndTransportThatDisagree asserts directly.
 func (e *sendEnv) seedAnchorWithoutProvider(t *testing.T, kind string) ids.ActivityID {
 	t.Helper()
 	return e.seedAnchorWithTransport(t, kind, "")
@@ -152,37 +153,44 @@ func TestSendMessageRefusesAnAnchorThatIsNotAChannelConversation(t *testing.T) {
 	}
 }
 
-// The transport is read from the anchor's own column and never recovered from its
-// kind. This anchor's kind IS a registered provider's name, so the old derivation
-// — reading the kind back as a provider — would have accepted it and gone on to
-// resolve a recipient for a conversation that no channel ever carried.
+// The transport is read from the anchor's own column and never recovered from
+// its kind — and since ADR-0107/A158 the state that used to prove it cannot be
+// created at all: a message with no provider violates activity_message_has_provider.
 //
-// This case is the gate on that derivation, and it is a behavioural one rather
-// than a search for the old expression: reinstate `provider := string(anchor.Kind)`
-// anywhere on this path and this test fails, whatever the expression is spelled
-// like. It matters most for as long as every provider is ALSO a kind, which is
-// exactly the window in which the two look interchangeable.
-func TestSendMessageRefusesAChannelKindThatCarriesNoProvider(t *testing.T) {
+// So the gate moved DOWN, from behaviour to the schema, which is strictly
+// stronger. 1a's version seeded kind='telegram' with a NULL provider and
+// required the send path to refuse it; the narrowing makes that row unwritable,
+// so what is asserted here is that the database itself refuses both directions.
+// A test that kept asserting the old refusal would be asserting a code path no
+// data can reach, which is the same as asserting nothing.
+func TestTheDatabaseRefusesAKindAndTransportThatDisagree(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedAnchorWithoutProvider(t, "telegram")
-	person := e.linkPerson(t, anchor, "Chat Buyer")
-	stager := &recordingChannelStager{}
 
-	_, err := e.channelStore(reaches(map[ids.UUID]string{person: testChannelAccount})).SendMessage(
-		e.as(principal.RowScopeAll), anchor, channelInput(), stubConsentGate{}, stager)
+	// A message that names no transport: unrepliable by construction, so the
+	// column that would have to answer "what carried this" is never empty.
+	_, err := e.owner.Exec(context.Background(), `
+		INSERT INTO activity (id, workspace_id, kind, body, occurred_at, source, captured_by)
+		VALUES ($1, $2, $3, 'orphan', now(), 'manual', 'human:test')`,
+		ids.New[ids.ActivityKind](), e.ws, KindMessage)
+	if err == nil {
+		t.Fatal("a message with no transport was stored; the send path would then have to guess what carried it, which is the derivation this decision removed")
+	}
+	if !strings.Contains(err.Error(), "activity_message_has_provider") {
+		t.Fatalf("storing a transportless message failed with %v, want the activity_message_has_provider CHECK", err)
+	}
 
-	var refusal *NotAChannelConversationError
-	if !errors.As(err, &refusal) {
-		t.Fatalf("reply on a telegram-KIND anchor carrying no provider → %v, want a NotAChannelConversationError; "+
-			"the send path is deriving the transport from the kind again", err)
+	// And the reverse: a kind that travelled on nothing must not acquire a
+	// transport. Asserted because a one-directional CHECK would let an email
+	// carry a provider and quietly become repliable on a channel.
+	_, err = e.owner.Exec(context.Background(), `
+		INSERT INTO activity (id, workspace_id, kind, channel_provider, body, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'telegram', 'orphan', now(), 'manual', 'human:test')`,
+		ids.New[ids.ActivityKind](), e.ws)
+	if err == nil {
+		t.Fatal("an email acquired a messaging transport; the two axes must disagree in neither direction")
 	}
-	// Reported by the kind, because that is the word the rep sees on the record —
-	// an empty provider would name the storage instead of the mistake.
-	if refusal.Kind != "telegram" {
-		t.Fatalf("refusal names kind %q, want telegram", refusal.Kind)
-	}
-	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
-		t.Fatal("a refused reply still staged a delivery or logged an activity")
+	if !strings.Contains(err.Error(), "activity_message_has_provider") {
+		t.Fatalf("storing an email with a transport failed with %v, want the activity_message_has_provider CHECK", err)
 	}
 }
 

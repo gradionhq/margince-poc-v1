@@ -60,6 +60,44 @@ func (e *TranscriptKindError) FieldFault() (field, code, message string) {
 	return "kind", faultInvalid, e.Error()
 }
 
+// MessageProviderError maps to 422: the two axes must agree. A message names
+// the transport that carried it, and nothing else names one (ADR-0107/A158).
+//
+// It fires BEFORE the database CHECK that enforces the same rule, so a caller
+// gets a field fault naming what to fix rather than a 500 from a constraint
+// they cannot see. The two are deliberately the same rule stated twice — the
+// CHECK is the floor no writer can go under, this is the message a caller can
+// act on — and the fitness test holds them against each other.
+type MessageProviderError struct{ Kind string }
+
+func (e *MessageProviderError) Error() string {
+	if e.Kind == KindMessage {
+		return "a message must name the transport that carried it in channel_provider"
+	}
+	return "only a message may name a channel_provider; this kind did not travel on a transport"
+}
+
+// faultNotValidForKind is the code the contract PROMISES for a field that is
+// wrong for the kind it was sent with (crm.yaml, Activity and
+// CreateActivityRequest). Contract-first: the promise came first, so the code
+// emits what it says rather than the module's generic `invalid`.
+const faultNotValidForKind = "field_not_valid_for_kind"
+
+// FieldFault names channel_provider either way: it is the field that is wrong
+// in both directions, whether it is missing or present when it should not be.
+func (e *MessageProviderError) FieldFault() (field, code, message string) {
+	return "channel_provider", faultNotValidForKind, e.Error()
+}
+
+// refuseKindProviderMismatch holds the kind and the transport against each
+// other, in both directions.
+func refuseKindProviderMismatch(kind, provider string) error {
+	if (kind == KindMessage) == (provider != "") {
+		return nil
+	}
+	return &MessageProviderError{Kind: kind}
+}
+
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed store surface (the route already
 // names the entity, so the assertion lives here, not in the store).
@@ -117,31 +155,23 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 		return LogActivityInput{}, err
 	}
 	in := LogActivityInput{
-		Kind: string(req.Kind),
-		// A caller naming a kind that IS a registered transport is naming the
-		// transport, and the row records it. The contract has no provider field
-		// yet, so this is the only place that intent can be read — and without it
-		// a hand-logged or agent-logged channel activity would store no transport,
-		// which would make it unrepliable while an identical row written before the
-		// column existed stayed repliable, because the migration backfilled that
-		// one. Same data, different behaviour decided by write date.
-		//
-		// This is a translation of a legacy input shape, not a rule: it holds only
-		// while kind still carries provider names, and it goes away when the
-		// contract gains a provider of its own and kind narrows to the interaction
-		// vocabulary. It is NOT the derivation the send path used to do — that one
-		// read a stored kind back as a provider at reply time, long after any
-		// caller could say what they meant.
-		ChannelProvider: ChannelProviderForKind(string(req.Kind)),
-		Subject:         req.Subject,
-		Body:            req.Body,
-		OccurredAt:      req.OccurredAt,
-		DueAt:           req.DueAt,
-		RemindAt:        req.RemindAt,
-		SourceSystem:    req.SourceSystem,
-		SourceID:        req.SourceId,
-		Source:          req.Source,
-		AssigneeID:      idArg[ids.UserKind](req.AssigneeId),
+		Kind:         string(req.Kind),
+		Subject:      req.Subject,
+		Body:         req.Body,
+		OccurredAt:   req.OccurredAt,
+		DueAt:        req.DueAt,
+		RemindAt:     req.RemindAt,
+		SourceSystem: req.SourceSystem,
+		SourceID:     req.SourceId,
+		Source:       req.Source,
+		AssigneeID:   idArg[ids.UserKind](req.AssigneeId),
+	}
+	// The caller states the transport; nothing infers it. The predecessor of this
+	// read the provider back out of the kind, which was only ever a translation of
+	// an input shape that could not say what it meant — and since ADR-0107/A158 the
+	// kind does not name a transport at all.
+	if req.ChannelProvider != nil {
+		in.ChannelProvider = *req.ChannelProvider
 	}
 	if req.Direction != nil {
 		d := string(*req.Direction)
@@ -154,6 +184,9 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 				EntityID:   ids.UUID(link.EntityId),
 			})
 		}
+	}
+	if err := refuseKindProviderMismatch(in.Kind, in.ChannelProvider); err != nil {
+		return LogActivityInput{}, err
 	}
 	if in.SourceSystem != nil && *in.SourceSystem == transcriptSourceSystem {
 		if in.Kind != string(crmcontracts.ActivityKindCall) && in.Kind != string(crmcontracts.ActivityKindMeeting) {

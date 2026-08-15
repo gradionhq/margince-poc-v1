@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 )
 
@@ -59,16 +60,33 @@ func TestTheChannelProviderCommsCanSendForIsTheOneCaptureConnects(t *testing.T) 
 	}
 }
 
-// The THIRD spelling of the same provider name, and the same silent drift: the
-// reply operation reads its transport off the anchor activity's kind, and capture
-// files a Telegram update under that kind. A kind the reply path does not
-// recognise reads as "not a channel conversation", so every reply is refused with
-// a 422 about the wrong record — nothing parks, nothing logs, and no mail test
-// notices.
+// The THIRD spelling of the same provider name, and the same silent drift —
+// restated across the axis split (ADR-0107/A158). Capture files a Telegram
+// update under kind=message with channel_provider=telegram, and the reply
+// operation reads BOTH: the kind to know it is a conversation, the provider to
+// know what can carry the answer. Drift in either half refuses every Telegram
+// reply with a 422 about the wrong record — nothing parks, nothing logs, and no
+// mail test notices.
 func TestTheChannelKindTheReplyPathAnswersIsTheOneCaptureFilesUnder(t *testing.T) {
-	if !activities.IsChannelKind(capture.ProviderTelegram) {
-		t.Errorf("activities does not recognise %q as a channel conversation; every Telegram reply would be refused as the wrong kind of anchor",
+	if !activities.IsChannelKind(activities.KindMessage) {
+		t.Errorf("activities does not recognise %q as a channel conversation; every channel reply would be refused as the wrong kind of anchor",
+			activities.KindMessage)
+	}
+	// The transport half: capture's provider name has to be one the send path
+	// will act on, which is the drift this test has always been about.
+	if !activities.CanSendOnProvider(capture.ProviderTelegram) {
+		t.Errorf("activities cannot send on %q, the provider capture files Telegram messages under; every Telegram reply would be refused as uncarriable",
 			capture.ProviderTelegram)
+	}
+	// The FOURTH spelling, and the one the narrowing created: capture's
+	// connector restates the message kind rather than importing it (a capture
+	// connector must not reach across to a sibling module), so the two literals
+	// are held against each other here. Drift files every captured message under
+	// a kind the reply path does not answer — and, since the kind FKs into
+	// activity_kind, would fail the write outright.
+	if telegram.KindMessage != activities.KindMessage {
+		t.Errorf("capture files channel messages under kind %q and the reply path answers %q; every captured message would be unrepliable",
+			telegram.KindMessage, activities.KindMessage)
 	}
 	// And it is not a blanket yes: mail has its own send path, and admitting it
 	// here would route a mail reply through a transport with no address to send

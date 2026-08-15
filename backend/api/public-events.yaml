@@ -1082,10 +1082,21 @@ components:
         kind:
           type: string
           description: >-
-            The activity kind (email | call | meeting | note | whatsapp
-            | telegram). Decoded by automation/handlers_event.go's
+            The activity kind (email | call | meeting | note | task |
+            message). Decoded by automation/handlers_event.go's
             post_meeting_recap trigger — this field's JSON key is a
-            binding contract, not just documentation.
+            binding contract, not just documentation. Since ADR-0107/A158
+            the kind no longer names a messaging transport: every channel
+            message is `message`, and channel_provider says what carried it.
+        channel_provider:
+          type: string
+          description: >-
+            Which transport carried the message — present exactly when
+            kind is `message`, absent otherwise. Without this field a
+            consumer could no longer tell a Telegram message from any
+            other, which the pre-ADR-0107 `kind` told them for free; the
+            envelope is additionalProperties:false, so it has to be named
+            here to be sayable at all.
         source_system:
           type: string
           description: >-

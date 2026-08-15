@@ -38,7 +38,12 @@ func TestActivityKindAndChannelProviderAreSeededByMigration(t *testing.T) {
 		kinds = append(kinds, k)
 	}
 	rows.Close()
-	want := []string{"call", "email", "meeting", "note", "task", "telegram", "whatsapp"}
+	// The narrowed vocabulary (ADR-0107/A158): six INTERACTION kinds, and no
+	// transport among them. telegram and whatsapp left this table in 0251 —
+	// telegram had already become a channel_provider row, whatsapp becomes one
+	// there — so a name appearing in both lists again would mean the axes had
+	// been re-conflated.
+	want := []string{"call", "email", "meeting", "message", "note", "task"}
 	if len(kinds) != len(want) {
 		t.Fatalf("activity_kind seeded %v, want %v", kinds, want)
 	}
@@ -48,12 +53,32 @@ func TestActivityKindAndChannelProviderAreSeededByMigration(t *testing.T) {
 		}
 	}
 
-	var provider, transport string
-	if err := owner.QueryRow(ctx, `SELECT provider, transport FROM channel_provider`).Scan(&provider, &transport); err != nil {
+	var providers []string
+	provRows, err := owner.Query(ctx, `SELECT provider || '/' || transport FROM channel_provider ORDER BY provider`)
+	if err != nil {
 		t.Fatalf("querying channel_provider: %v", err)
 	}
-	if provider != "telegram" || transport != "core" {
-		t.Fatalf("channel_provider seeded (%q, %q), want (telegram, core)", provider, transport)
+	for provRows.Next() {
+		var p string
+		if err := provRows.Scan(&p); err != nil {
+			t.Fatalf("scanning channel_provider row: %v", err)
+		}
+		providers = append(providers, p)
+	}
+	provRows.Close()
+	// whatsapp is registered but composes no connector: a transport with no
+	// sender yet, which is the honest description while A103's WhatsApp
+	// connector is still coming. Registration is what lets a hand-logged
+	// WhatsApp message name its transport; sendability is a separate question
+	// the send pre-flight answers.
+	wantProviders := []string{"telegram/core", "whatsapp/core"}
+	if len(providers) != len(wantProviders) {
+		t.Fatalf("channel_provider seeded %v, want %v", providers, wantProviders)
+	}
+	for i, p := range wantProviders {
+		if providers[i] != p {
+			t.Fatalf("channel_provider seeded %v, want %v", providers, wantProviders)
+		}
 	}
 }
 

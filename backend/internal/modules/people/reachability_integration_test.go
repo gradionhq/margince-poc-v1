@@ -18,7 +18,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -59,7 +58,9 @@ func TestPersonReadReportsTelegramReachability(t *testing.T) {
 		t.Fatalf("Reachability = %v, want exactly one entry", got.Reachability)
 	}
 	r := (*got.Reachability)[0]
-	if r.Provider != crmcontracts.PersonReachabilityProviderTelegram {
+	// A plain string compare: the provider is a ProviderRef now, not an enum
+	// member, because which transports exist is a deployment fact (ADR-0107/A158).
+	if r.Provider != "telegram" {
 		t.Fatalf("Provider = %q, want telegram", r.Provider)
 	}
 	if !r.Reachable {

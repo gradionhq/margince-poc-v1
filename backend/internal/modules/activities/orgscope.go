@@ -171,6 +171,9 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 	if in.Kind != nil {
 		where = append(where, sprintf("a.kind = $%d", arg(*in.Kind)))
 	}
+	if in.ChannelProvider != nil {
+		where = append(where, sprintf("a.channel_provider = $%d", arg(*in.ChannelProvider)))
+	}
 	if clause := openTaskAssigneeClause(in.AssigneeID, arg); clause != "" {
 		where = append(where, clause)
 	}

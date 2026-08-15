@@ -42,6 +42,13 @@ type ActivityFields struct {
 // one spelling directly, so keep them equal if either ever changes.
 const Provider = "telegram"
 
+// KindMessage is the interaction kind every captured channel message files
+// under. Restated here rather than imported from the activities module for the
+// same reason Provider is: a capture connector must not reach across to a
+// sibling module, and the compose-level drift test holds the two spellings
+// against each other.
+const KindMessage = "message"
+
 // telegramUser is the `from` object of a Telegram message: the sender's
 // identity as Telegram reports it.
 type telegramUser struct {
@@ -197,13 +204,13 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: Provider, SourceID: naturalID},
 		Fields: ActivityFields{
-			// Kind and ChannelProvider are both Provider here, and that is a
-			// coincidence of this connector rather than a rule: telegram is
-			// spelled the same in the kind vocabulary and the provider registry.
-			// A connector whose provider is not also a kind sets only
-			// ChannelProvider, which is the whole reason the two are separate
-			// fields.
-			Kind:            Provider,
+			// The two axes, stated separately (ADR-0107/A158): WHAT happened is
+			// a message, WHAT CARRIED IT is telegram. They were briefly spelled
+			// the same because the kind vocabulary had borrowed the provider's
+			// name, and that coincidence is exactly what the narrowing removed —
+			// every connector now files the one message kind and names its own
+			// transport beside it.
+			Kind:            KindMessage,
 			ChannelProvider: Provider,
 			Body:            messageBody(msg),
 			OccurredAt:      time.Unix(msg.Date, 0).UTC(),

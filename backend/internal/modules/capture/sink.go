@@ -291,7 +291,7 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCaptureEventPayload(fields.Kind, rec.NaturalKey.SourceSystem)); err != nil {
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCaptureEventPayload(fields.Kind, fields.ChannelProvider, rec.NaturalKey.SourceSystem)); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
@@ -315,8 +315,15 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // capture ingestion path — the one emit site (of the event's two) that
 // names an originating source system; the direct-log path
 // (activities/activity.go) sets no fields but kind.
-func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.PublicEventActivityCaptured {
-	return crmcontracts.PublicEventActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
+func activityCaptureEventPayload(kind, channelProvider, sourceSystem string) crmcontracts.PublicEventActivityCaptured {
+	p := crmcontracts.PublicEventActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
+	// Present only for a message, matching the envelope's own rule. This is the
+	// path that carries every inbound channel message, so a consumer that could
+	// once read the transport off the kind reads it here instead (ADR-0107/A158).
+	if channelProvider != "" {
+		p.ChannelProvider = &channelProvider
+	}
+	return p
 }
 
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {

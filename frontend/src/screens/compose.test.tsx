@@ -1367,16 +1367,17 @@ describe("ComposeModal send refusals", () => {
 // The Telegram reply reuses ComposeModal's confirm-first send, its consent
 // rendering, and its post-send refresh wholesale — only the wire target and
 // the fields a channel has no concept of differ from the mail path above.
-describe("ComposeModal — telegram channel reply", () => {
+describe("ComposeModal — channel reply", () => {
   const telegramActivity: Activity = {
     ...activity202,
     id: "act-1",
-    kind: "telegram",
+    kind: "message",
+    channel_provider: "telegram",
     subject: null,
     direction: "inbound",
   };
 
-  it("posts to send-message for a telegram activity", async () => {
+  it("posts to send-message for a channel activity", async () => {
     const onClose = vi.fn();
     const sent = stubRoutes({
       "POST /activities/act-1/send-message": () =>
@@ -1390,7 +1391,7 @@ describe("ComposeModal — telegram channel reply", () => {
         activityId="act-1"
         entityType="person"
         entityId="p-1"
-        kind="telegram"
+        kind="message"
         open
         onClose={onClose}
       />,
@@ -1422,7 +1423,7 @@ describe("ComposeModal — telegram channel reply", () => {
         activityId="act-1"
         entityType="person"
         entityId="p-1"
-        kind="telegram"
+        kind="message"
         open
         onClose={vi.fn()}
       />,
@@ -1447,7 +1448,7 @@ describe("ComposeModal — telegram channel reply", () => {
         activityId="act-1"
         entityType="person"
         entityId="p-1"
-        kind="telegram"
+        kind="message"
         open
         onClose={vi.fn()}
       />,
@@ -1471,7 +1472,7 @@ describe("ComposeModal — telegram channel reply", () => {
         activityId="act-1"
         entityType="person"
         entityId="p-1"
-        kind="telegram"
+        kind="message"
         open
         onClose={vi.fn()}
       />,
@@ -1502,7 +1503,7 @@ describe("ComposeModal — telegram channel reply", () => {
         entityType="person"
         entityId="p-1"
         personId="p-1"
-        kind="telegram"
+        kind="message"
         open
         onClose={vi.fn()}
       />,
@@ -1578,7 +1579,12 @@ describe("TimelineActions", () => {
     // A blocked (or never-established) Telegram identity means a reply box
     // here would only fail once the rep has already written the message —
     // worse than never offering it (design §9.3).
-    const telegram: Activity = { ...activity202, id: "a3", kind: "telegram" };
+    const telegram: Activity = {
+      ...activity202,
+      id: "a3",
+      kind: "message",
+      channel_provider: "telegram",
+    };
     stubRoutes({
       "GET /people/p-1": () =>
         jsonResponse({

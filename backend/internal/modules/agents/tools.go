@@ -319,12 +319,18 @@ func (t logActivity) Spec() mcp.ToolSpec {
 		// The two vocabularies are SPLICED from the contract, never spelled
 		// here: this tool's body IS crm.yaml's CreateActivityRequest, and both
 		// hand-written copies had already drifted from it in opposite
-		// directions — `kind` was missing whatsapp and telegram, so a message
+		// directions — `kind` was missing the messaging members, so a message
 		// the server stores could not be logged; `entity_type` offered a
 		// `project` link the contract does not accept, so an agent doing what
 		// the schema said was refused.
+		//
+		// channel_provider is NOT spliceable the same way: it is a deployment
+		// fact (ADR-0107/A158), so no generated enum can carry it and the schema
+		// describes the rule instead. A schema is documentation, not validation
+		// — the refusal that actually binds is the server's.
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":` + activityKindEnum + `},
+			"channel_provider":{"type":"string","description":"Which messaging transport carried this — required when kind is \"message\", and not allowed otherwise. Name a provider this installation has registered; list_channel_providers reports them."},
 			"subject":{"type":"string"},"body":{"type":"string"},
 			"occurred_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"direction":{"type":"string","enum":["inbound","outbound"]},
