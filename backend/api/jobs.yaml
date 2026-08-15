@@ -344,6 +344,36 @@ kinds:
       judging stage leases and commits in claims of eight, so a cut-off pass
       keeps every verdict it paid for.
 
+  capture_trace_sweep:
+    role: dispatcher
+    go_type: CaptureTraceSweepArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 1h
+    fans_out_to: capture_trace_sweep_workspace
+    fan_out_unit: workspace
+    reason: >-
+      Hourly, because the window is 24h and an hour of overshoot costs nothing a
+      tighter cadence would buy back — while a slower one would leave message
+      content, under the trace_payloads posture, alive materially past the
+      retention this feature promises. An empty pass is one indexed probe.
+
+  capture_trace_sweep_workspace:
+    role: worker
+    go_type: CaptureTraceSweepWorkspaceArgs
+    queue: default
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: fan_out
+    args:
+      Workspace: id
+    reason: >-
+      One workspace's tail, deleted in bounded batches (traceSweepBatch). The
+      table's whole lifecycle is insert-then-delete, so an unbounded statement
+      is a write burst and a vacuum debt at once; what a tick does not reach,
+      the next hour does.
+
   capture_digest:
     role: dispatcher
     go_type: CaptureDigestArgs
