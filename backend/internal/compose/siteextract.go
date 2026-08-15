@@ -155,24 +155,8 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	wg.Wait()
 	profileWg.Wait()
 
-	// The first profile ran on the pages that existed at the trigger, which
-	// on a large site is a fraction of what the crawl went on to find: a
-	// 40-page site was profiled from its first 8, so the About, team and
-	// services pages that arrive later were never read. Ask again, once,
-	// over the whole corpus when the crawl grew enough for that to change
-	// the answer.
-	if extra := reprofileIfMuchMoreEvidence(ctx, x, crawl.Pages, profiledPages); extra != nil {
-		if extra.err != nil {
-			collected.failed = append(collected.failed,
-				fmt.Errorf("profile re-run: %w", extra.err))
-		} else if len(extra.fields) > len(out.fields) {
-			// Keep the richer answer. A re-run that found LESS is the model
-			// being unlucky on a longer prompt, not new knowledge, and
-			// replacing a good profile with a worse one is a regression the
-			// caller cannot see.
-			out.fields = extra.fields
-		}
-	}
+	out.fields = reprofileOverWholeCrawl(ctx, x, crawl.Pages, profiledPages,
+		out.fields, &collected)
 
 	if profileErr != nil {
 		collected.failed = append(collected.failed, fmt.Errorf("profile lane: %w", profileErr))
@@ -181,6 +165,35 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	out.merged = mergeInCommitOrder(crawl, collected.results)
 	out.err = errors.Join(collected.failed...)
 	return crawl, out, nil
+}
+
+// reprofileOverWholeCrawl asks the profile lane again once the crawl has
+// finished, and answers the profile to keep.
+//
+// The first call ran on the pages that existed at the trigger, which on a
+// large site is a fraction of what the crawl went on to find: a 40-page site
+// was profiled from its first 8, so the About, team and services pages that
+// arrive later were never read.
+func reprofileOverWholeCrawl(
+	ctx context.Context, x evidenceExtractor, pages []crawlPage, profiled int,
+	current []evidencedField, collected *pageFactsCollector,
+) []evidencedField {
+	extra := reprofileIfMuchMoreEvidence(ctx, x, pages, profiled)
+	switch {
+	case extra == nil:
+		return current
+	case extra.err != nil:
+		collected.failed = append(collected.failed,
+			fmt.Errorf("profile re-run: %w", extra.err))
+		return current
+	case len(extra.fields) > len(current):
+		return extra.fields
+	default:
+		// A re-run that found LESS is the model being unlucky on a longer
+		// prompt, not new knowledge, and silently replacing a good profile
+		// with a worse one is a regression the caller cannot see.
+		return current
+	}
 }
 
 // profileGrowthFactor is how much bigger the corpus must be before the
