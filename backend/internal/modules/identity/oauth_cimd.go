@@ -32,6 +32,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -86,6 +87,13 @@ type cimdDocument struct {
 // spellings of one identity, and the equality check further down compares the
 // PRESENTED string against the document's own claim: a normalizer here would
 // mean the string this server compares is not the string the client sent.
+//
+// A "." or ".." path segment is refused for the same reason and is the sharpest
+// case of it: /a/../b and /b are one document to every server that will ever
+// serve it and two distinct client ids here, so a document published once would
+// speak for unboundedly many identities — each with its own row and its own
+// redirect list. Refused in the DECODED path, so %2e%2e is the same refusal as
+// .. rather than a way around it.
 func cimdClientID(raw string) error {
 	if !strings.HasPrefix(raw, "https://") {
 		return errNotCIMD
@@ -99,9 +107,14 @@ func cimdClientID(raw string) error {
 		return errNotCIMD
 	case u.Path == "" || u.Path == "/":
 		return errNotCIMD
+	case slices.ContainsFunc(strings.Split(u.Path, "/"), isDotSegment):
+		return errNotCIMD
 	}
 	return nil
 }
+
+// isDotSegment reports whether a path segment is the relative "." or "..".
+func isDotSegment(segment string) bool { return segment == "." || segment == ".." }
 
 // resolveCIMDClient makes a metadata-document client resolvable by the ordinary
 // authorize path: it ensures the oauth_client row for clientID exists and is
