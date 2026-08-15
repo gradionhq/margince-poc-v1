@@ -217,26 +217,40 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
   });
 
-  it("promote is disabled for an ineligible lead", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) =>
-        new URL(request.url).pathname.endsWith("/context")
-          ? jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] })
-          : jsonResponse({ ...lead, status: "promoted" }),
-      ),
+  it("a promoted lead redirects to the person it became", async () => {
+    // The record moved, so the page follows it (ADR-0108 §1). Before this,
+    // the redirect only fired as the tail of a promote you had just done, so
+    // revisiting or deep-linking a promoted lead landed on a read-only husk
+    // of a record that lives elsewhere.
+    stubFetch(async () =>
+      jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      }),
     );
     render(<LeadScreen id="l-1" />);
+    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-42"));
+  });
+
+  it("promote is disabled for an ineligible lead, and the button says why", async () => {
+    // A LIVE lead with no email: ineligible, but still on screen. A promoted
+    // lead would redirect to the person it became, so it cannot stand in for
+    // "ineligible" any more (ADR-0108 §1).
+    stubFetch(async () => jsonResponse({ ...lead, email: null }));
+    render(<LeadScreen id="l-1" />);
+    const button = await screen.findByRole("button", {
+      name: "Promote to contact",
+    });
     await waitFor(() =>
-      expect(
-        (
-          screen.getByRole("button", {
-            name: "Promote to contact",
-          }) as HTMLButtonElement
-        ).disabled,
-      ).toBe(true),
+      expect((button as HTMLButtonElement).disabled).toBe(true),
     );
-    expect(screen.getByText("needs an email and an open status")).toBeTruthy();
+    // The reason rides the control, not a sentence beside it: a disabled
+    // button whose reason lives elsewhere is a dead button (ADR-0108 §6).
+    expect(button.getAttribute("title")).toBe(
+      "needs an email and an open status",
+    );
   });
 });
 
