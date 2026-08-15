@@ -1210,10 +1210,21 @@ export const de = {
   "lead.overrideScore": "Score überschreiben",
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
-  "lead.machineComputed": "Maschinell berechneter Score",
+  "lead.shortfall.lead": "Womit dieser Score arbeitet:",
+  "lead.shortfall.engagementMoves":
+    "Am stärksten bewegen ihn eine Antwort oder ein Termin.",
+  "lead.shortfall.noSource":
+    "Keine Quelle hinterlegt — es ist nicht festgehalten, woher dieser Lead kam.",
+  "lead.shortfall.sourcePenalised":
+    "Kam über „{source}“ herein, was den Score mindert.",
+  "lead.shortfall.noTitle": "Keine Position hinterlegt.",
+  "lead.shortfall.titleNotSenior":
+    "„{title}“ gehört nicht zu den Positionen, auf die das Modell achtet.",
+  "lead.shortfall.sourceNoIntent":
+    "Kam über „{source}“ herein — daraus allein spricht noch kein Kaufinteresse.",
+  "lead.scoreNotStoredYet":
+    "Die Aufschlüsselung zu diesem Score ist noch nicht gespeichert — die nächste Aktualisierung zeigt sie.",
   "lead.scoreLoading": "Begründung wird geladen…",
-  "lead.scoreNotYetExplained":
-    "Dieser Score stammt aus der Zeit vor der Aufschlüsselung. Die nächste Aktualisierung erklärt ihn.",
   "lead.scoreNoFactors": "Bisher zahlt nichts auf diesen Score ein.",
   "lead.scoreFactorsExplainMachine":
     "Sie haben diesen Score selbst gesetzt. Die Faktoren unten erklären den Wert des Modells: {score}.",
@@ -1230,8 +1241,11 @@ export const de = {
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
   "lead.unassigned": "Nicht zugewiesen",
+  "lead.terminalDisqualified":
+    "Disqualifiziert — dieser Lead ist jetzt schreibgeschützt.",
+  "lead.marker": "Lead",
+  "lead.assign": "Zuweisen",
   "lead.assignToMe": "Mir zuweisen",
-  "lead.assignToSomeone": "Jemand anderem zuweisen",
   "lead.assignTo": "Diesen Lead zuweisen an",
   "lead.assignChoose": "Kollegin oder Kollegen wählen",
   "lead.assignNobodyElse":

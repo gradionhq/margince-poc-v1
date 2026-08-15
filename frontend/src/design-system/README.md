@@ -135,12 +135,18 @@ things a surface can be that are not content. Reach for it before hand-rolling
 a message line: it already knows that withheld, unavailable and unsupported are
 three different sentences, and that only `empty` may claim there is none.
 
-Two more things carry this properly and are worth copying: `Switch`'s `reason`
-prop, which renders the explanation **and** points the control at it with
-`aria-describedby` — the only accessibility-wired denial in the tree — and
-`FieldGuard`, for a withheld VALUE rather than a withheld surface. What is left
-hand-rolls `<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as the
-card body, which is the shape to match where `SurfaceState` does not fit.
+Three more things carry this properly and are worth copying. `Switch`'s
+`reason` prop renders the explanation **and** points the control at it with
+`aria-describedby`. `Button`'s `reason` does the same for an ACTION — it
+disables the button, renders the sentence beside it and wires
+`aria-describedby` — because a `title` on a disabled button is announced by no
+screen reader and a disabled button cannot be focused, so a reason living only
+in `title` reaches exactly nobody who needed it; `Button`'s `reasonId` points
+several refused controls at ONE sentence already on the page, for a surface
+where one fact refuses all of them. And `FieldGuard` covers a withheld VALUE
+rather than a withheld surface. What is left hand-rolls
+`<EmptyState><p className="t-small">{t(…)}</p></EmptyState>` as the card body,
+which is the shape to match where `SurfaceState` does not fit.
 
 `Switch` versus `Checkbox` follows from the same honesty: a `Checkbox` states an
 intent that something later submits, a `Switch` **is** the action. A control that

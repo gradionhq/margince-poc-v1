@@ -217,26 +217,42 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
   });
 
-  it("promote is disabled for an ineligible lead", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) =>
-        new URL(request.url).pathname.endsWith("/context")
-          ? jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] })
-          : jsonResponse({ ...lead, status: "promoted" }),
-      ),
+  it("a promoted lead redirects to the person it became", async () => {
+    // The record moved, so the page follows it (ADR-0108 §1). Before this,
+    // the redirect only fired as the tail of a promote you had just done, so
+    // revisiting or deep-linking a promoted lead landed on a read-only husk
+    // of a record that lives elsewhere.
+    stubFetch(async () =>
+      jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      }),
     );
     render(<LeadScreen id="l-1" />);
+    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-42"));
+  });
+
+  it("promote is disabled for an ineligible lead, and the button says why", async () => {
+    // A LIVE lead with no email: ineligible, but still on screen. A promoted
+    // lead would redirect to the person it became, so it cannot stand in for
+    // "ineligible" any more (ADR-0108 §1).
+    stubFetch(async () => jsonResponse({ ...lead, email: null }));
+    render(<LeadScreen id="l-1" />);
+    const button = await screen.findByRole("button", {
+      name: "Promote to contact",
+    });
     await waitFor(() =>
-      expect(
-        (
-          screen.getByRole("button", {
-            name: "Promote to contact",
-          }) as HTMLButtonElement
-        ).disabled,
-      ).toBe(true),
+      expect((button as HTMLButtonElement).disabled).toBe(true),
     );
-    expect(screen.getByText("needs an email and an open status")).toBeTruthy();
+    // The reason is wired to the control with aria-describedby, not stuffed
+    // into a title a screen reader never announces on a disabled button.
+    const describedBy = button.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)?.textContent).toBe(
+      "needs an email and an open status",
+    );
   });
 });
 
@@ -782,22 +798,32 @@ describe("LeadScreen — score explain + override (P-10)", () => {
 });
 
 describe("LeadScreen — owner display + assign to me (P-11)", () => {
-  it("shows Unassigned and Assign to me PATCHes owner_id to the current user", async () => {
+  it("shows Unassigned and assigning to yourself PATCHes owner_id to the current user", async () => {
     let patchBody: unknown = null;
     stubFetchWithMe(async (url, method, request) => {
       if (method === "PATCH" && url.includes("/leads/l-1")) {
         patchBody = JSON.parse(await request.text());
         return jsonResponse({ ...lead, owner_id: "u-9", version: 2 });
       }
+      if (url.includes("/users")) {
+        // The viewer is an ordinary roster entry now — the picker offers them
+        // first rather than a separate button doing it.
+        return jsonResponse({ data: [{ id: "u-9", display_name: "Me" }] });
+      }
       return undefined;
     }, "u-9");
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() => expect(screen.getByText("Unassigned")).toBeTruthy());
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Assign to me" })).toBeTruthy(),
+    // ONE control, not a self-assign button beside a picker: the viewer is
+    // simply its first option (ADR-0108 §5).
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Assign" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Assign to me" }));
+    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Assign to me" }),
+    );
 
     await waitFor(() => expect(patchBody).toBeTruthy());
     expect(patchBody).toMatchObject({ owner_id: "u-9" });
@@ -876,24 +902,36 @@ describe("terminalBadge (archived/terminal labelling)", () => {
 });
 
 describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
-  it("a promoted lead reads Archived (not Disqualified) and hides edit/disqualify/promote/override", async () => {
+  it("a disqualified lead keeps its controls DISABLED with the reason, never hidden", async () => {
+    // STATE-4a: blocked by state rather than permission means visible and
+    // disabled with the reason — hiding the control hides the fact the
+    // reader needs. (A PROMOTED lead never reaches this page; it redirects
+    // to the person it became.)
     stubFetchWithMe(async () =>
       jsonResponse({
         ...lead,
-        status: "promoted",
+        status: "disqualified",
         archived_at: "2026-07-13T00:00:00Z",
       }),
     );
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
-    expect(screen.queryByText("Disqualified")).toBeNull();
-    expect(screen.queryByTestId("edit-record")).toBeNull();
-    expect(screen.queryByTestId("archive-record")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    const reason = "Disqualified — this lead is now read-only.";
+    for (const testId of ["edit-record", "archive-record"]) {
+      const control = screen.getByTestId(testId) as HTMLButtonElement;
+      expect(control.disabled).toBe(true);
+      const describedBy = control.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy as string)?.textContent).toBe(
+        reason,
+      );
+    }
+    // Promote is gone rather than disabled: a disqualified lead is not a
+    // promotable one, and the header's primary action is for live leads.
     expect(
       screen.queryByRole("button", { name: "Promote to contact" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Override score" })).toBeNull();
   });
 
   it("shows an 'overridden' badge when the score is human-overridden", async () => {
@@ -942,24 +980,73 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     ).toBeTruthy();
   });
 
-  it("says a pre-existing score is not yet explained rather than showing an empty breakdown", async () => {
+  it("never prints an absent source into the sentence about it", async () => {
+    // The suite let this ship: a lead with no source interpolated the missing
+    // value and rendered "Came in as undefined" at a rep.
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({ ...lead, score: 0, source: null, title: null });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "No source on record — nothing says where this lead came from.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
+  it("never claims nothing counts when the score is not zero", async () => {
+    // The render caught this: a lead scoring 72 with no retained breakdown
+    // was told "Nothing counts toward this score yet", which is the opposite
+    // of true. Something counted; this client cannot say what.
     stubFetchWithMe(async (url) => {
       if (url.includes("/score")) {
         return jsonResponse({ score: 72, explained: false });
       }
-      return jsonResponse(lead);
+      return jsonResponse({ ...lead, score: 72 });
     });
     render(<LeadScreen id="l-1" />);
 
-    // An empty factor list would read as "nothing contributed", which is a
-    // different and false claim about a score that predates the series.
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This score predates the breakdown. The next update will explain it.",
+          "The breakdown for this score isn\u2019t stored yet — the next update will show it.",
         ),
       ).toBeTruthy(),
     );
+    expect(screen.queryByText("What this score has to work with:")).toBeNull();
+  });
+
+  it("says why a lead scores nothing rather than explaining our storage history", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({ ...lead, score: 0, title: null });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    // The reasons a lead earns nothing are derivable from the lead itself, and
+    // they are what the reader came for. "This score predates the breakdown"
+    // answered a question nobody asked and left a 0 looking like a bad
+    // prospect rather than an unassessed one (ADR-0108 §4).
+    await waitFor(() =>
+      expect(
+        screen.getByText("What this score has to work with:"),
+      ).toBeTruthy(),
+    );
+    // Deliberately NOT "no reply yet": engagement lives in linked activities
+    // this client never reads, so the page states what MOVES the score rather
+    // than asserting the prospect has done nothing.
+    expect(
+      screen.getByText("A reply or a meeting is what moves it most."),
+    ).toBeTruthy();
   });
 
   it("names the owner 'You' when the lead is owned by the current user", async () => {
@@ -1007,7 +1094,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     render(<LeadScreen id="l-1" />);
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Assign to someone else" }),
+      await screen.findByRole("button", { name: "Assign" }),
     );
     // The listbox is opened ONCE and the option awaited inside it: clicking
     // the trigger again would toggle it shut, and the popup re-renders in

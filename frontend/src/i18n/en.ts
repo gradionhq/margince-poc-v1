@@ -1222,10 +1222,21 @@ export const en = {
   "lead.overrideScore": "Override score",
   "lead.clearOverride": "Clear override",
   "lead.overrideReason": "Reason",
-  "lead.machineComputed": "Machine-computed score",
+  "lead.shortfall.lead": "What this score has to work with:",
+  "lead.shortfall.engagementMoves":
+    "A reply or a meeting is what moves it most.",
+  "lead.shortfall.noSource":
+    "No source on record — nothing says where this lead came from.",
+  "lead.shortfall.sourcePenalised":
+    "Came in as “{source}”, which counts against the score.",
+  "lead.shortfall.noTitle": "No job title on record.",
+  "lead.shortfall.titleNotSenior":
+    "“{title}” isn’t one of the senior titles the model looks for.",
+  "lead.shortfall.sourceNoIntent":
+    "Came in as “{source}”, which carries no buying intent on its own.",
+  "lead.scoreNotStoredYet":
+    "The breakdown for this score isn’t stored yet — the next update will show it.",
   "lead.scoreLoading": "Working out why…",
-  "lead.scoreNotYetExplained":
-    "This score predates the breakdown. The next update will explain it.",
   "lead.scoreNoFactors": "Nothing counted toward this score yet.",
   "lead.scoreFactorsExplainMachine":
     "You set this score by hand. The factors below explain what the model says: {score}.",
@@ -1242,8 +1253,10 @@ export const en = {
   "lead.ownerYou": "You",
   "lead.overriddenBadge": "overridden",
   "lead.unassigned": "Unassigned",
+  "lead.terminalDisqualified": "Disqualified — this lead is now read-only.",
+  "lead.marker": "Lead",
+  "lead.assign": "Assign",
   "lead.assignToMe": "Assign to me",
-  "lead.assignToSomeone": "Assign to someone else",
   "lead.assignTo": "Assign this lead to",
   "lead.assignChoose": "Choose a colleague",
   "lead.assignNobodyElse": "No other user to assign this lead to.",
