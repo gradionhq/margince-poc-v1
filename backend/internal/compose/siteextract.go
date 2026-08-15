@@ -27,6 +27,7 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
 // pageExtractConcurrency bounds the fan-out. The calls are tiny and the
@@ -56,9 +57,9 @@ type siteExtraction struct {
 // profileTriggerNonLegalPages is how much commercial evidence the profile
 // lane waits for before firing. A raw page-count trigger can be satisfied
 // entirely by legal pages on policy-heavy sites, permanently producing a
-// legal-only profile: the early answer would then rest on policy text
-// alone, and on a site that never grows enough to warrant the second pass
-// that is the answer the read ships.
+// legal-only profile. A site that never grows enough to warrant the second
+// pass ships that answer, so the trigger counts commercial pages rather than
+// pages.
 const profileTriggerNonLegalPages = 8
 
 func profileEvidenceReady(pages []crawlPage) bool {
@@ -82,10 +83,11 @@ const (
 // crawlAndExtract OVERLAPS the crawl and the extraction: page-fact
 // calls launch the moment their page commits, and the profile call
 // fires once the top-ranked pages are in (or the crawl ends, whichever
-// is first), then once more over the whole crawl if it grew enough. The
-// read's wall clock becomes ~max(crawl, slowest lane) instead of their sum.
-// onProgress (may be nil) fires serially with the live phase and the pages
-// fetched so far.
+// is first). The read's wall clock becomes ~max(crawl, slowest lane) instead
+// of their sum, PLUS the one re-profile call when the crawl grew enough to
+// warrant it (reprofileOverWholeCrawl) — that one is serial, because it reads
+// the finished corpus. onProgress (may be nil) fires serially with the live
+// phase and the pages fetched so far.
 func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, pages []crawlPage), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
 	collected := pageFactsCollector{onDraft: onDraft}
@@ -163,10 +165,13 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	wg.Wait()
 	profileWg.Wait()
 
-	out.fields = reprofileOverWholeCrawl(ctx, x, crawl.Pages, profiledPages,
-		out.fields, &collected)
-
-	if profileErr != nil {
+	// A first pass that failed for budget means the workspace is over its
+	// threshold: asking again, with a LARGER prompt, spends against an
+	// allowance that is already exhausted.
+	fields, recovered := reprofileOverWholeCrawl(
+		ctx, x, crawl.Pages, profiledPages, out.fields, profileErr)
+	out.fields = fields
+	if profileErr != nil && !recovered {
 		collected.failed = append(collected.failed, fmt.Errorf("profile lane: %w", profileErr))
 	}
 	out.legalCensusIncomplete = collected.legalCensusIncomplete
@@ -175,6 +180,11 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	return crawl, out, nil
 }
 
+// profileGrowthFactor is how much bigger the corpus must be before the
+// profile is worth asking again. Below it the second call would see nearly
+// the same evidence and cost a model call to confirm the first answer.
+const profileGrowthFactor = 2
+
 // reprofileOverWholeCrawl asks the profile lane again once the crawl has
 // finished, and answers the profile to keep.
 //
@@ -182,20 +192,37 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 // large site is a fraction of what the crawl went on to find: a 40-page site
 // was profiled from its first 8, so the About, team and services pages that
 // arrive later were never read.
+//
+// A failure here is LOGGED, never joined into the read's errors. This call is
+// optional refinement over an answer already in hand, and `extraction.err`
+// decides both the read's partial status and whether deferForBudget re-queues
+// it — so joining it would let a bonus call that tripped the budget defer a
+// read whose first pass had already grounded every field.
 func reprofileOverWholeCrawl(
 	ctx context.Context, x evidenceExtractor, pages []crawlPage, profiled int,
-	current []evidencedField, collected *pageFactsCollector,
-) []evidencedField {
-	extra := reprofileIfMuchMoreEvidence(ctx, x, pages, profiled)
-	if extra == nil {
-		return current
+	current []evidencedField, firstErr error,
+) (merged []evidencedField, recoveredFirstPass bool) {
+	if profiled == 0 || len(pages) < profiled*profileGrowthFactor {
+		return current, false
 	}
-	if extra.err != nil {
-		collected.failed = append(collected.failed,
-			fmt.Errorf("profile re-run: %w", extra.err))
-		return current
+	if firstErr != nil && errors.As(firstErr, new(*ai.BudgetDeferralError)) {
+		// The workspace is over its token threshold. A second, larger call
+		// against the same exhausted budget buys nothing and defers again.
+		return current, false
 	}
-	return mergeProfileFields(current, extra.fields)
+	fields, err := safeExtractProfile(ctx, x, pages)
+	if err != nil {
+		slog.WarnContext(ctx, "the profile re-run failed; keeping the first pass",
+			"pages", len(pages), "profiled_at_trigger", profiled, "err", err)
+		return current, false
+	}
+	// `fields` is the RE-RUN and wins a field both passes claim: it read the
+	// whole crawl, so its value rests on more of the site.
+	//
+	// When the FIRST pass failed, this one is the lane's answer rather than a
+	// refinement, so the read is whole: reporting it partial would warn a
+	// user about nothing missing.
+	return mergeProfileFields(current, fields), firstErr != nil
 }
 
 // mergeProfileFields folds a re-run's profile into the first pass's, keeping
@@ -207,8 +234,9 @@ func reprofileOverWholeCrawl(
 // it. Both answers are gated the same way, so a field present in either is a
 // field the site supports.
 //
-// The re-run wins a field they both claim: it read the whole crawl, so its
-// value rests on more of the site than the early pass could see.
+// `second` wins a contested field. Order is not meaningful to any reader of
+// these fields — the legal gate and the name reader select by field name —
+// so the result is `second` followed by the first pass's leftovers.
 func mergeProfileFields(first, second []evidencedField) []evidencedField {
 	if len(second) == 0 {
 		return first
@@ -224,33 +252,6 @@ func mergeProfileFields(first, second []evidencedField) []evidencedField {
 		}
 	}
 	return merged
-}
-
-// profileGrowthFactor is how much bigger the corpus must be before the
-// profile is worth asking again. Below it the second call would see nearly
-// the same evidence and cost a model call to confirm the first answer.
-const profileGrowthFactor = 2
-
-// reprofileResult carries a re-run's outcome, or nil when no re-run was
-// warranted.
-type reprofileResult struct {
-	fields []evidencedField
-	err    error
-}
-
-// reprofileIfMuchMoreEvidence re-runs the profile lane over the finished
-// crawl when the first pass saw only a fraction of it.
-//
-// Returns nil when the crawl did not grow enough to justify the call: a site
-// that ended near the trigger was already profiled on what it has.
-func reprofileIfMuchMoreEvidence(
-	ctx context.Context, x evidenceExtractor, pages []crawlPage, profiled int,
-) *reprofileResult {
-	if profiled == 0 || len(pages) < profiled*profileGrowthFactor {
-		return nil
-	}
-	fields, err := safeExtractProfile(ctx, x, pages)
-	return &reprofileResult{fields: fields, err: err}
 }
 
 // pageFactsCollector accumulates the streamed fact lane's outcomes. Pages

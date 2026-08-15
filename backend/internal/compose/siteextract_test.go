@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -346,13 +347,15 @@ func (f growingProfileFake) Complete(ctx context.Context, req model.Request) (mo
 	if strings.HasPrefix(req.System, profileSystem) {
 		f.profile.Add(1)
 		if strings.Contains(req.Messages[0].Content, "Audit 20") {
-			// The later pages are in the prompt, so the richer profile is
-			// available: two fields instead of one.
+			// The whole crawl is in the prompt. This pass grounds fields the
+			// early one could not see -- and DELIBERATELY not `industry`, so
+			// a merge that dropped the first pass's work would be visible.
 			return model.Response{Text: `{"fields":[` +
 				`{"f":"display_name","v":"Acme","e":"s0","c":0.9},` +
-				`{"f":"industry","v":"Audit 20","e":"s0","c":0.9}]}`}, nil
+				`{"f":"usp","v":"Audit 20","e":"s0","c":0.9}]}`}, nil
 		}
-		return model.Response{Text: `{"fields":[{"f":"display_name","v":"Acme","e":"s0","c":0.9}]}`}, nil
+		// The early pass sees only the first pages, and grounds `industry`.
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
 	}
 	return f.laneFake.Complete(ctx, req)
 }
@@ -391,9 +394,17 @@ func TestALargeCrawlIsProfiledOnEverythingItFound(t *testing.T) {
 	if got := profileCalls.Load(); got != 2 {
 		t.Fatalf("profile lane fired %d times, want 2 (early answer, then the whole crawl)", got)
 	}
-	if len(extraction.fields) < 2 {
-		t.Fatalf("profile kept %d fields, want the richer answer the second pass found",
-			len(extraction.fields))
+	// Assert by NAME, not by count: a count is satisfied by the re-run's
+	// output alone, so it stays green even if the merge is deleted and the
+	// first pass's work is thrown away.
+	grounded := map[string]bool{}
+	for _, field := range extraction.fields {
+		grounded[field.Field] = true
+	}
+	for _, want := range []string{"industry", "display_name", "usp"} {
+		if !grounded[want] {
+			t.Errorf("%q is missing; the read kept %v", want, grounded)
+		}
 	}
 }
 
@@ -432,4 +443,100 @@ func TestARerunNeverDiscardsAFieldTheFirstPassGrounded(t *testing.T) {
 	if len(merged) != 3 {
 		t.Errorf("merged %d fields, want 3 distinct ones: %v", len(merged), got)
 	}
+}
+
+// budgetDeferringFake fails the FIRST profile call the way an over-budget
+// workspace does, and answers the second normally.
+type budgetDeferringFake struct {
+	laneFake
+	calls *atomic.Int32
+}
+
+func (f budgetDeferringFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		if f.calls.Add(1) == 1 {
+			return model.Response{}, &ai.BudgetDeferralError{}
+		}
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
+}
+
+func TestAnOverBudgetFirstPassIsNotAskedAgainWithABiggerPrompt(t *testing.T) {
+	// A budget deferral means the workspace is over its token threshold.
+	// Asking again over the WHOLE crawl spends more against an allowance
+	// that is already exhausted, and defers a second time.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var calls atomic.Int32
+	brain := budgetDeferringFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		calls:    &calls,
+	}
+	for i := 0; i < pages; i++ {
+		brain.pageReplies[fmt.Sprintf("%s/services-%02d", seedURL, i)] = `{"facts":[]}`
+	}
+	crawler := testSiteCrawler(site)
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("profile lane called %d times after a budget deferral, want 1", got)
+	}
+	// The deferral must still reach the caller: it is how the read is
+	// re-queued rather than shipped half-done.
+	if extraction.err == nil {
+		t.Error("the budget deferral was swallowed; the read cannot be re-queued")
+	}
+}
+
+func TestARerunThatRescuesAFailedFirstPassLeavesTheReadWhole(t *testing.T) {
+	// The first pass failed and the re-run answered, so the lane produced
+	// its profile. Reporting the read partial would warn a user about
+	// nothing missing.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var calls atomic.Int32
+	brain := failThenAnswerFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		calls:    &calls,
+	}
+	for i := 0; i < pages; i++ {
+		brain.pageReplies[fmt.Sprintf("%s/services-%02d", seedURL, i)] = `{"facts":[]}`
+	}
+	crawler := testSiteCrawler(site)
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if len(extraction.fields) == 0 {
+		t.Fatal("the re-run's profile was lost")
+	}
+	if extraction.err != nil {
+		t.Errorf("the read reports an error though the re-run answered: %v", extraction.err)
+	}
+}
+
+// failThenAnswerFake fails the first profile call with an ordinary provider
+// error -- not a budget deferral -- and answers the second.
+type failThenAnswerFake struct {
+	laneFake
+	calls *atomic.Int32
+}
+
+func (f failThenAnswerFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		if f.calls.Add(1) == 1 {
+			return model.Response{}, errors.New("provider unavailable")
+		}
+		return model.Response{Text: `{"fields":[{"f":"industry","v":"Audit 00","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
 }

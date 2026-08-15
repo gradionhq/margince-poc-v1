@@ -156,11 +156,16 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 	}
 }
 
-// extractLaneBudget is the parallel extraction's allowance in the
-// job-timeout arithmetic: the page fan-out and the profile call run
-// concurrently, each a small fast call plus the validator's retry-and-
-// escalate headroom.
-const extractLaneBudget = 90 * time.Second
+// extractLaneBudget is the extraction's allowance in the job-timeout
+// arithmetic: the page fan-out and the first profile call run concurrently,
+// each a small fast call plus the validator's retry-and-escalate headroom.
+//
+// The allowance covers TWO profile calls, not one. A crawl that grows well
+// past the profile trigger is asked again over the finished corpus
+// (compose.reprofileOverWholeCrawl), and that call is serial — it reads the
+// whole crawl, so it cannot start until the crawl has ended. Sizing this for
+// one call would time out exactly the large sites the re-run exists for.
+const extractLaneBudget = 150 * time.Second
 
 // deepReadTimeout is the one declared timeout in the tree that cannot be a
 // number in api/jobs.yaml: the crawl wall is an operator's, so the file
