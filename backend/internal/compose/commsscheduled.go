@@ -160,7 +160,8 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 		// The scheduler lost their account or their seat. Holding under a
 		// system scope, because the authority we would otherwise hold under is
 		// exactly the one that just failed to resolve.
-		if err := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldSenderInactive); err != nil {
+		// No observation: this refuses before the fire path ever claims the row.
+		if err := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldSenderInactive, 0); err != nil {
 			return jobs.FaultContext(ctx, err)
 		}
 		return nil
@@ -172,7 +173,10 @@ func (w *scheduledSendWorker) Work(ctx context.Context, job *river.Job[Scheduled
 			// Last rung. A row left 'scheduled' with no live timer is a message
 			// nobody will ever see fail, so the ladder ends by handing it to a
 			// human instead of going quiet.
-			if holdErr := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldTimerExhausted); holdErr != nil {
+			// Bound to the version that attempt claimed under: a rep who
+			// rescheduled after the rollback has made a newer decision, and
+			// this ladder's verdict is about the row before theirs.
+			if holdErr := w.hold(w.holdScope(wsCtx, scheduler), id, activities.HeldTimerExhausted, outcome.Observed); holdErr != nil {
 				return jobs.FaultContext(ctx, errors.Join(err, holdErr))
 			}
 			return nil
@@ -284,8 +288,8 @@ func (w *scheduledSendWorker) holdScope(wsCtx context.Context, scheduler ids.UUI
 }
 
 // hold hands a message to a human with the reason they need.
-func (w *scheduledSendWorker) hold(ctx context.Context, id ids.UUID, reason string) error {
-	if err := w.store.HoldScheduledSend(ctx, id, reason); err != nil {
+func (w *scheduledSendWorker) hold(ctx context.Context, id ids.UUID, reason string, observed int64) error {
+	if err := w.store.HoldScheduledSend(ctx, id, reason, observed); err != nil {
 		return fmt.Errorf("comms_scheduled_send: holding %s: %w", id, err)
 	}
 	return nil

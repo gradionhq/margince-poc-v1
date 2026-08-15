@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -407,6 +408,71 @@ func (p *preflightEnv) grantTransactionalConsent(t *testing.T) {
 	p.setTransactionalConsent(t, "granted")
 }
 
+// rescheduleTo moves a message through the endpoint a rep uses, version header
+// and all — the guarded path, not a direct write.
+func (p *preflightEnv) rescheduleTo(t *testing.T, id ids.UUID, at time.Time) {
+	t.Helper()
+	var current struct {
+		Version int64 `json:"version"`
+	}
+	if status := p.Call(t, "GET", "/v1/scheduled-sends/"+id.String(), nil, nil, &current); status != http.StatusOK {
+		t.Fatalf("reading the scheduled send before moving it → %d", status)
+	}
+	status := p.Call(t, "PATCH", "/v1/scheduled-sends/"+id.String(),
+		apptest.AnyMap{
+			"scheduled_at": at.UTC().Format(time.RFC3339),
+			"scheduled_tz": "Europe/Berlin",
+		},
+		map[string]string{"If-Match": strconv.FormatInt(current.Version, 10)}, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rescheduling → %d, want 200", status)
+	}
+}
+
+// alarmsFor counts the River jobs queued to wake one message. Recovery's whole
+// job is to put one of these back, so it is what a recovery test must count.
+func (p *preflightEnv) alarmsFor(t *testing.T, id ids.UUID) int {
+	t.Helper()
+	var n int
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM river_job
+			  WHERE kind = 'comms_scheduled_send'
+			    AND args->>'scheduled_send_id' = $1`, id.String()).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting the alarms for %s: %v", id, err)
+	}
+	return n
+}
+
+// rowVersion reads the scheduled row's optimistic-concurrency version.
+func (p *preflightEnv) rowVersion(t *testing.T, id ids.UUID) int64 {
+	t.Helper()
+	var version int64
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT version FROM scheduled_send WHERE id = $1`, id).Scan(&version)
+	}); err != nil {
+		t.Fatalf("reading the row version: %v", err)
+	}
+	return version
+}
+
+// holdAs drives the store's hold directly under an observed version, standing in
+// for a worker whose attempt failed and is now holding what it saw.
+func (p *preflightEnv) holdAs(t *testing.T, id ids.UUID, reason string, observed int64) error {
+	t.Helper()
+	return compose.HoldScheduledSendForTest(context.Background(), p.Pool, p.workspaceID(t), id, reason, observed)
+}
+
+// runRecovery drives the recovery pass once, through the production worker on
+// the context River gives it — no workspace injected, because the pass has none
+// and a helper that supplied one would prove only that the helper works.
+func (p *preflightEnv) runRecovery(t *testing.T) error {
+	t.Helper()
+	return compose.DriveScheduledSendRecoveryForTest(context.Background(), p.Pool)
+}
+
 // releasedActivity reads the activity a fired scheduled send produced.
 func (p *preflightEnv) releasedActivity(t *testing.T, id ids.UUID) ids.UUID {
 	t.Helper()
@@ -593,6 +659,73 @@ func TestARejectionThatCannotCancelLeavesTheCardRetryable(t *testing.T) {
 	// with the work.
 	if _, still := p.heldCardFor(t, id); !still {
 		t.Error("the card was consumed by a rejection that did no work — a retry would be refused as already decided")
+	}
+}
+
+// #1257a. A message whose alarm ran out of attempts is held — but bound to the
+// version that attempt saw. A rep who rescheduled in between has made a NEWER
+// decision, and holding their fresh intention under the old attempt's verdict
+// would stop a message they had just re-armed, for a reason about the version
+// before theirs.
+func TestAStaleAttemptDoesNotHoldAMessageTheRepJustRescheduled(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	before := p.rowVersion(t, id)
+
+	// The rep moves it — the version they moved it to is now the live one.
+	p.rescheduleTo(t, id, time.Now().Add(48*time.Hour))
+	if after := p.rowVersion(t, id); after == before {
+		t.Fatal("rescheduling did not move the row version, so this test cannot tell the two apart")
+	}
+
+	// A stale attempt now tries to hold under the version it saw earlier.
+	if err := p.holdAs(t, id, activities.HeldTimerExhausted, before); err != nil {
+		t.Fatalf("the stale hold errored rather than declining: %v", err)
+	}
+
+	if status, reason := p.scheduledStatus(t, id); status != activities.ScheduledStatusScheduled {
+		t.Fatalf("a message the rep had just rescheduled reads %q/%q — a stale attempt held their newer intention",
+			status, reason)
+	}
+}
+
+// #1257b. A message left scheduled with no live alarm is the one failure the
+// send path cannot see: nothing wakes it and nobody is told, because being told
+// is what the fire path does and the fire path never runs.
+//
+// Simulated by scheduling a message and letting its moment pass without ever
+// driving the timer — which is exactly the state a discarded job leaves behind.
+func TestARecoveryPassReArmsAMessageWhoseAlarmIsGone(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	// Well past the recovery grace, so the pass treats it as stranded rather
+	// than mid-flight.
+	p.setDueAt(t, id, time.Now().Add(-2*time.Hour))
+
+	armedBefore := p.alarmsFor(t, id)
+	if err := p.runRecovery(t); err != nil {
+		t.Fatalf("the recovery pass failed: %v", err)
+	}
+
+	// The ALARM is what recovery restores, so the alarm is what this asserts.
+	// Driving the fire path directly afterwards would pass whether or not
+	// anything was enqueued — the test would then prove the fire path works,
+	// which was never in doubt, while a recovery that silently enqueued nothing
+	// sailed through.
+	armedAfter := p.alarmsFor(t, id)
+	if armedAfter <= armedBefore {
+		t.Fatalf("recovery left %d alarm(s) for a message that had %d and no live timer — nothing will ever wake it",
+			armedAfter, armedBefore)
+	}
+
+	// And the alarm it queued reaches a verdict rather than sitting there.
+	p.fire(t, id)
+	if status, _ := p.scheduledStatus(t, id); status == activities.ScheduledStatusScheduled {
+		t.Fatal("the message is still waiting after its recovered alarm fired")
 	}
 }
 

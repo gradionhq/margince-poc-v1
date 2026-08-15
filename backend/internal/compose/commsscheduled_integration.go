@@ -22,6 +22,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DriveScheduledSendForTest wakes one scheduled message through the production
@@ -51,4 +52,33 @@ func DriveScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspac
 		return nil
 	}
 	return err
+}
+
+// HoldScheduledSendForTest drives the store's hold under an observed row
+// version, standing in for a worker whose attempt failed and is now holding
+// what it saw. The lane needs it to prove a STALE observation declines.
+func HoldScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspace, id ids.UUID, reason string, observed int64) error {
+	store := sendStore(pool, SendPath{})
+	return store.HoldScheduledSend(sendWorkerScope(principal.WithWorkspaceID(ctx, workspace)), id, reason, observed)
+}
+
+// DriveScheduledSendRecoveryForTest runs one recovery pass through the
+// PRODUCTION worker, on the context River actually hands it.
+//
+// No workspace is injected, and that absence is the point: this pass has no
+// tenant of its own, and an earlier version of this helper bound one — which
+// made the lane prove the HELPER worked while production could not re-arm
+// anything at all, because the alarm it enqueues refuses without a workspace and
+// the worker had none to give. The binding now happens per message, from the row
+// itself, which is the only place it can honestly come from.
+func DriveScheduledSendRecoveryForTest(ctx context.Context, pool *pgxpool.Pool) error {
+	inserter, err := jobs.NewInserter(pool, slog.New(slog.DiscardHandler))
+	if err != nil {
+		return err
+	}
+	worker := newScheduledSendRecoveryWorker(
+		pool, sendStore(pool, SendPath{}), NewScheduleTimer(inserter), slog.New(slog.DiscardHandler))
+	return worker.Work(ctx, &river.Job[ScheduledSendRecoveryArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 1},
+	})
 }

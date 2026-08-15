@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -37,6 +39,11 @@ type FireOutcome struct {
 	// Due is non-zero when the row's moment has MOVED and the caller should
 	// wake again then instead of firing now.
 	Due time.Time
+	// Observed is the row version this attempt claimed under, or zero when it
+	// never got as far as claiming. A caller holding the message AFTER a failed
+	// attempt passes it back, so a rep who rescheduled in between is not held
+	// under a decision made about the older intention.
+	Observed int64
 }
 
 // FireScheduledSend sends one scheduled message, or holds it.
@@ -53,11 +60,17 @@ type FireOutcome struct {
 // here, never sent stale (ADR-0104 §2).
 func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.Duration, gate ConsentGate, stager DeliveryStager) (FireOutcome, error) {
 	var out FireOutcome
+	// Recorded OUTSIDE the transaction on purpose: a failed fire rolls the
+	// transaction back and takes `out` with it, and the observation is exactly
+	// what the caller needs afterwards to hold this row without holding a newer
+	// one. It survives the rollback because it never entered it.
+	var observed int64
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		claimed, found, err := s.claimForFire(ctx, tx, id)
 		if err != nil {
 			return err
 		}
+		observed = claimed.RowVersion
 		switch {
 		case !found:
 			// Cancelled, already released, or already held. The timer is a dumb
@@ -101,8 +114,11 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 		return nil
 	})
 	if err != nil {
-		return FireOutcome{}, err
+		// The observation rides out with the error: it is the only thing the
+		// caller can bind a follow-up hold to.
+		return FireOutcome{Observed: observed}, err
 	}
+	out.Observed = observed
 	return out, nil
 }
 
@@ -112,15 +128,40 @@ func (s *Store) FireScheduledSend(ctx context.Context, id ids.UUID, grace time.D
 // transaction — a scheduler whose account is gone, a timer whose attempts ran
 // out. Refusals found during the fire are held inside it, under the row's own
 // lock.
-func (s *Store) HoldScheduledSend(ctx context.Context, id ids.UUID, reason string) error {
+// observed is the row version the caller acted on, and it is REQUIRED. A hold is
+// refused when the row has moved since — a rep who rescheduled between a failed
+// attempt and this hold has made a NEWER decision, and holding their fresh
+// intention under the old attempt's verdict would take a message they just
+// re-armed and stop it again, for a reason about the version before theirs.
+//
+// A caller that never got far enough to observe a version must read one HERE,
+// under the claim, rather than passing zero: an unconditional arm would put the
+// original defect back, and the recovery sweep cannot repair it because that
+// sweep only looks at rows still `scheduled` — a wrongly-held row is invisible
+// to it. Zero is therefore not "skip the check", it is "check against whatever
+// this transaction finds", which for a caller with nothing newer to compare is
+// the same row it would have acted on anyway.
+func (s *Store) HoldScheduledSend(ctx context.Context, id ids.UUID, reason string, observed int64) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		_, found, err := s.claimForFire(ctx, tx, id)
+		claimed, found, err := s.claimForFire(ctx, tx, id)
 		if err != nil {
 			return err
 		}
 		if !found {
 			// Cancelled or already finished while this was being decided.
 			// Nothing to hold, and nothing wrong.
+			return nil
+		}
+		if observed == 0 {
+			// Nothing observed earlier, so this claim IS the observation: the
+			// row is locked, and holding what is locked cannot race a
+			// reschedule that has not happened yet.
+			return s.holdInTx(ctx, tx, id, reason)
+		}
+		if claimed.RowVersion != observed {
+			// Somebody moved it after the attempt read it. Their decision is
+			// the live one; this attempt's verdict is about a row that no
+			// longer exists in that form.
 			return nil
 		}
 		return s.holdInTx(ctx, tx, id, reason)
@@ -135,6 +176,10 @@ type claimedSend struct {
 	OriginLinks []byte
 	Payload     []byte
 	Version     int
+	// RowVersion is the scheduled row's own optimistic-concurrency version, as
+	// the claim saw it. A caller that acts on this row LATER, outside the claim's
+	// transaction, binds to this so it cannot act on a newer intention.
+	RowVersion int64
 }
 
 // replay rebuilds the origin and the message this row froze.
@@ -169,7 +214,7 @@ func (c claimedSend) replay() (SendOrigin, SendEmailInput, error) {
 func (s *Store) claimForFire(ctx context.Context, tx pgx.Tx, id ids.UUID) (claimedSend, bool, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT scheduled_at, origin_kind, anchor_activity_id,
-		       origin_links, payload, payload_version
+		       origin_links, payload, payload_version, version
 		  FROM scheduled_send
 		 WHERE id = $1 AND status = 'scheduled'
 		 FOR UPDATE`, id)
@@ -187,7 +232,7 @@ func (s *Store) claimForFire(ctx context.Context, tx pgx.Tx, id ids.UUID) (claim
 	}
 	var c claimedSend
 	if err := rows.Scan(&c.ScheduledAt, &c.OriginKind, &c.Anchor,
-		&c.OriginLinks, &c.Payload, &c.Version); err != nil {
+		&c.OriginLinks, &c.Payload, &c.Version, &c.RowVersion); err != nil {
 		return claimedSend{}, false, fmt.Errorf("scheduled send: claiming: %w", err)
 	}
 	return c, true, nil
@@ -300,4 +345,86 @@ func holdReasonFor(err error) (string, bool) {
 		return HeldSendRefused, true
 	}
 	return "", false
+}
+
+// OverdueScheduledSends returns messages whose moment has passed and which are
+// still waiting — the shape a message takes when the job that should have fired
+// it is gone.
+//
+// A scheduled row is armed by a River job and by nothing else. A job discarded
+// after exhausting its attempts, or lost to an outage that spanned the whole
+// ladder, leaves the row `scheduled` with no timer: nothing will wake it, and
+// the rep is told nothing because being told is what the fire path does. This is
+// the only read that can see that state.
+//
+// `olderThan` keeps it off messages that are merely mid-flight: a row due
+// seconds ago is far more likely to have a job about to run than a job that
+// vanished, and re-arming it would race the real one. The claim lock makes that
+// race safe rather than harmful, but a sweep that fights the normal path on
+// every pass is a sweep nobody can read the logs of.
+// Each result carries its OWN workspace, and the read runs on the installation
+// pool rather than a workspace-bound transaction: this pass has no tenant of its
+// own — it is looking for rows nobody is watching, wherever they are — and the
+// caller binds each message's workspace before touching it. A pass that took one
+// workspace from its context could only ever recover that one.
+func (s *Store) OverdueScheduledSends(ctx context.Context, pool *pgxpool.Pool, olderThan time.Duration, limit int) ([]OverdueScheduledSend, error) {
+	var out []OverdueScheduledSend
+	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, workspace_id FROM scheduled_send
+			 WHERE status = 'scheduled' AND scheduled_at < $1
+			 ORDER BY scheduled_at ASC
+			 LIMIT $2`, s.now().Add(-olderThan), limit)
+		if err != nil {
+			return fmt.Errorf("scheduled send: finding messages nothing will wake: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var row OverdueScheduledSend
+			if err := rows.Scan(&row.ID, &row.Workspace); err != nil {
+				return fmt.Errorf("scheduled send: reading an overdue message: %w", err)
+			}
+			out = append(out, row)
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// OverdueScheduledSend is one message whose moment has passed and whose alarm is
+// gone, with the workspace a caller must bind before acting on it.
+type OverdueScheduledSend struct {
+	ID        ids.UUID
+	Workspace ids.UUID
+}
+
+// RearmScheduledSend enqueues a fresh alarm for a message whose own alarm is
+// gone, in one transaction with the claim that proves it is still waiting.
+//
+// It changes NOTHING about the message — not its moment, not its state. The row
+// was always the schedule; what went missing is the thing that wakes it, so this
+// puts that back and the ordinary fire path makes the ordinary decision. A sweep
+// that decided anything itself would be a second send path.
+//
+// Under the claim lock, so a real timer running at the same instant is
+// serialized against this rather than racing it: one of the two enqueues, the
+// other finds the row already handled and does nothing.
+func (s *Store) RearmScheduledSend(ctx context.Context, id ids.UUID, timer ScheduleTimer) error {
+	if timer == nil {
+		return errNoScheduleTimer
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		_, found, err := s.claimForFire(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !found {
+			// Sent, cancelled or held while this pass was reading. Nothing to
+			// re-arm, and nothing wrong.
+			return nil
+		}
+		// Due NOW: its moment has already passed, and the fire path is what
+		// decides whether that means send it or hold it as a missed window.
+		return timer.ScheduleTx(ctx, tx, id, s.now())
+	})
 }
