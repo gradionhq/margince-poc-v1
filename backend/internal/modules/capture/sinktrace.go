@@ -14,6 +14,8 @@ package capture
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -44,25 +46,29 @@ func (s *Sink) traceTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedR
 	return Trace(ctx, tx, s.traceEntry(ctx, rec, outcome, reason), s.tracePayloads)
 }
 
-// traceAfterRollback records a decision whose own transaction did not survive.
+// traceInvisibleIncumbent records the one decision whose own transaction did
+// not survive to carry it.
 //
 // skipInvisibleIncumbent is returned as an ERROR from inside the capture
-// transaction, so anything written there rolls back with it — and that outcome
-// is precisely one a member needs explained, because from their side a message
-// they can see in their mailbox simply never appears. It therefore gets its own
-// transaction, exactly as logEnsureFault already does for the same reason.
+// transaction, so a trace written there rolls back with it — and from the
+// member's side that outcome is a message sitting in their own mailbox that
+// simply never arrives, which is exactly what this surface exists to explain.
+// It therefore gets its own transaction, as logEnsureFault already does for the
+// same reason.
 //
-// Best effort by nature: the message did not land either way, and failing a
-// capture to record why it failed would be the tail wagging the dog. A failure
-// here is returned so the caller can log it beside the original.
-func (s *Sink) traceAfterRollback(ctx context.Context, rec connector.NormalizedRecord,
-	outcome TraceOutcome, reason string,
-) error {
-	entry := s.traceEntry(ctx, rec, outcome, reason)
-	payloads := s.tracePayloads
-	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		return Trace(ctx, tx, entry, payloads)
-	})
+// Best effort, and it says so by logging rather than returning: the message did
+// not land either way, and failing a capture in order to record why it failed
+// would be the tail wagging the dog.
+func (s *Sink) traceInvisibleIncumbent(ctx context.Context, rec connector.NormalizedRecord, cause error) {
+	if !errors.Is(cause, errInvisibleIncumbent) {
+		return
+	}
+	entry := s.traceEntry(ctx, rec, TraceFault, TraceReasonInvisibleIncumbent)
+	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return Trace(ctx, tx, entry, s.tracePayloads)
+	}); err != nil {
+		slog.ErrorContext(ctx, "capture: recording the invisible-incumbent trace", "err", err, "cause", cause)
+	}
 }
 
 // traceEntry builds the entry one decision records.

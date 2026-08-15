@@ -15,6 +15,7 @@ package capture_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // traceOwnerFor reads back who the pipeline attributed a message to.
@@ -102,8 +104,10 @@ func TestAnInternalDropIsTracedAndAttributed(t *testing.T) {
 	// Both parties on the workspace's own domain.
 	_, err := sink.Upsert(memberSinkContext(ctx, ws, member),
 		mailRecord("attr-3", "colleague@acme.com", "colleague@acme.com", "rep@acme.com"))
-	if err == nil {
-		t.Fatal("Upsert of colleague-only mail returned nil, want a skip")
+	// The sentinel, not merely non-nil: a failure in the trace write would also
+	// be non-nil, and this test would then blame the read below on it.
+	if !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("Upsert of colleague-only mail = %v, want a skip", err)
 	}
 
 	owner, outcome := traceOwnerFor(ctx, t, db, "attr-3")

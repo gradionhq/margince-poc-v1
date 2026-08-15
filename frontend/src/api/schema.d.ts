@@ -7991,7 +7991,7 @@ export interface components {
         CaptureTraceEntry: {
             /** Format: uuid */
             id: string;
-            /** @description The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label — resolve one through /v1/channel-providers. */
+            /** @description The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label. A label is derived from the id or compiled into the running binary, so two deploys would disagree about the same transport with no row having changed; resolve one against the channel-provider registry rather than storing it here. */
             connector: string;
             /** @enum {string} */
             outcome: "captured" | "internal" | "suppressed" | "deferred" | "fault";

@@ -47,7 +47,20 @@ type captureTraceSweepWorker struct {
 }
 
 func (w *captureTraceSweepWorker) Work(ctx context.Context, _ *river.Job[CaptureTraceSweepArgs]) error {
-	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+	// EVERY workspace, archived ones included — the enumeration the other
+	// retention passes use, and for the reason its own comment gives: archiving
+	// a workspace does not un-store the data inside it, and storage limitation
+	// does not pause because a tenant stopped logging in.
+	//
+	// It matters more here than for most passes. Under the trace_payloads
+	// posture these rows hold correspondence content, so skipping archived
+	// tenants would keep it past the 24-hour retention this feature promises,
+	// in exactly the workspaces nobody looks at any more.
+	workspaces, err := enumerateEveryWorkspace(ctx, w.pool)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
 		workspaceSweepOpts(CaptureTraceSweepWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureTraceSweepWorkspaceArgs{Workspace: ws} }))
 }
@@ -85,7 +98,18 @@ func (w *captureTraceSweepWorkspaceWorker) Work(ctx context.Context, job *river.
 	})
 	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 
-	_, err = capture.NewTraceStore(InstallationDB(w.pool)).SweepOlderThan(wsCtx, traceRetention)
+	// workspaceJobDB, NOT InstallationDB: the installation resolver answers
+	// ErrMultipleWorkspaces the moment a database holds more than one live
+	// tenant, so every child would fail, exhaust its attempts, and delete
+	// nothing — while the read kept filtering to 24 hours and the table grew
+	// invisibly behind it. Under the payload posture those rows are addresses
+	// and subject lines, so the retention this feature promises would stop
+	// holding with no symptom at all.
+	db, err := workspaceJobDB(w.pool, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	_, err = capture.NewTraceStore(db).SweepOlderThan(wsCtx, traceRetention)
 	return jobs.FaultContext(ctx, err)
 }
 

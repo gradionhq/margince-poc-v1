@@ -31,6 +31,16 @@ import (
 // so an unlinked fixture would prove the opposite of what it looks like.
 func seedTracedActivity(ctx context.Context, t *testing.T, db *database.DB, owner ids.UUID, sourceID string) {
 	t.Helper()
+	seedTracedActivityOwnedBy(ctx, t, db, owner, ids.Nil, sourceID)
+}
+
+// seedTracedActivityOwnedBy writes the activity, the person it links to, and the
+// trace row. personOwner names who owns that person — zero means a stranger,
+// which is what puts the activity outside an own-scoped reader's reach.
+func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.DB,
+	owner, personOwner ids.UUID, sourceID string,
+) {
+	t.Helper()
 	activityID, personID := ids.NewV7(), ids.NewV7()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
@@ -40,22 +50,26 @@ func seedTracedActivity(ctx context.Context, t *testing.T, db *database.DB, owne
 			activityID, sourceID); err != nil {
 			return err
 		}
-		// Owned by a stranger — a real app_user, because person.owner_id is a
-		// foreign key and a scope test that seeded a dangling owner would be
-		// proving something about referential integrity instead.
-		stranger := ids.NewV7()
+		// A real app_user either way, because person.owner_id is a foreign key
+		// and a scope test that seeded a dangling owner would be proving
+		// something about referential integrity instead.
+		personHolder := personOwner
+		if personHolder.IsZero() {
+			personHolder = ids.NewV7()
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO app_user (id, workspace_id, email, display_name, status)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $2, 'Somebody Else', 'active')`,
-			stranger, "stranger-"+stranger.String()+"@example.test"); err != nil {
+			        $2, 'Person Owner', 'active')
+			ON CONFLICT (id) DO NOTHING`,
+			personHolder, "owner-"+personHolder.String()+"@example.test"); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'Somebody Else', $2, 'manual', 'human:test')`,
-			personID, stranger); err != nil {
+			        'Linked Person', $2, 'manual', 'human:test')`,
+			personID, personHolder); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -96,12 +110,14 @@ func TestAnActivityTheReaderCannotSeeIsListedWithoutItsLink(t *testing.T) {
 func TestAnActivityTheReaderCanSeeKeepsItsLink(t *testing.T) {
 	ctx, ws, db, store := traceReadWorkspace(t)
 	me := ids.NewV7()
-	// Same rows, a reader whose scope covers the workspace: the link survives,
-	// which is what proves the test above is measuring the probe and not a
-	// query that simply never returns a link.
-	seedTracedActivity(memberContext(ctx, ws, me), t, db, me, "linked-2")
+	// The person is owned by the READER, so an own-scoped reader reaches the
+	// activity through it. A workspace-scoped reader would prove nothing here:
+	// ActivityScopeClause returns an empty clause for an unbounded principal and
+	// hideUnreadableLinks returns before the probe ever runs — so a probe that
+	// matched nothing at all would still satisfy both tests in this file.
+	seedTracedActivityOwnedBy(memberContext(ctx, ws, me), t, db, me, me, "linked-2")
 
-	window, err := store.ListMine(managerContext(ctx, ws, me), nil, nil)
+	window, err := store.ListMine(memberContext(ctx, ws, me), nil, nil)
 	if err != nil {
 		t.Fatalf("ListMine: %v", err)
 	}

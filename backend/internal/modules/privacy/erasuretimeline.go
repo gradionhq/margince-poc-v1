@@ -108,9 +108,21 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 	// is written normalized (lower-cased, trimmed) and indexed, so the crude
 	// content match those need — they search whole payloads — buys nothing here
 	// and would scan.
+	// TWO lanes, because two columns can name the subject. The address column is
+	// exact equality — it is written normalized and indexed. The SUBJECT is free
+	// text from the provider's header, and it routinely carries somebody's
+	// address or name ("Re: intro — alice@acme.test"): a message FROM another
+	// sender can name the subject in its own subject line, so an address-only
+	// purge leaves that behind, and a trace written after the erasure would even
+	// add it back. Same ILIKE shape as the raw_capture lane above, and crude for
+	// the same stated reason — over-deleting a diagnostic row is recoverable,
+	// under-deleting personal data is not.
 	for _, email := range emails {
-		if _, execErr := tx.Exec(ctx,
-			`DELETE FROM capture_trace WHERE counterparty = lower($1)`, email); execErr != nil {
+		if _, execErr := tx.Exec(ctx, `
+			DELETE FROM capture_trace
+			 WHERE counterparty = lower($1)
+			    OR subject ILIKE '%' || $2 || '%' ESCAPE '\'`,
+			email, storekit.EscapeLike(email)); execErr != nil {
 			return 0, 0, execErr
 		}
 	}

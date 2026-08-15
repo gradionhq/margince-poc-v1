@@ -3752,7 +3752,7 @@ export const en = {
   "captureActivity.contentNone": "no sender recorded",
   "captureActivity.outcome.captured": "Captured",
   "captureActivity.outcome.internal": "Dropped as internal",
-  "captureActivity.outcome.suppressed": "No contact (infrastructure)",
+  "captureActivity.outcome.suppressed": "No contact created",
   "captureActivity.outcome.deferred": "Waiting on a verdict",
   "captureActivity.outcome.fault": "Derivation failed",
   "captureActivity.reason.internal_only": "every party was on your own domains",

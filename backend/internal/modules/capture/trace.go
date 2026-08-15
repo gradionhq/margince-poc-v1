@@ -32,9 +32,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// TraceOutcome is what the pipeline did with one MESSAGE. The five values
-// partition it: a message either never landed, or landed and had its sender
-// settled one of four ways.
+// TraceOutcome is what the pipeline did with one MESSAGE.
+//
+// One row per message PER OUTCOME, which is not quite a partition and the
+// difference is worth knowing before reading a funnel: a message that landed
+// and was later refused on a replay holds both `captured` and `fault`, so the
+// counts sum to DECISIONS rather than to messages. That is the honest unit —
+// both things happened — but it means a funnel total is not a message count.
 //
 // The verdict engine's answers are deliberately NOT here. They are facts about
 // a sender's open question rather than about a message — the disposition ledger

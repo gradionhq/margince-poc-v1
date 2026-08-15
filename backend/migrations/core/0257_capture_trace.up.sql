@@ -75,11 +75,19 @@ CREATE TABLE capture_trace (
   -- unaffected -- while an erasure landing inside the 24h window has nothing
   -- here to reach. Mail keeps its message-id, which the ADR permits and which is
   -- what makes a support question answerable.
-  source_system  text NOT NULL CHECK (length(source_system) > 0),
-  source_id      text NOT NULL CHECK (length(source_id) > 0),
+  -- BOUNDED, like every other remote-supplied column here. For mail this is the
+  -- sender's own Message-ID header, and the unique index below is a btree over
+  -- it: an oversized value raises "index row size exceeds maximum" on INSERT,
+  -- and because Trace runs on the caller's capture transaction that error fails
+  -- the CAPTURE of the message rather than only its trace. A remote party does
+  -- not get to decide that.
+  source_system  text NOT NULL CHECK (length(source_system) > 0 AND char_length(source_system) <= 128),
+  source_id      text NOT NULL CHECK (length(source_id) > 0 AND char_length(source_id) <= 512),
 
-  -- ONE row per message, and these five PARTITION it: a message either never
-  -- landed (internal) or landed and its sender was settled one of four ways.
+  -- One row per message PER OUTCOME. Nearly a partition and not quite: a
+  -- message that landed and was later refused on a replay (an incumbent that
+  -- moved out of the reader's scope) holds both `captured` and `fault`, because
+  -- both are true of it. So these count DECISIONS, not messages.
   --
   -- The verdict engine's outcomes are deliberately absent. They are facts about
   -- a SENDER's open question, not about a message, and the disposition ledger

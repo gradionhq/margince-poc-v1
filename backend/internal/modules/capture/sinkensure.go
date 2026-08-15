@@ -210,6 +210,9 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		return counterpartyDecision{}, err
 	}
 	if suppressed {
+		// decision, not a zero value — and safe to carry because registrySuppresses
+		// can only suppress when !corresponded, so create is still false here.
+		// Nothing downstream may read create from a suppressed decision.
 		return decision.traced(TraceSuppressed, suppressReason), nil
 	}
 
@@ -232,6 +235,10 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		// The message COMMITS and the hide sweep may then archive it, so a trace
 		// saying only "captured" would answer "why did this not appear?" with
 		// "it did". The reason is what makes the answer true.
+		//
+		// create is false on this arm by construction: reaching it needs
+		// !corresponded, and corresponded is the only thing that has set create
+		// by this point.
 		return decision.traced(TraceCaptured, priorReason), nil
 	}
 	decision.create = decision.create || alreadyKnown

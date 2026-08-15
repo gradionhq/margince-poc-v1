@@ -3746,7 +3746,7 @@ export const de = {
   "captureActivity.contentNone": "kein Absender erfasst",
   "captureActivity.outcome.captured": "Erfasst",
   "captureActivity.outcome.internal": "Als intern verworfen",
-  "captureActivity.outcome.suppressed": "Kein Kontakt (Infrastruktur)",
+  "captureActivity.outcome.suppressed": "Kein Kontakt angelegt",
   "captureActivity.outcome.deferred": "Wartet auf Beurteilung",
   "captureActivity.outcome.fault": "Ableitung fehlgeschlagen",
   "captureActivity.reason.internal_only":

@@ -3724,7 +3724,7 @@ export const vi = {
   "captureActivity.contentNone": "không ghi nhận người gửi",
   "captureActivity.outcome.captured": "Đã thu thập",
   "captureActivity.outcome.internal": "Bỏ qua vì nội bộ",
-  "captureActivity.outcome.suppressed": "Không tạo liên hệ (hạ tầng)",
+  "captureActivity.outcome.suppressed": "Không tạo liên hệ",
   "captureActivity.outcome.deferred": "Đang chờ phán quyết",
   "captureActivity.outcome.fault": "Suy ra liên hệ thất bại",
   "captureActivity.reason.internal_only":

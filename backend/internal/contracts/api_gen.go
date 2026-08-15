@@ -11556,7 +11556,7 @@ type CaptureTraceEntry struct {
 	// ActivityId The timeline row this message became. Present only where one exists AND the caller may read it — an entry whose activity moved out of their row scope still lists, with no link, rather than handing back an existence proof.
 	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
 
-	// Connector The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label — resolve one through /v1/channel-providers.
+	// Connector The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label. A label is derived from the id or compiled into the running binary, so two deploys would disagree about the same transport with no row having changed; resolve one against the channel-provider registry rather than storing it here.
 	Connector string `json:"connector"`
 
 	// Counterparty Only when payload_capture_enabled, and never for an erased subject.

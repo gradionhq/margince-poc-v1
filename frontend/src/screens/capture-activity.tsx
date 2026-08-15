@@ -76,6 +76,25 @@ function knownReason(reason: string | null | undefined): KnownReason | null {
   return REASONS.find((known) => known === reason) ?? null;
 }
 
+// The resolution statuses, closed for the same reason REASONS is: this value
+// comes off the wire and is interpolated into a catalog key, so a status a
+// newer binary writes would render `captureActivity.resolution.<status>` at a
+// member. One guard for both, or the next one repeats the bug.
+const RESOLUTIONS = [
+  "pending",
+  "unsure",
+  "real",
+  "noise",
+  "rejected",
+  "suppressed",
+] as const;
+
+type KnownResolution = (typeof RESOLUTIONS)[number];
+
+function knownResolution(status: string): KnownResolution | null {
+  return RESOLUTIONS.find((known) => known === status) ?? null;
+}
+
 const SCOPES = ["mine", "workspace"] as const;
 type Scope = (typeof SCOPES)[number];
 
@@ -113,6 +132,27 @@ export function CaptureActivityTab() {
   );
 }
 
+// One fetch per route, so each response is typed by the route that produced it.
+async function fetchWindow(
+  path: "/capture/activity",
+  cursor: string | undefined,
+): Promise<CaptureActivity>;
+async function fetchWindow(
+  path: "/capture/activity/workspace",
+  cursor: string | undefined,
+): Promise<CaptureActivity>;
+async function fetchWindow(
+  path: "/capture/activity" | "/capture/activity/workspace",
+  cursor: string | undefined,
+): Promise<CaptureActivity> {
+  const { data, error } =
+    path === "/capture/activity/workspace"
+      ? await api.GET(path, { params: { query: { cursor } } })
+      : await api.GET(path, { params: { query: { cursor } } });
+  if (error) throwProblem(error);
+  return data;
+}
+
 function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
   const t = useT();
   // Paged, because the window is 24 hours and a busy mailbox fills more than
@@ -120,19 +160,16 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
   // while the list showed 50 and nothing said the rest existed.
   const query = useInfiniteQuery({
     queryKey: ["capture-activity", scope],
-    initialPageParam: null as string | null,
-    queryFn: async ({ pageParam }) => {
-      const path =
-        scope === "workspace"
-          ? "/capture/activity/workspace"
-          : "/capture/activity";
-      const { data, error } = await api.GET(path, {
-        params: { query: { cursor: pageParam ?? undefined } },
-      });
-      if (error) throwProblem(error);
-      return data as CaptureActivity;
-    },
-    getNextPageParam: (last) => last.page.next_cursor ?? null,
+    initialPageParam: undefined as string | undefined,
+    // Each route called on its own branch rather than through a union `path`.
+    // openapi-fetch cannot infer one response type from two literal routes, and
+    // the cast that papers over it is exactly the assertion the house rules
+    // forbid — it would also have hidden a real shape change on either route.
+    queryFn: ({ pageParam }) =>
+      scope === "workspace"
+        ? fetchWindow("/capture/activity/workspace", pageParam)
+        : fetchWindow("/capture/activity", pageParam),
+    getNextPageParam: (last) => last.page.next_cursor ?? undefined,
   });
 
   return (
@@ -290,12 +327,15 @@ function CaptureEntryContent({
 // ledger. Absent for every other outcome, because there is no open question.
 function CaptureEntryResolution({ entry }: Readonly<{ entry: TraceEntry }>) {
   const t = useT();
-  if (!entry.resolution) {
+  const status = entry.resolution
+    ? knownResolution(entry.resolution.status)
+    : null;
+  if (!status) {
     return null;
   }
   return (
     <span className="capture-activity__resolution">
-      {t(`captureActivity.resolution.${entry.resolution.status}`)}
+      {t(`captureActivity.resolution.${status}`)}
     </span>
   );
 }

@@ -166,7 +166,10 @@ func (s *TraceStore) readFunnel(ctx context.Context, tx pgx.Tx, scope traceScope
 		}
 		out.Funnel[outcome] = n
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("capture: reading the trace funnel: %w", err)
+	}
+	return nil
 }
 
 // readPage reads one keyset page, newest first, joining the disposition ledger
@@ -185,6 +188,16 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		where += fmt.Sprintf(" AND (t.occurred_at, t.id) < ($%d, $%d)",
 			addArg(decoded.CreatedAt), addArg(decoded.ID))
 	}
+	// BOTH joins carry the workspace, and that is not belt-and-braces: there is
+	// no RLS on these tables since 0217, an address is not unique across
+	// tenants, and `d.email = a.counterparty_email` unscoped would answer with
+	// ANOTHER workspace's verdict about the same person.
+	//
+	// The ledger side is a LATERAL taking ONE row, because the ledger holds a
+	// row per address per state: a plain join fans out and the same message
+	// appears once per historical disposition. Newest resolution first, with
+	// unresolved (NULL) ahead of it — an open question is the current answer.
+	//
 	// Resolution is joined through the ACTIVITY's counterparty address, not
 	// through activity_id.
 	//
@@ -203,8 +216,15 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		       d.status, coalesce(d.kind, ''), d.resolved_at,
 		       coalesce(t.counterparty, ''), coalesce(t.subject, ''), t.occurred_at
 		  FROM capture_trace t
-		  LEFT JOIN activity a ON a.id = t.activity_id
-		  LEFT JOIN capture_pending_counterparty d ON d.email = a.counterparty_email
+		  LEFT JOIN activity a
+		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
+		  LEFT JOIN LATERAL (
+		         SELECT status, kind, resolved_at
+		           FROM capture_pending_counterparty
+		          WHERE workspace_id = t.workspace_id
+		            AND email = a.counterparty_email
+		          ORDER BY resolved_at DESC NULLS FIRST
+		          LIMIT 1) d ON true
 		 WHERE %s
 		 ORDER BY t.occurred_at DESC, t.id DESC
 		 LIMIT %d`, where, n+1), args...)
