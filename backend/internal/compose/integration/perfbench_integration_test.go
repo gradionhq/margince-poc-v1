@@ -149,9 +149,52 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 		t.Fatalf("trigger evidence names tier %s, ran %s", evidence.Tier, spec.tier)
 	}
 
+	// The published page's PERF-3/PERF-7 rows come from here, but ONLY when a
+	// human asked for them: `make bench-perf` sets MARGINCE_BENCH_RECORD and the
+	// standing integration lane does not. Written before the gate, so a breach
+	// is recorded rather than hidden by its own failure.
+	if RecordingEnabled() {
+		writeTierBenchRecord(t, owner, report)
+	}
 	if err := report.Gate(); err != nil {
 		t.Fatalf("PERF budget gate is red: %v", err)
 	}
+}
+
+// writeTierBenchRecord leaves the tier harness's numbers for the published page.
+// The tier goes into the measurement NAME rather than being dropped: PERF-7's
+// budget binds at mid-market, and a p95 from the SMB canary is a different claim
+// wearing the same id.
+func writeTierBenchRecord(t *testing.T, owner *pgx.Conn, report search.BenchReport) {
+	t.Helper()
+	// PERF-7's SLO binds at mid-market. A run on any smaller tier still measures
+	// something real, and the page has to say which — otherwise the canary's
+	// number reads as the bound being met.
+	caveat := ""
+	if report.Tier != search.BenchTierMidMarket {
+		caveat = fmt.Sprintf("measured on the %s tier; the SLO binds at %s",
+			report.Tier, search.BenchTierMidMarket)
+	}
+	measurements := make([]BudgetMeasurement, 0, len(report.Queries))
+	for _, q := range report.Queries {
+		id := "PERF-3"
+		if q.Query == search.GraphQueryName {
+			id = "PERF-7"
+		}
+		m := MeasurementFrom(id, fmt.Sprintf("%s (%s tier)", q.Query, report.Tier),
+			q.P50, q.P95, q.P99, q.Budget, q.Samples)
+		// PERF-3 has no tier clause in its budget, so only the graph row is
+		// qualified: attaching it to both would caveat a claim that is unqualified.
+		if id == "PERF-7" {
+			m.Caveat = caveat
+		}
+		measurements = append(measurements, m)
+	}
+	WritePerfRecord(t, "bench-perf", PostgresVersion(func(sql string) (string, error) {
+		var version string
+		err := owner.QueryRow(context.Background(), sql).Scan(&version)
+		return version, err
+	}), measurements)
 }
 
 // benchFTSQuery measures canonical query 1 (PERF-3): ranked

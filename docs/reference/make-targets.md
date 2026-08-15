@@ -97,6 +97,7 @@ root gates (each is a small script; all merge-blocking):
 | `bench-perf` | The PERF benchmark harness on the mid-market tier (needs `db-up`; seeds 250k contacts) |
 | `bench-record` | PERF-1/PERF-4: record open and save p50/p95/p99, measured over HTTP against the booted app (needs `db-up`) |
 | `bench-capture` | CAP-PARAM-1: capture-to-timeline latency, 60 s p95, over the auto-create path (needs `db-up`) |
+| `perfdoc` | Re-render `docs/reference/performance-budgets.md` from the committed benchmark records. Every `bench-*` target runs it as its last step, so the page updates on every measurement; run it alone after editing the published-budget table in `backend/tools/gen-perfdoc` |
 | `tidy` | `go mod tidy` |
 
 ### The `bench` lane — measurements, run by hand
@@ -114,10 +115,21 @@ tidiness — nothing scheduled compiles these files, so without it a renamed hel
 would break them silently and nobody would find out until the next person ran a
 benchmark by hand and had to debug the harness instead of reading a number.
 
+Each target's last step re-renders `docs/reference/performance-budgets.md` from
+**every** committed record, not just the one it wrote — so a partial run still
+leaves a complete page, with the rows it did not measure keeping their own dates
+and their own machines. A budget no record covers renders as `not measured`
+rather than being dropped, which is the whole reason the page lists the
+published set instead of the measured one.
+
 `bench-perf` is the older shape and is **not** in this lane: its suite carries
 only the `integration` tag, so the standing integration lane runs it at the SMB
 tier as a canary and `bench-perf` re-runs it at mid-market, where the PERF-7 SLO
-actually binds.
+actually binds. It records too, but only under `MARGINCE_BENCH_RECORD=1`, which
+that target sets and CI does not — a scheduled job must never write a machine's
+numbers into the tree. A PERF-7 row measured below mid-market renders
+`inconclusive`, never `within budget`: the canary's number satisfies a bound it
+was not measured against.
 
 ## Root-only (frontend lane)
 

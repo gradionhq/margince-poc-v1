@@ -66,7 +66,7 @@ GOWORK_ROOT := GOWORK=$(abspath ../go.work)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: perfdoc help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -253,7 +253,8 @@ test-integration-serial: composition ## Escape hatch: the old sequential lane, a
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
 bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+	MARGINCE_BENCH_TIER=mid_market MARGINCE_BENCH_RECORD=1 $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+	@$(MAKE) --no-print-directory perfdoc
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.
 #
@@ -276,9 +277,20 @@ bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6
 # running: the number looks fresh and is not.
 bench-record: composition ## PERF-1/PERF-4 record open + save budgets, measured over HTTP (needs db-up)
 	$(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestRecordOpenAndSaveBudgets -count=1 -v -timeout 15m ./internal/compose/integration
+	@$(MAKE) --no-print-directory perfdoc
 
 bench-capture: composition ## CAP-PARAM-1 capture-to-timeline latency, 60s p95 (needs db-up)
 	$(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestCaptureToTimelineLatencyBudget -count=1 -v -timeout 15m ./internal/compose/integration/capture
+	@$(MAKE) --no-print-directory perfdoc
+
+# The published page is re-rendered from EVERY record, not only the one the run
+# just wrote, so a partial run still produces a complete and current page: the
+# rows it did not measure keep their own stamps and their own dates.
+#
+# Its own target as well as a step, because a reader who edits the budget table
+# in gen-perfdoc needs to re-render without paying for a measurement.
+perfdoc: ## Re-render docs/reference/performance-budgets.md from the committed benchmark records
+	@$(GOWORK_ROOT) $(GO) run ./tools/gen-perfdoc
 
 # golangci-lint is the one gate tool this Makefile installs rather than
 # runs via pinned `go run` (arch-lint/vuln/oasdiff do): `go run` would

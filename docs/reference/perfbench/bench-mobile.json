@@ -1,0 +1,25 @@
+{
+  "target": "bench-mobile",
+  "measured_on": "2026-08-15",
+  "machine": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memory_gib": 24,
+    "toolchain": "node 24.18.0",
+    "network": "throttled Fast-3G (MOBILE-PARAM-2)",
+    "viewport": "390x844"
+  },
+  "budgets": [
+    {
+      "id": "MOBILE-AC-2",
+      "name": "record_open_perceived",
+      "p50_ms": 62,
+      "p95_ms": 65,
+      "p99_ms": 841,
+      "budget_ms": 300,
+      "samples": 20
+    }
+  ]
+}

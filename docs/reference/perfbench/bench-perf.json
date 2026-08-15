@@ -1,0 +1,33 @@
+{
+  "target": "bench-perf",
+  "measured_on": "2026-08-15",
+  "machine": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memory_gib": 24,
+    "toolchain": "go1.26.6",
+    "postgres": "16.14"
+  },
+  "budgets": [
+    {
+      "id": "PERF-3",
+      "name": "search_fts (mid_market tier)",
+      "p50_ms": 72.700917,
+      "p95_ms": 76.512042,
+      "p99_ms": 81.434166,
+      "budget_ms": 200,
+      "samples": 20
+    },
+    {
+      "id": "PERF-7",
+      "name": "context_graph (mid_market tier)",
+      "p50_ms": 8.003417,
+      "p95_ms": 9.86625,
+      "p99_ms": 10.012125,
+      "budget_ms": 300,
+      "samples": 20
+    }
+  ]
+}

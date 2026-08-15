@@ -33,6 +33,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 )
@@ -88,9 +90,42 @@ func TestRecordOpenAndSaveBudgets(t *testing.T) {
 		t.Logf("perfbench [%s]: %s p50=%s p95=%s p99=%s (budget %s, %d samples)",
 			report.Tier, q.Query, q.P50, q.P95, q.P99, q.Budget, q.Samples)
 	}
+	// The record is written BEFORE the gate, deliberately. A breach is exactly
+	// the run whose numbers a reader most wants to see, and writing after the
+	// gate would keep the page green while the build went red.
+	writeRecordBenchRecord(t, e, report.Queries)
 	if err := report.Gate(); err != nil {
 		t.Fatalf("PERF-1/PERF-4 budget gate is red: %v", err)
 	}
+}
+
+// writeRecordBenchRecord leaves this run's numbers on disk for the published
+// page. The PERF id is carried per row rather than per file because one target
+// measures two different published budgets — open is PERF-1, save is PERF-4 —
+// and a page that grouped them under one id would misattribute both.
+func writeRecordBenchRecord(t *testing.T, e *apptest.AppEnv, queries []search.QueryStats) {
+	t.Helper()
+	measurements := make([]BudgetMeasurement, 0, len(queries))
+	for _, q := range queries {
+		id := "PERF-1"
+		if q.Query == "record_save_person" {
+			id = "PERF-4"
+		}
+		measurements = append(measurements,
+			MeasurementFrom(id, q.Query, q.P50, q.P95, q.P99, q.Budget, q.Samples))
+	}
+	WritePerfRecord(t, "bench-record", benchPostgresVersion(e.Owner), measurements)
+}
+
+// benchPostgresVersion asks the server under measurement what it is. A latency
+// is a claim about that server as much as about this code, so the record says
+// which one answered.
+func benchPostgresVersion(owner *pgx.Conn) string {
+	return PostgresVersion(func(sql string) (string, error) {
+		var version string
+		err := owner.QueryRow(context.Background(), sql).Scan(&version)
+		return version, err
+	})
 }
 
 // benchRecordOpen measures one GET the record page issues (PERF-1). A non-200
