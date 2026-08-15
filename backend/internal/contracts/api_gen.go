@@ -11202,9 +11202,12 @@ type Attachment struct {
 	Category *AttachmentCategory `json:"category,omitempty"`
 
 	// Checksum sha256 of the bytes, for integrity/dedupe.
-	Checksum    *string   `json:"checksum,omitempty"`
-	ContentType *string   `json:"content_type,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	Checksum    *string `json:"checksum,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+
+	// ContractId The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up as organization_id above, and just as deliberately not a second parent. Set at upload by the person filing the paper; never inferred from a filename or a date, which is the guess the document state exists to refuse.
+	ContractId *openapi_types.UUID `json:"contract_id,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
 
 	// DocState ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
 	DocState   *AttachmentDocState  `json:"doc_state,omitempty"`
@@ -21950,6 +21953,9 @@ type ListOrganizationDocumentsParams struct {
 	Category   *ListOrganizationDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
 	DocState   *ListOrganizationDocumentsParamsDocState `form:"doc_state,omitempty" json:"doc_state,omitempty"`
 	PinnedOnly *bool                                    `form:"pinned_only,omitempty" json:"pinned_only,omitempty"`
+
+	// ContractId Only the paper filed against this agreement (CONTRACT-DDL-5).
+	ContractId *openapi_types.UUID `form:"contract_id,omitempty" json:"contract_id,omitempty"`
 }
 
 // ListOrganizationDocumentsParamsCategory defines parameters for ListOrganizationDocuments.
@@ -42088,6 +42094,19 @@ func (siw *ServerInterfaceWrapper) ListOrganizationDocuments(w http.ResponseWrit
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pinned_only"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pinned_only", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "contract_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "contract_id", r.URL.Query(), &params.ContractId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "contract_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contract_id", Err: err})
 		}
 		return
 	}

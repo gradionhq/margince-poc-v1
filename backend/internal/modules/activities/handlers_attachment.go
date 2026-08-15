@@ -60,12 +60,26 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The agreement this document is about, when the uploader named one. An
+	// absent part files the document against no contract, which is the ordinary
+	// case: most client paper is not contract paper.
+	var contractID *ids.UUID
+	if raw := r.FormValue("contract_id"); raw != "" {
+		parsed, perr := ids.Parse(raw)
+		if perr != nil {
+			httperr.Write(w, r, httperr.Validation("contract_id", "invalid_uuid", "contract_id must be a UUID"))
+			return
+		}
+		contractID = &parsed
+	}
+
 	att, err := h.store.UploadAttachment(r.Context(), AttachmentInput{
 		EntityType:  entityType,
 		EntityID:    entityID,
 		Filename:    header.Filename,
 		ContentType: header.Header.Get("Content-Type"),
 		Body:        body,
+		ContractID:  contractID,
 	})
 	if err != nil {
 		writeAttachmentErr(w, r, err)
@@ -195,6 +209,10 @@ func (h Handlers) ListOrganizationDocuments(w http.ResponseWriter, r *http.Reque
 	if params.DocState != nil {
 		s := string(*params.DocState)
 		in.DocState = &s
+	}
+	if params.ContractId != nil {
+		contractID := ids.UUID(*params.ContractId)
+		in.ContractID = &contractID
 	}
 	docs, page, err := h.store.ListOrganizationDocuments(r.Context(), ids.UUID(id), in)
 	if err != nil {

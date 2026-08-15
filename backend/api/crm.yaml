@@ -11143,6 +11143,10 @@ paths:
         - name: pinned_only
           in: query
           schema: { type: boolean, default: false }
+        - name: contract_id
+          in: query
+          description: Only the paper filed against this agreement (CONTRACT-DDL-5).
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: The account's documents.
@@ -17988,6 +17992,15 @@ components:
             The account this file rolls up to — a READ PATH, not a second parent. Visibility
             stays the primary parent's, and this is maintained on relink and merge so a file
             follows the record it belongs to.
+        contract_id:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: >-
+            The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up
+            as organization_id above, and just as deliberately not a second parent. Set at
+            upload by the person filing the paper; never inferred from a filename or a date,
+            which is the guess the document state exists to refuse.
         scan_status:
           type: string
           enum: [scanning, clean, blocked]

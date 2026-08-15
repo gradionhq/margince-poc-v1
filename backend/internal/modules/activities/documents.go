@@ -40,6 +40,10 @@ import (
 type DocumentFilters struct {
 	Category *string
 	DocState *string
+	// ContractID narrows to one agreement's paper. A distinct question from
+	// category: `contract` says what KIND of document this is, this says WHICH
+	// agreement it belongs to, and an account can hold several.
+	ContractID *ids.UUID
 	// PinnedOnly is the "what matters here" view. False is not a filter for
 	// unpinned — it is the absence of one.
 	PinnedOnly bool
@@ -165,6 +169,9 @@ func filterClauses(in DocumentFilters, arg func(any) int) []string {
 	var where []string
 	if in.Category != nil {
 		where = append(where, fmt.Sprintf("at.category = $%d", arg(*in.Category)))
+	}
+	if in.ContractID != nil {
+		where = append(where, fmt.Sprintf("at.contract_id = $%d", arg(*in.ContractID)))
 	}
 	if in.DocState != nil {
 		where = append(where, fmt.Sprintf("at.doc_state = $%d", arg(*in.DocState)))

@@ -46,11 +46,16 @@ type AttachmentInput struct {
 	Filename    string
 	ContentType string
 	Body        []byte
+	// ContractID files this document against one agreement (ADR-0109). A
+	// roll-up like the account column beside it, not a second parent: the
+	// primary entity still owns the file's visibility.
+	ContractID *ids.UUID
 }
 
 const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
 	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status,
-	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id`
+	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id,
+	at.contract_id`
 
 // attachmentSource marks how the row was captured; a direct upload is "upload".
 const attachmentSource = "upload"
@@ -135,11 +140,11 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
 				content_type, byte_size, storage_key, checksum, source, captured_by,
-				organization_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+				organization_id, contract_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
 			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
-			account); err != nil {
+			account, in.ContractID); err != nil {
 			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
@@ -362,10 +367,11 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		docState    string
 		supersedes  *ids.UUID
 		orgID       *ids.UUID
+		contractID  *ids.UUID
 	)
 	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
 		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus,
-		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID); err != nil {
+		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID, &contractID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return crmcontracts.Attachment{}, apperrors.ErrNotFound
 		}
@@ -386,6 +392,7 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	att.DocState = &state
 	att.SupersedesId = uuidOrNil(supersedes)
 	att.OrganizationId = uuidOrNil(orgID)
+	att.ContractId = uuidOrNil(contractID)
 	return att, nil
 }
 
