@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,6 +89,22 @@ const KindMessage = "message"
 // changing shape once already is the argument for it having one name.
 func IsChannelKind(kind string) bool {
 	return kind == KindMessage
+}
+
+// SendableChannelProviders lists the transports this installation composed a
+// sender for. Exported so the composition root can publish which registered
+// transports can actually carry a message, without keeping a second copy of a
+// set this package already owns — two copies is how the send path and the
+// directory would come to disagree.
+func SendableChannelProviders() []string {
+	channelProvidersMu.RLock()
+	defer channelProvidersMu.RUnlock()
+	out := make([]string, 0, len(channelProviders))
+	for p := range channelProviders {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // CanSendOnProvider reports whether this installation composed a transport

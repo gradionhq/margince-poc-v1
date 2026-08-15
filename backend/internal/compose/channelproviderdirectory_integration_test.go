@@ -96,4 +96,56 @@ func TestTheSeededLabelMatchesTheOneBootWrites(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterating the registry: %v", err)
 	}
+
+	// The loop above passes VACUOUSLY while every registered provider is one
+	// word: the two spellings can only differ where the id has a word break, so
+	// a registry of `telegram` and `whatsapp` exercises nothing. This asserts
+	// the rule itself against the shape that separates them — the SQL seed's
+	// initcap(replace(provider,'_',' ')) and the Go providerLabel must agree on
+	// an underscore, and bare initcap would render "Deal_Room" here.
+	if got := providerLabel("deal_room"); got != "Deal Room" {
+		t.Errorf("providerLabel(\"deal_room\") = %q, want \"Deal Room\" — the migration's seed treats `_` as a word break and this must match it", got)
+	}
+	var seeded string
+	if err := owner.QueryRow(ctx, `SELECT initcap(replace($1, '_', ' '))`, "deal_room").Scan(&seeded); err != nil {
+		t.Fatalf("asking the database for its own seed rule: %v", err)
+	}
+	if seeded != providerLabel("deal_room") {
+		t.Errorf("the migration would seed %q and boot writes %q for the same provider", seeded, providerLabel("deal_room"))
+	}
+}
+
+// The directory must answer from the REGISTRY, not from whatever a capture
+// registry happened to write at boot.
+//
+// This is the defect the first version of this slice shipped: the snapshot was
+// written only inside NewCaptureRegistry, which the api role builds only when a
+// keyvault root key is configured — so a vault-less install answered 200 with an
+// empty list, telling every timeline it had no labels and telling an agent the
+// provider vocabulary was empty while log_activity still demanded a value from
+// it. A silent empty reads as an answer.
+//
+// It is asserted by clearing the snapshot and loading it again from the table,
+// which is exactly what a role that never constructed a registry does.
+func TestTheDirectoryLoadsFromTheRegistryAndNotFromTheCaptureBoot(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+
+	before, sending := ComposedChannelProviders()
+	t.Cleanup(func() { setComposedChannelProviders(before, sending) })
+
+	// The state a role that composed no capture registry starts in.
+	setComposedChannelProviders(nil, nil)
+	if registered, _ := ComposedChannelProviders(); len(registered) != 0 {
+		t.Fatalf("the snapshot did not clear, so this test would pass on stale data")
+	}
+
+	if err := LoadChannelProviderDirectory(ctx, e.Pool); err != nil {
+		t.Fatalf("loading the directory: %v", err)
+	}
+
+	registered, _ := ComposedChannelProviders()
+	if len(registered) == 0 {
+		t.Fatal("the directory is empty after loading from the registry; a vault-less install would publish no labels at all and report 200 while doing it")
+	}
 }

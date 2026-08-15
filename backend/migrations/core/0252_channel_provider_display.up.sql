@@ -2,18 +2,24 @@
 -- about a transport (ADR-0107/A158): what to CALL it, and how a connection to it
 -- is credentialed.
 --
--- Both are properties of the composed connector, so the boot reconcile is what
--- writes them — the same place the provider row itself is written. Stored rather
--- than derived at read time because SendScopeFor already needs the credential
--- model and derives it from an in-memory set; one column read by both is one
--- fact, where two derivations are two facts that can disagree.
+-- Both are properties of the composed connector, so the boot reconcile refreshes
+-- them — the same place the provider row itself is written. They are STORED
+-- rather than held only in memory because the directory must answer on a role
+-- that never built a capture registry: the api only constructs one when a
+-- keyvault root key is configured, so an in-memory-only directory is empty on a
+-- vault-less install and answers 200 with nothing. The rows seeded here are what
+-- makes that answer correct without a reconcile.
 
 -- label is what a human reads where a raw provider id would otherwise appear.
 -- Defaulted to the provider name so an existing row is never label-less: an
 -- unlabelled transport in a timeline is worse than an ugly one, and the reconcile
 -- overwrites it with the connector's own display name on the next boot.
 ALTER TABLE channel_provider ADD COLUMN label text NOT NULL DEFAULT '';
-UPDATE channel_provider SET label = initcap(provider) WHERE label = '';
+-- `_` is a word break, matching providerLabel's own rule in Go: bare initcap
+-- renders `deal_room` as "Deal_Room" where the Go side gives "Deal Room", and
+-- the test that holds the two spellings together would then pass only while no
+-- registered provider happens to contain an underscore.
+UPDATE channel_provider SET label = initcap(replace(provider, '_', ' ')) WHERE label = '';
 -- initcap gets this one wrong, and the boot reconcile would correct it a moment
 -- later — but a migration that knowingly writes "Whatsapp" and relies on a later
 -- process to fix it is two sources of truth disagreeing on purpose. The Go side

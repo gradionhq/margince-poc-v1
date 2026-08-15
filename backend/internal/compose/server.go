@@ -378,6 +378,19 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 // injected here, or in the assembly step this calls for it
 // (serverassembly.go) — never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
+	// The transport directory, loaded for every role that serves /v1 and
+	// independent of whether this role composed a capture registry — see
+	// LoadChannelProviderDirectory for why that independence is load-bearing.
+	//
+	// A failure is logged rather than fatal: an installation that cannot read
+	// its own transport labels still serves every other route, and the
+	// directory's own empty answer is then the honest one. It is the SILENT
+	// empty that this arc had to fix, not an empty that was reported.
+	if pool != nil {
+		if err := LoadChannelProviderDirectory(context.Background(), pool); err != nil {
+			log.Error("compose: loading the transport directory", "err", err)
+		}
+	}
 	srv := Server{
 		authHandlers:       authH,
 		peopleHandlers:     newPeopleHandlers(pool),

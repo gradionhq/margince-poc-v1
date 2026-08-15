@@ -54,7 +54,6 @@ import (
 // FK would refuse the delete anyway, and ErrConnectorNotConfigured already
 // parks a send against it rather than needing the row gone.
 func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, providers []string) error {
-	var registered []string
 	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
 		for _, facts := range channelProviderFactsFor(providers, providers) {
 			// The display facts are UPSERTED, not left alone on conflict: they
@@ -73,41 +72,17 @@ func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, provider
 				return err
 			}
 		}
-		// The snapshot is every REGISTERED transport, read back in the same
-		// transaction — not the composed set that was just written.
-		//
-		// They are different sets and the difference is the point: whatsapp is
-		// registered (core 0251) so a hand-logged WhatsApp message can name what
-		// carried it, and no connector composes it. Snapshotting the composed set
-		// would leave the directory silent about a transport whose messages are
-		// already on timelines, so those rows would render a raw id with no label
-		// — which is the whole failure this endpoint exists to prevent.
-		rows, err := tx.Query(ctx, `SELECT provider FROM channel_provider ORDER BY provider`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		registered = registered[:0]
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err != nil {
-				return err
-			}
-			registered = append(registered, p)
-		}
-		return rows.Err()
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	// The two in-memory snapshots take the COMPOSED set: they answer "can a
-	// reply leave this installation", which is a question about what was
-	// compiled in. The directory snapshot takes the REGISTERED set, because it
-	// answers "what may a message name". Handing either set to the other is the
-	// conflation this arc removed.
+	// These two take the COMPOSED set: they answer "can a reply leave this
+	// installation", which is a question about what was compiled in. What a
+	// message may NAME is a different set, loaded from the registry itself by
+	// LoadChannelProviderDirectory — see there for why it is not written here.
 	activities.SetChannelProviders(providers)
 	comms.SetChannelProviders(providers)
-	setComposedChannelProviders(registered, providers)
 	return nil
 }
 
@@ -131,6 +106,55 @@ var composedChannelProviders struct {
 	// registered and unsendable) and collapsing them is the conflation this
 	// decision removed.
 	sending []string
+}
+
+// LoadChannelProviderDirectory fills the directory snapshot from the registry
+// table, and it runs for EVERY role that serves /v1 rather than as a side
+// effect of constructing the capture registry.
+//
+// That independence is the point, and it is a defect this arc shipped once
+// already: NewCaptureRegistry is config-gated (the api role only builds it when
+// a keyvault root key is configured), so a snapshot written there is empty on a
+// vault-less install — and the endpoint would then answer `{"data":[]}` with a
+// 200, telling every timeline it has no labels and telling an agent the provider
+// vocabulary is empty while log_activity still demands a value from it. Silence
+// that reads as an answer is worse than an error.
+//
+// Reading the TABLE also makes the three columns 0252 adds load-bearing rather
+// than write-only, and it is correct with or without a reconcile: the migration
+// seeds every row this installation ships with, and a reconcile only refreshes
+// them.
+//
+// transport='core' is filtered deliberately. The column exists to separate a
+// core connector from an extension unit's declared channel, and a unit's
+// provider id is an operator's choice of what to install — the same operator
+// information GET /v1/extensions is admin-only for. This endpoint is readable by
+// every authenticated seat, so publishing a unit name here would be a
+// disclosure decision made by inheritance. The slice that gives a unit a channel
+// makes it deliberately.
+func LoadChannelProviderDirectory(ctx context.Context, pool *pgxpool.Pool) error {
+	var registered []string
+	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT provider FROM channel_provider WHERE transport = 'core' ORDER BY provider`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				return err
+			}
+			registered = append(registered, p)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return err
+	}
+	setComposedChannelProviders(registered, activities.SendableChannelProviders())
+	return nil
 }
 
 func setComposedChannelProviders(registered, sending []string) {
