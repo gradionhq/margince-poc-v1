@@ -15425,6 +15425,53 @@ components:
               type: [string, 'null']
               format: date
               description: The nearest expected close date among the open deals; null when none names one.
+        contracts:
+          type: [object, 'null']
+          description: >-
+            What this account is under contract for. Null when the caller has no contract
+            grant — gated independently of `commercial` above, because a role may read the
+            pipeline and not the agreements behind it, and a zero would answer a question
+            this reader has no standing to ask.
+          required: [active_count, cancellation_pending]
+          properties:
+            active_count:
+              type: integer
+              minimum: 0
+              description: How many agreements are under contract today (CONTRACT-FORM-1) — the derived reading, not a status count.
+            total_basis_value_minor_base:
+              type: [integer, 'null']
+              description: >-
+                The summed value of the active agreements recorded as a TOTAL, in base-currency
+                minor units. Null when none carries a convertible figure — distinct from zero,
+                which would claim agreements worth nothing.
+            annualized_value_minor_base:
+              type: [integer, 'null']
+              description: >-
+                The summed value of the active agreements recorded as ANNUALIZED, kept apart
+                from the total-basis figure above and NEVER added to it (ADR-0109 §5). A
+                three-year total and a per-year figure span different periods, so one number
+                covering both would describe nothing. A surface holding both shows both.
+            priced_count:
+              type: integer
+              minimum: 0
+              description: How many of `active_count` contributed to either sum. A lower number means the figures cover part of the account, and the page says so.
+            base_currency:
+              type: [string, 'null']
+              description: The ISO-4217 currency both sums are expressed in. Travels with the figures; null whenever they are.
+            nearest_renewal_on:
+              type: [string, 'null']
+              format: date
+              description: The soonest renewal date among the active agreements; null when none names one.
+            cancellation_pending:
+              type: boolean
+              description: >-
+                True when an active agreement has notice recorded and its effective date has
+                not arrived. The customer is still under contract — that is what a notice
+                period is — and the card says so rather than reading as though they left.
+            cancellation_effective_on:
+              type: [string, 'null']
+              format: date
+              description: The soonest cancellation effective date among the active agreements; null when none is pending.
         signal:
           type: [object, 'null']
           description: >-

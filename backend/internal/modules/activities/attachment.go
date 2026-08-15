@@ -108,7 +108,10 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 		return crmcontracts.Attachment{}, err
 	}
 	if err := s.tx(ctx, func(tx pgx.Tx) error {
-		return ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID)
+		if err := ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
+			return err
+		}
+		return ensureContractFileable(ctx, tx, in.ContractID)
 	}); err != nil {
 		return crmcontracts.Attachment{}, err
 	}
@@ -413,6 +416,42 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ensureContractFileable refuses a contract reference the uploader may not see.
+//
+// Naming a contract is a read of it, so an uploader who cannot see the
+// agreement cannot file paper against it — otherwise the upload is an existence
+// oracle, and the document lands under an agreement its owner never chose. A
+// contract has no owner column, so its visibility is inherited from the deal it
+// came from or its organization; the contracts module owns that rule and this
+// asks the same question by joining through it.
+//
+// Nil is the ordinary case: most client paper is about no particular agreement.
+func ensureContractFileable(ctx context.Context, tx pgx.Tx, contractID *ids.UUID) error {
+	if contractID == nil {
+		return nil
+	}
+	if err := auth.Require(ctx, "contract", principal.ActionRead); err != nil {
+		return err
+	}
+	var dealID *ids.UUID
+	var orgID ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT deal_id, organization_id FROM contract WHERE id = $1 AND archived_at IS NULL`,
+		*contractID).Scan(&dealID, &orgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Absent, archived, or invisible all answer the same way: a contract
+		// the caller cannot reach does not exist as far as they are concerned.
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("resolving the contract a document is filed against: %w", err)
+	}
+	if dealID != nil {
+		return auth.EnsureLinkTarget(ctx, tx, "deal", *dealID)
+	}
+	return auth.EnsureLinkTarget(ctx, tx, "organization", orgID)
 }
 
 // accountRollUp resolves the account a newly filed attachment belongs to, which

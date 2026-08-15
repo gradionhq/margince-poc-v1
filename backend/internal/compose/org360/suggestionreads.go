@@ -325,6 +325,10 @@ type suggestionInputs struct {
 	// absent — row scope narrows a section, it does not withhold it.
 	timeline bool
 	pipeline bool
+	// contracts is gated INDEPENDENTLY of pipeline: a role may read deals and
+	// not the agreements behind them, and folding the two would answer a
+	// question this reader has no standing to ask.
+	contracts bool
 
 	newest    lastMessage
 	hasNewest bool
@@ -336,6 +340,7 @@ type suggestionInputs struct {
 	// contradiction rule and the health section count one query between them.
 	contractEnded bool
 	open          pipeline
+	contractStrip contractStrip
 	scheduled     bool
 }
 
@@ -384,7 +389,18 @@ func gatherSuggestionInputs(
 	if err != nil {
 		return suggestionInputs{}, err
 	}
-	in := suggestionInputs{timeline: timeline, pipeline: pipeline}
+	contractsGranted, err := granted(ctx, "contract")
+	if err != nil {
+		return suggestionInputs{}, err
+	}
+	in := suggestionInputs{timeline: timeline, pipeline: pipeline, contracts: contractsGranted}
+	if in.contracts {
+		strip, err := readContractStrip(ctx, tx, orgID, now, baseCurrency)
+		if err != nil {
+			return suggestionInputs{}, err
+		}
+		in.contractStrip = strip
+	}
 	if in.timeline {
 		newest, found, err := newestMessage(ctx, tx, orgID)
 		if err != nil {

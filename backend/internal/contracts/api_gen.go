@@ -15676,6 +15676,33 @@ type Organization360StateStrip struct {
 		StalledCount int `json:"stalled_count"`
 	} `json:"commercial,omitempty"`
 
+	// Contracts What this account is under contract for. Null when the caller has no contract grant — gated independently of `commercial` above, because a role may read the pipeline and not the agreements behind it, and a zero would answer a question this reader has no standing to ask.
+	Contracts *struct {
+		// ActiveCount How many agreements are under contract today (CONTRACT-FORM-1) — the derived reading, not a status count.
+		ActiveCount int `json:"active_count"`
+
+		// AnnualizedValueMinorBase The summed value of the active agreements recorded as ANNUALIZED, kept apart from the total-basis figure above and NEVER added to it (ADR-0109 §5). A three-year total and a per-year figure span different periods, so one number covering both would describe nothing. A surface holding both shows both.
+		AnnualizedValueMinorBase *int `json:"annualized_value_minor_base,omitempty"`
+
+		// BaseCurrency The ISO-4217 currency both sums are expressed in. Travels with the figures; null whenever they are.
+		BaseCurrency *string `json:"base_currency,omitempty"`
+
+		// CancellationEffectiveOn The soonest cancellation effective date among the active agreements; null when none is pending.
+		CancellationEffectiveOn *openapi_types.Date `json:"cancellation_effective_on,omitempty"`
+
+		// CancellationPending True when an active agreement has notice recorded and its effective date has not arrived. The customer is still under contract — that is what a notice period is — and the card says so rather than reading as though they left.
+		CancellationPending bool `json:"cancellation_pending"`
+
+		// NearestRenewalOn The soonest renewal date among the active agreements; null when none names one.
+		NearestRenewalOn *openapi_types.Date `json:"nearest_renewal_on,omitempty"`
+
+		// PricedCount How many of `active_count` contributed to either sum. A lower number means the figures cover part of the account, and the page says so.
+		PricedCount *int `json:"priced_count,omitempty"`
+
+		// TotalBasisValueMinorBase The summed value of the active agreements recorded as a TOTAL, in base-currency minor units. Null when none carries a convertible figure — distinct from zero, which would claim agreements worth nothing.
+		TotalBasisValueMinorBase *int `json:"total_basis_value_minor_base,omitempty"`
+	} `json:"contracts,omitempty"`
+
 	// Engagement Null when the caller has no activity grant — not assessed, as distinct from never contacted.
 	Engagement *struct {
 		LastInboundAt  *time.Time `json:"last_inbound_at,omitempty"`
