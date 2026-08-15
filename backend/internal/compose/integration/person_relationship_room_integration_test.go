@@ -580,3 +580,52 @@ func TestMergeCarriesTheEnrichmentSidecarToTheSurvivor(t *testing.T) {
 		t.Errorf("%d row(s) stayed on the merged-away person, invisible to every read", left)
 	}
 }
+
+// A captured channel message reaches the page NAMING THE TRANSPORT THAT CARRIED
+// IT, and this test exists because it did not.
+//
+// Since ADR-0107/A158 the kind says only that an interaction was a message —
+// which transport carried it is `channel_provider`, a separate column. The 360's
+// timeline read is a hand-written sibling of activities.activityColumns, and
+// when the narrowing added the column there, nothing pointed at the copy. So
+// every activity on every person page reported a null provider: the memory card
+// rendered "message" where it should have said the transport's name, and the
+// composer could not tell a contact reachable on a unit's channel from one
+// reachable nowhere.
+//
+// The guard is a ROW-TO-PAYLOAD assertion rather than a source grep, because
+// what regressed was a SELECT list — a grep for the column name would have
+// passed on a query that selected it into a variable nobody scanned.
+func TestThePerson360TimelineNamesTheTransportThatCarriedAMessage(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	mine := e.SeedPerson(t, "Luu Nguyen Thanh", &e.Rep1)
+
+	// telegram, because it is registered by the core migration on every
+	// installation — the FK on activity.channel_provider means an unregistered
+	// name could not be seeded at all, and this test is about the read.
+	message := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, channel_provider, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'message', 'telegram', 'they wrote', '2026-08-01T09:00:00Z',
+		        'inbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, message, "person", mine)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	page, err := personRoomService(e).Assemble(rep, ids.From[ids.PersonKind](mine))
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if page.Activities == nil || len(page.Activities.Data) != 1 {
+		t.Fatalf("the timeline holds %v rows, want the one captured message", page.Activities)
+	}
+	got := page.Activities.Data[0]
+	if got.Kind != "message" {
+		t.Errorf("kind = %q, want message", got.Kind)
+	}
+	if got.ChannelProvider == nil {
+		t.Fatal("the message reached the page with no transport; the timeline renders it as the bare word \"message\" and every transport looks alike")
+	}
+	if string(*got.ChannelProvider) != "telegram" {
+		t.Errorf("channel_provider = %q, want telegram", string(*got.ChannelProvider))
+	}
+}
