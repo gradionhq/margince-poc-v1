@@ -159,16 +159,59 @@ func sarMessagingSections(pkg *SARPackage, personID ids.PersonID, emails []strin
 		// Loose about SHAPE is not loose about WHO, and this is the half that
 		// bites: an address dropped into a substring match hands a THIRD PARTY's
 		// composed message to whoever asked. subjectApprovalMatch anchors it,
-		// and the export shares that one predicate with the erasure so a subject
+		// and the export shares that predicate with the erasure so a subject
 		// cannot be told two different things about which rows are theirs.
+		//
+		// The export then reaches PAST it, onto the quotations, and the
+		// containment runs one way ON PURPOSE: everything the erasure destroys
+		// is listed here, and the export lists more besides. A row this reaches
+		// and the cascade leaves alone is a proposal read out of a record the
+		// cascade is not entitled to destroy — held, floor-shielded, or shared
+		// with somebody else — and the subject is owed sight of it either way.
+		// The reverse containment is the one that must never hold: a row
+		// destroyed and never listed tells a subject nothing was staged about
+		// them and then destroys it on the strength of the same reading.
 		//
 		// The proposal is returned whole, for the same reason the sent
 		// messages' recipient lists are: this assembly is admin-mediated, so
 		// the disclosure is a human handing a package to a subject rather than
 		// an endpoint answering one.
-		{&pkg.StagedMessages, `SELECT id, kind, status, summary, proposed_change,
+		//
+		// Evidence rides along because it is the part of a staging held in the
+		// subject's OWN words — the verbatim lines a claim was read out of, a
+		// sentence they spoke in a meeting. The proposal is what this
+		// installation concluded; the evidence is what it kept of them in order
+		// to conclude it, which is the half an Art. 15 answer would be strangest
+		// to omit.
+		//
+		// It is the one column here that is NARROWED rather than returned whole,
+		// and the bcc lists above are narrowed for the same reason. Everything
+		// else on this row is text this installation COMPOSED — a summary, a
+		// proposal — and the loose arms match on exactly that. Evidence is not
+		// composed: it is a raw line lifted out of some record, so a row matched
+		// because a summary mentions the subject's address would otherwise hand
+		// them a verbatim sentence out of a meeting they were never part of,
+		// about people they have no relationship to. So the ROW is found by any
+		// arm, and the QUOTATIONS are reduced to the ones that are the subject's
+		// to see: read out of a record they are linked to, or naming them
+		// outright. The rest belongs to another record.
+		//
+		// Per ITEM, not per row, because evidence is per-claim: a proposal
+		// asserting two things cites two sources, and only one of them may be
+		// theirs.
+		{
+			&pkg.StagedMessages, `SELECT id, kind, status, summary, proposed_change,
+		      (SELECT coalesce(jsonb_agg(item), '[]'::jsonb)
+		         FROM jsonb_array_elements(` + evidenceArray + `) AS item
+		        WHERE item->>'source_id' IN (
+		                SELECT l.activity_id::text FROM activity_link l WHERE l.person_id = $1)
+		           OR item->>'evidence_snippet' ~* ANY($3::text[])) AS evidence,
 		      created_at, expires_at, decided_at
 		   FROM approval
-		   WHERE ` + subjectApprovalMatch, []any{personID.UUID, leads, addressPatterns(emails)}},
+		   WHERE (` + subjectApprovalMatch + `)
+		      OR evidence::text ~* ANY($3::text[])
+		      OR ` + evidenceCitesSubjectActivity,
+			[]any{personID.UUID, leads, addressPatterns(emails)},
+		},
 	}
 }

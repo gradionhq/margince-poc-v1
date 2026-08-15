@@ -139,6 +139,16 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := redactStagedApprovals(ctx, tx, subject, leadsWiped, emails); err != nil {
 			return err
 		}
+		// The proposals READ OUT OF the timeline rows just redacted, after the
+		// scrub above and never before it. A proposal can answer to both — cited
+		// from an erased meeting AND naming the subject in its summary — and
+		// only the scrub above ends the run parked behind such a card. Running
+		// this first would take that row out of `pending` under it, so the
+		// withdrawal would stop reaching the run and it would wait forever
+		// holding the payload this cascade exists to destroy.
+		if err := redactApprovalsCitingActivities(ctx, tx, activitiesRedacted, ErasedSourceWithdrawal); err != nil {
+			return err
+		}
 		if err := redactWorkflowRuns(ctx, tx, emails); err != nil {
 			return err
 		}
@@ -201,8 +211,8 @@ func subjectIdentifiers(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (
 }
 
 // purgeRedactedActivityTraces finishes off the activities the timeline redaction
-// just emptied: their vectors, their own audit spines, and the transmitted copy
-// in the send log.
+// just emptied: their vectors, their own audit spines, the proposals read out of
+// them, and the transmitted copy in the send log.
 func purgeRedactedActivityTraces(ctx context.Context, tx pgx.Tx, activities []ids.UUID, reason string) error {
 	// The vectors go with the text they were built from. purgeDerivedTraces
 	// reaches embeddings through activity_link, which by construction cannot
@@ -217,6 +227,12 @@ func purgeRedactedActivityTraces(ctx context.Context, tx pgx.Tx, activities []id
 		}
 	}
 	if err := tombstoneCollateralScrubs(ctx, tx, "activity", activities, reason); err != nil {
+		return err
+	}
+	// The readings of those rows, which describe a body that is now gone. The
+	// proposals a reading produced are scrubbed later in the cascade, after the
+	// subject's own stagings (ErasePerson states why the order matters).
+	if err := purgeTranscriptReadings(ctx, tx, activities); err != nil {
 		return err
 	}
 	// The transmitted copy of every activity just redacted. Without this

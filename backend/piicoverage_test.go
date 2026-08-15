@@ -161,6 +161,21 @@ var piiTables = map[string]piiHandling{
 		},
 		sarRead: false,
 	},
+	// A staged proposal holds a whole composed message before any activity
+	// exists — for a held draft, the addressee and the body — and since core
+	// 0244 it also holds EVIDENCE: the verbatim lines a claim was read out of,
+	// which for a meeting transcript are the subject's own words. That quotation
+	// is a second copy of a body the timeline scrub nulls, kept in a row the
+	// activity-keyed scrubs cannot see, so Art. 17 has to reach it by statement
+	// and Art. 15 has to hand it back.
+	"approval": {erasureWrite: true, sarRead: true},
+	// One reading of one transcript (core 0245). It quotes nothing itself — a
+	// status, a line count, and which proposals it produced — but every one of
+	// those is an answer about a body the erasure destroys, and its schema's
+	// ON DELETE CASCADE never fires because neither engine ever deletes an
+	// activity. Purged with the body rather than exported, like the embedding:
+	// a machine artifact of the subject's text, not anything they supplied.
+	"transcript_read": {erasureWrite: true, sarRead: false},
 	// The preference-center token (0048) is a live capability over the
 	// subject's consent record — held by whoever has the emailed
 	// List-Unsubscribe URL, honoured with no session at all. Registered so
@@ -248,6 +263,13 @@ var erasureCascadeFiles = []string{
 	// and the runs that bought it (ADR-0101). Same Art. 17 transaction, its
 	// own file for the same size reason the timeline has one.
 	"internal/modules/privacy/erasure_provider.go",
+	// The messages nobody has decided yet, and the quotations they carry.
+	// Same Art. 17 transaction; its own file because it belongs to neither
+	// destructive engine and both reach it.
+	"internal/modules/privacy/erasure_approvals.go",
+	// The readings of the transcripts the timeline scrub just emptied — same
+	// transaction, its own file for the same both-engines reason.
+	"internal/modules/privacy/transcriptreadings.go",
 	"internal/modules/privacy/deliveries.go",
 }
 
