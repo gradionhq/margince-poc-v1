@@ -63,8 +63,12 @@ func seedExtractionReading(
 	if err != nil {
 		t.Fatalf("StartExtractionReadQueued: %v", err)
 	}
-	if _, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease); err != nil {
+	claim, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease)
+	if err != nil {
 		t.Fatalf("BeginExtractionRead: %v", err)
+	}
+	if claim.StartedAt == nil {
+		t.Fatal("a claimed reading carries no start time")
 	}
 	if err := store.FinishExtractionRead(ctx, read.ID, activities.ExtractionReadOutcome{
 		Status: activities.ExtractionReadDone,
@@ -74,6 +78,10 @@ func seedExtractionReading(
 		// result, and a seed that dodged that would be seeding a row the writer
 		// cannot produce.
 		Detail: seededReadingDetail(fields),
+		// The claim this outcome belongs to, exactly as the worker passes it:
+		// the finish is scoped to one attempt, so a seed that omitted it would
+		// be writing a row through a door production does not have.
+		ClaimedAt: *claim.StartedAt,
 	}); err != nil {
 		t.Fatalf("FinishExtractionRead: %v", err)
 	}

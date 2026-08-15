@@ -259,11 +259,15 @@ func seedExtractionReadingHTTP(
 	if err != nil {
 		t.Fatalf("StartExtractionReadQueued: %v", err)
 	}
-	if _, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease); err != nil {
+	claim, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease)
+	if err != nil {
 		t.Fatalf("BeginExtractionRead: %v", err)
 	}
+	if claim.StartedAt == nil {
+		t.Fatal("a claimed reading carries no start time")
+	}
 	if err := store.FinishExtractionRead(ctx, read.ID, activities.ExtractionReadOutcome{
-		Status: activities.ExtractionReadDone, Fields: fields,
+		Status: activities.ExtractionReadDone, Fields: fields, ClaimedAt: *claim.StartedAt,
 	}); err != nil {
 		t.Fatalf("FinishExtractionRead: %v", err)
 	}
