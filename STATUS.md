@@ -18,6 +18,27 @@
 Every section in this file, in order. Read this list first and jump; nobody
 needs the whole file to start a session.
 
+- Open, upstream (2026-08-15): **the approval lifecycle's spec half**
+  ([margince-foundation#1310](https://github.com/gradionhq/margince-foundation/pull/1310)).
+  The build half shipped in [#1328](https://github.com/gradionhq/margince-poc-v1/pull/1328)
+  — approvals now genuinely expire (72h, system-actor audit row, outbox event)
+  rather than merely displaying as expired; erasure and subject-access reach the
+  messages nobody has decided yet; and approving an automation's staged action
+  executes it and completes the parked run. That last one was bigger than filed:
+  `assign_owner` and `emit_flow_event` had no decision-grant mapping and
+  `requireDecisionGrants` fails closed, so their stagings were invisible to every
+  inbox and decidable by nobody. The spec PR carries the `expired` verdict and an
+  optional `decided_by` into the event catalog (which still declares
+  `approved | rejected`, so the build currently diverges), and discharges
+  AUTO-NOTE-1 with AUTO-PARAM-7. **Known follow-ups, all filed**:
+  [#1329](https://github.com/gradionhq/margince-poc-v1/issues/1329) an overlay
+  sync-backoff test races the real clock under parallel load;
+  [#1335](https://github.com/gradionhq/margince-poc-v1/issues/1335) an
+  approved-but-unredeemed agent staging survives erasure for the redemption
+  window (its payload is emptied, its token is not);
+  [#1340](https://github.com/gradionhq/margince-poc-v1/issues/1340) the
+  design-system emoji scan walks the whole tree against a 5s ceiling and times
+  out under CI load — it blocked this merge once and cleared on a plain re-run.
 - Open, in review (2026-08-15): **twelve configuration pages in the record page's
   voice** ([#1225](https://github.com/gradionhq/margince-poc-v1/pull/1225)). Ready for
   review; not merged, because the founder wants a manual frontend pass first. Settings and
