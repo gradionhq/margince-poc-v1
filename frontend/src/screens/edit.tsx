@@ -220,7 +220,7 @@ export function EditAction<Updated extends { id: string }>({
   invalidate,
   recordKey,
   resolveExisting,
-  disabledReason,
+  disabledReasonId,
 }: Readonly<{
   label: string;
   // Why this action is unavailable, when it is. STATE-4a settles the
@@ -228,7 +228,7 @@ export function EditAction<Updated extends { id: string }>({
   // rather than permission — an archived record — stays visible and
   // disabled WITH the reason, because the reason is the information and
   // hiding the control hides a fact the reader needs.
-  disabledReason?: string;
+  disabledReasonId?: string;
 
   // See EditRecordModal — an optional one-sentence advisory over the form.
   notice?: string;
@@ -263,7 +263,7 @@ export function EditAction<Updated extends { id: string }>({
     <>
       <Button
         small
-        reason={disabledReason}
+        reasonId={disabledReasonId}
         onClick={() => setEditing(true)}
         data-testid="edit-record"
       >

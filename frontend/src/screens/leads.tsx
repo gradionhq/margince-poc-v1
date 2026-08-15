@@ -530,11 +530,13 @@ function LeadOwner({
   meId,
   pending,
   onAssign,
+  terminalReasonId,
 }: Readonly<{
   lead: Lead;
   meId: string | undefined;
   pending: boolean;
   onAssign: (ownerId: string) => void;
+  terminalReasonId: string;
 }>) {
   const t = useT();
   const pickerId = useId();
@@ -583,7 +585,7 @@ function LeadOwner({
         <Button
           small
           disabled={pending}
-          reason={lead.archived_at ? t("lead.terminalDisqualified") : undefined}
+          reasonId={lead.archived_at ? terminalReasonId : undefined}
           aria-expanded={picking}
           aria-controls={pickerId}
           onClick={() => setPicking(!picking)}
@@ -652,7 +654,13 @@ function LeadLifecycle({
   lead,
   id,
   onChanged,
-}: Readonly<{ lead: Lead; id: string; onChanged: () => void }>) {
+  terminalReasonId,
+}: Readonly<{
+  lead: Lead;
+  id: string;
+  onChanged: () => void;
+  terminalReasonId: string;
+}>) {
   const t = useT();
   const me = useMe();
   const scoreFieldId = useId();
@@ -806,9 +814,7 @@ function LeadLifecycle({
           // action and stands alone.
           <Button
             small
-            reason={
-              lead.archived_at ? t("lead.terminalDisqualified") : undefined
-            }
+            reasonId={lead.archived_at ? terminalReasonId : undefined}
             onClick={() => setOverriding(true)}
           >
             {t("lead.overrideScore")}
@@ -819,6 +825,7 @@ function LeadLifecycle({
       <LeadOwner
         lead={lead}
         meId={meId}
+        terminalReasonId={terminalReasonId}
         pending={patch.isPending}
         onAssign={(ownerId) => patch.mutate({ owner_id: ownerId })}
       />
@@ -867,6 +874,7 @@ function LeadOverviewPane({
   lead,
   id,
   headingId,
+  terminalReasonId,
   promoteOpen,
   closePromote,
   trigger,
@@ -881,6 +889,7 @@ function LeadOverviewPane({
   lead: Lead;
   id: string;
   headingId: string;
+  terminalReasonId: string;
   promoteOpen: boolean;
   closePromote: () => void;
   trigger: PromoteTrigger;
@@ -975,7 +984,12 @@ function LeadOverviewPane({
           Hiding the whole body left the page blank below the tab bar, which
           reads as a broken render rather than a closed lead. The controls
           inside it are individually disabled by their own state. */}
-      <LeadLifecycle lead={lead} id={id} onChanged={onLifecycleChanged} />
+      <LeadLifecycle
+        lead={lead}
+        id={id}
+        onChanged={onLifecycleChanged}
+        terminalReasonId={terminalReasonId}
+      />
       <CustomFieldsCard object="lead" record={lead} />
     </>
   );
@@ -991,12 +1005,17 @@ function LeadActions({
   cf,
   overlay,
   onPromote,
+  terminalReasonId,
 }: Readonly<{
   lead: Lead;
   id: string;
   cf: ReturnType<typeof useObjectCustomFields>;
   overlay: boolean;
   onPromote: () => void;
+  // The id of the ONE sentence this page prints about being closed. Every
+  // refused control points at it rather than repeating it, which is what
+  // stops a terminal lead printing the same line five times.
+  terminalReasonId: string;
 }>) {
   const t = useT();
   return (
@@ -1022,9 +1041,7 @@ function LeadActions({
           person, so the terminal lead that reaches this page is a
           disqualified one. */}
       <EditAction
-        disabledReason={
-          lead.archived_at ? t("lead.terminalDisqualified") : undefined
-        }
+        disabledReasonId={lead.archived_at ? terminalReasonId : undefined}
         label={t("record.edit")}
         notice={overlay ? t("overlay.partialWriteBack") : undefined}
         fields={[...leadEditFields, ...cf.formFields]}
@@ -1065,9 +1082,7 @@ function LeadActions({
       {!overlay && (
         <>
           <ArchiveAction
-            disabledReason={
-              lead.archived_at ? t("lead.terminalDisqualified") : undefined
-            }
+            disabledReasonId={lead.archived_at ? terminalReasonId : undefined}
             label={t("record.disqualify")}
             confirmText={t("record.disqualifyConfirm")}
             archive={async () => {
@@ -1086,9 +1101,7 @@ function LeadActions({
           <ShareAction
             recordType="lead"
             recordId={lead.id}
-            disabledReason={
-              lead.archived_at ? t("lead.terminalDisqualified") : undefined
-            }
+            disabledReasonId={lead.archived_at ? terminalReasonId : undefined}
           />
         </>
       )}
@@ -1101,6 +1114,9 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
   const headingId = useId();
+  // ONE sentence about this lead being closed, minted here and pointed at by
+  // every control the closure refuses (ADR-0108 §6).
+  const terminalReasonId = useId();
   const [tab, setTab] = useState<LeadTab>("overview");
   // The seam serves update for a mirrored lead (write-back projects onto the
   // incumbent, overlay/provider_writes.go), so Edit renders in overlay too.
@@ -1196,6 +1212,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 id={id}
                 cf={cf}
                 overlay={overlay}
+                terminalReasonId={terminalReasonId}
                 onPromote={() => setPromoteOpen(true)}
               />
             }
@@ -1206,7 +1223,20 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
             // The readings ride the band, above the columns: they describe the
             // PROSPECT, and a strip that vanished on the History tab would
             // move the tab bar and re-flow the page under the reader.
-            band={<LeadBadges lead={lead} />}
+            band={
+              <>
+                <LeadBadges lead={lead} />
+                {/* Stated ONCE for the page. Every control the closure
+                    refuses points at this element by id, so a screen reader
+                    reaches it from each of them without the sentence being
+                    printed beside all six. */}
+                {lead.archived_at && (
+                  <p id={terminalReasonId} className="t-caption">
+                    {t("lead.terminalDisqualified")}
+                  </p>
+                )}
+              </>
+            }
           >
             {/* The bar leads the column it governs. */}
             <div style={{ marginBottom: "var(--space-4)" }}>
@@ -1225,6 +1255,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 lead={lead}
                 id={id}
                 headingId={headingId}
+                terminalReasonId={terminalReasonId}
                 promoteOpen={promoteOpen}
                 closePromote={closePromote}
                 trigger={trigger}

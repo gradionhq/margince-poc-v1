@@ -28,25 +28,33 @@ export function Button({
   small,
   className,
   reason,
+  reasonId,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   small?: boolean;
   /**
-   * Why this action is unavailable. Passing it DISABLES the button, renders
-   * the explanation beside it, and points the control at that text with
-   * `aria-describedby` — the same contract `Switch.reason` carries, and for
-   * the same reason: a `title` on a disabled button is announced by no screen
-   * reader and a disabled button cannot be focused, so a reason that lives
-   * only in `title` reaches nobody who needed it.
+   * Why this action is unavailable. Passing it DISABLES the button and points
+   * the control at the explanation with `aria-describedby` — a `title` on a
+   * disabled button is announced by no screen reader, and a disabled button
+   * cannot be focused, so a reason living only in `title` reaches nobody who
+   * needed it. `Switch.reason` carries the same contract.
    *
    * STATE-4a decides WHEN to use it: a control blocked by state rather than
    * permission — an archived record, a frozen setting — stays visible and
    * says why, because the reason is the information and it can change.
    */
   reason?: string;
+  /**
+   * The id of an element ALREADY on the page carrying that explanation, for
+   * a surface where several controls are refused by ONE fact. Printing the
+   * same sentence beside every control states it as many times as there are
+   * buttons; naming it once and pointing every control at it says it once
+   * and still reaches a screen reader from each of them.
+   */
+  reasonId?: string;
 }) {
-  const reasonId = useId();
+  const ownReasonId = useId();
   const classes = [
     "btn",
     `btn-${variant}`,
@@ -55,12 +63,15 @@ export function Button({
   ]
     .filter(Boolean)
     .join(" ");
+  const refused = reason !== undefined || reasonId !== undefined;
   const button = (
     <button
       type="button"
       className={classes}
-      disabled={rest.disabled || reason !== undefined}
-      aria-describedby={reason === undefined ? undefined : reasonId}
+      disabled={rest.disabled || refused}
+      aria-describedby={
+        reasonId ?? (reason === undefined ? undefined : ownReasonId)
+      }
       {...rest}
     />
   );
@@ -70,7 +81,7 @@ export function Button({
   return (
     <span className="btn-with-reason">
       {button}
-      <span id={reasonId} className="t-caption">
+      <span id={ownReasonId} className="t-caption">
         {reason}
       </span>
     </span>
