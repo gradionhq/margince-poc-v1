@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,10 +20,11 @@ import (
 )
 
 // isDue reports whether ws itself appears in DueOverlayConnections' fleet-
-// wide scan. It tests MEMBERSHIP, never a count: this package's integration
-// tests run in parallel against one shared clone database, so a concurrent
-// test's own connection would inflate any len(due) assertion into a flaky
-// one — filtering to ws is what keeps this deterministic.
+// wide scan. It tests MEMBERSHIP, never a count: the scan walks every
+// workspace in the database, and tests here seed more than one on purpose
+// (the harness resets once per test, not once per workspace), so a len(due)
+// assertion would be asserting on the fixture next door — filtering to ws is
+// what keeps this about ws.
 func isDue(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) bool {
 	t.Helper()
 	due, err := DueOverlayConnections(ctx, pool)
@@ -43,10 +43,11 @@ func isDue(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) b
 // end: a freshly connected workspace is due; a connection-level failure
 // backs it off so DueOverlayConnections stops selecting it (no more
 // hot re-sweeping a dead/throttled connection); and one successful sweep
-// resets the backoff so it is due again. now() is the real clock because
-// the due-scan compares next_sweep_at against the DATABASE's now() — a
-// backoff is always minutes in the future, a reset is always now-or-past,
-// so the OUTCOME is deterministic without any sleep.
+// resets the backoff so it is due again. It needs no clock of its own and
+// no sleep: the store schedules against the DATABASE's now() and the
+// due-scan reads the same one (syncbackoff.go), so a backoff is always
+// minutes in the future and a reset is always now-or-past — whatever this
+// process's clock happens to read.
 func TestSweepBackoffGatesDueOverlayConnections(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	vault := keyvault.NewMemory()
@@ -61,7 +62,7 @@ func TestSweepBackoffGatesDueOverlayConnections(t *testing.T) {
 	}
 
 	// A connection-level failure backs the sweep off into the future.
-	if err := store.RecordSweepFailure(ctx, apperrors.ErrIncumbentBudgetExhausted, time.Now()); err != nil {
+	if err := store.RecordSweepFailure(ctx, apperrors.ErrIncumbentBudgetExhausted); err != nil {
 		t.Fatalf("RecordSweepFailure: %v", err)
 	}
 	if isDue(ctx, t, pool, ws) {
@@ -69,7 +70,7 @@ func TestSweepBackoffGatesDueOverlayConnections(t *testing.T) {
 	}
 
 	// One clean sweep resets the backoff — due again.
-	if err := store.RecordSweepSuccess(ctx, time.Now()); err != nil {
+	if err := store.RecordSweepSuccess(ctx); err != nil {
 		t.Fatalf("RecordSweepSuccess: %v", err)
 	}
 	if !isDue(ctx, t, pool, ws) {
@@ -88,7 +89,7 @@ func TestRequestSweepMakesTheWorkspaceDueNow(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	if err := store.RecordSweepFailure(ctx, errors.New("boom"), time.Now()); err != nil {
+	if err := store.RecordSweepFailure(ctx, errors.New("boom")); err != nil {
 		t.Fatalf("RecordSweepFailure: %v", err)
 	}
 	if isDue(ctx, t, pool, ws) {

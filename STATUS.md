@@ -30,15 +30,12 @@ needs the whole file to start a session.
   inbox and decidable by nobody. The spec PR carries the `expired` verdict and an
   optional `decided_by` into the event catalog (which still declares
   `approved | rejected`, so the build currently diverges), and discharges
-  AUTO-NOTE-1 with AUTO-PARAM-7. **Known follow-ups, all filed**:
-  [#1329](https://github.com/gradionhq/margince-poc-v1/issues/1329) an overlay
-  sync-backoff test races the real clock under parallel load;
+  AUTO-NOTE-1 with AUTO-PARAM-7. **One follow-up still open**:
   [#1335](https://github.com/gradionhq/margince-poc-v1/issues/1335) an
   approved-but-unredeemed agent staging survives erasure for the redemption
-  window (its payload is emptied, its token is not);
-  [#1340](https://github.com/gradionhq/margince-poc-v1/issues/1340) the
-  design-system emoji scan walks the whole tree against a 5s ceiling and times
-  out under CI load — it blocked this merge once and cleared on a plain re-run.
+  window (its payload is emptied, its token is not). The two flakes filed
+  beside it — the overlay sweep scheduled by two clocks (#1329) and the
+  design-system tree scan sized like a unit test (#1340) — are fixed.
 - Open, in review (2026-08-15): **twelve configuration pages in the record page's
   voice** ([#1225](https://github.com/gradionhq/margince-poc-v1/pull/1225)). Ready for
   review; not merged, because the founder wants a manual frontend pass first. Settings and

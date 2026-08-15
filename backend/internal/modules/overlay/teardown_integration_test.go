@@ -411,10 +411,10 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		// teardown purges that row, so recording a backoff or success after a
 		// disconnect would resurrect it.
 		"RecordSweepSuccess": func() error {
-			return fenced.RecordSweepSuccess(ctx, time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC))
+			return fenced.RecordSweepSuccess(ctx)
 		},
 		"RecordSweepFailure": func() error {
-			return fenced.RecordSweepFailure(ctx, errors.New("boom"), time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC))
+			return fenced.RecordSweepFailure(ctx, errors.New("boom"))
 		},
 	}
 	for name, w := range fencedWrites {
