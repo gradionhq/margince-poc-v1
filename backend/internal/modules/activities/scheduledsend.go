@@ -320,16 +320,19 @@ func (s *Store) scheduleSend(
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// workspace_id comes from the transaction's own GUC, the one binding
 		// every tenant write here uses — never from a caller-supplied value.
+		prov := provenanceOf(actor)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO scheduled_send
 			  (id, workspace_id, status, scheduled_at, scheduled_tz,
 			   origin_kind, anchor_activity_id, origin_links,
-			   payload, payload_version, scheduled_by, principal_kind)
+			   payload, payload_version, scheduled_by, principal_kind,
+			   agent_actor_id, agent_passport_id, agent_on_behalf_of)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			        $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			row.ID, row.Status, row.ScheduledAt, row.ScheduledTZ,
 			row.OriginKind, nullableAnchor(origin), originLinks,
 			payload, payloadVersionCurrent, row.ScheduledBy, principalKind(actor),
+			prov.ActorID, prov.PassportID, prov.OnBehalfOf,
 		); err != nil {
 			return fmt.Errorf("scheduled send: recording the intention: %w", err)
 		}
@@ -428,4 +431,50 @@ func principalKind(p principal.Principal) string {
 		return "human"
 	}
 	return "agent"
+}
+
+// agentProvenance is WHO scheduled a message when the actor was not a human,
+// frozen at schedule time.
+//
+// The human's id is already in `scheduled_by` and is not enough: two agents, or
+// two passports, acting for the same person are the same human and different
+// actors, and the audit trail has to tell them apart. Rebuilding an agent
+// identity from the human's id at fire invents an actor that never existed
+// (ADR-0055's attribution chain).
+//
+// This is a RECORD, not authority. The fire path still re-reads the human's
+// live seat and grants and holds the message if they no longer permit it — a
+// revoked passport must stop the send, and a stored one must never resurrect
+// it. What is stored answers "who asked for this"; what is read live answers
+// "may it still go".
+type agentProvenance struct {
+	ActorID    *string
+	PassportID *ids.UUID
+	OnBehalfOf *ids.UUID
+}
+
+// provenanceOf captures the acting agent, or nothing at all for a human.
+//
+// OnBehalfOf falls back to the actor's own UserID: a tool call carries the
+// human it acts for there, but an agent principal assembled with only a UserID
+// still names a real human, and the column is what makes the row's agent arm
+// complete. Both spellings mean the same person.
+func provenanceOf(p principal.Principal) agentProvenance {
+	if p.Type == principal.PrincipalHuman {
+		return agentProvenance{}
+	}
+	actorID := p.ID
+	behalf := p.OnBehalfOf
+	if behalf.IsZero() {
+		behalf = p.UserID
+	}
+	out := agentProvenance{ActorID: &actorID, OnBehalfOf: &behalf}
+	if !p.PassportID.IsZero() {
+		// A passport is how an agent's scopes were granted, so an action taken
+		// under one names it. An agent acting without a passport (an in-process
+		// workflow) legitimately has none, and NULL says so rather than
+		// borrowing an id from somewhere else.
+		out.PassportID = &p.PassportID
+	}
+	return out
 }
