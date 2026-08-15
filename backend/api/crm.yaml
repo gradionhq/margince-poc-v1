@@ -10882,7 +10882,7 @@ paths:
       operationId: listOrganizationContracts
       security: [ { cookieAuth: [] } ]
       x-agent-access: human-only
-      summary: The agreements this account holds, newest term first (CONTRACT-WIRE-1).
+      summary: The agreements this account holds, newest first (CONTRACT-WIRE-1).
       description: |
         Every contract anchored to this organization, whatever its status.
 
@@ -17411,7 +17411,7 @@ components:
         project_id: { type: [string, 'null'], format: uuid }
         contract_number:
           type: [string, 'null']
-          description: 'Free text — an imported agreement carries whatever number it was given. Duplicates within an account are surfaced as a warning, never refused.'
+          description: 'Free text — an imported agreement carries whatever number the counterparty''s own system gave it. Duplicates within an account are permitted: two systems reusing a number is their business, not a reason to refuse the row.'
         title: { type: string }
         value_minor:
           type: [integer, 'null']

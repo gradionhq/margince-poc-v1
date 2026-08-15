@@ -60,31 +60,41 @@ func TestUnderContractUsesOneAsOfParameter(t *testing.T) {
 	}
 }
 
-// A patch may only name columns a client is allowed to set. Status and the
-// cancellation dates move through their own paths, which state the consequence
-// and write the matching event; letting a generic patch set them would route
-// around both.
-func TestPatchableColumnsExcludeTheAssertedTransitions(t *testing.T) {
-	for _, column := range []string{"status", "cancellation_notice_on", "cancellation_effective_on", "superseded_by_id"} {
-		if patchableColumns[column] {
-			t.Errorf("%q must not be patchable — it has its own path", column)
-		}
-	}
-	for _, column := range []string{"title", "value_minor", "ends_on", "renewal_on", "signed_on"} {
-		if !patchableColumns[column] {
-			t.Errorf("%q should be patchable", column)
-		}
+// The typed patch builder must carry EVERY field the contract's patch schema
+// offers. A field the builder forgets is silently unsettable: the request
+// validates, the response comes back 200, and nothing changed.
+func TestPatchBuilderCarriesEveryRequestField(t *testing.T) {
+	full := fullUpdateRequest()
+
+	patch := contractPatch(sampleContract(), full)
+
+	// UpdateContractRequest has thirteen settable fields; every one must
+	// produce an assignment.
+	if got := len(patch.After()); got != 13 {
+		t.Errorf("patch sets %d columns from a fully-populated request, want 13: %v", got, patch.After())
 	}
 }
 
-// Every patchable column must report a prior value, or the audit diff records
-// a change from nothing and the trail stops being reconstructable.
-func TestEveryPatchableColumnReportsAPriorValue(t *testing.T) {
-	sample := sampleContract()
+// An empty patch body changes nothing and must not manufacture a write — a
+// version bump on a no-op would invalidate every other client's If-Match.
+func TestAnEmptyPatchSetsNothing(t *testing.T) {
+	patch := contractPatch(sampleContract(), crmcontracts.UpdateContractRequest{})
 
-	for column := range patchableColumns {
-		if priorValue(sample, column) == nil && column != "deal_id" && column != "project_id" && column != "contract_number" {
-			t.Errorf("priorValue(%q) = nil on a fully-populated contract — the audit diff would record a change from nothing", column)
+	if !patch.Empty() {
+		t.Errorf("an empty request produced assignments: %v", patch.After())
+	}
+}
+
+// Status and the cancellation dates are absent from the patch schema on
+// purpose: each has its own path that states the consequence and writes the
+// matching event. A future contract edit that added them here would route
+// around both.
+func TestTheAssertedTransitionsAreNotPatchable(t *testing.T) {
+	patch := contractPatch(sampleContract(), fullUpdateRequest())
+
+	for _, column := range []string{"status", "cancellation_notice_on", "cancellation_effective_on", "superseded_by_id"} {
+		if _, set := patch.After()[column]; set {
+			t.Errorf("%q must not be settable through a patch — it has its own path", column)
 		}
 	}
 }
@@ -116,5 +126,27 @@ func sampleContract() crmcontracts.Contract {
 		RenewalOn:        &day,
 		SignedOn:         &day,
 		AutoRenew:        &autoRenew,
+	}
+}
+
+// fullUpdateRequest populates every settable field of the patch schema, so a
+// field the builder forgets shows up as a missing assignment.
+func fullUpdateRequest() crmcontracts.UpdateContractRequest {
+	number := "MSA-2024-02"
+	title := "Renamed agreement"
+	value := int64(9900000)
+	currency := "EUR"
+	notice := 120
+	autoRenew := true
+	basis := crmcontracts.UpdateContractRequestValueBasis(BasisAnnualized)
+	dealID := openapi_types.UUID(ids.New[ids.DealKind]().UUID)
+	projectID := openapi_types.UUID(ids.New[ids.ProjectKind]().UUID)
+	day := openapi_types.Date{Time: time.Date(2027, 1, 31, 0, 0, 0, 0, time.UTC)}
+
+	return crmcontracts.UpdateContractRequest{
+		DealId: &dealID, ProjectId: &projectID, ContractNumber: &number,
+		Title: &title, ValueMinor: &value, Currency: &currency, ValueBasis: &basis,
+		StartsOn: &day, EndsOn: &day, RenewalOn: &day, SignedOn: &day,
+		AutoRenew: &autoRenew, NoticePeriodDays: &notice,
 	}
 }

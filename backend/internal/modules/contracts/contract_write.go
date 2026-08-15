@@ -7,7 +7,9 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -68,10 +70,12 @@ func createContractTx(ctx context.Context, tx pgx.Tx, in CreateContractInput, by
 	if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 		return crmcontracts.Contract{}, err
 	}
-	if in.DealID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "deal", in.DealID.UUID); err != nil {
-			return crmcontracts.Contract{}, err
-		}
+	if err := ensureLinksVisible(ctx, tx, dealRef(in.DealID), projectRef(in.ProjectID)); err != nil {
+		return crmcontracts.Contract{}, err
+	}
+	if err := ensureLinksShareOrganization(ctx, tx, in.OrganizationID.UUID,
+		dealRef(in.DealID), projectRef(in.ProjectID)); err != nil {
+		return crmcontracts.Contract{}, err
 	}
 
 	id := ids.New[ids.ContractKind]()
@@ -118,12 +122,9 @@ func createContractTx(ctx context.Context, tx pgx.Tx, in CreateContractInput, by
 // UpdateContract applies a partial patch. Status is absent by design: it moves
 // through ChangeStatus, so a correction to a term can never silently activate
 // an agreement.
-func (s *Store) UpdateContract(ctx context.Context, id ids.ContractID, values map[string]any, ifVersion *int64) (crmcontracts.Contract, error) {
+func (s *Store) UpdateContract(ctx context.Context, id ids.ContractID, in crmcontracts.UpdateContractRequest, ifVersion *int64) (crmcontracts.Contract, error) {
 	if err := auth.Require(ctx, contractObject, principal.ActionUpdate); err != nil {
 		return crmcontracts.Contract{}, err
-	}
-	if len(values) == 0 {
-		return s.GetContract(ctx, id)
 	}
 
 	var out crmcontracts.Contract
@@ -134,9 +135,22 @@ func (s *Store) UpdateContract(ctx context.Context, id ids.ContractID, values ma
 		if err != nil {
 			return err
 		}
-		patch, err := contractPatch(existing, values)
-		if err != nil {
+		// Naming a deal or a project is a read of it, on a PATCH exactly as on a
+		// create. Without this a caller re-points a contract at a record it
+		// cannot see — and because the organization arm of the visibility
+		// predicate enforces capture privacy while the deal arm does not,
+		// moving the anchor would strip that boundary from the row for good.
+		if err := ensureLinksVisible(ctx, tx, uuidRef("deal", in.DealId), uuidRef("project", in.ProjectId)); err != nil {
 			return err
+		}
+		if err := ensureLinksShareOrganization(ctx, tx, ids.UUID(existing.OrganizationId),
+			uuidRef("deal", in.DealId), uuidRef("project", in.ProjectId)); err != nil {
+			return err
+		}
+		patch := contractPatch(existing, in)
+		if patch.Empty() {
+			out = existing
+			return nil
 		}
 		if err := patch.ApplyGuarded(ctx, tx, "contract", id.UUID, ifVersion); err != nil {
 			if constraint, ok := storekit.CheckViolation(err); ok {
@@ -188,62 +202,137 @@ func (s *Store) ArchiveContract(ctx context.Context, id ids.ContractID) error {
 	})
 }
 
-// patchableColumns is the closed set a client patch may name. Status is absent
-// deliberately (it moves through ChangeStatus), and so are the cancellation
-// dates (they move through Cancel, which states the consequence in words).
-var patchableColumns = map[string]bool{
-	"deal_id": true, "project_id": true, "contract_number": true, "title": true,
-	"value_minor": true, "currency": true, "value_basis": true,
-	"starts_on": true, "ends_on": true, "renewal_on": true,
-	"auto_renew": true, "notice_period_days": true, "signed_on": true,
-}
-
-// contractPatch turns a request body into a patch, refusing any column that is
-// not a client's to set. An unknown key is a refusal rather than a silent drop:
-// a caller who typed a field name wrong must learn that nothing happened.
-func contractPatch(existing crmcontracts.Contract, values map[string]any) (*storekit.Patch, error) {
+// contractPatch turns the decoded body into a patch. The generated request
+// struct IS the allowlist — a field it does not carry cannot be set, and a key
+// the client misspelled is refused by the decoder before it reaches here, so
+// there is no second list to keep in step with the contract.
+func contractPatch(existing crmcontracts.Contract, in crmcontracts.UpdateContractRequest) *storekit.Patch {
 	patch := storekit.NewPatch()
-	for column, value := range values {
-		if !patchableColumns[column] {
-			return nil, &ContractCheckError{Field: column,
-				Reason: "this field is not editable here"}
-		}
-		patch.Set(column, priorValue(existing, column), value)
+	if in.DealId != nil {
+		patch.Set("deal_id", existing.DealId, *in.DealId)
 	}
-	return patch, nil
+	if in.ProjectId != nil {
+		patch.Set("project_id", existing.ProjectId, *in.ProjectId)
+	}
+	if in.ContractNumber != nil {
+		patch.Set("contract_number", existing.ContractNumber, *in.ContractNumber)
+	}
+	if in.Title != nil {
+		patch.Set("title", existing.Title, *in.Title)
+	}
+	if in.ValueMinor != nil {
+		patch.Set("value_minor", existing.ValueMinor, *in.ValueMinor)
+	}
+	if in.Currency != nil {
+		patch.Set("currency", existing.Currency, *in.Currency)
+	}
+	if in.ValueBasis != nil {
+		patch.Set("value_basis", string(existing.ValueBasis), string(*in.ValueBasis))
+	}
+	if in.StartsOn != nil {
+		patch.Set("starts_on", existing.StartsOn, in.StartsOn.Time)
+	}
+	if in.EndsOn != nil {
+		patch.Set("ends_on", existing.EndsOn, in.EndsOn.Time)
+	}
+	if in.RenewalOn != nil {
+		patch.Set("renewal_on", existing.RenewalOn, in.RenewalOn.Time)
+	}
+	if in.AutoRenew != nil {
+		patch.Set("auto_renew", existing.AutoRenew, *in.AutoRenew)
+	}
+	if in.NoticePeriodDays != nil {
+		patch.Set("notice_period_days", existing.NoticePeriodDays, *in.NoticePeriodDays)
+	}
+	if in.SignedOn != nil {
+		patch.Set("signed_on", existing.SignedOn, in.SignedOn.Time)
+	}
+	return patch
 }
 
-// priorValue reads the column's current value for the audit diff. Only the
-// columns patchableColumns admits are asked for.
-func priorValue(c crmcontracts.Contract, column string) any {
-	switch column {
-	case "deal_id":
-		return c.DealId
-	case "project_id":
-		return c.ProjectId
-	case "contract_number":
-		return c.ContractNumber
-	case "title":
-		return c.Title
-	case "value_minor":
-		return c.ValueMinor
-	case "currency":
-		return c.Currency
-	case "value_basis":
-		return string(c.ValueBasis)
-	case "starts_on":
-		return c.StartsOn
-	case "ends_on":
-		return c.EndsOn
-	case "renewal_on":
-		return c.RenewalOn
-	case "auto_renew":
-		return c.AutoRenew
-	case "notice_period_days":
-		return c.NoticePeriodDays
-	case "signed_on":
-		return c.SignedOn
-	default:
-		return nil
+// linkRef is one client-supplied reference to a row-scoped record: the table it
+// names, and the id, when the request carried one.
+type linkRef struct {
+	table string
+	id    *ids.UUID
+}
+
+func dealRef(id *ids.DealID) linkRef {
+	if id == nil {
+		return linkRef{table: "deal"}
 	}
+	return linkRef{table: "deal", id: &id.UUID}
+}
+
+func projectRef(id *ids.ProjectID) linkRef {
+	if id == nil {
+		return linkRef{table: "project"}
+	}
+	return linkRef{table: "project", id: &id.UUID}
+}
+
+// uuidRef names a link the patch body carried. An absent field is not a
+// reference and is not checked; it leaves the column alone.
+func uuidRef(table string, id *openapi_types.UUID) linkRef {
+	if id == nil {
+		return linkRef{table: table}
+	}
+	parsed := ids.UUID(*id)
+	return linkRef{table: table, id: &parsed}
+}
+
+// ensureLinksVisible gates every client-supplied reference this write carries.
+// Spelled once because create and patch must apply the same rule: the recurring
+// defect in this tree is the second call site that forgets the first's gate.
+func ensureLinksVisible(ctx context.Context, tx pgx.Tx, refs ...linkRef) error {
+	for _, ref := range refs {
+		if ref.id == nil {
+			continue
+		}
+		if err := auth.EnsureLinkTarget(ctx, tx, ref.table, *ref.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CrossOrganizationLinkError reports a deal or project that belongs to a
+// different company than the contract does.
+type CrossOrganizationLinkError struct{ Field string }
+
+func (e *CrossOrganizationLinkError) Error() string {
+	return "the " + strings.TrimSuffix(e.Field, "_id") + " belongs to a different company than this contract"
+}
+
+// ensureLinksShareOrganization refuses a contract whose deal or project belongs
+// to another company.
+//
+// This is a VISIBILITY rule as much as a data-integrity one. The predicate that
+// decides who may read a contract judges a deal-anchored contract by its DEAL
+// alone, so pairing company A's contract with company B's deal would publish
+// A's agreement to everyone who can see B — including through the events it
+// emits. Two independent "can you see it" checks cannot catch that; only asking
+// whether the two name the same company can.
+func ensureLinksShareOrganization(ctx context.Context, tx pgx.Tx, orgID ids.UUID, refs ...linkRef) error {
+	for _, ref := range refs {
+		if ref.id == nil {
+			continue
+		}
+		var linkedOrg ids.UUID
+		//nolint:gosec // the table name is a package literal from dealRef/projectRef, never client input
+		query := "SELECT organization_id FROM " + ref.table + " WHERE id = $1"
+		err := tx.QueryRow(ctx, query, *ref.id).Scan(&linkedOrg)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// EnsureLinkTarget already ran, so an absent row here means it was
+			// archived or deleted in between; answer as it does.
+			return apperrors.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("read %s organization: %w", ref.table, err)
+		}
+		if linkedOrg != orgID {
+			return &CrossOrganizationLinkError{Field: ref.table + "_id"}
+		}
+	}
+	return nil
 }

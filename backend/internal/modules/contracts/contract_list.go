@@ -8,6 +8,7 @@ package contracts
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -86,7 +87,7 @@ func listContractsTx(ctx context.Context, tx pgx.Tx, in ListContractsInput, asOf
 	limit := storekit.ClampLimit(in.Limit)
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s, %s FROM contract WHERE %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
-		contractColumns, underContractSQL(asOfPos), joinAnd(where), arg(limit+1)), args...)
+		contractColumns, underContractSQL(asOfPos), strings.Join(where, " AND "), arg(limit+1)), args...)
 	if err != nil {
 		return crmcontracts.ContractListResponse{}, fmt.Errorf("list contracts: %w", err)
 	}
@@ -124,15 +125,4 @@ func cursorTime(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
-}
-
-func joinAnd(clauses []string) string {
-	out := ""
-	for i, c := range clauses {
-		if i > 0 {
-			out += " AND "
-		}
-		out += c
-	}
-	return out
 }

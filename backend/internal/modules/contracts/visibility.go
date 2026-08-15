@@ -29,6 +29,10 @@ import (
 // empty string for an unbounded caller, exactly as the shared row-scope
 // helpers do, so a caller composes it the same way.
 //
+// Both arms require a LIVE anchor. An archived deal keeps its foreign key and
+// its grants, so without the filter a contract would stay readable — and
+// mutable — through a record whose own read already answers 404.
+//
 // The two arms are a disjunction because a contract has one anchor or the
 // other: a contract WITH a deal is judged by that deal, and a contract with no
 // deal is judged by its organization. A contract with a deal is deliberately
@@ -57,9 +61,9 @@ func visibleClause(ctx context.Context, alias string, arg func(any) int) (string
 
 	return storekit.SQLf(`(
 		(%[1]sdeal_id IS NOT NULL AND EXISTS (
-			SELECT 1 FROM deal d WHERE d.id = %[1]sdeal_id AND %[2]s))
+			SELECT 1 FROM deal d WHERE d.id = %[1]sdeal_id AND d.archived_at IS NULL AND %[2]s))
 		OR (%[1]sdeal_id IS NULL AND EXISTS (
-			SELECT 1 FROM organization o WHERE o.id = %[1]sorganization_id AND %[3]s))
+			SELECT 1 FROM organization o WHERE o.id = %[1]sorganization_id AND o.archived_at IS NULL AND %[3]s))
 	)`, qualified, trueWhenEmpty(dealScope), trueWhenEmpty(orgScope)), nil
 }
 

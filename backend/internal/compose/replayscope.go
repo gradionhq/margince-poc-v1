@@ -85,6 +85,12 @@ const (
 	// probeApproval keys the approvals-owned visibility probe compose injects.
 	probeApproval = "approval"
 
+	// probeContract keys the contracts-owned visibility probe. A contract has
+	// no owner column, so the generic row-scope path refuses its table outright
+	// (auth.ScopeClauseFor rejects a name it does not know) — a replay routed
+	// through it would answer 500 for a retry that should replay the stored 201.
+	probeContract = "contract"
+
 	// The field an offer names its deal by.
 	offerDealField = "deal_id"
 
@@ -144,7 +150,7 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/deals":                  {object: tableDeal, table: tableDeal, idPath: "id"},
 	"PATCH /v1/deals/{id}":            {object: tableDeal, table: tableDeal, idPath: "id"},
 	"POST /v1/deals/{id}/advance":     {object: tableDeal, table: tableDeal, idPath: "id"},
-	"POST /v1/contracts":              {object: "contract", table: "contract", idPath: "id"},
+	"POST /v1/contracts":              {object: "contract", moduleProbe: probeContract, idPath: "id", rowNote: "a contract carries no owner column; visibility is inherited from its deal or organization, so the contracts store owns the probe"},
 	"POST /v1/projects":               {object: tableProject, table: tableProject, idPath: "id"},
 	"PATCH /v1/projects/{id}":         {object: tableProject, table: tableProject, idPath: "id"},
 	"POST /v1/projects/{id}/advance":  {object: tableProject, table: tableProject, idPath: "id"},

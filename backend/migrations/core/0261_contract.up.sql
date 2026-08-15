@@ -33,8 +33,8 @@ CREATE TABLE contract (
   project_id                uuid NULL REFERENCES project(id) ON DELETE SET NULL,
 
   -- Free text, and unconstrained on purpose: an imported agreement carries
-  -- whatever number the counterparty's own system gave it. A duplicate within
-  -- one account is surfaced to the human as a warning, never refused here.
+  -- whatever number the counterparty's own system gave it, and two systems
+  -- reusing a number is their business rather than a reason to refuse the row.
   contract_number           text NULL,
   title                     text NOT NULL,
 
@@ -126,10 +126,12 @@ CREATE TRIGGER contract_set_updated_at
   BEFORE UPDATE ON contract
   FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
 
--- The account read: every agreement on one company, newest term first. Partial
--- because an archived contract is never in the list this index serves.
+-- The account read: every agreement on one company, newest first. The column
+-- order mirrors the list query's ORDER BY and its keyset cursor exactly —
+-- (created_at, id) — so the page is served from the index rather than sorted.
+-- Partial because an archived contract is never in the list this index serves.
 CREATE INDEX contract_account_ix
-  ON contract (organization_id, starts_on DESC, id DESC)
+  ON contract (organization_id, created_at DESC, id DESC)
   WHERE archived_at IS NULL;
 
 -- The deal read, and the won-evidence check that asks whether this deal has an

@@ -41,6 +41,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("status", "invalid_status_transition", transition.Error()))
 		return
 	}
+	var crossOrg *CrossOrganizationLinkError
+	if errors.As(err, &crossOrg) {
+		httperr.Write(w, r, httperr.Validation(crossOrg.Field, "cross_organization_link", crossOrg.Error()))
+		return
+	}
 	var check *ContractCheckError
 	if errors.As(err, &check) {
 		field := check.Field
@@ -108,7 +113,7 @@ func (h Handlers) GetContract(w http.ResponseWriter, r *http.Request, id crmcont
 
 // UpdateContract patches an agreement's recorded terms.
 func (h Handlers) UpdateContract(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateContractParams) {
-	var req map[string]any
+	var req crmcontracts.UpdateContractRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}

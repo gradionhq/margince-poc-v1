@@ -12668,7 +12668,7 @@ type Contract struct {
 	CancellationNoticeOn    *openapi_types.Date `json:"cancellation_notice_on,omitempty"`
 	CapturedBy              *openapi_types.UUID `json:"captured_by,omitempty"`
 
-	// ContractNumber Free text — an imported agreement carries whatever number it was given. Duplicates within an account are surfaced as a warning, never refused.
+	// ContractNumber Free text — an imported agreement carries whatever number the counterparty's own system gave it. Duplicates within an account are permitted: two systems reusing a number is their business, not a reason to refuse the row.
 	ContractNumber *string    `json:"contract_number,omitempty"`
 	CreatedAt      *time.Time `json:"created_at,omitempty"`
 	Currency       *string    `json:"currency,omitempty"`
@@ -30383,7 +30383,7 @@ type ServerInterface interface {
 	// Regenerate this account's brief, ignoring the cached one.
 	// (POST /organizations/{id}/brief)
 	RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
-	// The agreements this account holds, newest term first (CONTRACT-WIRE-1).
+	// The agreements this account holds, newest first (CONTRACT-WIRE-1).
 	// (GET /organizations/{id}/contracts)
 	ListOrganizationContracts(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationContractsParams)
 	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
@@ -32150,7 +32150,7 @@ func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *htt
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// The agreements this account holds, newest term first (CONTRACT-WIRE-1).
+// The agreements this account holds, newest first (CONTRACT-WIRE-1).
 // (GET /organizations/{id}/contracts)
 func (_ Unimplemented) ListOrganizationContracts(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationContractsParams) {
 	w.WriteHeader(http.StatusNotImplemented)

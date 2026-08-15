@@ -110,3 +110,34 @@ func TestAnUnmappedConstraintStillHidesTheSchema(t *testing.T) {
 		t.Errorf("reason leaks the constraint name: %q", check.Reason)
 	}
 }
+
+// A deal or project belonging to a different company than the contract is
+// refused, and the refusal names the field a human should look at.
+//
+// This is the rule that makes the visibility predicate safe. That predicate
+// judges a deal-anchored contract by its DEAL alone, so pairing company A's
+// contract with company B's deal would publish A's agreement to everyone who
+// can see B. Two independent "can you see it" checks cannot catch that — only
+// asking whether the two name the same company can, and the database will
+// happily store the mismatched row if nothing asks.
+func TestACrossOrganizationLinkIsRefusedByField(t *testing.T) {
+	for _, field := range []string{"deal_id", "project_id"} {
+		t.Run(field, func(t *testing.T) {
+			err := error(&CrossOrganizationLinkError{Field: field})
+
+			var crossOrg *CrossOrganizationLinkError
+			if !errors.As(err, &crossOrg) {
+				t.Fatalf("err = %v, want CrossOrganizationLinkError", err)
+			}
+			if crossOrg.Field != field {
+				t.Errorf("field = %q, want %q", crossOrg.Field, field)
+			}
+			if !strings.Contains(crossOrg.Error(), "different company") {
+				t.Errorf("message does not say what is wrong: %q", crossOrg.Error())
+			}
+			if strings.Contains(crossOrg.Error(), "_id") {
+				t.Errorf("message leaks a column name at the reader: %q", crossOrg.Error())
+			}
+		})
+	}
+}
