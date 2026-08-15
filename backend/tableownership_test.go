@@ -177,6 +177,10 @@ var tableOwners = map[string]string{
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
+	// What the pipeline decided about each message, for 24 hours. Written by
+	// the sink and by compose's verdict engine through capture's own helper,
+	// so the writer is capture wherever the decision was made.
+	"capture_trace": "internal/modules/capture",
 	// The workspace's own additions to and carve-outs from the shipped
 	// consumer-mail baseline (CAP-PARAM-5).
 	"capture_freemail_domain": "internal/modules/capture",

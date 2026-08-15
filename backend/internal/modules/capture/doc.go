@@ -12,6 +12,8 @@
 // grant-time scope intersection: a connector's declared scopes must be
 // ⊆ the granting human's — connector ≤ human, exactly like agents.
 //
-// Tables owned: raw_capture, capture_connection. Imports shared +
-// platform only; never a sibling module.
+// Tables owned: raw_capture, capture_connection, capture_trace (the
+// 24-hour diagnostic trace of what the pipeline decided about each
+// message, swept rather than retained). Imports shared + platform
+// only; never a sibling module.
 package capture
