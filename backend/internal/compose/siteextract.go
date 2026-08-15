@@ -95,13 +95,21 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	profileOnce := sync.Once{}
 	var profileWg sync.WaitGroup
 	var profileErr error
+	var profileMu sync.Mutex
+	profiledPages := 0
 	fireProfile := func() {
 		profileOnce.Do(func() {
 			snapshot := snapshotCrawlPages(&committedMu, &committed)
+			profileMu.Lock()
+			profiledPages = len(snapshot)
+			profileMu.Unlock()
 			profileWg.Add(1)
 			go func() {
 				defer profileWg.Done()
-				out.fields, profileErr = safeExtractProfile(ctx, x, snapshot)
+				fields, err := safeExtractProfile(ctx, x, snapshot)
+				profileMu.Lock()
+				out.fields, profileErr = fields, err
+				profileMu.Unlock()
 			}()
 		})
 	}
@@ -147,6 +155,25 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	wg.Wait()
 	profileWg.Wait()
 
+	// The first profile ran on the pages that existed at the trigger, which
+	// on a large site is a fraction of what the crawl went on to find: a
+	// 40-page site was profiled from its first 8, so the About, team and
+	// services pages that arrive later were never read. Ask again, once,
+	// over the whole corpus when the crawl grew enough for that to change
+	// the answer.
+	if extra := reprofileIfMuchMoreEvidence(ctx, x, crawl.Pages, profiledPages); extra != nil {
+		if extra.err != nil {
+			collected.failed = append(collected.failed,
+				fmt.Errorf("profile re-run: %w", extra.err))
+		} else if len(extra.fields) > len(out.fields) {
+			// Keep the richer answer. A re-run that found LESS is the model
+			// being unlucky on a longer prompt, not new knowledge, and
+			// replacing a good profile with a worse one is a regression the
+			// caller cannot see.
+			out.fields = extra.fields
+		}
+	}
+
 	if profileErr != nil {
 		collected.failed = append(collected.failed, fmt.Errorf("profile lane: %w", profileErr))
 	}
@@ -154,6 +181,33 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	out.merged = mergeInCommitOrder(crawl, collected.results)
 	out.err = errors.Join(collected.failed...)
 	return crawl, out, nil
+}
+
+// profileGrowthFactor is how much bigger the corpus must be before the
+// profile is worth asking again. Below it the second call would see nearly
+// the same evidence and cost a model call to confirm the first answer.
+const profileGrowthFactor = 2
+
+// reprofileResult carries a re-run's outcome, or nil when no re-run was
+// warranted.
+type reprofileResult struct {
+	fields []evidencedField
+	err    error
+}
+
+// reprofileIfMuchMoreEvidence re-runs the profile lane over the finished
+// crawl when the first pass saw only a fraction of it.
+//
+// Returns nil when the crawl did not grow enough to justify the call: a site
+// that ended near the trigger was already profiled on what it has.
+func reprofileIfMuchMoreEvidence(
+	ctx context.Context, x evidenceExtractor, pages []crawlPage, profiled int,
+) *reprofileResult {
+	if profiled == 0 || len(pages) < profiled*profileGrowthFactor {
+		return nil
+	}
+	fields, err := safeExtractProfile(ctx, x, pages)
+	return &reprofileResult{fields: fields, err: err}
 }
 
 // pageFactsCollector accumulates the streamed fact lane's outcomes. Pages

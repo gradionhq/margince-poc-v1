@@ -196,7 +196,10 @@ func streamFixtureSite(n int) *fakeSite {
 // page-count trigger on a large crawl and via the end-of-crawl fallback
 // on a small one — and the merge is commit-ordered regardless of
 // completion scheduling.
-func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T) {
+func TestCrawlAndExtractStreamsDeterministicallyAndProfilesTheWholeCrawl(t *testing.T) {
+	// The first size crosses the trigger and then keeps crawling, so the
+	// profile is asked again on the finished corpus; the second ends below
+	// the trigger and is profiled once, on everything it has.
 	for _, pages := range []int{profileTriggerNonLegalPages + 4, 3} {
 		site := streamFixtureSite(pages)
 		var profileCalls atomic.Int32
@@ -224,8 +227,16 @@ func TestCrawlAndExtractStreamsDeterministicallyAndFiresProfileOnce(t *testing.T
 		if extraction.err != nil {
 			t.Fatalf("clean lanes reported an error: %v", extraction.err)
 		}
-		if got := profileCalls.Load(); got != 1 {
-			t.Fatalf("profile lane fired %d times for %d pages, want exactly once", got, pages)
+		wantProfileCalls := int32(1)
+		if pages >= profileTriggerNonLegalPages*profileGrowthFactor {
+			// The crawl at least doubled after the trigger, so the early
+			// answer was drawn from a fraction of the evidence and is asked
+			// again over the whole of it.
+			wantProfileCalls = 2
+		}
+		if got := profileCalls.Load(); got != wantProfileCalls {
+			t.Fatalf("profile lane fired %d times for %d pages, want %d",
+				got, pages, wantProfileCalls)
 		}
 		if len(extraction.merged.facts) != pages {
 			t.Fatalf("facts = %d, want one per catalog page (%d)", len(extraction.merged.facts), pages)
@@ -319,5 +330,69 @@ func TestExtractSiteProgressCountsEveryPage(t *testing.T) {
 	}
 	if maxDone != len(extractFixturePages()) {
 		t.Fatalf("progress reached %d, want every page (%d)", maxDone, len(extractFixturePages()))
+	}
+}
+
+// growingProfileFake answers the profile lane by how much evidence it was
+// shown: a prompt carrying the later pages yields the richer profile. That
+// is the real asymmetry -- the About and team pages arrive after the
+// trigger, so the first call cannot see them.
+type growingProfileFake struct {
+	laneFake
+	profile *atomic.Int32
+}
+
+func (f growingProfileFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if strings.HasPrefix(req.System, profileSystem) {
+		f.profile.Add(1)
+		if strings.Contains(req.Messages[0].Content, "Audit 20") {
+			// The later pages are in the prompt, so the richer profile is
+			// available: two fields instead of one.
+			return model.Response{Text: `{"fields":[` +
+				`{"f":"display_name","v":"Acme","e":"s0","c":0.9},` +
+				`{"f":"industry","v":"Audit 20","e":"s0","c":0.9}]}`}, nil
+		}
+		return model.Response{Text: `{"fields":[{"f":"display_name","v":"Acme","e":"s0","c":0.9}]}`}, nil
+	}
+	return f.laneFake.Complete(ctx, req)
+}
+
+func TestALargeCrawlIsProfiledOnEverythingItFound(t *testing.T) {
+	// A 40-page site was profiled from the first 8 pages and never asked
+	// again, so every page the crawl found afterwards -- About, team,
+	// services -- reached the fact lane but never the profile.
+	const pages = profileTriggerNonLegalPages * 3
+	site := streamFixtureSite(pages)
+	var profileCalls atomic.Int32
+	brain := growingProfileFake{
+		laneFake: laneFake{pageReplies: map[string]string{}},
+		profile:  &profileCalls,
+	}
+	for i := 0; i < pages; i++ {
+		pageURL := fmt.Sprintf("%s/services-%02d", seedURL, i)
+		brain.pageReplies[pageURL] = fmt.Sprintf(
+			`{"facts":[{"f":"service","v":"Audit %02d — catalog line","e":"s0"}]}`, i)
+	}
+	crawler := testSiteCrawler(site)
+	// Commit a few pages per round, the way a real crawl arrives. With the
+	// whole site landing in one wave the trigger already sees everything
+	// and a second pass would be pointless -- which is itself correct, and
+	// is what the sibling test covers.
+	crawler.fetchWave = 4
+
+	_, extraction, err := crawlAndExtract(context.Background(), crawler,
+		evidenceExtractor{brain: brain, factBrain: brain}, seedURL, nil, nil)
+	if err != nil {
+		t.Fatalf("crawlAndExtract: %v", err)
+	}
+	if extraction.err != nil {
+		t.Fatalf("clean lanes reported an error: %v", extraction.err)
+	}
+	if got := profileCalls.Load(); got != 2 {
+		t.Fatalf("profile lane fired %d times, want 2 (early answer, then the whole crawl)", got)
+	}
+	if len(extraction.fields) < 2 {
+		t.Fatalf("profile kept %d fields, want the richer answer the second pass found",
+			len(extraction.fields))
 	}
 }
