@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -131,6 +132,13 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// margince_app may read. Tracked as issue #658.
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping,
 		func(ctx context.Context) error { return AssertRuntimeRole(ctx, pool) })...))
+	// The claim surface, beside the probes rather than under /v1: the session
+	// middleware fronting /v1 resolves the singleton organization first and
+	// answers 503 when there is none, so an endpoint that exists to run when no
+	// organization exists cannot live behind it. See handlers_setup.go.
+	setupLimit := newSetupLimiter()
+	mux.HandleFunc("GET /setup/status", setupStatus(identitySvc, setupLimit))
+	mux.HandleFunc("POST /setup/claim", setupClaim(identitySvc, pool, srv.bootstrapSeeds, setupLimit))
 	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,
@@ -248,6 +256,16 @@ func requireMetricsToken(token string, next http.HandlerFunc) http.HandlerFunc {
 func WithMetricsToken(token string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.metricsToken = token
+	}
+}
+
+// WithBootstrapSeeds carries the deployment file's `seeds` section to the claim
+// route, so an installation provisioned by claim gets the same module defaults
+// as one provisioned from bootstrap_admin. Without it a claim would silently
+// seed the built-in defaults while the configured path honoured the file.
+func WithBootstrapSeeds(seeds deployconfig.Seeds) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.bootstrapSeeds = seeds
 	}
 }
 

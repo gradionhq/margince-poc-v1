@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -107,6 +108,16 @@ type BootstrapInput struct {
 // becomes the workspace's subdomain and the timezone drives every
 // date-boundary sweep — a malformed value here would haunt the whole tenant
 // lifetime, so it is rejected before any row is written.
+// The password bound, shared by every path that accepts one. Counted in RUNES:
+// a four-emoji password is sixteen bytes and would clear a byte floor of twelve
+// while being a quarter of the length the floor intends. Named here
+// because this is where the two provisioning paths meet; the reset endpoint
+// states the same numbers in the message it shows a human.
+const (
+	minPasswordLen = 12
+	maxPasswordLen = 256
+)
+
 func (in *BootstrapInput) normalize() error {
 	if in.Timezone == "" {
 		in.Timezone = "UTC"
@@ -126,6 +137,20 @@ func (in *BootstrapInput) normalize() error {
 		return err
 	}
 	in.AdminEmail = adminEmail.String()
+	// The floor every path that sets a password already applies —
+	// deployconfig checks it when reading bootstrap_admin's file, the reset
+	// endpoint checks it on redemption. It belongs HERE too, because a claim
+	// (ADR-0105) arrives from an untrusted request body on an unauthenticated
+	// route: without it, `"admin_password": ""` mints a loginable root account.
+	// Stated once at the point both provisioning paths converge rather than a
+	// third time at a call site.
+	if n := utf8.RuneCountInString(in.AdminPassword); n < minPasswordLen || n > maxPasswordLen {
+		return &values.ParseError{
+			Field:   "admin_password",
+			Code:    "length",
+			Message: fmt.Sprintf("the admin password must be %d–%d characters", minPasswordLen, maxPasswordLen),
+		}
+	}
 	return nil
 }
 

@@ -44,6 +44,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
@@ -147,6 +148,13 @@ type Server struct {
 	// configured), so it stays off — routes.go answers 404 rather than
 	// serving it — until an operator opts in by setting one.
 	metricsToken string
+
+	// bootstrapSeeds are the deployment file's `seeds`, carried here so a
+	// CLAIM lays down the same module defaults a configured bootstrap would.
+	// Injected by WithBootstrapSeeds; the zero value seeds the built-in
+	// defaults, which is what an installation with no `seeds` section gets on
+	// either path.
+	bootstrapSeeds deployconfig.Seeds
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers

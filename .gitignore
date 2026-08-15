@@ -122,3 +122,4 @@ workspace/
 # written into whichever tree it was invoked from. Machine-local and per-session,
 # same as the IDE state above.
 /.impeccable/
+/config/margince-setup-token

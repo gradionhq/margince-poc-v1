@@ -95,7 +95,7 @@ func (s *Service) BootstrapInstallation(ctx context.Context, create func() (Inst
 		if err != nil {
 			return err
 		}
-		wsID, err = createInstallation(ctx, tx, in, seed)
+		wsID, err = createInstallation(ctx, tx, in, originConfigured, seed)
 		created = err == nil
 		return err
 	})
@@ -157,10 +157,26 @@ func activeWorkspaces(ctx context.Context, tx pgx.Tx) ([]ids.WorkspaceID, error)
 	return out, rows.Err()
 }
 
+// provisioningOrigin says which of ADR-0105's two paths created the
+// organization, and it decides only one thing: who the creation is attributed
+// to. It is a parameter rather than a field on InstallationBootstrap because it
+// describes how the input arrived, not what the input is.
+type provisioningOrigin int
+
+const (
+	// originConfigured — margince.yaml carried bootstrap_admin and boot applied
+	// it. No human was present, so the record says `system`.
+	originConfigured provisioningOrigin = iota
+	// originClaimed — a human presented the operator's setup token and chose
+	// their own credential. The record names the admin that request created:
+	// the first provisioning event in this product with someone behind it.
+	originClaimed
+)
+
 // createInstallation writes organization + first admin + system roles +
 // module seeds in the caller's transaction — either everything exists
 // afterwards or nothing does (the ADR-0043 bootstrap atomicity, kept).
-func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
+func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap, origin provisioningOrigin, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
 	boot := BootstrapInput{
 		WorkspaceName: in.OrganizationName,
 		Slug:          slugify(in.OrganizationName),
@@ -210,12 +226,35 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	if err := seedAgentSeat(ctx, tx, wsID, boot); err != nil {
 		return ids.WorkspaceID{}, err
 	}
-	// Bootstrap is a SYSTEM event: no human signed in — the admin's
-	// first session is minted later by a normal login with its own row.
+	// Any outstanding claim credential is retired here, on BOTH paths. The
+	// claim path has already spent it; the configured path never issued one but
+	// may be running on an installation that was minted a token by an earlier
+	// unprovisioned boot. Left alive, that token would sit in a log pipeline
+	// while /setup/status advertised the installation as claimable — inert only
+	// while an organization exists, and live again the moment one is archived or
+	// the database is restored empty. The organization is what retires it, not
+	// whichever path created the organization.
+	if err := retireSetupTokens(ctx, tx); err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	// Who did this. A configured bootstrap is a SYSTEM event — no human signed
+	// in, and naming one would make the record assert something false. A CLAIM
+	// is the opposite: someone presented the operator's token and chose their
+	// own credential in that same request, so the record names the admin it
+	// created (ADR-0105 §4). The module seeds written inside this transaction
+	// stay `system:seed` on both paths (B37) — a claimant chose an organization
+	// name, not a default pipeline's stages.
+	actorType, actorID := "system", "installation-bootstrap"
+	if origin == originClaimed {
+		// 'human' is the vocabulary the audit surface already speaks
+		// (human|agent|connector|system); a claim is a person acting, so it
+		// takes the existing word rather than widening the enum for one row.
+		actorType, actorID = "human", userID.String()
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'system', 'installation-bootstrap', 'installation_bootstrap', jsonb_build_object('admin_user_id', $2::text))`,
-		wsID, userID.String()); err != nil {
+		 VALUES ($1, $2, $3, 'installation_bootstrap', jsonb_build_object('admin_user_id', $4::text))`,
+		wsID, actorType, actorID, userID.String()); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 
