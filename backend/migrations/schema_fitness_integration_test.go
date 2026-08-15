@@ -281,6 +281,23 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
 	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	// The lead score's two record tables (ADR-0105). Neither is a reference a
+	// reader follows to a lead it could not otherwise see: both are child rows
+	// of a lead write that has already proved visibility.
+	//
+	// A manual signal IS client-supplied — a rep names the lead they are
+	// scoring — and it is gated at the write: SetLeadManualSignal calls
+	// auth.EnsureVisibleLive(ctx, tx, "lead", …) inside the same transaction as
+	// the insert, so a lead the caller cannot see answers before any row lands.
+	//
+	// A score-history row carries no client-named lead at all. It is appended by
+	// recomputeLeadScoreTx, which only ever runs inside a lead write that has
+	// already gated (SetLeadManualSignal above, UpdateLead, or the SYSTEM
+	// recompute workflow whose RecomputeLeadScore entry point calls
+	// auth.Require). The lead id is the one that transaction is already working
+	// on, never one a request supplied.
+	"lead_manual_signal.lead_id": "client-supplied and gated: SetLeadManualSignal puts the named lead through auth.EnsureVisibleLive in the writing transaction before the insert",
+	"lead_score_history.lead_id": "owned child row: appended by recomputeLeadScoreTx from the lead the enclosing gated write is already working on, never from a request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

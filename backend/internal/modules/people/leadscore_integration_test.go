@@ -15,14 +15,24 @@ package people
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // newLeadScoreEnv gives a store and an admin context that may work leads.
 func newLeadScoreEnv(t *testing.T) (context.Context, *Store) {
+	t.Helper()
+	ctx, store, _ := newLeadScoreEnvWithBase(t)
+	return ctx, store
+}
+
+// newLeadScoreEnvWithBase is newLeadScoreEnv plus the seeded environment, for
+// the tests that need a SECOND caller with a narrower row scope.
+func newLeadScoreEnvWithBase(t *testing.T) (context.Context, *Store, *privacyEnv) {
 	t.Helper()
 	base := setupCapturePrivacy(t)
 	ctx := principal.WithCorrelationID(
@@ -37,7 +47,7 @@ func newLeadScoreEnv(t *testing.T) (context.Context, *Store) {
 			RowScope: principal.RowScopeAll,
 		},
 	})
-	return ctx, base.store
+	return ctx, base.store, base
 }
 
 func seedScoredLead(ctx context.Context, t *testing.T, store *Store) ids.LeadID {
@@ -206,6 +216,79 @@ func TestAManualSignalCountsAndStaysItsOwnFactor(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the human's input is not its own factor: %+v", *after.Current.Factors)
+	}
+}
+
+// Scoring a lead is a WRITE to it, and naming one in the request is a read of
+// it: a rep who cannot see a lead must not be able to score it, and must not
+// learn it exists by being told so.
+//
+// The schema fitness gate (backend/migrations, TestFK_rowScopedTargetsHave-
+// VisibilityDecision) classifies lead_manual_signal.lead_id as client-supplied
+// and gated. That classification is a claim about this call, and this test is
+// what makes it true rather than asserted: without the EnsureVisibleLive probe
+// in SetLeadManualSignal, a rep could write their judgement onto any lead in
+// the workspace by id alone, and the 404-vs-403 answer below is what keeps the
+// refusal from confirming the lead is there.
+func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
+	ctx, store, base := newLeadScoreEnvWithBase(t)
+
+	// Owned by the teammate, deliberately: an UNOWNED lead is visible to every
+	// scope tier by design (OwnerPredicate reads `owner_id IS NULL OR = me` —
+	// a record nobody owns is not somebody else's private record), so a lead
+	// with no owner would pass the probe honestly and prove nothing.
+	teammate := ids.From[ids.UserKind](base.teammate)
+	lead, _, err := store.CreateLead(ctx, CreateLeadInput{
+		FullName: ptr("Annika Vogel"),
+		Email:    ptr("annika@sudwind.example"),
+		Title:    ptr("VP Sales"),
+		Source:   "webform",
+		Status:   "new",
+		OwnerID:  &teammate,
+	})
+	if err != nil {
+		t.Fatalf("seeding a lead owned by somebody else: %v", err)
+	}
+	leadID := ids.From[ids.LeadKind](ids.UUID(lead.Id))
+
+	// A rep in the same workspace, restricted to their OWN rows, who does not
+	// own that lead. The lead grants are real — this is a row-scope refusal,
+	// not an object-permission one, which is the case the probe exists for.
+	stranger := principal.WithCorrelationID(
+		principal.WithWorkspaceID(context.Background(), base.ws), ids.NewV7())
+	stranger = principal.WithActor(stranger, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + base.owner.String(), UserID: base.owner,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects:  map[string]principal.ObjectGrant{"lead": {Read: true, Update: true}},
+			RowScope: principal.RowScopeOwn,
+		},
+	})
+
+	_, err = store.SetLeadManualSignal(stranger, leadID, SetLeadManualSignalInput{
+		Factor: "employees", Band: "201+", SignalKind: "assumption",
+		Reason: "scoring a lead that is not mine to see",
+	})
+	if err == nil {
+		t.Fatal("a rep scored a lead outside their row scope — the visibility probe is not running")
+	}
+	// ErrNotFound, never ErrPermissionDenied: a refusal that distinguishes
+	// "exists but forbidden" from "no such lead" tells a caller which ids are
+	// real, which is the existence disclosure the row-scope rule forbids.
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("want ErrNotFound so the refusal hides existence, got %v", err)
+	}
+
+	// And nothing was written: the refusal must land before the insert, not
+	// leave a row somebody can no longer see.
+	out, err := store.ExplainLeadScore(ctx, leadID, ExplainLeadScoreInput{Limit: 10})
+	if err != nil {
+		t.Fatalf("re-reading the lead as admin: %v", err)
+	}
+	for _, f := range *out.Current.Factors {
+		if f.Factor == "manual:employees" {
+			t.Error("the refused signal was written anyway")
+		}
 	}
 }
 
