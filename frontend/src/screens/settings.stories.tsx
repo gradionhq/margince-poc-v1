@@ -239,9 +239,9 @@ const privacyRoutes = {
 // What it watches is the seam BETWEEN cards rather than any one card's insides:
 // three panels stack here, each with a title and an action button on the same
 // header line, and one of them is a withheld body whose whole content is a
-// sentence explaining a denial. A page is where the reading measure, the panel
-// header's title/action split and the stack's own rhythm all have to hold at once
-// — and where the DSR facet control runs out of width first.
+// sentence explaining a denial. A page is where the panel header's title/action
+// split and the stack's own rhythm have to hold at once — and where the DSR facet
+// control runs out of width first.
 export const PrivacyTabPhone: Story = {
   parameters: { layout: "fullscreen" },
   globals: { viewport: { value: "phone" } },

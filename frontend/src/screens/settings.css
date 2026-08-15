@@ -12,27 +12,22 @@
    unrelated surfaces was ZERO. Two hairlines touching read as one card.
 
    The gap is the same --space-4 the shell's rule gives, so a settings page and any
-   other page space alike. */
-/* And the WIDTH, which the entry register declares per page (settings.tsx's
-   SETTINGS_TABS `layout`). The default is a reading measure, matched to the
-   proportion the record page gives its own story column (composed.css
-   `.record-zones-aside`: 7 of 10 tracks inside the 1280px `--pageColumn`). Most
-   settings pages are forms and prose, and dropping one full-width column into
-   that page meant a single text input was ~950px of empty field and a
-   two-option light/dark control spanned the same distance — a form is not more
-   usable for being wider, it is only harder to associate a label with a value
-   across. */
+   other page space alike.
+
+   And no width of its own: every settings page fills the page column, the same
+   column every other screen gets. This sheet carried a reading measure for a
+   while and gave the two table-carrying pages an exemption from it, which is two
+   problems. A reader navigating between entries watched the page change size,
+   because the width belonged to the entry rather than to settings. And the
+   exemption was a knob every new entry had to answer, which is how a register
+   grows a column of values nobody revisits. A control that should not stretch is
+   a control that knows its own width — see `.settings-intrinsic` below — and
+   that is where the constraint belongs, on the thing with an opinion rather than
+   on the page around it. */
 .settings-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 860px;
-}
-/* The two pages that carry real tables — the member roster, the data model's
-   field / product / template editors — keep the whole column, because a table
-   squeezed to a reading measure does not read better, it starts scrolling. */
-.settings-stack-wide {
-  max-width: none;
 }
 
 /* A section heading inside the stack separates SUBJECTS, so it needs more air

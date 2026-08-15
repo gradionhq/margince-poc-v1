@@ -291,9 +291,16 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `frontend/` — the Vite/React web UI: a standalone static build served
   separately from the API binary (which serves `/v1` only — no embedded
   SPA); `make frontend-check` / `make dev` exist at the repo root.
-  Every interactive control comes from `frontend/src/design-system/` —
-  its README is the catalog to read before hand-rolling one, and a native
-  `<select>` fails `frontend/scripts/check-native-controls.sh`.
+  **Working in here? Read [frontend/CLAUDE.md](frontend/CLAUDE.md) first**, and
+  then the file it opens with:
+  **[frontend/src/design-system/README.md](frontend/src/design-system/README.md)
+  is the catalog of every control that already exists** — cards, buttons,
+  inputs, fields, badges, tables, menus, dialogs, empty states. Open it BEFORE
+  building anything visible. Every interactive control comes from
+  `frontend/src/design-system/`; a native `<select>` fails
+  `frontend/scripts/check-native-controls.sh`, but nothing automated can tell
+  that the component you just wrote already existed under another name, which is
+  how this tree has twice grown a second spelling of a card.
 - `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the

@@ -58,10 +58,8 @@ export const List: Story = {
     );
   },
 };
-// The catalogue table at 390px. Products is one of the two `layout: "wide"`
-// settings pages — it keeps the whole column precisely because a table squeezed
-// to a reading measure starts scrolling — and a phone gives it no column to keep.
-// Seven values per row (name, SKU, unit, price, tax, active, the row verbs) have
+// The catalogue table at 390px. Every settings page takes the whole page column,
+// which is what a table needs and what a phone has none of. Seven values per row (name, SKU, unit, price, tax, active, the row verbs) have
 // to end up either wrapped or inside a scroller, and no story has drawn this
 // table narrow enough to say which.
 export const ListPhone: Story = {

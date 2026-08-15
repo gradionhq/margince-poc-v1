@@ -155,37 +155,32 @@ import "./settings.css";
 // one entry belonging to both. Split by WHOSE thing each surface is, they both get
 // an honest predicate, and the ungated special case is gone rather than moved.
 //
-// Every entry also declares HOW WIDE it wants to be, because settings pages are
-// two different kinds of surface and one column cannot serve both. Most of them
-// are forms and prose — a single text input stretched across the 1280px page
-// column is 950px of empty field, and the two-option light/dark control spanned
-// the same distance. Those take `measure`, the reading width the record page's
-// own story column is set to. The two that carry real TABLES — the member roster
-// and the data model's field/product/template editors — take `wide` and keep the
-// whole column, because a table narrowed to a reading measure starts scrolling
-// sideways instead of reading better.
-//
-// It is per-entry data rather than a class a page remembers to set: twelve pages
-// that each have to remember is exactly how the eleven-entry merge left several
-// of them with no rhythm at all.
+// Width is NOT an entry's business. Every page takes the whole column, so the
+// twelve of them line up with each other and with the rest of the app: a reader
+// moving between two settings pages sees the content start and end where the
+// last one did. A per-page measure buys a nicer form column at the cost of the
+// page appearing to change size as you navigate, and of a knob each new entry
+// has to answer for. Where a single control would otherwise stretch to the full
+// column, the control constrains itself (`.settings-intrinsic`, and each
+// surface's own field widths) — that is a property of the control, which knows
+// how wide it wants to be, not of the page, which does not.
 const SETTINGS_TABS = [
-  { id: "account", icon: UserRound, group: "you", layout: "measure" },
-  { id: "voice", icon: Mic, group: "you", layout: "measure" },
-  { id: "agents", icon: KeyRound, group: "you", layout: "measure" },
-  { id: "connections", icon: Plug, group: "you", layout: "measure" },
-  { id: "general", icon: Building2, group: "org", layout: "measure" },
-  { id: "people", icon: UsersRound, group: "org", layout: "wide" },
-  { id: "integrations", icon: Webhook, group: "org", layout: "measure" },
-  { id: "capture", icon: Mail, group: "org", layout: "measure" },
-  { id: "data-model", icon: Database, group: "org", layout: "wide" },
-  { id: "ai", icon: Sparkles, group: "org", layout: "measure" },
-  { id: "privacy", icon: ShieldCheck, group: "org", layout: "measure" },
-  { id: "maintenance", icon: Wrench, group: "org", layout: "measure" },
+  { id: "account", icon: UserRound, group: "you" },
+  { id: "voice", icon: Mic, group: "you" },
+  { id: "agents", icon: KeyRound, group: "you" },
+  { id: "connections", icon: Plug, group: "you" },
+  { id: "general", icon: Building2, group: "org" },
+  { id: "people", icon: UsersRound, group: "org" },
+  { id: "integrations", icon: Webhook, group: "org" },
+  { id: "capture", icon: Mail, group: "org" },
+  { id: "data-model", icon: Database, group: "org" },
+  { id: "ai", icon: Sparkles, group: "org" },
+  { id: "privacy", icon: ShieldCheck, group: "org" },
+  { id: "maintenance", icon: Wrench, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
   group: "you" | "org";
-  layout: "measure" | "wide";
 }[];
 
 type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
@@ -568,24 +563,12 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
   // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
   // it once is the difference between twelve pages that space correctly and
-  // twelve that each have to remember to.
-  //
-  // The same argument decides the WIDTH, which is why it is data on the entry
-  // rather than a class each page remembers: a form page takes the reading
-  // measure, a page carrying a table takes the whole column, and the register
-  // above is the one place either is declared.
+  // twelve that each have to remember to. Width is owned the same way and is the
+  // same for all twelve, so there is nothing here to branch on.
   return (
     <div className="wrap">
       <ResumeConnectBanner />
-      <div
-        className={
-          active.layout === "wide"
-            ? "settings-stack settings-stack-wide"
-            : "settings-stack"
-        }
-      >
-        {tabContent(active.id)}
-      </div>
+      <div className="settings-stack">{tabContent(active.id)}</div>
     </div>
   );
 }
