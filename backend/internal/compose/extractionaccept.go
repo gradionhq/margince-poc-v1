@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -32,8 +31,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
@@ -65,29 +62,21 @@ const (
 // the one record kind this flow writes.
 const acceptDealEntity = "deal"
 
-// ExtractionAccept executes acceptAttachmentExtraction: re-run the SAME
-// extractor the read staged against, validate the whole request, write
-// the deal once, then audit per field.
+// ExtractionAccept executes acceptAttachmentExtraction: resolve the
+// reading the human was shown, validate the whole request against what
+// THAT reading grounded, write the deal once, then audit per field.
 type ExtractionAccept struct {
 	pool        *pgxpool.Pool
 	attachments *activities.Store
 	deals       *deals.Store
-	extractor   extraction.Extractor
 }
 
-// NewExtractionAccept wires the engine over the shared pool; a nil
-// extractor falls back to the honest-empty NoOp (matching the activities
-// read's default), under which no key can ever be grounded — the accept
-// refuses rather than writing an unevidenced value.
-func NewExtractionAccept(pool *pgxpool.Pool, extractor extraction.Extractor) *ExtractionAccept {
-	if extractor == nil {
-		extractor = extraction.NoOpExtractor{}
-	}
+// NewExtractionAccept wires the engine over the shared pool.
+func NewExtractionAccept(pool *pgxpool.Pool) *ExtractionAccept {
 	return &ExtractionAccept{
 		pool:        pool,
 		attachments: activities.NewStore(InstallationDB(pool)),
 		deals:       deals.NewStore(InstallationDB(pool), DealsInstallation()),
-		extractor:   extractor,
 	}
 }
 
@@ -130,18 +119,30 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 		}
 	}
 	// Defense-in-depth (RD-T05): the same scan gate the raw download and
-	// the extraction read answer, BEFORE the extractor ever sees the
-	// bytes — inert today under the NoOp/Fixture seams, essential the
-	// moment a real extractor lands.
+	// the reading itself answer. The bytes reached a model at reading time,
+	// not here — but a document blocked since then is one whose values a
+	// human should not be persisting either.
 	if err := activities.EnsureAttachmentScanClean(att.ScanStatus); err != nil {
 		return zero, err
 	}
 
-	extracted, err := a.extractor.Extract(ctx, att.Id.String())
+	// The STORED reading the caller NAMES (RD-AC-N-5). Two things are load-bearing
+	// here. Re-reading the document would validate the human's choice against an
+	// answer they were never shown — two readings of one document are not
+	// guaranteed to agree, and the one that disagreed is what would land on the
+	// deal, carrying an audit note quoting evidence nobody saw. And resolving
+	// "the newest reading" instead of the named one would let a reading somebody
+	// else started between the display and the click do the same thing more
+	// quietly.
+	readID, err := acceptedReadingID(req)
 	if err != nil {
 		return zero, err
 	}
-	accepted, patch, err := buildExtractionAcceptPatch(req, groundedExtractionFields(extracted))
+	read, err := a.attachments.GetExtractionRead(ctx, attachmentID, readID)
+	if err != nil {
+		return zero, err
+	}
+	accepted, patch, err := buildExtractionAcceptPatch(req, groundedExtractionFields(read.Fields))
 	if err != nil {
 		return zero, err
 	}
@@ -229,6 +230,25 @@ func (a *ExtractionAccept) auditAcceptedFieldsTx(ctx context.Context, tx pgx.Tx,
 		}
 	}
 	return nil
+}
+
+// acceptedReadingID names an omitted extraction_id instead of letting it
+// through as the zero UUID.
+//
+// An absent required id decodes to the zero value with no error, so without
+// this it would reach the lookup, match nothing, and tell the caller that a
+// reading they never named does not exist — a 404 about a record the request
+// never mentioned. Naming the field is the difference between "you left this
+// out" and "the thing you asked for is gone".
+func acceptedReadingID(req crmcontracts.AcceptExtractionRequest) (ids.UUID, error) {
+	id := ids.UUID(req.ExtractionId)
+	if id == (ids.UUID{}) {
+		return ids.UUID{}, &ExtractionAcceptError{
+			Field: "extraction_id", Code: "required",
+			Message: "extraction_id must name the reading these values were read from",
+		}
+	}
+	return id, nil
 }
 
 // acceptedExtractionField is one validated field on its way onto the
@@ -424,55 +444,4 @@ func (e *ExtractionAcceptError) Error() string { return e.Field + ": " + e.Messa
 // UnsupportedEntityTypeError next door.
 func (e *ExtractionAcceptError) FieldFault() (field, code, message string) {
 	return e.Field, e.Code, e.Message
-}
-
-// attachmentExtractionHandlers is the transport for the accept-write; the
-// engine above owns the flow.
-type attachmentExtractionHandlers struct {
-	accept *ExtractionAccept
-}
-
-func (h attachmentExtractionHandlers) AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	var req crmcontracts.AcceptExtractionRequest
-	if !httperr.Decode(w, r, &req) {
-		return
-	}
-	resp, err := h.accept.Accept(r.Context(), ids.UUID(id), req)
-	if err != nil {
-		writeExtractionAcceptErr(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, resp)
-}
-
-// writeExtractionAcceptErr maps the accept flow's typed refusals onto the
-// wire, mirroring the deals transport's spellings for the store errors
-// this flow can trip (the resulting-row money pair, INV-CLOSE-PAST, the
-// CHECK-constraint net), then falls through to the sentinel registry.
-func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error) {
-	// The same typed 409 the raw download and the extraction read answer —
-	// reused via activities.ScanGateHTTPError rather than re-typed here.
-	if detail, ok := activities.ScanGateHTTPError(err); ok {
-		httperr.Write(w, r, detail)
-		return
-	}
-	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own verdicts
-	// (MessageFault / FieldFault), so the fallthrough below renders them. Do not
-	// re-spell either here: two spellings of one refusal is how the surfaces drift.
-	var amountPair *deals.AmountCurrencyPairError
-	if errors.As(err, &amountPair) {
-		httperr.Write(w, r, httperr.Validation(acceptFieldCurrency, "amount_currency_pair", amountPair.Error()))
-		return
-	}
-	var pastClose *deals.PastCloseDateError
-	if errors.As(err, &pastClose) {
-		httperr.Write(w, r, httperr.Validation(acceptFieldExpectedClose, "close_date_past", pastClose.Error()))
-		return
-	}
-	if constraint, ok := storekit.CheckViolation(err); ok {
-		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
-			"the request violates the "+constraint+" business rule"))
-		return
-	}
-	httperr.Write(w, r, err)
 }

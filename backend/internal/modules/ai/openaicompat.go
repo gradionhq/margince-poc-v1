@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -118,20 +119,54 @@ func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) 
 	return openAIWireEmbed(ctx, c.post, c.defaultModel, req)
 }
 
+// carriesNothing is the carriage declaration of an adapter whose wire has no
+// attachment parts at all. Named rather than written as a bare nil at each
+// site, so "this wire is text-only" reads as a decision instead of an omission.
+var carriesNothing []string
+
+// carriesImagesAndPDF is the carriage declaration shared by the two adapters
+// whose wires take document parts natively.
+var carriesImagesAndPDF = []string{"image/*", "application/pdf"}
+
+// DocumentMIMEs is every media type some adapter in this build carries as an
+// input part. It answers "could any binding have been handed this", which is a
+// different question from "will THIS binding take it" (that is Caps()) — the
+// certification corpus asks the first, because a fixture pinning a media type
+// no adapter accepts describes a call this build cannot make.
+//
+// Derived from the adapters' own declarations, so widening one widens this.
+func DocumentMIMEs() []string { return slices.Clone(carriesImagesAndPDF) }
+
+// isImage selects which KIND of wire part an accepted attachment becomes, once
+// carriage has already been decided. It is not a carriage check — that is
+// CarriesMIME over the adapter's declaration — and using it as one is how the
+// two answers drift apart.
+func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
+
 func (c *openAICompatClient) Caps() model.Capabilities {
 	// EmbedDims stays 0 (unknown): the width is a property of whichever
 	// model the deployment serves, discovered from the first Embed call.
 	// LocalOnly is the provider's trust posture (vllm true, openai_compatible
 	// false), fixed at construction — never a wire-visible property.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: c.localOnly}
+	return model.Capabilities{
+		Streaming:       true,
+		EmbedDims:       0,
+		LocalOnly:       c.localOnly,
+		AttachmentMIMEs: carriesNothing,
+	}
 }
 
-// attachmentUnsupported returns ErrAttachmentUnsupported (provider-tagged) if
-// any attachment's MIME fails allow; nil otherwise. The map-or-reject invariant
-// (spec §3.8): no adapter may silently drop an attachment.
-func attachmentUnsupported(provider string, atts []model.Attachment, allow func(mime string) bool) error {
+// attachmentUnsupported returns ErrAttachmentUnsupported (provider-tagged) for
+// any attachment outside the adapter's declared carriage; nil otherwise. The
+// map-or-reject invariant (spec §3.8): no adapter may silently drop an
+// attachment.
+//
+// It takes the SAME declaration the adapter reports from Caps(), not a
+// separately-written predicate, so a binding cannot advertise a media type its
+// wire then refuses — the two halves are one list.
+func attachmentUnsupported(provider string, atts []model.Attachment, declared []string) error {
 	for _, a := range atts {
-		if !allow(a.MIME) {
+		if !model.CarriesMIME(declared, a.MIME) {
 			return fmt.Errorf("ai: %s: %s: %w", provider, a.MIME, model.ErrAttachmentUnsupported)
 		}
 		// Bytes XOR URI (model.Attachment): both-set would silently drop the
@@ -143,20 +178,13 @@ func attachmentUnsupported(provider string, atts []model.Attachment, allow func(
 	return nil
 }
 
-func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
-
-// rejectAllAttachments is the allow-predicate for an adapter whose wire carries
-// no attachment parts: nothing passes, so every attachment is rejected with the
-// sentinel (honest map-or-reject, never a silent drop).
-func rejectAllAttachments(string) bool { return false }
-
 func (c *openAICompatClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	// This text-only chat wire carries no attachment parts, so reject every
 	// attachment rather than accept-then-drop it (spec §3.8 map-or-reject). The
 	// generic endpoint's multimodal support is model-dependent; mapping images to
-	// image_url content parts on this shared wire is a follow-up, and until it
+	// image_url content parts on this shared wire is issue #1324, and until it
 	// lands an honest rejection beats a silent drop.
-	if err := attachmentUnsupported("openai-compat", req.Attachments, rejectAllAttachments); err != nil {
+	if err := attachmentUnsupported("openai-compat", req.Attachments, carriesNothing); err != nil {
 		return nil, err
 	}
 	wire := openAICompatChatWire{Model: req.Model, Stream: stream, MaxTokens: req.MaxTokens}

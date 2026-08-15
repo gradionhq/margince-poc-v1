@@ -3,6 +3,8 @@
 
 package ai
 
+import "slices"
+
 // ModelRef is a bound (provider, model) pair — the identity a rate is keyed
 // on. The cost pre-flight estimator prices an observed served slice against
 // one of these.
@@ -49,6 +51,51 @@ func (r *Router) BoundLadder(task Task) []ModelRef {
 		}
 	}
 	return ladder
+}
+
+// AttachmentMIMEs reports what a caller may hand task as a document part: the
+// media types EVERY bound rung of its ladder declares it carries. Empty means
+// this task cannot be given a document at all under the standing configuration.
+//
+// The INTERSECTION, not the union, and not the leading rung's set alone. A call
+// walks its ladder, and the budget guardrail can demote it to a lower rung
+// mid-month, so a caller that trusted the top rung's carriage would be right
+// until the month it wasn't — and would then fail on the one call it had
+// already decided was safe. The conservative set is the only one that stays
+// true for a call this router might serve on any rung.
+//
+// An unbound tier contributes nothing: it is skipped exactly as BoundLadder
+// skips it, because a rung nothing is bound to cannot serve the call either.
+func (r *Router) AttachmentMIMEs(task Task) []string {
+	var carried []string
+	for i, tier := range taskLadders[task] {
+		client, bound := r.clients[tier]
+		if !bound {
+			continue
+		}
+		declared := client.Caps().AttachmentMIMEs
+		if i == 0 || carried == nil {
+			carried = declared
+			continue
+		}
+		carried = intersectMIMEs(carried, declared)
+	}
+	return carried
+}
+
+// intersectMIMEs keeps the declarations both rungs make, compared as the
+// literal patterns they are. Two rungs spelling the same carriage differently
+// ("image/*" against "image/png") intersect to nothing, which is the safe
+// direction: it costs a document lane that might have worked, where the other
+// direction would promise carriage one rung cannot honour.
+func intersectMIMEs(a, b []string) []string {
+	kept := make([]string, 0, len(a))
+	for _, pattern := range a {
+		if slices.Contains(b, pattern) {
+			kept = append(kept, pattern)
+		}
+	}
+	return kept
 }
 
 // CurrentModelForTier returns the model currently bound to tier; ok=false when

@@ -17,7 +17,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
 type Handlers struct {
@@ -43,9 +42,6 @@ type Handlers struct {
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer
 	publicConsent ConsentCapturer
-	// extractor is the staged AI-extraction seam (RD-T10); nil falls back to
-	// extraction.NoOpExtractor (WithExtractor wires a real one).
-	extractor extraction.Extractor
 }
 
 // EmailDrafter prepares a reply for an existing activity without sending it.

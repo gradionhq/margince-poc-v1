@@ -1,0 +1,59 @@
+name: quote_states_money_but_no_close_date
+task: document_extract
+site: fields
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The omission scenario. A document that states three of the four is the
+# ordinary case, and the fourth must come back omitted rather than guessed —
+# a validity period is not a close date, however easily one reads as the other.
+fixture:
+  filename: quote-kestrelfold-forecasting.txt
+  text: |
+    KESTREL FOLD
+    Quotation
+
+    To:        Nordkap Grocers AS
+    Our ref:   KF-Q-4471
+
+    Forecasting Rollout — 40 stores
+
+    Licence, 40 stores, twelve months            NOK 612,000.00
+    Onboarding and historical data load          included
+    Support, business hours                      included
+    ----------------------------------------------------------
+    Total                                        NOK 612,000.00
+
+    This quotation is valid for 60 days from issue. Rollout scheduling is
+    agreed separately once a signed order is received; we do not commit to
+    a go-live date at quotation stage.
+expect:
+  outcome: accepted
+  answer:
+    name: Forecasting Rollout — 40 stores
+    amount_minor: "61200000"
+    currency: NOK
+  rubric: >
+    Three fields are stated and the fourth deliberately is not. Score the
+    three, and score the omission as heavily as any of them.
+
+    The close date is the point of this scenario. The document says a
+    quotation is valid for 60 days and says in as many words that no go-live
+    date is committed at this stage. A validity window is not a close date,
+    and "60 days from issue" is not even a date — a reading that computes one,
+    or that reports the validity period as the expected close, has invented
+    the single field a rep is least likely to check. The correct answer omits
+    expected_close_date entirely, and the reason should be that the document
+    does not state it rather than that the reading was unsure.
+
+    The amount is NOK, which has two minor digits like the euro; report the
+    printed figure and let the product scale it. The line items sum to the
+    total and the total is what the deal is worth — a reading that reports the
+    licence line alone is wrong even though it quoted a real number off a real
+    line.
+
+    The name is the offering the quotation is FOR, not the customer and not
+    the internal reference.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

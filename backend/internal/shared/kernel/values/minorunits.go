@@ -108,3 +108,34 @@ func MajorUnits(amountMinor int64, currency string) string {
 	unsigned := uint64(scale) // #nosec G115 -- a power of ten bounded by the table above
 	return fmt.Sprintf("%s%d.%0*d", sign, magnitude/unsigned, digits, magnitude%unsigned)
 }
+
+// MinorUnits is MajorUnits' inverse: the figure a document writes ("12500.00",
+// "18000000") read back as the integer count of minor units money is stored as.
+// ok is false for anything that is not a plain non-negative decimal, or that
+// states more fractional digits than the currency HAS — "12.345" in EUR is not
+// a rounding question, it is a misread, and rounding it would invent a cent
+// nobody wrote.
+//
+// It lives beside MajorUnits because the two share one table, and a currency
+// whose digit count is corrected in that table must move both directions at
+// once. A private parser somewhere else is how the two come to disagree about
+// JPY.
+func MinorUnits(major, currency string) (int64, bool) {
+	major = strings.TrimSpace(major)
+	digits := MinorUnitDigits(currency)
+	// 18 integer digits keeps the scaled result inside int64 for every currency
+	// in the table; the fractional bound is the currency's own.
+	if !PlainDecimal(major, 18, digits) {
+		return 0, false
+	}
+	whole, frac, _ := strings.Cut(major, ".")
+	// Pad rather than reject a short fraction: "12.5" EUR is twelve euros fifty,
+	// written the way a person writes it. Padding is exact; it adds no precision
+	// the document did not state.
+	frac += strings.Repeat("0", digits-len(frac))
+	scaled, err := strconv.ParseInt(whole+frac, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return scaled, true
+}

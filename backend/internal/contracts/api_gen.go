@@ -924,6 +924,48 @@ func (e AttachmentScanStatus) Valid() bool {
 	}
 }
 
+// Defines values for AttachmentExtractionStatus.
+const (
+	AttachmentExtractionStatusDone    AttachmentExtractionStatus = "done"
+	AttachmentExtractionStatusFailed  AttachmentExtractionStatus = "failed"
+	AttachmentExtractionStatusQueued  AttachmentExtractionStatus = "queued"
+	AttachmentExtractionStatusRunning AttachmentExtractionStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentExtractionStatus enum.
+func (e AttachmentExtractionStatus) Valid() bool {
+	switch e {
+	case AttachmentExtractionStatusDone:
+		return true
+	case AttachmentExtractionStatusFailed:
+		return true
+	case AttachmentExtractionStatusQueued:
+		return true
+	case AttachmentExtractionStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttachmentReadStartedStatus.
+const (
+	AttachmentReadStartedStatusQueued  AttachmentReadStartedStatus = "queued"
+	AttachmentReadStartedStatusRunning AttachmentReadStartedStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentReadStartedStatus enum.
+func (e AttachmentReadStartedStatus) Valid() bool {
+	switch e {
+	case AttachmentReadStartedStatusQueued:
+		return true
+	case AttachmentReadStartedStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditHistoryEntryActorType.
 const (
 	AuditHistoryEntryActorTypeAgent     AuditHistoryEntryActorType = "agent"
@@ -4373,12 +4415,15 @@ func (e OfferStatus) Valid() bool {
 
 // Defines values for OmittedExtractionFieldReason.
 const (
-	NotStatedInFile OmittedExtractionFieldReason = "not_stated_in_file"
+	NotConfidentlyStated OmittedExtractionFieldReason = "not_confidently_stated"
+	NotStatedInFile      OmittedExtractionFieldReason = "not_stated_in_file"
 )
 
 // Valid indicates whether the value is a known member of the OmittedExtractionFieldReason enum.
 func (e OmittedExtractionFieldReason) Valid() bool {
 	switch e {
+	case NotConfidentlyStated:
+		return true
 	case NotStatedInFile:
 		return true
 	default:
@@ -10201,6 +10246,15 @@ type AcceptExtractionRequest struct {
 	// present here flips that field's audit provenance from `ai-extracted` to `human`.
 	Edits *map[string]interface{} `json:"edits,omitempty"`
 
+	// ExtractionId The reading these values were read from — the `id` of the
+	// `AttachmentExtraction` the human was actually shown. Required, and not
+	// inferable: resolving "the newest reading" instead would let a reading started
+	// by someone else between the display and the click decide what gets written,
+	// which is precisely the divergence storing the fields exists to prevent
+	// (RD-AC-N-5). A reading belonging to another attachment, or one that never
+	// existed, is a 404.
+	ExtractionId openapi_types.UUID `json:"extraction_id"`
+
 	// FieldKeys Field names to accept onto the deal; each is checked against the deal-update allowlist.
 	FieldKeys []string `json:"field_keys"`
 }
@@ -10966,11 +11020,30 @@ type AttachmentEntityType string
 // stream is withheld.
 type AttachmentScanStatus string
 
-// AttachmentExtraction The staged extraction for one attachment — grounded fields plus what was honestly omitted.
+// AttachmentExtraction One reading of one attachment — its progress, the fields it grounded, and what it
+// honestly omitted. A reading that is still running carries empty lists; that is not
+// the same answer as a finished reading that grounded nothing, which is why `status`
+// is required rather than inferable from the lists (RD-AC-N-2).
 type AttachmentExtraction struct {
-	Fields  []ExtractedField         `json:"fields"`
+	CreatedAt  time.Time        `json:"created_at"`
+	Fields     []ExtractedField `json:"fields"`
+	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+
+	// Id This reading's own id.
+	Id      openapi_types.UUID       `json:"id"`
 	Omitted []OmittedExtractionField `json:"omitted"`
+
+	// Status queued/running are live; done and failed are terminal. `done` with zero grounded fields is a correct answer, not a failure.
+	Status AttachmentExtractionStatus `json:"status"`
+
+	// StatusDetail Why the reading ended as it did, in words a rep can act on. Always present on
+	// `failed`, and on a `done` reading that grounded nothing — an empty result that
+	// does not explain itself reads as a broken feature.
+	StatusDetail *string `json:"status_detail,omitempty"`
 }
+
+// AttachmentExtractionStatus queued/running are live; done and failed are terminal. `done` with zero grounded fields is a correct answer, not a failure.
+type AttachmentExtractionStatus string
 
 // AttachmentExtractionAcceptResponse defines model for AttachmentExtractionAcceptResponse.
 type AttachmentExtractionAcceptResponse struct {
@@ -10983,6 +11056,18 @@ type AttachmentListResponse struct {
 	Data []Attachment `json:"data"`
 	Page PageInfo     `json:"page"`
 }
+
+// AttachmentReadStarted The reading `readAttachmentForFields` started, or the one already in flight it joined.
+type AttachmentReadStarted struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Joined true when this request attached to a reading already in flight rather than starting a new one — the document is read, and paid for, once.
+	Joined bool                        `json:"joined"`
+	Status AttachmentReadStartedStatus `json:"status"`
+}
+
+// AttachmentReadStartedStatus defines model for AttachmentReadStarted.Status.
+type AttachmentReadStartedStatus string
 
 // AuditHistoryEntry One rendered history line for a record mutation. `before`/`after` are
 // masked to the viewer's readable fields — an absent key was hidden, not null.
@@ -14386,7 +14471,11 @@ type OfferTemplateListResponse struct {
 	Page PageInfo        `json:"page"`
 }
 
-// OmittedExtractionField A field the extractor could not ground in the document text (evidence-or-omit; never guessed).
+// OmittedExtractionField A field the reading did not offer (evidence-or-omit; never guessed). The two
+// reasons are different answers and a surface renders them differently: the document
+// is SILENT about the field, versus the document says something the reading could
+// not hold steadily enough to put in front of a human — the second sends a rep to
+// the document, the first tells them not to bother.
 type OmittedExtractionField struct {
 	Field  string                       `json:"field"`
 	Reason OmittedExtractionFieldReason `json:"reason"`
@@ -29045,9 +29134,12 @@ type ServerInterface interface {
 	// Download an attachment's file bytes.
 	// (GET /attachments/{id})
 	DownloadAttachment(w http.ResponseWriter, r *http.Request, id Id)
-	// Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+	// The newest reading of this attachment — its progress, what it grounded, and what it honestly omitted.
 	// (GET /attachments/{id}/extraction)
 	GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
+	// Read this attached document for the deal facts it states — a background reading that ends in staged, evidence-carrying fields.
+	// (POST /attachments/{id}/extraction)
+	ReadAttachmentForFields(w http.ResponseWriter, r *http.Request, id Id)
 	// Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
 	// (POST /attachments/{id}/extraction:accept)
 	AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
@@ -30275,9 +30367,15 @@ func (_ Unimplemented) DownloadAttachment(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+// The newest reading of this attachment — its progress, what it grounded, and what it honestly omitted.
 // (GET /attachments/{id}/extraction)
 func (_ Unimplemented) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read this attached document for the deal facts it states — a background reading that ends in staged, evidence-carrying fields.
+// (POST /attachments/{id}/extraction)
+func (_ Unimplemented) ReadAttachmentForFields(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -33898,6 +33996,38 @@ func (siw *ServerInterfaceWrapper) GetAttachmentExtraction(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAttachmentExtraction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadAttachmentForFields operation middleware
+func (siw *ServerInterfaceWrapper) ReadAttachmentForFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadAttachmentForFields(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -49396,6 +49526,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/attachments/{id}/extraction", wrapper.GetAttachmentExtraction)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/attachments/{id}/extraction", wrapper.ReadAttachmentForFields)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/attachments/{id}/extraction:accept", wrapper.AcceptAttachmentExtraction)

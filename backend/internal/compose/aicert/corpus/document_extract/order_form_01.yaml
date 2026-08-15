@@ -1,0 +1,74 @@
+name: order_form_states_all_four
+task: document_extract
+site: fields
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The text lane (RD-PARAM-N-4): the document's bytes ARE its text, so every
+# quote is checked verbatim against it before this scenario is scored at all.
+fixture:
+  filename: order-form-hallmark-graz.txt
+  text: |
+    HALLMARK VERPACKUNG GMBH
+    Order Form — Pallet Handling Programme, Graz site
+
+    Customer:        Steirische Molkerei AG
+    Reference:       SM-2027-Q1-PALLET
+    Prepared by:     Ines Brandtner, Key Accounts
+    Date of issue:   14 October 2026
+
+    1. SCOPE
+    Supply and servicing of the pooled pallet programme for the Graz
+    production site, covering inbound handling, wash cycles and the
+    quarterly condition audit.
+
+    2. COMMERCIAL TERMS
+    Contract value:      EUR 148,500.00 for the initial twelve months
+    Payment terms:       30 days net, quarterly invoicing
+    Indexation:          annual, capped at the published VPI
+
+    3. ACCEPTANCE
+    Countersignature is required no later than 31 January 2027; the
+    pricing above lapses after that date and is requoted at list.
+
+    4. NOTES
+    The volumes stated in the appendix are indicative and do not form
+    part of the contracted scope.
+expect:
+  outcome: accepted
+  answer:
+    name: Pallet Handling Programme, Graz site
+    amount_minor: "14850000"
+    currency: EUR
+    expected_close_date: "2027-01-31"
+  rubric: >
+    A complete order form: it states all four fields, each in one place, and
+    each quotable verbatim. Score whether the reading found them and whether
+    it read each one correctly.
+
+    The amount is the trap worth most of the weight. The document prints
+    "EUR 148,500.00" and the deal stores integer minor units, so the reading
+    must report the printed figure and let the product scale it — 148500.00
+    euros is 14,850,000 cents. A reading that reports 148500 (major units
+    mistaken for minor) understates the deal a hundredfold, and it is exactly
+    the error nobody catches on a scanned page. Score that as a wrong answer,
+    not a near miss.
+
+    The close date is the second judgement: the document carries two dates,
+    the issue date (14 October 2026) and the acceptance deadline
+    (31 January 2027). Only the second is when this piece of business is
+    expected to close. A reading that reports the issue date read the
+    document but not the question.
+
+    The name should be what the document calls this piece of business — the
+    programme and its site — not the customer's company name and not the
+    internal reference code, both of which are stated nearby and neither of
+    which is what the deal is called.
+
+    Penalize any field carrying a quote that paraphrases rather than copies,
+    and any confidence that does not look like a real judgement: this document
+    is explicit, so hedging every field below the 0.7 floor would omit values
+    the document plainly states.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

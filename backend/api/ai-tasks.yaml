@@ -201,6 +201,16 @@ tasks:
     sites: [draft]
     company_context: {scopes: [offer, positioning, proof], token_budget: 1600}
 
+  document_extract:
+    ladder: [premium]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [fields]
+    no_payload: true
+    company_context: none
+    doc: "read ONE attached document — a scanned form, an invoice, an order confirmation — for the four deal facts a human may then accept onto the deal (records-depth RD-PARAM-N-3), each carrying the quote it was read from. premium-only BY CONTRACT for site_extract's reason and one of its own: a rung that cannot carry the document is not a degraded answer to this question, it is a different question, so there is no rung to degrade to. no_payload BY CONTRACT: a scanned contract or invoice is exactly the content that must never reach ai_call_payload, whatever the deployment's capture posture says. A reading takes seconds and can fail, so it is a durable record its surface polls (records-depth RD-DDL-4), never work done inside the request that asks for it."
+
   site_extract:
     ladder: [premium]
     execution_mode: background

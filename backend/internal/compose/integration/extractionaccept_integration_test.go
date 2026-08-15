@@ -15,10 +15,12 @@ package integration
 // invisible parent — is whole-request with ZERO writes.
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -31,29 +33,81 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// acceptExtractionFixture seeds the extractor with the same evidence set
-// the unit suite validates against: four deal-writable grounded fields,
-// one grounded row reference the allowlist must refuse, one omitted key.
-func acceptExtractionFixture(attachmentID string) extraction.FixtureExtractor {
-	return extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{
-		attachmentID: {
-			{Field: "name", Value: "Acme Renewal Q3", SourceQuote: "Subject: Acme Renewal Q3", PageOrSection: "p.1", Confidence: "high"},
-			{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
-			{Field: "currency", Value: "EUR", SourceQuote: "all amounts in EUR", PageOrSection: "p.2", Confidence: "medium"},
-			{Field: "expected_close_date", Value: "2030-12-31", SourceQuote: "offer valid until 2030-12-31", PageOrSection: "p.3", Confidence: "medium"},
-			{Field: "owner_id", Value: "3e0f5a9c-0000-0000-0000-000000000001", SourceQuote: "account executive", PageOrSection: "p.1", Confidence: "medium"},
-			{Field: "payment_terms", Omitted: true, OmittedReason: "not_stated_in_file"},
-		},
-	}}
+// acceptExtractionFields is the evidence set these tests accept against: four
+// deal-writable grounded fields, one grounded row reference the allowlist must
+// refuse, one omitted key.
+func acceptExtractionFields() []extraction.ExtractedField {
+	return []extraction.ExtractedField{
+		{Field: "name", Value: "Acme Renewal Q3", SourceQuote: "Subject: Acme Renewal Q3", PageOrSection: "p.1", Confidence: "high"},
+		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
+		{Field: "currency", Value: "EUR", SourceQuote: "all amounts in EUR", PageOrSection: "p.2", Confidence: "medium"},
+		{Field: "expected_close_date", Value: "2030-12-31", SourceQuote: "offer valid until 2030-12-31", PageOrSection: "p.3", Confidence: "medium"},
+		{Field: "owner_id", Value: "3e0f5a9c-0000-0000-0000-000000000001", SourceQuote: "account executive", PageOrSection: "p.1", Confidence: "medium"},
+		{Field: "payment_terms", Omitted: true, OmittedReason: "not_stated_in_file"},
+	}
+}
+
+// seedExtractionReading writes ONE finished reading through the production
+// store — start, claim, finish — and answers its id.
+//
+// Not a hand-inserted row: the accept resolves what a reading actually
+// recorded, so a test that inserted its own would prove nothing about the
+// writer that fills the column in production. It is also the only way to obtain
+// an id the accept will take, which is the point of the id existing.
+func seedExtractionReading(
+	ctx context.Context, t *testing.T, e *Env, attachmentID ids.UUID, fields []extraction.ExtractedField,
+) ids.UUID {
+	t.Helper()
+	store := activities.NewStore(e.DB())
+	read, _, err := store.StartExtractionReadQueued(ctx, attachmentID, "seed", nil)
+	if err != nil {
+		t.Fatalf("StartExtractionReadQueued: %v", err)
+	}
+	if _, err := store.BeginExtractionRead(ctx, read.ID, activities.ExtractionReadLease); err != nil {
+		t.Fatalf("BeginExtractionRead: %v", err)
+	}
+	if err := store.FinishExtractionRead(ctx, read.ID, activities.ExtractionReadOutcome{
+		Status: activities.ExtractionReadDone,
+		Fields: fields,
+		// A reading that grounded nothing owes a reason, exactly as the
+		// production run supplies one — the store refuses an unexplained empty
+		// result, and a seed that dodged that would be seeding a row the writer
+		// cannot produce.
+		Detail: seededReadingDetail(fields),
+	}); err != nil {
+		t.Fatalf("FinishExtractionRead: %v", err)
+	}
+	return read.ID
+}
+
+// seededReadingDetail mirrors the run's own rule: say why when nothing was
+// grounded, say nothing when something was.
+func seededReadingDetail(fields []extraction.ExtractedField) string {
+	for _, f := range fields {
+		if !f.Omitted {
+			return ""
+		}
+	}
+	return "this document states none of the deal fields clearly enough to offer one"
 }
 
 // acceptEnv is one deal-scoped attachment with the fixture extractor wired
 // into the accept engine, ready to accept against.
 type acceptEnv struct {
 	*Env
-	deal   ids.UUID
-	att    crmcontracts.Attachment
-	engine *compose.ExtractionAccept
+	deal ids.UUID
+	att  crmcontracts.Attachment
+	// reading is the id of the seeded reading these tests accept against — the
+	// one a human would have been shown.
+	reading ids.UUID
+	engine  *compose.ExtractionAccept
+}
+
+// acceptRequest names the seeded reading, which every accept must.
+func (a acceptEnv) acceptRequest(keys ...string) crmcontracts.AcceptExtractionRequest {
+	return crmcontracts.AcceptExtractionRequest{
+		ExtractionId: openapi_types.UUID(a.reading), FieldKeys: keys,
+	}
 }
 
 // setupExtractionAccept seeds a deal-scoped attachment and marks it clean:
@@ -72,10 +126,11 @@ func setupExtractionAccept(t *testing.T) acceptEnv {
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
 	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
 	return acceptEnv{
-		Env:    e,
-		deal:   deal,
-		att:    att,
-		engine: compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String())),
+		Env:     e,
+		deal:    deal,
+		att:     att,
+		reading: seedExtractionReading(e.Admin(), t, e, ids.UUID(att.Id), acceptExtractionFields()),
+		engine:  compose.NewExtractionAccept(e.Pool),
 	}
 }
 
@@ -122,7 +177,8 @@ func TestAcceptAttachmentExtractionPersistsFieldsAndAuditNotes(t *testing.T) {
 	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, AdminPerms)
 
 	resp, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"name", "amount_minor", "currency", "expected_close_date"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"name", "amount_minor", "currency", "expected_close_date"},
 	})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
@@ -171,8 +227,9 @@ func TestAcceptAttachmentExtractionEditFlipsProvenanceAndCapturedBy(t *testing.T
 
 	edits := map[string]interface{}{"amount_minor": "200000"}
 	resp, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor", "currency"},
-		Edits:     &edits,
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor", "currency"},
+		Edits:        &edits,
 	})
 	if err != nil {
 		t.Fatalf("edited accept: %v", err)
@@ -208,10 +265,12 @@ func TestAcceptAttachmentExtractionRefusesNonDealAttachment(t *testing.T) {
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	org := e.SeedOrg(t, "Non-Deal Accept Parent", &e.Rep1)
 	att := uploadScanTestAttachmentForOrg(e.Admin(), t, h, org, "org-notes.pdf", []byte("org bytes"))
-	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
+	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
+	reading := seedExtractionReading(e.Admin(), t, e, ids.UUID(att.Id), acceptExtractionFields())
+	engine := compose.NewExtractionAccept(e.Pool)
 
 	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		ExtractionId: openapi_types.UUID(reading), FieldKeys: []string{"amount_minor"},
 	})
 	var unsupported *compose.UnsupportedEntityTypeError
 	if !errors.As(err, &unsupported) {
@@ -228,7 +287,8 @@ func TestAcceptAttachmentExtractionRefusesUngroundedKeyWholeRequest(t *testing.T
 	// amount_minor IS grounded and valid — but it must not land, because
 	// the second key refuses the whole request.
 	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor", "payment_terms"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor", "payment_terms"},
 	})
 	var refused *compose.ExtractionAcceptError
 	if !errors.As(err, &refused) || refused.Code != "not_grounded" {
@@ -241,7 +301,8 @@ func TestAcceptAttachmentExtractionRefusesFieldOutsideAllowlist(t *testing.T) {
 	a := setupExtractionAccept(t)
 
 	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"owner_id"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"owner_id"},
 	})
 	var refused *compose.ExtractionAcceptError
 	if !errors.As(err, &refused) || refused.Code != "not_deal_writable" {
@@ -253,7 +314,7 @@ func TestAcceptAttachmentExtractionRefusesFieldOutsideAllowlist(t *testing.T) {
 func TestAcceptAttachmentExtractionRequiresFieldKeys(t *testing.T) {
 	a := setupExtractionAccept(t)
 
-	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{FieldKeys: []string{}})
+	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{ExtractionId: openapi_types.UUID(a.reading), FieldKeys: []string{}})
 	var refused *compose.ExtractionAcceptError
 	if !errors.As(err, &refused) || refused.Field != "field_keys" || refused.Code != "required" {
 		t.Fatalf("err = %v, want field_keys/required", err)
@@ -268,7 +329,8 @@ func TestAcceptAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 	// answers the same existence-hiding 404 as every other attachment op.
 	ctx := a.As(a.Rep3, []ids.UUID{a.Team2}, RepPerms)
 	_, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor"},
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound (existence-hiding)", err)
@@ -282,7 +344,8 @@ func TestAcceptAttachmentExtractionRequiresDealUpdateGrant(t *testing.T) {
 	// Read-only sees the deal (row scope all) but holds no deal update.
 	ctx := a.As(a.Rep2, nil, ReadOnlyPerms)
 	_, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor"},
 	})
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("err = %v, want ErrPermissionDenied", err)
@@ -299,8 +362,9 @@ func TestAcceptAttachmentExtractionEditedAcceptRequiresActivityGrant(t *testing.
 	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, RepPerms)
 	edits := map[string]interface{}{"amount_minor": "200000"}
 	_, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
-		Edits:     &edits,
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor"},
+		Edits:        &edits,
 	})
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("err = %v, want ErrPermissionDenied", err)
@@ -312,7 +376,8 @@ func TestAcceptAttachmentExtractionEditedAcceptRequiresActivityGrant(t *testing.
 	// together — the deal was born amountless, so the resulting row needs
 	// the pair.
 	if _, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor", "currency"},
+		ExtractionId: openapi_types.UUID(a.reading),
+		FieldKeys:    []string{"amount_minor", "currency"},
 	}); err != nil {
 		t.Fatalf("unedited accept under the same rep grant: %v", err)
 	}
@@ -321,21 +386,48 @@ func TestAcceptAttachmentExtractionEditedAcceptRequiresActivityGrant(t *testing.
 	}
 }
 
-// TestAcceptAttachmentExtractionEmptySeamGroundsNothing pins the unwired
-// default: with no extractor, no key can ever be grounded — the accept
-// refuses rather than writing an unevidenced value.
-func TestAcceptAttachmentExtractionEmptySeamGroundsNothing(t *testing.T) {
+// TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument pins the
+// pairing the accept's id argument exists for: a reading is a reading OF one
+// document, and naming one that belongs to another attachment resolves to
+// nothing rather than to its fields.
+//
+// Without the pairing the id would be a decoration — a caller could hold any
+// reading id and spend it against any document they can see, which is a way to
+// write one document's values onto another document's deal.
+func TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument(t *testing.T) {
 	a := setupExtractionAccept(t)
-	unwired := compose.NewExtractionAccept(a.Pool, nil)
+	h := activities.NewHandlers(a.DB()).WithBlobstore(blobstore.NewMemory())
+	other := uploadDealAttachment(a.Admin(), t, h, a.deal, "other.pdf", []byte("other bytes"))
+	markAttachmentClean(a.Admin(), t, a.Env, ids.UUID(other.Id))
+	elsewhere := seedExtractionReading(a.Admin(), t, a.Env, ids.UUID(other.Id), acceptExtractionFields())
 
-	_, err := unwired.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
+		ExtractionId: openapi_types.UUID(elsewhere), FieldKeys: []string{"amount_minor"},
 	})
-	var refused *compose.ExtractionAcceptError
-	if !errors.As(err, &refused) || refused.Code != "not_grounded" {
-		t.Fatalf("err = %v, want not_grounded (the NoOp seam grounds nothing)", err)
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound (that reading belongs to another document)", err)
 	}
 	a.requireUntouchedDeal(t)
+}
+
+// TestAcceptAttachmentExtractionRefusesWhenNothingHasReadTheDocument pins what
+// an accept finds when no reading exists: nothing to accept, and no write.
+func TestAcceptAttachmentExtractionRefusesWhenNothingHasReadTheDocument(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
+	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
+
+	_, err := compose.NewExtractionAccept(e.Pool).Accept(e.Admin(), ids.UUID(att.Id),
+		crmcontracts.AcceptExtractionRequest{
+			ExtractionId: openapi_types.UUID(ids.NewV7()), FieldKeys: []string{"amount_minor"},
+		})
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound (nothing has read this document)", err)
+	}
+	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
 }
 
 // TestAcceptAttachmentExtractionRefusesWhileScanning proves the
@@ -349,11 +441,13 @@ func TestAcceptAttachmentExtractionRefusesWhileScanning(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
-	// Left at the upload default ('scanning') — never marked clean.
-	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
+	// Left at the upload default ('scanning') — never marked clean. No reading is
+	// seeded either: the scan gate fires before the accept resolves one, and a
+	// test that seeded one anyway would not notice if that order ever reversed.
+	engine := compose.NewExtractionAccept(e.Pool)
 
 	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		ExtractionId: openapi_types.UUID(ids.NewV7()), FieldKeys: []string{"amount_minor"},
 	})
 	if !errors.Is(err, activities.ErrScanPending) {
 		t.Fatalf("err = %v, want ErrScanPending", err)
@@ -372,10 +466,10 @@ func TestAcceptAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
 	if _, err := e.Activities.MarkScanResult(e.Admin(), ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
 		t.Fatalf("MarkScanResult(blocked): %v", err)
 	}
-	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
+	engine := compose.NewExtractionAccept(e.Pool)
 
 	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
-		FieldKeys: []string{"amount_minor"},
+		ExtractionId: openapi_types.UUID(ids.NewV7()), FieldKeys: []string{"amount_minor"},
 	})
 	if !errors.Is(err, activities.ErrAttachmentBlocked) {
 		t.Fatalf("err = %v, want ErrAttachmentBlocked", err)
@@ -436,3 +530,65 @@ func TestExtractionAcceptDealUpdateAndNotesShareOneTransaction(t *testing.T) {
 // ("deal") — this white-box probe lives in the integration package, not
 // compose itself, so it cannot reach that constant.
 const acceptDealEntityForTest = "deal"
+
+// TestAcceptAttachmentExtractionWritesTheReadingItWasShownNotTheNewest is the
+// gate on RD-AC-N-5, and it is the reason the reading is stored at all.
+//
+// The shape it refuses: a human is shown a reading, a SECOND reading of the
+// same document lands before they click accept, and the accept resolves the
+// second one. Everything about that is quiet — both readings are real, both
+// grounded a value with a genuine quote, and neither looks wrong — but the
+// number written to the deal is not the number anyone agreed to, and the audit
+// note quotes evidence the human never saw.
+//
+// This is why the accept takes an extraction_id rather than resolving the
+// latest. Under the shape that re-ran the extractor per accept, and under one
+// that resolved the newest stored reading, this test fails.
+func TestAcceptAttachmentExtractionWritesTheReadingItWasShownNotTheNewest(t *testing.T) {
+	a := setupExtractionAccept(t)
+	shown := a.reading
+	// A REAL seeded user: the accept's audit note carries on_behalf_of, which is
+	// a foreign key, so a synthetic principal cannot reach the write phase this
+	// test is about.
+	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, AdminPerms)
+
+	// A second reading of the same document, grounding a different amount off a
+	// different quote — the revised page, a re-read after an upload, a colleague
+	// pressing the button. Nothing here is an error.
+	// It grounds the SAME fields, so the accept below would succeed against
+	// either reading. That is deliberate: a second reading missing a field would
+	// make this test pass for the wrong reason — refused as ungrounded rather
+	// than resolved from the right reading — and would go on passing after the
+	// pairing was removed.
+	later := seedExtractionReading(ctx, t, a.Env, ids.UUID(a.att.Id), []extraction.ExtractedField{
+		{Field: "amount_minor", Value: "999900", SourceQuote: "Revised total: EUR 9,999.00", PageOrSection: "p.2", Confidence: "high"},
+		{Field: "currency", Value: "EUR", SourceQuote: "Revised total: EUR 9,999.00", PageOrSection: "p.2", Confidence: "high"},
+	})
+	if later == shown {
+		t.Fatal("precondition: the second reading must be a different reading")
+	}
+
+	// Both money fields, because a deal holds an amount and its currency
+	// together or not at all — the divergence being proven is about WHICH
+	// reading supplies them, not about accepting a lone number.
+	if _, err := a.engine.Accept(ctx, ids.UUID(a.att.Id),
+		a.acceptRequest("amount_minor", "currency")); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+
+	var amount *int64
+	if err := a.Pool.QueryRow(ctx, `SELECT amount_minor FROM deal WHERE id = $1`, a.deal).Scan(&amount); err != nil {
+		t.Fatalf("read back deal: %v", err)
+	}
+	if amount == nil {
+		t.Fatal("deal amount_minor is unset — the accept wrote nothing")
+	}
+	if *amount != 150000 {
+		t.Fatalf("deal amount_minor = %d, want 150000 — the accept wrote a reading the human was never shown", *amount)
+	}
+	// The evidence has to match the value: a note quoting the newer reading
+	// beside the older reading's number is the same defect, half-landed.
+	if n := a.acceptNoteCount(t, "amount_minor", "Total: EUR 1,500.00", "agent:attachment-extractor"); n != 1 {
+		t.Errorf("audit notes quoting the SHOWN reading's evidence = %d, want 1", n)
+	}
+}

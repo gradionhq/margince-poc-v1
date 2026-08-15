@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // ErrEmbeddingsUnsupported reports a chat provider with no embedding
@@ -35,6 +36,26 @@ type Attachment struct {
 	Bytes []byte
 	URI   string
 	Name  string
+}
+
+// CarriesMIME reports whether mime falls inside a declared carriage set, in the
+// spelling Capabilities.AttachmentMIMEs uses: an exact media type
+// ("application/pdf"), or a type wildcard ("image/*"). It is the ONE matcher —
+// an adapter derives its wire gate from the same set it declares, so what a
+// binding says it carries and what it will actually accept cannot drift apart.
+func CarriesMIME(declared []string, mime string) bool {
+	for _, pattern := range declared {
+		if prefix, wildcard := strings.CutSuffix(pattern, "*"); wildcard {
+			if strings.HasPrefix(mime, prefix) {
+				return true
+			}
+			continue
+		}
+		if pattern == mime {
+			return true
+		}
+	}
+	return false
 }
 
 // Client is the swappable model interface; selection is config.
@@ -197,4 +218,17 @@ type Capabilities struct {
 	// LocalOnly is true for local inference — the P7 sovereignty and
 	// zero-egress path.
 	LocalOnly bool
+	// AttachmentMIMEs is the closed set of media types this client carries on
+	// its wire, in CarriesMIME's spelling ("image/*", "application/pdf"). Empty
+	// means the wire carries no attachment parts at all, which is a legitimate
+	// binding rather than a broken one.
+	//
+	// It is DECLARED rather than discovered because refusing at send time
+	// answers the wrong question: a caller holding a document learns "this
+	// binding is text-only" only by attempting the call, and that attempt is
+	// indistinguishable, in the operator's own call trace, from a model that
+	// failed. A caller that can read this picks its input lane first and
+	// leaves no failed attempt behind for a configuration that is merely
+	// text-only.
+	AttachmentMIMEs []string
 }

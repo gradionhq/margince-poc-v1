@@ -1,0 +1,64 @@
+name: attached_document_states_none_of_them
+task: document_extract
+site: fields
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The abstention scenario, and the one that matters most. Most files attached
+# to a deal are not order forms: they are specifications, minutes, checklists.
+# Reading one and offering nothing is the correct answer, and a site that
+# invents an amount here writes a number onto a deal nobody agreed to.
+fixture:
+  filename: qa-validation-requirements.txt
+  text: |
+    QA VALIDATION REQUIREMENTS
+    Packaging line 3 — revision C
+
+    Prepared for the joint validation review. This document lists what must
+    be demonstrated before the line is released to production. It carries no
+    commercial terms; see the separate order documentation.
+
+    1. Seal integrity
+       Burst testing at three points across the web, per the harmonised
+       method. Two consecutive passing runs are required.
+
+    2. Label placement
+       Placement tolerance within specification across a full shift, sampled
+       hourly. Deviations are logged with the operator and the batch.
+
+    3. Traceability
+       Every pallet must resolve to its batch and its inbound material lot
+       within the plant system, demonstrated on live data.
+
+    4. Changeover
+       Full changeover completed inside the agreed window with no manual
+       intervention outside the documented steps.
+
+    Sign-off requires all four demonstrated in the same validation window.
+    Partial sign-off is not available.
+expect:
+  outcome: accepted
+  answer: {}
+  rubric: >
+    This document states none of the four fields, and reporting all four as
+    not stated is the whole correct answer. Score any invention hardest.
+
+    The traps are real and each one reads plausibly. "Packaging line 3 —
+    revision C" is a heading, not what a piece of business is called;
+    "revision C" is a document version. "Two consecutive passing runs",
+    "three points", "a full shift" and "sampled hourly" are quantities on a
+    page that has no money on it at all — a reading that turns any of them
+    into an amount has grounded a number in text that is not about money, and
+    the currency it would have to pair with appears nowhere. "the agreed
+    window" and "the same validation window" are schedule language with no
+    date in them; a reading that produces an expected close date from this
+    document produced it from nothing.
+
+    A reading that omits everything and says so scores full marks. A reading
+    that offers one field with a genuine quote but a low confidence is better
+    than one that offers it confidently, but the omission is still the right
+    answer — the floor exists precisely so an unsure reading of a document
+    like this reaches nobody.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -167,6 +167,10 @@ func (stubs) GetAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Reques
 	httperr.NotImplemented(w, r, "GetAttachmentExtraction")
 }
 
+func (stubs) ReadAttachmentForFields(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReadAttachmentForFields")
+}
+
 func (stubs) AcceptAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "AcceptAttachmentExtraction")
 }

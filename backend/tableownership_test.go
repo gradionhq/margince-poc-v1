@@ -123,9 +123,10 @@ var tableOwners = map[string]string{
 	"offer_line_item":       "internal/modules/deals",
 	"offer_template":        "internal/modules/deals",
 	// activities
-	"activity":        "internal/modules/activities",
-	"transcript_read": "internal/modules/activities",
-	"activity_link":   "internal/modules/activities",
+	"activity":              "internal/modules/activities",
+	"transcript_read":       "internal/modules/activities",
+	"attachment_extraction": "internal/modules/activities",
+	"activity_link":         "internal/modules/activities",
 	// ACT-DDL-3: who was in the interaction. It belongs beside activity and
 	// activity_link for the same reason they belong together — it is part of
 	// what an activity IS, not a graph artifact derived from one.

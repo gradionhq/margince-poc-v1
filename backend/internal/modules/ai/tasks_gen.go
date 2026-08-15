@@ -20,6 +20,8 @@ const (
 	TaskColdStart Task = "cold_start"
 	// TaskDealHealth is Declared, not built (ADR-0074).
 	TaskDealHealth Task = "deal_health"
+	// TaskDocumentExtract is read ONE attached document — a scanned form, an invoice, an order confirmation — for the four deal facts a human may then accept onto the deal (records-depth RD-PARAM-N-3), each carrying the quote it was read from. premium-only BY CONTRACT for site_extract's reason and one of its own: a rung that cannot carry the document is not a degraded answer to this question, it is a different question, so there is no rung to degrade to. no_payload BY CONTRACT: a scanned contract or invoice is exactly the content that must never reach ai_call_payload, whatever the deployment's capture posture says. A reading takes seconds and can fail, so it is a durable record its surface polls (records-depth RD-DDL-4), never work done inside the request that asks for it.
+	TaskDocumentExtract Task = "document_extract"
 	// TaskDraftReply is Three sites, one task: the reply to an activity, the person page's composer, and the company page's first-touch outbound. They differ in what a draft is grounded IN, and share the rules block every drafting surface writes under (compose/draftrules). The reply site alone has two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a fourth site; the composers gain theirs when Voice DNA reaches them.
 	TaskDraftReply Task = "draft_reply"
 	TaskEnrich     Task = "enrich"
@@ -73,7 +75,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "6691ff9dee04061096a23395cbea05853528984f3c777556d61314402ce5acb9"
+const TaskContractHash = "0a761a53469c64ccb7cd21bc8919fdaedcb6181642e4aeccffd3fb0383da061b"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -87,6 +89,7 @@ func AllTasks() []Task {
 		TaskCertJudge,
 		TaskColdStart,
 		TaskDealHealth,
+		TaskDocumentExtract,
 		TaskDraftReply,
 		TaskEnrich,
 		TaskGrowthFit,
@@ -114,6 +117,7 @@ var taskLadders = map[Task][]Tier{
 	TaskCertJudge:                  {TierPremium, TierCheapCloud},
 	TaskColdStart:                  {TierCheapCloud, TierPremium},
 	TaskDealHealth:                 {TierCheapCloud, TierPremium},
+	TaskDocumentExtract:            {TierPremium},
 	TaskDraftReply:                 {TierCheapCloud, TierPremium},
 	TaskEnrich:                     {TierLocalSmall, TierCheapCloud},
 	TaskGrowthFit:                  {TierCheapCloud, TierPremium},
@@ -150,6 +154,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskCertJudge:                  ExecutionModeBackground,
 	TaskColdStart:                  ExecutionModeInteractive,
 	TaskDealHealth:                 ExecutionModeInteractive,
+	TaskDocumentExtract:            ExecutionModeBackground,
 	TaskDraftReply:                 ExecutionModeInteractive,
 	TaskEnrich:                     ExecutionModeBackground,
 	TaskGrowthFit:                  ExecutionModeInteractive,
@@ -193,6 +198,7 @@ var taskStatus = map[Task]string{
 	TaskCertJudge:                  "shipped",
 	TaskColdStart:                  "shipped",
 	TaskDealHealth:                 "planned",
+	TaskDocumentExtract:            "shipped",
 	TaskDraftReply:                 "shipped",
 	TaskEnrich:                     "shipped",
 	TaskGrowthFit:                  "shipped",
@@ -250,6 +256,9 @@ var taskSites = map[Task][]Site{
 		{Name: "acts", Kind: "multi_turn"},
 		{Name: "field_extract", Kind: "one_shot"},
 	},
+	TaskDocumentExtract: {
+		{Name: "fields", Kind: "one_shot"},
+	},
 	TaskDraftReply: {
 		{Name: "reply", Kind: "one_shot"},
 		{Name: "person", Kind: "one_shot"},
@@ -304,6 +313,7 @@ func SitesFor(t Task) []Site { return taskSites[t] }
 // contract pins the prohibition as a hard property, not a default.
 var noPayloadTasks = map[Task]bool{
 	TaskCaptureCounterpartyVerdict: true,
+	TaskDocumentExtract:            true,
 }
 
 // NoPayload reports the contract's payload prohibition for a task.
@@ -328,6 +338,7 @@ var taskCompanyContext = map[Task]CompanyContextPolicy{
 	TaskCertJudge:                  {TokenBudget: 0, Conditional: false},
 	TaskColdStart:                  {TokenBudget: 0, Conditional: false},
 	TaskDealHealth:                 {TokenBudget: 0, Conditional: false},
+	TaskDocumentExtract:            {TokenBudget: 0, Conditional: false},
 	TaskDraftReply:                 {Scopes: []string{"positioning", "sales", "proof", "market"}, TokenBudget: 1400, Conditional: false},
 	TaskEnrich:                     {TokenBudget: 0, Conditional: false},
 	TaskGrowthFit:                  {Scopes: []string{"offer", "positioning", "proof"}, TokenBudget: 1200, Conditional: false},
