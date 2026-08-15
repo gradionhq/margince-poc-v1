@@ -28,13 +28,19 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // The identity of the grant this build accepts, fixed at compile time.
 const (
-	// issuer is the production license authority. Non-production authorities
-	// exist upstream and sign with different keys, which the bundled keyset does
-	// not carry — pinning the production name keeps the two layers agreeing.
+	// issuer is the production license authority, and the only one a production
+	// installation honors.
+	//
+	// It is NOT redundant with the bundled keyset, which is what this file used
+	// to claim. A license minted by the test authority verifies against that
+	// keyset — the keys are shared across environments — so this string is the
+	// only thing that keeps a test license from licensing a customer.
 	issuer = "margince-license-authority"
 	// product names this product's grant inside the token's product map. A token
 	// that grants other products and not this one is refused.
@@ -62,6 +68,10 @@ var (
 	//go:embed module/VERSION
 	moduleVersion string
 )
+
+// ProductionIssuer is the authority a production installation honors, exported
+// so a caller can tell a real license from one minted for a test.
+const ProductionIssuer = issuer
 
 // ModuleVersion is the upstream release tag the bundled module was fetched
 // from. It travels with every posture the process reports, because "the license
@@ -115,6 +125,10 @@ type Posture struct {
 	// CheckedAt is when this answer was resolved, so a stale posture is
 	// recognizable as one.
 	CheckedAt time.Time
+	// Issuer is the authority that minted the verified license, empty unless
+	// valid. A non-production installation honors more than one, and which one
+	// answered is the difference between a real license and a test one.
+	Issuer string
 	// License is what the module proved about the license itself: which one it
 	// is, who holds it, and how long it lasts. Zero unless valid.
 	//
@@ -161,25 +175,62 @@ func (p Posture) Seats() (int, bool) {
 // An empty token is absent rather than an error: a configured token that cannot
 // be READ is caught where it is read (deployconfig), so by the time a token
 // reaches this function, empty means the operator configured none.
-func Resolve(ctx context.Context, token string, now time.Time) (Posture, error) {
+//
+// env decides which authorities are honored (see issuers). A production
+// installation makes exactly one call, as it always has.
+func Resolve(ctx context.Context, token string, now time.Time, env runtimeenv.Environment) (Posture, error) {
 	if strings.TrimSpace(token) == "" {
 		return Posture{State: StateAbsent, CheckedAt: now}, nil
 	}
-	result, err := check(ctx, bundledModule, issuer, product, generation, token)
-	switch {
-	case errors.Is(err, ErrVerdict):
-		return Posture{State: StateRejected, Reason: sanitizeReason(err.Error()), CheckedAt: now}, nil
-	case err != nil:
-		return Posture{}, fmt.Errorf("licensecheck: the bundled validation module (%s) could not run: %s",
-			ModuleVersion(), sanitizeReason(err.Error()))
-	case result.Grants == nil:
-		// Exit 0 with `null` or an empty document decodes without error and is
-		// not a grant. Admitting it would license an installation nothing
-		// granted.
-		return Posture{State: StateRejected, Reason: "the module reported no grant at all", CheckedAt: now}, nil
-	default:
-		return Posture{State: StateValid, Grants: result.Grants, License: result.License, CheckedAt: now}, nil
+	// The FIRST verdict is the one reported. A production license that expired
+	// says so; retrying it against the test authority would replace that with
+	// "invalid issuer", which sends the operator after the wrong problem.
+	var first Posture
+	for _, authority := range issuers(env) {
+		result, err := check(ctx, bundledModule, authority, product, generation, token)
+		switch {
+		case errors.Is(err, ErrVerdict):
+			if first.State == "" {
+				first = Posture{State: StateRejected, Reason: sanitizeReason(err.Error()), CheckedAt: now}
+			}
+			continue
+		case err != nil:
+			return Posture{}, fmt.Errorf("licensecheck: the bundled validation module (%s) could not run: %s",
+				ModuleVersion(), sanitizeReason(err.Error()))
+		case result.Grants == nil:
+			// Exit 0 with `null` or an empty document decodes without error and is
+			// not a grant. Admitting it would license an installation nothing
+			// granted.
+			return Posture{State: StateRejected, Reason: "the module reported no grant at all", CheckedAt: now}, nil
+		default:
+			return Posture{
+				State: StateValid, Grants: result.Grants, License: result.License,
+				Issuer: authority, CheckedAt: now,
+			}, nil
+		}
 	}
+	return first, nil
+}
+
+// issuers answers the license authorities this installation honors, production
+// first.
+//
+// A production installation honors exactly one, so a license minted by our test
+// or dev licenser can never license a customer — and it could, without this,
+// because those licensers sign with keys the bundled keyset carries.
+//
+// A non-production installation also honors the two non-production authorities,
+// which is how a developer runs the product on a test license. MARGINCE_ENV is
+// fail-closed: unset or unrecognized is production, so the narrow set is what an
+// installation gets unless somebody named otherwise on purpose.
+//
+// The names mirror how upstream derives them: the bare authority for production,
+// and the authority plus the environment for the rest.
+func issuers(env runtimeenv.Environment) []string {
+	if !env.IsNonProduction() {
+		return []string{issuer}
+	}
+	return []string{issuer, issuer + "-test", issuer + "-dev"}
 }
 
 // reasonLimit bounds what one rejection can contribute to a log line or a boot

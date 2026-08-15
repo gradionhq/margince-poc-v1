@@ -35,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -68,7 +69,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// refuses to boot on. The RUNNING posture is the api's to watch: it is the
 	// role that serves it, and two roles re-resolving one calendar answer would
 	// report the same lapse twice.
-	if _, err := compose.EnsureLicense(ctx, logger, deployCfg); err != nil {
+	if _, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))); err != nil {
 		return err
 	}
 

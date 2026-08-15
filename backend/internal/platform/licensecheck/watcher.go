@@ -10,6 +10,8 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // recheckInterval is how often a running process re-resolves its posture. A
@@ -39,13 +41,14 @@ type Watcher struct {
 	source  TokenSource
 	now     func() time.Time
 	log     *slog.Logger
+	env     runtimeenv.Environment
 	posture atomic.Pointer[Posture]
 }
 
 // NewWatcher resolves the posture once and refuses a rejected one, so the
 // caller's boot fails before the role serves. An absent license is not a
 // refusal: an unlicensed installation runs.
-func NewWatcher(ctx context.Context, source TokenSource, now func() time.Time, log *slog.Logger) (*Watcher, error) {
+func NewWatcher(ctx context.Context, source TokenSource, now func() time.Time, log *slog.Logger, env runtimeenv.Environment) (*Watcher, error) {
 	token, err := source()
 	if err != nil {
 		return nil, err
@@ -53,7 +56,7 @@ func NewWatcher(ctx context.Context, source TokenSource, now func() time.Time, l
 	// A module that could not run refuses the boot exactly as a refused license
 	// does: a validation module this build cannot execute is a packaging fault,
 	// and booting through it would read as an unlicensed installation.
-	resolved, err := Resolve(ctx, token, now())
+	resolved, err := Resolve(ctx, token, now(), env)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +67,7 @@ func NewWatcher(ctx context.Context, source TokenSource, now func() time.Time, l
 		return nil, fmt.Errorf("licensecheck: the license was refused by the bundled validation module (%s): %s",
 			ModuleVersion(), resolved.Reason)
 	}
-	w := &Watcher{source: source, now: now, log: log}
+	w := &Watcher{source: source, now: now, log: log, env: env}
 	w.posture.Store(&resolved)
 	return w, nil
 }
@@ -93,7 +96,7 @@ func (w *Watcher) Recheck(ctx context.Context) {
 			"err", err, "posture", string(before.State))
 		return
 	}
-	after, err := Resolve(ctx, token, w.now())
+	after, err := Resolve(ctx, token, w.now(), w.env)
 	if err != nil {
 		w.log.ErrorContext(ctx, "re-checking the license failed; keeping the posture this process last resolved",
 			"err", err, "posture", string(before.State))

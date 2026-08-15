@@ -753,6 +753,17 @@ as itself: none of those is evidence about the license, and degrading on one wou
 report a refusal that no license caused. Enforcement of the granted seat count is
 not implemented yet (issue #1190).
 
+**Which authority a license must come from.** A production installation honors
+exactly one: `margince-license-authority`. That is not redundant with the bundled
+keyset — our non-production licensers sign with keys that keyset carries, so the
+issuer is the only thing that keeps a license minted for a test from licensing a
+customer. An installation running with `MARGINCE_ENV` set to `dev`, `staging` or
+`test` also honors `margince-license-authority-test` and
+`margince-license-authority-dev`, which is how a developer runs the product on a
+test license. `MARGINCE_ENV` is fail-closed: unset or unrecognized is production,
+so an installation gets the narrow set unless somebody named otherwise on purpose.
+The boot line names the authority whenever it is not the production one.
+
 A token is read up to 64 KiB. A larger file is a boot error rather than a token,
 because a path pointing at something that is not a license (a log, an image) is a
 mistake to report, and everything downstream copies the token whole.

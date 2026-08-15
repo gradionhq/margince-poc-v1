@@ -63,7 +63,10 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	}
 	// After the installation binds, so an installation that cannot bind fails on
 	// that rather than on its license.
-	license, err := compose.EnsureLicense(ctx, logger, deployCfg)
+	// The deployment posture decides which license authorities are honored: a
+	// production installation accepts one, and only a non-production one also
+	// runs on a license minted for a test.
+	license, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(os.Getenv("MARGINCE_ENV")))
 	if err != nil {
 		return deployconfig.Config{}, nil, err
 	}
