@@ -42,6 +42,23 @@ functions now take no clock at all, so the column is written by the one clock
 that reads it, and no future caller can reintroduce a second one. The test needs
 no clock either — the sleep-free, injection-free version is now the honest one.
 
+The rule is a gate rather than a paragraph (`syncclock_test.go`), because the
+defect is invisible at runtime on any machine whose two clocks agree — which is
+every CI runner and every laptop, so no test that exercised the store could have
+failed against it. It derives both write spellings from the package source: an
+assignment's RHS must start at `now()`, and the INSERT column-list position must
+be `now()` outright, with a subject count so a renamed column fails the gate
+instead of emptying it. Beside it, an integration assertion now measures how far
+out the store actually paced the sweep, which due/not-due cannot see: an interval
+handed to Postgres in the wrong unit reads as "not due" exactly like a correct
+one. Both were verified against the defects they describe before being trusted.
+
+The same two clocks are still running in capture's ADR-0063 sync-state, filed as
+[#1346](https://github.com/gradionhq/margince-poc-v1/issues/1346) rather than
+fixed here — a connector-pacing change does not belong behind a flake fix. It is
+the more dangerous half: capture's skew can run the other way and *shorten* a
+backoff, and its rate-limited branch paces on a provider's own `Retry-After`.
+
 **#1340 — a repo sweep sized like a unit test.** The design-system conformance
 gates read, and mostly TypeScript-parse, the whole source tree, against vitest's
 5s per-test default. The heaviest leg measures ~1.1s locally under the coverage

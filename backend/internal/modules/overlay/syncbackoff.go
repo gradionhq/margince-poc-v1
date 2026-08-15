@@ -11,6 +11,17 @@ package overlay
 // honors a longer floor), and RecordSweepSuccess resets it. The row lives
 // in overlay_sync_state and is read by DueOverlayConnections' due-scan;
 // error DETAIL goes to system_log, the row carries only the class.
+//
+// EVERY next_sweep_at write here takes the DATABASE's clock, never a
+// timestamp bound from Go. The due-scan compares the column against now()
+// inside Postgres (connectionreads.go), so a deadline derived from the app
+// process makes that a cross-clock comparison, and the two clocks are only
+// ever coincidentally equal. A backoff has minutes of margin and survives the
+// skew; a reset means "due immediately" and has none — stamped by a process
+// running ahead of the database it lands in the future, and the connection it
+// was supposed to heal stays backed off for as long as the skew lasts.
+// syncclock_test.go derives that rule from this source rather than trusting
+// this paragraph.
 
 import (
 	"context"
@@ -81,16 +92,8 @@ func sweepBackoffDelay(consecutiveFailures int) time.Duration {
 
 // RecordSweepSuccess resets the backoff for ctx's workspace: the next
 // sweep is due immediately and the failure ladder is cleared. One clean
-// sweep heals a backed-off connection.
-//
-// "Immediately" has zero margin, which is why the schedule is written from
-// the DATABASE's clock and never the caller's: DueOverlayConnections
-// compares next_sweep_at against now() INSIDE Postgres, so a reset stamped
-// from the app process's clock lands in the future whenever that clock runs
-// ahead of the database's — a reset that silently does not reset, for as
-// long as the skew lasts. RequestSweep, the flip seal and the failure
-// pacing below all write this column the same way, so one clock schedules
-// the whole sweep.
+// sweep heals a backed-off connection. It takes no clock: the reset is the
+// zero-margin case of this file's database-clock rule.
 func (s *MirrorStore) RecordSweepSuccess(ctx context.Context) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := s.assertFence(ctx, tx); err != nil {
@@ -159,14 +162,14 @@ func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error) er
 			return fmt.Errorf("overlay: recording the sweep failure: %w", err)
 		}
 
-		// The ladder is a DELAY, applied to the database's clock for the same
-		// reason the reset above is (RecordSweepSuccess's doc comment).
+		// The ladder is a DELAY, not a deadline, so the database applies it to
+		// its own clock (this file's rule).
 		delay := sweepBackoffDelay(failures)
 		if class == classSweepRateLimited && delay < rateLimitedFloor {
 			delay = rateLimitedFloor
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE overlay_sync_state SET next_sweep_at = now() + make_interval(secs => $1::double precision)
+			UPDATE overlay_sync_state SET next_sweep_at = now() + make_interval(secs => $1)
 			WHERE workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid`,
 			delay.Seconds()); err != nil {
 			return fmt.Errorf("overlay: pacing the next sweep after failure: %w", err)
