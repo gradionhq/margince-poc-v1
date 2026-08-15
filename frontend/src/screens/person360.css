@@ -403,9 +403,16 @@
    said, its standing, the time. */
 .pe-memory-row {
   display: grid;
-  grid-template-columns: 64px auto minmax(0, 1fr) auto auto;
+  /* The last track is the reply, and it is sized `auto` so a row that offers
+     none collapses it to nothing rather than reserving a gutter across every
+     mail row for a button only channel rows have. */
+  grid-template-columns: 64px auto minmax(0, 1fr) auto auto auto;
   gap: var(--space-3);
   align-items: start;
+}
+
+.pe-memory-action:empty {
+  display: none;
 }
 
 .pe-memory-date {
@@ -454,6 +461,13 @@
 
   .pe-memory-date,
   .pe-memory-channel {
+    grid-column: 1 / -1;
+  }
+
+  /* The reply takes its own line rather than being squeezed beside the time:
+     at this width the two would each get half a column and the button would
+     wrap its own label. */
+  .pe-memory-action {
     grid-column: 1 / -1;
   }
 }

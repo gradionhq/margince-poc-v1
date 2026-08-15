@@ -83,6 +83,15 @@ func (s *Service) nextStepsSection(ctx context.Context, tx pgx.Tx, personID ids.
 }
 
 // readActivities is the shared body of the timeline and next-step reads.
+//
+// It selects channel_provider, and that is not decoration: since ADR-0107/A158
+// the kind says only that an interaction was a message, so a row without the
+// provider renders as the bare word "message" and a Telegram thread becomes
+// indistinguishable from a unit's. This SELECT is a hand-written sibling of
+// activities.activityColumns, which is exactly how it came to be missing the
+// column for a whole slice — the narrowing added it there and nothing pointed
+// at the copy. TestThePerson360TimelineNamesTheTransportThatCarriedAMessage is
+// the guard that says so out loud.
 func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, extra string) ([]crmcontracts.Activity, bool, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -92,8 +101,8 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 		return nil, false, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT a.id, a.kind, a.subject, a.body, a.direction, a.occurred_at,
-		       a.due_at, a.is_done, a.source, a.captured_by, a.created_at
+		SELECT a.id, a.kind, a.channel_provider, a.subject, a.body, a.direction,
+		       a.occurred_at, a.due_at, a.is_done, a.source, a.captured_by, a.created_at
 		FROM activity a
 		WHERE a.archived_at IS NULL AND %s AND (%s) %s
 		ORDER BY a.occurred_at DESC, a.id DESC
@@ -107,8 +116,9 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 	for rows.Next() {
 		var a crmcontracts.Activity
 		var id ids.UUID
-		if err := rows.Scan(&id, &a.Kind, &a.Subject, &a.Body, &a.Direction,
-			&a.OccurredAt, &a.DueAt, &a.IsDone, &a.Source, &a.CapturedBy, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&id, &a.Kind, &a.ChannelProvider, &a.Subject, &a.Body,
+			&a.Direction, &a.OccurredAt, &a.DueAt, &a.IsDone, &a.Source, &a.CapturedBy,
+			&a.CreatedAt); err != nil {
 			return nil, false, err
 		}
 		a.Id = openapi_types.UUID(id)

@@ -4714,6 +4714,9 @@ export const en = {
   "person.drawer.close": "Close",
   "person.composer.title": "Draft follow-up · {name}",
   "person.composer.to": "To",
+  "person.composer.transport": "How to send",
+  "person.composer.transportEmail": "Email",
+  "person.composer.toConversation": "Continues your {transport} conversation",
   "person.composer.subject": "Subject",
   "person.composer.bcc": "Bcc",
   "person.composer.bccPlaceholder":

@@ -14,6 +14,7 @@ import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
 import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
+import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem } from "./common";
 import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
@@ -260,6 +261,278 @@ function addressList(raw: string): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+// Which ways this person can be written to, right now, in the order the
+// composer offers them.
+//
+// Mail leads when there is an address, because it is the one transport that can
+// OPEN a conversation: `POST /emails` names its addressee. A channel cannot —
+// `send-message` resolves the recipient from the conversation being answered
+// and there is deliberately no account-started twin — so a channel is offered
+// only when this person already has a conversation on it, and the most recent
+// one is the anchor a reply would continue.
+//
+// Reachability and the anchor are BOTH required, and they answer different
+// questions: reachability says the identity is live and unblocked, the anchor
+// says there is something to continue. A transport with one and not the other
+// would be a choice that fails at the send.
+function transportsFor(
+  view: Person360,
+  providerLabel: (provider: string) => string,
+  t: ReturnType<typeof useT>,
+): Transport[] {
+  const out: Transport[] = [];
+  if (view.person.emails?.[0]?.email) {
+    out.push({ id: "email", label: t("person.composer.transportEmail") });
+  }
+  const reachable = new Set(
+    (view.person.reachability ?? [])
+      .filter((channel) => channel.reachable)
+      .map((channel) => channel.provider),
+  );
+  // Most recent first, so the first row seen for a provider IS its latest
+  // conversation — the one a rep means when they pick that transport.
+  const newestFirst = [...(view.activities?.data ?? [])].sort(
+    (a, b) =>
+      new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
+  );
+  for (const activity of newestFirst) {
+    const provider = activity.channel_provider;
+    if (
+      activity.kind !== "message" ||
+      !provider ||
+      !reachable.has(provider) ||
+      out.some((transport) => transport.id === provider)
+    ) {
+      continue;
+    }
+    out.push({
+      id: provider,
+      label: providerLabel(provider),
+      anchorId: activity.id,
+    });
+  }
+  return out;
+}
+
+// Whether this composer holds something the chosen transport can actually
+// carry.
+//
+// A channel send owes no subject and names no address, so the mail predicate
+// would refuse every one of them. What it owes instead is an ANCHOR: without a
+// conversation to answer there is nothing for the server to resolve a
+// recipient from, and the send would 404 on a button that looked ready.
+function canSendOn({
+  transport,
+  isChannel,
+  recipient,
+  subject,
+  body,
+  purpose,
+}: Readonly<{
+  transport: Transport | undefined;
+  isChannel: boolean;
+  recipient: string;
+  subject: string;
+  body: string;
+  purpose: string;
+}>): boolean {
+  if (isChannel) {
+    return transport?.anchorId != null && body.trim() !== "" && purpose !== "";
+  }
+  return canSend({ recipient, subject, body, purpose });
+}
+
+// Who the message is going to, in the vocabulary of the transport carrying it.
+//
+// A channel names the CONVERSATION rather than an address, and it is read-only
+// for a stronger reason than mail's: the recipient is resolved server-side from
+// the conversation being answered, so an editable field would promise a choice
+// the send does not offer.
+function ToLine({
+  transport,
+  isChannel,
+  address,
+}: Readonly<{
+  transport: Transport | undefined;
+  isChannel: boolean;
+  address: string;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <label className="pe-field-label" htmlFor="composer-to">
+        {t("person.composer.to")}
+      </label>
+      <TextInput
+        id="composer-to"
+        value={
+          isChannel
+            ? t("person.composer.toConversation", {
+                transport: transport?.label ?? "",
+              })
+            : address
+        }
+        readOnly
+      />
+    </>
+  );
+}
+
+// The composer's transport choice: what is available, which is selected, and
+// whether that one is a channel.
+//
+// A hook rather than three lines in the composer because the composer is at its
+// complexity ceiling and this is one idea — "which way is this going" — that a
+// reader should be able to take in on its own.
+function useTransportChoice(view: Person360) {
+  const t = useT();
+  const providerLabel = useProviderLabel();
+  const transports = transportsFor(view, providerLabel, t);
+  // The composer opens on the first way this person can be reached. An empty
+  // selection resolves to that rather than being seeded, so a contact whose
+  // reachability arrives after the first render does not stay stuck on the
+  // transport that existed before it.
+  const [transportId, setTransportId] = useState("");
+  const transport =
+    transports.find((option) => option.id === transportId) ?? transports[0];
+  return {
+    transports,
+    transport,
+    isChannel: transport != null && transport.id !== "email",
+    setTransportId,
+  };
+}
+
+// The three fields mail has and a channel does not, each absent for its own
+// reason rather than as a group: send-message takes no schedule, there is no
+// draft-message endpoint (the model lane drafts mail only), and a messaging
+// channel has no subject line.
+//
+// Rendering them disabled on a channel would suggest a capability that is
+// coming. They are simply not part of that transport.
+function MailOnlyFields({
+  sendAt,
+  onSendAtChange,
+  subject,
+  onSubjectChange,
+  intent,
+  onIntentChange,
+  draftPending,
+  draftError,
+  onDraft,
+}: Readonly<{
+  sendAt: string;
+  onSendAtChange: (next: string) => void;
+  subject: string;
+  onSubjectChange: (next: string) => void;
+  intent: string;
+  onIntentChange: (next: string) => void;
+  draftPending: boolean;
+  draftError: unknown;
+  onDraft: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <label className="pe-field-label" htmlFor="composer-send-at">
+        {t("compose.sendLaterLabel")}
+      </label>
+      <TextInput
+        id="composer-send-at"
+        type="datetime-local"
+        value={sendAt}
+        onChange={(event) => onSendAtChange(event.target.value)}
+      />
+
+      <DraftBar
+        intent={intent}
+        onIntentChange={onIntentChange}
+        pending={draftPending}
+        error={draftError}
+        onDraft={onDraft}
+      />
+
+      <label className="pe-field-label" htmlFor="composer-subject">
+        {t("person.composer.subject")}
+      </label>
+      <TextInput
+        id="composer-subject"
+        value={subject}
+        onChange={(event) => onSubjectChange(event.target.value)}
+      />
+    </>
+  );
+}
+
+// The channel half of the composer's send.
+//
+// It anchors on the conversation and carries no subject, no bcc and no
+// schedule — and names no addressee, because the server resolves the recipient
+// from the conversation being answered. That resolution is the reason a caller
+// cannot open a channel conversation at all, and the reason this takes an
+// anchor rather than a person.
+async function sendChannelReply(
+  anchorId: string,
+  body: string,
+  purpose: string,
+) {
+  const { data, error } = await api.POST("/activities/{id}/send-message", {
+    params: { path: { id: anchorId } },
+    body: { body, consent_purpose: purpose },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data;
+}
+
+// The transport choice, rendered only when there IS one.
+//
+// One transport gets the composer this contact has always had: a picker with a
+// single option is a control that cannot be used, and it would appear on every
+// mail-only contact in the installation to say nothing.
+function TransportPicker({
+  transports,
+  selected,
+  onChange,
+}: Readonly<{
+  transports: Transport[];
+  selected: Transport | undefined;
+  onChange: (next: string) => void;
+}>) {
+  const t = useT();
+  if (transports.length < 2) {
+    return null;
+  }
+  return (
+    <>
+      <label className="pe-field-label" htmlFor="composer-transport">
+        {t("person.composer.transport")}
+      </label>
+      <Select
+        id="composer-transport"
+        value={selected?.id ?? ""}
+        onChange={onChange}
+        options={transports.map((option) => ({
+          value: option.id,
+          label: option.label,
+        }))}
+      />
+    </>
+  );
+}
+
+type Transport = {
+  // `email` or a channel_provider id. The two live in one namespace because the
+  // composer picks one of them, and `email` is not a provider grammar match so
+  // it cannot collide with one.
+  id: string;
+  label: string;
+  // Absent for mail, which opens its own conversation. Present for every
+  // channel, because a channel reply is anchored by contract.
+  anchorId?: string;
+};
+
 // The composer's own head: who it is to, and whether it may go at all.
 //
 // Its own component because the verdict line has three states a reader must be
@@ -356,6 +629,8 @@ export function PersonComposer({
   // that sends formatted mail.
   const [bcc, setBcc] = useState("");
   const [sendAt, setSendAt] = useState("");
+  const { transports, transport, isChannel, setTransportId } =
+    useTransportChoice(view);
 
   // One spelling of "this composer holds no message", for the two moments that
   // need it: the recipient changing, and a send succeeding.
@@ -375,6 +650,10 @@ export function PersonComposer({
   if (wroteFor !== personId) {
     setWroteFor(personId);
     clearMessage();
+    // The transport belongs to the recipient too. Left alone, a composer
+    // switched from a contact reachable on Dispact to one reachable only by
+    // mail would keep a channel selected and send nowhere.
+    setTransportId("");
   }
 
   // Drafting is a BUTTON, not something the drawer does to you. Opening a
@@ -418,6 +697,11 @@ export function PersonComposer({
   // carries the person as its link.
   const send = useMutation({
     mutationFn: async () => {
+      // A channel reply is a different operation against a different shape —
+      // see sendChannelReply.
+      if (isChannel && transport?.anchorId) {
+        return sendChannelReply(transport.anchorId, body, purpose);
+      }
       const { data, error } = await api.POST("/emails", {
         body: {
           subject,
@@ -447,7 +731,9 @@ export function PersonComposer({
     onSuccess: clearMessage,
   });
 
-  const sendable = allowed && canSend({ recipient, subject, body, purpose });
+  const sendable =
+    allowed &&
+    canSendOn({ transport, isChannel, recipient, subject, body, purpose });
 
   return (
     <Modal
@@ -467,49 +753,54 @@ export function PersonComposer({
       />
 
       <div className="drawer-body">
-        <label className="pe-field-label" htmlFor="composer-to">
-          {t("person.composer.to")}
-        </label>
-        <TextInput id="composer-to" value={recipient} readOnly />
-
-        <label className="pe-field-label" htmlFor="composer-bcc">
-          {t("person.composer.bcc")}
-        </label>
-        <TextInput
-          id="composer-bcc"
-          value={bcc}
-          onChange={(event) => setBcc(event.target.value)}
-          placeholder={t("person.composer.bccPlaceholder")}
+        <TransportPicker
+          transports={transports}
+          selected={transport}
+          onChange={(next) => {
+            setTransportId(next);
+            // The words do not travel between transports. A subject typed for
+            // mail has nowhere to go on a channel, and a body written for one
+            // conversation should not arrive in another because a rep changed
+            // their mind about the medium.
+            clearMessage();
+          }}
         />
+
+        <ToLine
+          transport={transport}
+          isChannel={isChannel}
+          address={recipient}
+        />
+
+        {!isChannel && (
+          <>
+            <label className="pe-field-label" htmlFor="composer-bcc">
+              {t("person.composer.bcc")}
+            </label>
+            <TextInput
+              id="composer-bcc"
+              value={bcc}
+              onChange={(event) => setBcc(event.target.value)}
+              placeholder={t("person.composer.bccPlaceholder")}
+            />
+          </>
+        )}
 
         <PurposePicker purpose={purpose} onChange={setPurpose} />
 
-        <label className="pe-field-label" htmlFor="composer-send-at">
-          {t("compose.sendLaterLabel")}
-        </label>
-        <TextInput
-          id="composer-send-at"
-          type="datetime-local"
-          value={sendAt}
-          onChange={(event) => setSendAt(event.target.value)}
-        />
-
-        <DraftBar
-          intent={intent}
-          onIntentChange={setIntent}
-          pending={draft.isPending}
-          error={draft.isError ? draft.error : null}
-          onDraft={() => draft.mutate()}
-        />
-
-        <label className="pe-field-label" htmlFor="composer-subject">
-          {t("person.composer.subject")}
-        </label>
-        <TextInput
-          id="composer-subject"
-          value={subject}
-          onChange={(event) => setSubject(event.target.value)}
-        />
+        {!isChannel && (
+          <MailOnlyFields
+            sendAt={sendAt}
+            onSendAtChange={setSendAt}
+            subject={subject}
+            onSubjectChange={setSubject}
+            intent={intent}
+            onIntentChange={setIntent}
+            draftPending={draft.isPending}
+            draftError={draft.isError ? draft.error : null}
+            onDraft={() => draft.mutate()}
+          />
+        )}
 
         <label className="pe-field-label" htmlFor="composer-body">
           {t("person.composer.body")}

@@ -1465,6 +1465,64 @@ function useChannelReachable(
   );
 }
 
+// The reply affordance for ONE captured conversation, on its own so the two
+// surfaces that offer it cannot come to offer different things.
+//
+// It exists as a separate export because the conversation-memory card wants
+// exactly this and nothing else: Relink below is a raw-ledger act — "this
+// activity is filed against the wrong record" — and a summary card is not where
+// a reader re-files anything.
+//
+// The gate is the same one TimelineActions applies, and that sameness is the
+// point of the extraction rather than a happy accident: a `message` row is
+// withheld when the person behind it cannot be reached on the transport that
+// carried it, and a rep offered a reply on one surface and refused it on the
+// other would have no way to tell which answer was true.
+export function ChannelReplyAction({
+  activityId,
+  kind,
+  channelProvider,
+  entityType,
+  entityId,
+  personId,
+}: Readonly<{
+  activityId: string;
+  kind: Activity["kind"];
+  channelProvider?: string;
+  entityType: RelinkKind;
+  entityId: string;
+  personId?: string;
+}>) {
+  const t = useT();
+  const [reply, setReply] = useState(false);
+  const reachable = useChannelReachable(
+    kind === "message",
+    personId,
+    channelProvider,
+  );
+  if (!reachable) {
+    return null;
+  }
+  return (
+    <>
+      <Button small onClick={() => setReply(true)}>
+        {t("compose.reply")}
+      </Button>
+      {reply && (
+        <ComposeModal
+          activityId={activityId}
+          entityType={entityType}
+          entityId={entityId}
+          personId={personId}
+          kind={kind}
+          open={reply}
+          onClose={() => setReply(false)}
+        />
+      )}
+    </>
+  );
+}
+
 // The per-row action cluster the 360 timelines mount in each entry's action
 // slot.
 //
@@ -1494,34 +1552,20 @@ export function TimelineActions({
   personId?: string;
 }>) {
   const t = useT();
-  const [reply, setReply] = useState(false);
   const [relink, setRelink] = useState(false);
-  const reachable = useChannelReachable(
-    activity.kind === "message",
-    personId,
-    activity.channel_provider ?? undefined,
-  );
   return (
     <>
-      {reachable && (
-        <Button small onClick={() => setReply(true)}>
-          {t("compose.reply")}
-        </Button>
-      )}
+      <ChannelReplyAction
+        activityId={activity.id}
+        kind={activity.kind}
+        channelProvider={activity.channel_provider ?? undefined}
+        entityType={entityType}
+        entityId={entityId}
+        personId={personId}
+      />
       <Button small onClick={() => setRelink(true)}>
         {t("compose.relink")}
       </Button>
-      {reply && (
-        <ComposeModal
-          activityId={activity.id}
-          entityType={entityType}
-          entityId={entityId}
-          personId={personId}
-          kind={activity.kind}
-          open={reply}
-          onClose={() => setReply(false)}
-        />
-      )}
       {relink && (
         <RelinkModal
           activityId={activity.id}
