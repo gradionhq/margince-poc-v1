@@ -1198,6 +1198,14 @@ export const en = {
   "lead.clearOverride": "Clear override",
   "lead.overrideReason": "Reason",
   "lead.machineComputed": "Machine-computed score",
+  "lead.shortfall.lead": "Nothing counts toward this score yet:",
+  "lead.shortfall.noTitle": "No job title on record.",
+  "lead.shortfall.titleNotSenior":
+    "“{title}” isn’t one of the senior titles the model looks for.",
+  "lead.shortfall.sourceNoIntent":
+    "Came in as “{source}”, which carries no buying intent on its own.",
+  "lead.shortfall.noEngagement":
+    "No reply or meeting yet — that’s what moves the score most.",
   "lead.scoreLoading": "Working out why…",
   "lead.scoreNotYetExplained":
     "This score predates the breakdown. The next update will explain it.",
@@ -1217,6 +1225,10 @@ export const en = {
   "lead.ownerYou": "You",
   "lead.overriddenBadge": "overridden",
   "lead.unassigned": "Unassigned",
+  "lead.terminalPromoted":
+    "Promoted to a contact — this lead is now read-only.",
+  "lead.terminalDisqualified": "Disqualified — this lead is now read-only.",
+  "lead.assign": "Assign",
   "lead.assignToMe": "Assign to me",
   "lead.assignToSomeone": "Assign to someone else",
   "lead.assignTo": "Assign this lead to",

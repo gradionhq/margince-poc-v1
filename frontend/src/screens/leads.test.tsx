@@ -782,22 +782,32 @@ describe("LeadScreen — score explain + override (P-10)", () => {
 });
 
 describe("LeadScreen — owner display + assign to me (P-11)", () => {
-  it("shows Unassigned and Assign to me PATCHes owner_id to the current user", async () => {
+  it("shows Unassigned and assigning to yourself PATCHes owner_id to the current user", async () => {
     let patchBody: unknown = null;
     stubFetchWithMe(async (url, method, request) => {
       if (method === "PATCH" && url.includes("/leads/l-1")) {
         patchBody = JSON.parse(await request.text());
         return jsonResponse({ ...lead, owner_id: "u-9", version: 2 });
       }
+      if (url.includes("/users")) {
+        // The viewer is an ordinary roster entry now — the picker offers them
+        // first rather than a separate button doing it.
+        return jsonResponse({ data: [{ id: "u-9", display_name: "Me" }] });
+      }
       return undefined;
     }, "u-9");
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() => expect(screen.getByText("Unassigned")).toBeTruthy());
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Assign to me" })).toBeTruthy(),
+    // ONE control, not a self-assign button beside a picker: the viewer is
+    // simply its first option (ADR-0108 §5).
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Assign" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Assign to me" }));
+    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Assign to me" }),
+    );
 
     await waitFor(() => expect(patchBody).toBeTruthy());
     expect(patchBody).toMatchObject({ owner_id: "u-9" });
@@ -942,7 +952,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     ).toBeTruthy();
   });
 
-  it("says a pre-existing score is not yet explained rather than showing an empty breakdown", async () => {
+  it("says why a lead scores nothing rather than explaining our storage history", async () => {
     stubFetchWithMe(async (url) => {
       if (url.includes("/score")) {
         return jsonResponse({ score: 72, explained: false });
@@ -951,15 +961,20 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     });
     render(<LeadScreen id="l-1" />);
 
-    // An empty factor list would read as "nothing contributed", which is a
-    // different and false claim about a score that predates the series.
+    // The reasons a lead earns nothing are derivable from the lead itself, and
+    // they are what the reader came for. "This score predates the breakdown"
+    // answered a question nobody asked and left a 0 looking like a bad
+    // prospect rather than an unassessed one (ADR-0108 §4).
     await waitFor(() =>
       expect(
-        screen.getByText(
-          "This score predates the breakdown. The next update will explain it.",
-        ),
+        screen.getByText("Nothing counts toward this score yet:"),
       ).toBeTruthy(),
     );
+    expect(
+      screen.getByText(
+        "No reply or meeting yet — that\u2019s what moves the score most.",
+      ),
+    ).toBeTruthy();
   });
 
   it("names the owner 'You' when the lead is owned by the current user", async () => {
@@ -1007,7 +1022,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     render(<LeadScreen id="l-1" />);
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Assign to someone else" }),
+      await screen.findByRole("button", { name: "Assign" }),
     );
     // The listbox is opened ONCE and the option awaited inside it: clicking
     // the trigger again would toggle it shut, and the popup re-renders in
