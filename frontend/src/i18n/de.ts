@@ -1244,6 +1244,7 @@ export const de = {
     "Zum Kontakt befördert — dieser Lead ist jetzt schreibgeschützt.",
   "lead.terminalDisqualified":
     "Disqualifiziert — dieser Lead ist jetzt schreibgeschützt.",
+  "lead.marker": "Lead",
   "lead.assign": "Zuweisen",
   "lead.assignToMe": "Mir zuweisen",
   "lead.assignToSomeone": "Jemand anderem zuweisen",

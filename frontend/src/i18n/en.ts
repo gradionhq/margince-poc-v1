@@ -1255,6 +1255,7 @@ export const en = {
   "lead.terminalPromoted":
     "Promoted to a contact — this lead is now read-only.",
   "lead.terminalDisqualified": "Disqualified — this lead is now read-only.",
+  "lead.marker": "Lead",
   "lead.assign": "Assign",
   "lead.assignToMe": "Assign to me",
   "lead.assignToSomeone": "Assign to someone else",

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -10,11 +10,11 @@ import {
   Button,
   Card,
   Modal,
-  SectionHeader,
   SegmentedControl,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { RecordView } from "../design-system/composed";
 import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -852,7 +852,6 @@ function LeadOverviewPane({
   id,
   headingId,
   promoteOpen,
-  onOpenPromote,
   closePromote,
   trigger,
   setTrigger,
@@ -867,7 +866,6 @@ function LeadOverviewPane({
   id: string;
   headingId: string;
   promoteOpen: boolean;
-  onOpenPromote: () => void;
   closePromote: () => void;
   trigger: PromoteTrigger;
   setTrigger: (trigger: PromoteTrigger) => void;
@@ -886,24 +884,9 @@ function LeadOverviewPane({
     <>
       {!lead.archived_at && !overlay && (
         <>
-          <div
-            style={{
-              marginTop: 14,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
-            <Button
-              variant="primary"
-              disabled={!promoteEligible(lead) || promotePending}
-              onClick={onOpenPromote}
-            >
-              {t("lead.promote")}
-            </Button>
-            {!promoteEligible(lead) && (
-              <span className="t-caption">{t("lead.promoteIneligible")}</span>
-            )}
+          {/* The button moved to the header (ADR-0108 §6); the dialog it
+              opens stays here, where the promote state lives. */}
+          <div>
             <Modal
               open={promoteOpen}
               onClose={closePromote}
@@ -981,27 +964,38 @@ function LeadOverviewPane({
 // the terminal-state branch pushed that render past the complexity budget,
 // and because a header is a thing in its own right: the name, why the verbs
 // are gone when they are, and the verbs themselves.
-function LeadHeader({
+function LeadActions({
   lead,
   id,
   cf,
   overlay,
+  onPromote,
 }: Readonly<{
   lead: Lead;
   id: string;
   cf: ReturnType<typeof useObjectCustomFields>;
   overlay: boolean;
+  onPromote: () => void;
 }>) {
   const t = useT();
   return (
-    <div className="list-head">
-      {/* The lead's name is this page's name: the shell's page head
-            yields to a record route and prints only the trail that leads
-            here, so without this the page would carry no heading at all. */}
-      <SectionHeader
-        level={1}
-        title={lead.full_name ?? lead.email ?? t("nav.leads")}
-      />
+    <>
+      {/* Promote is the page's ONE primary action and it leads, in the header
+          where a reader looks for the verb (ADR-0108 §6). Ineligibility is
+          stated on the control itself rather than as a sentence beside it —
+          a disabled button whose reason is elsewhere is a dead button. */}
+      {!lead.archived_at && (
+        <Button
+          variant="primary"
+          disabled={!promoteEligible(lead)}
+          title={
+            promoteEligible(lead) ? undefined : t("lead.promoteIneligible")
+          }
+          onClick={onPromote}
+        >
+          {t("lead.promote")}
+        </Button>
+      )}
       {/* A promoted or disqualified lead is archived and terminal —
             the backend rejects edit/disqualify/promote/score-override on
             it, so those affordances would only 404. STATE-4a wants the
@@ -1073,7 +1067,7 @@ function LeadHeader({
           <ShareAction recordType="lead" recordId={lead.id} />
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1146,15 +1140,51 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       ? problemMessageOf(promote.error, t)
       : null;
 
+  // A promoted lead IS the person it became — the record moved, so the page
+  // follows it (ADR-0108 §1). Until now this only happened as the tail of a
+  // promote you had just performed, so revisiting or deep-linking a promoted
+  // lead landed on a read-only husk of a record that exists elsewhere.
+  const promotedPersonId = leadQuery.data?.promoted_person_id;
+  useEffect(() => {
+    if (promotedPersonId) {
+      navigate({ screen: "contacts", id: promotedPersonId });
+    }
+  }, [promotedPersonId]);
+
   return (
     <div className="wrap lead-surface">
       <QueryGate query={leadQuery}>
         {(lead) => (
-          <Card as="div" className="lead-detail">
-            <LeadHeader lead={lead} id={id} cf={cf} overlay={overlay} />
-            <LeadBadges lead={lead} />
-            {lead.email && <p className="t-mono">{lead.email}</p>}
-            <div style={{ marginBottom: 16 }}>
+          <RecordView
+            name={lead.full_name ?? lead.email ?? t("nav.leads")}
+            avatarSrc={null}
+            // The "Lead" marker rides the identity, not a badge among badges:
+            // a reader has to know this is a prospect and not a contact
+            // BEFORE they read anything else about them (ADR-0108 §1).
+            subtitle={<Badge tone="accent">{t("lead.marker")}</Badge>}
+            pulse={
+              lead.email ? <span className="t-mono">{lead.email}</span> : null
+            }
+            actions={
+              <LeadActions
+                lead={lead}
+                id={id}
+                cf={cf}
+                overlay={overlay}
+                onPromote={() => setPromoteOpen(true)}
+              />
+            }
+            actionsInline
+            // Required by the shell for timeline timestamps; this page passes
+            // no timeline, so the viewer's own zone is the honest default.
+            zone={Intl.DateTimeFormat().resolvedOptions().timeZone}
+            // The readings ride the band, above the columns: they describe the
+            // PROSPECT, and a strip that vanished on the History tab would
+            // move the tab bar and re-flow the page under the reader.
+            band={<LeadBadges lead={lead} />}
+          >
+            {/* The bar leads the column it governs. */}
+            <div style={{ marginBottom: "var(--space-4)" }}>
               <SegmentedControl
                 options={LEAD_TABS}
                 value={tab}
@@ -1171,7 +1201,6 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 id={id}
                 headingId={headingId}
                 promoteOpen={promoteOpen}
-                onOpenPromote={() => setPromoteOpen(true)}
                 closePromote={closePromote}
                 trigger={trigger}
                 setTrigger={setTrigger}
@@ -1196,7 +1225,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               <RecordHistoryTab kind="lead" id={lead.id} />
             )}
             {tab === "history" && overlay && <OverlayUnavailable />}
-          </Card>
+          </RecordView>
         )}
       </QueryGate>
     </div>
