@@ -1231,6 +1231,8 @@ export const en = {
     "Came in as “{source}”, which carries no buying intent on its own.",
   "lead.shortfall.noEngagement":
     "No reply or meeting yet — that’s what moves the score most.",
+  "lead.scoreNotStoredYet":
+    "The breakdown for this score isn’t stored yet — the next update will show it.",
   "lead.scoreLoading": "Working out why…",
   "lead.scoreNotYetExplained":
     "This score predates the breakdown. The next update will explain it.",

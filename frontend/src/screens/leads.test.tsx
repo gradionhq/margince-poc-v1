@@ -952,12 +952,36 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     ).toBeTruthy();
   });
 
-  it("says why a lead scores nothing rather than explaining our storage history", async () => {
+  it("never claims nothing counts when the score is not zero", async () => {
+    // The render caught this: a lead scoring 72 with no retained breakdown
+    // was told "Nothing counts toward this score yet", which is the opposite
+    // of true. Something counted; this client cannot say what.
     stubFetchWithMe(async (url) => {
       if (url.includes("/score")) {
         return jsonResponse({ score: 72, explained: false });
       }
-      return jsonResponse(lead);
+      return jsonResponse({ ...lead, score: 72 });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "The breakdown for this score isn\u2019t stored yet — the next update will show it.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText("Nothing counts toward this score yet:"),
+    ).toBeNull();
+  });
+
+  it("says why a lead scores nothing rather than explaining our storage history", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({ ...lead, score: 0, title: null });
     });
     render(<LeadScreen id="l-1" />);
 
