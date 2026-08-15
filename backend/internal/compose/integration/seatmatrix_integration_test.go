@@ -216,6 +216,51 @@ func TestAWriteGrantIsRefusedToAReadSeat(t *testing.T) {
 	}
 }
 
+// The ceiling holds on the SECOND call as hard as on the first, and the test
+// above cannot say so: it only ever asks once.
+//
+// Sharing is idempotent on (record_type, record_id, subject_type, subject_id),
+// so a re-assert is a real write where the unique constraint used to refuse one
+// outright. The route around the refusal is therefore to ask twice — share
+// `read`, which a read seat may hold because it is the authority its licence
+// already carries, then re-assert the same tuple as `write`. Any narrowing of
+// the ceiling to new rows ("the grant exists, this is only an update") opens
+// it, which is what this asserts and what the first-call test passes straight
+// through.
+//
+// The stored access is read back as well as the status, because a refusal owes
+// the row no residue whatever order the statements ran in.
+func TestAReAssertCannotWalkAWriteGrantPastTheSeatCeiling(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.Slug = "seat-grant-reassert"
+	apptest.BootstrapWorkspaceSession(t, e, "Seat Grant Reassert", "seat-reassert@fable.test", "Admin")
+	fixtures := seedSeatFixtures(t, e)
+	readSeatColleague(t, e, fixtures.colleague)
+
+	share := func(access string) (int, string) {
+		return callForCode(t, e, "POST", "/v1/record-grants", apptest.AnyMap{
+			"record_type": "person", "record_id": fixtures.personID,
+			"subject_type": "user", "subject_id": fixtures.colleague, "access": access,
+		})
+	}
+	if status, _ := share("read"); status != http.StatusCreated {
+		t.Fatalf("read grant to a read seat → %d, want 201", status)
+	}
+	if status, code := share("write"); status != http.StatusForbidden || code != "seat_tier_insufficient" {
+		t.Fatalf("re-asserting a read grant as write → %d %q, want 403 seat_tier_insufficient", status, code)
+	}
+
+	var access string
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT access FROM record_grant WHERE record_id = $1::uuid AND subject_id = $2::uuid`,
+		fixtures.personID, fixtures.colleague).Scan(&access); err != nil {
+		t.Fatal(err)
+	}
+	if access != "read" {
+		t.Fatalf("the refused re-assert left access = %q, want read — the refusal wrote the grant it was refusing", access)
+	}
+}
+
 // resetSeatFixtures returns the records the matrix acts on to the state
 // seedSeatFixtures left them in — the deal on its birth stage, and no grant
 // on the tuple the share action asserts. Written with the owner connection

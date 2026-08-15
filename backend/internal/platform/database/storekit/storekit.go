@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -337,10 +338,39 @@ func JSONArg(m map[string]any) any {
 	return raw
 }
 
+// marshalOrNil renders one audit image, answering nil bytes — and so SQL NULL
+// in the column — for an absent one.
+//
+// "Absent" has to include a nil MAP, not just an untyped nil, and that is the
+// whole reason this is not a bare json.Marshal. A caller that builds its image
+// in a `map[string]any` and leaves it nil ("there was no prior state") hands
+// this an interface holding a typed nil, which `v == nil` reads as present:
+// json.Marshal then writes the four bytes `null`, and every "there was no prior
+// state" query — `WHERE before IS NULL`, the shape the rest of the tree uses —
+// silently misses the row. The image is absent either way; only the column
+// stops saying so.
+//
+// TestAnAbsentImageIsSQLNullWhateverKindOfNilCarriesIt holds the rule, and
+// capture's own-domain registry is the write that found it the first time.
+//
 //craft:ignore naked-any marshals the audit seam's schemaless before/after images (see Audit)
 func marshalOrNil(v any) ([]byte, error) {
-	if v == nil {
+	if v == nil || isNilValue(v) {
 		return nil, nil
 	}
 	return json.Marshal(v)
+}
+
+// isNilValue reports whether v is an interface carrying a typed nil of a kind
+// that can be nil. Kinds that cannot be are answered false without reflection
+// on their contents, so a zero struct or an empty map stays an image.
+//
+//craft:ignore naked-any the same audit-seam value marshalOrNil inspects
+func isNilValue(v any) bool {
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Pointer, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }

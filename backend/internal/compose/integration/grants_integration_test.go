@@ -14,6 +14,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -97,14 +98,6 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 	}, nil, &grant); status != http.StatusCreated {
 		t.Fatalf("create grant → %d", status)
 	}
-	// Duplicate share → 409.
-	if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
-		"record_type": "person", "record_id": e.personID,
-		"subject_type": "user", "subject_id": admin.User.ID,
-		"access": "read",
-	}, nil, nil); status != http.StatusConflict {
-		t.Fatalf("duplicate grant → %d, want 409", status)
-	}
 
 	var listed struct {
 		Data []struct {
@@ -127,4 +120,139 @@ func TestRecordGrantHTTPLifecycle(t *testing.T) {
 	if shares != 1 || unshares != 1 {
 		t.Fatalf("share audit trail: %d/%d, want 1/1", shares, unshares)
 	}
+}
+
+// Re-asserting a grant is the contract's own word for it: `createRecordGrant`
+// is "Idempotent on (record_type, record_id, subject_type, subject_id) —
+// re-asserting upgrades/downgrades access and resets expires_at", and 201 is
+// documented as "Grant created (or updated)". The natural key carries the
+// identity, so the second call has to reach the SAME row rather than mint a
+// second one or refuse — asserting the status alone would pass against an
+// insert that quietly duplicated the grant.
+func TestReAssertingAGrantUpdatesTheSameRow(t *testing.T) {
+	e := setupRelationships(t)
+	subject := meUserID(t, e)
+
+	assert := func(body apptest.AnyMap) (int, grantBody) {
+		var got grantBody
+		body["record_type"], body["record_id"] = "person", e.personID
+		body["subject_type"], body["subject_id"] = "user", subject
+		return e.Call(t, "POST", "/v1/record-grants", body, nil, &got), got
+	}
+
+	expiry := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	status, first := assert(apptest.AnyMap{
+		"access": "read", "reason": "quarter review", "expires_at": expiry.Format(time.RFC3339),
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create grant → %d", status)
+	}
+	if first.ExpiresAt == nil {
+		t.Fatal("the created grant dropped its expiry, so the reset below would prove nothing")
+	}
+
+	// An upgrade: same tuple, wider access, no expiry and no reason. Every
+	// field the contract names moves, and `expires_at` moving to NULL is the
+	// half a COALESCE-shaped upsert would silently refuse to do.
+	status, second := assert(apptest.AnyMap{"access": "write"})
+	if status != http.StatusCreated {
+		t.Fatalf("re-assert → %d, want 201 (the contract declares no 409 for this operation)", status)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("re-assert minted a new grant %s, want the original %s", second.ID, first.ID)
+	}
+	if !second.CreatedAt.Equal(first.CreatedAt) {
+		t.Errorf("created_at moved %s → %s; a re-assert is not a new sharing relationship",
+			first.CreatedAt, second.CreatedAt)
+	}
+	if second.Access != "write" {
+		t.Errorf("access after upgrade = %q, want write", second.Access)
+	}
+	if second.ExpiresAt != nil {
+		t.Errorf("expires_at = %v after a re-assert that supplied none; the contract says it resets", *second.ExpiresAt)
+	}
+	if second.Reason != nil {
+		t.Errorf("reason = %q survived a re-assert that supplied none", *second.Reason)
+	}
+
+	// And back down again: the contract says upgrades AND downgrades.
+	if status, third := assert(apptest.AnyMap{"access": "read"}); status != http.StatusCreated || third.Access != "read" {
+		t.Fatalf("downgrade → %d %q, want 201 read", status, third.Access)
+	}
+
+	// One row throughout — the whole point of the natural key.
+	var rows int
+	if err := e.Owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM record_grant WHERE record_id = $1 AND subject_id = $2`,
+		e.personID, subject).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("%d grant rows for one (record, subject) pair, want 1", rows)
+	}
+}
+
+// Every assertion is audited, and a re-assert audits what it DISPLACED.
+// A before-image of nil on an update reads as a first-ever share, which is
+// the one thing the record timeline must not say about a downgrade.
+func TestReAssertingAGrantAuditsWhatItDisplaced(t *testing.T) {
+	e := setupRelationships(t)
+	subject := meUserID(t, e)
+	share := func(access string) {
+		t.Helper()
+		if status := e.Call(t, "POST", "/v1/record-grants", apptest.AnyMap{
+			"record_type": "person", "record_id": e.personID,
+			"subject_type": "user", "subject_id": subject, "access": access,
+		}, nil, nil); status != http.StatusCreated {
+			t.Fatalf("share %s → %d", access, status)
+		}
+	}
+	share("write")
+	share("read")
+
+	// Counted rather than ordered: both rows are written by separate
+	// transactions milliseconds apart, and a test that leans on their
+	// timestamps to tell them apart is a flake waiting for a fast machine.
+	// The images identify themselves.
+	var firstShares, downgrades, total int
+	if err := e.Owner.QueryRow(t.Context(), `
+		SELECT count(*),
+		       count(*) FILTER (WHERE before IS NULL AND after ->> 'access' = 'write'),
+		       count(*) FILTER (WHERE before ->> 'access' = 'write' AND after ->> 'access' = 'read')
+		  FROM audit_log WHERE action = 'record_share'`).
+		Scan(&total, &firstShares, &downgrades); err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("%d record_share rows, want 2 — every assertion is audited, re-asserts included", total)
+	}
+	if firstShares != 1 {
+		t.Errorf("%d first-share rows (before IS NULL, after write), want 1", firstShares)
+	}
+	if downgrades != 1 {
+		t.Errorf("%d downgrade rows (before write → after read), want 1; a re-assert that audits before=NULL reads as a first share", downgrades)
+	}
+}
+
+type grantBody struct {
+	ID        string     `json:"id"`
+	Access    string     `json:"access"`
+	Reason    *string    `json:"reason"`
+	ExpiresAt *time.Time `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// meUserID reads the session's own user id, which is the only subject these
+// tests can share with: the bootstrap seeds one human.
+func meUserID(t *testing.T, e *relEnv) string {
+	t.Helper()
+	var me struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("me → %d", status)
+	}
+	return me.User.ID
 }

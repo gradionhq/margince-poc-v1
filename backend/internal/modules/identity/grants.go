@@ -174,30 +174,90 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		if !subjectExists {
 			return apperrors.ErrNotFound
 		}
+		// The ceiling judges the ASSERTED access, so it binds a re-assert as
+		// hard as a first share. That is a wider job than it used to have: the
+		// unique constraint refused a second call outright, so this only ever
+		// ran on the create path, and the upsert below turns the second call
+		// into a real write. Anything that narrows it to new rows — "the grant
+		// already exists, this is only an update" — hands a read seat the write
+		// grant the first call refused it.
 		if err := refuseWriteGrantToReadSeat(ctx, tx, in); err != nil {
 			return err
 		}
-		row := tx.QueryRow(ctx, `
+		prior, replaced, err := replacedGrant(ctx, tx, in)
+		if err != nil {
+			return err
+		}
+		var before map[string]any
+		if replaced {
+			before = grantImage(prior)
+		}
+		// A grant is identified by its natural key, not by its id, so a
+		// re-assert restates the SAME row: `expires_at` takes the proposed
+		// value even when that value is NULL (the contract says a re-assert
+		// resets it, and a COALESCE here would make an expiry unclearable), and
+		// `granted_by` moves to the caller, who is accountable for the access
+		// now in force.
+		if out, err = scanGrant(tx.QueryRow(ctx, `
 			INSERT INTO record_grant (workspace_id, record_type, record_id, subject_type, subject_id,
 			                          access, granted_by, reason, expires_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (record_type, record_id, subject_type, subject_id) DO UPDATE
+			SET access     = EXCLUDED.access,
+			    expires_at = EXCLUDED.expires_at,
+			    reason     = EXCLUDED.reason,
+			    granted_by = EXCLUDED.granted_by,
+			    version    = record_grant.version + 1
 			RETURNING `+grantColumns,
 			in.RecordType, in.RecordID, in.SubjectType, in.SubjectID,
-			in.Access, actor.UserID, in.Reason, in.ExpiresAt)
-		var err error
-		if out, err = scanGrant(row); err != nil {
-			if storekit.IsUniqueViolation(err) {
-				return apperrors.ErrConflict
-			}
-			return err
+			in.Access, actor.UserID, in.Reason, in.ExpiresAt)); err != nil {
+			return fmt.Errorf("upsert record_grant: %w", err)
 		}
-		_, err = storekit.Audit(ctx, tx, "record_share", in.RecordType, in.RecordID, nil, map[string]any{
-			"subject_type": in.SubjectType, "subject_id": in.SubjectID, "access": in.Access,
-		})
-		return err
+		// `record_share` in both directions, downgrades included: the contract
+		// pins the verb, and `record_unshare` belongs to revocation. Which way
+		// the access moved is the image pair's job to say, so both images
+		// render the PERSISTED row through one shape — an image omitting a
+		// field the upsert can change would report nothing moved when it did.
+		if _, err := storekit.Audit(ctx, tx, "record_share",
+			in.RecordType, in.RecordID, before, grantImage(out)); err != nil {
+			return fmt.Errorf("audit record_share: %w", err)
+		}
+		return nil
 	})
 	return out, err
+}
+
+// replacedGrant reads the grant this assertion is about to displace, keyed the
+// way the contract identifies one. `replaced` is false for a tuple never
+// granted before, which is the audit's own distinction between a first share
+// and a re-statement — it is not derivable from the row, because an absent
+// grant and a grant with every field empty are different facts.
+//
+// FOR UPDATE serializes two callers re-asserting the same grant, so each audit
+// pair describes the transition it actually committed rather than one a sibling
+// transaction had already replaced.
+func replacedGrant(ctx context.Context, tx pgx.Tx, in CreateGrantInput) (prior grantRow, replaced bool, err error) {
+	prior, err = scanGrant(tx.QueryRow(ctx, "SELECT "+grantColumns+` FROM record_grant
+		WHERE record_type = $1 AND record_id = $2 AND subject_type = $3 AND subject_id = $4
+		FOR UPDATE`,
+		in.RecordType, in.RecordID, in.SubjectType, in.SubjectID))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return grantRow{}, false, nil
+	case err != nil:
+		return grantRow{}, false, fmt.Errorf("read the displaced record_grant: %w", err)
+	}
+	return prior, true, nil
+}
+
+// grantImage renders one audit image of a grant. Before and after share it so
+// the pair diffs to exactly what a re-assert moved.
+func grantImage(g grantRow) map[string]any {
+	return map[string]any{
+		"subject_type": g.SubjectType, "subject_id": g.SubjectID, "access": g.Access,
+		"reason": g.Reason, "expires_at": g.ExpiresAt,
+	}
 }
 
 // refuseWriteGrantToReadSeat holds the receiving half of the seat ceiling
