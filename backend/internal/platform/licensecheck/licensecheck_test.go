@@ -9,11 +9,14 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // checkedAt is the fixed instant every posture in this file is stamped with, so
@@ -44,7 +47,7 @@ func TestResolveRejectsAnythingTheBundledModuleWillNotHonor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := Resolve(context.Background(), tc.token, checkedAt)
+			got, err := Resolve(context.Background(), tc.token, checkedAt, runtimeenv.Production)
 			if err != nil {
 				t.Fatalf("Resolve(%q) reported a module fault rather than a verdict: %v", tc.token, err)
 			}
@@ -69,7 +72,7 @@ func TestResolveRejectsAnythingTheBundledModuleWillNotHonor(t *testing.T) {
 func TestRejectionReasonDoesNotEchoTheToken(t *testing.T) {
 	t.Parallel()
 	const token = "eyJhbGciOiJFZERTQSJ9.c3VwZXItc2VjcmV0LWxpY2Vuc2U.AAAA"
-	got, err := Resolve(context.Background(), token, checkedAt)
+	got, err := Resolve(context.Background(), token, checkedAt, runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -89,7 +92,7 @@ func TestResolveReportsAbsentForNoToken(t *testing.T) {
 	// A whitespace-only file reference reads as no license, not as a token the
 	// module should be asked about.
 	for _, token := range []string{"", "   ", "\n"} {
-		got, err := Resolve(context.Background(), token, checkedAt)
+		got, err := Resolve(context.Background(), token, checkedAt, runtimeenv.Production)
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
 		}
@@ -219,27 +222,62 @@ func TestSeats(t *testing.T) {
 	}
 }
 
+// moduleOutput is the success output of the module release this tree pins: the
+// license it verified beside the grant it was asked about.
+//
+// The shape is pinned HERE because nothing in this repository can mint a token
+// the bundled keyset trusts, so the success path never runs end to end in a
+// test. When upstream moved the grants under their own key, every test still
+// passed and only an installation would have found out: the grant map decoded
+// as {"license":…, "grants":…} and every seat count silently disappeared. This
+// fixture is the tripwire that was missing.
+const moduleOutput = `{"license":{"id":"01890a5d-ac96-774b-bcce-b302099a8057","subject":"acme-prod",` +
+	`"org":"Acme GmbH","name":"Ada Lovelace","email":"ada@acme.example","key_id":"Ujmh",` +
+	`"issued_at":"2026-08-15T09:00:00Z","not_before":"2026-08-15T09:00:00Z",` +
+	`"expiry":"2027-08-15T09:00:00Z","in_grace":false},` +
+	`"grants":{"seats":10,"feature":true,"something_new":7}}`
+
 // The grant map is carried whole. A build that projected it into known fields
 // would drop the attributes a later license adds, which is the one thing the
 // open attribute format exists to prevent.
-func TestDecodeGrantsCarriesUnknownAttributes(t *testing.T) {
+func TestDecodeResultCarriesUnknownAttributes(t *testing.T) {
 	t.Parallel()
-	grants, err := decodeGrants([]byte(`{"seats":10,"feature":true,"something_new":7}`))
+	result, err := decodeResult([]byte(moduleOutput))
 	if err != nil {
-		t.Fatalf("decodeGrants: %v", err)
+		t.Fatalf("decodeResult: %v", err)
 	}
-	if len(grants) != 3 {
-		t.Fatalf("decoded %d attributes, want 3: %v", len(grants), grants)
+	if len(result.Grants) != 3 {
+		t.Fatalf("decoded %d attributes, want 3: %v", len(result.Grants), result.Grants)
 	}
-	if grants["something_new"] != float64(7) {
-		t.Errorf("an attribute this build does not know was dropped: %v", grants)
+	if result.Grants["something_new"] != float64(7) {
+		t.Errorf("an attribute this build does not know was dropped: %v", result.Grants)
 	}
 }
 
-func TestDecodeGrantsRefusesOutputThatIsNotAGrant(t *testing.T) {
+// The module names the license it verified. Nothing in this build acts on the
+// detail yet, but a decode that dropped it would be found only by whoever
+// needed it, and the grants sit in the same document.
+func TestDecodeResultCarriesTheLicenseItVerified(t *testing.T) {
 	t.Parallel()
-	if _, err := decodeGrants([]byte("not json")); err == nil {
-		t.Error("decodeGrants accepted output that is not JSON")
+	result, err := decodeResult([]byte(moduleOutput))
+	if err != nil {
+		t.Fatalf("decodeResult: %v", err)
+	}
+	if result.License.Subject != "acme-prod" || result.License.Org != "Acme GmbH" {
+		t.Errorf("subject/org = %q/%q, want acme-prod/Acme GmbH", result.License.Subject, result.License.Org)
+	}
+	if result.License.ID == "" || result.License.Expiry.IsZero() {
+		t.Errorf("id/expiry = %q/%s, want both set", result.License.ID, result.License.Expiry)
+	}
+	if result.License.InGrace {
+		t.Error("a license inside its validity reports in_grace")
+	}
+}
+
+func TestDecodeResultRefusesOutputThatIsNotAResult(t *testing.T) {
+	t.Parallel()
+	if _, err := decodeResult([]byte("not json")); err == nil {
+		t.Error("decodeResult accepted output that is not JSON")
 	}
 }
 
@@ -277,7 +315,7 @@ func TestARejectionReasonCannotForgeALogLine(t *testing.T) {
 		t.Fatalf("this token no longer reaches the module's claim-quoting path, so the case below is vacuous: %q", raw)
 	}
 
-	got, err := Resolve(context.Background(), token, checkedAt)
+	got, err := Resolve(context.Background(), token, checkedAt, runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -302,7 +340,7 @@ func TestARejectionReasonIsBounded(t *testing.T) {
 	token := craftedToken(t, `{"iss":"margince-license-authority","jti":"01890a5d-ac96-774b-bcce-b302099a8057",`+
 		`"exp":9999999999,"iat":1,"pgs":{"margince":{"generation":0,"seats":"`+strings.Repeat("A", 200_000)+`"}}}`)
 
-	got, err := Resolve(context.Background(), token, checkedAt)
+	got, err := Resolve(context.Background(), token, checkedAt, runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -344,11 +382,58 @@ func TestAVerdictAndAModuleFaultAreDistinguishableByType(t *testing.T) {
 // refused on the strength of an error nobody's license caused.
 func TestResolveReportsAModuleFaultSeparatelyFromAVerdict(t *testing.T) {
 	t.Parallel()
-	posture, err := Resolve(context.Background(), "not-a-license", checkedAt)
+	posture, err := Resolve(context.Background(), "not-a-license", checkedAt, runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("a refused license came back as a module fault: %v", err)
 	}
 	if posture.State != StateRejected {
 		t.Errorf("state = %q, want %q", posture.State, StateRejected)
+	}
+}
+
+// Which authorities an installation honors is the only thing standing between a
+// test license and a customer: the test licenser signs with a key the bundled
+// keyset carries, so a token it minted verifies here and is refused on the
+// issuer alone.
+func TestIssuersNarrowToProductionUnlessTheDeploymentSaysOtherwise(t *testing.T) {
+	t.Parallel()
+	if got := issuers(runtimeenv.Production); len(got) != 1 || got[0] != ProductionIssuer {
+		t.Fatalf("a production installation honors %v, want only %q", got, ProductionIssuer)
+	}
+	// MARGINCE_ENV is fail-closed, so an unrecognized value is production and
+	// gets the narrow set without anybody deciding it.
+	if got := issuers(runtimeenv.Parse("prod-ish")); len(got) != 1 {
+		t.Errorf("an unrecognized posture honors %v; the fail-closed default is one authority", got)
+	}
+	for _, env := range []runtimeenv.Environment{runtimeenv.Development, runtimeenv.Staging, runtimeenv.Test} {
+		got := issuers(env)
+		if len(got) != 3 || got[0] != ProductionIssuer {
+			t.Errorf("%s honors %v, want production first and the two non-production authorities", env, got)
+		}
+		for _, want := range []string{ProductionIssuer + "-test", ProductionIssuer + "-dev"} {
+			if !slices.Contains(got, want) {
+				t.Errorf("%s does not honor %q, so a token minted for it cannot be tested against", env, want)
+			}
+		}
+	}
+}
+
+// A production license that expired must say so. Retrying it against the test
+// authority would replace "expired" with "invalid issuer" and send the operator
+// after the wrong problem, so the FIRST verdict is the one reported.
+func TestTheReportedReasonComesFromTheProductionAuthority(t *testing.T) {
+	t.Parallel()
+	posture, err := Resolve(context.Background(), "not-a-license", checkedAt, runtimeenv.Development)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if posture.State != StateRejected {
+		t.Fatalf("state = %q, want %q", posture.State, StateRejected)
+	}
+	if posture.Reason == "" {
+		t.Error("a rejection under a multi-authority posture carries no reason")
+	}
+	if posture.Issuer != "" {
+		t.Errorf("a rejected posture names the authority %q; none accepted it", posture.Issuer)
 	}
 }

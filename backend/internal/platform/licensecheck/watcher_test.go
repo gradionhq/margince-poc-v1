@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // fixedClock is the injected now: a test never reads the wall clock, so a
@@ -37,7 +39,7 @@ func warnLog(into *bytes.Buffer) *slog.Logger {
 func TestNewWatcherRefusesARejectedLicense(t *testing.T) {
 	t.Parallel()
 	source := &tokens{token: "not-a-license"}
-	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler), runtimeenv.Production)
 	if err == nil {
 		t.Fatal("NewWatcher accepted a license the module refuses; the role would serve on a bad license")
 	}
@@ -53,7 +55,7 @@ func TestNewWatcherRefusesARejectedLicense(t *testing.T) {
 func TestNewWatcherRefusesATokenItCannotRead(t *testing.T) {
 	t.Parallel()
 	source := &tokens{err: errors.New("reading license.token_file: no such file")}
-	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	_, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler), runtimeenv.Production)
 	if err == nil {
 		t.Fatal("NewWatcher booted on a token source that could not answer")
 	}
@@ -65,7 +67,7 @@ func TestNewWatcherRefusesATokenItCannotRead(t *testing.T) {
 func TestNewWatcherBootsWithoutALicense(t *testing.T) {
 	t.Parallel()
 	source := &tokens{}
-	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher refused an unlicensed installation: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestRecheckRecordsADegradedPostureAndLogsTheTransition(t *testing.T) {
 	t.Parallel()
 	var log bytes.Buffer
 	source := &tokens{}
-	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log))
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -113,7 +115,7 @@ func TestRecheckRecordsADegradedPostureAndLogsTheTransition(t *testing.T) {
 func TestRecheckReadsTheTokenAgainRatherThanTheOneItBootedWith(t *testing.T) {
 	t.Parallel()
 	source := &tokens{}
-	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestRecheckKeepsThePostureWhenTheTokenCannotBeRead(t *testing.T) {
 	var log bytes.Buffer
 	source := &tokens{}
 	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt),
-		slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -156,7 +158,7 @@ func TestRecheckSaysNothingWhenTheStateIsUnchanged(t *testing.T) {
 	t.Parallel()
 	var log bytes.Buffer
 	source := &tokens{}
-	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log))
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), warnLog(&log), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -178,7 +180,8 @@ func TestRecheckSurvivesAPanicOnTheWayToAVerdict(t *testing.T) {
 	var log bytes.Buffer
 	source := &tokens{}
 	w, err := NewWatcher(context.Background(), source.source,
-		fixedClock(checkedAt), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		fixedClock(checkedAt), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -203,7 +206,7 @@ func TestRecheckSurvivesAPanicOnTheWayToAVerdict(t *testing.T) {
 func TestRunRecheckStopsWhenTheContextIsCancelled(t *testing.T) {
 	t.Parallel()
 	source := &tokens{}
-	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler))
+	w, err := NewWatcher(context.Background(), source.source, fixedClock(checkedAt), slog.New(slog.DiscardHandler), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}

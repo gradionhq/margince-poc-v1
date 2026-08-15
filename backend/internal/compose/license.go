@@ -20,8 +20,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // EnsureLicense resolves the installation's license posture and hands back the
@@ -34,11 +36,11 @@ import (
 // state that every development and CI process here runs in, while a license
 // that is present and refused is an operator mistake nobody downstream can
 // distinguish from a deliberate downgrade.
-func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config) (*licensecheck.Watcher, error) {
+func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config, env runtimeenv.Environment) (*licensecheck.Watcher, error) {
 	// The SOURCE is handed over, not a token: the watcher re-reads it, so a
 	// license the operator renews in place takes effect on the next re-check
 	// instead of waiting for a restart.
-	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.Token, time.Now, log)
+	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.Token, time.Now, log, env)
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
@@ -56,6 +58,12 @@ func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Confi
 // installation licensed from a variable should say so where somebody sees it.
 func logLicensePosture(ctx context.Context, log *slog.Logger, posture licensecheck.Posture, origin string) {
 	attrs := []any{"state", string(posture.State), "module", licensecheck.ModuleVersion(), "token_from", origin}
+	if posture.Issuer != "" && posture.Issuer != licensecheck.ProductionIssuer {
+		// A license minted by a non-production authority. Only a non-production
+		// installation accepts one, and an operator reading this log has to be
+		// able to tell such an installation from a licensed customer's.
+		attrs = append(attrs, "issuer", posture.Issuer)
+	}
 	if seats, ok := posture.Seats(); ok {
 		attrs = append(attrs, "seats", seats)
 	}
@@ -75,8 +83,18 @@ func logLicensePosture(ctx context.Context, log *slog.Logger, posture licenseche
 // exposition reports what the watcher last resolved instead of what the process
 // booted with.
 func WithLicensePosture(posture func() licensecheck.Posture) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
+	return func(s *Server, pool *pgxpool.Pool) {
 		s.licensePosture = posture
+		// The entitlement surface is built HERE rather than in the assembly, and
+		// both halves together: the assembly runs BEFORE the options, so a handler
+		// wired there would have captured a nil posture and answered 501 for the
+		// life of the process. One wiring point also means one answer to "does this
+		// role report entitlement at all" — a role that never applies this option
+		// serves no /metrics section and no surface, declared or absent in both.
+		s.licenseHandlers = licenseHandlers{
+			seats:   identity.NewSeatUsage(InstallationDB(pool)),
+			posture: posture,
+		}
 	}
 }
 

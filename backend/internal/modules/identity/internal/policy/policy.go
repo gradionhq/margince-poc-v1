@@ -22,7 +22,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance", "integrations", "retention_policy", "capture_trace"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance", "integrations", "retention_policy", "capture_trace", "license"}
 
 // IsCoreObject reports whether an RBAC object is in the closed set a role
 // document may grant. Parse enforces it on stored documents; it is also the
@@ -114,11 +114,11 @@ var (
 // and migrate-in screens are admin surfaces.
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -186,6 +186,9 @@ var defaults = map[string]Document{
 			grant{},
 			// capture_trace — a rep debugs no shared bot binding, and their own
 			// capture activity needs no grant.
+			grant{},
+			// license — admin/ops-only. A rep reads their own seat elsewhere;
+			// the workspace's entitlement is not theirs to see (UC-ADMIN-03 F1).
 			grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
@@ -193,18 +196,24 @@ var defaults = map[string]Document{
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, grant{}),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, grant{}, grant{}),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance, integrations, retentionPolicy, captureTrace grant) map[string]grant {
+//
+// The parameter list IS the mechanism, which is why it is this long: each role
+// states its grants once, positionally, against the object order declared above,
+// and rbacfixture_test.go holds the result to the matrix the server seeds. Five
+// map literals of every key is what this replaced. Shortening it is a refactor of
+// the seed rather than of this call.
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance, integrations, retentionPolicy, captureTrace, license grant) map[string]grant { // NOSONAR(go:S107) -- the parameter list is the mechanism; see above
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -255,6 +264,17 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		// spends the customer's money and sends their contacts' identifiers
 		// to a third party, so the writes are admin/ops only.
 		"integrations": integrations,
+		// The installation's entitlement: what the license grants, and how much of
+		// it is used. Admin/ops-only on read — import_run's and retention_policy's
+		// posture rather than quota's, because a seat meter is commercial standing
+		// and UC-ADMIN-03 F1 gives a rep their own seat and not the workspace's
+		// entitlement.
+		//
+		// READ IS THE ONLY VERB, for admin as much as anyone: the token is resolved
+		// from the deployment file at boot, so there is no write path for a grant to
+		// govern. Any other verb here would describe an action this product has not
+		// got.
+		"license": license,
 		// The storage-limitation ladder (UC-GDPR-09, GCS-WIRE-1..5). Admin/ops-only
 		// on EVERY verb, READ INCLUDED — the import_run precedent, not quota's. A
 		// retention policy decides what the installation destroys and when, and the
