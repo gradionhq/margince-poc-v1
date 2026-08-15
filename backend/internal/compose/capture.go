@@ -13,7 +13,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,6 +135,12 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 // runs the transient one-shot pull, which persists no credential). cfg carries
 // the deployment's suppression-list additions and the logger; the zero value is
 // the baselines and the default logger.
+//
+// A nil pool builds the registry for ENUMERATION only: nothing here queries, so
+// the construction is complete without one, and only a caller that goes on to
+// sync or send needs a real pool. CoreChannelProviders is the shipped caller
+// that takes it that way — asking which transports this binary compiled in is a
+// question about the binary, not about any database.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
 	db := InstallationDB(pool)
 	r := capture.NewRegistry(db, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
@@ -151,20 +156,10 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// reads as "this installation has no Telegram integration" and parks every
 	// reply a rep writes.
 	r.Register(telegram.New(telegram.NewAPI(nil, "")))
-	// Reconcile the derived channel vocabulary against exactly what this call
-	// just registered (DESIGN-SP4 §4). A nil pool is a wiring-only construction
-	// (a unit test proving connector registration, never a real deployment —
-	// every other dependency here already tolerates it the same way, e.g.
-	// vault), so it skips the reconcile rather than dialing a pool that does
-	// not exist. A construction failure with a REAL pool is a boot failure, not
-	// a degraded mode: an installation that cannot confirm its own channel
-	// registry has no business answering "can I send" for anything.
-	if pool != nil {
-		if err := reconcileChannelProviders(context.Background(), pool, r.ChannelProviders()); err != nil {
-			//craft:ignore panic-in-domain composition-time boot failure, mirrors capture.Registry.Register's own panic posture for a wiring defect the process cannot recover from
-			panic(fmt.Sprintf("compose: reconciling the channel-provider registry: %v", err))
-		}
-	}
+	// The derived channel vocabulary is NOT reconciled here. Constructing this
+	// registry is config-gated — a role builds it only when a keyvault root key
+	// is configured — and the registry write is not, so it runs as its own boot
+	// step (ReconcileChannelProviders) that every role reaches. See there.
 	return r
 }
 

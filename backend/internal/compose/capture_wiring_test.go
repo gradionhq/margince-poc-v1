@@ -8,6 +8,7 @@ package compose
 // all — the composition rules the process roles rely on at boot.
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -61,6 +62,31 @@ func TestCaptureRegistryComposition(t *testing.T) {
 			t.Fatal("a fully-configured app must enable the connect transport")
 		}
 	})
+}
+
+// CoreChannelProviders is the boot step's core half, and it enumerates the
+// transports off a registry built with no pool and no vault. That is only
+// honest while the vault-carrying and Google-app-carrying constructions add no
+// channel-capable connector of their own — so the obligation is derived from
+// the constructions themselves rather than restated as a list, and a connector
+// that starts supplying a transport fails HERE instead of going unregistered on
+// every install that has no Google app.
+func TestCoreChannelProvidersEnumeratesEveryComposedCoreTransport(t *testing.T) {
+	enumerated := CoreChannelProviders()
+	if len(enumerated) == 0 {
+		t.Fatal("this binary composed no core transport at all, so this gate would compare two empty sets")
+	}
+	// The richest core composition there is: both OAuth apps configured, so
+	// every connector any role can register is on it.
+	richest := CaptureSyncRegistry(nil, nil,
+		GmailConfig{ClientID: "id", ClientSecret: "secret"},
+		GraphConfig{ClientID: "id", ClientSecret: "secret"},
+		CaptureConfig{}).ChannelProviders()
+	if !slices.Equal(enumerated, richest) {
+		t.Errorf("the fully-composed registry supplies transports %v, but the boot step would register %v — "+
+			"a transport the boot step cannot see is one no captured message may name",
+			richest, enumerated)
+	}
 }
 
 func TestWithKeyvaultWiresTheCredentialCustodian(t *testing.T) {
