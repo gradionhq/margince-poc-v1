@@ -77,6 +77,11 @@ type unitManifest struct {
 	// back to the unit that produced it. omitempty for the reason the two
 	// fields above have it.
 	Ingress []ingressSource `json:"ingress,omitempty"`
+
+	// Channels are the messaging transports the unit supplies. Present in the
+	// manifest for a Tool's reason: it is a capability an operator should see
+	// declared, not discover from a message leaving the installation.
+	Channels []declaredChannel `json:"channels,omitempty"`
 }
 
 // secretsRequest is one declared secret key and scope (see
@@ -102,6 +107,20 @@ type subscriptionRequest struct {
 type ingressSource struct {
 	System string   `json:"system"`
 	Lands  []string `json:"lands"`
+}
+
+// declaredChannel is one messaging transport the unit supplies, as an operator
+// reads it in the manifest (ADR-0107/A158).
+//
+// It records the DECLARATION and not the behavior: the provider name, and
+// whether a Send was declared at all. A function value is not derivable from
+// source, so nothing here claims the transport works — only that the unit says
+// it has one, which is what an operator needs before the unit ever runs.
+type declaredChannel struct {
+	Provider string `json:"provider"`
+	// SuppliesTransport mirrors extension.Channel.SuppliesTransport: false is
+	// the documented capture-only case, not an omission.
+	SuppliesTransport bool `json:"supplies_transport"`
 }
 
 // riskTierRequest is one governed operation and the risk tier it requests,

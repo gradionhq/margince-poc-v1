@@ -33,10 +33,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
-// reconcileChannelProviders upserts a channel_provider row (transport='core')
-// for every composed provider, carrying the display facts the discovery
-// endpoint publishes, then sets both packages' in-memory snapshots to exactly
-// the composed set passed in.
+// reconcileChannelProviders upserts a channel_provider row for every transport
+// this binary composed — the core connectors passed in, plus every channel the
+// composed UNITS declare — carrying the display facts the discovery endpoint
+// publishes, then sets both packages' in-memory snapshots to the subset a reply
+// can actually leave on.
+//
+// It is also where a unit shadowing a core connector is refused, because this is
+// the first point at which both sets exist (unitChannelFacts).
 //
 // It runs over database.WithInfraTx, not the workspace-bound database.DB.Tx:
 // activity_kind and channel_provider carry no workspace_id, so binding a
@@ -55,35 +59,57 @@ import (
 // FK would refuse the delete anyway, and ErrConnectorNotConfigured already
 // parks a send against it rather than needing the row gone.
 func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, providers []string) error {
-	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
-		for _, facts := range channelProviderFactsFor(providers, providers) {
+	units, err := unitChannelFacts(providers)
+	if err != nil {
+		return err
+	}
+	rows := append(channelProviderFactsFor(providers, providers), units...)
+	if err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		for _, facts := range rows {
 			// The display facts are UPSERTED, not left alone on conflict: they
 			// describe the composed connector, so the running binary is their
 			// only source of truth and a row written by an older build must be
 			// corrected rather than preserved. The provider itself still lands
 			// once — the primary key sees to that.
+			//
+			// `transport` is upserted with them, and it has to be: a provider
+			// that moves from a core connector to a unit (or back) is exactly
+			// the case where a stale value would tell the send path to resolve
+			// the wrong credential.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO channel_provider (provider, transport, label, credential_model, supplies_transport)
-				VALUES ($1, 'core', $2, $3, $4)
+				VALUES ($1, $2, $3, $4, $5)
 				ON CONFLICT (provider) DO UPDATE SET
+					transport         = EXCLUDED.transport,
 					label             = EXCLUDED.label,
 					credential_model  = EXCLUDED.credential_model,
 					supplies_transport = EXCLUDED.supplies_transport`,
-				facts.provider, facts.label, facts.credentialModel, facts.suppliesTransport); err != nil {
+				facts.provider, facts.transport, facts.label, facts.credentialModel, facts.suppliesTransport); err != nil {
 				return err
 			}
 		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	// These two take the COMPOSED set: they answer "can a reply leave this
 	// installation", which is a question about what was compiled in. What a
 	// message may NAME is a different set, loaded from the registry itself by
 	// LoadChannelProviderDirectory — see there for why it is not written here.
-	activities.SetChannelProviders(providers)
-	comms.SetChannelProviders(providers)
+	//
+	// A unit transport belongs in it exactly when the unit declared a Send. The
+	// send path's own pre-flight reads this set, so a unit channel left out of
+	// it would register, publish, capture — and park every reply a rep wrote
+	// under "this installation cannot send on that", which is the one failure a
+	// rep cannot tell from a broken provider.
+	sendable := slices.Clone(providers)
+	for _, unit := range units {
+		if unit.suppliesTransport {
+			sendable = append(sendable, unit.provider)
+		}
+	}
+	activities.SetChannelProviders(sendable)
+	comms.SetChannelProviders(sendable)
 	return nil
 }
 

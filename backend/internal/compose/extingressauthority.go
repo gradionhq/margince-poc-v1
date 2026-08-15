@@ -41,6 +41,20 @@ func composedIngressFor(unit string) []extension.IngressSource {
 	return nil
 }
 
+// composedChannelsFor returns the transports the named unit declared in THIS
+// boot's composition, and it is composedIngressFor's twin for the same reason:
+// what a unit may name at a write door is what the boot reconciliation
+// validated, never a second registry that could describe a unit that is not
+// serving.
+func composedChannelsFor(unit string) []extension.Channel {
+	for _, ext := range ComposedExtensions() {
+		if string(ext.Name) == unit {
+			return ext.Channels
+		}
+	}
+	return nil
+}
+
 // declaredUserSecretKeys are the user-scoped secret keys the named unit
 // declares in THIS boot's composition.
 //

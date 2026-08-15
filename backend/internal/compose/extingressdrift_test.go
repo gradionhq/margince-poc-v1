@@ -85,11 +85,13 @@ func TestThePublishedRecordMirrorsTheCaptureEnvelope(t *testing.T) {
 // shape means a unit's message carries the zero value for something the timeline
 // stores — so the reason has to say why that zero value is the right answer, not
 // merely why the unit is not asked.
-var waivedActivityFields = gatekit.Waive(map[string]string{
-	"ChannelProvider": "the messaging transport a record arrived on, and a reference into the channel_provider registry. " +
-		"A unit supplies no channel transport, so it has no provider to name and the empty value is the accurate answer rather than a dropped one — " +
-		"the same reason Counterparty.ChannelIdentity is waived below. A unit that does supply one publishes this alongside the declaration that makes it true",
-})
+//
+// It is EMPTY, and that is the state this arc arrived at rather than a gap:
+// ChannelProvider was waived here while a unit supplied no transport, and the
+// waiver said what would retire it — "a unit that does supply one publishes this
+// alongside the declaration that makes it true". A unit does, so it is published
+// and bounded at the write door instead (refuseUndeclaredTransport).
+var waivedActivityFields = gatekit.Waive(map[string]string{})
 
 // TestThePublishedActivityMirrorsTheCoreOne is the same rule one level in. The
 // activity shape is the payload the sink switches on, and a field added there
@@ -123,7 +125,6 @@ func TestThePublishedActivityMirrorsTheCoreOne(t *testing.T) {
 // counterparty, where the interesting fields are the ones a unit must NOT be
 // able to state.
 var waivedCounterpartyFields = gatekit.Waive(map[string]string{
-	"ChannelIdentity": "keys person_channel_identity, whose provider vocabulary is a foreign key into the channel_provider registry — a unit reaching it would be naming a transport it does not supply",
 	"ListUnsubscribe": "the bulk-mail corroboration a mail connector reads off an RFC 2369 header. A chat record has no such header, and a unit asserting one would be evidence for a suppression decision that nothing produced",
 })
 
@@ -156,6 +157,18 @@ func TestTheDirectionVocabulariesAgree(t *testing.T) {
 	}
 	if extension.DirectionOutbound != connector.DirectionOutbound {
 		t.Errorf("outbound: published %q, core %q", extension.DirectionOutbound, connector.DirectionOutbound)
+	}
+}
+
+// The message KIND is a third restated vocabulary, and it drifts the same way
+// the directions would — worse, in fact, because the pairing rule keys on it: a
+// unit filing the published spelling against a core that had moved to another
+// would have its record refused as "a non-message naming a transport", which
+// names neither the cause nor anything the unit's author can act on.
+func TestTheMessageKindVocabulariesAgree(t *testing.T) {
+	if extension.ActivityKindMessage != activities.KindMessage {
+		t.Errorf("the message kind: published %q, core %q — a unit naming the published one would have every captured message refused",
+			extension.ActivityKindMessage, activities.KindMessage)
 	}
 }
 
@@ -192,31 +205,50 @@ func fieldsOf(t reflect.Type) map[string]bool {
 	return out
 }
 
-// A unit has TWO doors it can write an activity through, and the rule that it
-// may not claim a messaging transport is about the unit rather than about a
-// door. This walks both against the same refusal, because the failure mode is
-// asymmetric and only one half is loud: capture ingress carries no provider
-// field, so a message there dies on the CHECK as an unattributable 500 — while
-// the core-write door DOES carry channel_provider, so a unit could name a core
-// connector's transport and mint a row that is a valid SEND ANCHOR for a
-// conversation it does not own.
+// A unit has TWO doors it can write an activity through, and the rule bounding
+// which transport it may name is about the unit rather than about a door. This
+// walks both against the same gate, because the failure mode is asymmetric and
+// only one half is loud: capture ingress dies on the CHECK as an unattributable
+// 500 — while the core-write door carries channel_provider on the published
+// request, so a unit could name a core connector's transport and mint a row that
+// is a valid SEND ANCHOR for a conversation it does not own.
 //
 // Two halves, because the rule and its reach can fail separately: the block
-// below pins what the refusal DOES, and the source assertion after it pins that
+// below pins what the gate DOES, and the source assertion after it pins that
 // both doors actually call it — which is the half that regresses, since a door
 // can be added or rewritten without anyone noticing the gate went missing.
-func TestAUnitMayNotFileAMessageThroughEitherDoor(t *testing.T) {
-	if err := refuseUnitMessageKind(activities.KindMessage); err == nil {
-		t.Fatalf("a unit filing %q was permitted; it would mint a send anchor for a transport the unit does not supply", activities.KindMessage)
-	} else if !errors.Is(err, extension.ErrInvalid) {
-		t.Errorf("the refusal is %v, want extension.ErrInvalid so the unit reads it as a bad record rather than a core fault", err)
+func TestAUnitMayNameOnlyItsOwnTransportThroughEitherDoor(t *testing.T) {
+	declaresTransport(t, "mine", extension.Channel{Provider: "mine_chat"})
+
+	if err := refuseUndeclaredTransport("mine", activities.KindMessage, "mine_chat"); err != nil {
+		t.Errorf("a unit filing a message on the transport it declared was refused (%v); the declaration is what the permission is bounded by, so this is the case that must pass", err)
 	}
 
-	// And it refuses ONLY that: a unit's ordinary records must still land, or
-	// the guard has quietly closed the ingress surface it was meant to bound.
+	// The transport it did NOT declare — a core connector's — is the row that
+	// would become a send anchor for a conversation the unit does not own.
+	for _, provider := range []string{"telegram", "someone_elses"} {
+		if err := refuseUndeclaredTransport("mine", activities.KindMessage, provider); err == nil {
+			t.Errorf("a unit filing a message on %q was permitted; it declares only mine_chat", provider)
+		} else if !errors.Is(err, extension.ErrInvalid) {
+			t.Errorf("the refusal is %v, want extension.ErrInvalid so the unit reads it as a bad record rather than a core fault", err)
+		}
+	}
+
+	// A message that names nothing is refused too: it would be a conversation
+	// with no transport, which nothing can reply on.
+	if err := refuseUndeclaredTransport("mine", activities.KindMessage, ""); err == nil {
+		t.Error("a message naming no transport was permitted; it lands as a conversation no reply can leave on")
+	}
+
+	// And the other direction, which is the quieter defect: a record that is not
+	// a message may name no transport at all, or it would be repliable — a note
+	// that answers back.
 	for _, kind := range []string{"note", "email", "call", "meeting", "task"} {
-		if err := refuseUnitMessageKind(kind); err != nil {
-			t.Errorf("a unit filing %q was refused (%v); only the message kind is withheld", kind, err)
+		if err := refuseUndeclaredTransport("mine", kind, ""); err != nil {
+			t.Errorf("a unit filing %q was refused (%v); only a message is bounded here", kind, err)
+		}
+		if err := refuseUndeclaredTransport("mine", kind, "mine_chat"); err == nil {
+			t.Errorf("a %q naming a transport was permitted; the send path reads the provider column and would answer on it", kind)
 		}
 	}
 
@@ -230,8 +262,31 @@ func TestAUnitMayNotFileAMessageThroughEitherDoor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", door, err)
 		}
-		if !strings.Contains(string(src), "refuseUnitMessageKind(") {
-			t.Errorf("%s writes an activity for a unit and does not call refuseUnitMessageKind; that door can mint a message a unit has no transport for", door)
+		if !strings.Contains(string(src), "refuseUndeclaredTransport(") {
+			t.Errorf("%s writes an activity for a unit and does not call refuseUndeclaredTransport; that door can mint a message on a transport the unit does not supply", door)
 		}
+	}
+}
+
+// The counterparty BINDING is bounded by the same declaration, and it is a
+// separate gate because it writes a different row. The activity's provider
+// decides where a reply would be sent; this one writes person_channel_identity,
+// which is where the core resolves WHO it is sent to — so a unit able to bind an
+// account under a core connector's provider could attach an account it controls
+// to somebody else's person record and inherit the replies meant for them.
+func TestAUnitMayBindAnAccountOnlyOnItsOwnTransport(t *testing.T) {
+	declaresTransport(t, "mine", extension.Channel{Provider: "mine_chat"})
+
+	if err := refuseUnitIdentity("mine", "mine_chat"); err != nil {
+		t.Errorf("binding an account on the unit's own transport was refused (%v)", err)
+	}
+	// A record identified by address binds nothing, and must still land.
+	if err := refuseUnitIdentity("mine", ""); err != nil {
+		t.Errorf("a record with no channel identity was refused (%v); it identifies its counterparty by address", err)
+	}
+	if err := refuseUnitIdentity("mine", "telegram"); err == nil {
+		t.Error("a unit bound an account under telegram; the next reply on that person's conversation would go to the unit's account")
+	} else if !errors.Is(err, extension.ErrInvalid) {
+		t.Errorf("the refusal is %v, want extension.ErrInvalid", err)
 	}
 }

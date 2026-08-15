@@ -81,5 +81,11 @@
         "activity"
       ]
     }
+  ],
+  "channels": [
+    {
+      "provider": "dispact",
+      "supplies_transport": true
+    }
   ]
 }

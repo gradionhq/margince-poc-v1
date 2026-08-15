@@ -379,6 +379,28 @@ func (c *client) get(ctx context.Context, path string, query url.Values, into an
 	return c.do(req, into)
 }
 
+// sendMessage transmits one message into a channel and returns the provider's
+// own id for it.
+//
+// The recipient is a CHANNEL, not a user: this provider addresses a DM by its
+// channel slug, and the slug is what the ingress recorded on the conversation.
+// Routing on a user id would mean resolving a DM here, which is a second way to
+// pick a destination and therefore a second way to pick the wrong one.
+func (c *client) sendMessage(ctx context.Context, channelSlug, body string) (string, error) {
+	var sent struct {
+		ID string `json:"id"`
+	}
+	if err := c.post(ctx, "/api/channels/"+channelSlug+"/messages",
+		map[string]string{"content": body}, &sent); err != nil {
+		return "", err
+	}
+	// An accepted send that returns no id is not a failure: the message is
+	// gone either way, and reporting an error would have the core retry a
+	// delivery the recipient has already received. What is lost is the anchor
+	// for a later reply, which the caller records as absent rather than faked.
+	return sent.ID, nil
+}
+
 //craft:ignore naked-any the request body and the decode target are both the caller's shapes; see get
 func (c *client) post(ctx context.Context, path string, body any, into any) error {
 	encoded, err := json.Marshal(body)

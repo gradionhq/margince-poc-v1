@@ -80,6 +80,22 @@ func New() extension.Extension {
 		Secrets: []extension.SecretsRequest{
 			{Key: "api-token", Scope: extension.SecretScopeUser},
 		},
+		// The transport this unit supplies (ADR-0107/A158). A message it carries
+		// lands as kind `message` with `dispact` on the provider column — the
+		// unit names the TRANSPORT and never the kind, which is what keeps the
+		// two axes separate from outside the core.
+		//
+		// Live is required because Send is present: a transport that can
+		// transmit must be able to say whether it still may, or the core has to
+		// guess at the one moment guessing is unrecoverable.
+		Channels: []extension.Channel{
+			// A literal rather than the `provider` constant, for the reason the
+			// ingress source above is one: the manifest is derived STATICALLY,
+			// without compiling the unit, so a constant here would be a name the
+			// generator cannot resolve. The two are the same string on purpose
+			// and a test holds them equal.
+			{Provider: "dispact", Send: send, Live: live},
+		},
 		Jobs: []extension.Job{
 			{Name: "poll_inbox", Handle: pollInbox},
 		},

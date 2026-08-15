@@ -50,13 +50,19 @@ var _ channelSenders = (*capture.Registry)(nil)
 // operator disconnecting the surplus binding repairs every message still pending,
 // so parking on it would destroy sends that nothing is wrong with.
 //
-// userID is unused here: a core connector (telegram) is bound once for the
-// whole workspace, not per member, so ChannelSenderFor takes no user id
-// either. A unit-supplied provider's own resolve path is what actually reads
-// it — out of scope for this change.
+// A UNIT-supplied transport resolves somewhere else entirely, and the branch is
+// FIRST because the two answer different questions: a core binding is the
+// workspace's one bot and takes no user id, while a unit's credential is the
+// member's own and is useless without one. Asking the capture registry about a
+// unit's provider would answer ErrConnectorNotConfigured — a true statement
+// about the core that would park a message the installation can perfectly well
+// send.
 //
 //nolint:ireturn // implements comms.ConnectionResolver, whose contract returns the optional connector.MessageSender seam
-func (r commsResolver) ResolveChannel(ctx context.Context, _ ids.UserID, provider string) (connector.MessageSender, connector.Auth, error) {
+func (r commsResolver) ResolveChannel(ctx context.Context, userID ids.UserID, provider string) (connector.MessageSender, connector.Auth, error) {
+	if transport, supplied := composedUnitTransport(provider); supplied {
+		return r.resolveUnitChannel(ctx, userID, transport)
+	}
 	sender, auth, err := r.channels.ChannelSenderFor(ctx, provider)
 	switch {
 	case errors.Is(err, capture.ErrNoConnection):

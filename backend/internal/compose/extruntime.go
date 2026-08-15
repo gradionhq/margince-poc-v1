@@ -199,61 +199,6 @@ type callRuntime struct {
 
 var _ extension.Runtime = (*callRuntime)(nil)
 
-// runtimeFor mints the Runtime for one invocation of one unit's tool. ctx is
-// the invocation's, not a handler's.
-//
-// It returns the concrete type rather than the published interface because
-// the caller needs release, which is the core's side of the lifetime contract
-// and deliberately not on the surface a handler holds.
-func runtimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
-	return &callRuntime{unit: unit, version: version, via: via, deps: deps, callCtx: ctx, live: true}
-}
-
-// jobRuntimeFor mints the Runtime for one JOB tick, which differs from an
-// invocation in exactly one way: who it answers as.
-//
-// A tick's context carries a principal — deriveAuthority re-reads the
-// dispatcher's seat at execution and binds it, because the tenant policies and
-// the audit rows need an actor. That actor is an AGENT seat with no human
-// behind it: its OnBehalfOf is zero and its UserID is the workspace's is_agent
-// app_user, which bootstrap wrote and the dispatcher resolved. Mapping it
-// through Caller's ordinary rules
-// would hand a unit precisely the thing Caller.UserID promises never to be —
-// "a synthetic id for the agent" rather than the person accountable for the
-// row — and would contradict Runtime.Caller's promise that a tick answers the
-// zero Caller. So the tick says so at construction rather than leaving Caller
-// to guess it from a principal that looks, field by field, like a real agent
-// call. Nothing else about the tick changes: the actor on callCtx is still the
-// one every capability and every policy sees.
-func jobRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
-	return unattendedRuntimeFor(ctx, unit, version, via, deps)
-}
-
-// deliveryRuntimeFor mints the Runtime for one BUS DELIVERY — a subscription
-// hearing that something happened.
-//
-// It is unattended for a plainer reason than a tick's: a tick at least ran
-// because a schedule the installation configured said so, while a delivery ran
-// because a fact arrived. Neither has a person behind it, and this one's
-// principal is the system actor the subscriber binds (see extsubscribe.go),
-// which auth.Require does not check at all — so the unattended flag is what
-// keeps the governed core port shut for a caller nothing else would refuse.
-func deliveryRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
-	return unattendedRuntimeFor(ctx, unit, version, via, deps)
-}
-
-// unattendedRuntimeFor is what both of the above are: a Runtime for an
-// invocation with nobody behind it. They stay separate NAMES because the two
-// call sites are the two kinds of unattended work and a reader at either one
-// should see which it is — but the behaviour is one fact, spelled here, so a
-// later change to what "unattended" means cannot reach one kind and miss the
-// other.
-func unattendedRuntimeFor(ctx context.Context, unit, version, via string, deps extensionRuntimeBinding) *callRuntime {
-	rt := runtimeFor(ctx, unit, version, via, deps)
-	rt.unattended = true
-	return rt
-}
-
 // release ends the Runtime's lifetime. Called when the handler returns, so a
 // retained Runtime answers ErrRuntimeExpired rather than working against
 // resources the call has finished with.
