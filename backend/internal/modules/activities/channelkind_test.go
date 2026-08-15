@@ -52,10 +52,4 @@ func TestCanSendOnProviderIsDerivedFromSetChannelProviders(t *testing.T) {
 	if !CanSendOnProvider("telegram") {
 		t.Error("telegram, still registered, stopped being sendable")
 	}
-	// A registered transport this binary did not compose is the case the split
-	// exists for: whatsapp is a channel_provider row, so a message may name it,
-	// and no reply can leave here for it.
-	if CanSendOnProvider("whatsapp") {
-		t.Error("whatsapp reports as sendable; no connector is composed for it, so an approved reply would have no path to happening")
-	}
 }

@@ -55,16 +55,16 @@ func oneRecord(entity datasource.EntityType, id ids.UUID, fields string, version
 	}}
 }
 
-// channelKindSet answers the send_message resolver's kind question from a
+// channelProviderSet answers the send_message resolver's kind question from a
 // fixed vocabulary — the shape compose's own adapter has, without the store
 // behind it.
-type channelKindSet map[string]bool
+type channelProviderSet map[string]bool
 
-func (s channelKindSet) IsChannelKind(kind string) bool { return kind == "message" }
+func (s channelProviderSet) IsChannelKind(kind string) bool { return kind == "message" }
 
 // CanSendOnProvider is the set's real question since the kind stopped naming a
 // transport: the map now holds PROVIDERS this installation can reply on.
-func (s channelKindSet) CanSendOnProvider(provider string) bool { return s[provider] }
+func (s channelProviderSet) CanSendOnProvider(provider string) bool { return s[provider] }
 
 // Every command that pins a version answers both of its questions from ONE
 // reading of the record. Two readings are two moments, and the authority
@@ -88,7 +88,7 @@ func TestEachAnchoredCommandReadsItsRecordOnce(t *testing.T) {
 			"send_message",
 			oneRecord(datasource.EntityActivity, id, `{"kind":"message","channel_provider":"telegram"}`, 3),
 			func(p *tallyingProvider) GovernedCall {
-				return NewSendMessageCall(p, channelKindSet{"telegram": true},
+				return NewSendMessageCall(p, channelProviderSet{"telegram": true},
 					SendMessageCommand{ActivityID: id, Body: "hello"})
 			},
 		},
@@ -182,13 +182,13 @@ func TestTheSinglePurposeGuardsRefuseWhatExecutionWouldRefuse(t *testing.T) {
 		{
 			"a channel reply with a whitespace-only body",
 			NewSendMessageCall(oneRecord(datasource.EntityActivity, id, `{"kind":"message","channel_provider":"telegram"}`, 1),
-				channelKindSet{"telegram": true}, SendMessageCommand{ActivityID: id, Body: "   "}),
+				channelProviderSet{"telegram": true}, SendMessageCommand{ActivityID: id, Body: "   "}),
 			"empty or whitespace-only",
 		},
 		{
 			"a channel reply on an anchor that is not a channel conversation",
 			NewSendMessageCall(oneRecord(datasource.EntityActivity, id, `{"kind":"email"}`, 1),
-				channelKindSet{"telegram": true}, SendMessageCommand{ActivityID: id, Body: "hello"}),
+				channelProviderSet{"telegram": true}, SendMessageCommand{ActivityID: id, Body: "hello"}),
 			"not a messaging-channel conversation",
 		},
 		{

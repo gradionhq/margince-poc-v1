@@ -68,10 +68,7 @@ func (e *TranscriptKindError) FieldFault() (field, code, message string) {
 // they cannot see. The two are deliberately the same rule stated twice — the
 // CHECK is the floor no writer can go under, this is the message a caller can
 // act on — and the fitness test holds them against each other.
-type MessageProviderError struct {
-	Kind     string
-	Provider string
-}
+type MessageProviderError struct{ Kind string }
 
 func (e *MessageProviderError) Error() string {
 	if e.Kind == KindMessage {
@@ -80,10 +77,16 @@ func (e *MessageProviderError) Error() string {
 	return "only a message may name a channel_provider; this kind did not travel on a transport"
 }
 
+// faultNotValidForKind is the code the contract PROMISES for a field that is
+// wrong for the kind it was sent with (crm.yaml, Activity and
+// CreateActivityRequest). Contract-first: the promise came first, so the code
+// emits what it says rather than the module's generic `invalid`.
+const faultNotValidForKind = "field_not_valid_for_kind"
+
 // FieldFault names channel_provider either way: it is the field that is wrong
 // in both directions, whether it is missing or present when it should not be.
 func (e *MessageProviderError) FieldFault() (field, code, message string) {
-	return "channel_provider", faultInvalid, e.Error()
+	return "channel_provider", faultNotValidForKind, e.Error()
 }
 
 // refuseKindProviderMismatch holds the kind and the transport against each
@@ -92,7 +95,7 @@ func refuseKindProviderMismatch(kind, provider string) error {
 	if (kind == KindMessage) == (provider != "") {
 		return nil
 	}
-	return &MessageProviderError{Kind: kind, Provider: provider}
+	return &MessageProviderError{Kind: kind}
 }
 
 // pathID asserts a contract path id as entity K's id — the widening

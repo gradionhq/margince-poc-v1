@@ -28,14 +28,18 @@ import (
 // ChannelKinds answers whether an activity kind is a messaging-channel
 // conversation a reply may transmit through.
 //
-// It is the Comms seam's own question narrowed to the one method this
-// resolver needs (Comms embeds it below), because the REST door reaches the
+// It is the Comms seam's own question narrowed to the two methods this
+// resolver needs (Comms embeds them below), because the REST door reaches the
 // resolver without the send machinery around it: that door has no reason to
 // hold a seam that can send mail, book meetings and read calendars in order to
-// ask whether an anchor is a channel. The answer itself is
-// activities.IsChannelKind either way — the same test the store's own
-// SendMessage refuses on — so the two doors cannot come to disagree about a
-// kind.
+// ask whether an anchor is a channel. Both answers come from the activities
+// package either way, so the two DOORS cannot come to disagree.
+//
+// They are a PRE-STAGING guard, not a restatement of the store's own refusal.
+// The store refuses a send it cannot make by asking whether the workspace has a
+// bot bound (channelsend.go's canSend); this asks whether the installation
+// composed the transport at all, which is knowable earlier and is the question
+// worth answering before an approval is spent.
 //
 // It asks TWO questions since ADR-0107/A158, because one no longer implies the
 // other: whether the anchor is a channel conversation at all, and whether this

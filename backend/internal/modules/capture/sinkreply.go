@@ -90,9 +90,17 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	// providers instead of across media. IS NOT DISTINCT FROM is what lets one
 	// statement serve both: mail compares NULL to NULL and matches, a channel
 	// compares provider to provider.
+	//
+	// Scoped to the WORKSPACE as well, which the medium match alone never was:
+	// thread_key is unique to nobody, so a forged References root could match an
+	// outbound leg belonging to a different workspace and publish that workspace's
+	// activity id as the matched outbound. RLS was retired (core 0217), so no
+	// policy supplies the predicate — this statement has to. It is also what makes
+	// idx_activity_channel_thread usable, since that index leads with workspace_id.
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM activity
-		WHERE thread_key = $1 AND direction = 'outbound' AND kind = $2
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  AND thread_key = $1 AND direction = 'outbound' AND kind = $2
 		  AND channel_provider IS NOT DISTINCT FROM NULLIF($3, '')
 		  AND archived_at IS NULL AND id <> $4
 		ORDER BY occurred_at DESC LIMIT 1`,

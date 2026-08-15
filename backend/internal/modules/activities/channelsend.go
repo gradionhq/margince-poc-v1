@@ -276,12 +276,12 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 	if strings.TrimSpace(in.Body) == "" {
 		return crmcontracts.Activity{}, errEmptyMessageBody
 	}
-	// The transport is READ, not recovered by reading the anchor's kind back as a
-	// provider name. Those are two vocabularies that coincide for every channel
-	// shipped so far, and the coincidence is not a rule: a transport that names
-	// no interaction kind makes the old derivation answer "not a channel
-	// conversation" for a conversation that plainly is one. An empty provider is
-	// the anchor saying it never travelled on a channel.
+	// The transport is READ, never recovered from the anchor's kind. Since
+	// ADR-0107/A158 the kind names no transport at all, so there is nothing left
+	// to derive from — and before it, the two vocabularies merely coincided for
+	// the channels shipped so far, which was never a rule. An empty provider is
+	// the anchor saying it never travelled on a channel, which the database now
+	// guarantees is true exactly when the kind is not a message.
 	provider, err := s.channelProviderOf(ctx, anchorID)
 	if err != nil {
 		return crmcontracts.Activity{}, err

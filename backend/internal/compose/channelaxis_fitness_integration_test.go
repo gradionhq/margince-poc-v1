@@ -24,12 +24,39 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
-// contractEnumMembers finds every enum member spelled anywhere in the contract
-// document. Deliberately a scan of the raw text rather than a parse of the four
-// nodes anyone currently remembers: a provider name reappearing in a FIFTH enum
-// added later is exactly the regression this guards, and a parser aimed at the
-// known nodes would not see it.
-var contractEnumRe = regexp.MustCompile(`enum:\s*\[([^\]]*)\]`)
+// contractEnumRe finds enum members spelled anywhere in the contract document.
+// Deliberately a scan of the raw text rather than a parse of the four nodes
+// anyone currently remembers: a provider name reappearing in a FIFTH enum added
+// later is exactly the regression this guards, and a parser aimed at the known
+// nodes would not see it.
+//
+// BOTH YAML sequence styles, because the document uses both: flow
+// (`enum: [a, b]`) and block (`enum:` then `- a`). Matching only flow would
+// leave four existing block-style enums unchecked and the guard would report
+// clean over a document it had not fully read.
+var (
+	contractEnumRe      = regexp.MustCompile(`enum:\s*\[([^\]]*)\]`)
+	contractBlockEnumRe = regexp.MustCompile(`(?m)^\s*enum:\s*\n((?:\s*-\s*[^\n]*\n)+)`)
+)
+
+// contractEnums returns every enum's member set, from both spellings.
+func contractEnums(raw string) [][]string {
+	var out [][]string
+	for _, m := range contractEnumRe.FindAllStringSubmatch(raw, -1) {
+		out = append(out, strings.Split(m[1], ","))
+	}
+	for _, m := range contractBlockEnumRe.FindAllStringSubmatch(raw, -1) {
+		var members []string
+		for _, line := range strings.Split(m[1], "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "-") {
+				members = append(members, strings.TrimSpace(strings.TrimPrefix(line, "-")))
+			}
+		}
+		out = append(out, members)
+	}
+	return out
+}
 
 func contractPath(t *testing.T, name string) string {
 	t.Helper()
@@ -80,8 +107,7 @@ func TestNoContractEnumSpellsARegisteredTransport(t *testing.T) {
 	// content match cannot silently widen.
 	allowed := map[string]bool{"telegram": true}
 
-	for _, match := range contractEnumRe.FindAllStringSubmatch(string(raw), -1) {
-		members := strings.Split(match[1], ",")
+	for _, members := range contractEnums(string(raw)) {
 		trimmed := make(map[string]bool, len(members))
 		for _, m := range members {
 			trimmed[strings.Trim(strings.TrimSpace(m), `'"`)] = true
@@ -100,8 +126,8 @@ func TestNoContractEnumSpellsARegisteredTransport(t *testing.T) {
 		}
 		for _, provider := range providers {
 			if trimmed[provider] {
-				t.Errorf("the contract enum [%s] spells the registered transport %q; a provider vocabulary is a deployment fact and cannot live in an installation-independent enum (ADR-0107/A158) — use ProviderRef",
-					strings.TrimSpace(match[1]), provider)
+				t.Errorf("a contract enum %v spells the registered transport %q; a provider vocabulary is a deployment fact and cannot live in an installation-independent enum (ADR-0107/A158) — use ProviderRef",
+					members, provider)
 			}
 		}
 	}
@@ -150,6 +176,12 @@ func TestActivityKindTableMatchesTheContractKindEnum(t *testing.T) {
 	// And the reverse, which is the direction that breaks a caller: every kind
 	// the contract admits must exist in the table, or a contract-valid request
 	// fails a foreign key the caller cannot see.
+	//
+	// This half IS a hand-written list, unlike everything else in this file: the
+	// generator emits no All-slice to walk, and Valid() answers per value rather
+	// than enumerating. A seventh kind added to the contract without a row here
+	// would pass — stated rather than glossed, because a test that looks derived
+	// and is not is worse than one that admits it.
 	seeded := make(map[string]bool, len(inTable))
 	for _, k := range inTable {
 		seeded[k] = true

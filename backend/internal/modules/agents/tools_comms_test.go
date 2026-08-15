@@ -80,6 +80,9 @@ type nativeActivityProvider struct {
 	// The transport is stamped alongside it, since the two axes are read
 	// separately (ADR-0107/A158) and an anchor naming only one is refused.
 	kind string
+	// channelProvider overrides the transport; empty means telegram, the one
+	// this double's installation composes.
+	channelProvider string
 }
 
 func (p nativeActivityProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
@@ -89,7 +92,11 @@ func (p nativeActivityProvider) Read(_ context.Context, ref datasource.EntityRef
 	}
 	anchor := map[string]string{"kind": kind}
 	if kind == "message" {
-		anchor["channel_provider"] = "telegram"
+		provider := p.channelProvider
+		if provider == "" {
+			provider = "telegram"
+		}
+		anchor["channel_provider"] = provider
 	}
 	fields, err := json.Marshal(anchor)
 	if err != nil {
@@ -178,6 +185,40 @@ func TestSendMessageToolStagesAgainstTheConversation(t *testing.T) {
 	}
 	if info.Summary == "" {
 		t.Error("Summary is empty; the inbox would show an unlabelled approval")
+	}
+}
+
+// A message on a transport this installation never composed is refused BEFORE
+// staging, and the timing is the whole point: staging spends the human's
+// one-shot approval, so a reply that can have no path to happening must be
+// stopped on the near side of it. Without this the human approves, the approval
+// is consumed, and the send then fails — the "yes with no path to happening"
+// these guards exist to prevent.
+//
+// whatsapp is the honest case rather than a fabricated one: core 0251 registers
+// it as a transport (so a hand-logged WhatsApp message can name what carried
+// it) while no connector composes it, which is exactly the state the kind test
+// alone cannot see.
+func TestSendMessageRefusesATransportThisInstallationCannotSendOn(t *testing.T) {
+	anchor := ids.NewV7()
+	comms := &recordingComms{}
+	tool := sendMessageTool{
+		comms: comms,
+		p:     nativeActivityProvider{version: 7, kind: "message", channelProvider: "whatsapp"},
+	}
+
+	_, err := tool.StageInfo(context.Background(),
+		json.RawMessage(`{"activity_id":"`+anchor.String()+`","body":"b","consent_purpose":"support"}`))
+
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("StageInfo on an uncomposed transport → %v, want a BadArgsError refusing before staging", err)
+	}
+	if !strings.Contains(bad.Error(), "whatsapp") {
+		t.Errorf("the refusal does not name the transport (%v); a rep cannot act on it", bad)
+	}
+	if comms.anchor != (ids.UUID{}) {
+		t.Error("a refused reply still reached the send seam")
 	}
 }
 

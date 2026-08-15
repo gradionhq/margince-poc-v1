@@ -20,7 +20,12 @@ BEGIN
     INTO stranded
     FROM activity
    WHERE kind = 'message'
-     AND channel_provider NOT IN ('telegram', 'whatsapp');
+     -- coalesce, because the CHECK was dropped two statements above: a
+     -- provider-less message row is possible again here, and NOT IN would
+     -- answer NULL (not true) and wave it through — the UPDATE below would
+     -- then write NULL into kind and fail on a NOT NULL violation instead of
+     -- on the specific refusal this guard exists to give.
+     AND coalesce(channel_provider, '') NOT IN ('telegram', 'whatsapp');
 
   IF stranded IS NOT NULL THEN
     RAISE EXCEPTION
@@ -45,6 +50,13 @@ DELETE FROM activity_kind WHERE kind = 'message';
 -- before the up migration registered it. Guarded, because person_channel_identity
 -- may reference it if a WhatsApp connector landed in the meantime — in which case
 -- it is a real transport now and deleting the row is not this migration's call.
+--
+-- RESIDUE, stated rather than glossed: on an installation that actually HAS
+-- whatsapp rows — precisely the one the up migration's registration was for —
+-- both guards fail, so the registry row survives and those rows keep
+-- channel_provider = 'whatsapp' where 0247's post-state left it NULL. The kind
+-- is restored correctly either way; what does not fully reverse is the provider
+-- column on rows the up migration was the first to populate.
 DELETE FROM channel_provider
  WHERE provider = 'whatsapp'
    AND NOT EXISTS (SELECT 1 FROM person_channel_identity WHERE provider = 'whatsapp')

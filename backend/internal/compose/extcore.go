@@ -104,6 +104,14 @@ func (a extensionActivities) Create(ctx context.Context, in crm.CreateActivityRe
 	if err != nil {
 		return crm.Activity{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err)
 	}
+	// The SAME refusal the ingress door applies, because a unit has two ways to
+	// write an activity and the rule is about the unit, not about the door. This
+	// one is the dangerous half: the published request carries channel_provider,
+	// so without this a unit could name a core connector's transport and mint a
+	// valid send anchor for a conversation it does not own.
+	if err := refuseUnitMessageKind(string(request.Kind)); err != nil {
+		return crm.Activity{}, err
+	}
 	mapped, err := activities.LogActivityInputFrom(request)
 	if err != nil {
 		return crm.Activity{}, portRefusal(err)

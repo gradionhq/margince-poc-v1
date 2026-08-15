@@ -81,7 +81,7 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err := rec.Validate(); err != nil {
 		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err.Error())
 	}
-	if err := refuseUnsupportedMessageKind(rec); err != nil {
+	if err := refuseUnitMessageKind(rec.Activity.Kind); err != nil {
 		return extension.Result{}, err
 	}
 	// Whether this ROLE can accept a record at all is answered before the
@@ -181,21 +181,6 @@ func (r *callRuntime) ingressAuthority(ctx context.Context, on extension.UserID)
 // id, which is what makes the sink's own "a connector cannot claim to be
 // another one" check pass by construction rather than by the unit getting it
 // right.
-// refuseUnsupportedMessageKind stops a unit landing a channel message it has no
-// way to describe.
-//
-// Since ADR-0107/A158 a message names its transport in a separate field, and the
-// extension record shape has no such field until slice 2 gives a unit a declared
-// channel. Landing one anyway would write a message with no transport, which the
-// database refuses with a CHECK — a 500 reported to the unit as "the core could
-// not land this record", when the truth is specific and actionable.
-func refuseUnsupportedMessageKind(rec extension.Record) error {
-	if rec.Activity.Kind != activities.KindMessage {
-		return nil
-	}
-	return fmt.Errorf("%w: a unit cannot land a %q activity yet — a message must name the transport that carried it, and the extension record has no channel to name it in",
-		extension.ErrInvalid, activities.KindMessage)
-}
 
 func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecord {
 	return connector.NormalizedRecord{
@@ -205,9 +190,7 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 			Kind: rec.Activity.Kind,
 			// No transport, and no way for a unit to name one yet: the extension
 			// record shape carries no channel, so a unit landing KindMessage is
-			// refused before it gets here (refuseUnsupportedMessageKind). Slice 2
-			// gives a unit a declared channel and turns that refusal into a
-			// bounded permission — a unit may land its own provider and no other.
+			// refused before it gets here (refuseUnitMessageKind).
 			Subject:    rec.Activity.Subject,
 			Body:       rec.Activity.Body,
 			OccurredAt: rec.Activity.OccurredAt,
@@ -225,6 +208,30 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 			Direction:   rec.Counterparty.Direction,
 		},
 	}
+}
+
+// refuseUnitMessageKind stops a unit filing a channel message on ANY of its
+// write doors, and it is deliberately one function rather than a check at each.
+//
+// A unit has no channel of its own until slice 2, so it may not claim a
+// transport it does not own. The two doors fail differently without this and
+// only one of them is obvious: capture ingress carries no provider field at all,
+// so a message would violate the CHECK and surface as an unattributable 500 —
+// while the core-write door DOES carry channel_provider, so a unit could name a
+// core connector's transport and mint a row that is a valid SEND ANCHOR. A rep
+// or an approved agent replying on it would transmit a real message from the
+// workspace's bot to whoever the unit linked: the unit picks the target, the
+// human supplies the authority. It would also inherit the GoBD statutory floor,
+// pinning unit-supplied text past the workspace's own retention policy.
+//
+// Slice 2 turns this from a refusal into a bounded permission — a unit may name
+// its own declared provider and no other.
+func refuseUnitMessageKind(kind string) error {
+	if kind != activities.KindMessage {
+		return nil
+	}
+	return fmt.Errorf("%w: a unit cannot file a %q activity — a message must name the transport that carried it, and a unit may not claim a transport it does not supply",
+		extension.ErrInvalid, activities.KindMessage)
 }
 
 // naturalKey is the idempotency key the database's unique index enforces. Its
