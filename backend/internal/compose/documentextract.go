@@ -57,15 +57,45 @@ const (
 )
 
 // The four fields a reading may propose, which is exactly the closed set the
-// accept path can write onto a deal (RD-PARAM-N-3). They are spelled here as
-// the model is asked for them, and the coercion below turns each into the
-// value setAcceptedDealField takes.
+// accept path can write onto a deal (RD-PARAM-N-3). The coercion below turns
+// each into the value setAcceptedDealField takes.
 const (
 	documentFieldName     = acceptFieldName
 	documentFieldAmount   = acceptFieldAmountMinor
 	documentFieldCurrency = acceptFieldCurrency
 	documentFieldClose    = acceptFieldExpectedClose
 )
+
+// modelFieldAmount is what the AMOUNT is called when the model is asked for it,
+// and it is deliberately not the column's name.
+//
+// Asking for `amount_minor` asks a leading question. The model is told to report
+// the figure the document prints and the field is called minor units, so on some
+// runs it helpfully pre-converts — "148,500.00" comes back as "14850000", which
+// this system then scales AGAIN into a deal worth fourteen million. Two gemini
+// runs of the identical prompt split on exactly that, which is the tell: the
+// name was doing more work than the instruction.
+//
+// So the model is asked for `amount`, which is what it is being asked for, and
+// the column keeps its own name on this side of the boundary.
+const modelFieldAmount = "amount"
+
+// toModelField and fromModelField cross that boundary. Only the amount differs;
+// the mapping is written as a function rather than a table so the three fields
+// that are the same on both sides cannot drift into needing an entry.
+func toModelField(field string) string {
+	if field == documentFieldAmount {
+		return modelFieldAmount
+	}
+	return field
+}
+
+func fromModelField(field string) string {
+	if field == modelFieldAmount {
+		return documentFieldAmount
+	}
+	return field
+}
 
 // omitReasonNotStated and omitReasonNotConfident are the contract's two
 // omission reasons. They are different answers and the panel says so: the
@@ -183,13 +213,13 @@ func documentExtractRequest(src documentSource) model.Request {
 		`Return JSON: { "fields": [ { "field", "stated", "value", "source_quote", "page_or_section", "confidence" } ] } — `+
 			`one entry for EACH of %s, in that order, and no others. `+
 			`Set "stated" to %q for a field this document states and %q for one it does not, leaving the other values empty when it does not. `+
-			`"value" for %s is the amount in the document's own figures with no currency symbol and no thousands separators; `+
+			`"value" for %s is the figure the document PRINTS, exactly as printed, with no currency symbol and no thousands separators and no conversion of any kind; `+
 			`for %s it is the ISO-4217 code; for %s it is the calendar date as YYYY-MM-DD; `+
 			`for %s it is what is being bought or supplied — not the document's own title, and not_stated for a document that records no purchase at all. `+
 			`"source_quote" is the exact text the value was read from, copied verbatim — never a paraphrase and never text you composed. `+
 			`"page_or_section" names where in the document it appears.`,
-		strings.Join(documentFieldOrder(), ", "), documentStated, documentNotStated,
-		documentFieldAmount, documentFieldCurrency, documentFieldClose, documentFieldName)
+		strings.Join(modelFieldOrder(), ", "), documentStated, documentNotStated,
+		modelFieldAmount, documentFieldCurrency, documentFieldClose, documentFieldName)
 
 	req := model.Request{
 		System:         documentSystemFor(fence),
@@ -210,6 +240,15 @@ func documentExtractRequest(src documentSource) model.Request {
 // widening the set is one edit rather than three that can disagree.
 func documentFieldOrder() []string {
 	return []string{documentFieldName, documentFieldAmount, documentFieldCurrency, documentFieldClose}
+}
+
+// modelFieldOrder is the same closed set in the model's own vocabulary.
+func modelFieldOrder() []string {
+	names := documentFieldOrder()
+	for i, name := range names {
+		names[i] = toModelField(name)
+	}
+	return names
 }
 
 // documentExtractSchema is the generation-time shape guardrail.
@@ -242,7 +281,10 @@ func documentExtractSchema() json.RawMessage {
 func groundDocumentFields(payload documentPayload) []extraction.ExtractedField {
 	reported := make(map[string]documentField, len(payload.fields()))
 	for _, field := range payload.fields() {
-		reported[field.Field] = field
+		// Keyed by the DEAL's own field names: the model's vocabulary stops at
+		// this line, and everything downstream — the row, the accept allowlist,
+		// the panel — speaks one.
+		reported[fromModelField(field.Field)] = field
 	}
 	out := make([]extraction.ExtractedField, 0, len(documentFieldOrder()))
 	for _, name := range documentFieldOrder() {

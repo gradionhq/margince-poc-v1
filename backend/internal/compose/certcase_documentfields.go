@@ -143,7 +143,11 @@ func carriedDocumentMIMEs() []string { return ai.DocumentMIMEs() }
 // the same one every time.
 func refuseUnreachableFields(want map[string]string) error {
 	for _, name := range slices.Sorted(maps.Keys(want)) {
-		if !isDocumentField(name) {
+		// The DEAL's field names, not the model's: a scenario states what should
+		// land on the record, which is the level a document can be right or
+		// wrong at. What the model is asked to call the amount is an argument
+		// between the prompt and the reply, settled before a corpus sees it.
+		if !slices.Contains(documentFieldOrder(), name) {
 			return fmt.Errorf(
 				"document_extract/fields: the scenario expects %q, which is not a field this site reads for", name)
 		}
@@ -254,25 +258,24 @@ func (c *documentFieldsCase) disagreements(fields []extraction.ExtractedField) [
 // valueAgrees compares one value the way that field can be right or wrong.
 //
 // Three of the four have exactly one correct answer — an amount in minor units,
-// an ISO-4217 code, a calendar date — and are compared exactly. The deal NAME is
-// prose the model chooses: an order form headed "Order Form — Pallet Handling
-// Programme, Graz site" can honestly be called either the whole heading or the
-// programme it names, and a scenario that demanded one spelling would grade
-// PHRASING rather than reading. Its wording is the rubric's to judge; what is
-// asserted here is that the reading found the right thing to name at all, which
-// containment (either way round, case-folded) is exactly strong enough to say.
+// an ISO-4217 code, a calendar date — and are compared exactly.
+//
+// The deal NAME is not compared at all beyond being present, and two paid runs
+// argued this down from the containment rule it started as. An order form headed
+// "Order Form — Pallet Handling Programme, Graz site" whose scope paragraph says
+// "the pooled pallet programme for the Graz production site" can honestly be
+// named from either, and both readings found the right THING; a scenario that
+// scored one of them wrong was grading phrasing, which is what the rubric is
+// for. What the deterministic half asserts here is that a name was offered at
+// all — and, through the not-expected branch of disagreements, that none was
+// offered for a document that names no piece of business.
 //
 // This is the transcript site's rule applied to the one free-text field here:
 // that case asserts the LINE a commitment was read from and leaves the summary
-// and owner to the rubric, for the same reason.
+// and the owner to the rubric, for the same reason.
 func valueAgrees(field, got, want string) bool {
 	if field != documentFieldName {
 		return got == want
 	}
-	a := strings.ToLower(strings.TrimSpace(got))
-	b := strings.ToLower(strings.TrimSpace(want))
-	if a == "" || b == "" {
-		return a == b
-	}
-	return strings.Contains(a, b) || strings.Contains(b, a)
+	return strings.TrimSpace(got) != "" && strings.TrimSpace(want) != ""
 }

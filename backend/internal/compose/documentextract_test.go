@@ -42,7 +42,7 @@ func notStated(name string) string {
 
 func allFour(overrides ...string) string {
 	fields := []string{
-		notStated("name"), notStated("amount_minor"),
+		notStated("name"), notStated(modelFieldAmount),
 		notStated("currency"), notStated("expected_close_date"),
 	}
 	for i, override := range overrides {
@@ -57,9 +57,8 @@ func allFour(overrides ...string) string {
 // this one passes: the quote IS in the document, the number IS in the document,
 // and they are about different money.
 func TestAValueItsOwnQuoteDoesNotContainIsRefused(t *testing.T) {
-	src := uatSource()
-	err := documentShapeValid(src)(allFour(
-		"", statedField("amount_minor", "500.00", "Contract value: EUR 148,500.00"), "", ""))
+	err := documentShapeValid(uatSource())(allFour(
+		"", statedField(modelFieldAmount, "500.00", "Contract value: EUR 148,500.00"), "", ""))
 	if err == nil {
 		t.Fatal("a value quoted to a line stating a different amount was accepted")
 	}
@@ -68,9 +67,8 @@ func TestAValueItsOwnQuoteDoesNotContainIsRefused(t *testing.T) {
 // The document prints "148,500.00" and this system's value carries no grouping.
 // Comparing them literally would refuse every correctly-read amount.
 func TestAnAmountAgreesWithItsQuoteAcrossThousandsSeparators(t *testing.T) {
-	src := uatSource()
-	if err := documentShapeValid(src)(allFour(
-		"", statedField("amount_minor", "148500.00", "Contract value: EUR 148,500.00"),
+	if err := documentShapeValid(uatSource())(allFour(
+		"", statedField(modelFieldAmount, "148500.00", "Contract value: EUR 148,500.00"),
 		statedField("currency", "EUR", "Contract value: EUR 148,500.00"), "")); err != nil {
 		t.Fatalf("a correctly-read amount was refused: %v", err)
 	}
@@ -80,21 +78,19 @@ func TestAnAmountAgreesWithItsQuoteAcrossThousandsSeparators(t *testing.T) {
 // anyway reports the field as a document that is silent about it — a claim about
 // the document made from a fact about the reply.
 func TestAReplyThatOmitsAFieldIsRefusedRatherThanReadAsSilence(t *testing.T) {
-	src := uatSource()
-	err := documentShapeValid(src)(reply(
+	err := documentShapeValid(uatSource())(reply(
 		notStated("name"), notStated("currency"), notStated("expected_close_date")))
 	if err == nil {
-		t.Fatal("a reply missing amount_minor was accepted, and would report it as not stated in the file")
+		t.Fatal("a reply missing the amount was accepted, and would report it as not stated in the file")
 	}
-	if !strings.Contains(err.Error(), "amount_minor") {
+	if !strings.Contains(err.Error(), modelFieldAmount) {
 		t.Errorf("refusal = %v, want it to name the missing field", err)
 	}
 }
 
 // The quote check is the text lane's whole grounding claim.
 func TestAQuoteTheDocumentDoesNotContainIsRefused(t *testing.T) {
-	src := uatSource()
-	err := documentShapeValid(src)(allFour(
+	err := documentShapeValid(uatSource())(allFour(
 		statedField("name", "Pallet programme", "Programme name: Pallet programme"), "", "", ""))
 	if err == nil {
 		t.Fatal("a fabricated quote was accepted on the text lane")
@@ -124,9 +120,8 @@ func TestTheMediaTypeIsFencedLikeTheDocumentItself(t *testing.T) {
 // question nobody asked is evidence the prompt was not read, which makes the
 // fields it DID answer worth less trust rather than more.
 func TestAFieldNobodyAskedForRefusesTheWholeReply(t *testing.T) {
-	src := uatSource()
-	err := documentShapeValid(src)(reply(
-		notStated("name"), notStated("amount_minor"), notStated("currency"),
+	err := documentShapeValid(uatSource())(reply(
+		notStated("name"), notStated(modelFieldAmount), notStated("currency"),
 		notStated("expected_close_date"),
 		statedField("probability", "80", "Contract value: EUR 148,500.00")))
 	if err == nil {
@@ -160,7 +155,7 @@ func TestAnUnderConfidentValueIsOmittedWithItsOwnReason(t *testing.T) {
 // stand or fall together at grounding time.
 func TestAnAmountWithoutACurrencyIsNotOffered(t *testing.T) {
 	fields, err := readDocumentFields(allFour(
-		"", statedField("amount_minor", "148500.00", "Contract value: EUR 148,500.00"), "", ""))
+		"", statedField(modelFieldAmount, "148500.00", "Contract value: EUR 148,500.00"), "", ""))
 	if err != nil {
 		t.Fatalf("readDocumentFields: %v", err)
 	}
@@ -175,11 +170,10 @@ func TestAnAmountWithoutACurrencyIsNotOffered(t *testing.T) {
 // lane: a site whose corpus grades a standard the product does not hold itself
 // to is certifying something that does not ship.
 func TestTheShippedReadingRunsTheValidator(t *testing.T) {
-	src := uatSource()
 	fake := ai.NewFakeClient().Script(allFour(
 		statedField("name", "Invented", "Programme name: Invented"), "", "", ""))
 	d := NewDocumentExtractor(nil, fakeDocumentBrain{fake}, discardLogger())
-	if _, err := d.ask(t.Context(), src); err == nil {
+	if _, err := d.ask(t.Context(), uatSource()); err == nil {
 		t.Fatal("the shipping path grounded a fabricated quote the validator refuses")
 	}
 }

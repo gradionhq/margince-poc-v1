@@ -65,7 +65,7 @@ func validateDocumentPayload(payload documentPayload, src documentSource) string
 	// A reply that simply leaves one out is an INCOMPLETE reading, and grounding
 	// it anyway would report the missing field as a document that is silent
 	// about it — a claim about the document made from a fact about the reply.
-	for _, name := range documentFieldOrder() {
+	for _, name := range modelFieldOrder() {
 		if !seen[name] {
 			return fmt.Sprintf("the reply says nothing about %q, so the reading is incomplete rather than the document silent", name)
 		}
@@ -78,7 +78,7 @@ func validateDocumentPayload(payload documentPayload, src documentSource) string
 // filtered: the extra field is evidence the reading did not read the prompt,
 // which makes the fields it DID report worth less trust, not more.
 func isDocumentField(name string) bool {
-	for _, known := range documentFieldOrder() {
+	for _, known := range modelFieldOrder() {
 		if name == known {
 			return true
 		}
@@ -149,7 +149,7 @@ func validateDocumentField(field documentField, src documentSource) string {
 // the model composes from the document's own words. Neither exemption is worth
 // closing with a looser check that admitted the money case too.
 func valueSupportedByQuote(field documentField) bool {
-	switch field.Field {
+	switch fromModelField(field.Field) {
 	case documentFieldAmount:
 		want := stripGrouping(field.Value)
 		for _, token := range numberTokens(field.Quote) {
