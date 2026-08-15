@@ -21,6 +21,78 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-15 — the three approval-lifecycle gaps #1296 left open (PR #1328)
+
+Issues #1303, #1305 and #1304 — the follow-ups #1296's review filed — shipped as
+one PR, because they are one story: what happens to a staged approval after
+somebody stops looking at it.
+
+**#1303, expiry was a reading rather than a state.** A stale staging *displayed*
+as expired while its row still said `pending`: nothing was audited, nothing was
+emitted, and an automation parked behind it waited forever on a verdict already
+taken against it. `ExpireDue` now writes the transition for real — status, audit
+row, outbox event, one transaction — under a re-read row lock, so a human
+deciding under the wire wins and the clock loses that race. Attributed to
+`system:approval-expiry` with `decided_by` left NULL: nobody decided this, and a
+human's id there would put their name on a refusal they never made (APPR-AC-2).
+72h default with a per-item override (APPR-PARAM-1). The run transition rides the
+`approval.decided` event rather than the job reaching into another module.
+
+**#1305, erasure and subject-access could not reach a message nobody had decided
+yet.** Every outbound scrub keys off the activity a message became, and a message
+waiting in an inbox has none — so a subject could exercise Art. 17 tonight and
+have their draft released by a colleague at nine tomorrow. Staged proposals are
+now emptied *and* withdrawn (a blanked card still in the inbox is one somebody
+can approve), decided rows keep their verdict, and Art. 15 lists the staged
+message.
+
+**#1304 was bigger than filed.** The issue said approving left the effect unrun.
+The root cause was worse: `assign_owner` and `emit_flow_event` had **no
+decision-grant mapping**, and `requireDecisionGrants` fails closed — so those
+stagings were hidden from every inbox and could not be decided by anybody. The
+existing census could not see them because it enumerated kinds with a *registered
+effect*, and an automation stages kinds that have none. Both grants came from the
+action catalog's own `RequiredPermission` pins. `emit_flow_event` completes its
+run on approval (its whole effect is the asking); `assign_owner` got a release
+executor performing the same provider write its 🟢 branch performs;
+`advance_deal` and `send_email` stopped staging, because the closed catalog can
+emit neither and a card whose approval reaches no executor is worse than a
+refusal at plan time.
+
+**Four review passes, and three of them found defects in the fix itself.** Fable
+found that the erasure work *recreated the permanently-parked run this very PR
+existed to abolish* — a withdrawal emits no event and the sweep cannot reach an
+already-terminal row. CodeRabbit found `ExpireDue` had no principal check, which
+made it an authenticated user's way to refuse every pending approval in the
+installation, each audited as though the clock had done it. The security redteam
+found that the LIKE fix from the round before was half a fix: escaping stops an
+address acting as a *wildcard*, not as a *substring*, and `m@acme.com` is a
+suffix of `tim@acme.com` — so erasure still destroyed a third party's staged work
+and the Art. 15 export still disclosed their message body. The craft pass found
+that withdrawal backdated `expires_at` without a terminal status, which with an
+exempt-kind filter applied *after* the `LIMIT` would have let withdrawn scheduled
+sends collect at the front of every batch until the sweep silently stopped
+working.
+
+Nine comments asserting invariants the code no longer held were fixed across
+three consecutive rounds — including one claiming `StageableKinds` was *derived
+from* the staging switch when it was hand-written. That defect class turned out
+to be far easier to reintroduce while fixing something else than expected.
+
+Five fitness functions now close the classes rather than the instances: every
+stageable kind must be decidable, must either ask-only or have a release
+executor, must leave its run terminal when approved, a new staging arm in
+`applyOne` trips a source-scanning tripwire, and the two erasure guards fail
+against the exact defects they name. All mutation-verified — the first attempt at
+one of those verifications was a silent `perl` no-op that made a weak test look
+proven, which is worse than no verification at all.
+
+Contract-first: the `expired` verdict and an optional `decided_by` needed the
+event catalog to move, so `margince-foundation` PR #1310 carries it upstream
+together with AUTO-NOTE-1's discharge (AUTO-PARAM-7 maps the seven authoring
+actions onto the 🟡-held effect classes, and records that close and archive have
+no automation path at all).
+
 ## 2026-08-14 — a committed CSV import can be undone, and one review pass wasn't enough (PR #1231)
 
 Issue #723, wave 5 of `.tmp/capability-roadmap`, picked up the moment #690
