@@ -243,7 +243,7 @@ func TestARepReadsTheDomainsAndCannotChangeThem(t *testing.T) {
 // from. Both verbs are checked, because either one alters the set.
 //
 // Each verb is asserted on the SIDE it writes, not on "either side matches": a
-// registration names the domain in `after` and leaves `before` as JSON null,
+// registration names the domain in `after` and leaves `before` unset,
 // and a removal names it in `before` and leaves `after` unset. A predicate that
 // accepted either would pass for a row that recorded the wrong direction.
 func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
@@ -254,9 +254,9 @@ func TestBothWritesLeaveAnAuditRowNamingTheDomain(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 	// A first registration claims NO prior state, and says so the way every
-	// other audit row does: SQL NULL. It used to store JSON null instead,
-	// because a nil map handed to an `any` parameter is not an untyped nil —
-	// which made this row invisible to the obvious "before IS NULL" query.
+	// other audit row does: SQL NULL. The seam decides that for every writer —
+	// storekit.marshalOrNil answers nil bytes for an absent image whichever
+	// kind of nil carries it — and this asserts the registry gets it.
 	assertOwnDomainAudited(ctx, t, db, ownDomainAuditRow{
 		action: "update", domain: "acme.com",
 		images: "before IS NULL AND after->>'own_email_domain' = $3",
