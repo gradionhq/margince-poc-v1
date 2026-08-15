@@ -902,6 +902,41 @@ describe("terminalBadge (archived/terminal labelling)", () => {
 });
 
 describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
+  it("a disqualified lead exposes no enabled mutation anywhere on the page", async () => {
+    // The stop-gate caught what the header-only check missed: Edit, Disqualify
+    // and Share were disabled while the score override, the clear-override and
+    // the owner picker stayed live, each able to fire a PATCH the server
+    // refuses. Asserted over EVERY button on the page rather than a list of
+    // the ones I remembered, so a control added later is covered by
+    // construction.
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 72, explained: false });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "disqualified",
+        score_override_reason: "set by hand",
+        score_computed: 46,
+        archived_at: "2026-07-13T00:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    // The tab bar is navigation, not mutation; everything else must be dead.
+    const navigation = new Set(["Overview", "History"]);
+    for (const button of screen.getAllByRole("button")) {
+      if (navigation.has(button.textContent?.trim() ?? "")) {
+        continue;
+      }
+      expect(
+        (button as HTMLButtonElement).disabled,
+        `"${button.textContent}" is still live on a terminal lead`,
+      ).toBe(true);
+    }
+  });
+
   it("a disqualified lead keeps its controls DISABLED with the reason, never hidden", async () => {
     // STATE-4a: blocked by state rather than permission means visible and
     // disabled with the reason — hiding the control hides the fact the
