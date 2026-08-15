@@ -38,13 +38,13 @@ type Handlers struct {
 	store *Store
 }
 
-// NewHandlersFromStore wires the transport over a store the caller already
-// built. Taking the store rather than a pool is what keeps one spelling of
-// "the collections store with its catalogue": compose builds that store once
-// and both the transport and the export surface receive the same one, so a
-// filter naming a cf_* column cannot be accepted by one surface and refused
-// as unknown by the other.
-func NewHandlersFromStore(store *Store) Handlers {
+// NewHandlers wires the transport over a store the caller already built.
+// Taking the store rather than a pool is what keeps one spelling of "the
+// collections store with its catalogue": the transport and the export surface
+// are built through the same constructor, so their filter vocabularies cannot
+// diverge and a cf_* column cannot be accepted by one surface while the other
+// refuses it as unknown.
+func NewHandlers(store *Store) Handlers {
 	return Handlers{store: store}
 }
 

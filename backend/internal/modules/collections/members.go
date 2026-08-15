@@ -39,10 +39,19 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, c
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	if limit <= 0 {
-		limit = 50
-	}
-	listEntityType, listType, definition, err := s.readListForMembers(ctx, listID)
+	// The caller's page size reaches a make() capacity below, so it is
+	// bounded by the contract's CAP-PAGE ceiling here rather than trusted:
+	// the router binds this parameter without range validation, and the
+	// matched set is capped at PredicateRowLimit regardless, so a larger
+	// request could only ever buy an allocation nobody fills.
+	limit = storekit.ClampLimit(&limit)
+	// GetList is the module's one gated read of a list row — it takes the
+	// same auth.Require and ensureListVisible this endpoint owes, and maps a
+	// missing row to ErrNotFound so an unknown id answers 404 rather than
+	// falling through as an unclassified driver error. Its transaction has
+	// closed by the time it returns, which is what lets the dynamic branch
+	// resolve its vocabulary without one already open (see evaluateSegment).
+	list, err := s.GetList(ctx, listID)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -52,32 +61,24 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, c
 	// (Query.SelectIDs), so a team-scoped caller's segment excludes the
 	// records they cannot see — the same visibility law the static path
 	// enforces with its per-member probe.
-	if listType == listTypeDynamic {
-		return s.evaluateSegment(ctx, listID, listEntityType, definition, limit, cursor)
+	if list.ListType == listTypeDynamic {
+		return s.evaluateSegment(ctx, listID, list.EntityType, list.Definition, limit, cursor)
 	}
 	var out []memberRow
 	var page storekit.Page
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var listErr error
-		out, page, listErr = s.listStaticMembers(ctx, tx, listID, listEntityType, limit, cursor)
-		return listErr
-	})
-	return out, page, err
-}
-
-// readListForMembers reads the one list row ListMembers needs — its
-// visibility gate and the three columns that decide how to compute
-// membership — in its own short transaction, closed before the caller
-// does anything else with the answer.
-func (s *Store) readListForMembers(ctx context.Context, listID ids.ListID) (entityType, listType string, definition map[string]any, err error) {
-	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// Re-probed inside the transaction that discloses the rows, so the
+		// gate and the disclosure read the same list. Only the dynamic path
+		// needs its gate to commit early, and paying that cost here would
+		// widen this one for nothing.
 		if err := ensureListVisible(ctx, tx, listID); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `SELECT entity_type, list_type, definition FROM list WHERE id = $1`, listID).
-			Scan(&entityType, &listType, &definition)
+		var listErr error
+		out, page, listErr = s.listStaticMembers(ctx, tx, listID, list.EntityType, limit, cursor)
+		return listErr
 	})
-	return entityType, listType, definition, err
+	return out, page, err
 }
 
 // listStaticMembers reads the explicit members of a static list. A list

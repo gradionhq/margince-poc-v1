@@ -52,11 +52,8 @@ func (s *Store) WithFieldCatalog(r fieldcatalog.FilterableReader) *Store {
 // derived from, so the pair decides which of the two membership paths a
 // read takes and whether a definition may be present at all.
 //
-// `dynamic` is spelled here as well as in dynamicAddedBy, which carries the
-// same text for a different question: this pair answers what KIND of list a
-// row is, while that one marks who added a computed member — the filter
-// itself rather than a person. Folding them into one constant would make a
-// rename of either meaning silently change the other.
+// dynamicAddedBy carries the same string for a different question — who
+// added a computed member, not what kind a list is.
 const (
 	listTypeStatic  = "static"
 	listTypeDynamic = "dynamic"

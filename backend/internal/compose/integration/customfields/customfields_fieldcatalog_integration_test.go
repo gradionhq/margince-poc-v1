@@ -6,12 +6,18 @@
 package customfields
 
 // The fieldcatalog cross-module seam (shared/ports/fieldcatalog): proves
-// modules/customfields' Service satisfies the port a record store
-// depends on, and exercises the three invariants that seam promises a
-// record store — active-only, per-object, and workspace-scoped — over a
-// real migrated Postgres. The Create/Retire/atomicity mechanics
-// themselves are customfields_integration_test.go's charter; this suite
-// only drives the read side compose will inject into people/deals.
+// modules/customfields' Service satisfies both ports over a real migrated
+// Postgres, and exercises what each promises its consumer.
+//
+// Reader answers the columns a record store may WRITE — active-only,
+// per-object, workspace-scoped — for people and deals. FilterableReader
+// answers the columns a FILTER may name, which deliberately includes
+// retired ones so a saved segment keeps evaluating, and which collections
+// consumes. The two invariants are opposites on exactly one axis, so the
+// suite asserts each against the other rather than either alone.
+//
+// The Create/Retire/atomicity mechanics themselves are
+// customfields_integration_test.go's charter; this suite drives the reads.
 
 import (
 	"sort"

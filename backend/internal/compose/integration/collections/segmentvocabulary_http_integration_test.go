@@ -11,12 +11,11 @@ package collections
 // review found: a cf_* filter that filtered export accepted was refused
 // 422 by POST /v1/lists, because collections' catalog was wired into
 // only one of its two handler stores. A reflection test
-// (compose/collectionswiring_test.go) already checks that both entry
-// points call WithFieldCatalog; this drives them over the real composed
-// server, through the object compose itself constructs in
-// newCollectionsHandlers, and proves that wiring actually PRODUCES an
-// accepted, evaluated filter rather than merely passing a structural
-// check.
+// (compose/collectionswiring_test.go) checks the one constructor both
+// surfaces are now built through, so neither can lose the seam alone;
+// this drives the endpoints over the real composed server and proves
+// that wiring actually PRODUCES an accepted, evaluated filter rather
+// than merely passing a structural check.
 
 import (
 	"net/http"

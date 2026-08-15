@@ -88,7 +88,7 @@ func NewCollectionsStore(pool *pgxpool.Pool) *collections.Store {
 // the same way) — a cf_* filter a saved list or a membership check names
 // cannot be refused here while an export of the same list accepts it.
 func newCollectionsHandlers(pool *pgxpool.Pool) collectionsHandlers {
-	return collections.NewHandlersFromStore(NewCollectionsStore(pool))
+	return collections.NewHandlers(NewCollectionsStore(pool))
 }
 
 // wireCaptureSettingsSurface binds the workspace's own capture posture
