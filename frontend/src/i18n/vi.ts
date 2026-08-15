@@ -1217,7 +1217,6 @@ export const vi = {
   "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
   "lead.unassigned": "Chưa giao",
-  "lead.terminalPromoted": "Đã chuyển thành liên hệ — lead này giờ chỉ đọc.",
   "lead.terminalDisqualified": "Đã loại — lead này giờ chỉ đọc.",
   "lead.marker": "Lead",
   "lead.assign": "Giao",

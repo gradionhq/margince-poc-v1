@@ -791,12 +791,12 @@ function LeadLifecycle({
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span className="t-caption">{t("lead.machineComputed")}</span>
-            <Button small onClick={() => setOverriding(true)}>
-              {t("lead.overrideScore")}
-            </Button>
-          </div>
+          // "Machine-computed score" was a label with no value beside it,
+          // naming what the badge above already says. The override is a rare
+          // action and stands alone.
+          <Button small onClick={() => setOverriding(true)}>
+            {t("lead.overrideScore")}
+          </Button>
         )}
       </div>
 
@@ -996,59 +996,58 @@ function LeadActions({
           {t("lead.promote")}
         </Button>
       )}
-      {/* A promoted or disqualified lead is archived and terminal —
-            the backend rejects edit/disqualify/promote/score-override on
-            it, so those affordances would only 404. STATE-4a wants the
-            controls disabled WITH the reason rather than hidden, and
-            EditAction/ArchiveAction/ShareAction carry no reason prop to
-            do that with; until they do, the page at least SAYS why the
-            actions are gone instead of leaving the reader to guess
-            (ADR-0108 §6, tracked as issue 1325). */}
-      {lead.archived_at && (
-        <span className="t-caption">
-          {lead.status === "promoted"
-            ? t("lead.terminalPromoted")
-            : t("lead.terminalDisqualified")}
-        </span>
-      )}
-      {!lead.archived_at && (
-        <EditAction
-          label={t("record.edit")}
-          notice={overlay ? t("overlay.partialWriteBack") : undefined}
-          fields={[...leadEditFields, ...cf.formFields]}
-          record={{
-            id: lead.id,
-            version: lead.version,
-            full_name: lead.full_name ?? "",
-            email: lead.email ?? "",
-            title: lead.title ?? "",
-            company_name: lead.company_name ?? "",
-            candidate_org_key: lead.candidate_org_key ?? "",
-            ...cf.recordSlice(lead),
-          }}
-          update={async (values) => {
-            const { data, error } = await api.PATCH("/leads/{id}", {
-              params: {
-                path: { id },
-                ...ifMatch(lead.version),
-              },
-              body: {
-                ...mapLeadUpdate(values),
-                ...cf.toBody(values),
-              },
-            });
-            if (error) {
-              throwProblem(error);
-            }
-            return data;
-          }}
-          invalidate="leads"
-          recordKey="lead"
-        />
-      )}
-      {!lead.archived_at && !overlay && (
+      {/* A terminal lead keeps its controls, DISABLED with the reason
+          (STATE-4a): the reason is the information, and hiding the control
+          hides a fact the reader needs. A promoted lead redirects to its
+          person, so the terminal lead that reaches this page is a
+          disqualified one. */}
+      <EditAction
+        disabledReason={
+          lead.archived_at ? t("lead.terminalDisqualified") : undefined
+        }
+        label={t("record.edit")}
+        notice={overlay ? t("overlay.partialWriteBack") : undefined}
+        fields={[...leadEditFields, ...cf.formFields]}
+        record={{
+          id: lead.id,
+          version: lead.version,
+          full_name: lead.full_name ?? "",
+          email: lead.email ?? "",
+          title: lead.title ?? "",
+          company_name: lead.company_name ?? "",
+          candidate_org_key: lead.candidate_org_key ?? "",
+          ...cf.recordSlice(lead),
+        }}
+        update={async (values) => {
+          const { data, error } = await api.PATCH("/leads/{id}", {
+            params: {
+              path: { id },
+              ...ifMatch(lead.version),
+            },
+            body: {
+              ...mapLeadUpdate(values),
+              ...cf.toBody(values),
+            },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="leads"
+        recordKey="lead"
+      />
+      {/* The overlay seam refuses disqualify (a cross-type lifecycle
+          transition) and share (a grant probes a native row a mirror lead
+          does not have), so in overlay these are genuinely UNSUPPORTED
+          rather than state-blocked — a different STATE-4a cause, and the
+          answer for that one is absence. */}
+      {!overlay && (
         <>
           <ArchiveAction
+            disabledReason={
+              lead.archived_at ? t("lead.terminalDisqualified") : undefined
+            }
             label={t("record.disqualify")}
             confirmText={t("record.disqualifyConfirm")}
             archive={async () => {
@@ -1064,7 +1063,13 @@ function LeadActions({
             recordKey="lead"
             onArchived={() => navigate({ screen: "leads" })}
           />
-          <ShareAction recordType="lead" recordId={lead.id} />
+          <ShareAction
+            recordType="lead"
+            recordId={lead.id}
+            disabledReason={
+              lead.archived_at ? t("lead.terminalDisqualified") : undefined
+            }
+          />
         </>
       )}
     </>

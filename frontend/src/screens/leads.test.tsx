@@ -900,24 +900,32 @@ describe("terminalBadge (archived/terminal labelling)", () => {
 });
 
 describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
-  it("a promoted lead reads Archived (not Disqualified) and hides edit/disqualify/promote/override", async () => {
+  it("a disqualified lead keeps its controls DISABLED with the reason, never hidden", async () => {
+    // STATE-4a: blocked by state rather than permission means visible and
+    // disabled with the reason — hiding the control hides the fact the
+    // reader needs. (A PROMOTED lead never reaches this page; it redirects
+    // to the person it became.)
     stubFetchWithMe(async () =>
       jsonResponse({
         ...lead,
-        status: "promoted",
+        status: "disqualified",
         archived_at: "2026-07-13T00:00:00Z",
       }),
     );
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
-    expect(screen.queryByText("Disqualified")).toBeNull();
-    expect(screen.queryByTestId("edit-record")).toBeNull();
-    expect(screen.queryByTestId("archive-record")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    const reason = "Disqualified — this lead is now read-only.";
+    for (const testId of ["edit-record", "archive-record"]) {
+      const control = screen.getByTestId(testId) as HTMLButtonElement;
+      expect(control.disabled).toBe(true);
+      expect(control.getAttribute("title")).toBe(reason);
+    }
+    // Promote is gone rather than disabled: a disqualified lead is not a
+    // promotable one, and the header's primary action is for live leads.
     expect(
       screen.queryByRole("button", { name: "Promote to contact" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Override score" })).toBeNull();
   });
 
   it("shows an 'overridden' badge when the score is human-overridden", async () => {

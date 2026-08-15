@@ -1227,8 +1227,6 @@ export const en = {
   "lead.ownerYou": "You",
   "lead.overriddenBadge": "overridden",
   "lead.unassigned": "Unassigned",
-  "lead.terminalPromoted":
-    "Promoted to a contact — this lead is now read-only.",
   "lead.terminalDisqualified": "Disqualified — this lead is now read-only.",
   "lead.marker": "Lead",
   "lead.assign": "Assign",

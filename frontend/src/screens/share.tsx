@@ -72,10 +72,22 @@ function isRecordType(value: string): value is RecordType {
 export function ShareAction({
   recordType,
   recordId,
-}: Readonly<{ recordType: RecordType; recordId: string }>) {
+  disabledReason,
+}: Readonly<{
+  recordType: RecordType;
+  recordId: string;
+  // Why this action is unavailable, when it is. STATE-4a settles the
+  // absent-vs-disabled question by CAUSE: a control blocked by STATE
+  // rather than permission — an archived record — stays visible and
+  // disabled WITH the reason, because the reason is the information and
+  // hiding the control hides a fact the reader needs.
+  disabledReason?: string;
+}>) {
   const t = useT();
   return (
     <Button
+      disabled={Boolean(disabledReason)}
+      title={disabledReason}
       small
       data-testid="share-record"
       onClick={() =>
