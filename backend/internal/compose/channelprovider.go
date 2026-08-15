@@ -21,6 +21,9 @@ package compose
 
 import (
 	"context"
+	"log/slog"
+	"slices"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,9 +33,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 )
 
-// reconcileChannelProviders inserts a channel_provider row (transport='core')
-// for every name in providers not already present, then sets both packages'
-// in-memory snapshots to exactly the composed set passed in.
+// reconcileChannelProviders upserts a channel_provider row (transport='core')
+// for every composed provider, carrying the display facts the discovery
+// endpoint publishes, then sets both packages' in-memory snapshots to exactly
+// the composed set passed in.
 //
 // It runs over database.WithInfraTx, not the workspace-bound database.DB.Tx:
 // activity_kind and channel_provider carry no workspace_id, so binding a
@@ -52,10 +56,20 @@ import (
 // parks a send against it rather than needing the row gone.
 func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, providers []string) error {
 	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
-		for _, provider := range providers {
+		for _, facts := range channelProviderFactsFor(providers, providers) {
+			// The display facts are UPSERTED, not left alone on conflict: they
+			// describe the composed connector, so the running binary is their
+			// only source of truth and a row written by an older build must be
+			// corrected rather than preserved. The provider itself still lands
+			// once — the primary key sees to that.
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO channel_provider (provider, transport) VALUES ($1, 'core')
-				ON CONFLICT (provider) DO NOTHING`, provider); err != nil {
+				INSERT INTO channel_provider (provider, transport, label, credential_model, supplies_transport)
+				VALUES ($1, 'core', $2, $3, $4)
+				ON CONFLICT (provider) DO UPDATE SET
+					label             = EXCLUDED.label,
+					credential_model  = EXCLUDED.credential_model,
+					supplies_transport = EXCLUDED.supplies_transport`,
+				facts.provider, facts.label, facts.credentialModel, facts.suppliesTransport); err != nil {
 				return err
 			}
 		}
@@ -64,7 +78,129 @@ func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, provider
 	if err != nil {
 		return err
 	}
+	// These two take the COMPOSED set: they answer "can a reply leave this
+	// installation", which is a question about what was compiled in. What a
+	// message may NAME is a different set, loaded from the registry itself by
+	// LoadChannelProviderDirectory — see there for why it is not written here.
 	activities.SetChannelProviders(providers)
 	comms.SetChannelProviders(providers)
 	return nil
+}
+
+// composedChannelProviders holds this boot's registered transports, written by
+// the reconcile above and read by the discovery endpoint. Same shape and same
+// reason as composedExtensions: the mutex guards the read/write ORDERING, since
+// the HTTP surface is assembled after the registry is constructed — and this
+// package's registry construction can legitimately run more than once, so the
+// last write in a boot sequence is authoritative.
+//
+// The endpoint reads THIS rather than querying channel_provider, which is what
+// the plan calls serving from the boot snapshot: the table has no workspace_id
+// to scope by, and answering an HTTP request from an unscoped pool read is a
+// door this package does not need to open for a value fixed at boot.
+var composedChannelProviders struct {
+	mu sync.RWMutex
+	// registered is every transport in the registry — what a message MAY name.
+	registered []string
+	// sending is the subset this binary composed a sender for — what a reply
+	// CAN leave on. Held separately because the two differ (whatsapp is
+	// registered and unsendable) and collapsing them is the conflation this
+	// decision removed.
+	sending []string
+}
+
+// LoadChannelProviderDirectory fills the directory snapshot from the registry
+// table, and it runs for EVERY role that serves /v1 rather than as a side
+// effect of constructing the capture registry.
+//
+// That independence is the point, and it is a defect this arc shipped once
+// already: NewCaptureRegistry is config-gated (the api role only builds it when
+// a keyvault root key is configured), so a snapshot written there is empty on a
+// vault-less install — and the endpoint would then answer `{"data":[]}` with a
+// 200, telling every timeline it has no labels and telling an agent the provider
+// vocabulary is empty while log_activity still demands a value from it. Silence
+// that reads as an answer is worse than an error.
+//
+// Reading the TABLE also makes the three display columns load-bearing rather
+// than write-only, and it is correct with or without a reconcile: the migration
+// seeds every row this installation ships with, and a reconcile only refreshes
+// them.
+//
+// EVERY registered transport is published, core and unit alike. The security
+// review raised whether a unit's provider id — an operator's choice of what to
+// install — should be visible to every authenticated seat, and the answer is
+// yes, decided rather than inherited: a member whose timeline shows a message
+// that arrived on a unit's channel needs to know what to call it, and hiding the
+// name would leave that row rendering a raw id for exactly the transports the
+// extension tier exists to add.
+//
+// What is gated is not the NAME but the ACT. Whether a member may send on a
+// transport is an RBAC question, answered by the object permissions a unit
+// registers as `ext_<unit>_<object>` (identity's policy) and by the send
+// pre-flight — not by hiding the transport's existence. Disclosure and
+// capability are separate axes, which is the same separation this whole arc is
+// about.
+func LoadChannelProviderDirectory(ctx context.Context, pool *pgxpool.Pool) error {
+	var registered []string
+	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT provider FROM channel_provider ORDER BY provider`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				return err
+			}
+			registered = append(registered, p)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return err
+	}
+	setComposedChannelProviders(registered, activities.SendableChannelProviders())
+	return nil
+}
+
+func setComposedChannelProviders(registered, sending []string) {
+	composedChannelProviders.mu.Lock()
+	defer composedChannelProviders.mu.Unlock()
+	composedChannelProviders.registered = slices.Clone(registered)
+	composedChannelProviders.sending = slices.Clone(sending)
+}
+
+// ComposedChannelProviders returns this boot's registered transports and the
+// subset that can carry an outbound message.
+func ComposedChannelProviders() (registered, sending []string) {
+	composedChannelProviders.mu.RLock()
+	defer composedChannelProviders.mu.RUnlock()
+	return slices.Clone(composedChannelProviders.registered), slices.Clone(composedChannelProviders.sending)
+}
+
+// loadChannelProviderDirectoryOrLog fills the directory snapshot at server
+// assembly, for every role that serves /v1 and independent of whether this role
+// composed a capture registry — see LoadChannelProviderDirectory for why that
+// independence is load-bearing.
+//
+// A failure is logged rather than fatal: an installation that cannot read its
+// own transport labels still serves every other route, and the directory's own
+// empty answer is then the honest one. It is the SILENT empty this arc had to
+// fix, not an empty that was reported.
+//
+// A nil pool OR a nil logger is a unit-test wiring with no database and no
+// observability, which several route-level tests build directly; every other
+// dependency here already tolerates that shape the same way. Both are checked
+// because the two arrive independently — a test that supplies a pool and no
+// logger would otherwise panic on the reporting path rather than the reading
+// one, which is a confusing way to learn about a wiring gap.
+func loadChannelProviderDirectoryOrLog(pool *pgxpool.Pool, log *slog.Logger) {
+	if pool == nil || log == nil {
+		return
+	}
+	if err := LoadChannelProviderDirectory(context.Background(), pool); err != nil {
+		log.Error("compose: loading the transport directory", "err", err)
+	}
 }

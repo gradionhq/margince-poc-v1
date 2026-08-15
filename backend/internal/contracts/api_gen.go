@@ -1518,6 +1518,24 @@ func (e ChannelConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ChannelProviderEntryCredentialModel.
+const (
+	PerMember    ChannelProviderEntryCredentialModel = "per_member"
+	WorkspaceBot ChannelProviderEntryCredentialModel = "workspace_bot"
+)
+
+// Valid indicates whether the value is a known member of the ChannelProviderEntryCredentialModel enum.
+func (e ChannelProviderEntryCredentialModel) Valid() bool {
+	switch e {
+	case PerMember:
+		return true
+	case WorkspaceBot:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ClaimEvidenceEntityType.
 const (
 	ClaimEvidenceEntityTypeFact         ClaimEvidenceEntityType = "fact"
@@ -11478,6 +11496,46 @@ type ChannelConnectionStatus string
 type ChannelConnectionListResponse struct {
 	Data []ChannelConnection `json:"data"`
 }
+
+// ChannelProviderDirectory Every messaging transport this installation has registered (ADR-0107/A158).
+type ChannelProviderDirectory struct {
+	Data []ChannelProviderEntry `json:"data"`
+}
+
+// ChannelProviderEntry One registered transport, as the directory publishes it.
+type ChannelProviderEntry struct {
+	// CredentialModel How a connection to this transport is credentialed — one shared bot for the
+	// installation, or a secret each member deposits. Closed on purpose, unlike the
+	// provider vocabulary: this describes the SHAPE of a credential, which is
+	// installation-independent.
+	CredentialModel ChannelProviderEntryCredentialModel `json:"credential_model"`
+
+	// Label Human-readable transport name, e.g. `Telegram`. Ships with the provider and is
+	// never operator-configured — the directory is readable by every authenticated
+	// seat, so anything an administrator typed would make this a disclosure decision
+	// rather than a display one.
+	Label string `json:"label"`
+
+	// Provider A reference to a messaging transport registered in THIS installation
+	// (ADR-0107/A158). Deliberately a pattern-constrained string rather than an enum:
+	// which providers exist is a deployment fact — what this binary composed, including
+	// any extension unit present under `extensions/` — so an enum here would assert that
+	// the legal set is identical in every installation, which is false. The contract
+	// states the invariant; `GET /v1/channel-providers` resolves the live set.
+	Provider ProviderRef `json:"provider"`
+
+	// SuppliesTransport Whether this provider can carry an outbound message at all; a capture-only
+	// transport reports false. Deliberately NOT "can this workspace send" — that
+	// reads `channel_connection`, a tenant table, and answering both here would
+	// re-conflate a deployment fact with a tenant one.
+	SuppliesTransport bool `json:"supplies_transport"`
+}
+
+// ChannelProviderEntryCredentialModel How a connection to this transport is credentialed — one shared bot for the
+// installation, or a secret each member deposits. Closed on purpose, unlike the
+// provider vocabulary: this describes the SHAPE of a credential, which is
+// installation-independent.
+type ChannelProviderEntryCredentialModel string
 
 // ClaimEvidence The receipt behind one cited record (DOSS-WIRE-3). Each `source_kind` owes its own
 // identifying fields (DOSS-PARAM-9), carried in `identity`; a receipt that cannot fill one
@@ -29268,6 +29326,9 @@ type ServerInterface interface {
 	// Replace a channel connection's bot token in place.
 	// (PATCH /channel-connections/{id})
 	ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id)
+	// Which messaging transports THIS installation has registered.
+	// (GET /channel-providers)
+	ListChannelProviders(w http.ResponseWriter, r *http.Request)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -30621,6 +30682,12 @@ func (_ Unimplemented) DisconnectChannel(w http.ResponseWriter, r *http.Request,
 // Replace a channel connection's bot token in place.
 // (PATCH /channel-connections/{id})
 func (_ Unimplemented) ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Which messaging transports THIS installation has registered.
+// (GET /channel-providers)
+func (_ Unimplemented) ListChannelProviders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35339,6 +35406,28 @@ func (siw *ServerInterfaceWrapper) ReplaceChannelToken(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceChannelToken(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannelProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelProviders(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannelProviders(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -49670,6 +49759,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/channel-connections/{id}", wrapper.ReplaceChannelToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/channel-providers", wrapper.ListChannelProviders)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

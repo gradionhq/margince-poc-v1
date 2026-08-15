@@ -3238,6 +3238,37 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------------------ /channel-providers -------------------------------
+  /channel-providers:
+    get:
+      tags: [Activities]
+      operationId: listChannelProviders
+      x-mcp-tool: { verb: list_channel_providers, record_type: activity, tier: auto_execute, scope: read }
+      summary: Which messaging transports THIS installation has registered.
+      description: |
+        The resolver for `ProviderRef` (ADR-0107/A158). Because a provider vocabulary is a
+        deployment fact rather than an installation-independent one, the contract cannot
+        enumerate it; this operation moves that typing from build time to a runtime
+        capability document. A client renders `label` wherever it would otherwise print a
+        raw provider id.
+
+        Readable by any authenticated seat: a provider id plus a display label is not
+        privileged, and every member's timeline needs it. `label` therefore carries nothing
+        an administrator configured — no workspace names, no bot handles, no endpoints.
+
+        Reports what this binary COMPOSED, not what this workspace has connected.
+        `supplies_transport` is a build-time fact; whether the caller can actually send on a
+        provider depends on `channel_connection`, a tenant table, and is answered by the send
+        pre-flight instead. Publishing that here would re-conflate a deployment fact with a
+        tenant fact — the same conflation this decision removes.
+      responses:
+        '200':
+          description: Every transport registered in this installation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelProviderDirectory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   # ---------------------------- /activities ---------------------------------
   /activities:
     get:
@@ -17116,6 +17147,44 @@ components:
         any extension unit present under `extensions/` — so an enum here would assert that
         the legal set is identical in every installation, which is false. The contract
         states the invariant; `GET /v1/channel-providers` resolves the live set.
+
+    ChannelProviderDirectory:
+      type: object
+      description: Every messaging transport this installation has registered (ADR-0107/A158).
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ChannelProviderEntry' }
+
+    ChannelProviderEntry:
+      type: object
+      description: One registered transport, as the directory publishes it.
+      required: [provider, label, credential_model, supplies_transport]
+      properties:
+        provider: { $ref: '#/components/schemas/ProviderRef' }
+        label:
+          type: string
+          description: |
+            Human-readable transport name, e.g. `Telegram`. Ships with the provider and is
+            never operator-configured — the directory is readable by every authenticated
+            seat, so anything an administrator typed would make this a disclosure decision
+            rather than a display one.
+        credential_model:
+          type: string
+          enum: [workspace_bot, per_member]
+          description: |
+            How a connection to this transport is credentialed — one shared bot for the
+            installation, or a secret each member deposits. Closed on purpose, unlike the
+            provider vocabulary: this describes the SHAPE of a credential, which is
+            installation-independent.
+        supplies_transport:
+          type: boolean
+          description: |
+            Whether this provider can carry an outbound message at all; a capture-only
+            transport reports false. Deliberately NOT "can this workspace send" — that
+            reads `channel_connection`, a tenant table, and answering both here would
+            re-conflate a deployment fact with a tenant one.
 
     CreateActivityRequest:
       type: object

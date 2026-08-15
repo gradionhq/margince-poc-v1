@@ -105,6 +105,9 @@ type Server struct {
 	// reads the package's own boot-written accessors — so it is embedded as the
 	// zero value rather than assembled in serverassembly.go.
 	extensionsHandlers
+	// The transport directory (handlers_channelproviders.go), stateless for the
+	// same reason and embedded the same way.
+	channelProvidersHandlers
 	org360Handlers
 	person360Handlers
 	personBriefHandlers
@@ -350,6 +353,12 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// serves the already-bound singleton organization.
 	identitySvc := identity.NewService(pool)
 	authH := identity.NewHandlers(identitySvc)
+
+	// The transport directory, loaded on the REAL assembly path rather than in
+	// newServer: route-level tests construct that one directly with a pool that
+	// was never dialled, and a struct constructor is the wrong place to reach a
+	// database anyway. Every role that serves /v1 comes through here.
+	loadChannelProviderDirectoryOrLog(pool, log)
 
 	srv := newServer(pool, log, authH, dealsH)
 	for _, opt := range opts {

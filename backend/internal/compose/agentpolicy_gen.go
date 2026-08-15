@@ -153,6 +153,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/capture/consumer-mail-domains":                              {Op: "listConsumerMailDomains", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/capture/email-domains":                                      {Op: "listWorkspaceEmailDomains", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/channel-connections":                                        {Op: "listChannelConnections", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/channel-providers":                                          {Op: "listChannelProviders", Access: "tool", Tool: "list_channel_providers", RecordType: "activity", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/company":                                                    {Op: "getCompany", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/company/context":                                            {Op: "getCompanyContext", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/company/context/capabilities":                               {Op: "getCompanyContextCapabilities", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

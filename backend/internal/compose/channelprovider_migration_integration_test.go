@@ -39,7 +39,8 @@ func TestActivityKindAndChannelProviderAreSeededByMigration(t *testing.T) {
 	}
 	rows.Close()
 	// The narrowed vocabulary (ADR-0107/A158): six INTERACTION kinds, and no
-	// transport among them. telegram and whatsapp left this table in 0251 —
+	// transport among them. telegram and whatsapp left this table at the
+	// narrowing —
 	// telegram had already become a channel_provider row, whatsapp becomes one
 	// there — so a name appearing in both lists again would mean the axes had
 	// been re-conflated.

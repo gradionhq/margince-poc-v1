@@ -5,6 +5,7 @@ import type { components } from "../api/schema";
 import { Badge, SegmentedControl } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
+import { useProviderLabel } from "./channelproviders";
 
 // Conversation memory (concept §5.10, ADR-0097 D3).
 //
@@ -22,6 +23,7 @@ type Filter = (typeof FILTERS)[number];
 export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
   const [filter, setFilter] = useState<Filter>("all");
+  const providerLabel = useProviderLabel();
   const entries = view.conversation_memory ?? [];
   // Until the thread projection is filled, the timeline the page already read
   // IS the memory: same rows, condensed the same way. It reads from what the
@@ -29,8 +31,8 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
   // beside it is withholding.
   const rows =
     entries.length > 0
-      ? entries.map((entry) => fromEntry(entry, t))
-      : foldActivities(view, t);
+      ? entries.map((entry) => fromEntry(entry, t, providerLabel))
+      : foldActivities(view, t, providerLabel);
   const shown = rows.filter((row) => matches(row, filter));
 
   return (
@@ -103,10 +105,11 @@ type Row = {
 // showed before the narrowing, and falls back to the kind when a row has no
 // transport (mail, calls, meetings, notes).
 //
-// It renders an UNKNOWN provider as its raw id rather than blanking: until the
-// discovery endpoint ships display labels, an id a human can read beats an
-// empty cell, and a provider this build has never heard of is precisely the
-// case an extension unit creates.
+// The id it returns is resolved to a display label through the transport
+// directory (useProviderLabel). An UNKNOWN provider falls back to its raw id
+// rather than blanking: a provider this build has never heard of is precisely
+// the case an extension unit creates, and an id a human can read beats an
+// empty cell.
 function channelKeyOf(
   kind: string,
   provider: string | null | undefined,
@@ -117,6 +120,7 @@ function channelKeyOf(
 function fromEntry(
   entry: NonNullable<Person360["conversation_memory"]>[number],
   t: ReturnType<typeof useT>,
+  providerLabel: (provider: string) => string,
 ): Row {
   const status = entry.status ?? null;
   return {
@@ -127,6 +131,7 @@ function fromEntry(
     channelLabel: labelFor(
       channelKeyOf(entry.channel, entry.channel_provider),
       t,
+      providerLabel,
     ),
     title: entry.title,
     summary: entry.summary,
@@ -139,7 +144,11 @@ function fromEntry(
 // The deterministic floor: one captured activity is one entry, its subject the
 // title and its body the summary. It is what the card shows when no thread
 // summary has been generated — plainer, never blank.
-function foldActivities(view: Person360, t: ReturnType<typeof useT>): Row[] {
+function foldActivities(
+  view: Person360,
+  t: ReturnType<typeof useT>,
+  providerLabel: (provider: string) => string,
+): Row[] {
   const rows = view.activities?.data ?? [];
   return rows
     .filter((row) => !isFuture(row))
@@ -150,10 +159,18 @@ function foldActivities(view: Person360, t: ReturnType<typeof useT>): Row[] {
         date: dayMonth(row.occurred_at),
         time: clock(row.occurred_at),
         channel: channelKeyOf(row.kind, row.channel_provider),
-        channelLabel: labelFor(channelKeyOf(row.kind, row.channel_provider), t),
+        channelLabel: labelFor(
+          channelKeyOf(row.kind, row.channel_provider),
+          t,
+          providerLabel,
+        ),
         title:
           row.subject ??
-          labelFor(channelKeyOf(row.kind, row.channel_provider), t),
+          labelFor(
+            channelKeyOf(row.kind, row.channel_provider),
+            t,
+            providerLabel,
+          ),
         summary: row.body ?? "",
         status,
         statusLabel: statusLabel(status, t),
@@ -229,7 +246,21 @@ function matches(row: Row, filter: Filter): boolean {
   }
 }
 
-function labelFor(kind: string, t: ReturnType<typeof useT>): string {
+function labelFor(
+  kind: string,
+  t: ReturnType<typeof useT>,
+  providerLabel?: (provider: string) => string,
+): string {
+  // A transport is named by the DIRECTORY, not by a table here: which providers
+  // exist is a deployment fact, so a switch in this file could only ever be
+  // right for the providers this build happens to ship with. The resolver falls
+  // back to the raw id, so an unknown transport still reads.
+  if (providerLabel) {
+    const resolved = providerLabel(kind);
+    if (resolved !== kind) {
+      return resolved;
+    }
+  }
   switch (kind) {
     case "email":
       return t("person.memory.channelEmail");
