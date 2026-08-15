@@ -1198,6 +1198,8 @@ export const de = {
     "Kam über „{source}“ herein — daraus allein spricht noch kein Kaufinteresse.",
   "lead.shortfall.noEngagement":
     "Noch keine Antwort, kein Termin — das bewegt den Score am stärksten.",
+  "lead.scoreNotStoredYet":
+    "Die Aufschlüsselung zu diesem Score ist noch nicht gespeichert — die nächste Aktualisierung zeigt sie.",
   "lead.scoreLoading": "Begründung wird geladen…",
   "lead.scoreNotYetExplained":
     "Dieser Score stammt aus der Zeit vor der Aufschlüsselung. Die nächste Aktualisierung erklärt ihn.",

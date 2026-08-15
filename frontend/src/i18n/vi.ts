@@ -1196,6 +1196,8 @@ export const vi = {
     "Đến từ “{source}”, tự nó chưa thể hiện ý định mua.",
   "lead.shortfall.noEngagement":
     "Chưa có phản hồi hay cuộc họp — đó mới là thứ thay đổi điểm nhiều nhất.",
+  "lead.scoreNotStoredYet":
+    "Phần giải thích cho điểm này chưa được lưu — lần cập nhật tới sẽ hiển thị.",
   "lead.scoreLoading": "Đang tải lý do…",
   "lead.scoreNotYetExplained":
     "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",

@@ -413,12 +413,20 @@ function ScoreBreakdown({ id, lead }: Readonly<{ id: string; lead: Lead }>) {
   }
   const current = explain.data?.current;
   if (!explain.data?.explained || !current) {
-    // No retained decomposition. The reasons a lead scores nothing are still
+    // No retained decomposition. For a score of ZERO the reasons are still
     // derivable from the lead in hand, and they are what the reader came for
     // — "this score predates the breakdown" answers a question nobody asked
     // and leaves a 0 looking like a bad prospect rather than an unassessed
     // one (ADR-0108 §4).
-    return <ScoreShortfall lead={lead} />;
+    //
+    // A NON-zero score is a different case: something did count, this client
+    // cannot say what, and listing what is missing would state the opposite
+    // of the truth. It says only that the breakdown is not stored yet.
+    return lead.score === 0 ? (
+      <ScoreShortfall lead={lead} />
+    ) : (
+      <span className="t-caption">{t("lead.scoreNotStoredYet")}</span>
+    );
   }
   const factors = current.factors ?? [];
   // Under a Commercial Judgement override the displayed score is the
