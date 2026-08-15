@@ -45,7 +45,17 @@ func menuForKind(kind crmcontracts.SiteReadPageKind) (pageMenu, bool) {
 	offeringAndMarket := factFields("offering", "market")
 	switch kind {
 	case crmcontracts.SiteReadPageKindImpressum:
-		return pageMenu{factFields: company, entities: true}, true
+		// The imprint carries the people lane because German law puts the
+		// board on it: §5 TMG requires a company to name its
+		// Vertretungsberechtigte, so adesso.de/impressum prints five board
+		// members and the supervisory board chair. That page is often the
+		// ONLY place a large firm names anyone -- adesso publishes no team
+		// directory the crawl reaches, and read without this lane it
+		// yielded a hundred facts and zero people.
+		//
+		// The testimonial risk that shaped the About lane does not exist
+		// here: an imprint quotes no customers.
+		return pageMenu{factFields: company, entities: true, people: true}, true
 	case crmcontracts.SiteReadPageKindContact:
 		return pageMenu{factFields: company}, true
 	case crmcontracts.SiteReadPageKindServices, crmcontracts.SiteReadPageKindProducts:
