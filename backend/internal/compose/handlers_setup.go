@@ -4,7 +4,6 @@
 package compose
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -90,11 +89,14 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 			return
 		}
+		// The house decoder, not a hand-rolled one: it caps the body, refuses an
+		// unknown or merely case-folded key, restates a parse error the caller
+		// can act on while withholding anything else, and refuses trailing
+		// content. Every one of those matters more here than elsewhere — this
+		// body creates the root account, so a key quietly ignored is a field
+		// quietly defaulted.
 		var in setupClaimRequest
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&in); err != nil {
-			httperr.Write(w, r, httperr.Validation("body", "malformed", "the claim body is not the expected JSON object"))
+		if !httperr.Decode(w, r, &in) {
 			return
 		}
 		if in.SetupToken == "" {

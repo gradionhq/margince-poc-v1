@@ -218,12 +218,23 @@ func TestAnUnprovisionedBootMintsAndAnnouncesTheToken(t *testing.T) {
 
 	// Both channels, because either alone can be lost: a log pipeline that
 	// dropped the line, or a container with no writable config directory.
-	raw, err := os.ReadFile(filepath.Join(dir, "config", "margince-setup-token"))
+	tokenPath := filepath.Join(dir, "config", "margince-setup-token")
+	raw, err := os.ReadFile(tokenPath) // #nosec G304 -- a path this test just built under t.TempDir()
 	if err != nil {
 		t.Fatalf("reading the announced token file: %v", err)
 	}
 	if len(raw) == 0 {
 		t.Error("the token file is empty")
+	}
+	// The mode is the point, not incidental: this file is a credential that
+	// claims the installation, and a test asserting only its contents passes
+	// just as happily when it is world-readable.
+	info, err := os.Stat(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("the setup token file is mode %#o — group or other can read the credential that claims this installation", perm)
 	}
 	if !strings.Contains(logged.String(), string(raw)) {
 		t.Error("the log line does not carry the token the file holds — an operator reading one gets a different credential than the other")

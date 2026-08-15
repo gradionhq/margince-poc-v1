@@ -30,6 +30,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -164,7 +165,7 @@ func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, httperr.Validation("token", "required", "the reset token is required"))
 		return
 	}
-	if len(req.NewPassword) < 12 || len(req.NewPassword) > 256 {
+	if n := utf8.RuneCountInString(req.NewPassword); n < minPasswordLen || n > maxPasswordLen {
 		httperr.Write(w, r, httperr.Validation("new_password", "length", "the new password must be 12–256 characters"))
 		return
 	}
