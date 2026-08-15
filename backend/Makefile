@@ -120,7 +120,7 @@ test-extensions: composition ## Every enabled extension's own test lane (each un
 build: composition ## Compile every package (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) build ./...
 
-vet: composition ## Run go vet over every package, untagged AND -tags integration (composed workspace)
+vet: composition ## Run go vet over every package, untagged AND -tags 'integration bench' (composed workspace)
 	$(GOWORK_COMPOSED) $(GO) vet ./...
 	# The INTEGRATION lane, type-checked. `make check` otherwise never compiles
 	# a single //go:build integration file — build, vet, lint and test all run
@@ -133,7 +133,13 @@ vet: composition ## Run go vet over every package, untagged AND -tags integratio
 	# vet, not test: type-checking the tagged lane needs no database, no Docker
 	# and no fixtures, so it costs seconds and belongs in the always-on gate.
 	# RUNNING those tests is the integration lane's job and stays there.
-	$(GOWORK_COMPOSED) $(GO) vet -tags integration ./...
+	#
+	# `bench` rides along and needs this MORE than the integration lane does:
+	# the bench files are run by hand from a make target, so unlike the
+	# integration lane nothing scheduled ever compiles them. Setting a tag only
+	# ADDS files, so this one invocation still covers everything `-tags
+	# integration` alone would.
+	$(GOWORK_COMPOSED) $(GO) vet -tags 'integration bench' ./...
 
 test: composition ## Unit tests (the root fitness tests run uncached)
 	$(GOWORK_COMPOSED) $(GO) test ./...
@@ -247,7 +253,32 @@ test-integration-serial: composition ## Escape hatch: the old sequential lane, a
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
 bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
+	MARGINCE_BENCH_TIER=mid_market $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+
+# The `bench` lane: measurements run BY HAND, never by a merge gate.
+#
+# bench-perf above is the older shape and stays as it is — its suite carries
+# only the `integration` tag, so the standing lane runs it at the SMB tier as a
+# canary and this target re-runs it at mid-market. The two targets below are the
+# opposite posture by request: their suites carry `integration && bench`, so no
+# CI lane runs them at all. `make vet` and both golangci passes still TYPE-CHECK
+# them, which is the only thing standing between a by-hand lane and rot.
+#
+# Separate targets rather than one, because they measure unrelated promises and
+# cost unrelated amounts of time: a reader chasing a slow save should not have
+# to seed a mailbox to find out.
+#
+# `-count=1` on all three is load-bearing, not habit. Go caches a passing test
+# result keyed on the binary and its inputs, and a cached PASS replays the
+# ORIGINAL run's log — so a second `make bench-record` printed p50=3.276875ms a
+# second time, to the nanosecond, having measured nothing. A benchmark that can
+# answer from cache reports the past as the present, which is worse than not
+# running: the number looks fresh and is not.
+bench-record: composition ## PERF-1/PERF-4 record open + save budgets, measured over HTTP (needs db-up)
+	$(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestRecordOpenAndSaveBudgets -count=1 -v -timeout 15m ./internal/compose/integration
+
+bench-capture: composition ## CAP-PARAM-1 capture-to-timeline latency, 60s p95 (needs db-up)
+	$(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestCaptureToTimelineLatencyBudget -count=1 -v -timeout 15m ./internal/compose/integration/capture
 
 # golangci-lint is the one gate tool this Makefile installs rather than
 # runs via pinned `go run` (arch-lint/vuln/oasdiff do): `go run` would

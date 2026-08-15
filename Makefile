@@ -12,7 +12,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e bench-mobile e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -129,7 +129,7 @@ dev-stop:
 dev-logs:
 	@bash scripts/dev-logs.sh
 
-build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy clean vuln tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy clean vuln tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
@@ -180,7 +180,7 @@ fe-test:
 ## ran with none of them from a unit. They were typechecked and never executed.
 fe-test-ext: composition
 	@[ -f build/composition/frontend/extlocales.gen.ts ] || { echo "fe-test-ext: build/composition/frontend/extlocales.gen.ts is missing after 'make composition' — a unit screen's suite would resolve the empty-tree copy registry and fail on every string" >&2; exit 1; }
-	cd frontend && pnpm install --frozen-lockfile && \
+	cd frontend && pnpm install --frozen-lockfile && pnpm build && \
 		MARGINCE_COMPOSITION_FRONTEND=../build/composition/frontend pnpm test:ext
 
 ## ds-purity — design-system token purity (no raw hex/rgb outside tokens.css).
@@ -343,6 +343,15 @@ fe-typecheck-composed: composition
 frontend-e2e:
 	cd frontend && pnpm install --frozen-lockfile && pnpm e2e
 
+## bench-mobile — MOBILE-AC-2: record open p95 under the 300ms PERCEIVED budget
+## on a throttled Fast-3G profile at 390px (MOBILE-PARAM-2). A measurement run
+## BY HAND, like the backend bench-* targets: `pnpm e2e` does not collect this
+## spec and this target collects nothing else. The UNTHROTTLED half of the same
+## budget stays where it already is, as a normal AC test in e2e/ac.spec.ts.
+bench-mobile:
+	cd frontend && pnpm install --frozen-lockfile && pnpm build && \
+		MARGINCE_BENCH_MOBILE=1 pnpm exec playwright test
+
 ## e2e-company — the company record page against the V2 mockups in
 ## docs/explanation/assets/company-record-page-v2/. Region ORDER and PRESENCE,
 ## never pixels: it runs on the LIVE stack (make dev, then make seed-dev),
@@ -374,7 +383,7 @@ storybook:
 ## — it is the fe-only UAT lane a coordinator runs instead of the full stack.
 ## Optional: ARGS="--allow-missing".
 fe-uat:
-	cd frontend && pnpm install --frozen-lockfile && \
+	cd frontend && pnpm install --frozen-lockfile && pnpm build && \
 		pnpm exec playwright install chromium >/dev/null 2>&1 && \
 		node scripts/fe-uat.mjs $(ARGS)
 

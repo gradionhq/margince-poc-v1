@@ -95,7 +95,29 @@ root gates (each is a small script; all merge-blocking):
 | `test-v` / `test-cover` | Verbose unit tests / unit tests with a coverage summary |
 | `db-wait` / `infra-logs` / `infra-reset` | Block until Postgres answers / tail the dev-stack logs / wipe volumes and restart the stack |
 | `bench-perf` | The PERF benchmark harness on the mid-market tier (needs `db-up`; seeds 250k contacts) |
+| `bench-record` | PERF-1/PERF-4: record open and save p50/p95/p99, measured over HTTP against the booted app (needs `db-up`) |
+| `bench-capture` | CAP-PARAM-1: capture-to-timeline latency, 60 s p95, over the auto-create path (needs `db-up`) |
 | `tidy` | `go mod tidy` |
+
+### The `bench` lane — measurements, run by hand
+
+`bench-record` and `bench-capture` carry `//go:build integration && bench`, so
+**no CI lane runs them**: not `make check`, not the integration lane. They report
+the numbers behind the budgets `acceptance-standards.md` publishes rather than
+gating a merge on them, which is why each prints p50/p95/p99 beside its budget
+instead of only passing or failing. `bench-mobile` below is the frontend half of
+the same posture.
+
+They are still **type-checked** on every `make check`: `go vet -tags 'integration
+bench'` and both golangci passes carry the tag. That is load-bearing rather than
+tidiness — nothing scheduled compiles these files, so without it a renamed helper
+would break them silently and nobody would find out until the next person ran a
+benchmark by hand and had to debug the harness instead of reading a number.
+
+`bench-perf` is the older shape and is **not** in this lane: its suite carries
+only the `integration` tag, so the standing integration lane runs it at the SMB
+tier as a canary and `bench-perf` re-runs it at mid-market, where the PERF-7 SLO
+actually binds.
 
 ## Root-only (frontend lane)
 
@@ -114,6 +136,7 @@ root gates (each is a small script; all merge-blocking):
 | `verify-boot` | Prove a running, seeded stack end to end: seeded-admin login, seeded people over `/v1`, frontend production build — pure client, fails loudly |
 | `ai-routing-local` | Seed the gitignored `config/ai-routing.yaml` from the committed template on first run (never clobbers an existing copy) |
 | `frontend-e2e` | The screen-acceptance UAT harness: AC-named tests + 390px sweep + axe WCAG 2.2 AA + perceived-perf budgets, against the built app over the seed mock (`BASE_URL=…` targets a live backend). Wired into CI as the `uat` job |
+| `bench-mobile` | MOBILE-AC-2: record open p95 against the 300 ms **perceived** budget on a throttled Fast-3G profile at 390px (MOBILE-PARAM-2). The by-hand frontend measurement, and the throttled half of PERF-1's perceived budget — the unthrottled half stays a normal AC test in `e2e/ac.spec.ts`. Switched on by `MARGINCE_BENCH_MOBILE=1`, which is what keeps the two runs from collecting each other's specs: `pnpm e2e` does not see `perf-mobile.spec.ts`, and this target sees nothing else |
 | `storybook` | The component workbench on `:6006` — the design-system catalog and the story surface `fe-uat` renders. Stories live beside their component as `<name>.stories.tsx` |
 | `fe-uat` | Change-scoped Storybook render+capture UAT for frontend-only diffs: renders THIS branch's changed component's stories in headless Chromium and screenshots them (no live stack, no DB). Fails on an unclean render, an unregistered story, or a changed component with no story. Artifact: `.tmp/fe-uat/manifest.json`. Deliberately **not** in `make check` — the fe-only UAT lane a coordinator runs instead of the full stack. `ARGS="--allow-missing"` |
 
