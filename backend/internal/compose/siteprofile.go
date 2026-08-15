@@ -107,8 +107,11 @@ func profileSchema(snippetIDs []string) json.RawMessage {
 // profile prompt represents at most one legal page and reserves room for
 // About, services, products, home, contact, and team evidence.
 func profileExcerptPages(pages []crawlPage) []crawlPage {
-	ranked := make([]crawlPage, len(pages))
-	copy(ranked, pages)
+	// Drop the navigation chrome first, so the per-page cap below is spent
+	// on the company's own words rather than on the mega-menu every page
+	// opens with. See siteboilerplate.go for why this is measured from the
+	// corpus rather than guessed at.
+	ranked := stripSharedPrefix(pages)
 	sortPagesByCorpusRank(ranked)
 	var out []crawlPage
 	used := 0
