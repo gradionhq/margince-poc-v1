@@ -22,6 +22,14 @@ if [ -z "$base" ]; then
 	exit 0
 fi
 
+# The migration-version gate runs BEFORE the Go-file check below, because that
+# check exits early when a push changes no Go at all — and a push that adds only
+# `.sql` is exactly the push this gate is for. It is skipped when the push
+# touches no migration, so an ordinary push pays one `git diff` for it.
+if [ -n "$(git diff --name-only "$base"...HEAD -- backend/migrations)" ]; then
+	"$root/scripts/check-migration-versions.sh"
+fi
+
 # Changed-and-still-present Go files, excluding generated code. extensions/
 # and fixtures/ are each their own module and would otherwise escape the bar
 # entirely — a first-party unit ships the same product as backend/.
