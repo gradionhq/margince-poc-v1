@@ -14,19 +14,36 @@ import (
 	"syscall"
 )
 
-// reservedNets are the non-public ranges the stdlib predicates miss: the
-// "this-network" 0.0.0.0/8 (only the exact 0.0.0.0 is IsUnspecified, but the
-// whole block routes to loopback on Linux), CGNAT, benchmark, documentation,
-// protocol-assignment and broadcast, plus the IPv6 ranges that translate to
-// IPv4 internals — NAT64 (64:ff9b::/96, e.g. 64:ff9b::a9fe:a9fe → link-local
-// metadata) and IPv4-compatible ::/96 — which To4()/IsPrivate() do not catch.
+// reservedNets are the non-public ranges the stdlib predicates miss — every
+// IANA special-purpose entry whose "Globally Reachable" is False and that
+// IsLoopback/IsPrivate/IsLinkLocalUnicast/IsMulticast/IsUnspecified do not
+// already cover.
+//
+// Three groups, because they are refused for three different reasons. Ranges
+// that are simply not routable to anyone (this-network 0.0.0.0/8 — only the
+// exact 0.0.0.0 is IsUnspecified, but the whole block routes to loopback on
+// Linux — CGNAT, benchmarking, documentation, protocol assignments, broadcast,
+// discard-only, SRv6 SIDs, deprecated site-local). Ranges that EMBED another
+// address and are therefore a way to name an internal one: both NAT64 prefixes
+// (the well-known 64:ff9b::/96 and the local-use 64:ff9b:1::/48 — e.g.
+// 64:ff9b::a9fe:a9fe is link-local metadata wearing a v6 address), 6to4
+// 2002::/16, and IPv4-compatible ::/96. And 2001::/23 whole, which is where
+// Teredo, AMT and ORCHIDv2 live — each an encapsulation or an identifier
+// rather than a host this server has business dialing.
+//
+// IPv4-mapped (::ffff:0:0/96) is deliberately NOT here: it is the same host by
+// another spelling, and both the stdlib predicates and net.IPNet.Contains
+// normalize it, so ::ffff:127.0.0.1 is already refused as loopback while
+// ::ffff:8.8.8.8 stays reachable.
 var reservedNets = func() []*net.IPNet {
 	// These literal reserved/special-use ranges ARE the guard: the SSRF
 	// denylist must name them explicitly. NOSONAR: hardcoding them is the point.
 	cidrs := []string{
-		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", //NOSONAR
-		"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", //NOSONAR
-		"2001:db8::/32", "64:ff9b::/96", "::/96",
+		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", // NOSONAR
+		"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", // NOSONAR
+		"203.0.113.0/24", "240.0.0.0/4", // NOSONAR
+		"100::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20",
+		"5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10", "::/96",
 	}
 	nets := make([]*net.IPNet, len(cidrs))
 	for i, c := range cidrs {
