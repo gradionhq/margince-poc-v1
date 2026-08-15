@@ -66,6 +66,24 @@ bootstrap_admin:
 # ai:
 #   capture_payloads: true
 
+# Capture pipeline posture (optional).
+#
+# trace_payloads turns on payload capture in the 24-hour Capture activity trace
+# that every member sees under Settings. With it OFF — the default — the trace
+# records what the pipeline decided about each message and nothing about the
+# message: no address, no subject. With it ON, each traced message additionally
+# keeps its sender and a bounded subject for 24 hours, INCLUDING messages the
+# pipeline dropped because every party was internal to your own domains. That
+# last case is what an operator turns this on to diagnose, and it is the reason
+# the switch exists here rather than in the app: it retains correspondence the
+# CRM otherwise refuses to store, so it is a decision for whoever runs the
+# installation, not for the people whose colleagues' mail it is.
+#
+# The hourly sweep deletes payloads with the rows that carry them, and an
+# erasure request reaches them inside the window.
+# capture:
+#   trace_payloads: true
+
 # Rates & costs "Refresh from sources" (worker role): an admin triggers an async
 # refresh that stages confirm-first proposals into the approvals inbox; a human
 # approves every change, nothing is auto-applied. Field reference:

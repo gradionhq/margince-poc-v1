@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+// The yaml tag is the contract, not the field name: the loader runs with
+// KnownFields(true), so a misspelled key is a refusal to boot rather than a
+// setting that quietly does nothing.
+func TestTracePayloadsIsReadFromTheFile(t *testing.T) {
+	cfg, err := Load(writeTemp(t, "version: 1\ncapture:\n  trace_payloads: true\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Capture.TracePayloads {
+		t.Error("capture.trace_payloads: true did not reach Capture.TracePayloads")
+	}
+}
+
 func TestCaptureWarnsOnlyAboutSettingsItNoLongerActsOn(t *testing.T) {
 	// Silence for a file that says nothing stale — an operator who never set
 	// these must not be told to remove them.
@@ -35,5 +48,16 @@ func TestCaptureWarnsOnlyAboutSettingsItNoLongerActsOn(t *testing.T) {
 		if !strings.Contains(w[0], "consumer-mail-domains") || !strings.Contains(w[0], "margince.yaml") {
 			t.Errorf("warning %q names neither the new surface nor the file to edit", w[0])
 		}
+	}
+}
+
+// The posture that retains colleagues' subjects is off unless an operator wrote
+// it down. A default that stored content would make the switch a formality.
+func TestTracePayloadsIsOffUnlessTheFileSaysOtherwise(t *testing.T) {
+	if (Capture{}).TracePayloads {
+		t.Error("TracePayloads on the zero block = true, want false")
+	}
+	if w := (Capture{TracePayloads: true}).Warnings(); len(w) != 0 {
+		t.Errorf("Warnings() = %v for a setting that acts, want none", w)
 	}
 }

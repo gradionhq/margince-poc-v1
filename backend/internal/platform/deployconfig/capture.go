@@ -28,6 +28,23 @@ type Capture struct {
 	// that must never be suppressed as transactional (CAP-PARAM-6) — it wins
 	// over every baseline/prefix rule.
 	TransactionalNever []string `yaml:"transactional_never"`
+
+	// TracePayloads turns on payload capture in the 24-hour capture trace: each
+	// traced message keeps its sender and a bounded subject, INCLUDING messages
+	// dropped because every party was internal — which is the case an operator
+	// turns this on to diagnose, and the case that stores correspondence the
+	// pipeline otherwise refuses to keep.
+	//
+	// OFF by default and settable ONLY here. There is no API and no Settings
+	// control, deliberately: a member must not be able to switch on retention of
+	// their colleagues' subjects, and an operator turning it on is a decision
+	// with a name attached.
+	//
+	// It does NOT touch the system_log breadcrumb, which keeps carrying the
+	// connector, the source system and the external id and nothing else
+	// (ADR-0082 §1). Nor does it reach ai_call_payload, which this pipeline's
+	// verdict task is pinned out of (`no_payload: true`, ADR-0074).
+	TracePayloads bool `yaml:"trace_payloads"`
 }
 
 // Warnings names the settings this block still accepts but no longer acts on,
