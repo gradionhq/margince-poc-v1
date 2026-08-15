@@ -468,17 +468,22 @@ type agentProvenance struct {
 // which auth.Admit reads to derive seat and RBAC: a fabricated authority, which
 // is the same class of defect this whole record exists to end.
 //
-// An agent with no OnBehalfOf therefore stores no provenance at all rather than
-// a guess. That row keeps the pre-0258 behaviour, which is the honest outcome
-// for an actor that never named a human — and the CHECK's all-or-nothing shape
-// is what makes it representable.
+// An agent with no OnBehalfOf therefore stores its id and NO human, rather than
+// either a guess or nothing at all. Storing nothing would be worse than the
+// guess: a new row with no actor id is indistinguishable from a pre-0258 row,
+// and the fire path reads that as "this row cannot say which agent it was" and
+// falls back to the derived `agent:<human-uuid>` — putting back the invented
+// identity for exactly the actor whose real id was in hand.
 func provenanceOf(p principal.Principal) agentProvenance {
-	if p.Type == principal.PrincipalHuman || p.OnBehalfOf.IsZero() {
+	if p.Type == principal.PrincipalHuman {
 		return agentProvenance{}
 	}
 	actorID := p.ID
-	behalf := p.OnBehalfOf
-	out := agentProvenance{ActorID: &actorID, OnBehalfOf: &behalf}
+	out := agentProvenance{ActorID: &actorID}
+	if !p.OnBehalfOf.IsZero() {
+		behalf := p.OnBehalfOf
+		out.OnBehalfOf = &behalf
+	}
 	if !p.PassportID.IsZero() {
 		// A passport is how an agent's scopes were granted, so an action taken
 		// under one names it, and NULL says none was involved rather than that

@@ -30,19 +30,31 @@ ALTER TABLE scheduled_send
   ADD COLUMN agent_passport_id uuid NULL,
   ADD COLUMN agent_on_behalf_of uuid NULL REFERENCES app_user(id) ON DELETE SET NULL;
 
--- The three travel together or not at all. A row carrying a passport but no
--- actor id, or agent provenance on a human-scheduled message, is a writer bug
--- and the schema is where it stops rather than becoming a mis-attributed audit
--- row somebody trusts later.
+-- agent_actor_id is the anchor: it is what "which agent was this" means, and it
+-- is the one fact the fire path cannot reconstruct. The other two hang off it.
 --
--- The all-NULL arm is what lets the rows that already exist stay valid: an
--- agent-scheduled row written before this migration has no provenance and
--- cannot be given one. So this constraint does NOT say "every agent row names
--- its agent" — it says a row either names it completely or not at all. The
--- writer is what makes new agent rows complete, and the fire path treats a
--- NULL actor id as the pre-0258 row it is.
+-- The passport and the human are independently optional, and each NULL means
+-- something specific rather than "missing":
+--
+--   * no passport — the action was not taken under one (an in-process agent).
+--   * no human — the actor named none. That is a real shape: an agent
+--     principal whose UserID is an AGENT's own app_user row carries no
+--     OnBehalfOf, and copying the UserID in would put an agent's id in a column
+--     meaning "the human behind this", which auth.Admit reads to derive seat
+--     and RBAC.
+--
+-- What the constraint forbids is provenance with no actor: a passport or a
+-- human hanging off a row that cannot say which agent they belong to, and any
+-- agent provenance at all on a human-scheduled message.
+--
+-- The all-NULL arm is only for the rows that already exist. An agent-scheduled
+-- row written before this migration has no provenance and cannot be given one,
+-- so the fire path reads a NULL actor id as the pre-0258 row it is. A row
+-- written AFTER this migration always names its agent — which is what keeps
+-- that reading unambiguous, and why agent_actor_id is required whenever any
+-- provenance is present rather than the three travelling as one block.
 ALTER TABLE scheduled_send ADD CONSTRAINT scheduled_send_agent_provenance_shape CHECK (
-  (principal_kind = 'agent' AND agent_actor_id IS NOT NULL AND agent_on_behalf_of IS NOT NULL)
+  (principal_kind = 'agent' AND agent_actor_id IS NOT NULL)
   OR
   (agent_actor_id IS NULL AND agent_passport_id IS NULL AND agent_on_behalf_of IS NULL)
 );
