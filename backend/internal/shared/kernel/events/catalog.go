@@ -202,11 +202,17 @@ var catalog = map[string]struct {
 	"project.updated":       {dealStreamEntity, 1},
 	"project.phase_changed": {dealStreamEntity, 1},
 	"project.archived":      {dealStreamEntity, 1},
-	"offer.created":         {dealStreamEntity, 1},
-	"offer.sent":            {dealStreamEntity, 1},
-	"offer.accepted":        {dealStreamEntity, 1},
-	"offer.rejected":        {dealStreamEntity, 1},
-	"offer.superseded":      {dealStreamEntity, 1},
+	// A contract rides the deal family stream too: it is what a won deal
+	// points at, and a consumer following the commercial arc wants both.
+	"contract.created":        {dealStreamEntity, 1},
+	"contract.updated":        {dealStreamEntity, 1},
+	"contract.status_changed": {dealStreamEntity, 1},
+	"contract.archived":       {dealStreamEntity, 1},
+	"offer.created":           {dealStreamEntity, 1},
+	"offer.sent":              {dealStreamEntity, 1},
+	"offer.accepted":          {dealStreamEntity, 1},
+	"offer.rejected":          {dealStreamEntity, 1},
+	"offer.superseded":        {dealStreamEntity, 1},
 
 	"lead.created":      {leadStreamEntity, 1},
 	"lead.updated":      {leadStreamEntity, 1},

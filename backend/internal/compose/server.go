@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/finance"
@@ -58,6 +59,7 @@ type Server struct {
 	authHandlers
 	peopleHandlers
 	dealsHandlers
+	contractsHandlers
 	activitiesHandlers
 	approvalsHandlers
 	searchHandlers
@@ -390,6 +392,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		authHandlers:       authH,
 		peopleHandlers:     newPeopleHandlers(pool),
 		dealsHandlers:      dealsH,
+		contractsHandlers:  contracts.NewHandlers(InstallationDB(pool)),
 		activitiesHandlers: newActivitiesHandlers(pool),
 		searchHandlers:     search.NewHandlers(InstallationDB(pool)),
 		// Constructed, not merely embedded: the handler carries no nil-pool

@@ -45,6 +45,7 @@ const generatedContract = "internal/contracts/api_gen.go"
 var probedRequiredIDBodies = map[string]bool{
 	"CreateDealRequest":              true,
 	"CreateProjectRequest":           true,
+	"CreateContractRequest":          true,
 	"AdvanceDealRequest":             true,
 	"CreateStageRequest":             true,
 	"AddListMemberRequest":           true,

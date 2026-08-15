@@ -144,6 +144,7 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/deals":                  {object: tableDeal, table: tableDeal, idPath: "id"},
 	"PATCH /v1/deals/{id}":            {object: tableDeal, table: tableDeal, idPath: "id"},
 	"POST /v1/deals/{id}/advance":     {object: tableDeal, table: tableDeal, idPath: "id"},
+	"POST /v1/contracts":              {object: "contract", table: "contract", idPath: "id"},
 	"POST /v1/projects":               {object: tableProject, table: tableProject, idPath: "id"},
 	"PATCH /v1/projects/{id}":         {object: tableProject, table: tableProject, idPath: "id"},
 	"POST /v1/projects/{id}/advance":  {object: tableProject, table: tableProject, idPath: "id"},

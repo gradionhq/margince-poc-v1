@@ -38,6 +38,10 @@ components:
         - project.updated
         - project.phase_changed
         - project.archived
+        - contract.created
+        - contract.updated
+        - contract.status_changed
+        - contract.archived
         - offer.created
         - offer.sent
         - offer.accepted
@@ -192,6 +196,97 @@ components:
         name:
           type: string
           description: The deal's name at creation.
+      additionalProperties: false
+
+    PublicEventContractCreated:
+      type: object
+      x-event-type: contract.created
+      x-entity-type: contract
+      x-version: 1
+      description: Payload for contract.created — an agreement was recorded against a company.
+      required:
+        - title
+        - organization_id
+        - status
+        - value_basis
+      properties:
+        title:
+          type: string
+        contract_number:
+          type: string
+          description: The counterparty's own number for the agreement, when one was given.
+        organization_id:
+          type: string
+          format: uuid
+          description: The counterparty. An organization holds many contracts.
+        deal_id:
+          type: string
+          format: uuid
+          description: The deal this agreement came from, when it came from one.
+        status:
+          type: string
+          description: Always `draft` — an agreement is recorded before it is asserted active.
+        value_basis:
+          type: string
+          description: What the recorded value measures — a total, or twelve months of an open-ended agreement.
+      additionalProperties: false
+
+    PublicEventContractUpdated:
+      type: object
+      x-event-type: contract.updated
+      x-entity-type: contract
+      x-version: 1
+      description: >-
+        Payload for contract.updated — a column patch on the contract row.
+        Deliberately NOT emitted for a status move: that carries its own
+        contract.status_changed, so a consumer never reconstructs a
+        transition from a diff.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          description: The columns this patch set, by name, with their new values.
+          additionalProperties: true
+      additionalProperties: false
+
+    PublicEventContractStatusChanged:
+      type: object
+      x-event-type: contract.status_changed
+      x-entity-type: contract
+      x-version: 1
+      description: >-
+        Payload for contract.status_changed — a human or an approved proposal
+        asserted a new status. No date ever produces this event.
+      required:
+        - from_status
+        - to_status
+      properties:
+        from_status:
+          type: string
+        to_status:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        superseded_by_id:
+          type: string
+          format: uuid
+          description: The successor, when the transition was a renewal.
+      additionalProperties: false
+
+    PublicEventContractArchived:
+      type: object
+      x-event-type: contract.archived
+      x-entity-type: contract
+      x-version: 1
+      description: Payload for contract.archived — the agreement left the surfaces that count it.
+      required:
+        - organization_id
+      properties:
+        organization_id:
+          type: string
+          format: uuid
       additionalProperties: false
 
     PublicEventProjectCreated:

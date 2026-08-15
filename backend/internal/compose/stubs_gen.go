@@ -419,6 +419,34 @@ func (stubs) CreateConsentPurpose(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "CreateConsentPurpose")
 }
 
+func (stubs) CreateContract(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateContractParams) {
+	httperr.NotImplemented(w, r, "CreateContract")
+}
+
+func (stubs) ArchiveContract(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveContract")
+}
+
+func (stubs) GetContract(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetContract")
+}
+
+func (stubs) UpdateContract(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateContractParams) {
+	httperr.NotImplemented(w, r, "UpdateContract")
+}
+
+func (stubs) CancelContract(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.CancelContractParams) {
+	httperr.NotImplemented(w, r, "CancelContract")
+}
+
+func (stubs) RenewContract(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RenewContractParams) {
+	httperr.NotImplemented(w, r, "RenewContract")
+}
+
+func (stubs) ChangeContractStatus(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ChangeContractStatusParams) {
+	httperr.NotImplemented(w, r, "ChangeContractStatus")
+}
+
 func (stubs) ListCustomFields(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListCustomFieldsParams) {
 	httperr.NotImplemented(w, r, "ListCustomFields")
 }
@@ -797,6 +825,10 @@ func (stubs) GetOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, 
 
 func (stubs) RegenerateOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "RegenerateOrganizationBrief")
+}
+
+func (stubs) ListOrganizationContracts(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListOrganizationContractsParams) {
+	httperr.NotImplemented(w, r, "ListOrganizationContracts")
 }
 
 func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
