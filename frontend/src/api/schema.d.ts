@@ -6998,6 +6998,164 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/contracts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agreements this account holds, newest first (CONTRACT-WIRE-1).
+         * @description Every contract anchored to this organization, whatever its status.
+         *
+         *     `under_contract` on each row is a DERIVED reading computed from the dates
+         *     (CONTRACT-FORM-1), and it is deliberately not the same fact as `status`. A
+         *     contract whose dates have passed while its status change waits for approval
+         *     reads as no longer under contract and still reports its asserted status, so a
+         *     queue of unapproved work never renders as an active customer.
+         */
+        get: operations["listOrganizationContracts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contracts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an agreement (CONTRACT-WIRE-2).
+         * @description Human-only. Contract value and dates are exactly the figures a confident wrong
+         *     answer damages most, so the assistant reads contracts and never writes one.
+         *
+         *     `signed_on` is never defaulted from a deal's close time: that timestamp records
+         *     when somebody moved a stage, which is not evidence that anything was signed.
+         */
+        post: operations["createContract"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contracts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One contract (CONTRACT-WIRE-3). */
+        get: operations["getContract"];
+        put?: never;
+        post?: never;
+        /**
+         * Archive an agreement (CONTRACT-WIRE-5).
+         * @description Archive is the delete. The row and its history stay, because deleting a contract
+         *     would silently change whether an account ever counted as a customer and destroy
+         *     the evidence behind a deal that was marked won.
+         */
+        delete: operations["archiveContract"];
+        options?: never;
+        head?: never;
+        /**
+         * Change an agreement's recorded terms (CONTRACT-WIRE-4).
+         * @description Status is NOT patchable here. A status moves through its own transitions so the
+         *     proposal and event that belong to it are written from the same transaction, and
+         *     so a correction to a term can never silently activate an agreement.
+         */
+        patch: operations["updateContract"];
+        trace?: never;
+    };
+    "/contracts/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assert a new contract status (CONTRACT-PARAM-1).
+         * @description A status moves because a human said so. No date moves it, here or anywhere:
+         *     the data that would drive an inference is exactly the data most likely to be
+         *     stale, and a term that lapsed last month is very often an agreement everybody
+         *     knows was extended by email.
+         *
+         *     Terminal statuses are terminal. A correction to a term is a field edit under
+         *     audit, not a route back out of `expired` or `cancelled`.
+         */
+        post: operations["changeContractStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contracts/{id}/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record notice of cancellation and when it takes effect (CONTRACT-WIRE-6).
+         * @description Cancellation is two facts and NO state change. Notice given and effective date
+         *     are recorded; the status stays as it is and the customer stays under contract
+         *     until the effective date, because that is what a notice period is.
+         *
+         *     Terminating immediately is this same call with today's effective date, not a
+         *     second mechanism. The effective date may not fall after the term end — a
+         *     cancellation cannot extend an agreement that already ran out.
+         */
+        post: operations["cancelContract"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contracts/{id}/renewal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the successor agreement and supersede this one (CONTRACT-WIRE-7).
+         * @description A renewal never mutates the agreement it replaces. The successor is created and
+         *     the predecessor is marked superseded, pointing at it, in ONE transaction — so an
+         *     agreement that has run for six years reads as a chain rather than a row somebody
+         *     overwrote five times.
+         *
+         *     The successor freezes its own conversion rate at its own activation and inherits
+         *     no rate from its predecessor. Its value basis is stated explicitly, because an
+         *     open-ended agreement becoming a fixed term changes what its value measures.
+         */
+        post: operations["renewContract"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/documents": {
         parameters: {
             query?: never;
@@ -10395,6 +10553,31 @@ export interface components {
                  */
                 next_close_on?: string | null;
             } | null;
+            /** @description What this account is under contract for. Null when the caller has no contract grant — gated independently of `commercial` above, because a role may read the pipeline and not the agreements behind it, and a zero would answer a question this reader has no standing to ask. */
+            contracts?: {
+                /** @description How many agreements are under contract today (CONTRACT-FORM-1) — the derived reading, not a status count. */
+                active_count: number;
+                /** @description The summed value of the active agreements recorded as a TOTAL, in base-currency minor units. Null when none carries a convertible figure — distinct from zero, which would claim agreements worth nothing. */
+                total_basis_value_minor_base?: number | null;
+                /** @description The summed value of the active agreements recorded as ANNUALIZED, kept apart from the total-basis figure above and NEVER added to it (ADR-0109 §5). A three-year total and a per-year figure span different periods, so one number covering both would describe nothing. A surface holding both shows both. */
+                annualized_value_minor_base?: number | null;
+                /** @description How many of `active_count` contributed to either sum. A lower number means the figures cover part of the account, and the page says so. */
+                priced_count?: number;
+                /** @description The ISO-4217 currency both sums are expressed in. Travels with the figures; null whenever they are. */
+                base_currency?: string | null;
+                /**
+                 * Format: date
+                 * @description The soonest renewal date among the active agreements; null when none names one.
+                 */
+                nearest_renewal_on?: string | null;
+                /** @description True when an active agreement has notice recorded and its effective date has not arrived. The customer is still under contract — that is what a notice period is — and the card says so rather than reading as though they left. */
+                cancellation_pending: boolean;
+                /**
+                 * Format: date
+                 * @description The soonest cancellation effective date among the active agreements; null when none is pending.
+                 */
+                cancellation_effective_on?: string | null;
+            } | null;
             /** @description The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it. */
             signal?: {
                 /** @description The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise. */
@@ -12113,6 +12296,200 @@ export interface components {
             data: components["schemas"]["Deal"][];
             page: components["schemas"]["PageInfo"];
         };
+        /**
+         * @description An agreement between the installation and one organization. Mirrors the
+         *     `contract` table. Carries no owner: visibility is inherited from the linked
+         *     deal, falling back to the organization (ADR-0109 §8).
+         */
+        Contract: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The counterparty. An organization holds many contracts.
+             */
+            organization_id: string;
+            /**
+             * Format: uuid
+             * @description The deal this agreement came from, when there was one. Absent on an import or a renewal that never ran through the pipeline.
+             */
+            deal_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** @description Free text — an imported agreement carries whatever number the counterparty's own system gave it. Duplicates within an account are permitted: two systems reusing a number is their business, not a reason to refuse the row. */
+            contract_number?: string | null;
+            title: string;
+            /**
+             * Format: int64
+             * @description Total contract value in minor units, or twelve months of billing when `value_basis` is `annualized_12m`. Present exactly when `currency` is.
+             */
+            value_minor?: number | null;
+            currency?: string | null;
+            /**
+             * @description What `value_minor` measures (CONTRACT-PARAM-2). An open-ended agreement has
+             *     no finite total, so it records twelve months and says so. Figures on
+             *     different bases are never summed — thirty-six months plus twelve months is
+             *     not forty-eight months of anything.
+             * @default total
+             * @enum {string}
+             */
+            value_basis: "total" | "annualized_12m";
+            /** @description Conversion rate frozen at activation. Present exactly when `fx_rate_date` is. */
+            fx_rate_to_base?: string | null;
+            /** Format: date */
+            fx_rate_date?: string | null;
+            /** Format: date */
+            starts_on?: string | null;
+            /**
+             * Format: date
+             * @description Absent means open-ended.
+             */
+            ends_on?: string | null;
+            /** Format: date */
+            renewal_on?: string | null;
+            /** @default false */
+            auto_renew: boolean;
+            /** @description Drives the renewal warning, which fires against the notice deadline rather than the renewal date (CONTRACT-FORM-3). */
+            notice_period_days?: number | null;
+            /**
+             * @description Read-only here — asserted through changeContractStatus so the transition, its event and any proposal are written from one transaction.
+             * @default draft
+             * @enum {string}
+             */
+            readonly status: "draft" | "active" | "expired" | "cancelled" | "superseded";
+            /**
+             * Format: date
+             * @description When a human asserts it was signed. Never derived from a deal close time, and never a signing ceremony — in-product e-signature stays removed (A94).
+             */
+            signed_on?: string | null;
+            /** Format: date */
+            cancellation_notice_on?: string | null;
+            /**
+             * Format: date
+             * @description When the agreement actually ends. Never after `ends_on`: a cancellation cannot extend a term that already expired.
+             */
+            cancellation_effective_on?: string | null;
+            /**
+             * Format: uuid
+             * @description The successor that replaced this agreement, forming the renewal chain.
+             */
+            superseded_by_id?: string | null;
+            /**
+             * @description The DERIVED reading (CONTRACT-FORM-1): computed from the dates as of today,
+             *     not read from `status`. The two may disagree, and a surface shows both — a
+             *     contract whose dates have passed while its status change awaits approval is
+             *     no longer under contract and still reports the status it was left in.
+             */
+            readonly under_contract: boolean;
+            source: string;
+            /** Format: uuid */
+            captured_by?: string | null;
+            /** Format: int64 */
+            readonly version: number;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at: string;
+            /** Format: date-time */
+            readonly archived_at?: string | null;
+        };
+        ContractListResponse: {
+            data: components["schemas"]["Contract"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        CreateContractRequest: {
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: uuid */
+            deal_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            contract_number?: string | null;
+            title: string;
+            /** Format: int64 */
+            value_minor?: number | null;
+            currency?: string | null;
+            /**
+             * @default total
+             * @enum {string}
+             */
+            value_basis: "total" | "annualized_12m";
+            /** Format: date */
+            starts_on?: string | null;
+            /** Format: date */
+            ends_on?: string | null;
+            /** Format: date */
+            renewal_on?: string | null;
+            /** @default false */
+            auto_renew: boolean;
+            notice_period_days?: number | null;
+            /** Format: date */
+            signed_on?: string | null;
+        };
+        /** @description Partial. Status is absent by design — it moves through changeContractStatus. */
+        UpdateContractRequest: {
+            /** Format: uuid */
+            deal_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            contract_number?: string | null;
+            title?: string;
+            /** Format: int64 */
+            value_minor?: number | null;
+            currency?: string | null;
+            /** @enum {string} */
+            value_basis?: "total" | "annualized_12m";
+            /** Format: date */
+            starts_on?: string | null;
+            /** Format: date */
+            ends_on?: string | null;
+            /** Format: date */
+            renewal_on?: string | null;
+            auto_renew?: boolean;
+            notice_period_days?: number | null;
+            /** Format: date */
+            signed_on?: string | null;
+        };
+        ChangeContractStatusRequest: {
+            /**
+             * @description The asserted new status. `superseded` is set by renewContract, not here.
+             * @enum {string}
+             */
+            status: "draft" | "active" | "expired" | "cancelled" | "superseded";
+        };
+        CancelContractRequest: {
+            /** Format: date */
+            cancellation_notice_on: string;
+            /**
+             * Format: date
+             * @description When the agreement ends. Not after `ends_on`, and not before the notice date.
+             */
+            cancellation_effective_on: string;
+        };
+        /** @description The successor's terms. It freezes its own rate and inherits none. */
+        RenewContractRequest: {
+            title: string;
+            contract_number?: string | null;
+            /** Format: int64 */
+            value_minor?: number | null;
+            currency?: string | null;
+            /**
+             * @description Stated explicitly rather than inherited: an open-ended agreement becoming a fixed term changes what its value measures.
+             * @enum {string}
+             */
+            value_basis: "total" | "annualized_12m";
+            /** Format: date */
+            starts_on?: string | null;
+            /** Format: date */
+            ends_on?: string | null;
+            /** Format: date */
+            renewal_on?: string | null;
+            /** @default false */
+            auto_renew: boolean;
+            notice_period_days?: number | null;
+            /** Format: date */
+            signed_on?: string | null;
+        };
         /** @description A project — the body of work a client relationship is made of. Mirrors the `project` table. */
         Project: {
             /** Format: uuid */
@@ -12565,6 +12942,11 @@ export interface components {
              * @description The account this file rolls up to — a READ PATH, not a second parent. Visibility stays the primary parent's, and this is maintained on relink and merge so a file follows the record it belongs to.
              */
             readonly organization_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up as organization_id above, and just as deliberately not a second parent. Set at upload by the person filing the paper; never inferred from a filename or a date, which is the guess the document state exists to refuse.
+             */
+            readonly contract_id?: string | null;
             /**
              * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
              *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
@@ -13813,7 +14195,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace" | "license";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace" | "license" | "contract";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -29586,6 +29968,307 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listOrganizationContracts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                status?: "draft" | "active" | "expired" | "cancelled" | "superseded";
+                /** @description Restrict to contracts under contract as of today (CONTRACT-FORM-1). */
+                under_contract_only?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's contracts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createContract: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateContractRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded contract. */
+            201: {
+                headers: {
+                    /** @description URL of the new contract. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getContract: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The contract. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveContract: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateContract: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateContractRequest"];
+            };
+        };
+        responses: {
+            /** @description The contract after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    changeContractStatus: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeContractStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The contract after the transition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    cancelContract: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelContractRequest"];
+            };
+        };
+        responses: {
+            /** @description The contract carrying its cancellation dates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    renewContract: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenewContractRequest"];
+            };
+        };
+        responses: {
+            /** @description The successor contract. */
+            201: {
+                headers: {
+                    /** @description URL of the successor. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listOrganizationDocuments: {
         parameters: {
             query?: {
@@ -29605,6 +30288,8 @@ export interface operations {
                 category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
                 doc_state?: "draft" | "current" | "final" | "superseded";
                 pinned_only?: boolean;
+                /** @description Only the paper filed against this agreement (CONTRACT-DDL-5). */
+                contract_id?: string;
             };
             header?: never;
             path: {

@@ -66,7 +66,7 @@ import {
 } from "./company360";
 import { NewDealAction } from "./companyactions";
 import { CompanyApprovalsPanel } from "./companyapprovals";
-import { CompanyLastOffer } from "./companycommercial";
+import { CompanyContractState, CompanyLastOffer } from "./companycommercial";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { DossierPanel } from "./companydossier";
 import { type CitedRecord, EvidenceModal } from "./companyevidence";
@@ -2641,7 +2641,12 @@ function CompanyDealsTab({
           <NewDealAction orgId={org.id} orgName={org.display_name} />
         )
       }
-      extra={<CompanyLastOffer view={view} />}
+      extra={
+        <>
+          <CompanyContractState view={view} />
+          <CompanyLastOffer view={view} />
+        </>
+      }
     />
   );
 }

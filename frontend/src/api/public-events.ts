@@ -11,7 +11,7 @@ export interface components {
          * @description The closed set of domain event types a webhook subscription may select — every subscribable event across the deal, offer, pipeline/stage, person/organization, lead, activities, consent/privacy, signals, ai voice, identity, and overlay families. A subscription's event-type filter is validated against this set; an unlisted type cannot be subscribed to.
          * @enum {string}
          */
-        SubscribableEventType: "deal.created" | "deal.owner_changed" | "deal.stage_changed" | "deal.archived" | "deal.updated" | "deal.restored" | "project.created" | "project.updated" | "project.phase_changed" | "project.archived" | "offer.created" | "offer.sent" | "offer.accepted" | "offer.rejected" | "offer.superseded" | "pipeline.created" | "pipeline.updated" | "pipeline.archived" | "stage.created" | "stage.updated" | "stage.archived" | "person.created" | "person.archived" | "person.merged" | "person.updated" | "person.restored" | "conversation_claim.captured" | "conversation_claim.changed" | "organization.created" | "organization.archived" | "organization.merged" | "organization.updated" | "lead.created" | "lead.disqualified" | "lead.promoted" | "lead.updated" | "activity.captured" | "activity.archived" | "activity.updated" | "engagement.reply" | "consent.changed" | "email_signature.changed" | "linkedin_account.changed" | "linkedin_network.imported" | "linkedin_match.decided" | "retention.applied" | "signal.detected" | "signal.resolved" | "voice.profile_created" | "voice.profile_updated" | "voice.profile_archived" | "voice.corpus_changed" | "voice.build_changed" | "voice.version_changed" | "voice.draft_outcome_recorded" | "user.invited" | "user.password_link_issued" | "user.deactivated" | "user.reactivated" | "role.changed" | "passport.revoked" | "onboarding.state_changed" | "mirror.conflict" | "mirror.budget_degraded" | "mirror.deleted" | "mirror.write_rejected" | "incumbent.connected" | "incumbent.disconnected" | "approval.requested" | "approval.decided" | "coldstart.read_back_proposed" | "coldstart.accepted" | "coldstart.rejected" | "audit.appended";
+        SubscribableEventType: "deal.created" | "deal.owner_changed" | "deal.stage_changed" | "deal.archived" | "deal.updated" | "deal.restored" | "project.created" | "project.updated" | "project.phase_changed" | "project.archived" | "contract.created" | "contract.updated" | "contract.status_changed" | "contract.archived" | "offer.created" | "offer.sent" | "offer.accepted" | "offer.rejected" | "offer.superseded" | "pipeline.created" | "pipeline.updated" | "pipeline.archived" | "stage.created" | "stage.updated" | "stage.archived" | "person.created" | "person.archived" | "person.merged" | "person.updated" | "person.restored" | "conversation_claim.captured" | "conversation_claim.changed" | "organization.created" | "organization.archived" | "organization.merged" | "organization.updated" | "lead.created" | "lead.disqualified" | "lead.promoted" | "lead.updated" | "activity.captured" | "activity.archived" | "activity.updated" | "engagement.reply" | "consent.changed" | "email_signature.changed" | "linkedin_account.changed" | "linkedin_network.imported" | "linkedin_match.decided" | "retention.applied" | "signal.detected" | "signal.resolved" | "voice.profile_created" | "voice.profile_updated" | "voice.profile_archived" | "voice.corpus_changed" | "voice.build_changed" | "voice.version_changed" | "voice.draft_outcome_recorded" | "user.invited" | "user.password_link_issued" | "user.deactivated" | "user.reactivated" | "role.changed" | "passport.revoked" | "onboarding.state_changed" | "mirror.conflict" | "mirror.budget_degraded" | "mirror.deleted" | "mirror.write_rejected" | "incumbent.connected" | "incumbent.disconnected" | "approval.requested" | "approval.decided" | "coldstart.read_back_proposed" | "coldstart.accepted" | "coldstart.rejected" | "audit.appended";
         /** @description Who or what caused the event, as exposed publicly. */
         PublicEventActor: {
             /** @description Actor kind (e.g. human, agent, connector). */
@@ -59,6 +59,50 @@ export interface components {
         PublicEventDealCreated: {
             /** @description The deal's name at creation. */
             name: string;
+        };
+        /** @description Payload for contract.created — an agreement was recorded against a company. */
+        PublicEventContractCreated: {
+            title: string;
+            /** @description The counterparty's own number for the agreement, when one was given. */
+            contract_number?: string;
+            /**
+             * Format: uuid
+             * @description The counterparty. An organization holds many contracts.
+             */
+            organization_id: string;
+            /**
+             * Format: uuid
+             * @description The deal this agreement came from, when it came from one.
+             */
+            deal_id?: string;
+            /** @description Always `draft` — an agreement is recorded before it is asserted active. */
+            status: string;
+            /** @description What the recorded value measures — a total, or twelve months of an open-ended agreement. */
+            value_basis: string;
+        };
+        /** @description Payload for contract.updated — a column patch on the contract row. Deliberately NOT emitted for a status move: that carries its own contract.status_changed, so a consumer never reconstructs a transition from a diff. */
+        PublicEventContractUpdated: {
+            /** @description The columns this patch set, by name, with their new values. */
+            changed_fields: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Payload for contract.status_changed — a human or an approved proposal asserted a new status. No date ever produces this event. */
+        PublicEventContractStatusChanged: {
+            from_status: string;
+            to_status: string;
+            /** Format: uuid */
+            organization_id?: string;
+            /**
+             * Format: uuid
+             * @description The successor, when the transition was a renewal.
+             */
+            superseded_by_id?: string;
+        };
+        /** @description Payload for contract.archived — the agreement left the surfaces that count it. */
+        PublicEventContractArchived: {
+            /** Format: uuid */
+            organization_id: string;
         };
         /** @description Payload for project.created — a body of work was opened on a company. */
         PublicEventProjectCreated: {
@@ -1038,6 +1082,6 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
-export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
+export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "contract.created", "contract.updated", "contract.status_changed", "contract.archived", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
 export const publicEventApprovalDecidedVerdictValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventApprovalDecided"]["verdict"]> = ["approved", "rejected", "expired"];
 export type operations = Record<string, never>;
