@@ -41,11 +41,15 @@ import (
 // record contains, so "this table has no owner_id" is never on its own a
 // reason to skip the probe.
 var rowScopedResponses = map[string]expectedTarget{
-	"Person":              {table: "person", idPath: "id"},
-	"Organization":        {table: "organization", idPath: "id"},
-	"Deal":                {table: "deal", idPath: "id"},
-	"Lead":                {table: "lead", idPath: "id"},
-	"Project":             {table: "project", idPath: "id"},
+	"Person":       {table: "person", idPath: "id"},
+	"Organization": {table: "organization", idPath: "id"},
+	"Deal":         {table: "deal", idPath: "id"},
+	"Lead":         {table: "lead", idPath: "id"},
+	"Project":      {table: "project", idPath: "id"},
+	// A contract has no owner column; it is row-scoped through the deal it came
+	// from, falling back to its organization (ADR-0109 §8). It still hands back
+	// a record — terms, value, dates — so it is probed like any other.
+	"Contract":            {object: "contract", moduleProbe: "contract", idPath: "id", rowNote: "a contract carries no owner column; visibility is inherited from its deal or organization, so the contracts store owns the probe"},
 	"Activity":            {table: "activity", idPath: "id"},
 	"VoiceProfile":        {table: "voice_profile", idPath: "id"},
 	"List":                {table: "list", idPath: "id"},

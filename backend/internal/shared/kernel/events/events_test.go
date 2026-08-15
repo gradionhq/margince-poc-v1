@@ -57,7 +57,10 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 	pastTenseVerbs := map[string]bool{
 		"created": true, "updated": true, "archived": true, "merged": true,
 		"restored": true, "stage_changed": true, "phase_changed": true, "owner_changed": true,
-		"promoted": true, "captured": true, "requested": true,
+		// A contract's asserted status moved — the same shape as a deal's stage
+		// and a project's phase, one noun further along.
+		"status_changed": true,
+		"promoted":       true, "captured": true, "requested": true,
 		"decided": true, "failed": true, "appended": true,
 		"changed": true, "applied": true, "sent": true, "accepted": true,
 		"rejected": true, "superseded": true, "disqualified": true,

@@ -1506,6 +1506,33 @@ func (e CaptureTraceResolutionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ChangeContractStatusRequestStatus.
+const (
+	ChangeContractStatusRequestStatusActive     ChangeContractStatusRequestStatus = "active"
+	ChangeContractStatusRequestStatusCancelled  ChangeContractStatusRequestStatus = "cancelled"
+	ChangeContractStatusRequestStatusDraft      ChangeContractStatusRequestStatus = "draft"
+	ChangeContractStatusRequestStatusExpired    ChangeContractStatusRequestStatus = "expired"
+	ChangeContractStatusRequestStatusSuperseded ChangeContractStatusRequestStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ChangeContractStatusRequestStatus enum.
+func (e ChangeContractStatusRequestStatus) Valid() bool {
+	switch e {
+	case ChangeContractStatusRequestStatusActive:
+		return true
+	case ChangeContractStatusRequestStatusCancelled:
+		return true
+	case ChangeContractStatusRequestStatusDraft:
+		return true
+	case ChangeContractStatusRequestStatusExpired:
+		return true
+	case ChangeContractStatusRequestStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChangeUserRoleRequestRole.
 const (
 	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
@@ -2634,6 +2661,51 @@ func (e ContextEntityRefType) Valid() bool {
 	}
 }
 
+// Defines values for ContractStatus.
+const (
+	ContractStatusActive     ContractStatus = "active"
+	ContractStatusCancelled  ContractStatus = "cancelled"
+	ContractStatusDraft      ContractStatus = "draft"
+	ContractStatusExpired    ContractStatus = "expired"
+	ContractStatusSuperseded ContractStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ContractStatus enum.
+func (e ContractStatus) Valid() bool {
+	switch e {
+	case ContractStatusActive:
+		return true
+	case ContractStatusCancelled:
+		return true
+	case ContractStatusDraft:
+		return true
+	case ContractStatusExpired:
+		return true
+	case ContractStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContractValueBasis.
+const (
+	ContractValueBasisAnnualized12m ContractValueBasis = "annualized_12m"
+	ContractValueBasisTotal         ContractValueBasis = "total"
+)
+
+// Valid indicates whether the value is a known member of the ContractValueBasis enum.
+func (e ContractValueBasis) Valid() bool {
+	switch e {
+	case ContractValueBasisAnnualized12m:
+		return true
+	case ContractValueBasisTotal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConversationClaimStatus.
 const (
 	ConversationClaimStatusDismissed ConversationClaimStatus = "dismissed"
@@ -2859,6 +2931,24 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateContractRequestValueBasis.
+const (
+	CreateContractRequestValueBasisAnnualized12m CreateContractRequestValueBasis = "annualized_12m"
+	CreateContractRequestValueBasisTotal         CreateContractRequestValueBasis = "total"
+)
+
+// Valid indicates whether the value is a known member of the CreateContractRequestValueBasis enum.
+func (e CreateContractRequestValueBasis) Valid() bool {
+	switch e {
+	case CreateContractRequestValueBasisAnnualized12m:
+		return true
+	case CreateContractRequestValueBasisTotal:
 		return true
 	default:
 		return false
@@ -7167,6 +7257,24 @@ func (e RelationshipStrengthBucket) Valid() bool {
 	}
 }
 
+// Defines values for RenewContractRequestValueBasis.
+const (
+	RenewContractRequestValueBasisAnnualized12m RenewContractRequestValueBasis = "annualized_12m"
+	RenewContractRequestValueBasisTotal         RenewContractRequestValueBasis = "total"
+)
+
+// Valid indicates whether the value is a known member of the RenewContractRequestValueBasis enum.
+func (e RenewContractRequestValueBasis) Valid() bool {
+	switch e {
+	case RenewContractRequestValueBasisAnnualized12m:
+		return true
+	case RenewContractRequestValueBasisTotal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RetentionAction.
 const (
 	Anonymize RetentionAction = "anonymize"
@@ -8160,6 +8268,24 @@ func (e UpdateAutomationRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for UpdateContractRequestValueBasis.
+const (
+	UpdateContractRequestValueBasisAnnualized12m UpdateContractRequestValueBasis = "annualized_12m"
+	UpdateContractRequestValueBasisTotal         UpdateContractRequestValueBasis = "total"
+)
+
+// Valid indicates whether the value is a known member of the UpdateContractRequestValueBasis enum.
+func (e UpdateContractRequestValueBasis) Valid() bool {
+	switch e {
+	case UpdateContractRequestValueBasisAnnualized12m:
+		return true
+	case UpdateContractRequestValueBasisTotal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateDataSubjectRequestStatus.
 const (
 	UpdateDataSubjectRequestStatusFulfilled  UpdateDataSubjectRequestStatus = "fulfilled"
@@ -9107,16 +9233,16 @@ func (e WebhookDeliveryStatus) Valid() bool {
 
 // Defines values for WebhookSubscriptionState.
 const (
-	Active WebhookSubscriptionState = "active"
-	Paused WebhookSubscriptionState = "paused"
+	WebhookSubscriptionStateActive WebhookSubscriptionState = "active"
+	WebhookSubscriptionStatePaused WebhookSubscriptionState = "paused"
 )
 
 // Valid indicates whether the value is a known member of the WebhookSubscriptionState enum.
 func (e WebhookSubscriptionState) Valid() bool {
 	switch e {
-	case Active:
+	case WebhookSubscriptionStateActive:
 		return true
-	case Paused:
+	case WebhookSubscriptionStatePaused:
 		return true
 	default:
 		return false
@@ -9861,6 +9987,33 @@ func (e ListOrganizationsParamsRelationshipType) Valid() bool {
 	case ListOrganizationsParamsRelationshipTypePortfolioCompany:
 		return true
 	case ListOrganizationsParamsRelationshipTypeSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationContractsParamsStatus.
+const (
+	ListOrganizationContractsParamsStatusActive     ListOrganizationContractsParamsStatus = "active"
+	ListOrganizationContractsParamsStatusCancelled  ListOrganizationContractsParamsStatus = "cancelled"
+	ListOrganizationContractsParamsStatusDraft      ListOrganizationContractsParamsStatus = "draft"
+	ListOrganizationContractsParamsStatusExpired    ListOrganizationContractsParamsStatus = "expired"
+	ListOrganizationContractsParamsStatusSuperseded ListOrganizationContractsParamsStatus = "superseded"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationContractsParamsStatus enum.
+func (e ListOrganizationContractsParamsStatus) Valid() bool {
+	switch e {
+	case ListOrganizationContractsParamsStatusActive:
+		return true
+	case ListOrganizationContractsParamsStatusCancelled:
+		return true
+	case ListOrganizationContractsParamsStatusDraft:
+		return true
+	case ListOrganizationContractsParamsStatusExpired:
+		return true
+	case ListOrganizationContractsParamsStatusSuperseded:
 		return true
 	default:
 		return false
@@ -11467,6 +11620,13 @@ type BriefSnoozeRequest struct {
 	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
+// CancelContractRequest defines model for CancelContractRequest.
+type CancelContractRequest struct {
+	// CancellationEffectiveOn When the agreement ends. Not after `ends_on`, and not before the notice date.
+	CancellationEffectiveOn openapi_types.Date `json:"cancellation_effective_on"`
+	CancellationNoticeOn    openapi_types.Date `json:"cancellation_notice_on"`
+}
+
 // CaptureActivityFunnel One count per outcome over the window. These PARTITION the messages seen — one row per message, under the most specific outcome that applied — so they sum to the total. Absent keys are zero.
 type CaptureActivityFunnel struct {
 	// Captured Landed; the sender was known or became known.
@@ -11609,6 +11769,15 @@ type CaptureTraceResolution struct {
 
 // CaptureTraceResolutionStatus defines model for CaptureTraceResolution.Status.
 type CaptureTraceResolutionStatus string
+
+// ChangeContractStatusRequest defines model for ChangeContractStatusRequest.
+type ChangeContractStatusRequest struct {
+	// Status The asserted new status. `superseded` is set by renewContract, not here.
+	Status ChangeContractStatusRequestStatus `json:"status"`
+}
+
+// ChangeContractStatusRequestStatus The asserted new status. `superseded` is set by renewContract, not here.
+type ChangeContractStatusRequestStatus string
 
 // ChangeUserRoleRequest defines model for ChangeUserRoleRequest.
 type ChangeUserRoleRequest struct {
@@ -12487,6 +12656,87 @@ type ContextSection struct {
 	Name  string        `json:"name"`
 }
 
+// Contract An agreement between the installation and one organization. Mirrors the
+// `contract` table. Carries no owner: visibility is inherited from the linked
+// deal, falling back to the organization (ADR-0109 §8).
+type Contract struct {
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	AutoRenew  *bool      `json:"auto_renew,omitempty"`
+
+	// CancellationEffectiveOn When the agreement actually ends. Never after `ends_on`: a cancellation cannot extend a term that already expired.
+	CancellationEffectiveOn *openapi_types.Date `json:"cancellation_effective_on,omitempty"`
+	CancellationNoticeOn    *openapi_types.Date `json:"cancellation_notice_on,omitempty"`
+	CapturedBy              *openapi_types.UUID `json:"captured_by,omitempty"`
+
+	// ContractNumber Free text — an imported agreement carries whatever number the counterparty's own system gave it. Duplicates within an account are permitted: two systems reusing a number is their business, not a reason to refuse the row.
+	ContractNumber *string    `json:"contract_number,omitempty"`
+	CreatedAt      *time.Time `json:"created_at,omitempty"`
+	Currency       *string    `json:"currency,omitempty"`
+
+	// DealId The deal this agreement came from, when there was one. Absent on an import or a renewal that never ran through the pipeline.
+	DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+	// EndsOn Absent means open-ended.
+	EndsOn     *openapi_types.Date `json:"ends_on,omitempty"`
+	FxRateDate *openapi_types.Date `json:"fx_rate_date,omitempty"`
+
+	// FxRateToBase Conversion rate frozen at activation. Present exactly when `fx_rate_date` is.
+	FxRateToBase *string            `json:"fx_rate_to_base,omitempty"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// NoticePeriodDays Drives the renewal warning, which fires against the notice deadline rather than the renewal date (CONTRACT-FORM-3).
+	NoticePeriodDays *int `json:"notice_period_days,omitempty"`
+
+	// OrganizationId The counterparty. An organization holds many contracts.
+	OrganizationId openapi_types.UUID  `json:"organization_id"`
+	ProjectId      *openapi_types.UUID `json:"project_id,omitempty"`
+	RenewalOn      *openapi_types.Date `json:"renewal_on,omitempty"`
+
+	// SignedOn When a human asserts it was signed. Never derived from a deal close time, and never a signing ceremony — in-product e-signature stays removed (A94).
+	SignedOn *openapi_types.Date `json:"signed_on,omitempty"`
+	Source   string              `json:"source"`
+	StartsOn *openapi_types.Date `json:"starts_on,omitempty"`
+
+	// Status Read-only here — asserted through changeContractStatus so the transition, its event and any proposal are written from one transaction.
+	Status *ContractStatus `json:"status,omitempty"`
+
+	// SupersededById The successor that replaced this agreement, forming the renewal chain.
+	SupersededById *openapi_types.UUID `json:"superseded_by_id,omitempty"`
+	Title          string              `json:"title"`
+
+	// UnderContract The DERIVED reading (CONTRACT-FORM-1): computed from the dates as of today,
+	// not read from `status`. The two may disagree, and a surface shows both — a
+	// contract whose dates have passed while its status change awaits approval is
+	// no longer under contract and still reports the status it was left in.
+	UnderContract *bool      `json:"under_contract,omitempty"`
+	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
+
+	// ValueBasis What `value_minor` measures (CONTRACT-PARAM-2). An open-ended agreement has
+	// no finite total, so it records twelve months and says so. Figures on
+	// different bases are never summed — thirty-six months plus twelve months is
+	// not forty-eight months of anything.
+	ValueBasis ContractValueBasis `json:"value_basis"`
+
+	// ValueMinor Total contract value in minor units, or twelve months of billing when `value_basis` is `annualized_12m`. Present exactly when `currency` is.
+	ValueMinor *int64 `json:"value_minor,omitempty"`
+	Version    *int64 `json:"version,omitempty"`
+}
+
+// ContractStatus Read-only here — asserted through changeContractStatus so the transition, its event and any proposal are written from one transaction.
+type ContractStatus string
+
+// ContractValueBasis What `value_minor` measures (CONTRACT-PARAM-2). An open-ended agreement has
+// no finite total, so it records twelve months and says so. Figures on
+// different bases are never summed — thirty-six months plus twelve months is
+// not forty-eight months of anything.
+type ContractValueBasis string
+
+// ContractListResponse defines model for ContractListResponse.
+type ContractListResponse struct {
+	Data []Contract `json:"data"`
+	Page PageInfo   `json:"page"`
+}
+
 // ConversationClaim One thing said in a captured conversation, with the evidence it was read from.
 //
 // Grounded or absent: `source_activity_id` and `source_quote` are both required, because
@@ -12655,6 +12905,27 @@ type CreateConsentPurposeRequest struct {
 	Label               string `json:"label"`
 	RequiresDoubleOptIn *bool  `json:"requires_double_opt_in,omitempty"`
 }
+
+// CreateContractRequest defines model for CreateContractRequest.
+type CreateContractRequest struct {
+	AutoRenew        *bool                            `json:"auto_renew,omitempty"`
+	ContractNumber   *string                          `json:"contract_number,omitempty"`
+	Currency         *string                          `json:"currency,omitempty"`
+	DealId           *openapi_types.UUID              `json:"deal_id,omitempty"`
+	EndsOn           *openapi_types.Date              `json:"ends_on,omitempty"`
+	NoticePeriodDays *int                             `json:"notice_period_days,omitempty"`
+	OrganizationId   openapi_types.UUID               `json:"organization_id"`
+	ProjectId        *openapi_types.UUID              `json:"project_id,omitempty"`
+	RenewalOn        *openapi_types.Date              `json:"renewal_on,omitempty"`
+	SignedOn         *openapi_types.Date              `json:"signed_on,omitempty"`
+	StartsOn         *openapi_types.Date              `json:"starts_on,omitempty"`
+	Title            string                           `json:"title"`
+	ValueBasis       *CreateContractRequestValueBasis `json:"value_basis,omitempty"`
+	ValueMinor       *int64                           `json:"value_minor,omitempty"`
+}
+
+// CreateContractRequestValueBasis defines model for CreateContractRequest.ValueBasis.
+type CreateContractRequestValueBasis string
 
 // CreateCustomFieldRequest 🟡 always (a schema change is never 🟢) — see `createCustomField`. `currency` is
 // required when `type=currency` (pattern `^[A-Z]{3}$`); `options` is required
@@ -18079,6 +18350,26 @@ type RenameCustomFieldRequest struct {
 	Label *string `json:"label,omitempty"`
 }
 
+// RenewContractRequest The successor's terms. It freezes its own rate and inherits none.
+type RenewContractRequest struct {
+	AutoRenew        *bool               `json:"auto_renew,omitempty"`
+	ContractNumber   *string             `json:"contract_number,omitempty"`
+	Currency         *string             `json:"currency,omitempty"`
+	EndsOn           *openapi_types.Date `json:"ends_on,omitempty"`
+	NoticePeriodDays *int                `json:"notice_period_days,omitempty"`
+	RenewalOn        *openapi_types.Date `json:"renewal_on,omitempty"`
+	SignedOn         *openapi_types.Date `json:"signed_on,omitempty"`
+	StartsOn         *openapi_types.Date `json:"starts_on,omitempty"`
+	Title            string              `json:"title"`
+
+	// ValueBasis Stated explicitly rather than inherited: an open-ended agreement becoming a fixed term changes what its value measures.
+	ValueBasis RenewContractRequestValueBasis `json:"value_basis"`
+	ValueMinor *int64                         `json:"value_minor,omitempty"`
+}
+
+// RenewContractRequestValueBasis Stated explicitly rather than inherited: an open-ended agreement becoming a fixed term changes what its value measures.
+type RenewContractRequestValueBasis string
+
 // ReplaceChannelTokenRequest defines model for ReplaceChannelTokenRequest.
 type ReplaceChannelTokenRequest struct {
 	// BotToken The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
@@ -19086,6 +19377,26 @@ type UpdateCaptureSettingsRequest struct {
 	// AutoEnrich Toggle captured-organization auto-enrichment.
 	AutoEnrich *bool `json:"auto_enrich,omitempty"`
 }
+
+// UpdateContractRequest Partial. Status is absent by design — it moves through changeContractStatus.
+type UpdateContractRequest struct {
+	AutoRenew        *bool                            `json:"auto_renew,omitempty"`
+	ContractNumber   *string                          `json:"contract_number,omitempty"`
+	Currency         *string                          `json:"currency,omitempty"`
+	DealId           *openapi_types.UUID              `json:"deal_id,omitempty"`
+	EndsOn           *openapi_types.Date              `json:"ends_on,omitempty"`
+	NoticePeriodDays *int                             `json:"notice_period_days,omitempty"`
+	ProjectId        *openapi_types.UUID              `json:"project_id,omitempty"`
+	RenewalOn        *openapi_types.Date              `json:"renewal_on,omitempty"`
+	SignedOn         *openapi_types.Date              `json:"signed_on,omitempty"`
+	StartsOn         *openapi_types.Date              `json:"starts_on,omitempty"`
+	Title            *string                          `json:"title,omitempty"`
+	ValueBasis       *UpdateContractRequestValueBasis `json:"value_basis,omitempty"`
+	ValueMinor       *int64                           `json:"value_minor,omitempty"`
+}
+
+// UpdateContractRequestValueBasis defines model for UpdateContractRequest.ValueBasis.
+type UpdateContractRequestValueBasis string
 
 // UpdateCustomFieldOptionsRequest CUSTOM-FIELDS-PARAM-5. Replaces the picklist's full allowed-option set (ordered); at least one option is required — an empty array is rejected (422).
 type UpdateCustomFieldOptionsRequest struct {
@@ -20479,6 +20790,65 @@ type ListConsentPurposesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// CreateContractParams defines parameters for CreateContract.
+type CreateContractParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateContractParams defines parameters for UpdateContract.
+type UpdateContractParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// CancelContractParams defines parameters for CancelContract.
+type CancelContractParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RenewContractParams defines parameters for RenewContract.
+type RenewContractParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ChangeContractStatusParams defines parameters for ChangeContractStatus.
+type ChangeContractStatusParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // ListCustomFieldsParams defines parameters for ListCustomFields.
 type ListCustomFieldsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -21539,6 +21909,29 @@ type AskAboutOrganizationJSONBody struct {
 	// `whats_changed` — what has moved on this account recently.
 	Question OrganizationQuestion `json:"question"`
 }
+
+// ListOrganizationContractsParams defines parameters for ListOrganizationContracts.
+type ListOrganizationContractsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit  *Limit                                 `form:"limit,omitempty" json:"limit,omitempty"`
+	Status *ListOrganizationContractsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// UnderContractOnly Restrict to contracts under contract as of today (CONTRACT-FORM-1).
+	UnderContractOnly *bool `form:"under_contract_only,omitempty" json:"under_contract_only,omitempty"`
+}
+
+// ListOrganizationContractsParamsStatus defines parameters for ListOrganizationContracts.
+type ListOrganizationContractsParamsStatus string
 
 // ListOrganizationDocumentsParams defines parameters for ListOrganizationDocuments.
 type ListOrganizationDocumentsParams struct {
@@ -23358,6 +23751,21 @@ type ConnectConnectorJSONRequestBody = ConnectConnectorRequest
 
 // CreateConsentPurposeJSONRequestBody defines body for CreateConsentPurpose for application/json ContentType.
 type CreateConsentPurposeJSONRequestBody = CreateConsentPurposeRequest
+
+// CreateContractJSONRequestBody defines body for CreateContract for application/json ContentType.
+type CreateContractJSONRequestBody = CreateContractRequest
+
+// UpdateContractJSONRequestBody defines body for UpdateContract for application/json ContentType.
+type UpdateContractJSONRequestBody = UpdateContractRequest
+
+// CancelContractJSONRequestBody defines body for CancelContract for application/json ContentType.
+type CancelContractJSONRequestBody = CancelContractRequest
+
+// RenewContractJSONRequestBody defines body for RenewContract for application/json ContentType.
+type RenewContractJSONRequestBody = RenewContractRequest
+
+// ChangeContractStatusJSONRequestBody defines body for ChangeContractStatus for application/json ContentType.
+type ChangeContractStatusJSONRequestBody = ChangeContractStatusRequest
 
 // CreateCustomFieldJSONRequestBody defines body for CreateCustomField for application/json ContentType.
 type CreateCustomFieldJSONRequestBody = CreateCustomFieldRequest
@@ -29669,6 +30077,27 @@ type ServerInterface interface {
 	// Define a consent purpose. 🟢 admin write.
 	// (POST /consent-purposes)
 	CreateConsentPurpose(w http.ResponseWriter, r *http.Request)
+	// Record an agreement (CONTRACT-WIRE-2).
+	// (POST /contracts)
+	CreateContract(w http.ResponseWriter, r *http.Request, params CreateContractParams)
+	// Archive an agreement (CONTRACT-WIRE-5).
+	// (DELETE /contracts/{id})
+	ArchiveContract(w http.ResponseWriter, r *http.Request, id Id)
+	// One contract (CONTRACT-WIRE-3).
+	// (GET /contracts/{id})
+	GetContract(w http.ResponseWriter, r *http.Request, id Id)
+	// Change an agreement's recorded terms (CONTRACT-WIRE-4).
+	// (PATCH /contracts/{id})
+	UpdateContract(w http.ResponseWriter, r *http.Request, id Id, params UpdateContractParams)
+	// Record notice of cancellation and when it takes effect (CONTRACT-WIRE-6).
+	// (POST /contracts/{id}/cancellation)
+	CancelContract(w http.ResponseWriter, r *http.Request, id Id, params CancelContractParams)
+	// Create the successor agreement and supersede this one (CONTRACT-WIRE-7).
+	// (POST /contracts/{id}/renewal)
+	RenewContract(w http.ResponseWriter, r *http.Request, id Id, params RenewContractParams)
+	// Assert a new contract status (CONTRACT-PARAM-1).
+	// (POST /contracts/{id}/status)
+	ChangeContractStatus(w http.ResponseWriter, r *http.Request, id Id, params ChangeContractStatusParams)
 	// List custom fields for an object (admin read; includes retired by default).
 	// (GET /custom-fields)
 	ListCustomFields(w http.ResponseWriter, r *http.Request, params ListCustomFieldsParams)
@@ -29954,6 +30383,9 @@ type ServerInterface interface {
 	// Regenerate this account's brief, ignoring the cached one.
 	// (POST /organizations/{id}/brief)
 	RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// The agreements this account holds, newest first (CONTRACT-WIRE-1).
+	// (GET /organizations/{id}/contracts)
+	ListOrganizationContracts(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationContractsParams)
 	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 	// (POST /organizations/{id}/deep-read)
 	DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -31106,6 +31538,48 @@ func (_ Unimplemented) CreateConsentPurpose(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Record an agreement (CONTRACT-WIRE-2).
+// (POST /contracts)
+func (_ Unimplemented) CreateContract(w http.ResponseWriter, r *http.Request, params CreateContractParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive an agreement (CONTRACT-WIRE-5).
+// (DELETE /contracts/{id})
+func (_ Unimplemented) ArchiveContract(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One contract (CONTRACT-WIRE-3).
+// (GET /contracts/{id})
+func (_ Unimplemented) GetContract(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change an agreement's recorded terms (CONTRACT-WIRE-4).
+// (PATCH /contracts/{id})
+func (_ Unimplemented) UpdateContract(w http.ResponseWriter, r *http.Request, id Id, params UpdateContractParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record notice of cancellation and when it takes effect (CONTRACT-WIRE-6).
+// (POST /contracts/{id}/cancellation)
+func (_ Unimplemented) CancelContract(w http.ResponseWriter, r *http.Request, id Id, params CancelContractParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create the successor agreement and supersede this one (CONTRACT-WIRE-7).
+// (POST /contracts/{id}/renewal)
+func (_ Unimplemented) RenewContract(w http.ResponseWriter, r *http.Request, id Id, params RenewContractParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assert a new contract status (CONTRACT-PARAM-1).
+// (POST /contracts/{id}/status)
+func (_ Unimplemented) ChangeContractStatus(w http.ResponseWriter, r *http.Request, id Id, params ChangeContractStatusParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List custom fields for an object (admin read; includes retired by default).
 // (GET /custom-fields)
 func (_ Unimplemented) ListCustomFields(w http.ResponseWriter, r *http.Request, params ListCustomFieldsParams) {
@@ -31673,6 +32147,12 @@ func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Reque
 // Regenerate this account's brief, ignoring the cached one.
 // (POST /organizations/{id}/brief)
 func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The agreements this account holds, newest first (CONTRACT-WIRE-1).
+// (GET /organizations/{id}/contracts)
+func (_ Unimplemented) ListOrganizationContracts(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationContractsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36506,6 +36986,341 @@ func (siw *ServerInterfaceWrapper) CreateConsentPurpose(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// CreateContract operation middleware
+func (siw *ServerInterfaceWrapper) CreateContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateContractParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateContract(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveContract operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveContract(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetContract operation middleware
+func (siw *ServerInterfaceWrapper) GetContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetContract(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateContract operation middleware
+func (siw *ServerInterfaceWrapper) UpdateContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateContractParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateContract(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelContract operation middleware
+func (siw *ServerInterfaceWrapper) CancelContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CancelContractParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelContract(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenewContract operation middleware
+func (siw *ServerInterfaceWrapper) RenewContract(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RenewContractParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenewContract(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeContractStatus operation middleware
+func (siw *ServerInterfaceWrapper) ChangeContractStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChangeContractStatusParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeContractStatus(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListCustomFields operation middleware
 func (siw *ServerInterfaceWrapper) ListCustomFields(w http.ResponseWriter, r *http.Request) {
 
@@ -41058,6 +41873,93 @@ func (siw *ServerInterfaceWrapper) RegenerateOrganizationBrief(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RegenerateOrganizationBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrganizationContracts operation middleware
+func (siw *ServerInterfaceWrapper) ListOrganizationContracts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationContractsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "under_contract_only" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "under_contract_only", r.URL.Query(), &params.UnderContractOnly, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "under_contract_only"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "under_contract_only", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrganizationContracts(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -50255,6 +51157,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/consent-purposes", wrapper.CreateConsentPurpose)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/contracts", wrapper.CreateContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/contracts/{id}", wrapper.ArchiveContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/contracts/{id}", wrapper.GetContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/contracts/{id}", wrapper.UpdateContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/contracts/{id}/cancellation", wrapper.CancelContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/contracts/{id}/renewal", wrapper.RenewContract)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/contracts/{id}/status", wrapper.ChangeContractStatus)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/custom-fields", wrapper.ListCustomFields)
 	})
 	r.Group(func(r chi.Router) {
@@ -50538,6 +51461,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/brief", wrapper.RegenerateOrganizationBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/contracts", wrapper.ListOrganizationContracts)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/deep-read", wrapper.DeepReadCompany)

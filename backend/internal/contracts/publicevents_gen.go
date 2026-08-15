@@ -42,6 +42,10 @@ const (
 	ColdstartReadBackProposed SubscribableEventType = "coldstart.read_back_proposed"
 	ColdstartRejected         SubscribableEventType = "coldstart.rejected"
 	ConsentChanged            SubscribableEventType = "consent.changed"
+	ContractArchived          SubscribableEventType = "contract.archived"
+	ContractCreated           SubscribableEventType = "contract.created"
+	ContractStatusChanged     SubscribableEventType = "contract.status_changed"
+	ContractUpdated           SubscribableEventType = "contract.updated"
 	ConversationClaimCaptured SubscribableEventType = "conversation_claim.captured"
 	ConversationClaimChanged  SubscribableEventType = "conversation_claim.changed"
 	DealArchived              SubscribableEventType = "deal.archived"
@@ -130,6 +134,14 @@ func (e SubscribableEventType) Valid() bool {
 	case ColdstartRejected:
 		return true
 	case ConsentChanged:
+		return true
+	case ContractArchived:
+		return true
+	case ContractCreated:
+		return true
+	case ContractStatusChanged:
+		return true
+	case ContractUpdated:
 		return true
 	case ConversationClaimCaptured:
 		return true
@@ -412,6 +424,46 @@ type PublicEventConsentChanged struct {
 
 	// PurposeId The consent purpose this state change applies to.
 	PurposeId openapi_types.UUID `json:"purpose_id"`
+}
+
+// PublicEventContractArchived Payload for contract.archived — the agreement left the surfaces that count it.
+type PublicEventContractArchived struct {
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+}
+
+// PublicEventContractCreated Payload for contract.created — an agreement was recorded against a company.
+type PublicEventContractCreated struct {
+	// ContractNumber The counterparty's own number for the agreement, when one was given.
+	ContractNumber *string `json:"contract_number,omitempty"`
+
+	// DealId The deal this agreement came from, when it came from one.
+	DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+	// OrganizationId The counterparty. An organization holds many contracts.
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Status Always `draft` — an agreement is recorded before it is asserted active.
+	Status string `json:"status"`
+	Title  string `json:"title"`
+
+	// ValueBasis What the recorded value measures — a total, or twelve months of an open-ended agreement.
+	ValueBasis string `json:"value_basis"`
+}
+
+// PublicEventContractStatusChanged Payload for contract.status_changed — a human or an approved proposal asserted a new status. No date ever produces this event.
+type PublicEventContractStatusChanged struct {
+	FromStatus     string              `json:"from_status"`
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
+
+	// SupersededById The successor, when the transition was a renewal.
+	SupersededById *openapi_types.UUID `json:"superseded_by_id,omitempty"`
+	ToStatus       string              `json:"to_status"`
+}
+
+// PublicEventContractUpdated Payload for contract.updated — a column patch on the contract row. Deliberately NOT emitted for a status move: that carries its own contract.status_changed, so a consumer never reconstructs a transition from a diff.
+type PublicEventContractUpdated struct {
+	// ChangedFields The columns this patch set, by name, with their new values.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
 // PublicEventConversationClaimCaptured Payload for conversation_claim.captured — something promised, asked or decided in a captured conversation was written to the record (ADR-0097 D1). The entity is the PERSON the claim is about: a subscriber reacting to what a contact said wants the contact, and the claim id rides the payload for the reader that needs the row itself.
@@ -1287,6 +1339,22 @@ func (PublicEventConsentChanged) EventType() string { return "consent.changed" }
 
 func (PublicEventConsentChanged) EntityType() string { return "dynamic" }
 
+func (PublicEventContractArchived) EventType() string { return "contract.archived" }
+
+func (PublicEventContractArchived) EntityType() string { return "contract" }
+
+func (PublicEventContractCreated) EventType() string { return "contract.created" }
+
+func (PublicEventContractCreated) EntityType() string { return "contract" }
+
+func (PublicEventContractStatusChanged) EventType() string { return "contract.status_changed" }
+
+func (PublicEventContractStatusChanged) EntityType() string { return "contract" }
+
+func (PublicEventContractUpdated) EventType() string { return "contract.updated" }
+
+func (PublicEventContractUpdated) EntityType() string { return "contract" }
+
 func (PublicEventConversationClaimCaptured) EventType() string { return "conversation_claim.captured" }
 
 func (PublicEventConversationClaimCaptured) EntityType() string { return "person" }
@@ -1559,6 +1627,10 @@ var PublicEventVersions = map[string]int{
 	"coldstart.read_back_proposed": 1,
 	"coldstart.rejected":           1,
 	"consent.changed":              1,
+	"contract.archived":            1,
+	"contract.created":             1,
+	"contract.status_changed":      1,
+	"contract.updated":             1,
 	"conversation_claim.captured":  1,
 	"conversation_claim.changed":   1,
 	"deal.archived":                1,

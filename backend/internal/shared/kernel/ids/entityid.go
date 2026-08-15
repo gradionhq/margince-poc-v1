@@ -165,3 +165,13 @@ func (OfferTemplateKind) kind() string { return "offer_template" }
 
 // OfferTemplateID names one offer_template row.
 type OfferTemplateID = ID[OfferTemplateKind]
+
+// ContractKind is the contract entity tag (ADR-0109/A160). Declared
+// out-of-line for the reason given above OfferTemplateKind: folding it into
+// a column-aligned block would reflow every line in that block.
+type ContractKind struct{}
+
+func (ContractKind) kind() string { return "contract" }
+
+// ContractID names one contract row — an agreement an account has signed.
+type ContractID = ID[ContractKind]

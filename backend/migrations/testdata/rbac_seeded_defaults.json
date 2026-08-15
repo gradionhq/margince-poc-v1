@@ -43,6 +43,12 @@
         "read": true,
         "update": false
       },
+      "contract": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "custom_field": {
         "create": true,
         "delete": true,
@@ -257,6 +263,12 @@
         "delete": false,
         "read": true,
         "update": false
+      },
+      "contract": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
       },
       "custom_field": {
         "create": false,
@@ -473,6 +485,12 @@
         "read": true,
         "update": false
       },
+      "contract": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "custom_field": {
         "create": true,
         "delete": true,
@@ -683,6 +701,12 @@
         "update": false
       },
       "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "contract": {
         "create": false,
         "delete": false,
         "read": true,
@@ -902,6 +926,12 @@
         "delete": false,
         "read": true,
         "update": false
+      },
+      "contract": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
       },
       "custom_field": {
         "create": false,

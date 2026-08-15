@@ -66,6 +66,7 @@ the workspace but changes none of them.
 | `capture_trace` | -R-- | -R-- | ---- | ---- | -R-- |
 | `channel_connection` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `computed_field` | -R-- | -R-- | -R-- | -R-- | -R-- |
+| `contract` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `custom_field` | CRUD | -R-- | -R-- | -R-- | CRUD |
 | `deal` | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `embedding_reindex` | -RU- | ---- | ---- | ---- | -RU- |

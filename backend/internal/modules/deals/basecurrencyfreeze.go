@@ -35,7 +35,7 @@ import (
 // TestTheBaseCurrencyGuardCountsEveryFrozenRate derives this list from the
 // migrations, so a future table carrying the column fails that test rather than
 // quietly widening the hole.
-var frozenRateTables = []string{"deal", "offer", "finance_invoice"}
+var frozenRateTables = []string{"deal", "offer", "finance_invoice", "contract"}
 
 // BaseCurrencyFreeze binds the probe to the settings key that HOLDS the base
 // currency. The key is injected rather than spelled here because deals may not

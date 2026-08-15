@@ -173,6 +173,12 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// parent deal behind offer.read, exactly as the offer read path
 		// gates (deals/offer_read.go: auth.Require("offer") + deal scope).
 		return s.offerVisibleTo(ctx, entityID)
+	case "contract":
+		// A contract has no owner of its own: it is visible through the deal it
+		// came from, falling back to its organization for the agreements that
+		// never ran through a pipeline (ADR-0109 §8). Same shape as the offer
+		// above, one anchor further out.
+		return s.contractVisibleTo(ctx, entityID)
 	case "approval":
 		// An approval (and its coldstart.* echoes) carries staged-change
 		// detail — summary, edited_change, target ids — so it is gated on
@@ -245,6 +251,35 @@ func (s *Store) offerVisibleTo(ctx context.Context, offerID ids.UUID) (bool, err
 		return false, err
 	}
 	return s.offerDealVisible(ctx, offerID)
+}
+
+// contractVisibleTo gates a contract subject on contract.read and then on the
+// row-scope visibility of its anchor — the deal it came from, or its
+// organization when it has no deal. An absent contract reads as not-visible.
+func (s *Store) contractVisibleTo(ctx context.Context, contractID ids.UUID) (bool, error) {
+	readable, err := objectReadable(ctx, "contract")
+	if err != nil || !readable {
+		return false, err
+	}
+	var dealID *ids.UUID
+	var orgID ids.UUID
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT deal_id, organization_id FROM contract WHERE id = $1`, contractID).Scan(&dealID, &orgID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	anchor, anchorID := "organization", orgID
+	if dealID != nil {
+		anchor, anchorID = "deal", *dealID
+	}
+	return s.rowScopedVisible(ctx, anchor, func(c context.Context, tx pgx.Tx) error {
+		return auth.EnsureVisible(c, tx, anchor, anchorID)
+	})
 }
 
 // offerDealVisible resolves an offer's parent deal and gates on the owner's
