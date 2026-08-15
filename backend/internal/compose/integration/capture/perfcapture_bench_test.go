@@ -74,10 +74,30 @@ func TestCaptureToTimelineLatencyBudget(t *testing.T) {
 	t.Logf("perfbench [capture]: %s p50=%s p95=%s p99=%s (budget %s, %d samples)",
 		stats.Query, stats.P50, stats.P95, stats.P99, stats.Budget, stats.Samples)
 
+	// Written BEFORE the gate, deliberately: a breach is exactly the run whose
+	// numbers a reader most wants to see, and recording after the gate would
+	// leave the published page green while the build went red.
+	integration.WritePerfRecord(t, "bench-capture", capturePostgresVersion(t, env.e),
+		[]integration.BudgetMeasurement{integration.MeasurementFrom(
+			"CAP-PARAM-1", stats.Query, stats.P50, stats.P95, stats.P99, stats.Budget, stats.Samples)})
+
 	report := search.BenchReport{Tier: search.BenchTierSMB, Queries: []search.QueryStats{stats}}
 	if err := report.Gate(); err != nil {
 		t.Fatalf("CAP-PARAM-1 budget gate is red: %v", err)
 	}
+}
+
+// capturePostgresVersion asks the server under measurement what it is. A
+// latency is a claim about that server as much as about this code.
+func capturePostgresVersion(t *testing.T, e *integration.SearchEnv) string {
+	t.Helper()
+	return integration.PostgresVersion(func(sql string) (string, error) {
+		var version string
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), sql).Scan(&version)
+		})
+		return version, err
+	})
 }
 
 // captureOneThread measures one message's whole journey: stamp the receipt,

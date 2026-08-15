@@ -1,0 +1,51 @@
+{
+  "target": "bench-record",
+  "measured_on": "2026-08-15",
+  "machine": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memory_gib": 24,
+    "toolchain": "go1.26.6",
+    "postgres": "16.14"
+  },
+  "budgets": [
+    {
+      "id": "PERF-1",
+      "name": "record_open_person",
+      "p50_ms": 2.904166,
+      "p95_ms": 3.246833,
+      "p99_ms": 3.375625,
+      "budget_ms": 100,
+      "samples": 30
+    },
+    {
+      "id": "PERF-1",
+      "name": "record_open_organization",
+      "p50_ms": 2.822916,
+      "p95_ms": 3.172375,
+      "p99_ms": 3.313667,
+      "budget_ms": 100,
+      "samples": 30
+    },
+    {
+      "id": "PERF-1",
+      "name": "record_open_deal",
+      "p50_ms": 2.266042,
+      "p95_ms": 2.48375,
+      "p99_ms": 2.6765,
+      "budget_ms": 100,
+      "samples": 30
+    },
+    {
+      "id": "PERF-4",
+      "name": "record_save_person",
+      "p50_ms": 5.599875,
+      "p95_ms": 6.073291,
+      "p99_ms": 6.37425,
+      "budget_ms": 150,
+      "samples": 30
+    }
+  ]
+}

@@ -114,3 +114,31 @@ func TestTriggerEvidenceFiresOnEdgeVolume(t *testing.T) {
 		t.Fatalf("edge volume alone (p95 in budget) is not a trigger: %+v", ev)
 	}
 }
+
+// Every published budget is a STRICT bound — "< 200 ms", "< 300 ms". A p95
+// landing exactly on the number does not satisfy it, and this is the boundary
+// the gate got wrong: `>` let an exactly-at-budget run through as a pass while
+// the mobile spec's toBeLessThan and the published page both called it a
+// breach. One bound with three readers has to have one answer.
+func TestAP95ExactlyOnTheBudgetIsABreachBecauseTheBoundIsStrict(t *testing.T) {
+	onTheNumber, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{Perf7Budget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := BenchReport{Tier: BenchTierMidMarket, Queries: []QueryStats{onTheNumber}}
+	if err := report.Gate(); err == nil {
+		t.Fatalf("a p95 of exactly %s must breach the %s budget — the published bound is `< %s`, not `<=`",
+			onTheNumber.P95, onTheNumber.Budget, onTheNumber.Budget)
+	}
+
+	// The neighbouring value still passes, so the tightening moved the boundary
+	// by one nanosecond rather than shifting the whole gate.
+	justUnder, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{Perf7Budget - 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nearMiss := BenchReport{Tier: BenchTierMidMarket, Queries: []QueryStats{justUnder}}
+	if err := nearMiss.Gate(); err != nil {
+		t.Fatalf("a p95 one nanosecond under the budget must pass: %v", err)
+	}
+}

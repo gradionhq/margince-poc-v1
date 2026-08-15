@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { mockApi } from "./seed";
 
@@ -91,5 +94,59 @@ test("MOBILE-AC-2: record open holds the 300ms perceived budget on Fast-3G at 39
     `perfbench [fast-3g/390px]: record_open_perceived p95=${measured}ms ` +
       `(budget ${PERCEIVED_BUDGET_MS}ms, ${SAMPLES} samples)`,
   );
+  // Written BEFORE the assertion, deliberately: a breach is the run whose
+  // number a reader most wants to see, and recording afterwards would leave
+  // the published page green while the run went red.
+  writeRecord(samples, measured);
   expect(measured).toBeLessThan(PERCEIVED_BUDGET_MS);
 });
+
+/**
+ * Leave this run's numbers where the published page reads them.
+ *
+ * Deliberately the same JSON shape the Go bench suites write
+ * (backend/internal/compose/integration/perfrecord.go), so one renderer serves
+ * all three and a fourth measurement in a fourth language needs no new reader.
+ *
+ * What is NOT recorded: hostname, username, and any filesystem path. This lands
+ * in a public repository, and none of the three tells a reader why a number is
+ * what it is.
+ */
+function writeRecord(samples: number[], measured: number) {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const record = {
+    target: "bench-mobile",
+    // The DAY, not the instant: a record that changed every run would churn the
+    // committed page for no reader's benefit.
+    measured_on: new Date().toISOString().slice(0, 10),
+    machine: {
+      os: os.platform(),
+      arch: os.arch(),
+      cpu: os.cpus()[0]?.model.trim() ?? "unknown",
+      cores: os.cpus().length,
+      memory_gib: Math.round(os.totalmem() / 1024 ** 3),
+      toolchain: `node ${process.versions.node}`,
+      // The condition the budget must hold under is part of what was measured,
+      // not a footnote — a 300ms p95 on a fast link is a different claim.
+      network: "throttled Fast-3G (MOBILE-PARAM-2)",
+      viewport: "390x844",
+    },
+    budgets: [
+      {
+        id: "MOBILE-AC-2",
+        name: "record_open_perceived",
+        p50_ms: sorted[Math.max(Math.ceil(sorted.length * 0.5) - 1, 0)],
+        p95_ms: measured,
+        p99_ms: sorted[Math.max(Math.ceil(sorted.length * 0.99) - 1, 0)],
+        budget_ms: PERCEIVED_BUDGET_MS,
+        samples: sorted.length,
+      },
+    ],
+  };
+  const dir = path.join("..", "docs", "reference", "perfbench");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "bench-mobile.json"),
+    `${JSON.stringify(record, null, 2)}\n`,
+  );
+}
