@@ -124,6 +124,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"person_moment_dismissal.person_id":        "gated: auth.RequireHuman + auth.Require + auth.EnsureVisibleLive in person360.Service.DismissMoment, inside the same transaction as the insert — dismissing a card about a contact the caller cannot read would confirm they exist",
 	"consent_qualifying_event.person_id":       "gated: the event is recorded only on a path that already holds the person — a captured inbound activity, an inquiry, or a named human typing an exchange on the record's own surface, each of which took the person read before it could name them",
 	"consent_existing_customer_flag.person_id": "gated: the §7(3) flag is set only from the person's own consent surface, whose handler resolves the person through the consent store's gated read before any row is written",
+	"lead_manual_signal.lead_id":               "gated: auth.EnsureVisibleLive on the lead runs in the SAME transaction as the insert (people/leadmanualsignal.go) — recording a judgement signal against a lead the caller cannot read would confirm it exists",
 	// conversation_claim's table shipped ahead of its writer (ADR-0097 D1):
 	// the DDL exists so the page's reads and the demo seed have a shape to
 	// bind to, and the extraction task that fills it is still to come. These
@@ -136,7 +137,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"conversation_claim.task_activity_id":   "PENDING WRITER: no code writes this table yet. The task an extracted commitment creates is written through the tasks substrate's own gated path, and this entry is replaced with that gate when the routing edge lands",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
-	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",
+	"activity_link.activity_id":  "child row: written only inside LogActivity for the new activity",
+	"lead_score_history.lead_id": "child row: one point in a lead's own score series, appended only from inside the lead's gated write paths — CreateLead/CreateLeadTx (lead:create), UpdateLead (lead:update) and RecomputeLeadScore (lead:update), each of which has already admitted the caller before the append runs in its transaction",
 	// comms_outbound is delivery machinery for one activity, not a
 	// standalone record (comms/doc.go): StageTx writes only inside the
 	// caller's own transaction, alongside the activity write it reports on
@@ -267,6 +269,15 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// client-named company — the connector writes them, and it resolves the
 	// organization by reading the link that human already made, so a mirrored
 	// row can only land on a company somebody deliberately mapped.
+	// The transcript a reading was made of. Client-supplied — it is the routed
+	// id of the activity the rep pressed "read for next steps" on — and gated
+	// on the way in: StartTranscriptReadQueued resolves it through the module's
+	// own readActivity, which composes auth.ActivityScopeClause, so a
+	// transcript the caller cannot see answers ErrNotFound before any row is
+	// written. Every later read of the run record (GetTranscriptRead,
+	// LatestTranscriptRead, ReadTranscript) re-probes the same way rather than
+	// trusting the stored pointer.
+	"transcript_read.activity_id":           "client-supplied and gated: every path resolves the activity through readActivity's ActivityScopeClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
 	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
 	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",

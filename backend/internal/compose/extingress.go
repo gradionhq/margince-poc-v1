@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -182,11 +183,23 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 		EntityType: datasource.EntityActivity,
 		NaturalKey: r.naturalKey(rec),
 		Fields: capture.ActivityFields{
-			Kind:       rec.Activity.Kind,
-			Subject:    rec.Activity.Subject,
-			Body:       rec.Activity.Body,
-			OccurredAt: rec.Activity.OccurredAt,
-			Direction:  rec.Activity.Direction,
+			Kind: rec.Activity.Kind,
+			// A unit landing a kind that IS a registered transport is landing a
+			// channel record, and the row records the transport. Without this a
+			// unit could write a channel-looking activity carrying no transport —
+			// repliable by the kind test the agent surface still applies, and
+			// refused by the send path, which reads the column.
+			//
+			// A unit supplies no transport of its own yet, so this only ever fires
+			// for a kind that names a CORE connector, which a unit has no business
+			// claiming. The slice that gives a unit a declared channel is the one
+			// that turns this into a refusal — a unit may land its own provider and
+			// no other — rather than a normalization.
+			ChannelProvider: activities.ChannelProviderForKind(rec.Activity.Kind),
+			Subject:         rec.Activity.Subject,
+			Body:            rec.Activity.Body,
+			OccurredAt:      rec.Activity.OccurredAt,
+			Direction:       rec.Activity.Direction,
 		},
 		Source:     r.sourceSystem(rec.System),
 		CapturedBy: ingressPrincipalPrefix + r.unit,

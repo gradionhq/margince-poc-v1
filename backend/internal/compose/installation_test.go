@@ -10,7 +10,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,17 +33,12 @@ func TestEnsureInstallationRefusesAnAdminWithoutAnOrganization(t *testing.T) {
 	}
 }
 
-func TestEnsureInstallationSurfacesAnUnreadablePasswordFile(t *testing.T) {
-	cfg := deployconfig.Config{
-		Version:      1,
-		Organization: deployconfig.Organization{Name: "Gradion"},
-		BootstrapAdmin: &deployconfig.BootstrapAdmin{
-			Email: "a@b.test", DisplayName: "A",
-			PasswordFile: filepath.Join(t.TempDir(), "missing"),
-		},
-	}
-	err := EnsureInstallation(context.Background(), nil, discardLogger(), cfg)
-	if err == nil || !strings.Contains(err.Error(), "password_file") {
-		t.Fatalf("err = %v, want the password-file read error", err)
-	}
-}
+// An unreadable password file is proven to surface by
+// TestFirstBootStillFailsLoudlyOnAnUnreadableSecret in the integration lane, not
+// here. The secret is now read only on the branch that creates the organization
+// — after the database reports itself empty — so no assertion driven by a nil
+// pool can reach it. The property is unchanged and the coverage is stronger for
+// running against a real database; what moved is where it can be observed.
+//
+// The eager half stays below: configuration that is wrong on its face is still
+// refused before anything connects.

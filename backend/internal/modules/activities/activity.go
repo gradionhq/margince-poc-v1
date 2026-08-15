@@ -34,17 +34,24 @@ func activityCapturedPayload(kind string) crmcontracts.PublicEventActivityCaptur
 }
 
 type LogActivityInput struct {
-	Kind         string
-	Subject      *string
-	Body         *string
-	OccurredAt   *time.Time
-	Direction    *string
-	DueAt        *time.Time
-	RemindAt     *time.Time
-	AssigneeID   *ids.UserID
-	HostUserID   *ids.UserID
-	SourceSystem *string
-	SourceID     *string
+	Kind string
+	// ChannelProvider names the messaging transport that carried this activity —
+	// a channel_provider row — and is empty for anything that did not travel on
+	// one. Separate from Kind because they answer separate questions: what sort
+	// of interaction happened, versus how it travelled. Only the outbound
+	// channel reply sets it today; a hand-logged activity has no transport to
+	// name, and there is no request field for one.
+	ChannelProvider string
+	Subject         *string
+	Body            *string
+	OccurredAt      *time.Time
+	Direction       *string
+	DueAt           *time.Time
+	RemindAt        *time.Time
+	AssigneeID      *ids.UserID
+	HostUserID      *ids.UserID
+	SourceSystem    *string
+	SourceID        *string
 	// ThreadKey files this activity under a conversation. Empty stores NULL.
 	// It is written at insert time or not at all: the (source_system,
 	// source_id) upsert both capture and this path key on does nothing when
@@ -118,12 +125,14 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 
 	id := ids.New[ids.ActivityKind]()
 	_, err = tx.Exec(ctx,
-		`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
+		`INSERT INTO activity (id, workspace_id, kind, channel_provider, subject, body, occurred_at, direction,
 		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by,
 		                       thread_key, counterparty_email, counterparty_outbound_attested)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, ''),
-		         NULLIF($17, ''), $18)`,
-		id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NULLIF($17, ''),
+		         NULLIF($18, ''), $19)`,
+		// NULLIF on channel_provider: the column FKs into channel_provider, and
+		// '' names no provider, so anything without a transport stores NULL.
+		id, wsID, in.Kind, in.ChannelProvider, in.Subject, in.Body, occurredAt, in.Direction,
 		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by,
 		in.ThreadKey, in.CounterpartyEmail, in.CounterpartyOutboundAttested)
 	if err != nil {

@@ -34,7 +34,10 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +51,72 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// seedConsentedRecipient creates a person with one address and a granted
+// transactional purpose — the minimum a send's consent gate demands of an
+// addressee, spelled once because a multi-recipient fixture needs it per head.
+func (p *preflightEnv) seedConsentedRecipient(t *testing.T, name, email string) {
+	t.Helper()
+	var person struct {
+		ID string `json:"id"`
+	}
+	if status := p.Call(t, "POST", "/v1/people", apptest.AnyMap{
+		"full_name": name,
+		"emails":    []apptest.AnyMap{{"email": email}},
+	}, nil, &person); status != http.StatusCreated {
+		t.Fatalf("create %s → %d", email, status)
+	}
+	var purposes struct {
+		Data []struct {
+			ID  string `json:"id"`
+			Key string `json:"key"`
+		} `json:"data"`
+	}
+	if status := p.Call(t, "GET", "/v1/consent-purposes", nil, nil, &purposes); status != http.StatusOK {
+		t.Fatalf("list purposes → %d", status)
+	}
+	var transactional string
+	for _, purpose := range purposes.Data {
+		if purpose.Key == "transactional" {
+			transactional = purpose.ID
+		}
+	}
+	if transactional == "" {
+		t.Fatalf("bootstrap seeded no transactional purpose: %+v", purposes.Data)
+	}
+	if status := p.Call(t, "POST", "/v1/people/"+person.ID+"/consent", apptest.AnyMap{
+		"purpose_id": transactional, "new_state": "granted", "lawful_basis": "contract",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("grant consent for %s → %d", email, status)
+	}
+}
+
+// privacyAdmin binds the context both privileged privacy paths demand: a HUMAN
+// holding person.delete. Erasure and the subject-access export ask the same
+// trust level on purpose — one destroys the data and the other discloses all of
+// it — so the two tests share one spelling of it rather than each inventing a
+// principal that walks past the gates they are supposed to exercise.
+func (p *preflightEnv) privacyAdmin(t *testing.T) context.Context {
+	t.Helper()
+	ctx := principal.WithWorkspaceID(context.Background(), p.workspaceID(t))
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + p.user,
+		UserID:   uuidOf(t, p.user),
+		SeatType: principal.SeatFull,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"admin"},
+			// The export deliberately crosses the caller's row scope: Art. 15
+			// owes the subject everything held, not the slice one rep can see,
+			// so a bounded caller is refused outright.
+			RowScope: principal.RowScopeAll,
+			Objects: map[string]principal.ObjectGrant{
+				"person":   {Create: true, Read: true, Update: true, Delete: true},
+				"activity": {Create: true, Read: true, Update: true, Delete: true},
+			},
+		},
+	})
+}
 
 // uuidOf parses a harness-held id, failing the test rather than the assertion.
 func uuidOf(t *testing.T, raw string) ids.UUID {
@@ -161,6 +230,13 @@ func (p *preflightEnv) setDueAt(t *testing.T, id ids.UUID, at time.Time) {
 // message was written under, through the real consent surface.
 func (p *preflightEnv) withdrawConsent(t *testing.T) {
 	t.Helper()
+	p.setTransactionalConsent(t, "withdrawn")
+}
+
+// setTransactionalConsent moves the recipient's transactional grant either way,
+// through the real consent surface.
+func (p *preflightEnv) setTransactionalConsent(t *testing.T, state string) {
+	t.Helper()
 	var purposes struct {
 		Data []struct {
 			ID  string `json:"id"`
@@ -180,9 +256,9 @@ func (p *preflightEnv) withdrawConsent(t *testing.T) {
 		t.Fatalf("bootstrap seeded no transactional purpose: %+v", purposes.Data)
 	}
 	if status := p.Call(t, "POST", "/v1/people/"+p.personID+"/consent", apptest.AnyMap{
-		"purpose_id": transactional, "new_state": "withdrawn", "lawful_basis": "consent",
+		"purpose_id": transactional, "new_state": state, "lawful_basis": "consent",
 	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("withdrawing consent → %d", status)
+		t.Fatalf("setting consent to %s → %d", state, status)
 	}
 }
 
@@ -224,6 +300,225 @@ func TestAScheduledMessageWritesNothingUntilItFires(t *testing.T) {
 	}
 }
 
+// DRAFT-AC-N-10a. Firing hands the message to the delivery machinery and stops
+// at `released`, which is honest at that instant — the provider has not been
+// called. When it IS called and confirms, the scheduled row has to follow: a
+// message this system sent reads "sent" whether a rep scheduled it or pressed
+// the button. Anything else leaves a rep looking at a message that demonstrably
+// arrived while its record still says it was merely handed over.
+func TestAConfirmedReceiptCarriesTheScheduledSendToSent(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	// Handed over, not yet delivered. This is the state the fire leaves behind.
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusReleased {
+		t.Fatalf("a fired message reads %q, want %q before the provider is called",
+			status, activities.ScheduledStatusReleased)
+	}
+
+	// A real dispatch through the real connector to a real receipt.
+	activityID := p.releasedActivity(t, id)
+	deliveryID, _ := p.deliveryFor(t, activityID)
+	p.transmit(t, deliveryID, "")
+
+	if status := p.scheduledStatusThroughAPI(t, id); status != activities.ScheduledStatusSent {
+		t.Fatalf("after the provider confirmed receipt the message reads %q, want %q — a rep would be looking at a message that has arrived while its record says it was only handed over",
+			status, activities.ScheduledStatusSent)
+	}
+}
+
+// The filter has to read the SAME state the projection renders. A derived
+// status rendered on the way out while the raw column is filtered on the way in
+// is the shape where `?status=sent` returns nothing and `?status=released`
+// returns rows that read "sent" — each half correct, the pair useless.
+func TestFilteringByStatusFindsTheStateTheListActuallyShows(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.makeDue(t, id)
+	p.fire(t, id)
+	activityID := p.releasedActivity(t, id)
+	deliveryID, _ := p.deliveryFor(t, activityID)
+	p.transmit(t, deliveryID, "")
+
+	// The list renders it as sent, so the sent filter must find it.
+	if got := p.listScheduledIDs(t, activities.ScheduledStatusSent); !slices.Contains(got, id.String()) {
+		t.Errorf("?status=sent did not return the message the list renders as sent: %v", got)
+	}
+	// …and the released filter must not, because no rep sees it that way.
+	if got := p.listScheduledIDs(t, activities.ScheduledStatusReleased); slices.Contains(got, id.String()) {
+		t.Errorf("?status=released returned a message the list renders as sent: %v", got)
+	}
+}
+
+// heldCard is the inbox card as a rep sees it.
+type heldCard struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Summary string `json:"summary"`
+}
+
+// heldCardFor finds the card raised for one message, through the endpoint a
+// rep's inbox reads — a row written to a table nothing serves is not a card
+// anybody sees. Matched on the message named in the payload: the card carries no
+// target id, because a held message produced no activity to point at.
+func (p *preflightEnv) heldCardFor(t *testing.T, id ids.UUID) (heldCard, bool) {
+	t.Helper()
+	var page struct {
+		Data []struct {
+			heldCard
+			ProposedChange *struct {
+				ScheduledSendID string `json:"scheduled_send_id"`
+			} `json:"proposed_change"`
+		} `json:"data"`
+	}
+	if status := p.Call(t, "GET", "/v1/approvals?status=pending", nil, nil, &page); status != http.StatusOK {
+		t.Fatalf("reading the approval inbox → %d", status)
+	}
+	for _, row := range page.Data {
+		if row.ProposedChange != nil && row.ProposedChange.ScheduledSendID == id.String() {
+			return row.heldCard, true
+		}
+	}
+	return heldCard{}, false
+}
+
+// forceStatus moves a scheduled row directly, standing in for whatever else
+// could have moved it while a card sat in an inbox.
+func (p *preflightEnv) forceStatus(t *testing.T, id ids.UUID, status string) {
+	t.Helper()
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE scheduled_send SET status = $1, held_reason = NULL WHERE id = $2`, status, id)
+		return err
+	}); err != nil {
+		t.Fatalf("moving the scheduled send to %s: %v", status, err)
+	}
+}
+
+// grantTransactionalConsent restores the grant the withdrawal removed, so a rep
+// accepting a held card has actually fixed what stopped it.
+func (p *preflightEnv) grantTransactionalConsent(t *testing.T) {
+	t.Helper()
+	p.setTransactionalConsent(t, "granted")
+}
+
+// rescheduleTo moves a message through the endpoint a rep uses, version header
+// and all — the guarded path, not a direct write.
+func (p *preflightEnv) rescheduleTo(t *testing.T, id ids.UUID, at time.Time) {
+	t.Helper()
+	var current struct {
+		Version int64 `json:"version"`
+	}
+	if status := p.Call(t, "GET", "/v1/scheduled-sends/"+id.String(), nil, nil, &current); status != http.StatusOK {
+		t.Fatalf("reading the scheduled send before moving it → %d", status)
+	}
+	status := p.Call(t, "PATCH", "/v1/scheduled-sends/"+id.String(),
+		apptest.AnyMap{
+			"scheduled_at": at.UTC().Format(time.RFC3339),
+			"scheduled_tz": "Europe/Berlin",
+		},
+		map[string]string{"If-Match": strconv.FormatInt(current.Version, 10)}, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rescheduling → %d, want 200", status)
+	}
+}
+
+// alarmsFor counts the River jobs queued to wake one message. Recovery's whole
+// job is to put one of these back, so it is what a recovery test must count.
+func (p *preflightEnv) alarmsFor(t *testing.T, id ids.UUID) int {
+	t.Helper()
+	var n int
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM river_job
+			  WHERE kind = 'comms_scheduled_send'
+			    AND args->>'scheduled_send_id' = $1`, id.String()).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting the alarms for %s: %v", id, err)
+	}
+	return n
+}
+
+// rowVersion reads the scheduled row's optimistic-concurrency version.
+func (p *preflightEnv) rowVersion(t *testing.T, id ids.UUID) int64 {
+	t.Helper()
+	var version int64
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT version FROM scheduled_send WHERE id = $1`, id).Scan(&version)
+	}); err != nil {
+		t.Fatalf("reading the row version: %v", err)
+	}
+	return version
+}
+
+// holdAs drives the store's hold directly under an observed version, standing in
+// for a worker whose attempt failed and is now holding what it saw.
+func (p *preflightEnv) holdAs(t *testing.T, id ids.UUID, reason string, observed int64) error {
+	t.Helper()
+	return compose.HoldScheduledSendForTest(context.Background(), p.Pool, p.workspaceID(t), id, reason, observed)
+}
+
+// runRecovery drives the recovery pass once, through the production worker on
+// the context River gives it — no workspace injected, because the pass has none
+// and a helper that supplied one would prove only that the helper works.
+func (p *preflightEnv) runRecovery(t *testing.T) error {
+	t.Helper()
+	return compose.DriveScheduledSendRecoveryForTest(context.Background(), p.Pool)
+}
+
+// releasedActivity reads the activity a fired scheduled send produced.
+func (p *preflightEnv) releasedActivity(t *testing.T, id ids.UUID) ids.UUID {
+	t.Helper()
+	var activityID ids.UUID
+	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT activity_id FROM scheduled_send WHERE id = $1`, id).Scan(&activityID)
+	}); err != nil {
+		t.Fatalf("reading the activity the fire produced: %v", err)
+	}
+	return activityID
+}
+
+// scheduledStatusThroughAPI reads the status the way a REP sees it — through the
+// endpoint, where the derived state is computed. scheduledStatus reads the raw
+// column, which stays 'released': the difference between the two IS the
+// behaviour under test.
+func (p *preflightEnv) scheduledStatusThroughAPI(t *testing.T, id ids.UUID) string {
+	t.Helper()
+	var got struct {
+		Status string `json:"status"`
+	}
+	if status := p.Call(t, "GET", "/v1/scheduled-sends/"+id.String(), nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("reading the scheduled send → %d", status)
+	}
+	return got.Status
+}
+
+// listScheduledIDs reads the rep's list filtered by one status, through the
+// endpoint rather than the table: the filter and the projection are the two
+// halves this asserts agree.
+func (p *preflightEnv) listScheduledIDs(t *testing.T, status string) []string {
+	t.Helper()
+	var rows []struct {
+		ID string `json:"id"`
+	}
+	if code := p.Call(t, "GET", "/v1/scheduled-sends?status="+status, nil, nil, &rows); code != http.StatusOK {
+		t.Fatalf("listing scheduled sends with status=%s → %d", status, code)
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.ID)
+	}
+	return out
+}
+
 func TestConsentWithdrawnBeforeFiringHoldsTheMessage(t *testing.T) {
 	p := setupPreflight(t)
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
@@ -248,6 +543,216 @@ func TestConsentWithdrawnBeforeFiringHoldsTheMessage(t *testing.T) {
 	}
 	if got := p.countDeliveries(t); got != deliveriesBefore {
 		t.Fatalf("a held message staged %d deliveries; a refusal must reach the machinery not at all", got-deliveriesBefore)
+	}
+}
+
+// DRAFT-AC-N-11a. A message the system stopped is a decision waiting for a rep,
+// and a state they must go looking for is one they find late. It has to reach
+// the inbox this product already uses for "something needs you".
+//
+// Visibility is only half. The card carries the same Accept/Reject buttons every
+// other card carries, and if they did nothing a rep would click one, watch the
+// card vanish, and still have a message sitting stopped — a decision reported
+// but never made. So this asserts the ACTION, not the appearance.
+func TestARepCanRetryAHeldMessageFromTheirInbox(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusHeld {
+		t.Fatalf("the message reads %q, want %q — this test is about what a hold raises", status, activities.ScheduledStatusHeld)
+	}
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("a message stopped and no card appeared — a rep would only find out by going looking")
+	}
+	if !strings.Contains(card.Summary, "Monday morning") || !strings.Contains(strings.ToLower(card.Summary), "consent") {
+		t.Errorf("the card does not say which message stopped or why: %q", card.Summary)
+	}
+
+	// The rep fixes the problem and clicks Accept.
+	p.grantTransactionalConsent(t)
+	if status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("accepting the card → %d, want 200", status)
+	}
+
+	// Accept has to DO something: the message is armed again, not merely
+	// dismissed from the list.
+	status, reason := p.scheduledStatus(t, id)
+	if status != activities.ScheduledStatusScheduled {
+		t.Fatalf("after Accept the message reads %q/%q, want %q — the card was dismissed and the message left stopped",
+			status, reason, activities.ScheduledStatusScheduled)
+	}
+	if _, still := p.heldCardFor(t, id); still {
+		t.Error("the card outlived the rep's answer")
+	}
+}
+
+// The other button. Reject means "give up on this one", and without a declined
+// effect the card would leave the inbox while the message waited forever for a
+// decision nobody would make again.
+func TestARepCanAbandonAHeldMessageFromTheirInbox(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("no card to reject — this test is about rejecting one")
+	}
+	if status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/reject", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("rejecting the card → %d, want 200", status)
+	}
+
+	if status, _ := p.scheduledStatus(t, id); status != activities.ScheduledStatusCancelled {
+		t.Fatalf("after Reject the message reads %q, want %q — the card was dismissed and the message left stopped",
+			status, activities.ScheduledStatusCancelled)
+	}
+}
+
+// Reject and the cancellation it releases commit together, or neither does.
+//
+// The failure this closes is specific: reject the card, have the cancellation
+// fail afterwards, and the card is already rejected — a retry is refused as
+// already-decided while the message is still held. The rep answered, the system
+// recorded the answer, and nothing happened.
+//
+// Driven by rejecting a card whose message was cancelled out from under it: the
+// cancel then finds no pending row and fails, which must take the rejection down
+// with it rather than leaving a decided card over a message in the wrong state.
+func TestARejectionThatCannotCancelLeavesTheCardRetryable(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.withdrawConsent(t)
+	p.makeDue(t, id)
+	p.fire(t, id)
+
+	card, found := p.heldCardFor(t, id)
+	if !found {
+		t.Fatal("no card raised — this test is about rejecting one")
+	}
+
+	// The message reaches a state the cancel cannot act on, behind the card's
+	// back — a rep on another device, or a sweep. Cancelled rather than
+	// released: the state-shape CHECK requires a released row to name the
+	// activity it produced, and inventing one would be a fixture the writer
+	// never produces.
+	p.forceStatus(t, id, activities.ScheduledStatusCancelled)
+
+	// The rejection must now fail as a whole rather than commit half of itself.
+	status := p.Call(t, "POST", "/v1/approvals/"+card.ID+"/reject", apptest.AnyMap{}, nil, nil)
+	if status == http.StatusOK {
+		t.Fatal("the rejection reported success while its cancellation could not run — the card would be decided and the message left in the wrong state")
+	}
+
+	// And the card is still there to try again, because the decision rolled back
+	// with the work.
+	if _, still := p.heldCardFor(t, id); !still {
+		t.Error("the card was consumed by a rejection that did no work — a retry would be refused as already decided")
+	}
+}
+
+// A message whose alarm ran out of attempts is held, bound to the version that
+// attempt saw. A rep who rescheduled in between has made a newer decision, and
+// stopping their fresh intention for a reason about the older one would undo a
+// choice they had just made.
+func TestAStaleAttemptDoesNotHoldAMessageTheRepJustRescheduled(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	before := p.rowVersion(t, id)
+
+	// The rep moves it — the version they moved it to is now the live one.
+	p.rescheduleTo(t, id, time.Now().Add(48*time.Hour))
+	if after := p.rowVersion(t, id); after == before {
+		t.Fatal("rescheduling did not move the row version, so this test cannot tell the two apart")
+	}
+
+	// A stale attempt now tries to hold under the version it saw earlier.
+	if err := p.holdAs(t, id, activities.HeldTimerExhausted, before); err != nil {
+		t.Fatalf("the stale hold errored rather than declining: %v", err)
+	}
+
+	if status, reason := p.scheduledStatus(t, id); status != activities.ScheduledStatusScheduled {
+		t.Fatalf("a message the rep had just rescheduled reads %q/%q — a stale attempt held their newer intention",
+			status, reason)
+	}
+}
+
+// An attempt can also fail BEFORE it claims the row — a begin error, a pool
+// timeout — and then it has no version to report. It must still not hold what
+// the rep has since rescheduled: a verdict from an attempt that never read the
+// row is a verdict about nothing, so the honest answer is to decline and let the
+// next alarm decide against the row that is actually there.
+//
+// The distinction is what activities.UnobservedVersion exists for. A refusal
+// reached before the fire path runs at all (a sender whose account is gone) may
+// hold on its own claim; a failed attempt may not, and sharing one sentinel
+// between them would let this case take that arm.
+func TestAnAttemptThatNeverReadTheRowDoesNotHoldARescheduledMessage(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	p.rescheduleTo(t, id, time.Now().Add(48*time.Hour))
+
+	// Zero: what FireScheduledSend reports when it died before claiming.
+	if err := p.holdAs(t, id, activities.HeldTimerExhausted, 0); err != nil {
+		t.Fatalf("the unobserved hold errored rather than declining: %v", err)
+	}
+
+	if status, reason := p.scheduledStatus(t, id); status != activities.ScheduledStatusScheduled {
+		t.Fatalf("a message reads %q/%q — an attempt that never read the row held it anyway",
+			status, reason)
+	}
+}
+
+// A message left scheduled with no live alarm is the one failure the send path
+// cannot see: nothing wakes it and nobody is told, because being told is what
+// the fire path does and the fire path never runs.
+//
+// Simulated by scheduling a message and letting its moment pass without ever
+// driving the timer — which is exactly the state a discarded job leaves behind.
+func TestARecoveryPassReArmsAMessageWhoseAlarmIsGone(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	id := p.scheduleFor(t, time.Now().Add(2*time.Hour))
+	// Well past the recovery grace, so the pass treats it as stranded rather
+	// than mid-flight.
+	p.setDueAt(t, id, time.Now().Add(-2*time.Hour))
+
+	armedBefore := p.alarmsFor(t, id)
+	if err := p.runRecovery(t); err != nil {
+		t.Fatalf("the recovery pass failed: %v", err)
+	}
+
+	// The ALARM is what recovery restores, so the alarm is what this asserts.
+	// Driving the fire path directly afterwards would pass whether or not
+	// anything was enqueued — the test would then prove the fire path works,
+	// which was never in doubt, while a recovery that silently enqueued nothing
+	// sailed through.
+	armedAfter := p.alarmsFor(t, id)
+	if armedAfter <= armedBefore {
+		t.Fatalf("recovery left %d alarm(s) for a message that had %d and no live timer — nothing will ever wake it",
+			armedAfter, armedBefore)
+	}
+
+	// And the alarm it queued reaches a verdict rather than sitting there.
+	p.fire(t, id)
+	if status, _ := p.scheduledStatus(t, id); status == activities.ScheduledStatusScheduled {
+		t.Fatal("the message is still waiting after its recovered alarm fired")
 	}
 }
 
@@ -309,25 +814,8 @@ func TestErasingARecipientEmptiesAndStopsTheirScheduledMail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("person id %q: %v", p.personID, err)
 	}
-	// Run under the bootstrapped admin this harness already signed in, rather
-	// than a synthetic principal: the eraser's own gates are part of what this
-	// asserts, and a hand-built unbounded actor would walk past them.
-	admin := principal.WithActor(
-		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), p.workspaceID(t)), ids.NewV7()),
-		principal.Principal{
-			Type: principal.PrincipalHuman, ID: "human:" + p.user,
-			UserID:   uuidOf(t, p.user),
-			SeatType: principal.SeatFull,
-			Permissions: principal.Permissions{
-				RoleKeys: []string{"admin"},
-				Objects: map[string]principal.ObjectGrant{
-					"person":   {Create: true, Read: true, Update: true, Delete: true},
-					"activity": {Create: true, Read: true, Update: true, Delete: true},
-				},
-			},
-		})
 	if err := privacy.NewEraser(compose.InstallationDB(p.Pool)).ErasePerson(
-		admin, personID, "art-17"); err != nil {
+		p.privacyAdmin(t), personID, "art-17"); err != nil {
 		t.Fatalf("erasing the recipient: %v", err)
 	}
 
@@ -352,6 +840,120 @@ func TestErasingARecipientEmptiesAndStopsTheirScheduledMail(t *testing.T) {
 	}
 	if strings.Contains(payload, "Written the night before.") {
 		t.Fatalf("the body of a message to an erased person survives: %s", payload)
+	}
+}
+
+// Art. 15 owes the subject the data held about them, and a message somebody
+// wrote to them and has not sent is data held about them. It reaches the export
+// by a route the sent-message projection cannot take: a scheduled send has no
+// activity and no delivery row, so all three of that query's clauses miss it.
+func TestASubjectAccessExportCarriesTheMailNobodyHasSentYet(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	// Scheduled through the real endpoint, so the row under test is the one the
+	// product writes — payload shape included, which is what the export reads.
+	p.scheduleFor(t, time.Now().Add(6*time.Hour))
+
+	personID, err := ids.Parse(p.personID)
+	if err != nil {
+		t.Fatalf("person id %q: %v", p.personID, err)
+	}
+	pkg, err := privacy.AssembleSAR(
+		p.privacyAdmin(t), compose.InstallationDB(p.Pool), ids.From[ids.PersonKind](personID))
+	if err != nil {
+		t.Fatalf("AssembleSAR: %v", err)
+	}
+
+	if len(pkg.ScheduledMessages) != 1 {
+		t.Fatalf("the export carried %d unsent messages, want the one waiting for this person: %#v",
+			len(pkg.ScheduledMessages), pkg.ScheduledMessages)
+	}
+	row := pkg.ScheduledMessages[0]
+	if subject, _ := row["subject"].(string); subject != "Monday morning" {
+		t.Errorf("the unsent message came back with subject %q, want the one that was scheduled", subject)
+	}
+	if body, _ := row["body"].(string); !strings.Contains(body, "Written the night before") {
+		t.Errorf("the export withheld the body of a message written to this person: %#v", row)
+	}
+	// The state is part of the answer: a subject told a message exists, but not
+	// whether it is still going to arrive, has been told half a fact.
+	if status, _ := row["status"].(string); status != activities.ScheduledStatusScheduled {
+		t.Errorf("the export reported status %q, want %q", status, activities.ScheduledStatusScheduled)
+	}
+}
+
+// The blind-copy rule has two halves that pull opposite ways, and only a
+// message with SEVERAL blind recipients can show both: a bcc'd subject must
+// find their own message in their export, and must not learn who else was
+// blind-copied on it. A projection that satisfied one half would look correct
+// against a single-recipient fixture.
+func TestABlindCopiedSubjectSeesTheirOwnMailAndNobodyElsesAddress(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	// The subject is BLIND-copied; somebody else is the visible addressee, and
+	// a third party shares the blind list with them.
+	//
+	// Both extra addressees need a person on file and a granted purpose,
+	// because consent is owed to EVERY addressee however they were addressed —
+	// the same rule that makes a blind copy a consent question at all. Without
+	// them the send is refused 409 before it can be scheduled, which would say
+	// nothing about the export.
+	//
+	// The other blind address is typed in MIXED CASE on purpose. The send path
+	// removes blind copies from the To line case-insensitively; an export that
+	// compared raw would leave this one sitting in the visible list while the
+	// message itself correctly hid it, and the two derivations of "who is on
+	// the To line" would disagree about the same message.
+	const otherBlind = "Third.Party@Preflight.test"
+	p.seedConsentedRecipient(t, "Visible Addressee", "visible@preflight.test")
+	p.seedConsentedRecipient(t, "Other Blind", otherBlind)
+	var scheduled struct {
+		ID string `json:"id"`
+	}
+	status := p.Call(t, "POST", "/v1/emails", apptest.AnyMap{
+		"subject": "Quiet copy", "body": "You were blind-copied on this.",
+		"to":              []string{"visible@preflight.test"},
+		"bcc":             []string{"buyer@preflight.test", otherBlind},
+		"consent_purpose": "transactional",
+		"links": []apptest.AnyMap{
+			{"entity_type": "person", "entity_id": p.personID},
+		},
+		"scheduled_at": time.Now().Add(6 * time.Hour).UTC().Format(time.RFC3339),
+		"scheduled_tz": "Europe/Berlin",
+	}, nil, &scheduled)
+	if status != http.StatusCreated {
+		t.Fatalf("scheduling a blind-copied message → %d, want 201", status)
+	}
+
+	personID, err := ids.Parse(p.personID)
+	if err != nil {
+		t.Fatalf("person id %q: %v", p.personID, err)
+	}
+	pkg, err := privacy.AssembleSAR(
+		p.privacyAdmin(t), compose.InstallationDB(p.Pool), ids.From[ids.PersonKind](personID))
+	if err != nil {
+		t.Fatalf("AssembleSAR: %v", err)
+	}
+
+	// Found on the blind list: without this the subject is absent from their own
+	// export of a message they were going to receive.
+	if len(pkg.ScheduledMessages) != 1 {
+		t.Fatalf("a blind-copied subject got %d unsent messages, want 1: %#v",
+			len(pkg.ScheduledMessages), pkg.ScheduledMessages)
+	}
+	// …and narrowed to themselves: exporting the whole blind list would hand
+	// this subject a stranger's address, which is what a blind copy exists to
+	// prevent.
+	rendered := fmt.Sprintf("%#v", pkg.ScheduledMessages[0])
+	if !strings.Contains(rendered, "buyer@preflight.test") {
+		t.Errorf("the export withheld the subject's own blind address: %s", rendered)
+	}
+	// Case-insensitive, because the leak this guards against does not care how
+	// the address was typed.
+	if strings.Contains(strings.ToLower(rendered), strings.ToLower(otherBlind)) {
+		t.Errorf("the export disclosed another blind recipient's address to this subject: %s", rendered)
 	}
 }
 

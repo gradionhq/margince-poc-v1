@@ -72,8 +72,8 @@ func (t agentTasks) Create(ctx context.Context, in agents.NewTask) (agents.Task,
 	var task agents.Task
 	err = database.WithWorkspaceTx(ctx, t.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO agent_task (workspace_id, approval_id, passport_id, tool, status_message, expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, ''), $5)
+			INSERT INTO agent_task (approval_id, passport_id, tool, status_message, expires_at)
+			VALUES ($1, $2, $3, NULLIF($4, ''), $5)
 			RETURNING `+taskColumns,
 			in.ApprovalID, passport, in.Tool, in.StatusMessage, in.ExpiresAt)
 		return scanTask(row, &task)

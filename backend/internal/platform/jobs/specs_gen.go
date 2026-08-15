@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "9ee2559073991e50f3f8f63f28afde9ab5c13152669799177c0bfe949b0d8547"
+const JobContractHash = "7d13e83a1319dce4f29a3643f3a273b86ce2e0f6563c58320327d8d0a0b8fbe3"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -21,46 +21,23 @@ var specs = map[string]Spec{
 	"agent_scheduler": {
 		Kind:         "agent_scheduler",
 		GoType:       "AgentSchedulerArgs",
-		Role:         Dispatcher,
-		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit:   FanOutWorkspace,
-		FanOutTo:     "agent_scheduler_workspace",
-		OptsOwner:    OptsCaller,
-		Cadence:      Cadence{OperatorField: "AgentScheduler.Interval", ScheduleWhenPositive: "AgentScheduler.Interval"},
-		Registration: Registration{When: []string{"AgentScheduler.Service"}},
-	},
-	"agent_scheduler_workspace": {
-		Kind:         "agent_scheduler_workspace",
-		GoType:       "AgentSchedulerWorkspaceArgs",
 		Role:         Worker,
 		Queue:        "agent_scheduler",
 		Timeout:      TimeoutPolicy{Fixed: 65 * time.Minute, DerivedFrom: "agentSchedulerPassTimeout"},
 		MaxAttempts:  1,
-		OptsOwner:    OptsFanOut,
+		OptsOwner:    OptsArgs,
+		Cadence:      Cadence{OperatorField: "AgentScheduler.Interval", ScheduleWhenPositive: "AgentScheduler.Interval"},
 		Registration: Registration{When: []string{"AgentScheduler.Service"}},
-		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"agent_task_retention": {
-		Kind:       "agent_task_retention",
-		GoType:     "AgentTaskRetentionArgs",
-		Role:       Dispatcher,
-		Queue:      "default",
-		Timeout:    TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit: FanOutWorkspace,
-		FanOutTo:   "agent_task_retention_workspace",
-		OptsOwner:  OptsCaller,
-		Cadence:    Cadence{Fixed: 1 * time.Hour},
-	},
-	"agent_task_retention_workspace": {
-		Kind:        "agent_task_retention_workspace",
-		GoType:      "AgentTaskRetentionWorkspaceArgs",
+		Kind:        "agent_task_retention",
+		GoType:      "AgentTaskRetentionArgs",
 		Role:        Worker,
 		Queue:       "default",
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
-		OptsOwner:   OptsFanOut,
-		Args:        []ArgField{{Name: "Workspace"}},
+		OptsOwner:   OptsArgs,
+		Cadence:     Cadence{Fixed: 1 * time.Hour},
 	},
 	"ai_model_rate_refresh": {
 		Kind:      "ai_model_rate_refresh",
@@ -235,6 +212,17 @@ var specs = map[string]Spec{
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"SendRegistry"}},
 		Args:         []ArgField{{Name: "ScheduledSendID"}, {Name: "Workspace"}},
+	},
+	"comms_scheduled_send_recovery": {
+		Kind:         "comms_scheduled_send_recovery",
+		GoType:       "ScheduledSendRecoveryArgs",
+		Role:         Worker,
+		Queue:        "default",
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		OptsOwner:    OptsCaller,
+		Cadence:      Cadence{Fixed: 15 * time.Minute},
+		Registration: Registration{When: []string{"SendRegistry", "SendDelivery"}},
+		Fault:        FaultPolicy{NilAfterLogging: "A batch of independent messages, and one that cannot be re-armed must not strand the others: the pass logs that message and carries on. The retry policy is the CADENCE — this runs every 15 minutes and re-reads what is still overdue, so a message that failed here is picked up by the next pass without the ladder having to remember it. Failing the whole job instead would re-run the messages that already succeeded, and a permanently unreadable row would then block every other recovery behind it forever. What the cadence cannot heal is a row that fails deterministically, so the summary line carries a `failed` count: a number that stays non-zero across passes is the signal that no amount of re-running will fix that message."},
 	},
 	"comms_send_email": {
 		Kind:         "comms_send_email",
@@ -655,6 +643,16 @@ var specs = map[string]Spec{
 		OptsOwner:   OptsFanOut,
 		Args:        []ArgField{{Name: "Workspace"}},
 	},
+	"transcript_propose": {
+		Kind:         "transcript_propose",
+		GoType:       "TranscriptProposeArgs",
+		Role:         Worker,
+		Queue:        "transcript_read",
+		Timeout:      TimeoutPolicy{Fixed: 4 * time.Minute},
+		OptsOwner:    OptsCaller,
+		Registration: Registration{When: []string{"TranscriptProposeBrain"}, AbsentRegistersAnyway: true},
+		Args:         []ArgField{{Name: "ActivityID"}, {Name: "RequestedBy"}, {Name: "TranscriptReadID"}, {Name: "Workspace"}},
+	},
 	"voice_build": {
 		Kind:         "voice_build",
 		GoType:       "VoiceBuildArgs",
@@ -702,5 +700,6 @@ var queues = map[string]int{
 	"overlay_reconcile": 1,
 	"privacy_retention": 2,
 	"rate_refresh":      2,
+	"transcript_read":   2,
 	"webhook_retry":     3,
 }

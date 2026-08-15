@@ -192,6 +192,23 @@ var contextTargetKinds = map[string]string{
 		"disposition; it never writes the activity. Pinning bound the answer to a row " +
 		"that relinking, a participant correction or a subject fix bumps — every one of " +
 		"which is ordinary inbox work on the very message the question is about.",
+	"transcript_proposal": "A next step read out of a transcript is filed under the " +
+		"ACTIVITY carrying that transcript, because those lines are the evidence a human " +
+		"judges it on. The effect CREATES a task activity and never writes the transcript. " +
+		"Pinning would bind the answer to a row that relinking the meeting to a deal, or " +
+		"correcting its subject, bumps — ordinary work on the very meeting the question is " +
+		"about, and all of it done while the proposal sits in the inbox waiting to be read.",
+	"held_draft": "An automation-composed reply is filed under the ACTIVITY it answers, " +
+		"because that message is the thread a human reads the draft against. The effect " +
+		"CREATES a new outbound activity and never writes the anchor — the send only READS " +
+		"it, for threading. Pinning bound the release to a row that relinking, a participant " +
+		"correction or a subject fix bumps, which is ordinary inbox work on the very message " +
+		"the draft is a reply to, and the draft sits there until somebody works their inbox. " +
+		"A stale pin does not fail safely here: the human has already approved, the decision " +
+		"is spent, and the redemption window is minutes — so the send is lost with no way to " +
+		"re-release it. The anchor is still guarded, and more tightly than a version pin " +
+		"guarded it: the send re-reads it under a row lock and refuses if it is no longer " +
+		"live (activities.SendOrigin.lockAnchorLive).",
 }
 
 // unpinnedKinds are the staging kinds whose target IS the row their effect

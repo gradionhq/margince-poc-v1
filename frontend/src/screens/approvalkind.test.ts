@@ -34,6 +34,7 @@ const STAGEABLE_KINDS = [
   "deepread",
   "enrich",
   "fx_rate_proposal",
+  "held_draft",
   "lifecycle_change",
   "merge_records",
   "org_name_promotion",
@@ -44,6 +45,7 @@ const STAGEABLE_KINDS = [
   "send_offer",
   "share_record",
   "site_lead",
+  "transcript_proposal",
   "update_record",
 ] as const;
 

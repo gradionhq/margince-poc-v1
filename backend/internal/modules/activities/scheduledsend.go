@@ -50,6 +50,38 @@ type ScheduleTimer interface {
 	ScheduleTx(ctx context.Context, tx pgx.Tx, id ids.UUID, due time.Time) error
 }
 
+// HeldNotifier puts a stopped message in front of the human who scheduled it.
+//
+// A message the system refused to send is a decision waiting for a rep, and a
+// decision they have to go looking for is one they make late or not at all. This
+// is the seam to the approval inbox — the surface this product already uses for
+// "something needs you" (ADR-0104 §5, DRAFT-AC-N-11a).
+//
+// Both halves run in the caller's transaction, for the reason DeliveryStager
+// does: a hold and the item a rep acts on are one fact, and so are a rep's
+// answer and the item disappearing.
+//
+// Nil is a surface with no inbox wired. A hold still happens — refusing to stop
+// a message because nobody can be told would send mail a gate refused, which is
+// far worse than a quiet stop.
+type HeldNotifier interface {
+	NotifyHeldInTx(ctx context.Context, tx pgx.Tx, in HeldNotice) error
+	// ResolveHeldInTx clears the item once the rep has answered it. Rescheduling
+	// or cancelling IS the answer, and an item outliving it asks the same
+	// question twice.
+	ResolveHeldInTx(ctx context.Context, tx pgx.Tx, scheduledSendID ids.UUID) error
+}
+
+// HeldNotice is one stopped message as the rep needs to see it: whose it is,
+// what it said, and which gate refused.
+type HeldNotice struct {
+	ScheduledSendID ids.UUID
+	ScheduledBy     ids.UUID
+	Reason          string
+	Subject         string
+	ScheduledAt     time.Time
+}
+
 // SendSchedule is a caller's request to defer a send. At is absolute; TZ is the
 // IANA zone the human picked it in, kept so the choice can be re-rendered and
 // audited (ADR-0104 §7).
@@ -139,12 +171,21 @@ type ScheduledSend struct {
 	UpdatedAt   time.Time
 }
 
-// Scheduled-send states. 'released' is deliberately not 'sent': at the end of
-// the fire transaction the provider has not been called, and the delivery can
-// still park or fail. Delivery truth lives on the delivery row (ADR-0104 §5).
+// Scheduled-send states.
+//
+// 'released' is deliberately not 'sent' AT THAT MOMENT: the fire transaction has
+// handed the message to the delivery machinery and the provider has not been
+// called, so the delivery can still park or fail. It is a step, not an ending —
+// when the provider confirms receipt the row reads 'sent' like any other message
+// this system sent (ADR-0104 §5).
+//
+// 'sent' is never WRITTEN here. It is derived at read from the delivery's own
+// status (scheduledSendColumns), because comms owns the receipt and a second
+// writer would be a second place for the two to disagree about one message.
 const (
 	ScheduledStatusScheduled = "scheduled"
 	ScheduledStatusReleased  = "released"
+	ScheduledStatusSent      = "sent"
 	ScheduledStatusCancelled = "cancelled"
 	ScheduledStatusHeld      = "held"
 )
@@ -239,7 +280,7 @@ func (s *Store) scheduleSend(
 	if err := validateSchedule(sched, s.now()); err != nil {
 		return ScheduledSend{}, err
 	}
-	if _, err := s.prepareSend(ctx, origin, in, gate, stager); err != nil {
+	if _, err := s.PrepareSend(ctx, origin, in, gate, stager); err != nil {
 		return ScheduledSend{}, err
 	}
 

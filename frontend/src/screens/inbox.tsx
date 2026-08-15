@@ -116,6 +116,11 @@ function editableStrings(
 
 // The per-claim evidence chips, shared by the row and the detail modal (was
 // duplicated verbatim in both). A snippet-less evidence item is dropped.
+//
+// `source_lines` rides along with the snippet rather than being dropped: a
+// proposal read out of a transcript is only checkable if the reader can find
+// the exchange it came from, and a quoted sentence with no address is a claim
+// they have to take on trust.
 function EvidenceList({
   evidence,
 }: Readonly<{ evidence: Approval["evidence"] }>) {
@@ -128,6 +133,7 @@ function EvidenceList({
             evidence={{
               snippet: item.evidence_snippet,
               source: item.source_type ?? "",
+              lines: item.source_lines,
             }}
           />
         ) : null,
@@ -673,6 +679,18 @@ export function ApprovalRow({
                         setDraft((current) => ({
                           ...current,
                           [entry.field]: value,
+                        }))
+                      }
+                    />
+                  ) : entry.as === "textarea" ? (
+                    <Textarea
+                      {...control}
+                      rows={12}
+                      value={draft[entry.field] ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [entry.field]: event.target.value,
                         }))
                       }
                     />

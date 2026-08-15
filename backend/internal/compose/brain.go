@@ -88,6 +88,12 @@ type ModelPath struct {
 	// routes attention over a whole backlog, this reads one conversation
 	// closely enough to say what was decided in it.
 	SignalExtract completer
+	// TranscriptPropose is the S-E04.3 lane that reads a meeting transcript
+	// for the next steps it states. Separate from SignalExtract because the
+	// citable unit differs: that site cites the message an event was stated
+	// in, this one cites the transcript LINES, which is what makes a proposal
+	// checkable against the text on screen.
+	TranscriptPropose completer
 	// Enrich is the §2.9 evidence-or-omit signature field extraction lane.
 	Enrich completer
 	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
@@ -223,6 +229,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		CaptureClassify:            brain(ai.TaskCaptureClassify),
 		CaptureCounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
 		SignalExtract:              brain(ai.TaskSignalExtract),
+		TranscriptPropose:          brain(ai.TaskTranscriptPropose),
 		Enrich:                     brain(ai.TaskEnrich),
 		VoiceBuild:                 brain(ai.TaskVoiceBuild),
 		Embedder:                   router,

@@ -2118,7 +2118,25 @@ export interface paths {
         get: operations["getStage"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Remove a stage from its pipeline (soft delete; archive is the delete).
+         * @description The removal half of the bounded stage-configuration surface (DEAL-WIRE-7). Archiving
+         *     rather than deleting is what keeps the stage-change history readable — a
+         *     `deal_stage_history` row references the stage a deal moved out of.
+         *
+         *     The surviving stages of the pipeline shift down so `position` stays contiguous, which
+         *     publishes ONE `pipeline.updated` reorder alongside `stage.archived`.
+         *
+         *     Two refusals, both `422` (DEAL-WIRE-10). Neither names a request field — the caller
+         *     sent the removal they meant and what refuses is the workspace's own state — so each
+         *     carries its machine code as the problem's `code` and its reason as `detail`:
+         *     * `stage_occupied` while live deals sit on the stage. The detail counts them and
+         *       names them (bounded, with "and N more" beyond the cap) so they can be moved
+         *       first; no `deal.stage_id` is ever left pointing at a removed stage.
+         *     * `terminal_stage_not_removable` on a `won`/`lost` stage: add and remove operate on
+         *       non-terminal stages only, so the pair the close semantics hang off survives.
+         */
+        delete: operations["archiveStage"];
         options?: never;
         head?: never;
         /** Update a stage (rename / reorder / probability). */
@@ -2236,6 +2254,95 @@ export interface paths {
          *     row (`activity_relink`). 🟢 — it is an internal association, not an outbound action.
          */
         post: operations["relinkActivity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/{id}/transcript-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+         * @description S-E04.3. Reads the transcript's normalized lines (ADR-0058: line N is the Nth newline-split
+         *     segment of the body) and stages each next step or commitment it STATES as a 🟡 approval,
+         *     citing the exact lines it was read from in `evidence[].source_lines`. NOTHING is written to
+         *     the timeline until a human confirms; accepting one creates a single task activity, idempotent
+         *     on the approval id.
+         *
+         *     Asynchronous: answers 202 with the read to poll, because a model call cannot happen inside
+         *     the request that asks for it. Re-issuing while a reading is in flight answers the SAME read
+         *     (idempotent per activity), so pressing the button twice does not pay for the transcript twice
+         *     or stage every proposal in duplicate.
+         *
+         *     A transcript that states no next steps is a CORRECT empty answer, reported as `done` with a
+         *     detail saying so — never as a failure, because a rep who cannot tell those apart will either
+         *     distrust a good answer or trust a broken one.
+         *
+         *     Human-only. The `enrich` verb reads an ORGANIZATION from its website and takes an
+         *     organization id, so it cannot express reading one activity; and this operation exists to put
+         *     a question in front of the person who was in the meeting. An agent that wants the same
+         *     outcome proposes the task directly through its own governed tool, where the confirm-first
+         *     tier already applies — rather than through a second door that stages on its behalf.
+         */
+        post: operations["readTranscriptForNextSteps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/{id}/transcript-proposals/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+         * @description A read id lives only in the browser tab that started the reading, so a reading that finished
+         *     after the rep left the page could not be found again — and a transcript nobody had read looked
+         *     exactly like one whose reading had failed. 404 when this transcript has never been read, which
+         *     is the honest difference between "never tried" and "tried and got nothing".
+         */
+        get: operations["getLatestTranscriptRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/{id}/transcript-proposals/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing. */
+        get: operations["getTranscriptRead"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2810,6 +2917,105 @@ export interface paths {
          */
         post: operations["promoteLead"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Explain This Score — the weighted-factor decomposition behind a lead's score.
+         * @description The decomposition is READ from the retained series (ADR-0105 §1), never recomputed
+         *     at read time: behavioral factors decay continuously, so a recomputed breakdown would
+         *     explain a number the record does not carry.
+         *
+         *     While a Commercial Judgement override is in force the factors sum to `score_computed`,
+         *     NOT to the displayed `score` — the response names both and carries the override's
+         *     reason, because presenting a machine breakdown as the explanation of a human's number
+         *     would be a lie (ADR-0105 §1).
+         *
+         *     Rounding and clamping are separate steps and both are visible: `raw_sum` is the
+         *     fractional factor total, `rounded_sum` is it rounded half-up, and `score_computed` is
+         *     that bounded to 0..100. They differ in ordinary cases (45.6 → 46, no clamp) as well as
+         *     at the cap (100.6 → 101 → 100).
+         *
+         *     A lead whose score has never been recomputed since this shipped has no entry yet:
+         *     `explained` is false and `factors` is absent — deliberately NOT an empty array, which
+         *     would read as "nothing contributed". Source activities are re-read through the
+         *     caller's own scope.
+         */
+        get: operations["explainLeadScore"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/manual-signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Enter or replace a human-provided scoring factor (S-E13.6).
+         * @description A rep supplies a qualification signal capture cannot fetch — a traffic band, an
+         *     employee count, a budget hint. It feeds the same transparent weighted score and
+         *     appears in the decomposition as its own human-provided factor, never blended into an
+         *     auto-captured one.
+         *
+         *     One live band per factor: setting a factor that already has one REPLACES it. A
+         *     non-empty `reason` is required. Setting a factor the model already fetches
+         *     automatically is refused 422 `factor_auto_sourced` — the auto value wins (ADR-0105 §4),
+         *     and a rep who disagrees with a fetched fact is overruling the model, which is what the
+         *     Commercial Judgement override on `updateLead` is for.
+         */
+        put: operations["setLeadManualSignal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/manual-signals/{factor}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                factor: "web_traffic" | "employees" | "budget_hint";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a human-provided scoring factor.
+         * @description Clears the rep's own live input for this factor and recomputes. Superseded rows are
+         *     history and are NOT deleted by this path — clearing withdraws a current input, and
+         *     where there is none (the auto value already took over) this succeeds as a no-op
+         *     (ADR-0105 §4).
+         */
+        delete: operations["clearLeadManualSignal"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5063,6 +5269,12 @@ export interface paths {
          *     re-asserting upgrades/downgrades `access` and resets `expires_at`. A grant can never exceed the
          *     granting principal's own access (scope-intersection). Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
+         *
+         *     The seat ceiling binds the RECIPIENT as well (AAD-AC-4): a `write` grant to a user on a `read`
+         *     seat is refused `403 seat_tier_insufficient`, because it would widen that user's scope onto a
+         *     record every write to which the ceiling then refuses. A `read` grant to a read seat is the
+         *     authority their licence already carries and is accepted. A `team` subject is not a seat and is
+         *     not filtered — the read seats inside it are still refused every write at their own admission.
          */
         post: operations["createRecordGrant"];
         delete?: never;
@@ -7871,15 +8083,15 @@ export interface components {
         };
         BackfillPreviewRequest: {
             /**
-             * @description The CAP-PARAM-4 window; default UI selection is 6m.
+             * @description The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
              * @enum {string}
              */
-            window: "none" | "3m" | "6m" | "12m";
+            window: "none" | "3m" | "6m" | "12m" | "24m" | "60m";
         };
         /** @description The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task. */
         BackfillPreview: {
             /** @enum {string} */
-            window: "none" | "3m" | "6m" | "12m";
+            window: "none" | "3m" | "6m" | "12m" | "24m" | "60m";
             /** @description Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count). */
             estimated_messages: number;
             /** @description The estimator's input-anchored token figure across classify+enrich+embeddings for that count; absent on estimator fault (ADR-0068). */
@@ -7901,7 +8113,7 @@ export interface components {
              * @description `none` is expressed by never calling this op. Widen-only versus a prior run.
              * @enum {string}
              */
-            window: "3m" | "6m" | "12m";
+            window: "3m" | "6m" | "12m" | "24m" | "60m";
         };
         /** @description The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1). */
         BackfillStatus: {
@@ -7910,7 +8122,7 @@ export interface components {
             /** Format: uuid */
             backfill_id?: string | null;
             /** @enum {string|null} */
-            window?: "3m" | "6m" | "12m" | null;
+            window?: "3m" | "6m" | "12m" | "24m" | "60m" | null;
             /** @description The previewed count the user consented to — the progress fraction's denominator. */
             estimated_messages?: number | null;
             counts?: {
@@ -12208,15 +12420,17 @@ export interface components {
             id: string;
             /**
              * @description `scheduled` — waiting; the rep may move or cancel it.
-             *     `released` — it fired: the activity, the delivery row and the dispatch job exist.
-             *     Deliberately NOT "sent": the provider has not been called yet and the delivery can
-             *     still park or fail, so delivery truth lives on the outbound record, not here.
+             *     `released` — it fired: the activity, the delivery row and the dispatch job exist,
+             *     and the provider has not been called yet, so the delivery can still park or fail.
+             *     A step rather than an ending.
+             *     `sent` — the provider confirmed receipt. A message this system sent reads the same
+             *     whether a rep scheduled it or sent it directly.
              *     `cancelled` — withdrawn before it fired; nothing was transmitted.
              *     `held` — a gate refused at fire, or the window was missed. It will not send itself;
              *     a human reschedules or cancels it.
              * @enum {string}
              */
-            status: "scheduled" | "released" | "cancelled" | "held";
+            status: "scheduled" | "released" | "sent" | "cancelled" | "held";
             /** Format: date-time */
             scheduled_at: string;
             /** @description The IANA zone the human picked the moment in, kept so it re-renders as meant. */
@@ -12520,6 +12734,104 @@ export interface components {
         LeadListResponse: {
             data: components["schemas"]["Lead"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description `fact` — the rep knows this. `assumption` — a working estimate.
+         *     `judgement` — a read of the situation. Shown on the factor, never
+         *     blended into an auto-captured signal (AC-S7a).
+         * @enum {string}
+         */
+        LeadManualSignalKind: "fact" | "assumption" | "judgement";
+        /**
+         * @description One row of the decomposition. `points` is the factor's contribution AFTER decay and
+         *     BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+         *     `raw_sum` — never, on their own, to `score_computed`.
+         */
+        LeadScoreFactor: {
+            /**
+             * @description The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+             *     `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+             *     `meeting_booked`), or a human-provided one (`manual:<factor>`).
+             */
+            factor: string;
+            /** @description Contribution after decay. May be negative (low_intent_source). */
+            points: number;
+            /** @description The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay. */
+            base_points?: number | null;
+            /** @description The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3). */
+            source_activity_ids?: string[];
+            /**
+             * Format: uuid
+             * @description The human who supplied a manual factor. Null for machine factors.
+             */
+            set_by?: string | null;
+            signal_kind?: components["schemas"]["LeadManualSignalKind"];
+            /** @description The written reason on a manual factor. */
+            reason?: string | null;
+        };
+        /** @description One point in the retained series — what the score was, and why. */
+        LeadScoreEntry: {
+            /** @description The DISPLAYED score at this point: the human's number under an override, else the machine value. */
+            score: number;
+            /** @description The machine value the factors below reconcile to. */
+            score_computed: number;
+            /** @description The Commercial Judgement reason in force at this point; null when the score is machine-computed. */
+            override_reason?: string | null;
+            /** @description The fractional sum of the factors, before rounding. */
+            raw_sum: number;
+            /** @description raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired. */
+            rounded_sum: number;
+            factors?: components["schemas"]["LeadScoreFactor"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        /**
+         * @description The current explanation, or the retained series when `history=true`. `explained` is
+         *     false for a lead whose score predates the retained series; `current` is then absent
+         *     rather than carrying an empty factor list, which would read as "nothing contributed".
+         */
+        LeadScoreExplanation: {
+            /** @description The lead's displayed score right now. */
+            score: number;
+            /** @description False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1). */
+            explained: boolean;
+            current?: components["schemas"]["LeadScoreEntry"];
+            /** @description Present only when `history=true`. */
+            history?: components["schemas"]["LeadScoreEntry"][];
+            page?: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+         *     replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+         *     by enrichment (ADR-0105 §4).
+         */
+        LeadManualSignal: {
+            /** @enum {string} */
+            factor: "web_traffic" | "employees" | "budget_hint";
+            /** @description The band picked for this factor; validated per factor. */
+            band: string;
+            /** @description The band→points mapping. May be negative. */
+            points: number;
+            signal_kind: components["schemas"]["LeadManualSignalKind"];
+            confidence?: number | null;
+            reason: string;
+            /** Format: uuid */
+            set_by: string;
+            /** Format: date-time */
+            set_at: string;
+            /** Format: date-time */
+            superseded_at?: string | null;
+            /** @description Names the auto source that took over, so the rep sees WHAT replaced their estimate. */
+            superseded_by?: string | null;
+        };
+        SetLeadManualSignalRequest: {
+            /** @enum {string} */
+            factor: "web_traffic" | "employees" | "budget_hint";
+            band: string;
+            signal_kind: components["schemas"]["LeadManualSignalKind"];
+            confidence?: number | null;
+            /** @description Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end. */
+            reason: string;
         };
         /**
          * @description A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
@@ -14214,6 +14526,37 @@ export interface components {
              */
             url?: string;
         };
+        /** @description The 202 handle for a queued transcript reading. */
+        TranscriptReadStarted: {
+            /** Format: uuid */
+            read_id: string;
+            /**
+             * @description The joined reading's state when one is already in flight.
+             * @enum {string}
+             */
+            status: "queued" | "running";
+        };
+        /** @description What one reading of one transcript did. The three outcomes are kept apart on purpose: still reading, read it and it stated nothing, and could not read it are different answers, and collapsing the last two makes a correct empty result look like a broken feature. */
+        TranscriptReadReport: {
+            /** Format: uuid */
+            read_id: string;
+            /** Format: uuid */
+            activity_id: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "done" | "failed";
+            /** @description Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading that produced nothing so an empty result explains itself. */
+            status_detail?: string | null;
+            /** @description How many lines the reading addressed, so a cited line can be shown against the size of what was read. It is the count at READ time; a later body edit re-normalizes and can change it, and each proposal's own evidence stays authoritative about what it saw. */
+            line_count: number;
+            /** @description The approvals this reading staged. Empty on a reading that found nothing to propose. */
+            proposal_ids: string[];
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
         /** @description The 202 handle for a queued deep read. */
         SiteReadStarted: {
             /** Format: uuid */
@@ -14302,6 +14645,17 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
         };
+        /** @description One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these. */
+        ApprovalEvidence: {
+            /** @description The fragment as it reads in the source, quoted rather than paraphrased. */
+            evidence_snippet: string;
+            /** @enum {string|null} */
+            source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
+            /** Format: uuid */
+            source_id?: string | null;
+            /** @description 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed. */
+            source_lines?: number[];
+        };
         /** @description A staged 🟡 confirm-first action awaiting human decision. */
         Approval: {
             /** Format: uuid */
@@ -14352,13 +14706,7 @@ export interface components {
                 [key: string]: unknown;
             };
             /** @description Per-claim evidence (snippet + source id) backing the proposal. */
-            evidence?: {
-                evidence_snippet?: string;
-                /** @enum {string|null} */
-                source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
-                /** Format: uuid */
-                source_id?: string | null;
-            }[];
+            evidence?: components["schemas"]["ApprovalEvidence"][];
             confidence?: number | null;
             result_entity_type?: string | null;
             /** Format: uuid */
@@ -19710,6 +20058,41 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    archiveStage: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     updateStage: {
         parameters: {
             query?: never;
@@ -20058,6 +20441,100 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    readTranscriptForNextSteps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reading is queued; poll the read. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description This activity carries no transcript, or its transcript is blank or too long for one reading. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getLatestTranscriptRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newest reading's report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getTranscriptRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The read report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     draftEmail: {
         parameters: {
             query?: never;
@@ -20259,7 +20736,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Omit for every state; supply one to filter. */
-                status?: "scheduled" | "released" | "cancelled" | "held";
+                status?: "scheduled" | "released" | "sent" | "cancelled" | "held";
             };
             header?: never;
             path?: never;
@@ -21414,6 +21891,124 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    explainLeadScore: {
+        parameters: {
+            query?: {
+                /** @description Return the retained score series instead of the current explanation. */
+                history?: boolean;
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current explanation, or the paged series when `history=true`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadScoreExplanation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setLeadManualSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLeadManualSignalRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored manual signal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadManualSignal"];
+                };
+            };
+            /** @description Approval required (agent-triggered) or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Unknown factor, band invalid for the factor, blank reason, or the factor is auto-sourced. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clearLeadManualSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                factor: "web_traffic" | "employees" | "budget_hint";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared — or nothing live to clear, which is also success. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Approval required (agent-triggered) or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listRelationships: {

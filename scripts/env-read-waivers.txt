@@ -1,0 +1,18 @@
+# Packages below the composition root that still read the environment
+# themselves, frozen at their read count when the gate landed
+# (scripts/check-env-reads.sh). Shrinking is allowed; growing is not. When a
+# file stops reading the environment, DELETE its line here.
+#
+# This list is a burn-down backlog, not a permanent allowance: OPS-CFG-2 wants
+# every one of these taking its value as a parameter, with cmd/ resolving it.
+# Issue #1252 removes them as it builds the typed config registry — a fix that
+# duplicates the reads into each cmd role instead would be churn that #1252
+# undoes, which is why they are frozen rather than moved now.
+#
+# Format: <frozen-read-count> <path>
+1 backend/internal/compose/providerselect.go
+1 backend/internal/modules/ai/selectbrain.go
+6 backend/internal/platform/blobstore/env.go
+2 backend/internal/platform/deployconfig/license.go
+1 backend/internal/platform/keyvault/local.go
+1 backend/internal/platform/websearchhttp/websearchhttp.go

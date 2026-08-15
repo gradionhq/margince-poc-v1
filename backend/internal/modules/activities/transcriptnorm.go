@@ -94,6 +94,20 @@ func normalizeTranscript(raw string) (string, error) {
 	return normalized, nil
 }
 
+// transcriptLines splits a NORMALIZED transcript body into its addressable
+// lines. Index i holds line i+1, because the addressing this feature cites is
+// 1-based (ADR-0058).
+//
+// It is one line of code and it is a function anyway, because it is the single
+// spelling of the split. A reader that splits differently — trimming empties,
+// or on a different separator — cites line numbers that disagree with what the
+// human is looking at on screen, and the disagreement is invisible: both sides
+// produce plausible numbers. Everything that addresses a transcript goes
+// through here.
+func transcriptLines(normalized string) []string {
+	return strings.Split(normalized, "\n")
+}
+
 // stripOtherControlBytes drops every C0 control byte except the LF this
 // function's caller splits lines on and the TAB a transcript's trailing-
 // whitespace trim already handles — NUL above all, which Postgres refuses
@@ -105,4 +119,46 @@ func stripOtherControlBytes(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// A reading addresses at most this much text. Past it the read is refused
+// rather than truncated: a proposal set covering the first half of a meeting is
+// indistinguishable from one covering all of it.
+//
+// The bound lives here, beside what a transcript IS, because both the door and
+// the engine have to agree on it — the door so a rep is told at once rather
+// than after a queued job fails, the engine because the body can change between
+// the two.
+const (
+	MaxReadableTranscriptLines = 600
+	MaxReadableTranscriptChars = 60000
+)
+
+// TranscriptTooLongError maps to 422, naming the size of the thing the caller
+// gave and the size a reading addresses, so the message says what to do.
+type TranscriptTooLongError struct{ Lines, Chars int }
+
+func (e *TranscriptTooLongError) Error() string {
+	return fmt.Sprintf(
+		"this transcript is %d lines / %d characters, and one reading addresses at most %d lines / %d characters; "+
+			"log the meeting as more than one transcript and read each",
+		e.Lines, e.Chars, MaxReadableTranscriptLines, MaxReadableTranscriptChars)
+}
+
+// FieldFault names the offending field; the caller's value is left to the
+// wire's own field pointer, not interpolated into the message.
+func (e *TranscriptTooLongError) FieldFault() (field, code, message string) {
+	return "id", faultInvalid, e.Error()
+}
+
+// WithinReadingBounds refuses a transcript larger than one reading covers.
+func WithinReadingBounds(lines []string) error {
+	chars := 0
+	for _, line := range lines {
+		chars += len(line) + 1
+	}
+	if len(lines) > MaxReadableTranscriptLines || chars > MaxReadableTranscriptChars {
+		return &TranscriptTooLongError{Lines: len(lines), Chars: chars}
+	}
+	return nil
 }

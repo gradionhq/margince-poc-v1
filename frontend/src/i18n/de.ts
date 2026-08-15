@@ -43,6 +43,8 @@ export const de = {
   "trust.resolvedValue": "übernommener Wert",
   "trust.editValue": "{description} bearbeiten",
   "trust.evidenceFrom": "Beleg von {source}",
+  "trust.evidenceLine": "Zeile {lines}",
+  "trust.evidenceLines": "Zeilen {lines}",
 
   "history.created": "— angelegt —",
   "history.oldValue": "Vorheriger Wert",
@@ -923,6 +925,7 @@ export const de = {
   "approval.kind.update_record": "Datensatz ändern",
   "approval.kind.create_record": "Datensatz anlegen",
   "approval.kind.send_email": "E-Mail senden",
+  "approval.kind.held_draft": "Entworfene E-Mail prüfen",
   "approval.kind.book_meeting": "Termin buchen",
   "approval.kind.send_offer": "Angebot senden",
   "approval.kind.quota_release": "Einen Agenten weiterarbeiten lassen",
@@ -934,6 +937,8 @@ export const de = {
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
   "approval.kind.lifecycle_change": "Account-Phase",
+  "approval.kind.transcript_proposal":
+    "Nächsten Schritt aus einem Transkript übernehmen",
   "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
   "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",
   "co.assistant.title": "Diesen Account befragen",
@@ -1206,6 +1211,21 @@ export const de = {
   "lead.clearOverride": "Überschreibung aufheben",
   "lead.overrideReason": "Begründung",
   "lead.machineComputed": "Maschinell berechneter Score",
+  "lead.scoreLoading": "Begründung wird geladen…",
+  "lead.scoreNotYetExplained":
+    "Dieser Score stammt aus der Zeit vor der Aufschlüsselung. Die nächste Aktualisierung erklärt ihn.",
+  "lead.scoreNoFactors": "Bisher zahlt nichts auf diesen Score ein.",
+  "lead.scoreFactorsExplainMachine":
+    "Sie haben diesen Score selbst gesetzt. Die Faktoren unten erklären den Wert des Modells: {score}.",
+  "lead.scoreDecayed": "{base}, halbiert sich alle 14 Tage",
+  "lead.scoreSources": "{count} Aktivitäten",
+  "lead.scoreReconciles": "{raw} in Summe, gerundet {rounded}, Score {score}",
+  "lead.factor.decision_maker_title": "Position mit Entscheidungsbefugnis",
+  "lead.factor.high_intent_source": "Aus einer Quelle mit hohem Interesse",
+  "lead.factor.low_intent_source": "Aus einer Quelle mit geringem Interesse",
+  "lead.factor.reply": "Hat geantwortet",
+  "lead.factor.meeting_held": "Termin stattgefunden",
+  "lead.factor.meeting_booked": "Termin vereinbart",
   "lead.ownerLabel": "Verantwortlich",
   "lead.ownerYou": "Sie",
   "lead.overriddenBadge": "überschrieben",
@@ -1343,6 +1363,8 @@ export const de = {
   "inbox.tab.pending": "Ausstehend",
   "inbox.tab.decided": "Entschieden",
   "inbox.rejectReason": "Begründung",
+  "inbox.draftSubject": "Betreff",
+  "inbox.draftBody": "Nachricht",
   "inbox.rejectReasonHint":
     "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
   "inbox.tokenTitle": "Freigabe-Token",
@@ -1457,6 +1479,27 @@ export const de = {
   "deepread.kindProducts": "Produkte",
   "deepread.kindContact": "Kontakt",
   "deepread.kindOther": "Sonstiges",
+
+  "transcriptread.title": "Dieses Transkript lesen",
+  "transcriptread.sub":
+    "Findet die nächsten Schritte und Zusagen, die dieses Gespräch nennt. Nichts wird geschrieben, bis du bestätigst.",
+  "transcriptread.cta": "Transkript lesen",
+  "transcriptread.starting": "Wird gestartet…",
+  "transcriptread.unavailable":
+    "Transkript-Lesen ist auf diesem Server nicht eingerichtet.",
+  "transcriptread.statusQueued": "In Warteschlange",
+  "transcriptread.statusRunning": "Wird gelesen…",
+  "transcriptread.statusDone": "Fertig",
+  "transcriptread.statusFailed": "Fehlgeschlagen",
+  "transcriptread.lineCount.one": "{count} Zeile gelesen",
+  "transcriptread.lineCount.other": "{count} Zeilen gelesen",
+  "transcriptread.proposals":
+    "{count} nächste Schritte warten auf deine Prüfung",
+  "transcriptread.proposalsOne": "1 nächster Schritt wartet auf deine Prüfung",
+  "transcriptread.nothingStated":
+    "Vollständig gelesen. Dieses Gespräch nennt keine nächsten Schritte.",
+  "transcriptread.failedFallback":
+    "Dieses Transkript konnte nicht gelesen werden. Es wurde nichts vorgemerkt.",
 
   "create.cancel": "Abbrechen",
   "create.multiselect.required":
@@ -2084,6 +2127,11 @@ export const de = {
   "stage.semOpen": "Offen",
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
+  "stage.remove": "Entfernen",
+  "stage.removeConfirm": "Phase entfernen",
+  "stage.removeTitle": "Diese Phase entfernen?",
+  "stage.removeBody":
+    "„{name}“ verlässt die Pipeline, die nachfolgenden Phasen rücken auf. Frühere Phasenwechsel bleiben lesbar. Deals, die noch darauf stehen, müssen zuerst umziehen.",
 
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",
@@ -2424,6 +2472,8 @@ export const de = {
   "backfill.window3m": "3 Monate",
   "backfill.window6m": "6 Monate",
   "backfill.window12m": "12 Monate",
+  "backfill.window24m": "2 Jahre",
+  "backfill.window60m": "5 Jahre",
   "backfill.previewCta": "Erst den Umfang zeigen",
   "backfill.previewLoading": "Postfach wird gezählt…",
   "backfill.estimateMessages": "Nachrichten in diesem Zeitraum:",
@@ -3195,6 +3245,8 @@ export const de = {
   "ob.backread.window3m": "3 Monate — aktueller Kontext",
   "ob.backread.window6m": "6 Monate — empfohlen",
   "ob.backread.window12m": "12 Monate — ganzer Vertriebszyklus",
+  "ob.backread.window24m": "2 Jahre — die Beziehung, nicht nur der Deal",
+  "ob.backread.window60m": "5 Jahre — alles, was das Postfach noch hat",
   "ob.backread.estimate": "Etwa {messages} Nachrichten in diesem Zeitraum.",
   "ob.backread.estimateHeuristic":
     "Aus dem Postfach geschätzt, noch nicht gezählt.",

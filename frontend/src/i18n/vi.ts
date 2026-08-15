@@ -52,6 +52,8 @@ export const vi = {
   "trust.resolvedValue": "giá trị đã chốt",
   "trust.editValue": "Sửa {description}",
   "trust.evidenceFrom": "Bằng chứng từ {source}",
+  "trust.evidenceLine": "dòng {lines}",
+  "trust.evidenceLines": "dòng {lines}",
 
   "history.created": "— đã tạo —",
   "history.oldValue": "Giá trị trước",
@@ -915,6 +917,7 @@ export const vi = {
   "approval.kind.update_record": "Cập nhật một bản ghi",
   "approval.kind.create_record": "Tạo một bản ghi",
   "approval.kind.send_email": "Gửi một email",
+  "approval.kind.held_draft": "Xem lại email đã soạn",
   "approval.kind.book_meeting": "Đặt một lịch họp",
   "approval.kind.send_offer": "Gửi một báo giá",
   "approval.kind.quota_release": "Cho tác nhân tiếp tục",
@@ -926,6 +929,8 @@ export const vi = {
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
   "approval.kind.lifecycle_change": "Giai đoạn công ty",
+  "approval.kind.transcript_proposal":
+    "Thêm bước tiếp theo từ bản ghi cuộc trò chuyện",
   "approval.kind.fx_rate_proposal": "Làm mới tỷ giá",
   "approval.kind.ai_model_rate_proposal": "Làm mới giá mô hình",
   "co.assistant.title": "Hỏi về tài khoản này",
@@ -1199,6 +1204,21 @@ export const vi = {
   "lead.clearOverride": "Xoá ghi đè",
   "lead.overrideReason": "Lý do",
   "lead.machineComputed": "Điểm do máy tính toán",
+  "lead.scoreLoading": "Đang tải lý do…",
+  "lead.scoreNotYetExplained":
+    "Điểm này có trước phần giải thích. Lần cập nhật tới sẽ giải thích nó.",
+  "lead.scoreNoFactors": "Chưa có gì cộng vào điểm này.",
+  "lead.scoreFactorsExplainMachine":
+    "Bạn đã tự đặt điểm này. Các yếu tố bên dưới giải thích giá trị của mô hình: {score}.",
+  "lead.scoreDecayed": "{base}, giảm một nửa sau mỗi 14 ngày",
+  "lead.scoreSources": "{count} hoạt động",
+  "lead.scoreReconciles": "tổng {raw}, làm tròn {rounded}, điểm {score}",
+  "lead.factor.decision_maker_title": "Chức danh có quyền quyết định",
+  "lead.factor.high_intent_source": "Từ nguồn có ý định cao",
+  "lead.factor.low_intent_source": "Từ nguồn có ý định thấp",
+  "lead.factor.reply": "Đã trả lời",
+  "lead.factor.meeting_held": "Đã họp",
+  "lead.factor.meeting_booked": "Đã đặt lịch họp",
   "lead.ownerLabel": "Phụ trách",
   "lead.ownerYou": "Bạn",
   "lead.overriddenBadge": "đã ghi đè",
@@ -1333,6 +1353,8 @@ export const vi = {
   "inbox.tab.pending": "Đang chờ",
   "inbox.tab.decided": "Đã quyết",
   "inbox.rejectReason": "Lý do",
+  "inbox.draftSubject": "Tiêu đề",
+  "inbox.draftBody": "Nội dung",
   "inbox.rejectReasonHint":
     "Người mà mục này được xếp chờ duyệt cho sẽ thấy lý do này.",
   "inbox.tokenTitle": "Token phê duyệt",
@@ -1445,6 +1467,26 @@ export const vi = {
   "deepread.kindProducts": "Sản phẩm",
   "deepread.kindContact": "Liên hệ",
   "deepread.kindOther": "Khác",
+
+  "transcriptread.title": "Đọc bản chép lời này",
+  "transcriptread.sub":
+    "Tìm các bước tiếp theo và cam kết mà cuộc trò chuyện này nêu ra. Không có gì được ghi cho đến khi bạn xác nhận.",
+  "transcriptread.cta": "Đọc bản chép lời",
+  "transcriptread.starting": "Đang bắt đầu…",
+  "transcriptread.unavailable":
+    "Máy chủ này chưa cấu hình chức năng đọc bản chép lời.",
+  "transcriptread.statusQueued": "Đang xếp hàng",
+  "transcriptread.statusRunning": "Đang đọc…",
+  "transcriptread.statusDone": "Xong",
+  "transcriptread.statusFailed": "Thất bại",
+  "transcriptread.lineCount.one": "Đã đọc {count} dòng",
+  "transcriptread.lineCount.other": "Đã đọc {count} dòng",
+  "transcriptread.proposals": "{count} bước tiếp theo đang chờ bạn rà soát",
+  "transcriptread.proposalsOne": "1 bước tiếp theo đang chờ bạn rà soát",
+  "transcriptread.nothingStated":
+    "Đã đọc toàn bộ. Cuộc trò chuyện này không nêu bước tiếp theo nào.",
+  "transcriptread.failedFallback":
+    "Không đọc được bản ghi này. Không có đề xuất nào được tạo.",
 
   "create.cancel": "Huỷ",
   "create.multiselect.required": "Bắt buộc — chọn ít nhất một.",
@@ -2068,6 +2110,11 @@ export const vi = {
   "stage.semOpen": "Đang mở",
   "stage.semWon": "Thắng",
   "stage.semLost": "Thua",
+  "stage.remove": "Gỡ bỏ",
+  "stage.removeConfirm": "Gỡ giai đoạn",
+  "stage.removeTitle": "Gỡ giai đoạn này?",
+  "stage.removeBody":
+    "“{name}” sẽ rời khỏi pipeline và các giai đoạn sau dồn lên. Lịch sử chuyển giai đoạn vẫn đọc được. Các deal còn nằm ở đây phải chuyển đi trước.",
 
   "ob.read": "Đọc",
   "ob.confirm": "Xác nhận",
@@ -2405,6 +2452,8 @@ export const vi = {
   "backfill.window3m": "3 tháng",
   "backfill.window6m": "6 tháng",
   "backfill.window12m": "12 tháng",
+  "backfill.window24m": "2 năm",
+  "backfill.window60m": "5 năm",
   "backfill.previewCta": "Cho tôi xem phạm vi trước",
   "backfill.previewLoading": "Đang đếm hộp thư của bạn…",
   "backfill.estimateMessages": "Số thư trong khoảng này:",
@@ -3173,6 +3222,8 @@ export const vi = {
   "ob.backread.window3m": "3 tháng — bối cảnh gần đây",
   "ob.backread.window6m": "6 tháng — nên chọn",
   "ob.backread.window12m": "12 tháng — trọn một chu kỳ bán hàng",
+  "ob.backread.window24m": "2 năm — cả mối quan hệ, không chỉ thương vụ",
+  "ob.backread.window60m": "5 năm — tất cả những gì hộp thư còn giữ",
   "ob.backread.estimate": "Khoảng {messages} thư trong khoảng thời gian đó.",
   "ob.backread.estimateHeuristic": "Ước tính từ hộp thư, chưa đếm thật.",
   "ob.backread.estimateCost": "Khoảng {cost} tiền gọi mô hình.",

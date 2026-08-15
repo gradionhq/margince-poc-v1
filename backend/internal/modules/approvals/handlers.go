@@ -24,6 +24,26 @@ type Handlers struct {
 
 func NewHandlers(svc *Service) Handlers { return Handlers{svc: svc} }
 
+// WithLateEffect registers a follow-on executor for one staging kind after the
+// handlers are already built, taking a builder because most such executors need
+// the very service they are registered on in order to redeem.
+//
+// It exists for an effect whose DEPENDENCIES are not knowable at construction
+// time. The held-draft release sends through the configured activities store,
+// and that store is assembled from server options applied after this surface
+// is built — registering it early would bind a bare one and quietly send mail
+// with no signature and no unsubscribe header. A wiring that looks present and
+// is under-configured is worse than one that is absent, because nothing fails.
+//
+// Effects whose dependencies ARE available at construction time keep using
+// Service.WithEffect at the registration list; this is not a second way to do
+// the same thing.
+func (h Handlers) WithLateEffect(kind string, build func(*Service) ApprovedEffect, check ReleasePrecheck) Handlers {
+	h.svc.WithEffect(kind, build(h.svc))
+	h.svc.WithPrecheck(kind, check)
+	return h
+}
+
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed service surface (the route already
 // names the entity, so the assertion lives here, not in the service).
@@ -262,5 +282,40 @@ func wire(a row, now time.Time) crmcontracts.Approval {
 			out.ProposedChange = &change
 		}
 	}
+	out.Evidence = wireEvidence(a.Evidence)
 	return out
+}
+
+// wireEvidence maps the persisted evidence array onto the contract shape.
+//
+// Unreadable evidence yields nil rather than a partial list: evidence exists so
+// a human can check a proposal, and half a citation invites confirming against
+// material that was never actually read. The proposal itself still reads, and
+// its missing evidence is what says "do not confirm this on the citation".
+func wireEvidence(raw json.RawMessage) *[]crmcontracts.ApprovalEvidence {
+	if len(raw) == 0 {
+		return nil
+	}
+	var stored []evidenceJSON
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil
+	}
+	out := make([]crmcontracts.ApprovalEvidence, 0, len(stored))
+	for _, e := range stored {
+		item := crmcontracts.ApprovalEvidence{EvidenceSnippet: e.Snippet}
+		if e.SourceType != nil {
+			t := crmcontracts.ApprovalEvidenceSourceType(*e.SourceType)
+			item.SourceType = &t
+		}
+		if e.SourceID != nil {
+			v := openapi_types.UUID(*e.SourceID)
+			item.SourceId = &v
+		}
+		if len(e.SourceLines) > 0 {
+			lines := e.SourceLines
+			item.SourceLines = &lines
+		}
+		out = append(out, item)
+	}
+	return &out
 }

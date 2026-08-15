@@ -233,6 +233,73 @@ describe("InboxScreen (B-EP09.12a)", () => {
     });
   });
 
+  // A held draft is a whole message waiting for somebody to read it and put
+  // their name on it. Two things must be true on that screen: the body is
+  // editable as PROSE — a paragraph in a one-line input shows about eight words
+  // of what is about to go out — and the fields that are not the question are
+  // not offered. The addressee, the purpose and the anchor are what the
+  // approver is agreeing TO, and the server refuses an edited anchor outright,
+  // so offering it would only invite a refusal.
+  it("offers a held draft's subject and body, the body as prose, and nothing else", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const held = {
+      ...approval,
+      kind: "held_draft",
+      summary: "an automation drafted a reply — read it before it goes",
+      proposed_change: {
+        anchor_activity_id: "018f3a1b-0000-7000-8000-000000000010",
+        to: "anna@example.com",
+        subject: "Re: kickoff",
+        body: "Hi Anna — here is what we agreed.",
+        consent_purpose: "business_correspondence",
+        intent: "recap the meeting",
+      },
+    } as Approval;
+    vi.stubGlobal("fetch", inboxBackend(calls, [], held));
+    render(<InboxScreen />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    // getByRole("textbox") matches a textarea as well as an input, so the tag
+    // is asserted directly: which control renders IS the change, and a role
+    // assertion alone would pass against the one-line input it replaces.
+    const body = screen.getByRole("textbox", { name: "Message" });
+    expect(body.tagName).toBe("TEXTAREA");
+    expect(screen.getByRole("textbox", { name: "Subject" })).toBeTruthy();
+
+    expect(screen.queryByRole("textbox", { name: "to" })).toBeNull();
+    expect(
+      screen.queryByRole("textbox", { name: "consent_purpose" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("textbox", { name: "anchor_activity_id" }),
+    ).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "intent" })).toBeNull();
+
+    await userEvent.clear(body);
+    await userEvent.type(body, "Hi Anna — corrected recap.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Approve edited" }),
+    );
+    const posts = () => calls.filter((c) => c.url.includes("/approve"));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    // The WHOLE payload goes up with the body changed. The untouched fields
+    // must survive byte-for-byte: the release reads the addressee, the purpose
+    // and the anchor out of exactly this object, and a dropped path is read
+    // server-side as a retargeted edit and refused.
+    expect(posts()[0].body).toMatchObject({
+      edited_payload: {
+        anchor_activity_id: "018f3a1b-0000-7000-8000-000000000010",
+        to: "anna@example.com",
+        subject: "Re: kickoff",
+        body: "Hi Anna — corrected recap.",
+        consent_purpose: "business_correspondence",
+      },
+    });
+  });
+
   it("the row dot reads the live catalog tier, not a hardcode", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal(
@@ -283,6 +350,36 @@ describe("InboxScreen (B-EP09.12a)", () => {
 });
 
 // ── AC-3: reject-with-reason ────────────────────────────────────────────
+// A proposal read out of a transcript cites the lines it was read from. Without
+// them the row quotes a sentence and leaves the reader no way back to the
+// exchange it came from — the one thing that makes the claim checkable.
+describe("InboxScreen — the lines a transcript proposal was read from", () => {
+  it("shows the cited line range beside the snippet", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const fromTranscript: Approval = {
+      ...approval,
+      kind: "transcript_proposal",
+      summary: "Send the revised quote on Monday",
+      evidence: [
+        {
+          evidence_snippet: "I'll send the revised quote on Monday.",
+          source_type: "activity",
+          source_lines: [12, 13, 14],
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", inboxBackend(calls, [], fromTranscript));
+    render(<InboxScreen />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Add a next step from a transcript"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText("lines 12–14")).toBeTruthy();
+  });
+});
+
 describe("InboxScreen — reject with reason (AC-3)", () => {
   it("opens a reason field and sends the reason in the reject body", async () => {
     const calls: { url: string; body: unknown }[] = [];

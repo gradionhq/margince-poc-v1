@@ -42,6 +42,32 @@ type Service struct {
 	// commits, only on approve; exactly-once is the effect's own duty
 	// (the redeem-then-execute discipline every 🟡 executor follows).
 	effects map[string]ApprovedEffect
+	// prechecks are the per-kind preflights that run BEFORE the decision
+	// transaction opens, so a kind whose effect can refuse for an ordinary
+	// reason answers while the approval is still pending and re-approvable.
+	//
+	// They exist because the post-commit effect above is deliberately
+	// un-undoable: once the decision commits, a failing effect leaves an
+	// approved row decideInTx will refuse to decide again. For an effect that
+	// fails only on infrastructure, "approved, but …" is the honest report. For
+	// one that refuses on a live answer about the WORLD — consent withdrawn, a
+	// mailbox lost, a thread archived since staging — that same report strands
+	// work the human could have released after fixing the cause.
+	//
+	// It is also where a kind states what its payload may not become: the
+	// generic edit scope pins entity references, so a field that matters and is
+	// not shaped like a uuid — an address, a declared purpose — has nowhere
+	// else to be defended.
+	prechecks map[string]ReleasePrecheck
+	// declines are the mirror of effects: what runs when a human says NO.
+	//
+	// Most kinds need nothing here, because rejecting a PROPOSAL is simply not
+	// applying it — the record was never changed, so there is nothing to undo.
+	// A kind needs one when the staged subject is a thing that already exists
+	// and is WAITING: rejecting then has to resolve that waiting state, or the
+	// item leaves the inbox and the thing it was about carries on waiting for a
+	// decision nobody will make again.
+	declines map[string]DeclinedEffect
 	// quota is the volume meter an approved step-up widens (quotarelease.go).
 	// Nil in a composition that serves no agents, where a step-up can never be
 	// staged in the first place.
@@ -64,15 +90,87 @@ const (
 // ApprovedEffect executes what an approved staging of its kind proposed.
 type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
+// ReleasePrecheck answers whether this kind's effect could run right now, and
+// whether the payload about to be approved is one this kind accepts.
+//
+// It receives BOTH the staged proposal and the human's edit, because some kinds
+// have to compare them: the generic edit scope pins entity references, which
+// protects any field shaped like a uuid and nothing else. A kind whose payload
+// carries something equally load-bearing in another shape — an address, a
+// declared purpose — has no other place to say so.
+//
+// edited is nil when the human approved as staged.
+//
+// Returning an error refuses the DECISION, so the approval is never decided and
+// the human can act on the reason and approve the same row again. Returning nil
+// promises nothing: the effect still runs afterwards and may still fail on state
+// that moved in between, which is what the effect's own transaction is for.
+//
+// It runs OUTSIDE any transaction, so it may use the pool freely. It is not
+// required to be side-effect free, and for a send it is not: the consent gate
+// records a lawful basis it derived, exactly as it does when a rep schedules a
+// message that may later be cancelled (activities.scheduleSend runs the same
+// preparation and throws the result away). What it must not do is write
+// anything the DECISION owns, because the decision may still refuse after it.
+type ReleasePrecheck func(ctx context.Context, staged, edited json.RawMessage) error
+
+// DeclinedEffect is what a rejection executes. It takes no diff hash: there is
+// nothing to redeem, because nothing is being applied — the work is resolving
+// whatever the staging left waiting.
+// It runs in the DECISION's own transaction, which is the whole point: a
+// rejection whose work failed afterwards would leave the card decided, the retry
+// refused as already-decided, and the subject still waiting. Both commit or
+// neither does.
+type DeclinedEffect func(ctx context.Context, tx pgx.Tx, approvalID ids.ApprovalID, proposedChange json.RawMessage) error
+
 // NewService builds the approvals engine over a workspace-bound handle,
 // with no effects registered until compose wires them.
 func NewService(db *database.DB) *Service {
-	return &Service{db: db, now: time.Now, effects: map[string]ApprovedEffect{}}
+	return &Service{
+		db: db, now: time.Now,
+		effects:   map[string]ApprovedEffect{},
+		prechecks: map[string]ReleasePrecheck{},
+		declines:  map[string]DeclinedEffect{},
+	}
 }
 
 // WithEffect registers the follow-on executor for one staging kind.
+//
+// Registering a kind twice would resolve to whichever call ran last, which is a
+// wiring order nothing observes. Composition is where that can happen and where
+// the whole registry is visible at once, so it is checked there
+// (TestNoKindIsRegisteredTwice) rather than defended here with a panic a domain
+// module has no business raising.
 func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
 	s.effects[kind] = effect
+	return s
+}
+
+// WithPrecheck registers the preflight that runs before a decision on one kind.
+func (s *Service) WithPrecheck(kind string, check ReleasePrecheck) *Service {
+	s.prechecks[kind] = check
+	return s
+}
+
+// PrecheckKinds names the kinds carrying a preflight, so a composition test can
+// hold the registry to its own rules.
+func (s *Service) PrecheckKinds() []string {
+	kinds := make([]string, 0, len(s.prechecks))
+	for kind := range s.prechecks {
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
+// WithDeclinedEffect registers what runs when a human REJECTS one staging kind.
+//
+// Register one only where a rejection has work to do. For a proposal, "no" means
+// the record stays as it was and nothing needs to happen. For a staging about a
+// subject that is already waiting — a message the system stopped and is holding
+// — "no" is an instruction about that subject, and without this the item leaves
+// the inbox while the thing it named waits forever.
+func (s *Service) WithDeclinedEffect(kind string, effect DeclinedEffect) *Service {
+	s.declines[kind] = effect
 	return s
 }
 

@@ -118,6 +118,14 @@ Your `margince.yaml`'s `password_file` **must point to where the entrypoint writ
 `/app/secrets/admin-password`; the api's working dir is `/app`). Set that value in
 your config. (The example config's default differs, so change it to match.)
 
+**After the first boot succeeds, retire both:** remove the `bootstrap_admin`
+section from `margince.yaml` and unset `MARGINCE_ADMIN_PASSWORD`. ADR-0061 §2
+consumes bootstrap values exactly once — restarts never reconcile them into an
+existing organization — so past that point the credential grants nothing and only
+sits at rest. The entrypoint stops writing the file once an organization exists
+and says so on stderr if the variable is still set. Change an existing user's
+password with `margince-migrate reset-password` instead.
+
 ## Routing
 
 Both services sit behind one reverse proxy / ingress, under **one host**:

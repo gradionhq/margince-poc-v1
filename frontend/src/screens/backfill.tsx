@@ -36,12 +36,18 @@ import "./backfill.css";
 
 type BackfillStatus = components["schemas"]["BackfillStatus"];
 type Provider = components["schemas"]["CaptureConnection"]["provider"];
-type BackfillWindow = "3m" | "6m" | "12m";
+type BackfillWindow = "3m" | "6m" | "12m" | "24m" | "60m";
 
+// The CAP-PARAM-4 set, in reach order (ADR-0063, widened to 24/60 by
+// ADR-0106). The default selection stays 6m: a multi-year import is worth
+// offering and wrong to default into, since it spends the customer's own
+// inference budget on the day they have least reason to trust the estimate.
 const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
   { value: "3m", label: "backfill.window3m" },
   { value: "6m", label: "backfill.window6m" },
   { value: "12m", label: "backfill.window12m" },
+  { value: "24m", label: "backfill.window24m" },
+  { value: "60m", label: "backfill.window60m" },
 ];
 
 // A run whose updated_at hasn't moved in this long is honestly "stuck", not
@@ -441,10 +447,16 @@ function RunView({
   const scanned = counts?.messages_scanned ?? 0;
   const live = run.state === "running" || run.state === "queued";
   const done = run.state === "done";
+  // A percentage needs a denominator that is still true. The provider-side
+  // count is a FLOOR — Gmail's exact count is capped at a page budget, and a
+  // multi-year window reaches that cap far more often than a 12-month one —
+  // so a run can scan past its own estimate. Clamping to 100% there would
+  // show a full bar for an hour while the import kept going; the honest move
+  // is the absolute counts this screen already falls back to when there is no
+  // estimate at all, because at that moment there effectively is none.
+  const denominator = run.estimated_messages ?? 0;
   const fraction =
-    run.estimated_messages && run.estimated_messages > 0
-      ? Math.min(1, scanned / run.estimated_messages)
-      : null;
+    denominator > 0 && scanned <= denominator ? scanned / denominator : null;
   const { stale, agoMs } = staleness(run, live);
 
   return (

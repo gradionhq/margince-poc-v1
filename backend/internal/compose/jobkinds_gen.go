@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "9ee2559073991e50f3f8f63f28afde9ab5c13152669799177c0bfe949b0d8547"
+const jobContractHash = "7d13e83a1319dce4f29a3643f3a273b86ce2e0f6563c58320327d8d0a0b8fbe3"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -26,9 +26,7 @@ type declaredJobArgs interface {
 	river.JobArgs
 
 	AgentSchedulerArgs |
-		AgentSchedulerWorkspaceArgs |
 		AgentTaskRetentionArgs |
-		AgentTaskRetentionWorkspaceArgs |
 		AiModelRateRefreshArgs |
 		CaptureAutoEnrichSweepArgs |
 		CaptureAutoEnrichWorkspaceArgs |
@@ -45,6 +43,7 @@ type declaredJobArgs interface {
 		CloseDateSweepArgs |
 		CloseDateWorkspaceArgs |
 		ScheduledSendArgs |
+		ScheduledSendRecoveryArgs |
 		SendEmailArgs |
 		EmbedDriftSweepArgs |
 		EmbedDriftWorkspaceArgs |
@@ -84,6 +83,7 @@ type declaredJobArgs interface {
 		TelegramPollSweepArgs |
 		TimeScanArgs |
 		TimeScanWorkspaceArgs |
+		TranscriptProposeArgs |
 		VoiceBuildArgs |
 		VoiceBuildRetryArgs |
 		WebhookRetryArgs
@@ -119,8 +119,6 @@ func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.Wo
 // The declared dispatchers: each enumerates the fleet and enqueues, and does
 // no tenant work of its own.
 var (
-	_ jobs.FleetWide = AgentSchedulerArgs{}
-	_ jobs.FleetWide = AgentTaskRetentionArgs{}
 	_ jobs.FleetWide = CaptureAutoEnrichSweepArgs{}
 	_ jobs.FleetWide = CaptureClassifyArgs{}
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
@@ -150,8 +148,6 @@ var (
 // The declared tenant-scoped kinds: each says which workspace it is for
 // in its own args.
 var (
-	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
-	_ jobs.WorkspaceScoped = AgentTaskRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}
@@ -184,5 +180,6 @@ var (
 	_ jobs.WorkspaceScoped = TelegramIngestArgs{}
 	_ jobs.WorkspaceScoped = TelegramPollArgs{}
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = TranscriptProposeArgs{}
 	_ jobs.WorkspaceScoped = VoiceBuildArgs{}
 )

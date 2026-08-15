@@ -1460,6 +1460,10 @@ function settingsStub(opts: {
   roles: string[];
   allow?: GrantSpec;
   onStagePost?: (body: unknown) => void;
+  onStageDelete?: (url: string) => void;
+  // What the server answers a removal with, when the scenario is about a
+  // refusal: a stage still holding deals, or the terminal pair.
+  stageDeleteRefusal?: { status: number; body: unknown };
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -1498,6 +1502,16 @@ function settingsStub(opts: {
       opts.onStagePost?.(body);
       return jsonResponse(body);
     }
+    if (url.includes("/stages/") && method === "DELETE") {
+      opts.onStageDelete?.(url);
+      if (opts.stageDeleteRefusal) {
+        return jsonResponse(
+          opts.stageDeleteRefusal.body,
+          opts.stageDeleteRefusal.status,
+        );
+      }
+      return new Response(null, { status: 204 });
+    }
     return jsonResponse({ data: [], page: { next_cursor: null } });
   });
 }
@@ -1535,6 +1549,77 @@ describe("PipelinesCard", () => {
     render(<PipelinesCard />);
     expect(await screen.findByText("New pipeline")).toBeTruthy();
     expect(screen.queryByTestId("new-stage-pl")).toBeNull();
+  });
+
+  // Removal is pipeline:delete, a different verb from everything else on
+  // this card — a principal who may add and rename stages must not be
+  // shown a control the server would only ever 403.
+  it("withholds stage removal from a principal holding update alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({
+        roles: ["admin"],
+        allow: { pipeline: ["read", "update"] },
+      }),
+    );
+    render(<PipelinesCard />);
+    expect(await screen.findByTestId("new-stage-pl")).toBeTruthy();
+    expect(screen.queryByTestId("remove-stage-s1")).toBeNull();
+  });
+
+  it("removes a stage through DELETE once the confirm is taken", async () => {
+    const deleted: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({
+        roles: ["admin"],
+        allow: { pipeline: ["read", "update", "delete"] },
+        onStageDelete: (url) => deleted.push(url),
+      }),
+    );
+    render(<PipelinesCard />);
+    await userEvent.click(await screen.findByTestId("remove-stage-s1"));
+    // The dialog names the stage, so the confirm is about a stage the
+    // reader recognises rather than "this one".
+    expect(screen.getByText(/leaves the pipeline/).textContent).toContain(
+      "Qualify",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove stage" }));
+    await waitFor(() => expect(deleted).toHaveLength(1));
+    expect(deleted[0]).toContain("/stages/s1");
+  });
+
+  // The refusal is the server's, and it names the deals in the way. The
+  // dialog stays open showing it: a closed dialog would drop the only
+  // sentence telling the admin what to move.
+  it("shows the occupied-stage refusal and keeps the stage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({
+        roles: ["admin"],
+        allow: { pipeline: ["read", "update", "delete"] },
+        stageDeleteRefusal: {
+          status: 422,
+          // Exactly what the server sends: a MessageFault renders a
+          // machine code and a reason, and no per-field details body —
+          // a fixture that invented one would document a contract the
+          // backend does not have.
+          body: {
+            type: "https://errors.gradion.com/stage_occupied",
+            title: "Unprocessable Entity",
+            status: 422,
+            code: "stage_occupied",
+            detail:
+              "1 deal(s) still sit on this stage: Acme rollout. Move them to another stage first.",
+          },
+        },
+      }),
+    );
+    render(<PipelinesCard />);
+    await userEvent.click(await screen.findByTestId("remove-stage-s1"));
+    await userEvent.click(screen.getByRole("button", { name: "Remove stage" }));
+    expect(await screen.findByText(/Acme rollout/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove stage" })).toBeTruthy();
   });
 
   it("create stage posts the pipeline_id + semantic + win_probability", async () => {

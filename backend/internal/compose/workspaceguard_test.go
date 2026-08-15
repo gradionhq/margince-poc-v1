@@ -44,9 +44,80 @@ import (
 const workspaceKindFloor = 25
 
 func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
-	// Named by kind rather than by Go type: a failure should say which JOB is
-	// unguarded, because that is what an operator and the ledger both talk in.
-	refusals := map[string]func(context.Context) error{
+	refusals := workspaceRefusalDrivers()
+
+	declared := 0
+	for kind, spec := range jobs.Declared() {
+		if !bindsAWorkspace(spec) {
+			continue
+		}
+		declared++
+		if _, driven := refusals[kind]; !driven {
+			t.Errorf("%s carries one tenant's pass, but nothing here proves it refuses args naming no workspace — drive its worker above, or it can stop refusing and no test will notice", kind)
+		}
+	}
+	if declared < workspaceKindFloor {
+		t.Fatalf("the contract declares only %d workspace kinds, expected at least %d — the derivation resolved almost nothing and this suite would demand almost nothing",
+			declared, workspaceKindFloor)
+	}
+	for kind := range refusals {
+		spec, declaredKind := jobs.SpecFor(kind)
+		if !declaredKind || !bindsAWorkspace(spec) {
+			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace-binding kind by that name — the suite is pinning something the fleet does not run", kind)
+		}
+	}
+
+	for kind, work := range refusals {
+		t.Run(kind, func(t *testing.T) {
+			if err := work(context.Background()); err == nil {
+				t.Fatalf("%s accepted args naming no workspace — it would bind an empty GUC and read whatever the connection carries", kind)
+			}
+		})
+	}
+}
+
+// A worker given a REAL workspace must get past the guard, bound to THAT
+// workspace. Without the positive case the suite above would still pass
+// against a guard that refused everything; without the identity check it would
+// pass against one that bound the wrong tenant.
+func TestTheWorkspaceGuardBindsTheWorkspaceTheArgsDeclare(t *testing.T) {
+	want := ids.NewV7()
+
+	ctx, err := workspaceJobCtx(context.Background(), CloseDateWorkspaceArgs{Workspace: want})
+	if err != nil {
+		t.Fatalf("the guard refused a workspace it was given: %v", err)
+	}
+	got, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		t.Fatal("the guard admitted the workspace but bound nothing — every tenant query would fail on an unset GUC")
+	}
+	if got != want {
+		t.Fatalf("the guard bound %s, want the %s its args declared", got, want)
+	}
+}
+
+// bindsAWorkspace reads the obligation off the ARGS rather than off the role.
+// A worker binds a tenant while its args still name one, and ADR-0091 §8 is
+// removing those a module at a time — so a collapsed pass that no longer
+// carries a workspace has nothing to refuse, and demanding a refusal from it
+// would be demanding a guard against a field that does not exist.
+func bindsAWorkspace(spec jobs.Spec) bool {
+	for _, arg := range spec.Args {
+		if arg.Name == "Workspace" {
+			return true
+		}
+	}
+	return false
+}
+
+// workspaceRefusalDrivers names one driver per workspace-binding job kind.
+//
+// Named by kind rather than by Go type: a failure should say which JOB is
+// unguarded, because that is what an operator and the ledger both talk in. It
+// sits apart from the test so the assertions there stay readable as the fleet
+// grows — the table is the fixture, not the reasoning.
+func workspaceRefusalDrivers() map[string]func(context.Context) error {
+	return map[string]func(context.Context) error{
 		CloseDateWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&closeDateWorkspaceWorker{}).Work(ctx, &river.Job[CloseDateWorkspaceArgs]{})
 		},
@@ -151,12 +222,6 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		FinanceSyncArgs{}.Kind(): func(ctx context.Context) error {
 			return (&financeSyncWorker{}).Work(ctx, &river.Job[FinanceSyncArgs]{})
 		},
-		AgentTaskRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&agentTaskRetentionWorkspaceWorker{}).Work(ctx, &river.Job[AgentTaskRetentionWorkspaceArgs]{})
-		},
-		AgentSchedulerWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&agentSchedulerWorkspaceWorker{}).Work(ctx, &river.Job[AgentSchedulerWorkspaceArgs]{})
-		},
 		PrivacyRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&privacyRetentionWorkspaceWorker{}).Work(ctx, &river.Job[PrivacyRetentionWorkspaceArgs]{})
 		},
@@ -182,6 +247,14 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 			})
 		},
 
+		// The transcript reading refuses before it reaches the store, so a
+		// worker with no proposer and no store is enough to prove it: an
+		// unbound workspace is answered by the guard, not by a nil deref.
+		TranscriptProposeArgs{}.Kind(): func(ctx context.Context) error {
+			return (&transcriptProposeWorker{log: slog.New(slog.DiscardHandler)}).Work(
+				ctx, &river.Job[TranscriptProposeArgs]{Args: TranscriptProposeArgs{}})
+		},
+
 		// The reindex worker takes its LAST attempt out of the pending set
 		// before returning, which is a store write; the row here is given an
 		// attempt below its cap so the refusal is what the call answers with,
@@ -192,67 +265,4 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 			})
 		},
 	}
-
-	declared := 0
-	for kind, spec := range jobs.Declared() {
-		if !bindsAWorkspace(spec) {
-			continue
-		}
-		declared++
-		if _, driven := refusals[kind]; !driven {
-			t.Errorf("%s carries one tenant's pass, but nothing here proves it refuses args naming no workspace — drive its worker above, or it can stop refusing and no test will notice", kind)
-		}
-	}
-	if declared < workspaceKindFloor {
-		t.Fatalf("the contract declares only %d workspace kinds, expected at least %d — the derivation resolved almost nothing and this suite would demand almost nothing",
-			declared, workspaceKindFloor)
-	}
-	for kind := range refusals {
-		spec, declaredKind := jobs.SpecFor(kind)
-		if !declaredKind || !bindsAWorkspace(spec) {
-			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace-binding kind by that name — the suite is pinning something the fleet does not run", kind)
-		}
-	}
-
-	for kind, work := range refusals {
-		t.Run(kind, func(t *testing.T) {
-			if err := work(context.Background()); err == nil {
-				t.Fatalf("%s accepted args naming no workspace — it would bind an empty GUC and read whatever the connection carries", kind)
-			}
-		})
-	}
-}
-
-// A worker given a REAL workspace must get past the guard, bound to THAT
-// workspace. Without the positive case the suite above would still pass
-// against a guard that refused everything; without the identity check it would
-// pass against one that bound the wrong tenant.
-func TestTheWorkspaceGuardBindsTheWorkspaceTheArgsDeclare(t *testing.T) {
-	want := ids.NewV7()
-
-	ctx, err := workspaceJobCtx(context.Background(), CloseDateWorkspaceArgs{Workspace: want})
-	if err != nil {
-		t.Fatalf("the guard refused a workspace it was given: %v", err)
-	}
-	got, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		t.Fatal("the guard admitted the workspace but bound nothing — every tenant query would fail on an unset GUC")
-	}
-	if got != want {
-		t.Fatalf("the guard bound %s, want the %s its args declared", got, want)
-	}
-}
-
-// bindsAWorkspace reads the obligation off the ARGS rather than off the role.
-// A worker binds a tenant while its args still name one, and ADR-0091 §8 is
-// removing those a module at a time — so a collapsed pass that no longer
-// carries a workspace has nothing to refuse, and demanding a refusal from it
-// would be demanding a guard against a field that does not exist.
-func bindsAWorkspace(spec jobs.Spec) bool {
-	for _, arg := range spec.Args {
-		if arg.Name == "Workspace" {
-			return true
-		}
-	}
-	return false
 }

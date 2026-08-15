@@ -51,10 +51,10 @@ func NewAgentTaskRetentionSweeper(pool *pgxpool.Pool, log *slog.Logger) *AgentTa
 	return &AgentTaskRetentionSweeper{pool: pool, log: log}
 }
 
-// SweepWorkspace deletes every expired task in the workspace already bound in
-// ctx. It reports how many rows went, because a retention pass that says
-// nothing reads exactly like one that had nothing to do.
-func (s *AgentTaskRetentionSweeper) SweepWorkspace(ctx context.Context) error {
+// Sweep deletes every expired task. It reports how many rows went, because a
+// retention pass that says nothing reads exactly like one that had nothing to
+// do.
+func (s *AgentTaskRetentionSweeper) Sweep(ctx context.Context) error {
 	wsCtx := principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem,
 		ID:   agentTaskRetentionActor,

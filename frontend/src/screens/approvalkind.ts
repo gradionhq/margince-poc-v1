@@ -27,6 +27,10 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   update_record: "approval.kind.update_record",
   create_record: "approval.kind.create_record",
   send_email: "approval.kind.send_email",
+  // Named for what the reader has to DO, not for what produced it: the row is
+  // an email waiting to be read and released, and "held draft" describes its
+  // state in a queue rather than the decision in front of them.
+  held_draft: "approval.kind.held_draft",
   book_meeting: "approval.kind.book_meeting",
   send_offer: "approval.kind.send_offer",
   coldstart: "approval.kind.coldstart",
@@ -42,6 +46,7 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   capture_counterparty: "approval.kind.capture_counterparty",
   org_name_promotion: "approval.kind.org_name_promotion",
   lifecycle_change: "approval.kind.lifecycle_change",
+  transcript_proposal: "approval.kind.transcript_proposal",
   fx_rate_proposal: "approval.kind.fx_rate_proposal",
   ai_model_rate_proposal: "approval.kind.ai_model_rate_proposal",
 };
@@ -62,6 +67,17 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
 // changed no existing surface.
 export type EditableField =
   | { readonly field: string; readonly as: "text"; readonly label?: MessageKey }
+  | {
+      readonly field: string;
+      /**
+       * Prose that runs to paragraphs rather than a line. An email body in a
+       * single-line input is technically editable and practically unreadable:
+       * the reader can see about eight words of what they are being asked to
+       * put their name on.
+       */
+      readonly as: "textarea";
+      readonly label?: MessageKey;
+    }
   | {
       readonly field: string;
       readonly as: "choice";
@@ -121,6 +137,19 @@ export const EDITABLE_FIELDS: Readonly<
       options: ORG_LIFECYCLE_STAGES,
       optionLabels: ORG_LIFECYCLE_LABELS,
     },
+  ],
+  // An automation-composed email waiting for a human to read, correct and
+  // release. The words are the whole question, so both of them are offered.
+  //
+  // Declaring the fields also NARROWS what the editor shows, and here that is
+  // the point rather than a side effect: the payload also carries the
+  // addressee, the consent purpose and the anchor, and every one of those is
+  // something the approver is agreeing TO rather than something to retype. The
+  // server refuses an edited anchor outright (it is an entity reference, and
+  // edit scope pins those), so offering it would only invite a refusal.
+  held_draft: [
+    { field: "subject", as: "text", label: "inbox.draftSubject" },
+    { field: "body", as: "textarea", label: "inbox.draftBody" },
   ],
 };
 

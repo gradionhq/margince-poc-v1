@@ -48,6 +48,7 @@ import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
+import { isTranscriptActivity, TranscriptReadCard } from "./transcriptread";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -433,6 +434,12 @@ export function activityTimeline(
     bulkAttested: activity.bulk_mail_attested,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by, viewerUserId),
+    // Offered on the row rather than by each caller: a transcript is readable
+    // wherever it is listed, and a per-screen opt-in is how the same affordance
+    // ends up on the deal and missing on the person who was in the meeting.
+    detail: isTranscriptActivity(activity) ? (
+      <TranscriptReadCard activityId={activity.id} />
+    ) : undefined,
     actions: renderActions?.(activity),
   }));
 }

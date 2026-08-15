@@ -41,22 +41,29 @@ import (
 // Restarts are idempotent — bootstrap values never reconcile into an
 // existing organization.
 func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, cfg deployconfig.Config) error {
-	var create *identity.InstallationBootstrap
+	var create func() (identity.InstallationBootstrap, error)
 	if b := cfg.BootstrapAdmin; b != nil {
 		if cfg.Organization.Name == "" {
 			return errors.New("compose: bootstrap_admin is configured but organization.name is missing — both are required to bootstrap an empty database")
 		}
-		pw, err := b.Password()
-		if err != nil {
-			return err
-		}
-		create = &identity.InstallationBootstrap{
-			OrganizationName: cfg.Organization.Name,
-			BaseCurrency:     cfg.Organization.BaseCurrency,
-			Timezone:         cfg.Organization.Timezone,
-			AdminEmail:       b.Email,
-			AdminName:        b.DisplayName,
-			AdminPassword:    pw,
+		// The password secret is read inside this closure, which bootstrap
+		// calls only when it is actually creating the organization. Reading it
+		// here would read it on every boot, and ADR-0061 §2 permits deleting
+		// the secret once the organization exists — so an installation that
+		// followed the ADR would stop booting.
+		create = func() (identity.InstallationBootstrap, error) {
+			pw, err := b.Password()
+			if err != nil {
+				return identity.InstallationBootstrap{}, err
+			}
+			return identity.InstallationBootstrap{
+				OrganizationName: cfg.Organization.Name,
+				BaseCurrency:     cfg.Organization.BaseCurrency,
+				Timezone:         cfg.Organization.Timezone,
+				AdminEmail:       b.Email,
+				AdminName:        b.DisplayName,
+				AdminPassword:    pw,
+			}, nil
 		}
 	}
 

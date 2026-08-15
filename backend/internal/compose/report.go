@@ -75,6 +75,29 @@ const (
 	fieldCurrency       = "currency"
 	fieldPipelineID     = "pipeline_id"
 	fieldOwnerID        = "owner_id"
+	fieldAmountMinor    = "amount_minor"
+
+	// The aggregate-function vocabulary aggregateSelect switches on. Named for
+	// the same reason as the field names above: it is a CLOSED set that several
+	// specs spell, and a set discoverable only by reading a switch is one a
+	// second spelling can drift away from unnoticed.
+	aggFnCount = "count"
+	aggFnSum   = "sum"
+	aggFnAvg   = "avg"
+	aggFnMin   = "min"
+	aggFnMax   = "max"
+
+	// aliasDeals is the output column the three deal-side specs count into by
+	// DEFAULT. An alias is otherwise the caller's own free-form name; this one
+	// is shared because those three default plans answer the same question, and
+	// a reader comparing two reports should not have to notice a spelling
+	// difference that means nothing.
+	aliasDeals = "deals"
+	// aliasCount is the ad-hoc plan's output column. Spelled apart from
+	// aggFnCount even though the two strings match: one names a FUNCTION the
+	// engine switches on, the other an output column a caller reads, and
+	// renaming the function must never rename somebody's column.
+	aliasCount = "count"
 )
 
 type reportAggregate struct {
@@ -142,20 +165,20 @@ const reportZoneToken = "<<installation-timezone>>"
 var prebuiltReports = map[string]reportSpec{
 	"open-deals-per-company": {
 		entity:     datasource.EntityDeal,
-		table:      "deal",
+		table:      tableDeal,
 		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain:  "live (unarchived) open deals",
 		dimensions: map[string]string{fieldOrganizationID: colOrganizationID, fieldOwnerID: colOwnerID},
-		measures:   map[string]string{"amount_minor": colAmountMinor},
+		measures:   map[string]string{fieldAmountMinor: colAmountMinor},
 		filters:    map[string]string{fieldOwnerID: colOwnerID, fieldPipelineID: colPipelineID},
 		defaultBy:  []string{fieldOrganizationID},
 		defaultAggs: []reportAggregate{
-			{Fn: "count", As: "open_deals"},
+			{Fn: aggFnCount, As: "open_deals"},
 		},
 	},
 	"deals-by-stage": {
 		entity:    datasource.EntityDeal,
-		table:     "deal",
+		table:     tableDeal,
 		joins:     []string{joinStageForWinProbability},
 		baseWhere: whereArchivedNull,
 		basePlain: "live (unarchived) deals",
@@ -167,7 +190,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldCurrency:       colCurrency,
 		},
 		measures: map[string]string{
-			"amount_minor":           colAmountMinor,
+			fieldAmountMinor:         colAmountMinor,
 			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		// No stage_id filter: nothing serves it (the screen groups BY stage_id
@@ -188,8 +211,8 @@ var prebuiltReports = map[string]reportSpec{
 		},
 		defaultBy: []string{fieldStageID},
 		defaultAggs: []reportAggregate{
-			{Fn: "count", As: "deals"},
-			{Fn: "sum", Field: "amount_minor", As: "amount_minor_sum"},
+			{Fn: aggFnCount, As: aliasDeals},
+			{Fn: aggFnSum, Field: fieldAmountMinor, As: "amount_minor_sum"},
 		},
 	},
 	"activities-by-kind": {
@@ -203,9 +226,13 @@ var prebuiltReports = map[string]reportSpec{
 		filters:      map[string]string{"kind": "t.kind", "direction": "t.direction"},
 		defaultBy:    []string{"kind"},
 		defaultAggs: []reportAggregate{
-			{Fn: "count", As: "activities"},
+			{Fn: aggFnCount, As: "activities"},
 		},
 	},
+	// win-loss (REPORT-KEY-8) is assembled by winLossSpec in reportperiod.go
+	// rather than spelled inline: it carries the period-bucket vocabulary with
+	// it, and this file is at the package's file-length cap.
+	"win-loss": winLossSpec(),
 	// The forecast (B-E09.10) is a parameterized report over this same
 	// engine, not a separate subsystem. Weighted value follows
 	// formulas-and-rules §6: round(amount_minor × stage.win_probability
@@ -216,7 +243,7 @@ var prebuiltReports = map[string]reportSpec{
 	// counts once (AC-F2).
 	"forecast": {
 		entity:    datasource.EntityDeal,
-		table:     "deal",
+		table:     tableDeal,
 		joins:     []string{joinStageForWinProbability},
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
@@ -229,7 +256,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldWinProbability: colWinProbability,
 		},
 		measures: map[string]string{
-			"amount_minor":           colAmountMinor,
+			fieldAmountMinor:         colAmountMinor,
 			fieldWeightedAmountMinor: weightedAmountMinorExpr,
 		},
 		filters: map[string]string{
@@ -241,9 +268,9 @@ var prebuiltReports = map[string]reportSpec{
 		},
 		defaultBy: []string{"forecast_category"},
 		defaultAggs: []reportAggregate{
-			{Fn: "count", As: "deals"},
-			{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
-			{Fn: "sum", Field: fieldWeightedAmountMinor, As: "weighted_minor"},
+			{Fn: aggFnCount, As: aliasDeals},
+			{Fn: aggFnSum, Field: fieldAmountMinor, As: "unweighted_minor"},
+			{Fn: aggFnSum, Field: fieldWeightedAmountMinor, As: "weighted_minor"},
 		},
 	},
 }
@@ -373,9 +400,9 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 		return "", "", &ReservedAliasError{Alias: name}
 	}
 	switch agg.Fn {
-	case "count":
+	case aggFnCount:
 		return name, fmt.Sprintf("count(*) AS %s", quoteIdent(name)), nil
-	case "sum", "avg", "min", "max":
+	case aggFnSum, aggFnAvg, aggFnMin, aggFnMax:
 		expr, ok := spec.measures[agg.Field]
 		if !ok {
 			return "", "", &FieldNotAllowedError{Field: agg.Field, Slot: slotAggregates, Allowed: allowedReportNames(spec.measures)}
@@ -405,7 +432,7 @@ func (e *reportEngine) runAdHocPlan(ctx context.Context, plan datasource.ReportP
 		dimensions:   map[string]string{},
 		measures:     map[string]string{},
 		filters:      map[string]string{},
-		defaultAggs:  []reportAggregate{{Fn: "count", As: "count"}},
+		defaultAggs:  []reportAggregate{{Fn: aggFnCount, As: aliasCount}},
 	}
 	for _, f := range fields {
 		expr := "t." + f.Name

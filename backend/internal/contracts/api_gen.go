@@ -579,36 +579,6 @@ func (e ApplyTagRequestEntityType) Valid() bool {
 	}
 }
 
-// Defines values for ApprovalEvidenceSourceType.
-const (
-	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
-	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
-	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
-	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
-	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
-	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
-)
-
-// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
-func (e ApprovalEvidenceSourceType) Valid() bool {
-	switch e {
-	case ApprovalEvidenceSourceTypeActivity:
-		return true
-	case ApprovalEvidenceSourceTypeDeal:
-		return true
-	case ApprovalEvidenceSourceTypeLessThannil:
-		return true
-	case ApprovalEvidenceSourceTypePage:
-		return true
-	case ApprovalEvidenceSourceTypeRelationship:
-		return true
-	case ApprovalEvidenceSourceTypeSignal:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ApprovalStatus.
 const (
 	ApprovalStatusApproved ApprovalStatus = "approved"
@@ -651,6 +621,36 @@ func (e ApprovalBundleMemberOutcome) Valid() bool {
 	case ApprovalBundleMemberOutcomeEffectFailed:
 		return true
 	case ApprovalBundleMemberOutcomeExpired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalEvidenceSourceType.
+const (
+	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
+	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
+	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
+	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
+	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
+	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalEvidenceSourceType enum.
+func (e ApprovalEvidenceSourceType) Valid() bool {
+	switch e {
+	case ApprovalEvidenceSourceTypeActivity:
+		return true
+	case ApprovalEvidenceSourceTypeDeal:
+		return true
+	case ApprovalEvidenceSourceTypeLessThannil:
+		return true
+	case ApprovalEvidenceSourceTypePage:
+		return true
+	case ApprovalEvidenceSourceTypeRelationship:
+		return true
+	case ApprovalEvidenceSourceTypeSignal:
 		return true
 	default:
 		return false
@@ -1203,7 +1203,9 @@ func (e BackfillPreviewEstimateQuality) Valid() bool {
 // Defines values for BackfillPreviewWindow.
 const (
 	BackfillPreviewWindowN12m BackfillPreviewWindow = "12m"
+	BackfillPreviewWindowN24m BackfillPreviewWindow = "24m"
 	BackfillPreviewWindowN3m  BackfillPreviewWindow = "3m"
+	BackfillPreviewWindowN60m BackfillPreviewWindow = "60m"
 	BackfillPreviewWindowN6m  BackfillPreviewWindow = "6m"
 	BackfillPreviewWindowNone BackfillPreviewWindow = "none"
 )
@@ -1213,7 +1215,11 @@ func (e BackfillPreviewWindow) Valid() bool {
 	switch e {
 	case BackfillPreviewWindowN12m:
 		return true
+	case BackfillPreviewWindowN24m:
+		return true
 	case BackfillPreviewWindowN3m:
+		return true
+	case BackfillPreviewWindowN60m:
 		return true
 	case BackfillPreviewWindowN6m:
 		return true
@@ -1227,7 +1233,9 @@ func (e BackfillPreviewWindow) Valid() bool {
 // Defines values for BackfillPreviewRequestWindow.
 const (
 	BackfillPreviewRequestWindowN12m BackfillPreviewRequestWindow = "12m"
+	BackfillPreviewRequestWindowN24m BackfillPreviewRequestWindow = "24m"
 	BackfillPreviewRequestWindowN3m  BackfillPreviewRequestWindow = "3m"
+	BackfillPreviewRequestWindowN60m BackfillPreviewRequestWindow = "60m"
 	BackfillPreviewRequestWindowN6m  BackfillPreviewRequestWindow = "6m"
 	BackfillPreviewRequestWindowNone BackfillPreviewRequestWindow = "none"
 )
@@ -1237,7 +1245,11 @@ func (e BackfillPreviewRequestWindow) Valid() bool {
 	switch e {
 	case BackfillPreviewRequestWindowN12m:
 		return true
+	case BackfillPreviewRequestWindowN24m:
+		return true
 	case BackfillPreviewRequestWindowN3m:
+		return true
+	case BackfillPreviewRequestWindowN60m:
 		return true
 	case BackfillPreviewRequestWindowN6m:
 		return true
@@ -1282,7 +1294,9 @@ func (e BackfillStatusState) Valid() bool {
 const (
 	BackfillStatusWindowLessThannil BackfillStatusWindow = "<nil>"
 	BackfillStatusWindowN12m        BackfillStatusWindow = "12m"
+	BackfillStatusWindowN24m        BackfillStatusWindow = "24m"
 	BackfillStatusWindowN3m         BackfillStatusWindow = "3m"
+	BackfillStatusWindowN60m        BackfillStatusWindow = "60m"
 	BackfillStatusWindowN6m         BackfillStatusWindow = "6m"
 )
 
@@ -1293,7 +1307,11 @@ func (e BackfillStatusWindow) Valid() bool {
 		return true
 	case BackfillStatusWindowN12m:
 		return true
+	case BackfillStatusWindowN24m:
+		return true
 	case BackfillStatusWindowN3m:
+		return true
+	case BackfillStatusWindowN60m:
 		return true
 	case BackfillStatusWindowN6m:
 		return true
@@ -4059,6 +4077,48 @@ func (e LeadStatus) Valid() bool {
 	case LeadStatusPromoted:
 		return true
 	case LeadStatusWorking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadManualSignalFactor.
+const (
+	LeadManualSignalFactorBudgetHint LeadManualSignalFactor = "budget_hint"
+	LeadManualSignalFactorEmployees  LeadManualSignalFactor = "employees"
+	LeadManualSignalFactorWebTraffic LeadManualSignalFactor = "web_traffic"
+)
+
+// Valid indicates whether the value is a known member of the LeadManualSignalFactor enum.
+func (e LeadManualSignalFactor) Valid() bool {
+	switch e {
+	case LeadManualSignalFactorBudgetHint:
+		return true
+	case LeadManualSignalFactorEmployees:
+		return true
+	case LeadManualSignalFactorWebTraffic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadManualSignalKind.
+const (
+	LeadManualSignalKindAssumption LeadManualSignalKind = "assumption"
+	LeadManualSignalKindFact       LeadManualSignalKind = "fact"
+	LeadManualSignalKindJudgement  LeadManualSignalKind = "judgement"
+)
+
+// Valid indicates whether the value is a known member of the LeadManualSignalKind enum.
+func (e LeadManualSignalKind) Valid() bool {
+	switch e {
+	case LeadManualSignalKindAssumption:
+		return true
+	case LeadManualSignalKindFact:
+		return true
+	case LeadManualSignalKindJudgement:
 		return true
 	default:
 		return false
@@ -7188,6 +7248,7 @@ const (
 	ScheduledSendStatusHeld      ScheduledSendStatus = "held"
 	ScheduledSendStatusReleased  ScheduledSendStatus = "released"
 	ScheduledSendStatusScheduled ScheduledSendStatus = "scheduled"
+	ScheduledSendStatusSent      ScheduledSendStatus = "sent"
 )
 
 // Valid indicates whether the value is a known member of the ScheduledSendStatus enum.
@@ -7200,6 +7261,8 @@ func (e ScheduledSendStatus) Valid() bool {
 	case ScheduledSendStatusReleased:
 		return true
 	case ScheduledSendStatusScheduled:
+		return true
+	case ScheduledSendStatusSent:
 		return true
 	default:
 		return false
@@ -7272,6 +7335,27 @@ func (e SetBlockedDomainRequestAdmission) Valid() bool {
 	case Admitted:
 		return true
 	case Suppressed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetLeadManualSignalRequestFactor.
+const (
+	SetLeadManualSignalRequestFactorBudgetHint SetLeadManualSignalRequestFactor = "budget_hint"
+	SetLeadManualSignalRequestFactorEmployees  SetLeadManualSignalRequestFactor = "employees"
+	SetLeadManualSignalRequestFactorWebTraffic SetLeadManualSignalRequestFactor = "web_traffic"
+)
+
+// Valid indicates whether the value is a known member of the SetLeadManualSignalRequestFactor enum.
+func (e SetLeadManualSignalRequestFactor) Valid() bool {
+	switch e {
+	case SetLeadManualSignalRequestFactorBudgetHint:
+		return true
+	case SetLeadManualSignalRequestFactorEmployees:
+		return true
+	case SetLeadManualSignalRequestFactorWebTraffic:
 		return true
 	default:
 		return false
@@ -7794,7 +7878,9 @@ func (e StageSemantic) Valid() bool {
 // Defines values for StartBackfillRequestWindow.
 const (
 	N12m StartBackfillRequestWindow = "12m"
+	N24m StartBackfillRequestWindow = "24m"
 	N3m  StartBackfillRequestWindow = "3m"
+	N60m StartBackfillRequestWindow = "60m"
 	N6m  StartBackfillRequestWindow = "6m"
 )
 
@@ -7803,7 +7889,11 @@ func (e StartBackfillRequestWindow) Valid() bool {
 	switch e {
 	case N12m:
 		return true
+	case N24m:
+		return true
 	case N3m:
+		return true
+	case N60m:
 		return true
 	case N6m:
 		return true
@@ -7830,6 +7920,48 @@ func (e TaggableEntityType) Valid() bool {
 	case TaggableEntityTypeOrganization:
 		return true
 	case TaggableEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TranscriptReadReportStatus.
+const (
+	TranscriptReadReportStatusDone    TranscriptReadReportStatus = "done"
+	TranscriptReadReportStatusFailed  TranscriptReadReportStatus = "failed"
+	TranscriptReadReportStatusQueued  TranscriptReadReportStatus = "queued"
+	TranscriptReadReportStatusRunning TranscriptReadReportStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptReadReportStatus enum.
+func (e TranscriptReadReportStatus) Valid() bool {
+	switch e {
+	case TranscriptReadReportStatusDone:
+		return true
+	case TranscriptReadReportStatusFailed:
+		return true
+	case TranscriptReadReportStatusQueued:
+		return true
+	case TranscriptReadReportStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TranscriptReadStartedStatus.
+const (
+	TranscriptReadStartedStatusQueued  TranscriptReadStartedStatus = "queued"
+	TranscriptReadStartedStatusRunning TranscriptReadStartedStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptReadStartedStatus enum.
+func (e TranscriptReadStartedStatus) Valid() bool {
+	switch e {
+	case TranscriptReadStartedStatusQueued:
+		return true
+	case TranscriptReadStartedStatusRunning:
 		return true
 	default:
 		return false
@@ -8411,31 +8543,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -9873,6 +10005,7 @@ const (
 	Held      ListScheduledSendsParamsStatus = "held"
 	Released  ListScheduledSendsParamsStatus = "released"
 	Scheduled ListScheduledSendsParamsStatus = "scheduled"
+	Sent      ListScheduledSendsParamsStatus = "sent"
 )
 
 // Valid indicates whether the value is a known member of the ListScheduledSendsParamsStatus enum.
@@ -9885,6 +10018,8 @@ func (e ListScheduledSendsParamsStatus) Valid() bool {
 	case Released:
 		return true
 	case Scheduled:
+		return true
+	case Sent:
 		return true
 	default:
 		return false
@@ -10618,11 +10753,7 @@ type Approval struct {
 	DiffHash *string `json:"diff_hash,omitempty"`
 
 	// Evidence Per-claim evidence (snippet + source id) backing the proposal.
-	Evidence *[]struct {
-		EvidenceSnippet *string                     `json:"evidence_snippet,omitempty"`
-		SourceId        *openapi_types.UUID         `json:"source_id,omitempty"`
-		SourceType      *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
-	} `json:"evidence,omitempty"`
+	Evidence *[]ApprovalEvidence `json:"evidence,omitempty"`
 
 	// ExpiresAt When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.
 	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
@@ -10654,9 +10785,6 @@ type Approval struct {
 	// TargetVersion The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).
 	TargetVersion *int `json:"target_version,omitempty"`
 }
-
-// ApprovalEvidenceSourceType defines model for Approval.Evidence.SourceType.
-type ApprovalEvidenceSourceType string
 
 // ApprovalStatus defines model for Approval.Status.
 type ApprovalStatus string
@@ -10704,6 +10832,20 @@ type ApprovalBundleMember struct {
 // audited, but the follow-on change did not land; the member reads approved and
 // unredeemed, and the server log carries the cause.
 type ApprovalBundleMemberOutcome string
+
+// ApprovalEvidence One claim's backing material, so confirming a proposal is a check rather than a vote of confidence in the model. Per claim, not per approval: a proposal asserting three things carries three of these.
+type ApprovalEvidence struct {
+	// EvidenceSnippet The fragment as it reads in the source, quoted rather than paraphrased.
+	EvidenceSnippet string              `json:"evidence_snippet"`
+	SourceId        *openapi_types.UUID `json:"source_id,omitempty"`
+
+	// SourceLines 1-based line numbers within the source record's body that this claim was read from, for a source whose body is line-addressed (a meeting transcript today, per ADR-0058: line N is the Nth newline-split segment of activity.body). Absent for a source that is not line-addressed.
+	SourceLines *[]int                      `json:"source_lines,omitempty"`
+	SourceType  *ApprovalEvidenceSourceType `json:"source_type,omitempty"`
+}
+
+// ApprovalEvidenceSourceType defines model for ApprovalEvidence.SourceType.
+type ApprovalEvidenceSourceType string
 
 // ApprovalListResponse defines model for ApprovalListResponse.
 type ApprovalListResponse struct {
@@ -11079,11 +11221,11 @@ type BackfillPreviewWindow string
 
 // BackfillPreviewRequest defines model for BackfillPreviewRequest.
 type BackfillPreviewRequest struct {
-	// Window The CAP-PARAM-4 window; default UI selection is 6m.
+	// Window The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
 	Window BackfillPreviewRequestWindow `json:"window"`
 }
 
-// BackfillPreviewRequestWindow The CAP-PARAM-4 window; default UI selection is 6m.
+// BackfillPreviewRequestWindow The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.
 type BackfillPreviewRequestWindow string
 
 // BackfillStatus The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1).
@@ -13608,6 +13750,108 @@ type LeadStatus string
 type LeadListResponse struct {
 	Data []Lead   `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// LeadManualSignal A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+// replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+// by enrichment (ADR-0105 §4).
+type LeadManualSignal struct {
+	// Band The band picked for this factor; validated per factor.
+	Band       string                 `json:"band"`
+	Confidence *float32               `json:"confidence,omitempty"`
+	Factor     LeadManualSignalFactor `json:"factor"`
+
+	// Points The band→points mapping. May be negative.
+	Points int                `json:"points"`
+	Reason string             `json:"reason"`
+	SetAt  time.Time          `json:"set_at"`
+	SetBy  openapi_types.UUID `json:"set_by"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind   LeadManualSignalKind `json:"signal_kind"`
+	SupersededAt *time.Time           `json:"superseded_at,omitempty"`
+
+	// SupersededBy Names the auto source that took over, so the rep sees WHAT replaced their estimate.
+	SupersededBy *string `json:"superseded_by,omitempty"`
+}
+
+// LeadManualSignalFactor defines model for LeadManualSignal.Factor.
+type LeadManualSignalFactor string
+
+// LeadManualSignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+// `judgement` — a read of the situation. Shown on the factor, never
+// blended into an auto-captured signal (AC-S7a).
+type LeadManualSignalKind string
+
+// LeadScoreEntry One point in the retained series — what the score was, and why.
+type LeadScoreEntry struct {
+	ComputedAt time.Time          `json:"computed_at"`
+	Factors    *[]LeadScoreFactor `json:"factors,omitempty"`
+
+	// OverrideReason The Commercial Judgement reason in force at this point; null when the score is machine-computed.
+	OverrideReason *string `json:"override_reason,omitempty"`
+
+	// RawSum The fractional sum of the factors, before rounding.
+	RawSum float32 `json:"raw_sum"`
+
+	// RoundedSum raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired.
+	RoundedSum int `json:"rounded_sum"`
+
+	// Score The DISPLAYED score at this point: the human's number under an override, else the machine value.
+	Score int `json:"score"`
+
+	// ScoreComputed The machine value the factors below reconcile to.
+	ScoreComputed int `json:"score_computed"`
+}
+
+// LeadScoreExplanation The current explanation, or the retained series when `history=true`. `explained` is
+// false for a lead whose score predates the retained series; `current` is then absent
+// rather than carrying an empty factor list, which would read as "nothing contributed".
+type LeadScoreExplanation struct {
+	// Current One point in the retained series — what the score was, and why.
+	Current *LeadScoreEntry `json:"current,omitempty"`
+
+	// Explained False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1).
+	Explained bool `json:"explained"`
+
+	// History Present only when `history=true`.
+	History *[]LeadScoreEntry `json:"history,omitempty"`
+	Page    *PageInfo         `json:"page,omitempty"`
+
+	// Score The lead's displayed score right now.
+	Score int `json:"score"`
+}
+
+// LeadScoreFactor One row of the decomposition. `points` is the factor's contribution AFTER decay and
+// BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+// `raw_sum` — never, on their own, to `score_computed`.
+type LeadScoreFactor struct {
+	// BasePoints The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay.
+	BasePoints *float32 `json:"base_points,omitempty"`
+
+	// Factor The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+	// `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+	// `meeting_booked`), or a human-provided one (`manual:<factor>`).
+	Factor string `json:"factor"`
+
+	// Points Contribution after decay. May be negative (low_intent_source).
+	Points float32 `json:"points"`
+
+	// Reason The written reason on a manual factor.
+	Reason *string `json:"reason,omitempty"`
+
+	// SetBy The human who supplied a manual factor. Null for machine factors.
+	SetBy *openapi_types.UUID `json:"set_by,omitempty"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind *LeadManualSignalKind `json:"signal_kind,omitempty"`
+
+	// SourceActivityIds The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3).
+	SourceActivityIds *[]openapi_types.UUID `json:"source_activity_ids,omitempty"`
 }
 
 // LinkedInAccount defines model for LinkedInAccount.
@@ -17714,9 +17958,11 @@ type ScheduledSend struct {
 	ScheduledTz string `json:"scheduled_tz"`
 
 	// Status `scheduled` — waiting; the rep may move or cancel it.
-	// `released` — it fired: the activity, the delivery row and the dispatch job exist.
-	// Deliberately NOT "sent": the provider has not been called yet and the delivery can
-	// still park or fail, so delivery truth lives on the outbound record, not here.
+	// `released` — it fired: the activity, the delivery row and the dispatch job exist,
+	// and the provider has not been called yet, so the delivery can still park or fail.
+	// A step rather than an ending.
+	// `sent` — the provider confirmed receipt. A message this system sent reads the same
+	// whether a rep scheduled it or sent it directly.
 	// `cancelled` — withdrawn before it fired; nothing was transmitted.
 	// `held` — a gate refused at fire, or the window was missed. It will not send itself;
 	// a human reschedules or cancels it.
@@ -17735,9 +17981,11 @@ type ScheduledSend struct {
 type ScheduledSendHeldReason string
 
 // ScheduledSendStatus `scheduled` — waiting; the rep may move or cancel it.
-// `released` — it fired: the activity, the delivery row and the dispatch job exist.
-// Deliberately NOT "sent": the provider has not been called yet and the delivery can
-// still park or fail, so delivery truth lives on the outbound record, not here.
+// `released` — it fired: the activity, the delivery row and the dispatch job exist,
+// and the provider has not been called yet, so the delivery can still park or fail.
+// A step rather than an ending.
+// `sent` — the provider confirmed receipt. A message this system sent reads the same
+// whether a rep scheduled it or sent it directly.
 // `cancelled` — withdrawn before it fired; nothing was transmitted.
 // `held` — a gate refused at fire, or the window was missed. It will not send itself;
 // a human reschedules or cancels it.
@@ -17989,6 +18237,24 @@ type SetFxRateRequest struct {
 	// Rate Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits.
 	Rate string `json:"rate"`
 }
+
+// SetLeadManualSignalRequest defines model for SetLeadManualSignalRequest.
+type SetLeadManualSignalRequest struct {
+	Band       string                           `json:"band"`
+	Confidence *float32                         `json:"confidence,omitempty"`
+	Factor     SetLeadManualSignalRequestFactor `json:"factor"`
+
+	// Reason Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end.
+	Reason string `json:"reason"`
+
+	// SignalKind `fact` — the rep knows this. `assumption` — a working estimate.
+	// `judgement` — a read of the situation. Shown on the factor, never
+	// blended into an auto-captured signal (AC-S7a).
+	SignalKind LeadManualSignalKind `json:"signal_kind"`
+}
+
+// SetLeadManualSignalRequestFactor defines model for SetLeadManualSignalRequest.Factor.
+type SetLeadManualSignalRequestFactor string
 
 // SetOverlayUserMapRequest defines model for SetOverlayUserMapRequest.
 type SetOverlayUserMapRequest struct {
@@ -18345,6 +18611,39 @@ type TeamListResponse struct {
 	Data []Team   `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// TranscriptReadReport What one reading of one transcript did. The three outcomes are kept apart on purpose: still reading, read it and it stated nothing, and could not read it are different answers, and collapsing the last two makes a correct empty result look like a broken feature.
+type TranscriptReadReport struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+	CreatedAt  time.Time          `json:"created_at"`
+	FinishedAt *time.Time         `json:"finished_at,omitempty"`
+
+	// LineCount How many lines the reading addressed, so a cited line can be shown against the size of what was read. It is the count at READ time; a later body edit re-normalizes and can change it, and each proposal's own evidence stays authoritative about what it saw.
+	LineCount int `json:"line_count"`
+
+	// ProposalIds The approvals this reading staged. Empty on a reading that found nothing to propose.
+	ProposalIds []openapi_types.UUID       `json:"proposal_ids"`
+	ReadId      openapi_types.UUID         `json:"read_id"`
+	StartedAt   *time.Time                 `json:"started_at,omitempty"`
+	Status      TranscriptReadReportStatus `json:"status"`
+
+	// StatusDetail Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading that produced nothing so an empty result explains itself.
+	StatusDetail *string `json:"status_detail,omitempty"`
+}
+
+// TranscriptReadReportStatus defines model for TranscriptReadReport.Status.
+type TranscriptReadReportStatus string
+
+// TranscriptReadStarted The 202 handle for a queued transcript reading.
+type TranscriptReadStarted struct {
+	ReadId openapi_types.UUID `json:"read_id"`
+
+	// Status The joined reading's state when one is already in flight.
+	Status TranscriptReadStartedStatus `json:"status"`
+}
+
+// TranscriptReadStartedStatus The joined reading's state when one is already in flight.
+type TranscriptReadStartedStatus string
 
 // UpdateActivityRequest defines model for UpdateActivityRequest.
 type UpdateActivityRequest struct {
@@ -20374,6 +20673,25 @@ type PromoteLeadParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// ExplainLeadScoreParams defines parameters for ExplainLeadScore.
+type ExplainLeadScoreParams struct {
+	// History Return the retained score series instead of the current explanation.
+	History *bool `form:"history,omitempty" json:"history,omitempty"`
+
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListListsParams defines parameters for ListLists.
 type ListListsParams struct {
 	EntityType *ListListsParamsEntityType `form:"entity_type,omitempty" json:"entity_type,omitempty"`
@@ -22088,6 +22406,16 @@ type CreateStageParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveStageParams defines parameters for ArchiveStage.
+type ArchiveStageParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateStageParams defines parameters for UpdateStage.
 type UpdateStageParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -22655,6 +22983,9 @@ type CreateLeadJSONRequestBody = CreateLeadRequest
 
 // UpdateLeadJSONRequestBody defines body for UpdateLead for application/json ContentType.
 type UpdateLeadJSONRequestBody = UpdateLeadRequest
+
+// SetLeadManualSignalJSONRequestBody defines body for SetLeadManualSignal for application/json ContentType.
+type SetLeadManualSignalJSONRequestBody = SetLeadManualSignalRequest
 
 // PromoteLeadJSONRequestBody defines body for PromoteLead for application/json ContentType.
 type PromoteLeadJSONRequestBody = PromoteLeadRequest
@@ -28639,6 +28970,15 @@ type ServerInterface interface {
 	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-message)
 	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
+	// Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+	// (POST /activities/{id}/transcript-proposals)
+	ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request, id Id)
+	// The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+	// (GET /activities/{id}/transcript-proposals/latest)
+	GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request, id Id)
+	// One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+	// (GET /activities/{id}/transcript-proposals/{readId})
+	GetTranscriptRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
 	// What the background system is holding, and whose work failed.
 	// (GET /admin/job-health)
 	GetJobHealth(w http.ResponseWriter, r *http.Request)
@@ -29023,9 +29363,18 @@ type ServerInterface interface {
 	// Update a lead (partial).
 	// (PATCH /leads/{id})
 	UpdateLead(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadParams)
+	// Enter or replace a human-provided scoring factor (S-E13.6).
+	// (PUT /leads/{id}/manual-signals)
+	SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id)
+	// Withdraw a human-provided scoring factor.
+	// (DELETE /leads/{id}/manual-signals/{factor})
+	ClearLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id, factor string)
 	// Promote a lead to a person on genuine engagement (non-lossy merge).
 	// (POST /leads/{id}/promote)
 	PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams)
+	// Explain This Score — the weighted-factor decomposition behind a lead's score.
+	// (GET /leads/{id}/score)
+	ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams)
 	// List lists (static + dynamic segments).
 	// (GET /lists)
 	ListLists(w http.ResponseWriter, r *http.Request, params ListListsParams)
@@ -29569,6 +29918,9 @@ type ServerInterface interface {
 	// Create a stage in a pipeline.
 	// (POST /stages)
 	CreateStage(w http.ResponseWriter, r *http.Request, params CreateStageParams)
+	// Remove a stage from its pipeline (soft delete; archive is the delete).
+	// (DELETE /stages/{id})
+	ArchiveStage(w http.ResponseWriter, r *http.Request, id Id, params ArchiveStageParams)
 	// Get a stage by id.
 	// (GET /stages/{id})
 	GetStage(w http.ResponseWriter, r *http.Request, id Id)
@@ -29770,6 +30122,24 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-message)
 func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+// (POST /activities/{id}/transcript-proposals)
+func (_ Unimplemented) ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+// (GET /activities/{id}/transcript-proposals/latest)
+func (_ Unimplemented) GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+// (GET /activities/{id}/transcript-proposals/{readId})
+func (_ Unimplemented) GetTranscriptRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30541,9 +30911,27 @@ func (_ Unimplemented) UpdateLead(w http.ResponseWriter, r *http.Request, id Id,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Enter or replace a human-provided scoring factor (S-E13.6).
+// (PUT /leads/{id}/manual-signals)
+func (_ Unimplemented) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Withdraw a human-provided scoring factor.
+// (DELETE /leads/{id}/manual-signals/{factor})
+func (_ Unimplemented) ClearLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id, factor string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Promote a lead to a person on genuine engagement (non-lossy merge).
 // (POST /leads/{id}/promote)
 func (_ Unimplemented) PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Explain This Score — the weighted-factor decomposition behind a lead's score.
+// (GET /leads/{id}/score)
+func (_ Unimplemented) ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31633,6 +32021,12 @@ func (_ Unimplemented) CreateStage(w http.ResponseWriter, r *http.Request, param
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Remove a stage from its pipeline (soft delete; archive is the delete).
+// (DELETE /stages/{id})
+func (_ Unimplemented) ArchiveStage(w http.ResponseWriter, r *http.Request, id Id, params ArchiveStageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get a stage by id.
 // (GET /stages/{id})
 func (_ Unimplemented) GetStage(w http.ResponseWriter, r *http.Request, id Id) {
@@ -32539,6 +32933,117 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadTranscriptForNextSteps operation middleware
+func (siw *ServerInterfaceWrapper) ReadTranscriptForNextSteps(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTranscriptForNextSteps(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLatestTranscriptRead operation middleware
+func (siw *ServerInterfaceWrapper) GetLatestTranscriptRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLatestTranscriptRead(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTranscriptRead operation middleware
+func (siw *ServerInterfaceWrapper) GetTranscriptRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTranscriptRead(w, r, id, readId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -37706,6 +38211,83 @@ func (siw *ServerInterfaceWrapper) UpdateLead(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// SetLeadManualSignal operation middleware
+func (siw *ServerInterfaceWrapper) SetLeadManualSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetLeadManualSignal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClearLeadManualSignal operation middleware
+func (siw *ServerInterfaceWrapper) ClearLeadManualSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "factor" -------------
+	var factor string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "factor", chi.URLParam(r, "factor"), &factor, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "factor", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearLeadManualSignal(w, r, id, factor)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PromoteLead operation middleware
 func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Request) {
 
@@ -37774,6 +38356,82 @@ func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PromoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExplainLeadScore operation middleware
+func (siw *ServerInterfaceWrapper) ExplainLeadScore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExplainLeadScoreParams
+
+	// ------------- Optional query parameter "history" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "history", r.URL.Query(), &params.History, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "history"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "history", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExplainLeadScore(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -46279,6 +46937,62 @@ func (siw *ServerInterfaceWrapper) CreateStage(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ArchiveStage operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveStage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveStageParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveStage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStage operation middleware
 func (siw *ServerInterfaceWrapper) GetStage(w http.ResponseWriter, r *http.Request) {
 
@@ -48606,6 +49320,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/{id}/transcript-proposals", wrapper.ReadTranscriptForNextSteps)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/transcript-proposals/latest", wrapper.GetLatestTranscriptRead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/transcript-proposals/{readId}", wrapper.GetTranscriptRead)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/job-health", wrapper.GetJobHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -48990,7 +49713,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/leads/{id}", wrapper.UpdateLead)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/leads/{id}/manual-signals", wrapper.SetLeadManualSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/leads/{id}/manual-signals/{factor}", wrapper.ClearLeadManualSignal)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads/{id}/promote", wrapper.PromoteLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/{id}/score", wrapper.ExplainLeadScore)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/lists", wrapper.ListLists)
@@ -49534,6 +50266,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/stages", wrapper.CreateStage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/stages/{id}", wrapper.ArchiveStage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/stages/{id}", wrapper.GetStage)

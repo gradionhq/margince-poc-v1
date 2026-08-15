@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -38,6 +39,23 @@ func workspaceJobCtx(ctx context.Context, args jobs.WorkspaceScoped) (context.Co
 		return nil, fmt.Errorf("%s: declares WorkspaceScoped but carries no workspace", args.Kind())
 	}
 	return principal.WithWorkspaceID(ctx, ws), nil
+}
+
+// installationJobCtx binds the installation's workspace for a collapsed pass —
+// one that carries no workspace of its own (ADR-0103 §1).
+//
+// The binding is NOT vestigial while any store still stamps its workspace_id
+// column from the context: storekit.MustWorkspace reads it, sixteen deals sites
+// and a handful in people, capture, ai and activities call it, and an agent tool
+// reaches several of them. Unbound, those inserts would stamp a zero uuid and
+// fail their foreign key — loudly, but for a reason nobody would recognise. It
+// retires with MustWorkspace itself (ADR-0091 §5), not before.
+func installationJobCtx(ctx context.Context, svc *identity.Service) (context.Context, error) {
+	ws, err := svc.InstallationWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return principal.WithWorkspaceID(ctx, ws.UUID), nil
 }
 
 // workspaceJobDB binds a handle to the workspace a per-workspace job NAMES.

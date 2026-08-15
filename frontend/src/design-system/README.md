@@ -58,7 +58,7 @@ arrive through props, translated by the caller with `t()`.
 | `DataTable` | A simple column/row table with optional row navigation | `atoms.tsx` | ✅ |
 | `EvidenceMark` | The ONE §4 provenance affordance: a dotted underline on a value a person did not type, opening to where it came from | `evidencemark.tsx` | ✅ |
 | `AutonomyDot` | The 🟢/🟡 autonomy semantics as a token component — never an emoji glyph | `trust.tsx` | ✅ |
-| `EvidenceChip` / `ConfidenceMeter` / `ProvenanceTag` | Where a value came from, how sure we are, who captured it. Inside `EvidenceMark` and on the staging surfaces — never stacked under a field | `trust.tsx` | ✅ |
+| `EvidenceChip` / `ConfidenceMeter` / `ProvenanceTag` | Where a value came from, how sure we are, who captured it. Inside `EvidenceMark` and on the staging surfaces — never stacked under a field. `EvidenceChip`'s `evidence.lines` adds WHERE in the source the snippet sits, as 1-based line numbers: consecutive numbers close into a range (`lines 12–14`) because that is one place in the transcript, gaps stay listed apart, and a source with no lines to point at renders exactly as before | `trust.tsx` | ✅ |
 | `ApprovalGate` / `StagingCard` / `StagedProposal` | Staged-not-real state and the Accept / Edit / Dismiss triad | `trust.tsx` | ✅ |
 | `FieldDiff` | The inline old→new value diff; a null side reads as a marker, never a blank | `trust.tsx` | ✅ |
 | `PassportChip` | An agent passport id, mono so it reads as an identifier | `trust.tsx` | ✅ |

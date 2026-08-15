@@ -40,7 +40,7 @@ func TestRenderDefinitionReadsAsPlainLanguage(t *testing.T) {
 
 func TestRenderDefinitionSpellsOutTheNullGroup(t *testing.T) {
 	got, err := renderDefinition(prebuiltReports["forecast"], nil,
-		[]boundPredicate{{Field: "owner_id", Value: ""}},
+		[]boundPredicate{{Field: "owner_id", IsNull: true}},
 		[]reportAggregate{{Fn: "count"}})
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +50,30 @@ func TestRenderDefinitionSpellsOutTheNullGroup(t *testing.T) {
 		`within the group where owner_id is not set: the number of matching records.`
 	if got != want {
 		t.Errorf("definition:\n got %q\nwant %q", got, want)
+	}
+}
+
+// An unset column and a column holding the empty string are different facts,
+// and the sentence a reader is shown has to say which one they are looking at.
+func TestRenderDefinitionTellsUnsetApartFromEmptyText(t *testing.T) {
+	unset, err := renderDefinition(prebuiltReports["forecast"], nil,
+		[]boundPredicate{{Field: "owner_id", IsNull: true}}, []reportAggregate{{Fn: "count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := renderDefinition(prebuiltReports["forecast"], nil,
+		[]boundPredicate{{Field: "owner_id", Value: ""}}, []reportAggregate{{Fn: "count"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unset == empty {
+		t.Fatalf("an unset column and an empty one read identically: %q", unset)
+	}
+	if !strings.Contains(unset, "owner_id is not set") {
+		t.Errorf("unset reads %q", unset)
+	}
+	if !strings.Contains(empty, `owner_id = ""`) {
+		t.Errorf("empty text reads %q", empty)
 	}
 }
 
@@ -93,12 +117,16 @@ func TestDerivationURLRoundTrip(t *testing.T) {
 		t.Errorf("aggregates = %+v", q.Aggregates)
 	}
 	wantPreds := map[string]string{
-		"pipeline_id":       "018f-pipe",
-		"owner_id":          "018f-owner",
-		"forecast_category": "", // NULL group key travels as the empty value
+		"pipeline_id": "018f-pipe",
+		"owner_id":    "018f-owner",
 	}
 	if !reflect.DeepEqual(q.Predicates, wantPreds) {
 		t.Errorf("predicates = %v, want %v", q.Predicates, wantPreds)
+	}
+	// An unset group key is NAMED as unset rather than carried as an empty
+	// value, so it cannot be confused with a column holding the empty string.
+	if !reflect.DeepEqual(q.Unset, map[string]bool{"forecast_category": true}) {
+		t.Errorf("unset = %v, want forecast_category", q.Unset)
 	}
 }
 
@@ -124,7 +152,10 @@ func TestParseDerivationQueryRejectsMalformedHandles(t *testing.T) {
 // row key; no report vocabulary may squat on them, or a minted URL
 // would be ambiguous. Derived from the catalog, not a list.
 func TestReportVocabularyAvoidsReservedDerivationNames(t *testing.T) {
-	reserved := map[string]bool{"by": true, "agg": true, reservedDerivationColumn: true}
+	reserved := map[string]bool{}
+	for _, key := range reservedDerivationKeys {
+		reserved[key] = true
+	}
 	for report, spec := range prebuiltReports {
 		for _, vocab := range []map[string]string{spec.dimensions, spec.measures, spec.filters} {
 			for field := range vocab {

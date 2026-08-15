@@ -14,7 +14,42 @@ export type ConfidenceLevel = "high" | "med" | "low";
 export type Evidence = {
   snippet: string;
   source: string;
+  /**
+   * WHERE in the source the snippet sits, as 1-based line numbers — a
+   * transcript reading cites them so the person who was in the meeting can go
+   * back to the exact exchange rather than re-reading the whole call. Absent on
+   * a source that has no lines to point at (a web page, an email body).
+   */
+  lines?: readonly number[];
 };
+
+/**
+ * The cited lines as one reference: consecutive numbers close into a range,
+ * because [12, 13, 14] is ONE place in the transcript and "12, 13, 14" asks the
+ * reader to work that out. Gaps stay separate for the same reason.
+ */
+export function formatSourceLines(lines: readonly number[]): string {
+  const ordered = [...new Set(lines)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  let start: number | undefined;
+  let end: number | undefined;
+  for (const line of ordered) {
+    if (start === undefined || end === undefined) {
+      start = line;
+      end = line;
+    } else if (line === end + 1) {
+      end = line;
+    } else {
+      runs.push(start === end ? `${start}` : `${start}–${end}`);
+      start = line;
+      end = line;
+    }
+  }
+  if (start !== undefined && end !== undefined) {
+    runs.push(start === end ? `${start}` : `${start}–${end}`);
+  }
+  return runs.join(", ");
+}
 
 // The contract's `evidence` is an untyped free-form object (agent actors
 // only; no fixed shape yet at the contract level) — narrow it to the trust
@@ -91,9 +126,22 @@ export function EvidenceChip({
 }>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const cited = evidence.lines ?? [];
+  // Beside the snippet in both forms, never behind the disclosure: the line
+  // reference is what makes a claim checkable, and a reader scanning a list of
+  // proposals decides which one to open by it.
+  const lineRef =
+    cited.length > 0 ? (
+      <span className="evidence-lines">
+        {t(cited.length === 1 ? "trust.evidenceLine" : "trust.evidenceLines", {
+          lines: formatSourceLines(cited),
+        })}
+      </span>
+    ) : null;
   const text = (
     <>
       "{evidence.snippet}" · {evidence.source}
+      {lineRef}
     </>
   );
   if (collapsed) {
@@ -110,6 +158,7 @@ export function EvidenceChip({
         >
           <ChevronRight aria-hidden />
           {shortenSource(evidence.source)}
+          {lineRef}
         </button>
         {expanded && (
           <span className="evidence-chip-snippet">"{evidence.snippet}"</span>

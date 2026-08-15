@@ -50,7 +50,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
+		return errors.New("usage: migrate <up|down|reset-password|recreate-db|drop-db|db-exists|org-exists> --dsn <dsn> [--steps n] [--email <address>] [--name <db>] [--template <db>]")
 	}
 	direction := args[0]
 
@@ -108,8 +108,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return dropDB(ctx, conn, *name, stdout)
 	case "db-exists":
 		return dbExists(ctx, conn, *name, stdout)
+	case "org-exists":
+		return orgExists(ctx, conn, stdout)
 	default:
-		return fmt.Errorf("migrate: unknown direction %q (want up, down, reset-password, recreate-db, drop-db or db-exists)", direction)
+		return fmt.Errorf("migrate: unknown direction %q (want up, down, reset-password, recreate-db, drop-db, db-exists or org-exists)", direction)
 	}
 }
 
@@ -361,26 +363,6 @@ func dropDB(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) 
 	}
 	if _, err := fmt.Fprintf(stdout, "dropped %s\n", name); err != nil {
 		return fmt.Errorf("migrate drop-db: writing the confirmation: %w", err)
-	}
-	return nil
-}
-
-// dbExists prints "true" or "false" — output, not exit code, so callers can
-// tell "absent" apart from "could not ask" (a connection failure still exits
-// non-zero).
-func dbExists(ctx context.Context, conn *pgx.Conn, name string, stdout io.Writer) error {
-	if name == "" {
-		return errors.New("migrate db-exists: --name is required")
-	}
-	if err := fitsIdentifier(ctx, conn, "migrate db-exists: --name", name); err != nil {
-		return err
-	}
-	var exists bool
-	if err := conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
-		return fmt.Errorf("migrate db-exists: probing %q: %w", name, err)
-	}
-	if _, err := fmt.Fprintf(stdout, "%t\n", exists); err != nil {
-		return fmt.Errorf("migrate db-exists: writing the answer: %w", err)
 	}
 	return nil
 }

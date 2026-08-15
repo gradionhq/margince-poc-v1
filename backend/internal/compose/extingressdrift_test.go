@@ -75,6 +75,18 @@ func TestThePublishedRecordMirrorsTheCaptureEnvelope(t *testing.T) {
 	waivedEnvelopeFields.AssertAllMatched(t)
 }
 
+// waivedActivityFields are the core activity shape's fields a unit deliberately
+// cannot state. The bar is higher here than on the envelope: the envelope's
+// waivers are mostly "core stamps it", whereas an unpublished field on THIS
+// shape means a unit's message carries the zero value for something the timeline
+// stores — so the reason has to say why that zero value is the right answer, not
+// merely why the unit is not asked.
+var waivedActivityFields = gatekit.Waive(map[string]string{
+	"ChannelProvider": "the messaging transport a record arrived on, and a reference into the channel_provider registry. " +
+		"A unit supplies no channel transport, so it has no provider to name and the empty value is the accurate answer rather than a dropped one — " +
+		"the same reason Counterparty.ChannelIdentity is waived below. A unit that does supply one publishes this alongside the declaration that makes it true",
+})
+
 // TestThePublishedActivityMirrorsTheCoreOne is the same rule one level in. The
 // activity shape is the payload the sink switches on, and a field added there
 // is one a unit's captured message would silently never carry.
@@ -86,10 +98,12 @@ func TestThePublishedActivityMirrorsTheCoreOne(t *testing.T) {
 	}
 	for i := range core.NumField() {
 		field := core.Field(i)
-		if !published[field.Name] {
-			t.Errorf("capture.ActivityFields.%s is not on extension.ActivityFields — a unit cannot state it, so every ingested activity takes the zero value", field.Name)
+		if !published[field.Name] && !waivedActivityFields.Waived(t, field.Name) {
+			t.Errorf("capture.ActivityFields.%s is not on extension.ActivityFields — a unit cannot state it, so every ingested activity takes the zero value. "+
+				"Publish it, or waive it in this file with the reason the zero value is correct", field.Name)
 		}
 	}
+	waivedActivityFields.AssertAllMatched(t)
 	// And the other way, which is the failure mode the mirror alone misses: a
 	// published field the port has nothing to map onto is a promise to a unit
 	// that the core drops on the floor.
@@ -105,7 +119,7 @@ func TestThePublishedActivityMirrorsTheCoreOne(t *testing.T) {
 // counterparty, where the interesting fields are the ones a unit must NOT be
 // able to state.
 var waivedCounterpartyFields = gatekit.Waive(map[string]string{
-	"ChannelIdentity": "keys person_channel_identity, whose provider vocabulary is a core CHECK — a unit reaching it would be an extension name entering a closed set",
+	"ChannelIdentity": "keys person_channel_identity, whose provider vocabulary is a foreign key into the channel_provider registry — a unit reaching it would be naming a transport it does not supply",
 	"ListUnsubscribe": "the bulk-mail corroboration a mail connector reads off an RFC 2369 header. A chat record has no such header, and a unit asserting one would be evidence for a suppression decision that nothing produced",
 })
 

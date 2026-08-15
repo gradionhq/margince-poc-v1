@@ -30,14 +30,32 @@ import (
 // aggregate row; the plan validator refuses aliases that squat on it.
 const reservedDerivationColumn = "derivation_url"
 
+// nullPredicateKey names the fields a handle pins as SQL NULL.
+//
+// It exists because a query string cannot otherwise tell "this column is unset"
+// from "this column holds the empty string": both used to render as `field=`,
+// and the resolver read every empty value as NULL. A dimension whose column is
+// text with no CHECK against "" — deal.source is the first in this catalog —
+// therefore reported a bucket of N rows and minted a handle that resolved to
+// none, from the same response. The value slot now always means a VALUE, and
+// absence is stated separately.
+const nullPredicateKey = "isnull"
+
+// reservedDerivationKeys are the query-string names a handle owns. Report
+// vocabularies may not squat on them, or a minted URL would be ambiguous.
+// Derived from here rather than restated, so adding a key updates the gate.
+var reservedDerivationKeys = []string{"by", "agg", nullPredicateKey, reservedDerivationColumn}
+
 // derivationQuery is one parsed derivation handle: the equality
 // predicates that pin the explained cell (plan filters + the row's
 // group-key values), which of those keys were grouping dimensions, and
 // the aggregates being explained.
 type derivationQuery struct {
-	// Predicates bind field → value; the empty string means SQL NULL
-	// (the "no owner" group has no other wire spelling in a URL).
+	// Predicates bind field → value. The empty string means the empty string;
+	// an unset column is named in Unset instead.
 	Predicates map[string]string
+	// Unset is the fields pinned as SQL NULL.
+	Unset      map[string]bool
 	GroupBy    []string
 	Aggregates []reportAggregate
 }
@@ -70,25 +88,35 @@ func derivationURL(report string, filters map[string]any, groupBy []string, aggr
 	}
 	sort.Strings(filterKeys)
 	for _, key := range filterKeys {
-		values.Set(key, predicateString(filters[key]))
+		setPredicate(values, key, filters[key])
 	}
 	if row != nil {
 		for _, dim := range groupBy {
 			values.Add("by", dim)
-			values.Set(dim, predicateString(row[dim]))
+			setPredicate(values, dim, row[dim])
 		}
 	}
 	return "/v1/reports/" + url.PathEscape(report) + "/derivation?" + values.Encode()
 }
 
-// predicateString renders a bound value for the handle's query string;
-// nil becomes the empty string, the URL spelling of SQL NULL.
+// setPredicate writes one bound field into the handle: an unset column is named
+// under nullPredicateKey, anything else carries its rendered value. Keeping the
+// two apart is what stops the empty string from reading as NULL.
+//
+//craft:ignore naked-any handle values arrive from JSON plan echoes and wire-shaped report rows — schemaless by design
+func setPredicate(values url.Values, key string, v any) {
+	if v == nil {
+		values.Add(nullPredicateKey, key)
+		return
+	}
+	values.Set(key, predicateString(v))
+}
+
+// predicateString renders a bound value for the handle's query string. Never
+// called with nil — setPredicate spells that case separately.
 //
 //craft:ignore naked-any handle values arrive from JSON plan echoes and wire-shaped report rows — schemaless by design
 func predicateString(v any) string {
-	if v == nil {
-		return ""
-	}
 	if s, ok := v.(string); ok {
 		return s
 	}
@@ -100,11 +128,15 @@ func predicateString(v any) string {
 // parameter is an equality predicate to be validated against the
 // report's closed vocabulary.
 func parseDerivationQuery(values url.Values) (derivationQuery, error) {
-	q := derivationQuery{Predicates: map[string]string{}}
+	q := derivationQuery{Predicates: map[string]string{}, Unset: map[string]bool{}}
 	for key, vals := range values {
 		switch key {
 		case "by":
 			q.GroupBy = append(q.GroupBy, vals...)
+		case nullPredicateKey:
+			for _, field := range vals {
+				q.Unset[field] = true
+			}
 		case "agg":
 			for _, v := range vals {
 				parts := strings.SplitN(v, ":", 3)
@@ -123,6 +155,13 @@ func parseDerivationQuery(values url.Values) (derivationQuery, error) {
 		}
 	}
 	sort.Strings(q.GroupBy)
+	for field := range q.Unset {
+		// One field cannot be both unset and equal to something; a handle
+		// saying both is not one this engine ever minted.
+		if _, ok := q.Predicates[field]; ok {
+			return derivationQuery{}, &FieldNotAllowedError{Field: field}
+		}
+	}
 	return q, nil
 }
 
@@ -130,6 +169,9 @@ func parseDerivationQuery(values url.Values) (derivationQuery, error) {
 // SQL expression, and the bound value ("" = SQL NULL).
 type boundExpr struct {
 	field, expr, value string
+	// isNull pins the column as unset rather than equal to value. Separate from
+	// an empty value, which now means the empty string and nothing else.
+	isNull bool
 }
 
 // derivationPlan is a compiled handle: validated predicates, the
@@ -209,11 +251,21 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 		}
 		plan.preds = append(plan.preds, boundExpr{field: key, expr: expr, value: value})
 	}
+	for field := range q.Unset {
+		expr, ok := spec.dimensions[field]
+		if !ok {
+			expr, ok = spec.filters[field]
+		}
+		if !ok {
+			return derivationPlan{}, &FieldNotAllowedError{Field: field}
+		}
+		plan.preds = append(plan.preds, boundExpr{field: field, expr: expr, isNull: true})
+	}
 	sort.Slice(plan.preds, func(i, j int) bool { return plan.preds[i].field < plan.preds[j].field })
 
 	var filterPreds, groupPreds []boundPredicate
 	for _, p := range plan.preds {
-		bp := boundPredicate{Field: p.field, Value: p.value}
+		bp := boundPredicate{Field: p.field, Value: p.value, IsNull: p.isNull}
 		if grouped[p.field] {
 			groupPreds = append(groupPreds, bp)
 		} else {
@@ -321,7 +373,7 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, arg func(any) int) ([]string, error) {
 	where := []string{spec.baseWhere}
 	for _, p := range plan.preds {
-		if p.value == "" {
+		if p.isNull {
 			where = append(where, p.expr+" IS NULL")
 		} else {
 			where = append(where, fmt.Sprintf("%s = $%d", p.expr, arg(p.value)))
@@ -367,8 +419,9 @@ func scanDerivationRows(pgRows pgx.Rows, columns []string) ([]map[string]any, er
 // boundPredicate is one field = value binding rendered into the
 // plain-language definition.
 type boundPredicate struct {
-	Field string
-	Value string
+	Field  string
+	Value  string
+	IsNull bool
 }
 
 // renderDefinition writes the exact filter+group+aggregate as one plain
@@ -405,7 +458,7 @@ func renderDefinition(spec reportSpec, filters, groups []boundPredicate, aggrega
 func renderPredicates(preds []boundPredicate) string {
 	parts := make([]string, len(preds))
 	for i, p := range preds {
-		if p.Value == "" {
+		if p.IsNull {
 			parts[i] = p.Field + " is not set"
 		} else {
 			parts[i] = fmt.Sprintf("%s = %q", p.Field, p.Value)

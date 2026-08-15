@@ -75,17 +75,31 @@ func (e *sendEnv) channelStore(reach ChannelReachability) *Store {
 
 // seedChannelAnchor writes the captured conversation being answered: an inbound
 // telegram activity filed under the chat, as the table owner — the shape ingress
-// leaves behind.
-func (e *sendEnv) seedChannelAnchor(t *testing.T, kind string) ids.ActivityID {
+// leaves behind, carrying BOTH the kind and the transport that brought it.
+func (e *sendEnv) seedChannelAnchor(t *testing.T) ids.ActivityID {
+	t.Helper()
+	return e.seedAnchorWithTransport(t, "telegram", "telegram")
+}
+
+// seedAnchorWithoutProvider writes an activity that never travelled on a
+// messaging channel: a kind, and no transport. Mail is the honest example, and a
+// channel-shaped KIND with no provider is the interesting one — see
+// TestSendMessageRefusesAChannelKindThatCarriesNoProvider.
+func (e *sendEnv) seedAnchorWithoutProvider(t *testing.T, kind string) ids.ActivityID {
+	t.Helper()
+	return e.seedAnchorWithTransport(t, kind, "")
+}
+
+func (e *sendEnv) seedAnchorWithTransport(t *testing.T, kind, provider string) ids.ActivityID {
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, body, occurred_at, direction,
+		INSERT INTO activity (id, workspace_id, kind, channel_provider, body, occurred_at, direction,
 		                      source_system, source_id, source, captured_by, thread_key)
-		VALUES ($1, $2, $3, 'Is this still available?', now(), 'inbound',
-		        'telegram', $4, 'telegram', 'connector:telegram', $5)`,
-		id, e.ws, kind, "8100:"+testChannelAccount+":"+id.String(), testChannelThreadKey); err != nil {
-		t.Fatalf("seeding the channel anchor: %v", err)
+		VALUES ($1, $2, $3, NULLIF($4, ''), 'Is this still available?', now(), 'inbound',
+		        'telegram', $5, 'telegram', 'connector:telegram', $6)`,
+		id, e.ws, kind, provider, "8100:"+testChannelAccount+":"+id.String(), testChannelThreadKey); err != nil {
+		t.Fatalf("seeding the anchor: %v", err)
 	}
 	return id
 }
@@ -122,7 +136,7 @@ func channelInput() SendMessageInput {
 // message with no chat to deliver into.
 func TestSendMessageRefusesAnAnchorThatIsNotAChannelConversation(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "email")
+	anchor := e.seedAnchorWithoutProvider(t, "email")
 	person := e.linkPerson(t, anchor, "Mail Buyer")
 	stager := &recordingChannelStager{}
 
@@ -138,13 +152,47 @@ func TestSendMessageRefusesAnAnchorThatIsNotAChannelConversation(t *testing.T) {
 	}
 }
 
+// The transport is read from the anchor's own column and never recovered from its
+// kind. This anchor's kind IS a registered provider's name, so the old derivation
+// — reading the kind back as a provider — would have accepted it and gone on to
+// resolve a recipient for a conversation that no channel ever carried.
+//
+// This case is the gate on that derivation, and it is a behavioural one rather
+// than a search for the old expression: reinstate `provider := string(anchor.Kind)`
+// anywhere on this path and this test fails, whatever the expression is spelled
+// like. It matters most for as long as every provider is ALSO a kind, which is
+// exactly the window in which the two look interchangeable.
+func TestSendMessageRefusesAChannelKindThatCarriesNoProvider(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchorWithoutProvider(t, "telegram")
+	person := e.linkPerson(t, anchor, "Chat Buyer")
+	stager := &recordingChannelStager{}
+
+	_, err := e.channelStore(reaches(map[ids.UUID]string{person: testChannelAccount})).SendMessage(
+		e.as(principal.RowScopeAll), anchor, channelInput(), stubConsentGate{}, stager)
+
+	var refusal *NotAChannelConversationError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("reply on a telegram-KIND anchor carrying no provider → %v, want a NotAChannelConversationError; "+
+			"the send path is deriving the transport from the kind again", err)
+	}
+	// Reported by the kind, because that is the word the rep sees on the record —
+	// an empty provider would name the storage instead of the mistake.
+	if refusal.Kind != "telegram" {
+		t.Fatalf("refusal names kind %q, want telegram", refusal.Kind)
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused reply still staged a delivery or logged an activity")
+	}
+}
+
 // A channel reply addresses one person. When the conversation reaches two, the
 // send path refuses rather than picking: the two accounts are two chats, and a
 // reply delivered to the wrong one messages a customer somewhere they never
 // wrote from.
 func TestSendMessageRefusesWhenTheConversationReachesTwoPeople(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	first := e.linkPerson(t, anchor, "First Buyer")
 	second := e.linkPerson(t, anchor, "Second Buyer")
 	stager := &recordingChannelStager{}
@@ -173,7 +221,7 @@ func TestSendMessageRefusesWhenTheConversationReachesTwoPeople(t *testing.T) {
 // conversation is still readable, and the reply must not be accepted.
 func TestSendMessageRefusesWhenTheConversationReachesNobody(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	e.linkPerson(t, anchor, "Blocked Buyer")
 	stager := &recordingChannelStager{}
 
@@ -194,7 +242,7 @@ func TestSendMessageRefusesWhenTheConversationReachesNobody(t *testing.T) {
 // suppression silently stops applying to a whole channel.
 func TestSendMessageAsksTheConsentGateAboutTheResolvedRecipient(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	person := e.linkPerson(t, anchor, "Telegram Buyer")
 	stager := &recordingChannelStager{}
 	gate := &recordingConsentGate{}
@@ -231,7 +279,7 @@ func TestSendMessageAsksTheConsentGateAboutTheResolvedRecipient(t *testing.T) {
 // mail test kept passing.
 func TestSendMessagePreFlightsTheChannelProviderRatherThanTheMailbox(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	person := e.linkPerson(t, anchor, "Telegram Buyer")
 	authority := &stubSendAuthority{capable: true}
 	stager := &recordingChannelStager{}
@@ -251,7 +299,7 @@ func TestSendMessagePreFlightsTheChannelProviderRatherThanTheMailbox(t *testing.
 // 202 for a message that can only park.
 func TestSendMessageRefusesWhenNoBotIsBound(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	person := e.linkPerson(t, anchor, "Telegram Buyer")
 	stager := &recordingChannelStager{}
 	gate := &recordingConsentGate{}
@@ -284,7 +332,7 @@ func TestSendMessageRefusesWhenNoBotIsBound(t *testing.T) {
 // they may not read.
 func TestSendMessageAnswersAnUnauthorizedCallerBeforeTheWiringGuards(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	e.linkToPersonOwnedBy(t, anchor, e.other)
 
 	// Composed with NO delivery machinery and no identity seam: either wiring
@@ -304,7 +352,7 @@ func TestSendMessageAnswersAnUnauthorizedCallerBeforeTheWiringGuards(t *testing.
 // — the same fail-closed posture the consent gate and the delivery stager take.
 func TestSendMessageRefusesWhenTheIdentitySeamIsUnwired(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	e.linkPerson(t, anchor, "Telegram Buyer")
 
 	_, err := e.channelStore(nil).SendMessage(
@@ -323,7 +371,7 @@ func TestSendMessageRefusesWhenTheIdentitySeamIsUnwired(t *testing.T) {
 // on a conversation they have no way to correct.
 func TestSendMessageCommitsNoActivityWhenChannelStagingFails(t *testing.T) {
 	e := setupSend(t)
-	anchor := e.seedChannelAnchor(t, "telegram")
+	anchor := e.seedChannelAnchor(t)
 	person := e.linkPerson(t, anchor, "Telegram Buyer")
 	stager := &recordingChannelStager{err: errors.New("delivery table unavailable")}
 

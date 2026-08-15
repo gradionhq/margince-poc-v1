@@ -19,11 +19,10 @@ package compose
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // AgentTaskRetentionArgs schedules one purge of MCP tasks past their expiry.
@@ -34,48 +33,35 @@ type AgentTaskRetentionArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (AgentTaskRetentionArgs) Kind() string { return "agent_task_retention" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues, and does no
-// tenant work of its own (jobs.FleetWide).
-func (AgentTaskRetentionArgs) FleetWide() {}
+// InsertOpts carries the attempt cap the declaration publishes, because the
+// periodic insert supplies uniqueness and no attempt policy of its own. Held
+// equal to api/jobs.yaml by TestArgsOwnedAttemptCapsMatchTheirDeclaration.
+func (AgentTaskRetentionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		MaxAttempts: 3,
+		UniqueOpts:  river.UniqueOpts{ByState: activeSweepStates},
+	}
+}
 
-// agentTaskRetentionWorker is the dispatcher. It enumerates EVERY workspace,
-// archived ones included: archiving does not un-store the results inside one,
-// and agent_task.workspace_id is ON DELETE RESTRICT, so leftovers would also
-// refuse the eventual hard delete.
+// agentTaskRetentionWorker purges the expired tasks.
+//
+// It used to be a dispatcher enumerating EVERY workspace, archived ones
+// included, because archiving does not un-store the results inside one. That
+// reason is served by the delete itself now: agent_task carries no tenant
+// column (ADR-0091 §8 phase D), so one pass reaches every row a fan-out would
+// have visited tenant by tenant.
 type agentTaskRetentionWorker struct {
-	pool *pgxpool.Pool
+	sweeper  *AgentTaskRetentionSweeper
+	identity *identity.Service
 }
 
 func (w *agentTaskRetentionWorker) Work(ctx context.Context, _ *river.Job[AgentTaskRetentionArgs]) error {
-	workspaces, err := enumerateEveryWorkspace(ctx, w.pool)
+	// The installation is bound because the sweep's audit and system_log writes
+	// still stamp a workspace from the context; it retires with
+	// storekit.MustWorkspace (ADR-0091 §5).
+	passCtx, err := installationJobCtx(ctx, w.identity)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(AgentTaskRetentionWorkspaceArgs{}.Kind()),
-		func(ws ids.UUID) river.JobArgs { return AgentTaskRetentionWorkspaceArgs{Workspace: ws} }))
-}
-
-// AgentTaskRetentionWorkspaceArgs purges one workspace's expired tasks.
-type AgentTaskRetentionWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (AgentTaskRetentionWorkspaceArgs) Kind() string { return "agent_task_retention_workspace" }
-
-// WorkspaceID binds this purge to its tenant (jobs.WorkspaceScoped).
-func (a AgentTaskRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// agentTaskRetentionWorkspaceWorker purges one workspace.
-type agentTaskRetentionWorkspaceWorker struct {
-	sweeper *AgentTaskRetentionSweeper
-}
-
-func (w *agentTaskRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[AgentTaskRetentionWorkspaceArgs]) error {
-	wsCtx, err := workspaceJobCtx(ctx, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, w.sweeper.SweepWorkspace(wsCtx))
+	return jobs.FaultContext(ctx, w.sweeper.Sweep(passCtx))
 }

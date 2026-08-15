@@ -38,6 +38,11 @@ const fieldBody = "body"
 // (privacy/retentionselectors.go) keys its sweep on.
 const transcriptSourceSystem = "transcript"
 
+// faultInvalid is the RFC 7807 code every field refusal in this module carries:
+// the value is well-formed enough to have reached us and is still not one this
+// field accepts.
+const faultInvalid = "invalid"
+
 // TranscriptKindError maps to 422: a transcript is a recording of a
 // conversation, so it only makes sense on the two activity kinds that ARE
 // one. The message never echoes the caller's kind — this fires before the
@@ -52,7 +57,7 @@ func (e *TranscriptKindError) Error() string {
 // FieldFault names the offending field; the caller's value is left to the
 // wire's own field pointer, not interpolated into the message.
 func (e *TranscriptKindError) FieldFault() (field, code, message string) {
-	return "kind", "invalid", e.Error()
+	return "kind", faultInvalid, e.Error()
 }
 
 // pathID asserts a contract path id as entity K's id — the widening
@@ -112,16 +117,31 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 		return LogActivityInput{}, err
 	}
 	in := LogActivityInput{
-		Kind:         string(req.Kind),
-		Subject:      req.Subject,
-		Body:         req.Body,
-		OccurredAt:   req.OccurredAt,
-		DueAt:        req.DueAt,
-		RemindAt:     req.RemindAt,
-		SourceSystem: req.SourceSystem,
-		SourceID:     req.SourceId,
-		Source:       req.Source,
-		AssigneeID:   idArg[ids.UserKind](req.AssigneeId),
+		Kind: string(req.Kind),
+		// A caller naming a kind that IS a registered transport is naming the
+		// transport, and the row records it. The contract has no provider field
+		// yet, so this is the only place that intent can be read — and without it
+		// a hand-logged or agent-logged channel activity would store no transport,
+		// which would make it unrepliable while an identical row written before the
+		// column existed stayed repliable, because the migration backfilled that
+		// one. Same data, different behaviour decided by write date.
+		//
+		// This is a translation of a legacy input shape, not a rule: it holds only
+		// while kind still carries provider names, and it goes away when the
+		// contract gains a provider of its own and kind narrows to the interaction
+		// vocabulary. It is NOT the derivation the send path used to do — that one
+		// read a stored kind back as a provider at reply time, long after any
+		// caller could say what they meant.
+		ChannelProvider: ChannelProviderForKind(string(req.Kind)),
+		Subject:         req.Subject,
+		Body:            req.Body,
+		OccurredAt:      req.OccurredAt,
+		DueAt:           req.DueAt,
+		RemindAt:        req.RemindAt,
+		SourceSystem:    req.SourceSystem,
+		SourceID:        req.SourceId,
+		Source:          req.Source,
+		AssigneeID:      idArg[ids.UserKind](req.AssigneeId),
 	}
 	if req.Direction != nil {
 		d := string(*req.Direction)

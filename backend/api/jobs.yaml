@@ -111,6 +111,14 @@ queues:
       fleet of them would occupy every default worker and delay sends, Telegram
       polls, and capture syncs. Same species as deep reads — long and
       model-bound — so the same posture.
+  transcript_read:
+    max_workers: 2
+    reason: >-
+      Reading a transcript is one long model call with a rep watching a spinner
+      for it. Its own pool for the deep-read reason, and separate from
+      ai_capture because that queue's passes are background sweeps nobody is
+      waiting on: sharing would let a fanned-out capture run put an interactive
+      reading behind it.
   overlay_reconcile:
     max_workers: 1
     reason: >-
@@ -144,20 +152,13 @@ queues:
 # file rather than holding a worker until the rescuer notices. A dispatcher that
 # grows work of its own stops being a dispatcher and takes its own number here.
 kinds:
+  # One job, not a dispatcher and a child (ADR-0103 §1): it keeps the
+  # dispatcher's kind and cadence and the child's queue, timeout and attempt
+  # cap. opts_owner is `args` so the cap below stays declared — the periodic
+  # insert supplies uniqueness and no attempt policy.
   agent_scheduler:
-    role: dispatcher
-    go_type: AgentSchedulerArgs
-    queue: default
-    timeout: 2m
-    opts_owner: caller
-    cadence: {operator: AgentScheduler.Interval, schedule_when_positive: AgentScheduler.Interval}
-    registration: {when: [AgentScheduler.Service], absent: registers_nothing}
-    fans_out_to: agent_scheduler_workspace
-    fan_out_unit: workspace
-
-  agent_scheduler_workspace:
     role: worker
-    go_type: AgentSchedulerWorkspaceArgs
+    go_type: AgentSchedulerArgs
     queue: agent_scheduler
     timeout:
       derived: agentSchedulerPassTimeout
@@ -166,18 +167,16 @@ kinds:
         claimBatch runs executed back to back, each entitled to the full
         RunWallClock, plus the seed/claim/finish round trips between them.
     max_attempts: 1
-    opts_owner: fan_out
+    opts_owner: args
+    cadence: {operator: AgentScheduler.Interval, schedule_when_positive: AgentScheduler.Interval}
     registration: {when: [AgentScheduler.Service], absent: registers_nothing}
-    args:
-      Workspace: id
     reason: >-
-      One attempt, not three: this kind's retry is the dispatcher's own tick,
-      which is tens of seconds while a single attempt may run for the timeout
-      above. A second rung would spend a fresh batch of model budget on work the
-      next tick re-enqueues anyway — and, because retryable is one of
-      compose's activeSweepStates, a backing-off row SUPPRESSES that tick's
-      re-enqueue, so the ladder would delay the tenant's next pass rather than
-      hasten it.
+      One attempt, not three: this pass's retry is its own next tick, which is
+      tens of seconds while a single attempt may run for the timeout above. A
+      second rung would spend a fresh batch of model budget on work the next
+      tick repeats anyway — and, because retryable is one of compose's
+      activeSweepStates, a backing-off row SUPPRESSES that tick, so the ladder
+      would delay the next pass rather than hasten it.
 
   ai_model_rate_refresh:
     role: worker
@@ -478,6 +477,36 @@ kinds:
       may run the connector's prior-send lookup, and then transmits — four
       network round trips, each of which can be slow before it is wrong.
 
+  comms_scheduled_send_recovery:
+    role: worker
+    go_type: ScheduledSendRecoveryArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 15m
+    registration: {when: [SendRegistry, SendDelivery], absent: registers_nothing}
+    args: {}
+    fault:
+      nil_after_logging: >-
+        A batch of independent messages, and one that cannot be re-armed must
+        not strand the others: the pass logs that message and carries on. The
+        retry policy is the CADENCE — this runs every 15 minutes and re-reads
+        what is still overdue, so a message that failed here is picked up by the
+        next pass without the ladder having to remember it. Failing the whole
+        job instead would re-run the messages that already succeeded, and a
+        permanently unreadable row would then block every other recovery behind
+        it forever. What the cadence cannot heal is a row that fails
+        deterministically, so the summary line carries a `failed` count: a
+        number that stays non-zero across passes is the signal that no amount of
+        re-running will fix that message.
+    reason: >-
+      The one pass that can find a message nothing will ever wake. A scheduled
+      row is armed by a River job and by nothing else, so a job discarded after
+      exhausting its attempts — a database outage across the whole ladder is the
+      real case — leaves the row scheduled with no timer and nobody told. This
+      re-arms those rows. Cheap: one indexed read of overdue rows, and on a
+      healthy installation it finds nothing.
+
   comms_scheduled_send:
     role: worker
     go_type: ScheduledSendArgs
@@ -712,35 +741,23 @@ kinds:
       loses all of it and starts over. The cap has to clear the refold of the
       longest-history tenant, and the daily cadence leaves the room to do it.
 
+  # One job, not a dispatcher and a child (ADR-0103 §1). The delete it runs was
+  # already table-wide once agent_task lost its tenant column, so the fan-out
+  # was N identical passes over the same rows.
   agent_task_retention:
-    role: dispatcher
+    role: worker
     go_type: AgentTaskRetentionArgs
     queue: default
-    timeout: 2m
-    opts_owner: caller
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: args
     cadence: 1h
-    fans_out_to: agent_task_retention_workspace
-    fan_out_unit: workspace
     reason: >-
       Hourly, and for the same reason the idempotency sweep is: a completed MCP
       task stores the verbatim tool result its execution produced, which for most
       of the confirm-first set is a whole record read-back. Past the task's own
       expiry no surface can read it back, so a daily pass would leave a day of
       expired personal data sitting past its purpose.
-
-  agent_task_retention_workspace:
-    role: worker
-    go_type: AgentTaskRetentionWorkspaceArgs
-    queue: default
-    timeout: 5m
-    max_attempts: 3
-    opts_owner: fan_out
-    args:
-      Workspace: id
-    reason: >-
-      An indexed delete of one tenant's MCP tasks past their own expires_at —
-      database-only, and hourly, so a pass never faces more than an hour's
-      arrivals once an installation has caught up.
 
   idempotency_retention:
     role: dispatcher
@@ -1072,6 +1089,29 @@ kinds:
       staging and dossier writes — floored so a tightened cap never squeezes the
       terminal writes. Not knowable here: it is computed from CrawlCaps at
       registration.
+
+  transcript_propose:
+    role: worker
+    go_type: TranscriptProposeArgs
+    queue: transcript_read
+    timeout: 4m
+    opts_owner: caller
+    registration: {when: [TranscriptProposeBrain], absent: registers_anyway}
+    args:
+      Workspace: id
+      ActivityID: id
+      TranscriptReadID: id
+      RequestedBy: id
+    reason: >-
+      Four minutes is one model call with the structured lane's
+      retry-and-escalate headroom, plus the staging writes. A literal because
+      nothing else in the tree reads it: no operator dial feeds this wall.
+
+      Registered even with no model lane bound, because the alternative is a
+      queued reading nobody picks up — which, to the rep watching it, is
+      indistinguishable from one still being worked. Unregistered it would sit
+      forever; registered it fails with a message that says the installation has
+      no model configured.
 
   telegram_ingest:
     role: worker

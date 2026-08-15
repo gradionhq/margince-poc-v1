@@ -89,6 +89,8 @@ var tableOwners = map[string]string{
 	"relationship":                   "internal/modules/people",
 	"partner":                        "internal/modules/people",
 	"lead":                           "internal/modules/people",
+	"lead_score_history":             "internal/modules/people",
+	"lead_manual_signal":             "internal/modules/people",
 	"organization_profile_field":     "internal/modules/people",
 	"person_profile_field":           "internal/modules/people",
 	// The signature pass's per-person read cursor (PO-F-2a): which mail was
@@ -121,8 +123,9 @@ var tableOwners = map[string]string{
 	"offer_line_item":       "internal/modules/deals",
 	"offer_template":        "internal/modules/deals",
 	// activities
-	"activity":      "internal/modules/activities",
-	"activity_link": "internal/modules/activities",
+	"activity":        "internal/modules/activities",
+	"transcript_read": "internal/modules/activities",
+	"activity_link":   "internal/modules/activities",
 	// ACT-DDL-3: who was in the interaction. It belongs beside activity and
 	// activity_link for the same reason they belong together — it is part of
 	// what an activity IS, not a graph artifact derived from one.
@@ -397,6 +400,8 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:person_phone":                 "erasure deletes the subject's phone channel rows in the single erasure transaction",
 	"internal/modules/privacy:person_channel_identity":      "erasure and the retention anonymizer delete the subject's channel-identity rows in the single erasure/per-record transaction — the identity is the key an inbound message would re-bind them by, so it has to go in the same commit that hashes it onto the suppression list",
 	"internal/modules/privacy:lead":                         "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
+	"internal/modules/privacy:lead_score_history":           "the score's explanation is about the subject: its factors embed the ids of activities they took part in, inside JSON no field-level scrub reaches, and the lead is ANONYMIZED rather than deleted so nothing cascades",
+	"internal/modules/privacy:lead_manual_signal":           "a manual scoring signal is a colleague's written judgement about the subject, carrying their name — it cannot outlive the record it judges, and the anonymize fires no cascade",
 	"internal/modules/privacy:activity":                     "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",
 	"internal/modules/privacy:attachment":                   "Art. 17 erasure deletes attachments hung off the subject or a subject-only activity in the single erasure transaction",
 	"internal/modules/privacy:deal":                         "retention archives over-age lost deals per its audited per-record transaction",

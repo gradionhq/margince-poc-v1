@@ -101,3 +101,19 @@ func (h Handlers) UpdateStage(w http.ResponseWriter, r *http.Request, id crmcont
 	}
 	httperr.WriteJSON(w, http.StatusOK, stage)
 }
+
+// ArchiveStage removes a stage from its pipeline. Both refusals carry
+// their own verdict — StageOccupiedError and TerminalStageError are
+// MessageFaults — so nothing is mapped by hand here: the sentinel choke
+// point renders them, and the datasource seam reads the same verdict.
+func (h Handlers) ArchiveStage(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveStageParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	if err := h.store.ArchiveStage(r.Context(), pathID[ids.StageKind](id), ifVersion); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

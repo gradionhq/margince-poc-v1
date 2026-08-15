@@ -7,7 +7,14 @@
 // contract mapping + transport handlers + the activities slice of the
 // datasource provider, flat per ADR-0054 §3.
 //
-// Tables owned: activity, activity_link.
+// Tables owned: activity, activity_link, transcript_read.
+//
+// transcript_read is the run record for reading a meeting transcript for
+// the next steps in it (S-E04.3): the POST answers 202 with its id and the
+// client polls it, because a model call cannot happen inside the request
+// that asks for it. It records what one reading did, never what may be
+// done about it — the proposals it stages are approval rows and the
+// authority lives there (ADR-0036).
 //
 // Activities have no owner_id; their visibility walks the linked
 // records' row scope via platform/auth.ActivityScopeClause — the scope

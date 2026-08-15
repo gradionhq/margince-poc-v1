@@ -3206,6 +3206,37 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Pipelines]
+      operationId: archiveStage
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Remove a stage from its pipeline (soft delete; archive is the delete).
+      description: |
+        The removal half of the bounded stage-configuration surface (DEAL-WIRE-7). Archiving
+        rather than deleting is what keeps the stage-change history readable — a
+        `deal_stage_history` row references the stage a deal moved out of.
+
+        The surviving stages of the pipeline shift down so `position` stays contiguous, which
+        publishes ONE `pipeline.updated` reorder alongside `stage.archived`.
+
+        Two refusals, both `422` (DEAL-WIRE-10). Neither names a request field — the caller
+        sent the removal they meant and what refuses is the workspace's own state — so each
+        carries its machine code as the problem's `code` and its reason as `detail`:
+        * `stage_occupied` while live deals sit on the stage. The detail counts them and
+          names them (bounded, with "and N more" beyond the cap) so they can be moved
+          first; no `deal.stage_id` is ever left pointing at a removed stage.
+        * `terminal_stage_not_removable` on a `won`/`lost` stage: add and remove operate on
+          non-terminal stages only, so the pair the close semantics hang off survives.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Archived. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ---------------------------- /activities ---------------------------------
   /activities:
@@ -3458,6 +3489,97 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/{id}/transcript-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: readTranscriptForNextSteps
+      summary: Read this meeting transcript for the next steps it states — a background reading that ends in staged 🟡 proposals.
+      description: |
+        S-E04.3. Reads the transcript's normalized lines (ADR-0058: line N is the Nth newline-split
+        segment of the body) and stages each next step or commitment it STATES as a 🟡 approval,
+        citing the exact lines it was read from in `evidence[].source_lines`. NOTHING is written to
+        the timeline until a human confirms; accepting one creates a single task activity, idempotent
+        on the approval id.
+
+        Asynchronous: answers 202 with the read to poll, because a model call cannot happen inside
+        the request that asks for it. Re-issuing while a reading is in flight answers the SAME read
+        (idempotent per activity), so pressing the button twice does not pay for the transcript twice
+        or stage every proposal in duplicate.
+
+        A transcript that states no next steps is a CORRECT empty answer, reported as `done` with a
+        detail saying so — never as a failure, because a rep who cannot tell those apart will either
+        distrust a good answer or trust a broken one.
+
+        Human-only. The `enrich` verb reads an ORGANIZATION from its website and takes an
+        organization id, so it cannot express reading one activity; and this operation exists to put
+        a question in front of the person who was in the meeting. An agent that wants the same
+        outcome proposes the task directly through its own governed tool, where the confirm-first
+        tier already applies — rather than through a second door that stages on its behalf.
+      x-agent-access: human-only
+      responses:
+        '202':
+          description: The reading is queued; poll the read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadStarted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: This activity carries no transcript, or its transcript is blank or too long for one reading.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '501':
+          description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /activities/{id}/transcript-proposals/latest:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Activities]
+      operationId: getLatestTranscriptRead
+      summary: The newest reading of this transcript, so one that ended after the rep navigated away is still visible.
+      description: |
+        A read id lives only in the browser tab that started the reading, so a reading that finished
+        after the rep left the page could not be found again — and a transcript nobody had read looked
+        exactly like one whose reading had failed. 404 when this transcript has never been read, which
+        is the honest difference between "never tried" and "tried and got nothing".
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The newest reading's report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /activities/{id}/transcript-proposals/{readId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Activities]
+      operationId: getTranscriptRead
+      summary: One reading's progress and outcome — how many lines it addressed, what it staged, and why it produced nothing.
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The read report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranscriptReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /activities/{id}/draft-email:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -3614,7 +3736,7 @@ paths:
         - name: status
           in: query
           required: false
-          schema: { type: string, enum: [scheduled, released, cancelled, held] }
+          schema: { type: string, enum: [scheduled, released, sent, cancelled, held] }
           description: Omit for every state; supply one to filter.
       responses:
         '200':
@@ -4422,6 +4544,125 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/score:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: explainLeadScore
+      # Human-only for now: this ships as the lead SCREEN's explanation. A
+      # governed read tool is a separate, additive decision — and declaring a
+      # verb tools/list cannot offer advertises a capability that is not there.
+      x-agent-access: human-only
+      summary: Explain This Score — the weighted-factor decomposition behind a lead's score.
+      description: |
+        The decomposition is READ from the retained series (ADR-0105 §1), never recomputed
+        at read time: behavioral factors decay continuously, so a recomputed breakdown would
+        explain a number the record does not carry.
+
+        While a Commercial Judgement override is in force the factors sum to `score_computed`,
+        NOT to the displayed `score` — the response names both and carries the override's
+        reason, because presenting a machine breakdown as the explanation of a human's number
+        would be a lie (ADR-0105 §1).
+
+        Rounding and clamping are separate steps and both are visible: `raw_sum` is the
+        fractional factor total, `rounded_sum` is it rounded half-up, and `score_computed` is
+        that bounded to 0..100. They differ in ordinary cases (45.6 → 46, no clamp) as well as
+        at the cap (100.6 → 101 → 100).
+
+        A lead whose score has never been recomputed since this shipped has no entry yet:
+        `explained` is false and `factors` is absent — deliberately NOT an empty array, which
+        would read as "nothing contributed". Source activities are re-read through the
+        caller's own scope.
+      parameters:
+        - name: history
+          in: query
+          schema: { type: boolean, default: false }
+          description: Return the retained score series instead of the current explanation.
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The current explanation, or the paged series when `history=true`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadScoreExplanation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leads/{id}/manual-signals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Leads]
+      operationId: setLeadManualSignal
+      # Human-only by nature, not by caution: the row records what a NAMED
+      # person judged to be true, with their written reason. An agent typing
+      # one would be a judgement with nobody behind it.
+      x-agent-access: human-only
+      summary: Enter or replace a human-provided scoring factor (S-E13.6).
+      description: |
+        A rep supplies a qualification signal capture cannot fetch — a traffic band, an
+        employee count, a budget hint. It feeds the same transparent weighted score and
+        appears in the decomposition as its own human-provided factor, never blended into an
+        auto-captured one.
+
+        One live band per factor: setting a factor that already has one REPLACES it. A
+        non-empty `reason` is required. Setting a factor the model already fetches
+        automatically is refused 422 `factor_auto_sourced` — the auto value wins (ADR-0105 §4),
+        and a rep who disagrees with a fetched fact is overruling the model, which is what the
+        Commercial Judgement override on `updateLead` is for.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetLeadManualSignalRequest' }
+      responses:
+        '200':
+          description: The stored manual signal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadManualSignal' }
+        '403':
+          description: Approval required (agent-triggered) or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Unknown factor, band invalid for the factor, blank reason, or the factor is auto-sourced.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/manual-signals/{factor}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: factor
+        in: path
+        required: true
+        schema: { type: string, enum: [web_traffic, employees, budget_hint] }
+    delete:
+      tags: [Leads]
+      operationId: clearLeadManualSignal
+      # Human-only for the same reason as the set: withdrawing a judgement is
+      # the judge's own act.
+      x-agent-access: human-only
+      summary: Withdraw a human-provided scoring factor.
+      description: |
+        Clears the rep's own live input for this factor and recomputes. Superseded rows are
+        history and are NOT deleted by this path — clearing withdraws a current input, and
+        where there is none (the auto value already took over) this succeeds as a no-op
+        (ADR-0105 §4).
+      responses:
+        '204':
+          description: Cleared — or nothing live to clear, which is also success.
+        '403':
+          description: Approval required (agent-triggered) or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # -------------------------- /relationships --------------------------------
   /relationships:
@@ -7833,6 +8074,12 @@ paths:
         re-asserting upgrades/downgrades `access` and resets `expires_at`. A grant can never exceed the
         granting principal's own access (scope-intersection). Audited (`action: record_share`). Bounded:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
+
+        The seat ceiling binds the RECIPIENT as well (AAD-AC-4): a `write` grant to a user on a `read`
+        seat is refused `403 seat_tier_insufficient`, because it would widen that user's scope onto a
+        record every write to which the ceiling then refuses. A `read` grant to a read seat is the
+        authority their licence already carries and is accepted. A `team` subject is not a seat and is
+        not filtered — the read seats inside it are still refused every write at their own admission.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       x-agent-access: human-only   # the grant verbs reject any non-human principal
@@ -12260,13 +12507,13 @@ components:
       type: object
       required: [window]
       properties:
-        window: { type: string, enum: [none, 3m, 6m, 12m], description: 'The CAP-PARAM-4 window; default UI selection is 6m.' }
+        window: { type: string, enum: [none, 3m, 6m, 12m, 24m, 60m], description: 'The CAP-PARAM-4 window; default UI selection is 6m. 24m/60m added by ADR-0106/A157 — the set stays closed, and the preview is what keeps a multi-year reach consented.' }
     BackfillPreview:
       type: object
       description: 'The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task.'
       required: [window, estimated_messages, computed_at]
       properties:
-        window: { type: string, enum: [none, 3m, 6m, 12m] }
+        window: { type: string, enum: [none, 3m, 6m, 12m, 24m, 60m] }
         estimated_messages: { type: integer, description: 'Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count).' }
         estimated_ai_tokens: { type: integer, description: 'The estimator''s input-anchored token figure across classify+enrich+embeddings for that count; absent on estimator fault (ADR-0068).' }
         estimated_cost_minor: { type: integer, description: 'USD minor units, estimated from observed ai_call history priced per served model at current ai_model_rate; absent when no rate applies (ADR-0068).' }
@@ -12277,7 +12524,7 @@ components:
       type: object
       required: [window]
       properties:
-        window: { type: string, enum: [3m, 6m, 12m], description: '`none` is expressed by never calling this op. Widen-only versus a prior run.' }
+        window: { type: string, enum: [3m, 6m, 12m, 24m, 60m], description: '`none` is expressed by never calling this op. Widen-only versus a prior run.' }
     BackfillStatus:
       type: object
       description: 'The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1).'
@@ -12285,7 +12532,7 @@ components:
       properties:
         state: { type: string, enum: [none, queued, running, done, error, cancelled] }
         backfill_id: { type: [string, 'null'], format: uuid }
-        window: { type: [string, 'null'], enum: [3m, 6m, 12m, null] }
+        window: { type: [string, 'null'], enum: [3m, 6m, 12m, 24m, 60m, null] }
         estimated_messages: { type: [integer, 'null'], description: 'The previewed count the user consented to — the progress fraction''s denominator.' }
         counts:
           type: object
@@ -17156,12 +17403,14 @@ components:
         id: { type: string, format: uuid }
         status:
           type: string
-          enum: [scheduled, released, cancelled, held]
+          enum: [scheduled, released, sent, cancelled, held]
           description: |
             `scheduled` — waiting; the rep may move or cancel it.
-            `released` — it fired: the activity, the delivery row and the dispatch job exist.
-            Deliberately NOT "sent": the provider has not been called yet and the delivery can
-            still park or fail, so delivery truth lives on the outbound record, not here.
+            `released` — it fired: the activity, the delivery row and the dispatch job exist,
+            and the provider has not been called yet, so the delivery can still park or fail.
+            A step rather than an ending.
+            `sent` — the provider confirmed receipt. A message this system sent reads the same
+            whether a rep scheduled it or sent it directly.
             `cancelled` — withdrawn before it fired; nothing was transmitted.
             `held` — a gate refused at fire, or the window was missed. It will not send itself;
             a human reschedules or cancels it.
@@ -17451,6 +17700,106 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Explain This Score (AC-S7, ADR-0105) ----
+    # How a human characterised a manual scoring input. Named rather than
+    # inlined at its three use sites so the generator emits ONE prefixed Go
+    # type: an inline `fact` collides with the organization brief's sentence
+    # nature of the same name and silently renames ITS constants, breaking
+    # call sites in modules that have nothing to do with lead scoring.
+    LeadManualSignalKind:
+      type: string
+      enum: [fact, assumption, judgement]
+      description: |
+        `fact` — the rep knows this. `assumption` — a working estimate.
+        `judgement` — a read of the situation. Shown on the factor, never
+        blended into an auto-captured signal (AC-S7a).
+
+    LeadScoreFactor:
+      type: object
+      description: |
+        One row of the decomposition. `points` is the factor's contribution AFTER decay and
+        BEFORE the rounding and clamping that produce the stored score, so the rows sum to
+        `raw_sum` — never, on their own, to `score_computed`.
+      required: [factor, points]
+      properties:
+        factor:
+          type: string
+          description: |
+            The named factor — a fit term (`decision_maker_title`, `high_intent_source`,
+            `low_intent_source`), a behavioral kind (`reply`, `meeting_held`,
+            `meeting_booked`), or a human-provided one (`manual:<factor>`).
+        points: { type: number, description: 'Contribution after decay. May be negative (low_intent_source).' }
+        base_points: { type: [number, 'null'], description: 'The undecayed base for a behavioral factor, so a client can render `raw · 2^(−days/14)`. Null for a fit or manual factor, which do not decay.' }
+        source_activity_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: 'The activities behind a behavioral factor, re-read through the CALLER''s scope (ADR-0105 §3).'
+        set_by: { type: [string, 'null'], format: uuid, description: 'The human who supplied a manual factor. Null for machine factors.' }
+        # Optional rather than nullable: a machine factor OMITS it. A null
+        # would claim the field applies here and happens to be empty, which
+        # is a different statement about a decision nobody made.
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        reason: { type: [string, 'null'], description: 'The written reason on a manual factor.' }
+
+    LeadScoreEntry:
+      type: object
+      description: One point in the retained series — what the score was, and why.
+      required: [score, score_computed, raw_sum, rounded_sum, computed_at]
+      properties:
+        score: { type: integer, description: 'The DISPLAYED score at this point: the human''s number under an override, else the machine value.' }
+        score_computed: { type: integer, description: 'The machine value the factors below reconcile to.' }
+        override_reason: { type: [string, 'null'], description: 'The Commercial Judgement reason in force at this point; null when the score is machine-computed.' }
+        raw_sum: { type: number, description: 'The fractional sum of the factors, before rounding.' }
+        rounded_sum: { type: integer, description: 'raw_sum rounded half-up, before clamping. Differs from score_computed only when the 0..100 clamp fired.' }
+        factors: { type: array, items: { $ref: '#/components/schemas/LeadScoreFactor' } }
+        computed_at: { type: string, format: date-time }
+
+    LeadScoreExplanation:
+      type: object
+      description: |
+        The current explanation, or the retained series when `history=true`. `explained` is
+        false for a lead whose score predates the retained series; `current` is then absent
+        rather than carrying an empty factor list, which would read as "nothing contributed".
+      required: [score, explained]
+      properties:
+        score: { type: integer, description: 'The lead''s displayed score right now.' }
+        explained: { type: boolean, description: 'False when no retained entry exists yet — the first recompute fills it. No backfill fabricates one (ADR-0105 §1).' }
+        current: { $ref: '#/components/schemas/LeadScoreEntry' }
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/LeadScoreEntry' }
+          description: Present only when `history=true`.
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    LeadManualSignal:
+      type: object
+      description: |
+        A human-provided scoring factor (S-E13.6). A row whose `superseded_at` is set was
+        replaced by an auto-fetched value and is RETAINED for the rep to see, never deleted
+        by enrichment (ADR-0105 §4).
+      required: [factor, band, points, signal_kind, reason, set_by, set_at]
+      properties:
+        factor: { type: string, enum: [web_traffic, employees, budget_hint] }
+        band: { type: string, description: 'The band picked for this factor; validated per factor.' }
+        points: { type: integer, description: 'The band→points mapping. May be negative.' }
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        reason: { type: string, minLength: 1 }
+        set_by: { type: string, format: uuid }
+        set_at: { type: string, format: date-time }
+        superseded_at: { type: [string, 'null'], format: date-time }
+        superseded_by: { type: [string, 'null'], description: 'Names the auto source that took over, so the rep sees WHAT replaced their estimate.' }
+
+    SetLeadManualSignalRequest:
+      type: object
+      required: [factor, band, signal_kind, reason]
+      properties:
+        factor: { type: string, enum: [web_traffic, employees, budget_hint] }
+        band: { type: string, minLength: 1 }
+        signal_kind: { $ref: '#/components/schemas/LeadManualSignalKind' }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        reason: { type: string, minLength: 1, description: 'Required and non-empty — a scoring input nobody can account for is the thing this feature exists to end.' }
 
     # ---- Signals (E08 warm room, data-model §12.5) ----
     Signal:
@@ -19486,6 +19835,44 @@ components:
       properties:
         url: { type: string, format: uri, description: Company URL to read instead of the org's domain. }
 
+    TranscriptReadStarted:
+      type: object
+      description: The 202 handle for a queued transcript reading.
+      required: [read_id, status]
+      properties:
+        read_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running], description: 'The joined reading''s state when one is already in flight.' }
+
+    TranscriptReadReport:
+      type: object
+      description: >-
+        What one reading of one transcript did. The three outcomes are kept apart on purpose: still
+        reading, read it and it stated nothing, and could not read it are different answers, and
+        collapsing the last two makes a correct empty result look like a broken feature.
+      required: [read_id, activity_id, status, line_count, proposal_ids, created_at]
+      properties:
+        read_id: { type: string, format: uuid }
+        activity_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running, done, failed] }
+        status_detail:
+          type: [string, 'null']
+          description: >-
+            Why it ended as it did, in words a rep can act on. Set on failure, and on a done reading
+            that produced nothing so an empty result explains itself.
+        line_count:
+          type: integer
+          description: >-
+            How many lines the reading addressed, so a cited line can be shown against the size of
+            what was read. It is the count at READ time; a later body edit re-normalizes and can
+            change it, and each proposal's own evidence stays authoritative about what it saw.
+        proposal_ids:
+          type: array
+          description: The approvals this reading staged. Empty on a reading that found nothing to propose.
+          items: { type: string, format: uuid }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
     SiteReadStarted:
       type: object
       description: The 202 handle for a queued deep read.
@@ -19561,6 +19948,27 @@ components:
         created_at: { type: string, format: date-time }
 
     # ---- Approvals ----
+    ApprovalEvidence:
+      type: object
+      description: >-
+        One claim's backing material, so confirming a proposal is a check rather
+        than a vote of confidence in the model. Per claim, not per approval: a
+        proposal asserting three things carries three of these.
+      required: [evidence_snippet]
+      properties:
+        evidence_snippet: { type: string, description: 'The fragment as it reads in the source, quoted rather than paraphrased.' }
+        source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
+        source_id: { type: [string, 'null'], format: uuid }
+        source_lines:
+          type: array
+          description: >-
+            1-based line numbers within the source record's body that this claim
+            was read from, for a source whose body is line-addressed (a meeting
+            transcript today, per ADR-0058: line N is the Nth newline-split
+            segment of activity.body). Absent for a source that is not
+            line-addressed.
+          items: { type: integer, minimum: 1 }
+
     Approval:
       type: object
       description: A staged 🟡 confirm-first action awaiting human decision.
@@ -19598,12 +20006,7 @@ components:
         evidence:
           type: array
           description: Per-claim evidence (snippet + source id) backing the proposal.
-          items:
-            type: object
-            properties:
-              evidence_snippet: { type: string }
-              source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
-              source_id: { type: [string, 'null'], format: uuid }
+          items: { $ref: '#/components/schemas/ApprovalEvidence' }
         confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
         result_entity_type: { type: [string, 'null'] }
         result_entity_id: { type: [string, 'null'], format: uuid }

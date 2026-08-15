@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
   ConfidenceMeter,
+  EvidenceChip,
+  formatSourceLines,
   type Proposal,
   ProvenanceTag,
   StagedProposal,
@@ -140,5 +142,55 @@ describe("ProvenanceTag", () => {
     expect(screen.getByText("via gmail").className).toContain(
       "provenance-agent",
     );
+  });
+});
+
+// WHERE in the source a claim came from. A quoted sentence with no address is
+// a claim the reader has to take on trust; a line reference is what lets them
+// go back to the exchange and check it.
+describe("the lines an evidence chip was read from", () => {
+  it("closes a run into one range and keeps a gap apart", () => {
+    expect(formatSourceLines([12, 13, 14])).toBe("12–14");
+    expect(formatSourceLines([3, 9])).toBe("3, 9");
+    expect(formatSourceLines([7])).toBe("7");
+  });
+
+  it("orders and de-duplicates what the server sent, rather than trusting it", () => {
+    expect(formatSourceLines([14, 12, 13, 12])).toBe("12–14");
+  });
+
+  it("shows the reference beside the snippet, in the reader's language", () => {
+    render(
+      <EvidenceChip
+        evidence={{
+          snippet: "I'll send the revised quote on Monday.",
+          source: "transcript",
+          lines: [12, 13, 14],
+        }}
+      />,
+    );
+    expect(screen.getByText("lines 12–14")).toBeTruthy();
+  });
+
+  it("says line, singular, for a claim read from one line", () => {
+    render(
+      <EvidenceChip
+        evidence={{
+          snippet: "Monday it is.",
+          source: "transcript",
+          lines: [7],
+        }}
+      />,
+    );
+    expect(screen.getByText("line 7")).toBeTruthy();
+  });
+
+  it("adds nothing to a source that has no lines to point at", () => {
+    render(
+      <EvidenceChip
+        evidence={{ snippet: "…offer of 48k…", source: "email 12 Jun" }}
+      />,
+    );
+    expect(screen.queryByText(/^lines? /)).toBeNull();
   });
 });

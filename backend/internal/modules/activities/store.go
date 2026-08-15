@@ -63,6 +63,9 @@ type Store struct {
 	// (WithRecipientDirectory wires it). A reply never consults it — its
 	// addressees come from the captured conversation it answers.
 	recipients RecipientDirectory
+	// heldNotifier puts a stopped scheduled message in the rep's approval
+	// inbox; nil holds silently (WithHeldNotifier wires it).
+	heldNotifier HeldNotifier
 	// clock reads the current instant. Injected so the scheduling suites can
 	// pin a due moment and a missed window without sleeping (T11).
 	clock func() time.Time
@@ -72,6 +75,14 @@ type Store struct {
 // workspace it serves.
 func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
+}
+
+// WithHeldNotifier returns a store that tells a rep when their scheduled
+// message stopped. It returns a copy so the base store stays unchanged.
+func (s *Store) WithHeldNotifier(notifier HeldNotifier) *Store {
+	clone := *s
+	clone.heldNotifier = notifier
+	return &clone
 }
 
 // WithClock returns a store reading time from the given function. It returns a

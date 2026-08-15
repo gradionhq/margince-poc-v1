@@ -48,6 +48,8 @@ const WINDOWS: readonly { value: BackreadWindow; label: MessageKey }[] = [
   { value: "3m", label: "ob.backread.window3m" },
   { value: "6m", label: "ob.backread.window6m" },
   { value: "12m", label: "ob.backread.window12m" },
+  { value: "24m", label: "ob.backread.window24m" },
+  { value: "60m", label: "ob.backread.window60m" },
 ];
 
 const DEFAULT_WINDOW: BackreadWindow = "6m";

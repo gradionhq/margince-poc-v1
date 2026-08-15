@@ -65,7 +65,15 @@ type InstallationBootstrap struct {
 // is minted: the first admin signs in through the normal login, and
 // bootstrap values never reconcile into an existing organization
 // (restart never resets a password, role, or seed).
-func (s *Service) BootstrapInstallation(ctx context.Context, create *InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, err error) {
+//
+// create is a FUNCTION, and it is called only on the branch that creates
+// the organization. Resolving the bootstrap input eagerly would read the
+// admin's password secret on every boot of an already-bootstrapped
+// installation — a secret ADR-0061 §2 says may be deleted once the
+// organization exists, so the read would fail on exactly the installations
+// that followed the ADR. What is only needed to CREATE is only resolved
+// when creating.
+func (s *Service) BootstrapInstallation(ctx context.Context, create func() (InstallationBootstrap, error), seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, err error) {
 	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
@@ -83,7 +91,11 @@ func (s *Service) BootstrapInstallation(ctx context.Context, create *Installatio
 		case create == nil:
 			return ErrNotBootstrapped
 		}
-		wsID, err = createInstallation(ctx, tx, *create, seed)
+		in, err := create()
+		if err != nil {
+			return err
+		}
+		wsID, err = createInstallation(ctx, tx, in, seed)
 		created = err == nil
 		return err
 	})

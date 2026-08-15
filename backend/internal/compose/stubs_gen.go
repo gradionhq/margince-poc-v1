@@ -63,6 +63,18 @@ func (stubs) SendMessage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 	httperr.NotImplemented(w, r, "SendMessage")
 }
 
+func (stubs) ReadTranscriptForNextSteps(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReadTranscriptForNextSteps")
+}
+
+func (stubs) GetLatestTranscriptRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetLatestTranscriptRead")
+}
+
+func (stubs) GetTranscriptRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, readId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetTranscriptRead")
+}
+
 func (stubs) GetJobHealth(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetJobHealth")
 }
@@ -575,8 +587,20 @@ func (stubs) UpdateLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "UpdateLead")
 }
 
+func (stubs) SetLeadManualSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "SetLeadManualSignal")
+}
+
+func (stubs) ClearLeadManualSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, factor string) {
+	httperr.NotImplemented(w, r, "ClearLeadManualSignal")
+}
+
 func (stubs) PromoteLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.PromoteLeadParams) {
 	httperr.NotImplemented(w, r, "PromoteLead")
+}
+
+func (stubs) ExplainLeadScore(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ExplainLeadScoreParams) {
+	httperr.NotImplemented(w, r, "ExplainLeadScore")
 }
 
 func (stubs) ListLists(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListListsParams) {
@@ -1301,6 +1325,10 @@ func (stubs) ListStages(w nethttp.ResponseWriter, r *nethttp.Request, params crm
 
 func (stubs) CreateStage(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateStageParams) {
 	httperr.NotImplemented(w, r, "CreateStage")
+}
+
+func (stubs) ArchiveStage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveStageParams) {
+	httperr.NotImplemented(w, r, "ArchiveStage")
 }
 
 func (stubs) GetStage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

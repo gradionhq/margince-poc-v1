@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -157,6 +158,11 @@ type JobRunnerConfig struct {
 	// the prose simply is not extracted. The kind registers either way, which
 	// is why nothing in api/jobs.yaml gates on this field.
 	SignalExtractBrain completer
+	// TranscriptProposeBrain is the lane a queued transcript reading runs on.
+	// Nil = no AI configured, and the kind registers anyway so the reading
+	// FAILS with a message the rep can see rather than sitting queued behind a
+	// worker that will never pick it up.
+	TranscriptProposeBrain completer
 	// OverlayVault is the custodian of an incumbent connection's sealed token.
 	// Nil is a role with no way to unseal one, so the reconcile poller and the
 	// webhook-as-signal re-fetch worker register nothing rather than queue
@@ -305,6 +311,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		// wiring stays one line as those surfaces grow.
 		addGraphJobs(reg, pool, cfg, log),
 		addEmbedDriftSweepJob(reg, pool, cfg, log),
+		addScheduledSendRecoveryJob(reg, pool, cfg, log),
 		addPrivacyRetentionJobs(reg, pool, cfg, log),
 		addWebhookRetryJobs(reg, pool, cfg),
 		addProviderRunJobs(reg, pool, cfg),
@@ -360,6 +367,7 @@ func addModelLaneJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig,
 	addDeclaredWorkerWithTimeout[SiteDeepReadArgs](reg,
 		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
 		deepReadTimeout(cfg.DeepReadCaps))
+	addDeclaredWorker[TranscriptProposeArgs](reg, newTranscriptProposeWorker(pool, cfg.TranscriptProposeBrain, log))
 	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
 	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(InstallationDB(pool)), log: log})
 	// The reindex is a dispatcher plus a workspace worker, and neither is
@@ -392,6 +400,7 @@ func addDatabaseOnlySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Lo
 	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{pool: pool, log: log})
 	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
 	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
-	addDeclaredWorker[AgentTaskRetentionArgs](reg, &agentTaskRetentionWorker{pool: pool})
-	addDeclaredWorker[AgentTaskRetentionWorkspaceArgs](reg, &agentTaskRetentionWorkspaceWorker{sweeper: NewAgentTaskRetentionSweeper(pool, log)})
+	addDeclaredWorker[AgentTaskRetentionArgs](reg, &agentTaskRetentionWorker{
+		sweeper: NewAgentTaskRetentionSweeper(pool, log), identity: identity.NewService(pool),
+	})
 }
