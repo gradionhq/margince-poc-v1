@@ -3730,6 +3730,52 @@ export const de = {
   "settings.tab.data-model": "Datenmodell",
   "settings.tab.ai": "KI",
   "settings.tab.privacy": "Datenschutz & Audit",
+  "settings.tab.capture-activity": "Erfassungsaktivität",
+  "captureActivity.title": "Erfassungsaktivität",
+  "captureActivity.sub":
+    "Was in den letzten 24 Stunden mit Ihren Nachrichten geschehen ist.",
+  "captureActivity.scope.label": "Wessen Aktivität",
+  "captureActivity.scope.mine": "Meine",
+  "captureActivity.scope.workspace": "Gemeinsame Kanäle",
+  "captureActivity.scopeNote":
+    "Gezählt ab dem Moment, in dem ein Connector eine Nachricht an dieses CRM übergibt. Was ein Connector auf seiner Seite gefiltert hat — eine Chat-Reaktion, eine Mail-Regel — ist nicht enthalten. Umfasst Nachrichten; Lead-Erfassung wird hier nicht gezeigt.",
+  "captureActivity.loadMore": "Mehr laden",
+  "captureActivity.empty":
+    "keine Erfassungsaktivität in den letzten 24 Stunden",
+  "captureActivity.contentNotStored": "Inhalt nicht gespeichert",
+  "captureActivity.contentNone": "kein Absender erfasst",
+  "captureActivity.outcome.captured": "Erfasst",
+  "captureActivity.outcome.internal": "Als intern verworfen",
+  "captureActivity.outcome.suppressed": "Kein Kontakt angelegt",
+  "captureActivity.outcome.deferred": "Wartet auf Beurteilung",
+  "captureActivity.outcome.fault": "Ableitung fehlgeschlagen",
+  "captureActivity.reason.internal_only":
+    "alle Beteiligten waren auf Ihren eigenen Domains",
+  "captureActivity.reason.deferral_capped":
+    "das Limit offener Fragen war erreicht, es kommt keine Beurteilung",
+  "captureActivity.reason.noise_prior":
+    "eine frühere Beurteilung stufte diesen Absender als Rauschen ein, die Nachricht wird archiviert",
+  "captureActivity.reason.decided_prior":
+    "über diesen Absender wurde bereits entschieden, es wird kein Kontakt angelegt",
+  "captureActivity.reason.no_granting_human":
+    "die Verbindung nannte kein Mitglied, für das gehandelt werden kann",
+  "captureActivity.reason.invisible_incumbent":
+    "sie traf auf einen Datensatz außerhalb Ihrer Sicht",
+  "captureActivity.reason.derivation_failed":
+    "der Kontaktschritt schlug fehl; die Nachricht selbst ist unberührt",
+  "captureActivity.reason.no_counterparty":
+    "kein Absender, den dieses CRM erfassen konnte",
+  "captureActivity.reason.transactional_infra":
+    "der Absender ist Mail-Infrastruktur, kein Unternehmen, mit dem Sie arbeiten",
+  "captureActivity.reason.transactional_prefix":
+    "der Absender wirkt wie ein automatischer Versender, keine Person",
+  "captureActivity.outcome.deferred_capped": "Nicht eingereiht",
+  "captureActivity.resolution.pending": "wartet noch",
+  "captureActivity.resolution.unsure": "an die Prüfliste gesendet",
+  "captureActivity.resolution.real": "als echter Kontakt beurteilt",
+  "captureActivity.resolution.noise": "als Rauschen beurteilt",
+  "captureActivity.resolution.rejected": "von einer Person abgelehnt",
+  "captureActivity.resolution.suppressed": "unterdrückt",
   "settings.tab.maintenance": "Wartung",
   "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",

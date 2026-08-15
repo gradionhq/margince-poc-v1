@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Activity,
   Building2,
   ChevronDown,
   Database,
@@ -63,6 +64,7 @@ import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import { AutomationsAdmin } from "./automations";
+import { CaptureActivityTab } from "./capture-activity";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   LoadMoreButton,
@@ -119,7 +121,7 @@ import "./settings.css";
 // than stubbed (STATE-5). The entry is selected by the route id
 // (#/settings/<id>), so it is linkable and the palette can deep-link one.
 //
-// Twelve, and it used to be fifteen tabs plus nine routes outside them. What
+// Thirteen, and it used to be fifteen tabs plus nine routes outside them. What
 // collapsed and why: two surfaces both called "Capture" became one; the
 // installation and the company profile were always the same organization;
 // currency rates joined the base currency they convert to while model prices
@@ -129,10 +131,11 @@ import "./settings.css";
 // takes; and the operational verbs that were hiding beside the field editor — a
 // reindex, job health, the danger zone — became a place of their own.
 //
-// One of those merges was later UNDONE, which is why the count is twelve rather
-// than eleven: connectors and the overlay both answer "what are we connected to"
-// and were merged on that reading, but the question has two different owners —
-// see the split below.
+// One of those merges was later UNDONE, which is why the count is not eleven:
+// connectors and the overlay both answer "what are we connected to" and were
+// merged on that reading, but the question has two different owners — see the
+// split below. The thirteenth is newer and additive: Capture activity answers
+// what those connections DID, which no existing entry could say.
 //
 // Two groups: "you" (per-user, every member) and "org" (organization config).
 // Every org entry carries its OWN predicate — the grant the cards on it actually
@@ -169,6 +172,7 @@ const SETTINGS_TABS = [
   { id: "voice", icon: Mic, group: "you" },
   { id: "agents", icon: KeyRound, group: "you" },
   { id: "connections", icon: Plug, group: "you" },
+  { id: "capture-activity", icon: Activity, group: "you" },
   { id: "general", icon: Building2, group: "org" },
   { id: "people", icon: UsersRound, group: "org" },
   { id: "integrations", icon: Webhook, group: "org" },
@@ -213,6 +217,10 @@ function tabContent(id: SettingsTabId): ReactNode {
       );
     case "connections":
       return <ConnectionsTab />;
+    // Beside `connections` and after it on purpose: that tab says what you are
+    // connected to, this one says what those connections did with your mail.
+    case "capture-activity":
+      return <CaptureActivityTab />;
     case "integrations":
       return <IntegrationsTab />;
     case "capture":

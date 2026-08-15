@@ -22,7 +22,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance", "integrations", "retention_policy"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run", "installation_settings", "finance", "integrations", "retention_policy", "capture_trace"}
 
 // IsCoreObject reports whether an RBAC object is in the closed set a role
 // document may grant. Parse enforces it on stored documents; it is also the
@@ -114,11 +114,11 @@ var (
 // and migrate-in screens are admin surfaces.
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -183,6 +183,9 @@ var defaults = map[string]Document{
 			// one spends money and is admin/ops.
 			readOnly,
 			// retention_policy — admin/ops-only, read included (see objects()).
+			grant{},
+			// capture_trace — a rep debugs no shared bot binding, and their own
+			// capture activity needs no grant.
 			grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
@@ -190,18 +193,18 @@ var defaults = map[string]Document{
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, grant{}),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance, integrations, retentionPolicy grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun, installationSettings, finance, integrations, retentionPolicy, captureTrace grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -219,6 +222,17 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		"project":              project,
 		"channel_connection":   channelConnection,
 		"import_run":           importRun,
+		// The workspace's SHARED-CHANNEL capture trace (a bot binding's inbound
+		// traffic). Read-only for everyone who holds it, because nothing writes
+		// it but the pipeline and nothing deletes it but its 24h sweep -- there
+		// is no create/update/delete anyone could hold.
+		//
+		// It reaches ONLY rows with no member behind them. A member's own capture
+		// traffic is personal data and no grant widens it, which is why rep and
+		// read_only hold nothing here rather than holding read: there is no
+		// shared-channel debugging in their job, and a grant that looked
+		// harmless would be the one somebody later widened.
+		"capture_trace": captureTrace,
 		// The installation's own identity and reporting basis (ADR-0090/A135).
 		// Read is broad on purpose — a rep reading amounts benefits from knowing
 		// which currency they are in — and only admin/ops change it.

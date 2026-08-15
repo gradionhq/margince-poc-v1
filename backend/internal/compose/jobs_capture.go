@@ -131,6 +131,12 @@ func addCapturePipelineJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerC
 	addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{
 		engine: NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log),
 	})
+	// The trace sweep, registered unconditionally and deliberately so: it is
+	// what makes the 24-hour retention true, and under the trace_payloads
+	// posture that retention is a promise about message content. A deployment
+	// that composed capture at all must expire it.
+	addDeclaredWorker[CaptureTraceSweepArgs](reg, &captureTraceSweepWorker{pool: pool})
+	addDeclaredWorker[CaptureTraceSweepWorkspaceArgs](reg, &captureTraceSweepWorkspaceWorker{pool: pool})
 }
 
 // GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is

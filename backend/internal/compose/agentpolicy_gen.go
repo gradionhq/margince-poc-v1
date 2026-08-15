@@ -148,6 +148,8 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/automations/{id}/runs":                                      {Op: "listAutomationRuns", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/availability":                                               {Op: "getAvailability", Access: "tool", Tool: "check_availability", RecordType: "", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/brief":                                                      {Op: "getMorningBrief", Access: "tool", Tool: "read_brief", RecordType: "", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/capture/activity":                                           {Op: "listMyCaptureActivity", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/capture/activity/workspace":                                 {Op: "listWorkspaceCaptureActivity", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/capture/blocked-domains":                                    {Op: "listBlockedDomains", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/capture/consumer-mail-baseline":                             {Op: "listConsumerMailBaseline", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/capture/consumer-mail-domains":                              {Op: "listConsumerMailDomains", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

@@ -255,6 +255,10 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// ingress polls, so nothing is ever told where to reach this installation.
 	// It must precede kvOpts below, which hands it the vault it seals with.
 	opts = append(opts, compose.WithChannelSurface())
+	// The trace READ surface, carrying the same payload posture the Sink writes
+	// under, so the API's answer about that posture and the pipeline's behaviour
+	// come from one value rather than two that can drift.
+	opts = append(opts, compose.WithCaptureTrace(capCfg.TracePayloads))
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {

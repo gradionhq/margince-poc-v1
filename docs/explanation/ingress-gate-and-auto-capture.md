@@ -259,11 +259,43 @@ path that later deletes content, and only after the undo window.
 | Lease / batch / cap | 45 min / 8 / 200 | Claim lease, batch size, senders judged per run |
 | Message size limits | section 1 | What one message may store |
 | Schedule | 1 hour | Declared in `backend/api/jobs.yaml`. Changing it is a contract change plus regeneration |
+| Capture-activity window | 24 hours | The trace's whole retention, swept hourly. Shared by the read and the sweep as one constant, so the API cannot show rows the sweep has decided to delete |
 
 When either cap is hit, a `capture_deferral_capped` log row records **which** one, so "the queue is
 full" and "one domain is flooding it" are never confused.
 
-## 7. Examples
+## 7. Seeing it for yourself: Capture activity
+
+Every decision above is now readable, per member, in **Settings → Capture activity**.
+
+The tab shows the last 24 hours of the reader's own connections: a count per outcome, then a row
+per message saying when it arrived, which connector carried it, what the pipeline decided, and —
+where the decision needs it — the reason that changes what that decision means. A deferred message
+shows what later became of its sender, read from the disposition ledger.
+
+| | |
+|---|---|
+| Who sees what | Your own connections need no grant — it is your own data. Rows from a workspace-owned channel binding (a Telegram bot, a Zalo OA) belong to no member, and are shown to holders of the `capture_trace` object. A grant never reaches a colleague's mailbox |
+| Where the numbers start | At the ingress gate. What a connector filtered on its own side is not comparable between connectors, so it is excluded and the page says so |
+| Scope | Captured messages. Lead capture has its own outcomes and is not shown here |
+| Retention | 24 hours, deleted by an hourly sweep — the first retention any capture breadcrumb has had |
+
+**By default the trace stores nothing about the message itself**: no address, no subject. A row
+whose message was dropped as internal shows the time and the connector and says *content not
+stored*, which is the honest answer — the drop exists so no copy is kept.
+
+`capture.trace_payloads: true` in `margince.yaml` changes that: each traced message additionally
+keeps its sender and a bounded subject for the same 24 hours, including for internally-dropped
+mail, which is the case an operator turns it on to diagnose. It is **off by default and settable
+only in the deployment file** — no API, no in-app switch — because it retains correspondence the
+CRM otherwise refuses to store. An erased subject's address is never written whatever the posture
+says, and an erasure request inside the window reaches what is already there.
+
+Operators also get `margince_capture_outcomes_total` on `/metrics`, counted per outcome since
+process start — so "every message from that mailbox has been dropped as internal since somebody
+registered a domain" is a slope somebody can alert on.
+
+## 8. Examples
 
 Assume `acme.com` is a registered own domain, and the client is `dana@client.io`.
 
@@ -284,7 +316,7 @@ Assume `acme.com` is a registered own domain, and the client is `dana@client.io`
 | The same message is polled twice | Nothing happens the second time |
 | A member's permissions were reduced after connecting | Their next poll runs with the reduced permissions |
 
-## 8. What a connector must provide
+## 9. What a connector must provide
 
 | Field | Requirement | If you get it wrong |
 |---|---|---|

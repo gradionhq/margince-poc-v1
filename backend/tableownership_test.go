@@ -177,6 +177,11 @@ var tableOwners = map[string]string{
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
+	// What the pipeline decided about each message, for 24 hours. Written by
+	// the sink alone; compose reads it and sweeps it, and the verdict engine
+	// writes nothing here — its answers live in the disposition ledger and are
+	// joined at read time.
+	"capture_trace": "internal/modules/capture",
 	// The workspace's own additions to and carve-outs from the shipped
 	// consumer-mail baseline (CAP-PARAM-5).
 	"capture_freemail_domain": "internal/modules/capture",
@@ -409,6 +414,7 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/privacy:deal":                         "retention archives over-age lost deals per its audited per-record transaction",
 	"internal/modules/privacy:embedding":                    "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/activities:embedding":                 "the ADR-0072 noise redaction drops the vectors built from the mail it just nulled, in the same transaction — an embedding of redacted text is that text in another shape, and leaving it would let a similarity probe reconstruct what the workspace decided not to retain. Same obligation as the privacy waiver above, at the other place content is destroyed; the embed lane cannot do it itself because it never observes an archived row",
+	"internal/modules/privacy:capture_trace":                "erasure deletes the subject's rows from the 24-hour capture trace in the single erasure transaction, beside raw_capture and ai_call_payload above. The trace's sweep bounds exposure to a day; it does not ANSWER a request made inside that day, and an erasure honoured everywhere except one diagnostic table is not honoured. Only the payload columns can name anybody, and only when the deployment enabled capture.trace_payloads — on the default posture this statement matches nothing, which is the correct amount of work for a table holding no identifiers. Exact equality rather than the ILIKE its neighbours use, because this column is written normalized and indexed",
 	"internal/modules/privacy:raw_capture":                  "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
 	"internal/modules/privacy:person_profile_field":         "Art. 17 and the retention sweep delete the subject's enrichment sidecar inside the single erasure transaction, beside field_provenance and ai_feedback: anonymize-in-place leaves the person row standing, so nothing cascades here, and the row holds the subject's title and employer with the verbatim sentence naming them",
 	"internal/modules/privacy:person_provider_claim":        "Art. 17 and the retention sweep delete what a licensed data provider asserted about the subject, inside the single erasure transaction and for the same reason person_profile_field is here: anonymize-in-place leaves the person row standing, so nothing cascades, and a claim IS the purchased value — a bought email and employer would otherwise sit on the page beside an \"Erased Subject\" name. Deleted rather than nulled, because a claim nulled in place is a row asserting something about a person nobody may now assert anything about",

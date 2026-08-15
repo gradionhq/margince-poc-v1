@@ -4324,6 +4324,64 @@ export interface paths {
         patch: operations["updateCaptureSettings"];
         trace?: never;
     };
+    "/capture/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the capture pipeline did with your messages in the last 24 hours.
+         * @description The CALLER'S OWN rows, across every connector they have connected, newest first. No RBAC
+         *     object gates it and none can widen it: a member's own capture traffic is their own data,
+         *     and the workspace view (`listWorkspaceCaptureActivity`) returns shared-channel rows only.
+         *
+         *     The funnel PARTITIONS the window — one row per message, counted under the most specific
+         *     thing that happened to it — so the counts sum to the messages seen. What a connector
+         *     filtered on its own side (a chat reaction, a mail label rule) is not here: those numbers
+         *     mean different things per connector and a shared total would be a fiction.
+         *
+         *     Covers captured MESSAGES. Lead capture is a different shape with its own outcomes and is
+         *     deliberately out of scope.
+         *
+         *     `payload_capture_enabled` reports the deployment's `capture.trace_payloads` posture, so a
+         *     client can tell "the operator did not enable this" from "this row has no payload".
+         */
+        get: operations["listMyCaptureActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/activity/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The same window for the workspace's shared channel connections.
+         * @description Rows from connections the WORKSPACE owns — a Telegram bot, a Zalo OA — where one binding
+         *     carries every seat's inbound traffic and no single member owns it. Governed by the
+         *     `capture_trace` RBAC object.
+         *
+         *     It NEVER returns a member's personal rows. Those are personal data and no grant reaches
+         *     them: an admin debugging a shared channel has no business reading whose mail arrived when.
+         */
+        get: operations["listWorkspaceCaptureActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/consumer-mail-domains": {
         parameters: {
             query?: never;
@@ -7908,6 +7966,59 @@ export interface components {
              */
             base_currency?: string;
         };
+        CaptureActivityResponse: {
+            funnel: components["schemas"]["CaptureActivityFunnel"];
+            data: components["schemas"]["CaptureTraceEntry"][];
+            page: components["schemas"]["PageInfo"];
+            /** @description The deployment's `capture.trace_payloads` posture. False means no entry in this window carries `counterparty` or `subject` because the operator did not turn payload capture on — as against an individual row that simply has none. */
+            payload_capture_enabled: boolean;
+            /** @description The window these counts cover. Fixed at 24. */
+            window_hours: number;
+        };
+        /** @description One count per outcome over the window. These PARTITION the messages seen — one row per message, under the most specific outcome that applied — so they sum to the total. Absent keys are zero. */
+        CaptureActivityFunnel: {
+            /** @description Landed; the sender was known or became known. */
+            captured?: number;
+            /** @description Never landed: every party was on the workspace's own mail domains. */
+            internal?: number;
+            /** @description Landed; the sender is mail infrastructure, so no record was derived. */
+            suppressed?: number;
+            /** @description Landed; the sender is a stranger and the question is open. */
+            deferred?: number;
+            /** @description The derivation failed. The message itself is unaffected unless the reason says otherwise. */
+            fault?: number;
+        };
+        CaptureTraceEntry: {
+            /** Format: uuid */
+            id: string;
+            /** @description The provider ID that carried the message (`gmail`, `telegram`, `ext:<unit>:<system>`), never a display label. A label is derived from the id or compiled into the running binary, so two deploys would disagree about the same transport with no row having changed; resolve one against the channel-provider registry rather than storing it here. */
+            connector: string;
+            /** @enum {string} */
+            outcome: "captured" | "internal" | "suppressed" | "deferred" | "fault";
+            /** @description A class this installation chose, never a provider's text and never content. The ones that change what the outcome MEANS: `deferral_capped` (no verdict is coming — a ceiling refused the question), `noise_prior` and `decided_prior` (it landed, but a prior decision means no record will appear), `internal_only`, `no_granting_human`, `invisible_incumbent`, `derivation_failed`. */
+            reason?: string | null;
+            /**
+             * Format: uuid
+             * @description The timeline row this message became. Present only where one exists AND the caller may read it — an entry whose activity moved out of their row scope still lists, with no link, rather than handing back an existence proof.
+             */
+            activity_id?: string | null;
+            resolution?: components["schemas"]["CaptureTraceResolution"];
+            /** @description Only when payload_capture_enabled, and never for an erased subject. */
+            counterparty?: string | null;
+            /** @description Only when payload_capture_enabled, and never for an erased subject. */
+            subject?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /** @description What later became of a DEFERRED message's sender, read from the disposition ledger rather than copied into the trace: the ledger is keyed by sender and the trace by message, and one sender's answer covers several messages. */
+        CaptureTraceResolution: {
+            /** @enum {string} */
+            status: "pending" | "unsure" | "real" | "noise" | "rejected" | "suppressed";
+            /** @description Who wrote, when the verdict said: person | role_mailbox | organization_sender | newsletter | transactional | spam. */
+            kind?: string | null;
+            /** Format: date-time */
+            resolved_at?: string | null;
+        } | null;
         /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
          *     changed only by admin/ops.
@@ -13566,7 +13677,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -24353,6 +24464,77 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listMyCaptureActivity: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The 24-hour funnel and one page of entries, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureActivityResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listWorkspaceCaptureActivity: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The 24-hour funnel and one page of entries, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureActivityResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listConsumerMailDomains: {

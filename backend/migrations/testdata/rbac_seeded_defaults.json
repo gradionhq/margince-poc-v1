@@ -25,6 +25,12 @@
         "read": true,
         "update": true
       },
+      "capture_trace": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "channel_connection": {
         "create": true,
         "delete": true,
@@ -224,6 +230,12 @@
       },
       "capture_settings": {
         "create": true,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "capture_trace": {
+        "create": false,
         "delete": false,
         "read": true,
         "update": false
@@ -431,6 +443,12 @@
         "read": true,
         "update": true
       },
+      "capture_trace": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "channel_connection": {
         "create": true,
         "delete": true,
@@ -634,6 +652,12 @@
         "read": true,
         "update": false
       },
+      "capture_trace": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
       "channel_connection": {
         "create": false,
         "delete": false,
@@ -835,6 +859,12 @@
         "create": true,
         "delete": false,
         "read": true,
+        "update": false
+      },
+      "capture_trace": {
+        "create": false,
+        "delete": false,
+        "read": false,
         "update": false
       },
       "channel_connection": {

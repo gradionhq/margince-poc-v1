@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "5c41de82ae8b470b0ad6e144bace4a67ca156f0bb0a2313da957495b058b0ad5"
+const jobContractHash = "3be539019f358ba10cb7897dbf222960845cb1a70a9c4a1c8dff649ff60e44ca"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -41,6 +41,8 @@ type declaredJobArgs interface {
 		CaptureEnrichArgs |
 		CaptureEnrichWorkspaceArgs |
 		CaptureSyncArgs |
+		CaptureTraceSweepArgs |
+		CaptureTraceSweepWorkspaceArgs |
 		CloseDateSweepArgs |
 		CloseDateWorkspaceArgs |
 		ScheduledSendArgs |
@@ -125,6 +127,7 @@ var (
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
 	_ jobs.FleetWide = CaptureDigestArgs{}
 	_ jobs.FleetWide = CaptureEnrichArgs{}
+	_ jobs.FleetWide = CaptureTraceSweepArgs{}
 	_ jobs.FleetWide = CloseDateSweepArgs{}
 	_ jobs.FleetWide = EmbedDriftSweepArgs{}
 	_ jobs.FleetWide = EmbedReindexArgs{}
@@ -156,6 +159,7 @@ var (
 	_ jobs.WorkspaceScoped = CaptureDigestWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
+	_ jobs.WorkspaceScoped = CaptureTraceSweepWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = ScheduledSendArgs{}
 	_ jobs.WorkspaceScoped = SendEmailArgs{}

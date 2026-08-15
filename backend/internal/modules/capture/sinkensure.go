@@ -12,11 +12,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -126,6 +124,24 @@ type counterpartyDecision struct {
 	// (ladderSubjectTx). Carried rather than re-derived so the post-commit
 	// create acts on exactly what the ladder judged.
 	subject connector.Counterparty
+
+	// traceOutcome and traceReason are what the member is told happened to this
+	// message, carried out of the ladder rather than re-derived from the row it
+	// wrote. Empty traceOutcome means the ordinary one: the message landed.
+	//
+	// They ride the decision because the ladder's tiers are the only place that
+	// knows WHICH of them settled the message, and a second read of the
+	// disposition ledger to recover it would be a query per captured message to
+	// learn something this function just decided.
+	traceOutcome TraceOutcome
+	traceReason  string
+}
+
+// traced is the decision with its trace fields set, so a tier can answer in one
+// expression without restating the fields it is not changing.
+func (d counterpartyDecision) traced(outcome TraceOutcome, reason string) counterpartyDecision {
+	d.traceOutcome, d.traceReason = outcome, reason
+	return d
 }
 
 // decideCounterparty runs the tiered creation gate (ADR-0072 §1) and records
@@ -164,13 +180,17 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		return counterpartyDecision{}, err
 	}
 	if subject.Email == "" {
-		return counterpartyDecision{}, nil
+		// The message landed and named nobody a record could be created for.
+		return counterpartyDecision{}.traced(TraceCaptured, traceReasonNoCounterparty), nil
 	}
 	cp = subject
 
 	row, decision, ok, err := s.derivationStart(ctx, tx, rec, subject, activityID)
 	if err != nil || !ok {
-		return counterpartyDecision{}, err
+		// decision, not a zero value: derivationStart's no-granting-human arm is
+		// a FAULT the member should see, and it returns before the guarded arm
+		// that reports every other one.
+		return decision, err
 	}
 	decision.subject = subject
 	// T1 correspondence-positive: the workspace has provably written to this
@@ -185,19 +205,22 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	decision.create = corresponded
 
 	// T2 transactional / ESP infrastructure, which T1 outranks.
-	suppressed, err := s.registrySuppresses(ctx, tx, rec, cp, row, corresponded)
+	suppressed, suppressReason, err := s.registrySuppresses(ctx, tx, rec, cp, row, corresponded)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}
 	if suppressed {
-		return counterpartyDecision{}, nil
+		// decision, not a zero value — and safe to carry because registrySuppresses
+		// can only suppress when !corresponded, so create is still false here.
+		// Nothing downstream may read create from a suppressed decision.
+		return decision.traced(TraceSuppressed, suppressReason), nil
 	}
 
 	// An address this workspace has ALREADY decided about is not the ambiguous
 	// class, whatever its domain — so this runs BEFORE the free-mail tier, which
 	// would otherwise set create=true and skip the check entirely, minting the
 	// person a prior `noise` verdict refused every time that sender wrote again.
-	alreadyKnown, settled, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
+	alreadyKnown, settled, priorReason, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}
@@ -209,7 +232,14 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// them — and since nothing clears those statuses, "reply to recover" would
 	// only half work: the hide would stop, the record would still be refused.
 	if settled && !corresponded {
-		return counterpartyDecision{}, nil
+		// The message COMMITS and the hide sweep may then archive it, so a trace
+		// saying only "captured" would answer "why did this not appear?" with
+		// "it did". The reason is what makes the answer true.
+		//
+		// create is false on this arm by construction: reaching it needs
+		// !corresponded, and corresponded is the only thing that has set create
+		// by this point.
+		return decision.traced(TraceCaptured, priorReason), nil
 	}
 	decision.create = decision.create || alreadyKnown
 
@@ -223,7 +253,11 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	}
 
 	if !decision.create {
-		return counterpartyDecision{}, s.deferAmbiguous(ctx, tx, rec, row)
+		deferReason, err := s.deferAmbiguous(ctx, tx, rec, row)
+		if err != nil {
+			return counterpartyDecision{}, err
+		}
+		return decision.traced(TraceDeferred, deferReason), nil
 	}
 	return decision, nil
 }
@@ -249,14 +283,14 @@ func consumerMailSender(ctx context.Context, tx pgx.Tx, domain string) (bool, er
 // stranger or customer. ADR-0063's create-on-sight is what manufactured junk
 // from exactly this class, so the message is captured, no record is minted, and
 // the verdict engine answers the question the ledger now holds.
-func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow) error {
+func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow) (string, error) {
 	row.Status = PendingStatusPending
 	capped, err := recordDisposition(ctx, tx, row)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if capped == "" {
-		return nil
+		return "", nil
 	}
 	// A ceiling is holding this question back, which an outsider can drive by
 	// mailing from fresh addresses. Say so where an operator will see it, and say
@@ -269,7 +303,9 @@ func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	}
 	// The ceiling rides its own field, not only the prose: an operator filtering
 	// for one flooding domain should not have to match on a sentence.
-	return s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec, detail,
+	// The member's answer differs from the operator's here: a capped deferral is
+	// not "waiting for a verdict", it is a question that will never be asked.
+	return TraceReasonDeferralCapped, s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec, detail,
 		map[string]any{"ceiling": capped})
 }
 
@@ -288,7 +324,10 @@ func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	}
 	actor, owner := capturePrincipal(ctx)
 	if owner.IsZero() {
-		return dispositionRow{}, counterpartyDecision{}, false,
+		// A fault, and one that reaches no other fault path: this returns
+		// ok=false with no error, so decideCounterpartyGuarded's arm never sees
+		// it and the message would otherwise trace as an ordinary capture.
+		return dispositionRow{}, counterpartyDecision{}.traced(TraceFault, TraceReasonNoGrantingHuman), false,
 			s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, "no granting human on the connector principal")
 	}
 	row := dispositionRow{
@@ -304,30 +343,30 @@ func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // answer settles the matter (in which case the caller stops: no record, no new
 // question, and no model call — the hide sweep folds this message in with
 // the rest of that sender's mail on its next pass).
-func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, settled bool, err error) {
+func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, settled bool, reason string, err error) {
 	prior, err := s.priorDispositionTx(ctx, tx, email)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 	switch prior {
 	case PendingStatusReal:
-		return true, false, nil
+		return true, false, "", nil
 	case priorKnownNonPerson:
 		// Decided, and decided to be nobody. Settled so the question is not
 		// re-asked and re-billed on every later message, and NOT `known`, so no
 		// person is minted from a mailbox the verdict already judged has none.
-		return false, true, nil
+		return false, true, TraceReasonDecidedPrior, nil
 	case PendingStatusNoise:
-		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_noise_sender", rec,
+		return false, true, TraceReasonNoisePrior, s.logBreadcrumbTx(ctx, tx, "capture_noise_sender", rec,
 			"a prior verdict already judged this sender noise")
 	case PendingStatusRejected, PendingStatusSuppressed:
 		// A human's decline and a registry suppression are answers too. Without
 		// this the next message re-raises the same question, buys another model
 		// call, and offers the human the decision they already made.
-		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_decided_sender", rec,
+		return false, true, TraceReasonDecidedPrior, s.logBreadcrumbTx(ctx, tx, "capture_decided_sender", rec,
 			"this sender was already decided: "+prior)
 	default:
-		return false, false, nil
+		return false, false, "", nil
 	}
 }
 
@@ -427,66 +466,15 @@ func (s *Sink) decideCounterpartyGuarded(ctx context.Context, tx pgx.Tx, rec con
 			// so there is no committing anything — report the original fault.
 			return counterpartyDecision{}, errors.Join(gateErr, rbErr)
 		}
-		return counterpartyDecision{}, s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, gateErr.Error())
+		if err := s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, gateErr.Error()); err != nil {
+			return counterpartyDecision{}, err
+		}
+		// On the OUTER transaction, after the rollback: a trace written inside
+		// the savepoint would roll back with the fault it exists to report.
+		return counterpartyDecision{}.traced(TraceFault, gateFaultReason), nil
 	}
 	if err := sp.Commit(ctx); err != nil {
 		return counterpartyDecision{}, fmt.Errorf("capture: committing the counterparty gate: %w", err)
 	}
 	return decision, nil
-}
-
-// logBreadcrumbTx records one capture-gate decision on the caller's capture
-// transaction. Every tier outcome a human might have to explain — a suppression,
-// a T1 spare that overrode one — commits with the activity it is about, so a
-// rolled-back capture never leaves a breadcrumb for a message that does not
-// exist, and no gate has to borrow a second pool connection while holding one.
-// extra carries breadcrumb-specific fields (at most one map; the variadic is
-// there so the seven callers that need nothing beyond the reason stay unchanged).
-// A key colliding with the three fixed fields is ignored — the fixed shape is
-// what makes these rows queryable across actions.
-func (s *Sink) logBreadcrumbTx(ctx context.Context, tx pgx.Tx, action string, rec connector.NormalizedRecord, reason string, extra ...map[string]any) error {
-	detail := map[string]any{
-		fieldReason:       reason,
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		fieldSourceID:     rec.NaturalKey.SourceID,
-	}
-	for _, m := range extra {
-		for k, v := range m {
-			if _, fixed := detail[k]; !fixed {
-				detail[k] = v
-			}
-		}
-	}
-	_, err := storekit.LogSystem(ctx, tx, action, detail)
-	if err != nil {
-		return fmt.Errorf("capture: recording the %s breadcrumb: %w", action, err)
-	}
-	return nil
-}
-
-// logEnsureFault records an auto-create failure in system_log — the
-// activity is already committed and stays; the nightly reconcile re-runs
-// the resolver over link-less connector activities.
-func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecord, cause error) {
-	detail := map[string]any{
-		fieldReason:       "counterparty_ensure_failed",
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"error":           cause.Error(),
-	}
-	// A Telegram private-chat natural key embeds the customer's account id.
-	// This fault can be recorded after an erasure committed between capture and
-	// the asynchronous ensure, so retaining the key here would recreate the
-	// identifier the suppression gate just kept out of the domain rows.
-	if rec.Counterparty.ChannelIdentity.Provider == "" {
-		detail[fieldSourceID] = rec.NaturalKey.SourceID
-	}
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		_, logErr := storekit.LogSystem(ctx, tx, "capture_ensure_fault", detail)
-		return logErr
-	})
-	if err != nil {
-		// The ledger itself failed — nothing left but the process log; the
-		// nightly reconcile still finds the link-less activity.
-		slog.ErrorContext(ctx, "capture: recording ensure fault", "err", err, "cause", cause)
-	}
 }

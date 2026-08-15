@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "5c41de82ae8b470b0ad6e144bace4a67ca156f0bb0a2313da957495b058b0ad5"
+const JobContractHash = "3be539019f358ba10cb7897dbf222960845cb1a70a9c4a1c8dff649ff60e44ca"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -191,6 +191,27 @@ var specs = map[string]Spec{
 		Registration: Registration{When: []string{"GmailRegistry"}},
 		Fault:        FaultPolicy{NilAfterLogging: "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'."},
 		Args:         []ArgField{{Name: "ConnectionID"}, {Name: "Provider", Scalar: true, Reason: "the connector family the connection belongs to (gmail, gcal). It selects the sync path before any row is read, so the job cannot resolve it from the connection it names without first knowing which connector owns that row. A member of a fixed set this build compiles, and a fact about a code path rather than about anyone."}, {Name: "Workspace"}},
+	},
+	"capture_trace_sweep": {
+		Kind:       "capture_trace_sweep",
+		GoType:     "CaptureTraceSweepArgs",
+		Role:       Dispatcher,
+		Queue:      "default",
+		Timeout:    TimeoutPolicy{Fixed: 2 * time.Minute},
+		FanOutUnit: FanOutWorkspace,
+		FanOutTo:   "capture_trace_sweep_workspace",
+		OptsOwner:  OptsCaller,
+		Cadence:    Cadence{Fixed: 1 * time.Hour},
+	},
+	"capture_trace_sweep_workspace": {
+		Kind:        "capture_trace_sweep_workspace",
+		GoType:      "CaptureTraceSweepWorkspaceArgs",
+		Role:        Worker,
+		Queue:       "default",
+		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
+		MaxAttempts: 3,
+		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"close_date_sweep": {
 		Kind:       "close_date_sweep",
