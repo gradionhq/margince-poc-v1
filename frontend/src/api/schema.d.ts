@@ -12420,15 +12420,17 @@ export interface components {
             id: string;
             /**
              * @description `scheduled` — waiting; the rep may move or cancel it.
-             *     `released` — it fired: the activity, the delivery row and the dispatch job exist.
-             *     Deliberately NOT "sent": the provider has not been called yet and the delivery can
-             *     still park or fail, so delivery truth lives on the outbound record, not here.
+             *     `released` — it fired: the activity, the delivery row and the dispatch job exist,
+             *     and the provider has not been called yet, so the delivery can still park or fail.
+             *     A step rather than an ending.
+             *     `sent` — the provider confirmed receipt. A message this system sent reads the same
+             *     whether a rep scheduled it or sent it directly.
              *     `cancelled` — withdrawn before it fired; nothing was transmitted.
              *     `held` — a gate refused at fire, or the window was missed. It will not send itself;
              *     a human reschedules or cancels it.
              * @enum {string}
              */
-            status: "scheduled" | "released" | "cancelled" | "held";
+            status: "scheduled" | "released" | "sent" | "cancelled" | "held";
             /** Format: date-time */
             scheduled_at: string;
             /** @description The IANA zone the human picked the moment in, kept so it re-renders as meant. */
@@ -20734,7 +20736,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Omit for every state; supply one to filter. */
-                status?: "scheduled" | "released" | "cancelled" | "held";
+                status?: "scheduled" | "released" | "sent" | "cancelled" | "held";
             };
             header?: never;
             path?: never;
