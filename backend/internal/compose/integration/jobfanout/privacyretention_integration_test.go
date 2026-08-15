@@ -190,6 +190,30 @@ func TestPrivacyRetentionRunsThePassAndRecordsAFailureAsAFailedRow(t *testing.T)
 	}
 }
 
+// TestPrivacyRetentionRecordsAFailedPassAsAFailedRow is the other half, and the
+// half that has no other trace: a pass that could not run must leave a FAILED
+// row. One reporting success is indistinguishable from one that found nothing
+// due, and what it hides is subject data kept past its policy with a green job
+// row over it.
+func TestPrivacyRetentionRecordsAFailedPassAsAFailedRow(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+	owner := integration.OwnerConn(t)
+	seedRetentionPolicy(t, owner, e.WS)
+	seedOverageLead(t, owner, e.WS)
+	// Armed before the runner starts, and permanent: a fault that healed would
+	// let a later attempt complete and record the pass as green.
+	failLeadWrites(t, owner)
+
+	_, completed, failed := startRetentionRunner(t, e, time.Hour)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if outcome := jobtest.AwaitKindOutcome(waitCtx, t, completed, failed,
+		compose.PrivacyRetentionArgs{}.Kind()); outcome {
+		t.Error("the pass whose writes could not land reported a completed job — the failure the row exists to record was swallowed")
+	}
+}
+
 // TestPrivacyRetentionDispatchRepeatsOnItsConfiguredInterval pins the half of
 // the schedule a boot pass hides. RunOnStart fires once whatever the cadence
 // is, so a dispatcher wired to a constant instead of the operator's

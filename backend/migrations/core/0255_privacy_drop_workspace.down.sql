@@ -1,4 +1,4 @@
--- Reverse of 0252: the two privacy tables carry the tenant column again.
+-- Reverse of 0255: the two privacy tables carry the tenant column again.
 --
 -- The backfill reads the LIVE workspace, and the predicate is the point: 0217's
 -- pre-flight refuses to run against a database holding more than one workspace

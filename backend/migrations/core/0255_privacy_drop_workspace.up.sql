@@ -1,4 +1,4 @@
--- 0252: the privacy tables drop the tenant column (ADR-0091 §8 phase D).
+-- 0255: the privacy tables drop the tenant column (ADR-0091 §8 phase D).
 --
 -- Held back until now because the retention sweep fanned out one job per
 -- workspace and its suite proved that one tenant's failure cost that tenant its

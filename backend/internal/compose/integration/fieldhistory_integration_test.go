@@ -12,6 +12,7 @@ package integration
 // splitting one audit row's entries across two pages.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -478,6 +479,18 @@ func TestFieldHistoryExcludesRetentionArchiveMeta(t *testing.T) {
 			t.Errorf("retention policy metadata %q projected as a field change", en.Field)
 		}
 	}
+	// The pass actually archived it. Without this the assertion below holds
+	// vacuously: a deal the pass never touched also has no field entries, so
+	// the test would go green over a retention pass that did nothing at all.
+	var archived bool
+	if err := OwnerConn(t).QueryRow(context.Background(),
+		`SELECT archived_at IS NOT NULL FROM deal WHERE id = $1`, staleDeal).Scan(&archived); err != nil {
+		t.Fatalf("reading the stale deal's archived stamp: %v", err)
+	}
+	if !archived {
+		t.Fatal("the retention pass left the over-age deal live — every assertion below would pass over a pass that did nothing")
+	}
+
 	// The deal was raw-seeded (no create audit), so the retention archive
 	// row is its whole spine — and that row carries no field images.
 	if len(page.Entries) != 0 {
