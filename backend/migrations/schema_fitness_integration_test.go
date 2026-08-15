@@ -124,6 +124,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"person_moment_dismissal.person_id":        "gated: auth.RequireHuman + auth.Require + auth.EnsureVisibleLive in person360.Service.DismissMoment, inside the same transaction as the insert — dismissing a card about a contact the caller cannot read would confirm they exist",
 	"consent_qualifying_event.person_id":       "gated: the event is recorded only on a path that already holds the person — a captured inbound activity, an inquiry, or a named human typing an exchange on the record's own surface, each of which took the person read before it could name them",
 	"consent_existing_customer_flag.person_id": "gated: the §7(3) flag is set only from the person's own consent surface, whose handler resolves the person through the consent store's gated read before any row is written",
+	"lead_manual_signal.lead_id":               "gated: auth.EnsureVisibleLive on the lead runs in the SAME transaction as the insert (people/leadmanualsignal.go) — recording a judgement signal against a lead the caller cannot read would confirm it exists",
 	// conversation_claim's table shipped ahead of its writer (ADR-0097 D1):
 	// the DDL exists so the page's reads and the demo seed have a shape to
 	// bind to, and the extraction task that fills it is still to come. These
@@ -136,7 +137,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"conversation_claim.task_activity_id":   "PENDING WRITER: no code writes this table yet. The task an extracted commitment creates is written through the tasks substrate's own gated path, and this entry is replaced with that gate when the routing edge lands",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
-	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",
+	"activity_link.activity_id":  "child row: written only inside LogActivity for the new activity",
+	"lead_score_history.lead_id": "child row: one point in a lead's own score series, appended only from inside the lead's gated write paths — CreateLead/CreateLeadTx (lead:create), UpdateLead (lead:update) and RecomputeLeadScore (lead:update), each of which has already admitted the caller before the append runs in its transaction",
 	// comms_outbound is delivery machinery for one activity, not a
 	// standalone record (comms/doc.go): StageTx writes only inside the
 	// caller's own transaction, alongside the activity write it reports on
