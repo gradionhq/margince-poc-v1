@@ -170,9 +170,7 @@ describe("what a grounded reading offers", () => {
     expect(await screen.findByText(/not stated in this file/i)).toBeTruthy();
     // The floor has to stay visible: folding this into "not stated" would make
     // every under-confident reading look like a silent document.
-    expect(
-      screen.getByText(/not clearly enough to accept/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/not clearly enough to accept/i)).toBeTruthy();
   });
 
   it("sends the id of the reading it is SHOWING when accepting", async () => {
@@ -183,10 +181,12 @@ describe("what a grounded reading offers", () => {
     );
     await waitFor(() => {
       const accept = calls.find((c) => c.method === "POST");
-      expect(accept).toBeTruthy();
+      if (!accept) {
+        throw new Error("the accept never reached the wire");
+      }
       // The whole point of the id: what lands on the deal is what was on screen,
       // not whatever reading happens to be newest when the click arrives.
-      expect((accept?.body as { extraction_id: string }).extraction_id).toBe(
+      expect((accept.body as { extraction_id: string }).extraction_id).toBe(
         GROUNDED.id,
       );
     });
@@ -230,7 +230,10 @@ describe("what a grounded reading offers", () => {
     );
     await waitFor(() => {
       const accept = calls.find((c) => c.method === "POST");
-      const body = accept?.body as { edits: Record<string, string> };
+      if (!accept) {
+        throw new Error("the accept never reached the wire");
+      }
+      const body = accept.body as { edits: Record<string, string> };
       expect(body.edits).toEqual({ amount_minor: "20000000" });
     });
   });

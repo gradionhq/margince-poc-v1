@@ -1626,7 +1626,8 @@ export const de = {
   // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
   // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen
   // und keines der Felder genannt, gar nicht lesbar.
-  "extraction.neverRead": "Diese Datei wurde noch nicht auf Deal-Felder gelesen.",
+  "extraction.neverRead":
+    "Diese Datei wurde noch nicht auf Deal-Felder gelesen.",
   "extraction.readIt": "Diese Datei lesen",
   "extraction.readAgain": "Erneut versuchen zu lesen",
   "extraction.starting": "Wird gestartet…",

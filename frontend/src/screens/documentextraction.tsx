@@ -101,7 +101,8 @@ export function DocumentExtractionPanel({
       }
       return data ?? null;
     },
-    refetchInterval: (q) => (isLive(q.state.data ?? undefined) ? POLL_MS : false),
+    refetchInterval: (q) =>
+      isLive(q.state.data ?? undefined) ? POLL_MS : false,
   });
 
   const read = useMutation({
@@ -328,7 +329,9 @@ function ExtractionBody({
           </Button>
         </div>
       )}
-      {acceptFailed && <p className="t-caption">{t("extraction.acceptFailed")}</p>}
+      {acceptFailed && (
+        <p className="t-caption">{t("extraction.acceptFailed")}</p>
+      )}
     </StagingCard>
   );
 }
@@ -389,7 +392,9 @@ function GroundedField({
 // An omission is an ANSWER, not an absence — "this order form states no close
 // date" is something a rep acts on — so it is rendered rather than left off the
 // panel for the reader to notice on their own.
-function OmittedList({ omitted }: Readonly<{ omitted: readonly OmittedField[] }>) {
+function OmittedList({
+  omitted,
+}: Readonly<{ omitted: readonly OmittedField[] }>) {
   const t = useT();
   if (omitted.length === 0) {
     return null;
@@ -400,7 +405,8 @@ function OmittedList({ omitted }: Readonly<{ omitted: readonly OmittedField[] }>
         const label = FIELD_LABELS[field.field];
         return (
           <li key={field.field} className="t-caption">
-            {label ? t(label) : field.field} — {t(OMITTED_REASONS[field.reason])}
+            {label ? t(label) : field.field} —{" "}
+            {t(OMITTED_REASONS[field.reason])}
           </li>
         );
       })}

@@ -8,8 +8,8 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
-import { DocumentExtractionPanel } from "./documentextraction";
 import { RECORD_ZONE, SectionPart, type SectionState } from "./company360";
+import { DocumentExtractionPanel } from "./documentextraction";
 
 // The account's documents: the contracts, offers and legal files a rep goes
 // looking for before a call.
@@ -140,37 +140,37 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
         ) : (
           documents.map((doc) => (
             <Fragment key={doc.id}>
-            <PanelRow className="docs-row">
-              {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
-              {/* The title if somebody gave it one, else the filename. A
+              <PanelRow className="docs-row">
+                {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
+                {/* The title if somebody gave it one, else the filename. A
                   display name is what a reader looks for; the filename is
                   what arrived. */}
-              <span className="docs-name">{doc.title || doc.filename}</span>
-              {doc.category && (
-                <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
-              )}
-              {doc.doc_state && (
-                <Badge tone={STATE_TONE[doc.doc_state]}>
-                  {t(STATE_LABELS[doc.doc_state])}
-                </Badge>
-              )}
-              <span className="t-caption">
-                {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
-              </span>
-              <DownloadState doc={doc} />
-            </PanelRow>
-            {/* The staged reading sits UNDER its own row rather than inside it:
+                <span className="docs-name">{doc.title || doc.filename}</span>
+                {doc.category && (
+                  <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
+                )}
+                {doc.doc_state && (
+                  <Badge tone={STATE_TONE[doc.doc_state]}>
+                    {t(STATE_LABELS[doc.doc_state])}
+                  </Badge>
+                )}
+                <span className="t-caption">
+                  {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
+                </span>
+                <DownloadState doc={doc} />
+              </PanelRow>
+              {/* The staged reading sits UNDER its own row rather than inside it:
                 what it offers is about the document above it, and a panel wedged
                 into a list row would push the filename and the download out of
                 line for every file that has never been read. Only a deal-scoped
                 file gets one, because a deal is the only record the accept can
                 write to — offering it on a person's CV would be offering an act
                 that can only be refused. */}
-            {doc.entity_type === "deal" && (
-              <PanelRow className="docs-row">
-                <DocumentExtractionPanel attachmentId={doc.id} canAccept />
-              </PanelRow>
-            )}
+              {doc.entity_type === "deal" && (
+                <PanelRow className="docs-row">
+                  <DocumentExtractionPanel attachmentId={doc.id} canAccept />
+                </PanelRow>
+              )}
             </Fragment>
           ))
         )

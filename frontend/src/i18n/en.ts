@@ -1630,11 +1630,13 @@ export const en = {
   "extraction.readIt": "Read this file",
   "extraction.readAgain": "Try reading it again",
   "extraction.starting": "Starting…",
-  "extraction.startFailed": "That file could not be sent for reading. Nothing was changed.",
+  "extraction.startFailed":
+    "That file could not be sent for reading. Nothing was changed.",
   "extraction.loading": "Checking whether this file has been read…",
   "extraction.reading": "Reading this file…",
   "extraction.failed": "This file could not be read.",
-  "extraction.groundedNothing": "AI read this file and it states none of the deal fields.",
+  "extraction.groundedNothing":
+    "AI read this file and it states none of the deal fields.",
   "extraction.heading.one":
     "AI read this file — {count} field it can ground, staged for your record (accept to persist)",
   "extraction.heading.other":
@@ -1648,7 +1650,8 @@ export const en = {
     "{count} field accepted to the deal — original snippets retained",
   "extraction.acceptedHeading.other":
     "{count} fields accepted to the deal — original snippets retained",
-  "extraction.acceptFailed": "Those fields were not written. Nothing on the deal changed.",
+  "extraction.acceptFailed":
+    "Those fields were not written. Nothing on the deal changed.",
   "extraction.edit": "Edit",
   "extraction.editValue": "Edit {field}",
   "extraction.omitted.notStated": "omitted (not stated in this file)",
