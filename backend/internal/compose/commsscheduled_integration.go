@@ -15,11 +15,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -61,6 +64,36 @@ func DriveScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspac
 func HoldScheduledSendForTest(ctx context.Context, pool *pgxpool.Pool, workspace, id ids.UUID, reason string, observed int64) error {
 	store := sendStore(pool, SendPath{})
 	return store.HoldScheduledSend(sendWorkerScope(principal.WithWorkspaceID(ctx, workspace)), id, reason, observed)
+}
+
+// ScheduleAsAgentForTest schedules a message with an AGENT as the actor, through
+// the same SendOrSchedule every door calls.
+//
+// The lane needs it because the HTTP surface can only act as a human: an agent
+// reaches this through the tool surface, and what the fire path must preserve
+// is the acting agent's identity, which only exists if something scheduled
+// under one. Building the principal here rather than in the test keeps the
+// store call itself production's.
+func ScheduleAsAgentForTest(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	workspace ids.UUID,
+	actor principal.Principal,
+	anchor ids.ActivityID,
+	in activities.SendEmailInput,
+	at time.Time,
+) (activities.SendOutcome, error) {
+	inserter, err := jobs.NewInserter(pool, slog.New(slog.DiscardHandler))
+	if err != nil {
+		return activities.SendOutcome{}, err
+	}
+	store := sendStore(pool, SendPath{})
+	agentCtx := principal.WithCorrelationID(
+		principal.WithActor(principal.WithWorkspaceID(ctx, workspace), actor), ids.NewV7())
+	return store.SendOrSchedule(agentCtx, activities.FromActivity(anchor), in,
+		&activities.SendSchedule{At: at, TZ: "Europe/Berlin"},
+		consent.NewGate(consent.NewStore(InstallationDB(pool))),
+		NewDeliveryStager(pool, inserter), NewScheduleTimer(inserter))
 }
 
 // DriveScheduledSendRecoveryForTest runs one recovery pass through the

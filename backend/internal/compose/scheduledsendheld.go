@@ -168,6 +168,8 @@ func heldReasonText(reason string) string {
 		return "a recipient withdrew consent for this purpose after it was scheduled"
 	case activities.HeldSenderInactive:
 		return "the sending account or its mailbox is no longer active"
+	case activities.HeldPassportRevoked:
+		return "the agent credential it was scheduled under has been revoked or expired — your account is fine, so send it yourself if it should still go"
 	case activities.HeldMissedWindow:
 		return "its moment passed while nothing was running, and it is too late to be the message that was written"
 	case activities.HeldTimerExhausted:
