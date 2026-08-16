@@ -152,6 +152,15 @@ func counterpartyOf(item inboxItem, sender providerUser) extension.Counterparty 
 			ChannelUserID: sender.ID,
 			DisplayName:   sender.name(),
 		},
+		// The address is CARRIED, not used to name anybody: the account above
+		// names the sender and the core prefers it. What this buys is the
+		// colleague already captured from mail being recognised as the same
+		// human instead of quietly becoming a second contact — this unit knows
+		// the address, and dropping it would throw away evidence only this side
+		// has. The core admits it because the ingress source declares the email
+		// merge key; without that declaration this record would be refused.
+		Email:  sender.Email,
+		Domain: mailDomain(sender.Email),
 	}
 }
 

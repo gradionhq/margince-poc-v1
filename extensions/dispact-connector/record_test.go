@@ -73,13 +73,18 @@ func TestARecordCarriesWhatTheCoreDecidesWith(t *testing.T) {
 		t.Errorf("direction = %q, want inbound — the member received this", rec.Activity.Direction)
 	case !rec.Activity.OccurredAt.Equal(item.CreatedAt):
 		t.Errorf("occurred_at = %v, want the provider's own time rather than when the poll noticed", rec.Activity.OccurredAt)
-	// A DM names its human by the ACCOUNT it can be answered at, so it carries
-	// no address and no domain — the mail suppression gates all key off the
-	// address and are no-ops for a channel record by construction, which is why
-	// the empty domain here is an answer rather than a gap. The address arm is
-	// asserted on a mention below, where it is the shape that applies.
-	case rec.Counterparty.Email != "":
-		t.Errorf("email = %q on a direct message — the core refuses a counterparty named by an address AND by a channel account", rec.Counterparty.Email)
+	// A DM names its human by the ACCOUNT it can be answered at, and CARRIES
+	// the address alongside it. The account is what the core resolves and
+	// replies on; the address is what lets the colleague already captured from
+	// mail be recognised as the same human rather than becoming a second
+	// contact. This unit declares the email merge key, which is what makes the
+	// core admit it.
+	case rec.Counterparty.Email != "outside@example.com":
+		t.Errorf("email = %q on a direct message, want the sender's address carried as matching evidence", rec.Counterparty.Email)
+	case rec.Counterparty.Domain != "example.com":
+		t.Errorf("domain = %q, want the address's own domain", rec.Counterparty.Domain)
+	case rec.Counterparty.ChannelIdentity.ChannelUserID == "":
+		t.Error("a direct message carries no account id — the address must not become the thing that names the sender")
 	case string(rec.Raw) != string(item.Raw):
 		t.Errorf("raw = %s, want the provider's own document", rec.Raw)
 	}

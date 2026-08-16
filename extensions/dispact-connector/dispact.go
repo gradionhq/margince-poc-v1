@@ -67,7 +67,19 @@ func New() extension.Extension {
 		// anything else is refused at the call rather than landed under an
 		// invented provenance namespace.
 		Ingress: []extension.IngressSource{
-			{System: "dispact", Lands: []extension.RecordKind{extension.KindActivity}},
+			// The email merge key is VOUCHED FOR, not merely passed along:
+			// Dispact answers /api/users/batch from the workspace directory, so
+			// the address on a member's account is the one their administrator
+			// set rather than one they typed about themselves. That is what the
+			// core needs before it will let an address corroborate the human a
+			// direct message names by account — and it is the declaration an
+			// operator reads in manifest.generated.json before enabling this
+			// unit.
+			{
+				System: "dispact",
+				Lands:  []extension.RecordKind{extension.KindActivity},
+				Merges: []extension.MergeKey{extension.MergeKeyEmail},
+			},
 		},
 		Tools: []extension.Tool{
 			{Name: "dispact_connect", Handle: connect},
