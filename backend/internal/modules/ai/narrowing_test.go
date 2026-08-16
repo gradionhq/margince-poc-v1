@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -94,37 +95,116 @@ func TestANarrowedBindingRefusesWhatItNoLongerAdvertises(t *testing.T) {
 	}
 }
 
-// The safety property, stated as its own test because it is the one thing a
-// narrowing must never do. `narrowedCarriage` is an intersection, so no
-// declaration can add a media type the wire cannot send — the check is over
-// every declarable modality against every adapter's own carriage, rather than
-// the one example that happens to be interesting today.
-func TestNoDeclarationCanWidenAnAdaptersCarriage(t *testing.T) {
-	wires := map[string][]string{
-		"native document wire": carriesImagesAndPDF,
-		"image-only wire":      carriesImages,
-		"text-only wire":       carriesNothing,
+// The safety property, and the one thing a narrowing must never do. Derived
+// from knownProviders rather than a hand-kept list of wires: a seventh provider
+// — or a sixth spelling its carriage differently, say `image/png` where the
+// vocabulary says `image/*` — would intersect to something its operator did not
+// ask for, and a list maintained by hand is the thing that would not notice.
+func TestNoDeclarationCanWidenAnyProvidersCarriage(t *testing.T) {
+	for _, env := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENAI_COMPATIBLE_API_KEY"} {
+		t.Setenv(env, "k")
 	}
-	for wireName, wire := range wires {
-		for _, input := range [][]string{
-			{modalityText},
-			{modalityText, modalityImage},
-		} {
-			got := narrowedCarriage(wire, input)
-			for _, mime := range got {
-				if !slices.Contains(wire, mime) {
-					t.Errorf("%s: declaring %v produced %q, which the wire does not carry", wireName, input, mime)
+	for _, provider := range knownProviders {
+		for _, input := range [][]string{{modalityText}, {modalityText, modalityImage}} {
+			t.Run(provider+"/"+strings.Join(input, "+"), func(t *testing.T) {
+				undeclared := capsFor(t, provider, nil)
+				declared := capsFor(t, provider, input)
+
+				// At most what was asked for. True of every provider, including
+				// the two where the declaration IS the carriage.
+				asked := carriageFor(input)
+				for _, mime := range declared {
+					if !slices.Contains(asked, mime) {
+						t.Errorf("declaring %v got %q, which was not asked for (%v)", input, mime, asked)
+					}
 				}
-			}
-			if len(got) > len(wire) {
-				t.Errorf("%s: declaring %v widened carriage to %v", wireName, input, got)
-			}
+				// And at most what the wire has, wherever the wire has an answer
+				// of its own. An undeclared binding IS that answer, which is why
+				// this needs no list of which providers those are: the two whose
+				// carriage is purely declarative report nothing here.
+				if len(undeclared) == 0 {
+					return
+				}
+				for _, mime := range declared {
+					if !slices.Contains(undeclared, mime) {
+						t.Errorf("declaring %v got %q, which %s does not carry undeclared (%v)",
+							input, mime, provider, undeclared)
+					}
+				}
+			})
 		}
-		// An undeclared binding is the identity: every native binding behaved
-		// this way before the field existed and must still.
-		if got := narrowedCarriage(wire, nil); !slices.Equal(got, wire) {
-			t.Errorf("%s: an undeclared binding must keep the wire's own answer, got %v", wireName, got)
-		}
+	}
+}
+
+// capsFor builds a binding the way production does and reports what it says it
+// can be given. Through SelectBrain deliberately: the carriage is decided there,
+// so a hand-built client would answer for a configuration that never ships.
+func capsFor(t *testing.T, provider string, input []string) []string {
+	t.Helper()
+	cfg := ProviderConfig{Provider: provider, Model: "m", Input: input}
+	if provider == providerOpenAICompatible {
+		cfg.BaseURL = "https://example.invalid" // the one provider that requires it
+	}
+	client, err := SelectBrain(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client.Caps().AttachmentMIMEs
+}
+
+// Which refusal an operator gets is the difference between a dead end and an
+// edit: a wire that never carried the type has nothing to change, while a
+// binding that gave the lane up is one config line from carrying it again.
+func TestANarrowedRefusalNamesTheLineThatCausedIt(t *testing.T) {
+	narrowed := refuseNarrowedAttachments("gemini",
+		[]model.Attachment{{MIME: "application/pdf", Bytes: []byte("%PDF")}},
+		[]string{"image/*"}, carriesImagesAndPDF)
+	if !errors.Is(narrowed, model.ErrAttachmentUnsupported) {
+		t.Fatalf("a narrowed binding must still refuse with the sentinel, got %v", narrowed)
+	}
+	if !strings.Contains(narrowed.Error(), "`input:`") {
+		t.Errorf("a refusal the operator can undo must name the line, got %q", narrowed)
+	}
+	// The wire's own refusal is final, and pointing at `input:` there would send
+	// an operator after a knob that cannot help them.
+	final := refuseNarrowedAttachments("ollama",
+		[]model.Attachment{{MIME: "application/pdf", Bytes: []byte("%PDF")}},
+		carriesImages, carriesImages)
+	if !errors.Is(final, model.ErrAttachmentUnsupported) {
+		t.Fatalf("the wire's refusal must still be a refusal, got %v", final)
+	}
+	if strings.Contains(final.Error(), "`input:`") {
+		t.Errorf("a refusal no config line fixes must not name one, got %q", final)
+	}
+}
+
+// The injected fake stands in for whatever bindings name `fake`, so the
+// config's narrowing has to reach it — otherwise the one path that swaps the
+// client is the one path where a declaration does nothing.
+func TestAnInjectedFakeStillHonoursTheBindingsNarrowing(t *testing.T) {
+	cfg, err := ParseRouting([]byte(`
+profile: sovereign
+tiers:
+  local_small: {provider: fake, model: m, input: [text]}
+embeddings: {provider: fake, model: e}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := NewFakeClient()
+	if _, err := NewLocalRouter(cfg, WithFakeClient(fake)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.Caps().AttachmentMIMEs; len(got) != 0 {
+		t.Fatalf("the injected fake must take the binding's narrowing, got %v", got)
+	}
+	if _, err := fake.Stream(context.Background(), model.Request{
+		Messages:    []model.Message{{Role: roleUser, Content: "x"}},
+		Attachments: []model.Attachment{{MIME: "image/png", Bytes: []byte("PNG")}},
+	}); !errors.Is(err, model.ErrAttachmentUnsupported) {
+		// Streaming runs the same gate as Complete: a lane that refuses on one
+		// method and carries on the other has a Caps() that answers for neither.
+		t.Fatalf("Stream must run the same attachment gate, got %v", err)
 	}
 }
 

@@ -146,6 +146,11 @@ func (f *FakeClient) Complete(ctx context.Context, req model.Request) (model.Res
 }
 
 func (f *FakeClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
+	// The same gate Complete runs: a lane that refuses an attachment on one
+	// method and carries it on the other is a Caps() that answers for neither.
+	if err := attachmentUnsupported("fake", req.Attachments, f.Caps().AttachmentMIMEs); err != nil {
+		return nil, err
+	}
 	payload, report, err := sendablePayload(ctx, fakeWire(req), req.SecretStripper)
 	if err != nil {
 		return nil, err

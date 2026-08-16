@@ -197,7 +197,7 @@ func (c *openaiClient) Caps() model.Capabilities {
 func (c *openaiClient) post(ctx context.Context, path string, req model.Request, stream bool) (io.ReadCloser, error) {
 	// OpenAI carries image and PDF/file parts natively; reject any other MIME
 	// rather than silently drop it (spec §3.8).
-	if err := attachmentUnsupported("openai", req.Attachments, c.attachmentMIMEs); err != nil {
+	if err := refuseNarrowedAttachments("openai", req.Attachments, c.attachmentMIMEs, carriesImagesAndPDF); err != nil {
 		return nil, err
 	}
 	// Native Responses-API tool mapping is a follow-up; reject tools rather than

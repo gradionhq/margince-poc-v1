@@ -24,10 +24,13 @@ type ProviderConfig struct {
 	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
 	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
 	// Input is what the bound model can be GIVEN, in the acceptedModalities
-	// vocabulary (inputmodality.go). Only the providers in inputProviders accept
-	// it, because only there is the answer a property of the model rather than of
-	// the adapter. Nil — the common case — means text-only: the binding carries no
-	// attachment parts and refuses them rather than dropping them.
+	// vocabulary (inputmodality.go). It does two jobs: on openai_compatible and
+	// vllm it IS the carriage, because only there is the answer a property of the
+	// bound model rather than of the adapter; everywhere else it NARROWS the
+	// carriage that adapter's wire already has, and can never widen it.
+	//
+	// Nil — the common case — means the provider's own answer: text-only on the
+	// two OpenAI-wire providers, whatever the wire carries on the rest.
 	Input []string `yaml:"input"`
 }
 

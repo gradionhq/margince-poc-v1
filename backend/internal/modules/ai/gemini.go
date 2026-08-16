@@ -244,7 +244,7 @@ func (c *geminiClient) Caps() model.Capabilities {
 func (c *geminiClient) generate(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	// Gemini carries image and PDF parts natively; reject any other MIME rather
 	// than silently drop it (spec §3.8).
-	if err := attachmentUnsupported("gemini", req.Attachments, c.attachmentMIMEs); err != nil {
+	if err := refuseNarrowedAttachments("gemini", req.Attachments, c.attachmentMIMEs, carriesImagesAndPDF); err != nil {
 		return nil, err
 	}
 	// Native functionDeclarations mapping is a follow-up; reject tools rather than
