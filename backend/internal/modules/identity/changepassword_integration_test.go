@@ -501,6 +501,25 @@ func TestAnOperatorResetForcesTheSubjectToChooseTheirOwn(t *testing.T) {
 	}
 }
 
+func TestAnOperatorResetHoldsTheSameLengthFloorAsEveryOtherRoute(t *testing.T) {
+	// Eleven emoji is eleven characters and forty-four bytes: it clears a
+	// byte-counted floor of twelve and fails a character-counted one. The CLI
+	// path spelled its own rule and counted bytes while saying "characters",
+	// so it accepted passwords the HTTP routes refuse.
+	e := setupRevocationEnv(t, "operator-reset-length")
+	err := withOperatorTx(t, e, func(tx pgx.Tx) error {
+		return OperatorResetPassword(context.Background(), tx, e.ws, e.member.Email, strings.Repeat("🔑", 11))
+	})
+	var parseErr *values.ParseError
+	if !errors.As(err, &parseErr) || parseErr.Code != "length" {
+		t.Fatalf("an eleven-character password gave %v, want a length refusal", err)
+	}
+	// And the account is untouched: a refused reset must not have written.
+	if _, _, loginErr := e.svc.Login(e.wsOnlyCtx(), e.member.Email, memberPassword); loginErr != nil {
+		t.Errorf("the original password stopped working after a refused reset: %v", loginErr)
+	}
+}
+
 func TestAnOperatorResetRefusesTheAgentSeat(t *testing.T) {
 	// The agent seat carries an address, so it is reachable by the email
 	// lookup, but it holds no password. Refused by name — letting the write
@@ -573,7 +592,7 @@ func TestAPassportStopsWorkingWhileItsHumanOwesARotation(t *testing.T) {
 		t.Fatalf("the passport must authenticate before the rotation is owed: %v", err)
 	}
 
-	if err := database.WithInfraTx(context.Background(), e.svc.db.Pool(), func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(e.wsOnlyCtx(), e.svc.db.Pool(), func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(context.Background(),
 			`UPDATE app_user SET must_change_password = true WHERE id = $1`, e.member.UserID)
 		return execErr

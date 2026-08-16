@@ -183,6 +183,11 @@ paths:
                     roles: [rep]
                     teams: [018f3a1b-0000-7000-8000-0000000000ab]
         '401': { $ref: '#/components/responses/Unauthorized' }
+        # Documented HERE above all: this is the operation a client probes to
+        # decide which screen to render, so the forced rotation is something it
+        # must be able to read off /me rather than discover on the first real
+        # call it makes.
+        '403': { $ref: '#/components/responses/PasswordChangeRequired' }
 
   # ------------------------------- /auth ------------------------------------
   # There is NO public tenant-provisioning endpoint (A107/ADR-0061): the organization and

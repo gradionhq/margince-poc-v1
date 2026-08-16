@@ -328,8 +328,12 @@ func workspaceFrom(ctx context.Context) (ids.WorkspaceID, bool) {
 // still act as the account and writes the system_log evidence with an
 // operator provenance. Never exposed over HTTP.
 func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, email, newPassword string) error {
-	if len(newPassword) < 12 {
-		return errors.New("identity: the new password must be at least 12 characters")
+	// The same rule the HTTP routes hold, from the same function. Spelled by
+	// hand here it counted BYTES while saying "characters", so a short
+	// multi-byte password cleared a floor it was under — and it had no ceiling
+	// at all, which the KDF does care about.
+	if err := passwordLengthError("new_password", newPassword); err != nil {
+		return fmt.Errorf("identity: %w", err)
 	}
 	hash, err := password.Hash(newPassword)
 	if err != nil {

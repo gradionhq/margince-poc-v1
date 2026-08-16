@@ -85,12 +85,11 @@ func TestChangePasswordThrottlesRepeatedFailuresPerAccount(t *testing.T) {
 	if !h.changeFailures.Blocked(key) {
 		t.Fatal("ten recorded failures did not fill the per-account bucket")
 	}
-	// And a success must not spend one: charging the rotation would throttle
-	// the very thing the route exists to allow.
-	fresh := NewHandlers(&Service{})
+	// Per ACCOUNT, not globally: one account's wrong guesses must not lock
+	// everybody else out of the route.
 	other := ids.UserID{UUID: ids.NewV7()}.String()
-	if fresh.changeFailures.Blocked(other) {
-		t.Error("a fresh account is already blocked")
+	if h.changeFailures.Blocked(other) {
+		t.Error("filling one account's bucket blocked a different account")
 	}
 }
 

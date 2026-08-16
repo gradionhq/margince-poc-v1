@@ -3517,11 +3517,11 @@ export const de = {
   "setup.errorAlready":
     "Diese Installation hat bereits eine Organisation. Melde dich an oder bitte deinen Betreiber um ein Zurücksetzen.",
   "setup.errorFields":
-    "Im Formular stimmt etwas nicht. Prüfen Sie die Felder und versuchen Sie es erneut.",
+    "Im Formular stimmt etwas nicht. Prüfe die Felder und versuche es erneut.",
   "setup.errorServer":
     "Margince konnte die Einrichtung nicht abschließen. Es wurde nichts angelegt. Versuche es gleich noch einmal; bei wiederholtem Fehlschlag prüfe das Serverprotokoll.",
   "setup.errorNetwork":
-    "Margince war nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "Margince war nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
   "auth.forgotLink": "Passwort vergessen?",
   "auth.forgotTitle": "Passwort zurücksetzen",
   // "gibt", nicht "existiert" (Amtsdeutsch), und das Feld will eine Adresse, keine
