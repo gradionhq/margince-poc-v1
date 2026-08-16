@@ -15,7 +15,7 @@ import type { RbacObject } from "../app/capability";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { pickOption } from "../design-system/select-testing";
-import { LocaleProvider } from "../i18n";
+import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 
@@ -185,6 +185,31 @@ describe("SettingsScreen RBAC surfaces", () => {
     // own face — which is the whole point of changing a language here.
     expect(screen.getByRole("combobox", { name: "Sprache" })).toBeTruthy();
     expect(screen.getByText("Voreinstellungen")).toBeTruthy();
+  });
+
+  // WCAG 2.2 AA 3.1.2. This is the one picker in the product where every option
+  // is deliberately in a language other than the page's, so a screen reader has
+  // to be told which. Derived from LOCALES rather than listed, the way the login
+  // footer's own coverage is: a hardcoded pair keeps passing after a fourth
+  // language is added without one.
+  it("declares each language name's own language, on the options and on the face", async () => {
+    const user = userEvent.setup();
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    const trigger = screen.getByRole("combobox", { name: "Language" });
+
+    expect(trigger.querySelector(".select-face")?.getAttribute("lang")).toBe(
+      "en",
+    );
+    await user.click(trigger);
+
+    for (const locale of LOCALES) {
+      const name = translate("en", localeNameKey(locale));
+      const option = screen.getByRole("option", { name });
+      expect(
+        option.querySelector(".select-option-label")?.getAttribute("lang"),
+      ).toBe(locale);
+    }
   });
 
   it("the passport row's token reads as withheld — masked, never re-disclosed — on the Agents tab", async () => {

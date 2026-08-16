@@ -171,6 +171,33 @@ export const DisabledOption: Story = {
 };
 
 /**
+ * An option whose label is not in the page's language declares its own, through
+ * `lang` — WCAG 2.2 AA 3.1.2 (Language of Parts). The language picker in
+ * Settings → Account is the case: the names are proper nouns and stay
+ * untranslated, so without the attribute a screen reader reads "Tiếng Việt" with
+ * the phonemes of whichever locale the page is on. Nothing is visible here — the
+ * whole effect is audible — so read it in the DOM: each option's label span and
+ * the trigger face carry the tag. An option already in the page's language, like
+ * the last one, declares nothing.
+ */
+export const OptionsInOtherLanguages: Story = {
+  render: () => (
+    <div style={column}>
+      <Demo
+        label="Language"
+        start="vi"
+        options={[
+          { value: "en", label: "English", lang: "en" },
+          { value: "de", label: "Deutsch", lang: "de" },
+          { value: "vi", label: "Tiếng Việt", lang: "vi" },
+          { value: "auto", label: "Match my browser" },
+        ]}
+      />
+    </div>
+  ),
+};
+
+/**
  * The case the whole positioning design exists for. `.scroll` in app/shell.css is
  * `overflow-y: auto; position: relative`, and most of these controls sit in a
  * toolbar inside it — an absolutely positioned popup is clipped by that box and
