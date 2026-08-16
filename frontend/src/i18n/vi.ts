@@ -3483,8 +3483,7 @@ export const vi = {
   "password.submit": "Đổi mật khẩu",
   "password.changing": "Đang đổi…",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
-  "password.errorGeneric":
-    "Không đổi được mật khẩu. Hãy kiểm tra mật khẩu hiện tại và thử lại.",
+  "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
   "setup.pageTitle": "Thiết lập Margince",
   "setup.title": "Nhận quyền quản trị bản cài đặt này",
   "setup.body":

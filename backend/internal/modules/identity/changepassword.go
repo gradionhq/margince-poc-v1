@@ -167,6 +167,10 @@ const passwordChangeRevokeReason = "password changed by its owner"
 // Without it an attacker with a borrowed session could guess forever: no
 // counter, no lock, and an audit trail showing nothing happened at all.
 func (s *Service) recordFailedChange(ctx context.Context, wsID ids.WorkspaceID, userID ids.UserID) error {
+	// Detached from the request: a caller who aborts the connection the moment
+	// the verify fails must not thereby skip the counter and the evidence.
+	ctx, cancel := detachedForFailure(ctx)
+	defer cancel()
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var state lockoutState
 		err := tx.QueryRow(ctx,

@@ -3506,8 +3506,10 @@ export const en = {
   "password.submit": "Change password",
   "password.changing": "Changing…",
   "password.done": "Password changed. Sign in again with the new one.",
-  "password.errorGeneric":
-    "The password couldn't be changed. Check the current password and try again.",
+  // Deliberately says nothing about WHICH field: this is the fallback for a
+  // refusal the server did not explain, and naming the current password would
+  // send someone hunting a mistake that may not be theirs.
+  "password.errorGeneric": "The password couldn't be changed. Try again.",
   "setup.pageTitle": "Set up Margince",
   "setup.title": "Claim this installation",
   "setup.body":

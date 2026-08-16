@@ -80,6 +80,37 @@ describe("ChangePasswordCard", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("counts the floor in characters, not bytes", async () => {
+    // Twelve emoji are forty-eight bytes and twelve CHARACTERS. A byte count
+    // would wave four of them through as "sixteen"; a character count is the
+    // rule the server applies, so the form must apply the same one.
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderCard();
+
+    await user.type(
+      screen.getByLabelText(/current password/i),
+      "old password!",
+    );
+    await user.type(screen.getByLabelText(/^new password/i), "🔑".repeat(4));
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "🔑".repeat(4),
+    );
+    expect(submitButton()).toBeDisabled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // And exactly twelve characters clears it.
+    await user.clear(screen.getByLabelText(/^new password/i));
+    await user.clear(screen.getByLabelText(/confirm new password/i));
+    await user.type(screen.getByLabelText(/^new password/i), "🔑".repeat(12));
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "🔑".repeat(12),
+    );
+    expect(submitButton()).toBeEnabled();
+  });
+
   it("sends both passwords under the keys the server reads", async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -109,6 +140,39 @@ describe("ChangePasswordCard", () => {
     expect(body.new_password).toBe("a fine new password");
     // The confirmation is a client-side check and has no business on the wire.
     expect(body).not.toHaveProperty("confirm");
+  });
+
+  it("stops claiming success once a later attempt fails", async () => {
+    // Otherwise the page states both that the password changed and that it did
+    // not, and the reader has no way to tell which is current.
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "nope" }), {
+          status: 401,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+      );
+    renderCard();
+
+    const fill = async (next: string) => {
+      await user.type(
+        screen.getByLabelText(/current password/i),
+        "old password!",
+      );
+      await user.type(screen.getByLabelText(/^new password/i), next);
+      await user.type(screen.getByLabelText(/confirm new password/i), next);
+      await user.click(submitButton());
+    };
+    await fill("a fine new password");
+    await screen.findByRole("status");
+
+    await fill("another fine password");
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("reports the server's own refusal rather than a generic one", async () => {
@@ -171,5 +235,6 @@ describe("ChangePasswordCard", () => {
     );
     expect(screen.getByLabelText(/current password/i)).toHaveValue("");
     expect(screen.getByLabelText(/^new password/i)).toHaveValue("");
+    expect(screen.getByLabelText(/confirm new password/i)).toHaveValue("");
   });
 });

@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, Field } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
@@ -30,7 +30,12 @@ export function ChangePasswordCard() {
   const [fields, setFields] = useState<ChangeFields>(EMPTY);
   const [done, setDone] = useState(false);
 
+  const queryClient = useQueryClient();
   const change = useMutation({
+    // Cleared before the attempt, not after it: without this a second attempt
+    // that fails renders the success line and the error line together, telling
+    // the reader both that the password changed and that it did not.
+    onMutate: () => setDone(false),
     // Takes what it needs as a variable rather than closing over render state:
     // the click belongs to the committed render, so a variable it passes cannot
     // be older than the control that carried it.
@@ -51,9 +56,19 @@ export function ChangePasswordCard() {
         throwProblem(await response.json().catch(() => null), t);
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setFields(EMPTY);
       setDone(true);
+      // The server revoked every credential for this account, this session
+      // included, and cleared the cookie. Without dropping the cached identity
+      // the app would keep rendering the signed-in shell against a session that
+      // no longer exists, and every later request would 401 — a success message
+      // followed by unexplained failures, which is exactly what the warning
+      // above this button exists to prevent.
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "me",
+      });
+      await queryClient.resetQueries({ queryKey: ["me"] });
     },
   });
 

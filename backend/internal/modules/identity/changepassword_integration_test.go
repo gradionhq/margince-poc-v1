@@ -13,6 +13,9 @@ package identity
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -226,5 +229,86 @@ func TestChangePasswordRetiresAnOutstandingResetToken(t *testing.T) {
 	}
 	if live != 0 {
 		t.Errorf("%d reset token(s) survived the change — whoever holds one can still take the account, after the member was told every credential was revoked", live)
+	}
+}
+
+// The handler, end to end against a real database. The unit lane proves the
+// refusals that happen before any query; these are the answers a client
+// actually receives, including the one that only exists on the success path.
+
+func changeOverHTTP(ctx context.Context, t *testing.T, e *revocationEnv, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	NewHandlers(e.svc).ChangePassword(rec,
+		httptest.NewRequest(http.MethodPost, "/v1/auth/change-password",
+			strings.NewReader(body)).WithContext(ctx))
+	return rec
+}
+
+func TestChangePasswordOverHTTPClearsTheSessionCookie(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-http-ok")
+	ctx := memberCtx(t, e)
+
+	rec := changeOverHTTP(ctx, t, e,
+		`{"current_password":"`+memberPassword+`","new_password":"`+newMemberPassword+`"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204: %s", rec.Code, rec.Body)
+	}
+	// The session it was made with is gone, so leaving the cookie would hand
+	// the browser a token that authenticates nothing — a broken session rather
+	// than a completed rotation.
+	var cleared bool
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("the session cookie was not cleared after a successful change")
+	}
+}
+
+func TestChangePasswordOverHTTPSeparatesItsRefusals(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-http-codes")
+	ctx := memberCtx(t, e)
+
+	// A wrong current password and a new password equal to the current one are
+	// different mistakes with different fixes; a client that cannot tell them
+	// apart sends the person to retype the wrong field.
+	wrong := changeOverHTTP(ctx, t, e,
+		`{"current_password":"not-it","new_password":"`+newMemberPassword+`"}`)
+	if wrong.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong current password = %d, want 401: %s", wrong.Code, wrong.Body)
+	}
+	if code := problemCode(t, wrong); code != "current_password_invalid" {
+		t.Errorf("wrong current password carries code %q, want current_password_invalid", code)
+	}
+
+	same := changeOverHTTP(ctx, t, e,
+		`{"current_password":"`+memberPassword+`","new_password":"`+memberPassword+`"}`)
+	if same.Code != http.StatusUnprocessableEntity {
+		t.Errorf("re-setting the same password = %d, want 422: %s", same.Code, same.Body)
+	}
+}
+
+func TestChangePasswordOverHTTPReportsALockedAccount(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-http-locked")
+	ctx := memberCtx(t, e)
+
+	// Five wrong guesses through the real path, which is what folds the §27
+	// counter — no hand-run recorder.
+	for range 5 {
+		if rec := changeOverHTTP(ctx, t, e,
+			`{"current_password":"not-it","new_password":"`+newMemberPassword+`"}`); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("guess = %d, want 401", rec.Code)
+		}
+	}
+	rec := changeOverHTTP(ctx, t, e,
+		`{"current_password":"`+memberPassword+`","new_password":"`+newMemberPassword+`"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("change while locked = %d, want 401: %s", rec.Code, rec.Body)
+	}
+	if code := problemCode(t, rec); code != "account_locked" {
+		t.Errorf("a locked account carries code %q, want account_locked — the caller's remedy is to wait, not to retype", code)
 	}
 }
