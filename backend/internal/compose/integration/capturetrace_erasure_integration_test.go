@@ -28,9 +28,9 @@ func TestErasureReachesTheCaptureTracePayloads(t *testing.T) {
 	// as one that took neither.
 	e.WsExec(t, `
 		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
-		                           outcome, counterparty, subject)
-		VALUES ($1, NULL, 'gmail', 'gmail', 'erasure-subject', 'captured', $2, 'Quarterly numbers'),
-		       ($1, NULL, 'gmail', 'gmail', 'erasure-control', 'captured', 'someone@else.test', 'Unrelated')`,
+		                           stage, outcome, counterparty, subject)
+		VALUES ($1, NULL, 'gmail', 'gmail', 'erasure-subject', 'tier_ladder', 'captured', $2, 'Quarterly numbers'),
+		       ($1, NULL, 'gmail', 'gmail', 'erasure-control', 'tier_ladder', 'captured', 'someone@else.test', 'Unrelated')`,
 		e.WS, subjectEmail)
 
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "test"); err != nil {

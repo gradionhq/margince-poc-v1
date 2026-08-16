@@ -133,9 +133,13 @@ func (a *Assembler) storedForActivity(ctx context.Context, id ids.UUID) (capture
 // twelve steps cannot tell which of the missing seven mattered — and the whole
 // point of this surface is that a silent step is the defect.
 func (a *Assembler) assemble(ctx context.Context, stored capture.TraceLadder, owned bool) (Ladder, error) {
-	facts, err := a.factsFor(ctx, stored.ActivityID)
+	facts, known, err := a.factsFor(ctx, stored.ActivityID)
 	if err != nil {
 		return Ladder{}, err
+	}
+	var derived *activities.PipelineFacts
+	if known {
+		derived = &facts
 	}
 	out := Ladder{
 		ActivityID:      stored.ActivityID,
@@ -143,7 +147,7 @@ func (a *Assembler) assemble(ctx context.Context, stored capture.TraceLadder, ow
 		PayloadsEnabled: stored.PayloadsEnabled,
 	}
 	for _, reg := range trace.Registrations() {
-		out.Rungs = append(out.Rungs, a.rung(reg, stored, facts, owned))
+		out.Rungs = append(out.Rungs, a.rung(reg, stored, derived, owned))
 	}
 	return out, nil
 }
@@ -152,15 +156,20 @@ func (a *Assembler) assemble(ctx context.Context, stored capture.TraceLadder, ow
 // activity to ask about. An internal-only drop never produced one, so the
 // derived rungs for it are not "unknown" — they are not applicable, because the
 // message never reached the steps that would have run.
-func (a *Assembler) factsFor(ctx context.Context, activityID *ids.UUID) (*activities.PipelineFacts, error) {
+//
+// `known` rather than a nil-with-nil-error return: "there is no activity" is an
+// ordinary state on this surface, not a failure, and a caller distinguishing it
+// by a nil pointer beside a nil error has to know that convention to read the
+// signature correctly.
+func (a *Assembler) factsFor(ctx context.Context, activityID *ids.UUID) (facts activities.PipelineFacts, known bool, err error) {
 	if activityID == nil {
-		return nil, nil
+		return activities.PipelineFacts{}, false, nil
 	}
-	facts, err := a.activities.ReadPipelineFacts(ctx, *activityID)
+	facts, err = a.activities.ReadPipelineFacts(ctx, *activityID)
 	if err != nil {
-		return nil, fmt.Errorf("pipelinetrace: reading the derived rungs: %w", err)
+		return activities.PipelineFacts{}, false, fmt.Errorf("pipelinetrace: reading the derived rungs: %w", err)
 	}
-	return &facts, nil
+	return facts, true, nil
 }
 
 func ptr[T any](v T) *T { return &v }

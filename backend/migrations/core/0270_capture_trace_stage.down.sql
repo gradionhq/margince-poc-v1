@@ -1,4 +1,4 @@
--- Reverse of 0269, in reverse order.
+-- Reverse of 0270, in reverse order.
 --
 -- The stage column is dropped rather than preserved, so the rows that survive
 -- are exactly 0258's shape. That loses which step explained each row, which is

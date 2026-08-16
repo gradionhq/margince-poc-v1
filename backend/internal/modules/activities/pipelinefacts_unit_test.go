@@ -24,18 +24,30 @@ func TestTheClassifyReasonNamesTheExclusionThatApplied(t *testing.T) {
 		senderUndecided bool
 		want            pipelinetrace.Reason
 	}{
-		{"a labelled message ran and reports no exclusion",
-			"meeting", "email", connector, false, false, ""},
-		{"a chat message is not the classifier's transport",
-			"", "message", connector, false, false, pipelinetrace.ReasonTransportNotRead},
-		{"a hand-logged activity was never connector-captured",
-			"", "email", "human:someone", false, false, pipelinetrace.ReasonNotConnectorCaptured},
-		{"an archived email is out of the backlog",
-			"", "email", connector, true, false, pipelinetrace.ReasonArchived},
-		{"an undecided sender holds the message back (ADR-0072 §5)",
-			"", "email", connector, false, true, pipelinetrace.ReasonSenderUndecided},
-		{"an eligible message is simply waiting for the batch",
-			"", "email", connector, false, false, pipelinetrace.ReasonAwaitingBatch},
+		{
+			"a labelled message ran and reports no exclusion",
+			"meeting", "email", connector, false, false, "",
+		},
+		{
+			"a chat message is not the classifier's transport",
+			"", "message", connector, false, false, pipelinetrace.ReasonTransportNotRead,
+		},
+		{
+			"a hand-logged activity was never connector-captured",
+			"", "email", "human:someone", false, false, pipelinetrace.ReasonNotConnectorCaptured,
+		},
+		{
+			"an archived email is out of the backlog",
+			"", "email", connector, true, false, pipelinetrace.ReasonArchived,
+		},
+		{
+			"an undecided sender holds the message back (ADR-0072 §5)",
+			"", "email", connector, false, true, pipelinetrace.ReasonSenderUndecided,
+		},
+		{
+			"an eligible message is simply waiting for the batch",
+			"", "email", connector, false, false, pipelinetrace.ReasonAwaitingBatch,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := classifyReason(classifySubject{

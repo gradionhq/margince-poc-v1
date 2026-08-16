@@ -63,10 +63,18 @@ export function CaptureActivityDrawer({
           />
         </>
       ) : (
-        // `unavailable` rather than `empty`: the ladder always has rungs, so
-        // nothing here means the read failed, and drawing that as "there is
-        // none" would state a fact about the pipeline we do not have.
-        <SurfaceState state="unavailable">{null}</SurfaceState>
+        // `unavailable` rather than `empty`: the ladder always has a rung per
+        // registered stage, so nothing here means the read failed — and drawing
+        // that as "there are none" would state a fact about the pipeline that
+        // we do not have. emptyLabel is required by the component and unused by
+        // this state; it names what there would be none OF, if the state were
+        // ever `empty`.
+        <SurfaceState
+          state="unavailable"
+          emptyLabel={t("pipeline.unavailable")}
+        >
+          {null}
+        </SurfaceState>
       )}
     </Modal>
   );

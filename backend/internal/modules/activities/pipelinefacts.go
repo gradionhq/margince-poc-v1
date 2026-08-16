@@ -124,6 +124,11 @@ func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFac
 	return out, nil
 }
 
+// kindEmail is the ONE transport the attention classifier reads. Spelled once
+// because the predicate, the exclusion rule and the test all name it, and three
+// literals drift the day a second transport is admitted.
+const kindEmail = "email"
+
 // classifySubject is the row as the exclusion rules see it. A struct rather than
 // five parameters because two of them are booleans, and a call site reading
 // `classifyReason(label, kind, by, true, false)` cannot be checked by eye.
@@ -148,7 +153,7 @@ func classifyReason(in classifySubject) pipelinetrace.Reason {
 		return ""
 	case !isConnectorCaptured(in.capturedBy):
 		return pipelinetrace.ReasonNotConnectorCaptured
-	case in.kind != "email":
+	case in.kind != kindEmail:
 		return pipelinetrace.ReasonTransportNotRead
 	case in.archived:
 		return pipelinetrace.ReasonArchived

@@ -14,9 +14,9 @@ import "sort"
 type Source string
 
 const (
-	// SourceStored: capture writes a capture_trace row for this stage.
+	// SourceStored means capture writes a capture_trace row for this stage.
 	SourceStored Source = "stored"
-	// SourceDerived: a module already holds durable state that answers it.
+	// SourceDerived means a module already holds durable state that answers it.
 	//
 	// This is the DEFAULT preference, not a fallback. A stage that copies a
 	// durable record into a trace creates a second source that can disagree with
@@ -25,20 +25,20 @@ const (
 	// a job-written row lands under no member, where the ingest-written row was
 	// that member's alone.
 	SourceDerived Source = "derived"
-	// SourceByDesign: this stage will never be reported here, and the
+	// SourceByDesign means this stage will never be reported here, and the
 	// registration says why in words.
 	SourceByDesign Source = "by_design"
-	// SourceUntraceable: reporting it would itself breach something. The erasure
+	// SourceUntraceable means reporting it would itself breach something. The erasure
 	// check is the case: writing the row re-stores what the erasure removed.
 	SourceUntraceable Source = "untraceable"
-	// SourcePlanned: the stage RUNS but is not reported here yet.
+	// SourcePlanned means the stage RUNS but is not reported here yet.
 	//
 	// Without this state the gates and any staged rollout are mutually
 	// exclusive: a built-but-unreported stage is not `not_built` (a lie), not
 	// `by_design` (a lie) and not stored or derived (false). It carries an issue
 	// ref so it is tracked rather than excused.
 	SourcePlanned Source = "planned"
-	// SourceNotBuilt: the pipeline step itself does not exist.
+	// SourceNotBuilt means the pipeline step itself does not exist.
 	SourceNotBuilt Source = "not_built"
 )
 

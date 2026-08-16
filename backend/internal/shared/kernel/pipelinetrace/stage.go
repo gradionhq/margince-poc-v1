@@ -94,19 +94,19 @@ const (
 type Status string
 
 const (
-	// StatusDone: the stage ran and concluded.
+	// StatusDone means the stage ran and concluded.
 	StatusDone Status = "done"
-	// StatusSkipped: the stage was reached and declined. Always carries a Reason
+	// StatusSkipped means the stage was reached and declined. Always carries a Reason
 	// — a skip without one is the silence this surface exists to remove.
 	StatusSkipped Status = "skipped"
-	// StatusPending: the stage has not run yet but is expected to.
+	// StatusPending means the stage has not run yet but is expected to.
 	StatusPending Status = "pending"
-	// StatusFailed: the stage ran and could not finish.
+	// StatusFailed means the stage ran and could not finish.
 	StatusFailed Status = "failed"
-	// StatusNotApplicable: the stage does not apply to this message. Distinct
+	// StatusNotApplicable means the stage does not apply to this message. Distinct
 	// from skipped: nothing declined, there was simply no question to answer.
 	StatusNotApplicable Status = "not_applicable"
-	// StatusWithheld: the reader may not see this rung. It keeps its place and
+	// StatusWithheld means the reader may not see this rung. It keeps its place and
 	// says so; omitting it would state that the stage did not happen.
 	//
 	// Rendered UNCONDITIONALLY to a non-owner, whether or not a row exists.
@@ -115,15 +115,15 @@ const (
 	// it, so a caller comparing two messages would learn which one faulted on a
 	// colleague's mailbox.
 	StatusWithheld Status = "withheld"
-	// StatusExpired: the stage ran, and the detail has been swept. Permitted
+	// StatusExpired means the stage ran and the detail has been swept. Permitted
 	// ONLY where the run is provable from durable state; where absence and
 	// never-happened are indistinguishable, StatusUnknown is the honest answer.
 	StatusExpired Status = "expired"
-	// StatusUnknown: outside the retention window, and whether this stage ran
+	// StatusUnknown means we are outside the retention window and whether this stage ran
 	// cannot be established. Distinct from StatusNotApplicable, which claims
 	// the stage did not apply — a claim swept data cannot support.
 	StatusUnknown Status = "unknown"
-	// StatusNotReported: this surface does not report this stage. The rung's
+	// StatusNotReported means this surface does not report this stage. The rung's
 	// reason says which kind of not-reported it is — never shown by design,
 	// untraceable without breaching something, not read yet, or a step that
 	// does not exist. Collapsing those four would tell a member the wrong one.
@@ -138,6 +138,7 @@ const (
 // it is a claim about the sender across all their mail.
 type SubjectKind string
 
+// The four subjects a stage's answer can be about.
 const (
 	SubjectMessage SubjectKind = "message"
 	SubjectSender  SubjectKind = "sender"
