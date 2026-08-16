@@ -107,17 +107,20 @@ func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID)
 	}
 	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := r.now()
+		// The interval is a DELAY the database applies to its own clock; the
+		// two last_*_at columns record when this process observed the sync and
+		// stay on its clock, which is the one that observed it.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at,
 			                                consecutive_failures, last_synced_at, last_success_at, last_error_class)
-			VALUES ($1, $2, $3, 0, $4, $4, NULL)
+			VALUES ($1, $2, now() + make_interval(secs => $3), 0, $4, $4, NULL)
 			ON CONFLICT (connection_id) DO UPDATE SET
-			  next_sync_at = EXCLUDED.next_sync_at,
+			  next_sync_at = now() + make_interval(secs => $3),
 			  consecutive_failures = 0,
 			  last_synced_at = EXCLUDED.last_synced_at,
 			  last_success_at = EXCLUDED.last_success_at,
 			  last_error_class = NULL`,
-			connectionID, ws, now.Add(r.syncInterval), now); err != nil {
+			connectionID, ws, r.syncInterval.Seconds(), now); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
@@ -151,17 +154,19 @@ func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID,
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at,
 			                                consecutive_failures, last_synced_at, last_error_class)
-			VALUES ($1, $2, $3, 1, $4, $5)
+			VALUES ($1, $2, now() + make_interval(secs => $3), 1, $4, $5)
 			ON CONFLICT (connection_id) DO UPDATE SET
 			  consecutive_failures = capture_sync_state.consecutive_failures + 1,
 			  last_synced_at = EXCLUDED.last_synced_at,
 			  last_error_class = EXCLUDED.last_error_class
 			RETURNING consecutive_failures`,
-			connectionID, ws, now.Add(backoffDelay(0)), now, string(class)).Scan(&failures); err != nil {
+			connectionID, ws, backoffDelay(0).Seconds(), now, string(class)).Scan(&failures); err != nil {
 			return err
 		}
 
-		next := now.Add(backoffDelay(failures))
+		// A DELAY from here on, never a deadline: the write below hands it to
+		// the database, which adds it to the clock the due-scan reads.
+		delay := backoffDelay(failures)
 		switch class {
 		case classAuth:
 			// The connection needs its human, not a retry: park it. The
@@ -174,8 +179,8 @@ func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID,
 			}
 		case classRateLimited:
 			var rl *connector.RateLimitedError
-			if errors.As(syncErr, &rl) && rl.RetryAfter > next.Sub(now) {
-				next = now.Add(rl.RetryAfter)
+			if errors.As(syncErr, &rl) && rl.RetryAfter > delay {
+				delay = rl.RetryAfter
 			}
 		default:
 		}
@@ -183,7 +188,7 @@ func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID,
 		if failures >= degradeAfterFailures {
 			// Degraded, probed daily — never a tombstone. One success in the
 			// daily probe flips the status back (recordSyncSuccess).
-			next = now.Add(errProbeInterval)
+			delay = errProbeInterval
 			if _, err := tx.Exec(ctx, `
 				UPDATE capture_connection SET status = 'error'
 				WHERE id = $1 AND status = 'connected' AND archived_at IS NULL`, connectionID); err != nil {
@@ -192,8 +197,9 @@ func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID,
 		}
 
 		if _, err := tx.Exec(ctx, `
-			UPDATE capture_sync_state SET next_sync_at = $2 WHERE connection_id = $1`,
-			connectionID, next); err != nil {
+			UPDATE capture_sync_state SET next_sync_at = now() + make_interval(secs => $2)
+			WHERE connection_id = $1`,
+			connectionID, delay.Seconds()); err != nil {
 			return err
 		}
 
