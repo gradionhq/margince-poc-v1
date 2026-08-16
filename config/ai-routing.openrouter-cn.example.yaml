@@ -13,6 +13,13 @@
 # Prices are USD per million tokens (in/out), read from the catalog on
 # 2026-07-31; `#n` is the model's rank on openrouter.ai/rankings by weekly
 # tokens. Every model here carries a seed price row in ai.SeedModelRates.
+#
+# no `input:` here, deliberately. Both models below declare
+# `architecture.input_modalities: ["text"]`, so this ladder cannot be given a
+# document at all: an image attachment is refused rather than dropped, and a
+# document read falls to the text-extraction lane or refuses honestly. The EU
+# file's rungs do take images and declare it — see the `input` note there before
+# copying a line across.
 profile: cloud_frontier
 
 tiers:

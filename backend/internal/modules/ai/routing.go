@@ -185,9 +185,21 @@ func (cfg RoutingConfig) validate() error {
 		if cfg.Profile == ProfileSovereign && !localProviders[binding.Provider] {
 			return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on tier %s", binding.Provider, tier)
 		}
+		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Provider, binding.Input); err != nil {
+			return err
+		}
 	}
 	if cfg.Embeddings.Provider == "" {
 		return fmt.Errorf("ai: routing config: embeddings lane has no provider")
+	}
+	// EmbeddingsConfig embeds ProviderConfig INLINE, so `input:` under
+	// `embeddings:` decodes happily and would reach the embedder's client. The
+	// embedding lane sends no attachments, so the declaration could only mislead
+	// — refuse it here, where the parser is the gate. The generated schema omits
+	// it from embeddingsBinding for the same reason, but the schema is editor
+	// tooling and cannot be the thing that holds this.
+	if cfg.Embeddings.Input != nil {
+		return fmt.Errorf("ai: routing config: the embeddings lane takes no `input` — it sends no attachments; declare it on the chat tier that reads documents")
 	}
 	if cfg.Profile == ProfileSovereign && !localProviders[cfg.Embeddings.Provider] {
 		return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on the embeddings lane", cfg.Embeddings.Provider)

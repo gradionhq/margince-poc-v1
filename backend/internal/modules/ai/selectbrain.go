@@ -23,6 +23,12 @@ type ProviderConfig struct {
 	Provider string `yaml:"provider"` // one of knownProviders
 	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
 	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
+	// Input is what the bound model can be GIVEN, in the acceptedModalities
+	// vocabulary (inputmodality.go). Only the providers in inputProviders accept
+	// it, because only there is the answer a property of the model rather than of
+	// the adapter. Nil — the common case — means text-only: the binding carries no
+	// attachment parts and refuses them rather than dropping them.
+	Input []string `yaml:"input"`
 }
 
 // Provider defaults. The Anthropic URL is the vendor's public API; a
@@ -108,11 +114,12 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		}, nil
 	case providerVLLM:
 		return &openAICompatClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      defaulted(cfg.BaseURL, defaultVLLMBaseURL),
-			apiKey:       "", // local vLLM: no auth
-			localOnly:    true,
-			defaultModel: defaulted(cfg.Model, defaultVLLMModel),
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         defaulted(cfg.BaseURL, defaultVLLMBaseURL),
+			apiKey:          "", // local vLLM: no auth
+			localOnly:       true,
+			defaultModel:    defaulted(cfg.Model, defaultVLLMModel),
+			attachmentMIMEs: carriageFor(cfg.Input),
 		}, nil
 	case providerOpenAICompatible:
 		key := cloudKey(providerOpenAICompatible)
@@ -123,11 +130,12 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			return nil, fmt.Errorf("ai: provider openai_compatible needs a base_url (the vendor host root — no version segment, the adapter adds /v1; e.g. https://api.mistral.ai)")
 		}
 		return &openAICompatClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      cfg.BaseURL,
-			apiKey:       key,
-			localOnly:    false,
-			defaultModel: cfg.Model,
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         cfg.BaseURL,
+			apiKey:          key,
+			localOnly:       false,
+			defaultModel:    cfg.Model,
+			attachmentMIMEs: carriageFor(cfg.Input),
 		}, nil
 	case providerOpenAI:
 		key := cloudKey(providerOpenAI)
