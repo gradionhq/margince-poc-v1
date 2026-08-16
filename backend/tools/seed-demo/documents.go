@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -109,24 +110,47 @@ func allContracts(c *client, refs pipelineRefs) ([]seededContract, error) {
 	return out, nil
 }
 
+// attachmentRow is one document on an account: the contract it belongs to, if
+// any, and what it is called. A row with no contract_id is an account
+// document rather than a contract's paper.
+type attachmentRow struct {
+	ID         string `json:"id"`
+	ContractID string `json:"contract_id"`
+	Title      string `json:"title"`
+}
+
+// organizationAttachments lists every document filed against one company.
+//
+// Attachments have no installation-wide list — entity_type and entity_id are
+// both required — so this is the only way to ask, and it paginates because a
+// company with a contract per year and an NDA will pass a fixed page in a way
+// nobody notices until a document silently uploads twice.
+func organizationAttachments(c *client, orgID string) ([]attachmentRow, error) {
+	var out []attachmentRow
+	query := url.Values{"entity_type": {"organization"}, "entity_id": {orgID}}
+	err := c.getAll("/v1/attachments", query, func(raw json.RawMessage) error {
+		var rows []attachmentRow
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		out = append(out, rows...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing attachments: %w", err)
+	}
+	return out, nil
+}
+
 // contractHasDocument reports whether this agreement already has its paper,
 // so a re-run uploads nothing twice.
 func contractHasDocument(c *client, contract seededContract) (bool, error) {
-	var page struct {
-		Data []struct {
-			ContractID string `json:"contract_id"`
-		} `json:"data"`
+	docs, err := organizationAttachments(c, contract.OrganizationID)
+	if err != nil {
+		return false, err
 	}
-	query := url.Values{
-		"entity_type": {"organization"},
-		"entity_id":   {contract.OrganizationID},
-		"limit":       {"100"},
-	}
-	if err := c.get("/v1/attachments", query, &page); err != nil {
-		return false, fmt.Errorf("listing attachments: %w", err)
-	}
-	for _, row := range page.Data {
-		if row.ContractID == contract.ID {
+	for _, doc := range docs {
+		if doc.ContractID == contract.ID {
 			return true, nil
 		}
 	}
