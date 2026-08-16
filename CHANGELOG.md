@@ -189,6 +189,20 @@ numbers appear here when releases start.
   The screen states what removal does and does not undo: capture resumes
   from that point on, and mail skipped meanwhile is never offered again by
   any mailbox.
+- **Custom fields and tags are filter vocabulary**, so a dynamic list, a
+  saved view and a filtered export can all select on them. A custom field
+  stays filterable after it is retired: retirement is a status change and
+  never a column drop, so an already-saved segment naming a retired field
+  keeps returning the same rows rather than silently widening to every
+  record. A tag filter is a correlated `EXISTS` over the polymorphic
+  `taggable` join, which makes "does not carry this tag" and "carries no
+  tags at all" both expressible, on every record type the join admits —
+  people, organizations, deals, leads and projects. The operator set is
+  unchanged and no operation gained a parameter; the three surfaces
+  resolve one vocabulary through one method, so what a filter may say,
+  what it selects, and what an export of it contains cannot disagree.
+  Authoring such a filter in the product still needs the Filters & views
+  screen, which does not exist yet.
 
 ### Changed
 

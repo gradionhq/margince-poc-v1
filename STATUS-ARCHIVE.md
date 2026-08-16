@@ -21,6 +21,85 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-16 — custom fields and tags become filter vocabulary, and every gate was green the whole time it did not work (PR #1286; foundation#1311 open)
+
+Started as an audit, not a build: 254 open issues read against `origin/main` to
+find what had gone stale. Six were closed as verifiably done, then re-audited at
+call-site rigor at the user's request because "the tests pass" is not the same
+claim as "the issue is closed". #623 closed pointing at #785; #512 retitled,
+because its four boxes had drifted from what it was actually about. #693 came out
+of the `capability-gap` pile, and the rest of the session went to it.
+
+**What #693 asked for was three subjects, and two of them shipped.** Custom
+fields — active **and retired** — and tags entered the segment filter vocabulary,
+so a dynamic list, a saved view and a filtered export can all select on them.
+`city` did not, deliberately: `LVS-N-3` forbids this chapter widening the
+vocabulary unilaterally and neither `DM-VOCAB-1` nor `-2` carries the field, so
+the spec half went upstream instead (foundation#1311: `DM-VOCAB-3a/3b`,
+`LVS-EXT-7` closed for the `tag` alignment this needed, `LVS-GAP-2` opened for
+`city`). No contract change on this side — the operator set (`LVS-PARAM-1`) is
+untouched, and every addition is a vocabulary entry rather than a new verb.
+
+**The shape.** Filterability is not writability, so the port grew a second
+reader: `FilterableReader.FilterableColumns` beside the existing
+`ActiveColumns`. Retirement is a status change and never a `DROP COLUMN`, so a
+retired field's values are still there and its already-saved segment must keep
+returning the same rows — dropping the clause instead would silently **widen**
+the list, which is the harmful direction and the one the test asserts against by
+exact count. A tag leaf is a correlated `EXISTS` over the polymorphic `taggable`
+join, expressed as a new `storekit.Field.Link` template, which makes "does not
+carry this tag" and "carries no tags at all" both expressible. All five record
+types the `taggable` CHECK admits are covered, projects included — and the list
+is derived from the contract enum plus a DDL comparison rather than maintained by
+hand, because the first version of that test was circular.
+
+**Every gate was green on every commit while the feature was unreachable.**
+`server.go:381` built a collections store with no catalogue behind it, so the
+handler that validates a filter at list creation had a vocabulary missing exactly
+the fields this work added. Thirteen commits, a clean `make check` on each, a
+clean task review on each — and a `cf_*` predicate still 422'd over HTTP. The
+whole-branch review found it. The fix was structural rather than a call-site
+patch: `NewCollectionsStore` became the single constructor both wirings use, with
+a reflection gate that fails when either one is built without its catalogue. The
+lesson is the one worth carrying: the unit lane could not have caught this by
+construction, and the HTTP scenario that proves the 422→201 flip over the
+**composed** server is the only test in the branch that could.
+
+**Both Criticals originated in my own plan**, which is the second thing worth
+carrying. `evaluateSegment` acquired a second pool connection while holding a
+transaction — `SegmentEngine` → `FilterableColumns` → `WithWorkspaceTx` on the
+same pool, inside the tx the membership read had already opened. Two sibling
+seams state the rule verbatim in their own comments ("never inside it — a nested
+pool acquire under load is a deadlock shape"), `CreateList` was already correct,
+and the plan put the one wrong call there. It now reads the list row in a short
+tx and resolves the engine outside any tx, with an integration guard that runs
+the endpoint against a pool capped at one connection. The other was a false
+premise of mine — that projects cannot be tagged and have no custom fields —
+which had propagated into three places including a test asserting the exclusion,
+and would have left #693's own defect alive for projects.
+
+**Also learned, at cost:** a pure file move is not consequence-free in a repo
+whose linters are diff-scoped. Splitting `predicate.go` to get under the
+500-line ceiling re-submitted every moved line to the strict set and pulled
+pre-existing blind type assertions into it for the first time. That trap was
+already written down and not applied. And of the five CI or gate failures
+investigated across the branch, exactly one (`goconst`) was a real defect in this
+code; the first hypothesis was wrong in three of the other four, twice by calling
+a failure "pre-existing" when the baseline was this branch's own commit.
+
+Filed rather than folded in: #1244 (`taggable` admits a project in the schema and
+the spec but not in the contract enum, and neither answer is enforced at the
+door), #1272 (a seventh custom-field type would 500 every list, membership read
+and export for its object, with no gate stopping it arriving — the house
+precedent for such a gate exists in `search/queryvocab.go`), #1273 (a saved
+view's filter is validated for the first time at *export* rather than at
+create), #1279 (a project custom field can be filtered and updated but not set
+at project creation, from a pre-existing parameter offset). Closing #693 also
+turned two prose promises into real pointers: #1468, the Filters & views screen
+that `AC-filters-and-views-1..8` describe and that does not exist — so no field,
+core or custom, is authorable in the product today — and #1469, `city`, which
+stays blocked until foundation#1311 lands and says what a `city` filter means.
+
 ## 2026-08-16 — a day's issues, triaged into three piles (PRs #1455, #1456, #1459; foundation #1325, #1326)
 
 Fourteen issues raised across 2026-08-16, sorted by what each actually needed:
