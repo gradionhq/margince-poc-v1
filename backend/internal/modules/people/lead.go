@@ -163,16 +163,15 @@ func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []
 	// The initial score is the §3 fit component — a fresh lead has no
 	// behavioral history yet; signal recompute moves it later.
 	fit := ScoreLeadDetail(deref(in.Title), in.Source, nil, time.Now().UTC())
-	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
-	args := []any{
+	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
 		id, workspaceID(ctx), in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
 		in.LinkedInURL, in.Status, fit.Score, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
-	}
+	})
 	_, err := tx.Exec(ctx,
 		`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
 		                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
 		 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
-		append(args, cfArgs...)...)
+		args...)
 	if err != nil {
 		// Race behind the pre-checks: the constraint name tells an
 		// email dedupe hit from a concurrent same-source import — the

@@ -105,16 +105,15 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 	}
 
 	id := ids.New[ids.ProjectKind]()
-	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 11)
-	args := []any{
+	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
 		id, wsID, in.Name, in.Key, in.OrganizationID, in.OwnerID,
 		in.Description, in.StartedAt, in.TargetEndDate, in.Source, by,
-	}
+	})
 	_, err := tx.Exec(ctx,
 		`INSERT INTO project (id, workspace_id, name, key, organization_id, owner_id,
 		                      description, started_at, target_end_date, source, captured_by`+cfCols+`)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11`+cfHolders+`)`,
-		append(args, cfArgs...)...)
+		args...)
 	if err != nil {
 		if conflict := projectKeyConflict(err, in.Key); conflict != nil {
 			return crmcontracts.Project{}, conflict
