@@ -4,10 +4,14 @@ How a bounded add-on lands in this product **without editing a single upstream-o
 recorded exception, below**. This is
 the *extension tier*: one named, versioned unit under `extensions/<name>/`, its own Go module,
 reaching the core through one narrow published surface and composed in at build time. The vanilla tree
-already ships three — `extensions/de`, the German jurisdiction pack; `extensions/yogi`, the reference
-unit that serves one governed agent tool; and `extensions/notes`, the reference extension that
-exercises every capability the tier has (its own table under RLS, six governed operations, its own
-RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat).
+already ships four:
+
+| Unit | What it is |
+|---|---|
+| `extensions/de` | The German jurisdiction pack — statutory retention floors, and nothing else |
+| `extensions/yogi` | The reference unit that serves one governed agent tool |
+| `extensions/notes` | The reference extension for a unit that owns data: its own table under RLS, six governed operations, its own RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat |
+| `extensions/dispact-connector` | The reference unit that reaches the outside world: it captures messages from its provider and carries replies back out on its own transport |
 
 This page is for a contributor who wants the whole idea first, then the detail. Start here; to
 actually *build* a unit, jump to [how-to/add-an-extension.md](../how-to/add-an-extension.md).
@@ -95,18 +99,37 @@ func New() extension.Extension {
 That value is the entire contract. `Name` is the canonical unit name (it must equal the directory
 name, obeys `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤32 chars) and keys the unit's namespace everywhere it will
 touch — `ext_<name>_<table>` tables, `/v1/ext/<name>/` paths, the `ext_<name>` database role. `Version` is
-recorded in the boot inventory and carries no authority. **Capabilities are the remaining fields** —
-`Jurisdictions` (passive policy) and `Tools` (the first *governed* kind: a risk-tier request in the
-manifest, and — when the declaration carries a handler — a tool the agent surface actually serves,
-see §5).
+recorded in the boot inventory and carries no authority.
+
+**Capabilities are the remaining fields**, and each is its own field precisely so that adding one
+breaks no existing unit:
+
+| Field | What it contributes |
+|---|---|
+| `Jurisdictions` | Passive policy the core consults. Never an actor, so it appears in no manifest |
+| `Tools` | Governed agent tools: a risk-tier request in the manifest, and — when the declaration carries a handler — a tool the agent surface serves (§5) |
+| `Channels` | Messaging providers the unit supplies **transport** for. The core calls the unit to send; the unit never sends on its own authority |
+| `Ingress` | Providers the unit brings records **in** from, and the identity keys that source vouches for |
+| `Subscriptions` | Event types the unit reacts to, each with the function one delivery runs |
+| `Jobs` | Scheduled work: a cadenced fan-out with a worker child per tenant |
+| `Secrets` | The secret keys the unit will use, by name and scope. A request, not a grant |
+| `Migrations` | The unit's own SQL schema layer, embedded rather than read from the tree |
+
+`Channels` and `Ingress` are deliberately separate. Neither implies the other: a unit may capture
+from a provider it cannot send on, and the channel declaration is what says which.
 
 ### 2. The published surface — and the marker that gates it
 
-A unit may import only `backend/pkg/**`, and only the packages that opt in. Two exist today:
+A unit may import only `backend/pkg/**`, and only the packages that opt in. Three exist today:
 
-- **`pkg/extension`** — the declaration types (`Extension`, and the self-validating `Name`/`Version`).
+- **`pkg/extension`** — the declaration types (`Extension`, the self-validating `Name`/`Version`) and
+  every capability contract that rides on them: `Tool`, `Channel`, `IngressSource` and `Record`,
+  `MergeKey`, `Subscription`, `Job`, `SecretsRequest`, and the per-invocation `Runtime`. One package
+  across several files; the marker is per-package, not per-file.
 - **`pkg/extension/jurisdiction`** — the jurisdiction-pack contract (`Pack`, `Retention`,
   `RetentionClass`, the closed class/anchor vocabularies, the calendar `Period`).
+- **`pkg/extension/crm`** — the shapes a unit passes to and receives from `tx.Core()`, the governed
+  door onto core records.
 
 Membership in `backend/pkg` **grants nothing on its own**. A package is extension surface only when
 its package clause carries the directive `//margince:extension-surface`. The allowlist is *derived
@@ -140,10 +163,25 @@ the declaration carrying a handler (§5). Passive policy
 that an extension merely supplies requests no risk tier and does not appear: a jurisdiction pack exposes no
 governed operation (the core consults its policy at boot — it is never an agent that acts) and asks
 for no tier, so a jurisdiction-only unit (like `de`) carries an empty risk-tiers list — there is
-nothing to approve. The returned `extension.Extension` literal and the fields the manifest derives
-(`Name`, `Version`, `Tools`) must be literal values; an unrecognized field fails generation with its
-position rather than producing a manifest that silently omits a request. The manifest is committed
-with the unit and drift-gated like the contract; its digest rides in `composition.json` per unit.
+nothing to approve.
+
+Beyond the risk tiers, the manifest records what a unit **reaches**, so an operator can read its
+blast radius before enabling it:
+
+| Manifest key | From | Says |
+|---|---|---|
+| `risk_tiers` | `Tools`, `Jobs`, contract fragments | Every governed operation, its tier and its scopes |
+| `secrets` | `Secrets` | Which keys the unit expects, and at which scope |
+| `subscriptions` | `Subscriptions` | Which of the installation's facts it consumes |
+| `ingress` | `Ingress` | Which providers it lands records from, which kinds, and which identity keys the source **vouches for** (`merges`) |
+| `channels` | `Channels` | Which providers it supplies, and whether it supplies a **transport** (`supplies_transport`) or captures only |
+
+The returned `extension.Extension` literal and every field the manifest derives must be literal
+values; an unrecognized field fails generation with its position rather than producing a manifest
+that silently omits a request. That is why a unit spells `"dispact"` twice rather than sharing a
+constant between its ingress source and its channel — the reader is static and resolves no
+constants, and a test holds the two strings equal. The manifest is committed with the unit and
+drift-gated like the contract; its digest rides in `composition.json` per unit.
 
 ### 4. The build-time binding — which `composition` module the compiler links
 
@@ -212,6 +250,10 @@ Validate-then-apply makes "partially registered extension" a state the system ca
 so it never appears in the unit manifest. A **scheduled job** and a **subscription** are the two that
 run with nobody behind them; a subscription's manifest entry records its REACH (which event types it
 consumes) rather than a tier, because there is nothing about a listener for an operator to resolve. An
+**ingress source** and a **channel** are the two that face outward, and their manifest entries record
+reach as well — which provider, which record kinds, which identity keys, and whether the unit can also
+send. Neither runs on its own authority: an ingest runs as the member whose credential produced the
+record, and a send happens only because a human staged one. An
 **agent tool** (`extension.Tool`) is the *governed* kind proper: it derives a risk-tier
 request into `manifest.generated.json` for operator resolution (§7), and a tool declaring a `Handle`
 **is served** — `buildExtensionTools` adapts it to the core `mcp.Tool` seam and boot registers it into
@@ -300,10 +342,44 @@ validated to the full identifier budget, so a name chosen today stays valid for 
   `manifest.generated.json`), so a unit can attribute nothing to another unit or to a core connector, and
   a landed row's `captured_by` names the member behind it as well.
 
+  A source also declares the **identity keys it vouches for** (`Merges`, empty by default). A unit
+  supplies every field its provider gives it and decides nothing about identity; which of those fields
+  the core's resolution ladder may match on is read from the declaration. Concretely: a direct message
+  names its human by a channel account, and an address riding alongside it may be matched on only if
+  the source declared `MergeKeyEmail` — which is what lets a colleague already captured from mail be
+  recognised instead of becoming a second contact. See
+  [ingress-gate-and-auto-capture.md](ingress-gate-and-auto-capture.md).
+
   Authority is the mirror image of `tx.Core()`'s: an ingest is refused from an ATTENDED invocation, and
   it runs on the LIVE authority of the member named in `on` — who must currently hold one of this unit's
   user-scoped secrets, because depositing a credential with a unit is the act that says "act for me
   here". `extensions/dispact-connector` is the unit that exercises the path end to end.
+
+- **Its own messaging transport** — a `Channel` declares a provider the unit can carry messages on, so
+  a rep's reply to a captured conversation leaves through the unit, on the member's own credential,
+  through the product's ordinary reply path rather than a surface of the unit's own.
+
+  **A unit never sends. It DECLARES a transport and the core calls it.** The chain is: the timeline
+  reply box → `activities.SendMessage` (authorization, consent, recipient resolved from the links) →
+  staging → the comms dispatcher → the unit's `Channel.Send`. So the tier's outbound refusals stand
+  untouched — a unit still may not spend an outbound cap from a tool or a job tick. What changed is
+  that a human staged the message, the seat gate re-read them, and the core hands the unit something
+  to carry.
+
+  Three parts of the declaration carry weight. `Provider` is a row in `channel_provider` and takes
+  **that column's** grammar, which is snake (`^[a-z][a-z0-9_]*$`) and not the ingress system's kebab —
+  `deal-room` is a legal ingress system and an illegal provider. `Send` may be **nil**, and that is the
+  documented capture-only case: a reply attempt is then answered with the deployment fact rather than a
+  fault. `Live` is **required whenever `Send` is present**: it answers, per member and without spending
+  the credential, whether the connection is still usable. A confirmed "no" parks the delivery where a
+  human can see it; "I could not tell" is an error and is retried. Reading either as the other destroys
+  a message or sends it twice.
+
+  A unit names the **transport**, never the activity kind. The kind a channel message lands under is
+  the core's and fixed by the contract (ADR-0107/A158); letting a unit name one would undo that axis
+  split from outside the core. A unit shadowing a core provider — `telegram`, say — fails the boot,
+  because every Telegram reply would otherwise leave on the unit's per-member credential instead of the
+  workspace's bot: the same message, sent by a different person, with nothing on screen different.
 
 - **Its own frontend** — a `frontend/` directory whose screen is aliased into the SPA and rendered at
   the unit's route. Removing a unit is a one-place operation again: delete the unit directory. An
@@ -367,7 +443,12 @@ The tier is defended by fitness tests and scripts, so the guarantees can't rot i
 | A unit lands a record in the product only where an operator can see that it does: `source_system` is derived from a DECLARED ingress source, so a typo is a refusal rather than a second provenance namespace | `internal/compose/extingress.go` (`declaredIngress`), `internal/compose/extensions.go` (`preflightIngress`) |
 | An ingest runs on the named member's LIVE authority, and only for a member who currently holds one of that unit's user-scoped secrets — so a unit cannot act as a colleague who never asked it to | `internal/compose/extingressauthority.go`, `extingress_integration_test.go` |
 | An ingest is refused from an invocation that HAS a caller, and from inside a transaction the unit is holding — the second on a pool of one, where the alternative is a hang rather than a failure | `internal/compose/extingress.go`, `extingress_test.go`, `extingress_integration_test.go` |
+| An address may be offered as identity evidence only by a source that DECLARED the key — refused attributably at the gate, and held for every other caller of the pipeline by capture's own admission check | `internal/compose/extingress.go` (`refuseUndeclaredMergeKey`), `internal/modules/capture/sinkchannel.go` (`admitCounterpartyKeys`) |
 | The published record type cannot silently fall behind the core's capture envelope: every field is mirrored or waived with its reason | `internal/compose/extingressdrift_test.go` |
+| A unit may file a message on a transport it DECLARED and on no other, and no other kind may name a transport at all — a record claiming a journey it did not make is one the reply path would answer on | `internal/compose/extingress.go` (`refuseUndeclaredTransport`) |
+| A unit may bind a counterparty identity only under a provider it supplies — otherwise it could attach an account it controls to somebody else's person record and take that person's next reply | `internal/compose/extingress.go` (`refuseUnitIdentity`) |
+| A unit cannot shadow a core channel provider: the collision is caught in the RECONCILE, where both sets exist, and fails the boot rather than silently re-routing that provider's replies through the unit | `internal/compose/channelprovider.go` |
+| A `Send` without a `Live` is refused, and the core asks `Live` BEFORE handing over a message — a disconnected member parks where a human can see it, an unreachable provider is retried | `backend/pkg/extension/channel.go`, `internal/compose/extchannelsend.go` |
 | A unit's listener consumes only the streams its declared event types route to, and no core group consumes the extension stream | `internal/compose/extsubscribe.go`, `internal/shared/kernel/events/extensiontypes_test.go` |
 | A subscription naming an event type nothing can route is refused at boot, rather than registering a consumer group that never delivers | `internal/compose/extensions.go` (`preflightSubscriptions`) |
 | A core write is refused in an overlay workspace rather than landing in a native table nothing reads, resolved FRESH per write | `internal/compose/extcore.go` (`admit` → `overlayModeOf`) |
@@ -396,6 +477,10 @@ the whole path).
 |---|---|
 | The declaration type (`Extension`, `Name`, `Version`) | `backend/pkg/extension/extension.go` |
 | The jurisdiction-pack contract | `backend/pkg/extension/jurisdiction/jurisdiction.go` |
+| The ingress record, its bounds, and the merge-key vocabulary | `backend/pkg/extension/ingress.go`, `mergekey.go` |
+| The channel contract (`Channel`, `MessageSender`, `ConnectionLiveChecker`) | `backend/pkg/extension/channel.go` |
+| The ingress gate and the send path the core drives | `backend/internal/compose/extingress.go`, `extchannelsend.go` |
+| Channel-provider registration and the core-collision check | `backend/internal/compose/channelprovider.go` |
 | The core-internal jurisdiction registry (aliases the published types) | `backend/internal/shared/ports/jurisdiction/jurisdiction.go` |
 | Boot reconciliation (validate-then-apply) | `backend/internal/compose/extensions.go` |
 | Served-tool adaptation into the core MCP seam | `backend/internal/compose/extensiontools.go` |
@@ -406,6 +491,7 @@ the whole path).
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
 | The reference extension (every capability) | `extensions/notes/notes.go` |
+| The reference connector: ingress, merge key, transport | `extensions/dispact-connector/dispact.go`, `record.go`, `send.go` |
 | Its screen, in the unit's own workspace package | `extensions/notes/frontend/screen.tsx` |
 | That screen's tests, and the lane that runs them | `extensions/notes/frontend/screen.test.tsx`, `frontend/vitest.ext.config.ts` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |
@@ -419,5 +505,8 @@ the whole path).
 - [privacy-and-consent.md](privacy-and-consent.md) — the retention engine that consumes a pack.
 - [composition-layer.md](composition-layer.md) — how `compose` boots and wires the composed set.
 - [agent-surface.md](agent-surface.md) — the registry and admission gate a served extension tool joins.
+- [ingress-gate-and-auto-capture.md](ingress-gate-and-auto-capture.md) — what the core does with a
+  record a unit lands, including the merge-key declaration and the channel path.
+- [outbound-messaging.md](outbound-messaging.md) — the reply path that ends at a unit's `Channel.Send`.
 - [frontend-architecture.md](frontend-architecture.md) — the SPA an extension frontend slice would extend.
 - [reference/make-targets.md](../reference/make-targets.md) — `composition`, `check-composition`, `test-extensions`.
