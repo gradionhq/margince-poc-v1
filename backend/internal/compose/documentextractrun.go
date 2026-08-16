@@ -224,12 +224,13 @@ func (d *DocumentExtractor) sourceFor(
 	// takes neither lane, which is the honest answer — the alternative is
 	// sniffing bytes here, a second content-type authority beside DOC-PARAM-9's.
 	//
-	// What that decides, stated because it is easy to read the other way
-	// (ai-operational-spec §4.2): this type is the UPLOADER's claim, so whoever
-	// attached the file — an external counterparty on a captured email
-	// included — chooses which lane its bytes take. Carriage is not a content
-	// check, and a binding's `input:` says what this product will send, not what
-	// the bytes are.
+	// So the lane is decided by what INGRESS recorded, and what that means
+	// depends on how the file arrived (ai-operational-spec §4.2): a captured
+	// attachment carries the type sniffed from its bytes, with a disagreeing
+	// sender claim recorded rather than obeyed, while a file uploaded through
+	// the API carries its uploading principal's declared type unsniffed. Either
+	// way carriage is not a content check — a binding's `input:` says what this
+	// product will send, never what the bytes are.
 	mime := ""
 	if meta.ContentType != nil {
 		mime = strings.ToLower(strings.TrimSpace(*meta.ContentType))

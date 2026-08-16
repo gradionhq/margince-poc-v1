@@ -22,12 +22,16 @@ import (
 // It is a TEXT-lane guarantee, and the spec says so in the same breath as the
 // rule itself (§4.2). The pass runs over the marshalled body, which is the last
 // point before egress and cannot be bypassed — but an attachment rides that body
-// as base64, and every rule below is anchored on characters base64 cannot emit
-// (`-`, `_`, `.`, `:`, `@`, whitespace). A credential inside an attached FILE is
-// therefore unmatchable here by construction, while the same file arriving as
-// text is scrubbed. Reaching it would mean decoding and re-encoding every
-// attachment on every call; the product states the scope instead of implying a
-// cover it does not have.
+// BASE64-ENCODED, and every rule below matches a secret's literal text. A
+// credential inside an attached FILE is not present in that form, so nothing
+// here can find it, while the same file arriving as text is scrubbed. Reaching
+// it would mean decoding and re-encoding every attachment on every call; the
+// product states the scope instead of implying a cover it does not have.
+//
+// Note which way that runs. The rules are not blind to the ENCODING: two of them
+// (AIza…, AKIA/ASIA…) are alphanumeric enough to match inside a blob by
+// coincidence, which is the inverse hazard and has its own issue. What they
+// cannot see is the plaintext underneath it.
 func NewSecretStripper() model.SecretStripper {
 	return secretStripper{rules: stripRules}
 }

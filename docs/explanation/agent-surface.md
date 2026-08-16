@@ -64,10 +64,10 @@ not architecture**. `internal/modules/ai/` owns it:
   keys, tokens, private keys, password assignments (→ `[SECRET-REMOVED:<kind>]`). It is **hygiene, not
   a PII filter**: names, emails, and phone numbers pass through (privacy is handled by the location
   ladder and the erasure engines, not by stripping). The sovereign profile blocks egress entirely.
-  It is also a **text-lane** guarantee: an attachment rides the payload as base64, and the rules are
-  anchored on characters base64 cannot emit, so a credential *inside an attached file* is
-  structurally unmatchable — while the same file arriving as text is scrubbed. Attaching a document
-  is a decision to send its bytes as they are.
+  It is also a **text-lane** guarantee: an attachment rides the payload base64-encoded, and the rules
+  match a secret's literal text, so a credential *inside an attached file* is not there for them to
+  find — while the same file arriving as text is scrubbed. Attaching a document is a decision to send
+  its bytes as they are.
 - **Metering & budget** — `ai_usage` accumulates per-(workspace, day, task, tier) counters against a
   **workspace monthly token budget** (distinct from the per-run step/output-token ceilings above,
   which stop a single runaway run). At ≥80% utilization the router soft-degrades a tier; at ≥100%

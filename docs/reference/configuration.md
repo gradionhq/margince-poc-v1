@@ -849,23 +849,26 @@ takes inline bytes or an `http(s)` URL it fetches itself.
 knowing before you enable an attachment lane, because both run the other way
 from what a reader tends to assume:
 
-- **The media type is the uploader's claim, not a finding.** The lane is chosen
-  from the content type recorded when the file was captured; nothing sniffs the
-  bytes, deliberately — a second content-type authority beside the stored one
-  would be its own defect. So whoever attached the file decides which lane its
-  bytes take, **including an external counterparty on a captured email**, and
-  `image/*` matches by prefix. `input: [image]` says what Margince will *carry*;
-  it does not say what the bytes *are*.
+- **Which lane a file takes was decided at ingress, and carriage is not a content
+  check.** The AI lane reads the content type the file is stored with and adds no
+  second authority of its own. What that type means depends on how the file
+  arrived: a **captured** attachment carries the type *sniffed from its bytes*,
+  with a disagreeing sender claim recorded rather than obeyed — so an external
+  counterparty influences the lane only through the bytes they actually sent — while
+  a file **uploaded through the API** carries its uploader's declared type,
+  unsniffed. Either way `image/*` matches by prefix, and `input: [image]` says
+  what Margince will *carry*; it never says what the bytes *are*.
 - **The secret stripper does not reach inside an attachment.** It runs over the
   outbound payload — the right place, and unbypassable — but an attachment rides
-  that payload as base64, and the rules are anchored on characters base64 cannot
-  emit. A credential inside an attached file is therefore structurally
-  unmatchable, while the same file arriving as text is scrubbed.
+  that payload **base64-encoded**, and the rules match a secret's literal text. A
+  credential inside an attached file is not there in that form for them to find,
+  while the same file arriving as text is scrubbed.
 
-Both are defensible where they stand — the alternative to the second is decoding
-and re-encoding every attachment on every call — but they are the scope, not an
-oversight. If a deployment needs more than this, the answer is the location
-ladder (`profile:`) or narrowing the tier with `input:`, not the stripper.
+The second is defensible where it stands — the alternative is decoding and
+re-encoding every attachment on every call — but it is the scope, not an
+oversight. If a deployment needs more than this for a given lane, the answer is
+the location ladder (`profile:`) or narrowing that tier with `input:`, not the
+stripper.
 
 #### `input:` — what the bound model can be given
 
