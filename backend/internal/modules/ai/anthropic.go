@@ -36,10 +36,13 @@ const anthropicAPIVersion = "2023-06-01"
 const anthropicMaxTokensDefault = 1024
 
 type anthropicWire struct {
-	Model        string                 `json:"model"`
-	MaxTokens    int                    `json:"max_tokens"`
-	System       string                 `json:"system,omitempty"`
-	Messages     []wireMessage          `json:"messages"`
+	Model     string `json:"model"`
+	MaxTokens int    `json:"max_tokens"`
+	System    string `json:"system,omitempty"`
+	// Messages is this adapter's own message type rather than a shared one:
+	// only here does a turn's body become an array of Anthropic content blocks
+	// once it carries an image (anthropicparts.go).
+	Messages     []anthropicMessage     `json:"messages"`
 	Tools        []anthropicToolWire    `json:"tools,omitempty"`
 	Stream       bool                   `json:"stream,omitempty"`
 	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
@@ -216,7 +219,11 @@ func (c *anthropicClient) Embed(context.Context, model.EmbedRequest) (model.Embe
 }
 
 func (c *anthropicClient) Caps() model.Capabilities {
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: carriesNothing}
+	// AttachmentMIMEs stops at images deliberately: the Messages API's document
+	// block exists, but which models accept one is a per-model fact this adapter
+	// cannot see, and advertising a lane a bound model refuses is worse than not
+	// advertising it at all.
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: carriesImages}
 }
 
 // post sends one non-streaming Messages call; postStream opens the SSE
@@ -253,17 +260,18 @@ func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bo
 // status (0 on a transport-level failure) so send can distinguish a
 // schema-rejection 400 from a transport error.
 func (c *anthropicClient) sendOnce(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, int, error) {
-	// Anthropic is natively capable of image/document blocks; mapping them is a
-	// cheap follow-up. Phase-1 ships the honest reject-guard so the uniform
-	// Attachments field can never silently drop (spec §3.8, "the guard is the floor").
-	if err := attachmentUnsupported("anthropic", req.Attachments, carriesNothing); err != nil {
+	// Images map to native content blocks; a PDF does not, because
+	// `document` support is model-dependent here in a way image support is not,
+	// and this adapter cannot see which model the binding named. Anything outside
+	// the declaration is refused rather than dropped (spec §3.8).
+	if err := anthropicRefuseAttachments(req.Attachments); err != nil {
 		return nil, 0, err
 	}
 	wire := anthropicWire{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
 		System:    req.System,
-		Messages:  wireMessages("", req.Messages),
+		Messages:  anthropicMessages(req.Messages, req.Attachments),
 		Stream:    stream,
 	}
 	if wire.Model == "" {

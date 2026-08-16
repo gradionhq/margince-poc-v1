@@ -826,6 +826,25 @@ would double it (`…/v1/v1/…` → 404). Use `https://api.mistral.ai`, not
 `https://api.mistral.ai/v1`. `gemini` is the mirror: its default base keeps the
 `/v1beta` segment and the paths are version-relative.
 
+#### What a binding can be handed (documents, scans, photographed forms)
+
+`document_extract` reads a file by handing it to the bound model when the model
+takes that media type, and falls back to the text lane when it does not. What
+each provider carries is a property of its **wire**, and is fixed in the adapter:
+
+| provider | carries |
+|---|---|
+| `gemini`, `openai` | `image/*` and `application/pdf` — both wires take a document part natively |
+| `anthropic` | `image/*`. The Messages API has a document block too, but which models accept one varies per model, and this adapter cannot see which model a binding named |
+| `ollama` | `image/*`, as the chat API's per-message `images` array. A non-vision model pulled into the binding fails at the runner, visibly |
+| `openai_compatible`, `vllm` | whatever the binding declares — see `input:` below |
+| `fake` | `image/*` and `application/pdf` (the offline stub mirrors the native wires) |
+
+A media type outside a binding's carriage is **refused, never dropped**: the run
+says which file it could not read rather than answering about a document the
+model never saw. An `ollama` binding takes inline bytes only, and `anthropic`
+takes inline bytes or an `http(s)` URL it fetches itself.
+
 #### `input:` — what the bound model can be given
 
 A chat tier bound to `openai_compatible` or `vllm` may declare the input

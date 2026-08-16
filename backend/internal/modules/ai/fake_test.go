@@ -75,6 +75,24 @@ func TestFakeClientRunsStripperAndRecordsPayload(t *testing.T) {
 	}
 }
 
+// The fake's fallback completion is a hash of the payload bytes, so the payload
+// is not just something the stripper runs over: its exact spelling decides every
+// deterministic answer this client gives, across processes and across builds. A
+// turn must therefore keep marshalling `role` before `content` — which is why
+// the messages ride a struct and not a map, whose keys Go sorts.
+func TestFakeRecordedPayloadKeepsItsTurnFieldOrder(t *testing.T) {
+	fake := NewFakeClient()
+	if _, err := fake.Complete(context.Background(), model.Request{
+		Messages: []model.Message{{Role: roleUser, Content: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const want = `[{"role":"user","content":"hello"}]`
+	if got := string(fake.Calls()[0].Payload); !strings.Contains(got, want) {
+		t.Fatalf("the recorded turn changed shape\n got: %s\nwant it to contain: %s", got, want)
+	}
+}
+
 func TestFakeClientEmbedDeterministicUnitVectors(t *testing.T) {
 	ctx := context.Background()
 	fake := NewFakeClient()
