@@ -17525,7 +17525,14 @@ components:
             contract whose dates have passed while its status change awaits approval is
             no longer under contract and still reports the status it was left in.
         source: { type: string }
-        captured_by: { type: [string, 'null'], format: uuid }
+        captured_by:
+          type: string
+          readOnly: true
+          description: >-
+            The principal that recorded this agreement, prefixed by kind
+            ("human:<id>" / "agent:<id>"). Server-stamped from the authenticated
+            caller, never client-supplied — an agent acting under a passport is
+            not a row in app_user, so this is not a user id.
         version: { type: integer, format: int64, readOnly: true }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }

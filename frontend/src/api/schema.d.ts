@@ -12382,8 +12382,8 @@ export interface components {
              */
             readonly under_contract: boolean;
             source: string;
-            /** Format: uuid */
-            captured_by?: string | null;
+            /** @description The principal that recorded this agreement, prefixed by kind ("human:<id>" / "agent:<id>"). Server-stamped from the authenticated caller, never client-supplied — an agent acting under a passport is not a row in app_user, so this is not a user id. */
+            readonly captured_by?: string;
             /** Format: int64 */
             readonly version: number;
             /** Format: date-time */
