@@ -16,10 +16,20 @@ set -euo pipefail
 : "${RUN_URL:?RUN_URL must link the run that produced this verdict}"
 
 # report <title> <label> <body>
+#
+# The lookup reads EVERY open issue, not a first page of them. A capped read
+# answers "no issue with this title" the moment the tracker outgrows the cap —
+# and because the cap pages newest-first, the issue it stops short of is
+# precisely the long-lived one this dedupe exists to find. The tracker passing
+# that mark is invisible from here: nothing fails, a second issue is simply
+# filed under a title that already had one, and the discussion on the first is
+# left behind. The oldest open match therefore wins: it is the one carrying
+# whatever triage the title has already collected.
 report() {
   local title="$1" label="$2" body="$3" existing
-  existing="$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title |
-    jq -r --arg t "$title" 'map(select(.title == $t)) | .[0].number // empty')"
+  existing="$(gh api --paginate "repos/$REPO/issues?state=open&per_page=100" |
+    jq -rs --arg t "$title" '[.[][] | select(has("pull_request") | not)
+      | select(.title == $t)] | min_by(.number) | .number // empty')"
   if [ -n "$existing" ]; then
     echo "already open as #$existing — commenting"
     gh issue comment "$existing" --repo "$REPO" \

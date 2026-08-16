@@ -800,8 +800,26 @@ jobs:
     # area-scoped: a frontend-only PR legitimately skips deterministic-gates +
     # integration (and a backend-only PR skips frontend) yet SonarCloud must
     # still post its required "SonarCloud Code Analysis" check. A skipped
-    # upstream just means that area produced no coverage artifact — the scan
-    # proceeds without it (that area has no new code to measure).
+    # upstream just means that area produced no coverage artifact — and on a
+    # PR the scan proceeds without it, because new code there is the diff and
+    # a diff that skipped an area has no lines in it for that area to cover.
+    #
+    # That reasoning does NOT survive the move to a push. main's new-code
+    # period is `previous_version`, so its new code is every line added since
+    # the last release marker — weeks of Go — and a push REPLACES main's
+    # stored analysis rather than adding a second one. The scanner's Zero
+    # Coverage Sensor scores every executable line it holds no report for as
+    # uncovered, so a push that skipped the Go coverage producer publishes
+    # those weeks at 0% and the quality gate reads red until some later push
+    # happens to rescan them. A docs-only merge skips every producer, which
+    # makes it the common way in. Measuring nothing is not a measurement of
+    # zero, so such a push does not scan and main keeps its last real reading.
+    #
+    # `integration` alone stands for the Go coverage, and the backend
+    # classifier scope starts every backend producer together — so a run that
+    # has it has the profile that dominates main's new code. A frontend-only
+    # push therefore waits for the next backend one rather than publishing
+    # main with no Go coverage at all.
     #
     # deterministic-gates is gated directly, not just transitively. Now that
     # integration runs in parallel with the build gate rather than behind it, a
@@ -819,6 +837,7 @@ jobs:
       && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
       && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name == 'pull_request' || needs.integration.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
