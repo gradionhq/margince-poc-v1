@@ -42,6 +42,10 @@ coverage.out
 /backend/migrate
 /backend/mcp
 
+# Same for the tools module. `go build ./tools/seed-demo` from backend/ drops
+# an 18 MB binary here, which a `git add -A` will happily commit — it did once.
+/backend/seed-demo
+
 # Session working notes — local only, not part of the published repo
 /review_*.md
 

@@ -48,6 +48,7 @@ func run() error {
 		limit    = flag.Int("limit", 0, "seed at most N companies (0 = all)")
 		dsn      = flag.String("dsn", "", "owner DSN for the teams and seats (or set MARGINCE_SEED_DSN); skipped when empty")
 		dryRun   = flag.Bool("dry-run", false, "report what would be created, write nothing")
+		verify   = flag.Bool("verify-only", false, "check an already-seeded installation, write nothing")
 	)
 	flag.Parse()
 
@@ -71,6 +72,14 @@ func run() error {
 	client, err := login(*baseURL, *email, *password)
 	if err != nil {
 		return err
+	}
+
+	// -verify-only reads an installation somebody already seeded and reports
+	// what is missing. It writes NOTHING, which makes it safe to point at an
+	// installation another session is using — unlike -dry-run, which still
+	// walks the seeding phases and needs the records to be absent.
+	if *verify {
+		return verifySeed(client, demo, modeWrite)
 	}
 
 	anchorRead, err := loadCompany(*dataset, demo.Anchor.Domain)
@@ -98,22 +107,36 @@ func run() error {
 	if *dsn == "" {
 		*dsn = os.Getenv("MARGINCE_SEED_DSN")
 	}
-	if *dsn == "" {
+	if err := seedWhatNeedsSQL(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
+		return err
+	}
+	return verifySeed(client, demo, modeFor(*dryRun))
+}
+
+// seedWhatNeedsSQL runs the two phases that cannot go through the API: the
+// teams and seats (teams are read-only on the contract, and no endpoint
+// accepts a four-character password) and the company facts (only a crawl may
+// create one, so this calls people.ApplyDeepRead in process).
+//
+// With no DSN it says what it skipped rather than failing. The ownership pass
+// that follows fails clearly enough on its own — "no seats to own anything" —
+// and a run against an installation somebody else seeded is legitimate.
+func seedWhatNeedsSQL(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
+	if dsn == "" {
 		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
-		return verifySeed(client, demo, modeFor(*dryRun))
+		return nil
 	}
 	orgIDs, err := orgIDsByDomain(client)
 	if err != nil {
 		return err
 	}
-	if err := seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun)); err != nil {
+	if err := seedOrgWithDSN(dsn, demo, orgIDs, mode); err != nil {
 		return err
 	}
-	facts, err := seedFacts(context.Background(), *dsn, client, companies, orgIDs, modeFor(*dryRun))
+	facts, err := seedFacts(context.Background(), dsn, client, companies, orgIDs, mode)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("facts:         %d applied\n", facts)
-
-	return verifySeed(client, demo, modeFor(*dryRun))
+	return nil
 }

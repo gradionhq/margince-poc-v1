@@ -156,28 +156,43 @@ func tallyContractsAndPaper(c *client, tally tallyFunc) error {
 		return err
 	}
 	for _, orgID := range orgIDs {
-		err := c.getAll("/v1/organizations/"+orgID+"/contracts", nil, func(raw json.RawMessage) error {
-			var rows []struct {
-				Status string `json:"status"`
-			}
-			if err := json.Unmarshal(raw, &rows); err != nil {
-				return err
-			}
-			for _, row := range rows {
-				tally(axisContract, row.Status)
-			}
-			return nil
-		})
-		if err != nil {
+		if err := tallyOrgContracts(c, orgID, tally); err != nil {
+			return err
+		}
+		if err := tallyOrgPaper(c, orgID, tally); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// Paper: an attachment carrying a contract_id is filed under its
-	// contract; one without is an account document. The difference is the
-	// whole point of the document cells — a PDF that lost its contract_id
-	// floats loose in Documents and its contract shows no paper at all.
-	return c.getAll("/v1/attachments", nil, func(raw json.RawMessage) error {
+// tallyOrgContracts counts one company's contracts by status.
+func tallyOrgContracts(c *client, orgID string, tally tallyFunc) error {
+	return c.getAll("/v1/organizations/"+orgID+"/contracts", nil, func(raw json.RawMessage) error {
+		var rows []struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			tally(axisContract, row.Status)
+		}
+		return nil
+	})
+}
+
+// tallyOrgPaper counts one company's documents, split by whether they are
+// filed under a contract.
+//
+// Attachments are listed PER ENTITY — `entity_type` and `entity_id` are both
+// required and there is no installation-wide list — so this walks companies.
+// A contract's PDF hangs off the organization and carries a contract_id;
+// that field is the whole point of the document cells, because a PDF that
+// lost it floats loose in Documents while its contract shows no paper at all.
+func tallyOrgPaper(c *client, orgID string, tally tallyFunc) error {
+	query := url.Values{"entity_type": {"organization"}, "entity_id": {orgID}}
+	return c.getAll("/v1/attachments", query, func(raw json.RawMessage) error {
 		var rows []struct {
 			ContractID string `json:"contract_id"`
 		}
