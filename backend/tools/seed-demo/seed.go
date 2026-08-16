@@ -41,6 +41,15 @@ func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineR
 	if err != nil {
 		return err
 	}
+	// The deals have to be on file before anything can point at them: an
+	// activity links to the deal it moved, and a stakeholder sits on one.
+	if err := refs.loadDeals(c, cfg); err != nil {
+		return err
+	}
+	stakeholders, err := seedStakeholders(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
 	activities, err := seedActivities(c, cfg, refs, mode)
 	if err != nil {
 		return err
@@ -65,15 +74,23 @@ func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineR
 	if err != nil {
 		return err
 	}
+	// Ownership runs last: it walks every organization the installation holds,
+	// including any a previous run created, so it must see the finished set.
+	ownedOrgs, ownedPeople, err := assignOwners(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("leads:         %d new\n", leads)
 	fmt.Printf("deals:         %d new\n", deals)
+	fmt.Printf("stakeholders:  %d new\n", stakeholders)
 	fmt.Printf("activities:    %d new\n", activities)
 	fmt.Printf("contracts:     %d new\n", contracts)
 	fmt.Printf("products:      %d new\n", productsNew)
 	fmt.Printf("offers:        %d new\n", offers)
 	fmt.Printf("consent:       %d recorded\n", consents)
 	fmt.Printf("lifecycle:     %d changed\n", lifecycles)
+	fmt.Printf("owners:        %d organization(s), %d person/people\n", ownedOrgs, ownedPeople)
 	return nil
 }
 

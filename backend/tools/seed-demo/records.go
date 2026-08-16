@@ -36,16 +36,22 @@ func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) 
 		if act.DaysIn > 0 {
 			occurred = act.DaysIn
 		}
-		// An activity links to the records it touched rather than belonging
-		// to one, so a mail that names a company and a deal is one row on
-		// both timelines instead of two copies.
+		// An activity links to every record it touched rather than belonging
+		// to one, so a mail is one row that appears on the company, on the
+		// person it was with, and on the deal it moved. Linking only the
+		// company — which is what this did first — leaves every person's
+		// timeline empty, which is where a rep actually looks.
+		links, err := activityLinks(c, refs, act, orgID)
+		if err != nil {
+			return created, fmt.Errorf("activity %d on %s: %w", i, act.Company, err)
+		}
 		body := jsonBody{
 			"kind":          act.Kind,
 			"occurred_at":   refs.timestamp(occurred),
 			"source":        seedSource,
 			"source_system": "seed",
 			"source_id":     fmt.Sprintf("act-%d", i),
-			"links":         []jsonBody{{"entity_type": "organization", "entity_id": orgID}},
+			"links":         links,
 		}
 		addIfSet(body, "subject", act.Subject)
 		addIfSet(body, "body", act.Body)
@@ -87,6 +93,34 @@ func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) 
 	return created, nil
 }
 
+// activityLinks is what one activity touched: always its company, plus the
+// company's most senior contact and any open deal there.
+//
+// Derived rather than listed, because a dataset that names the counterpart
+// per activity would have to be rewritten for every company ingested later.
+// The senior contact is the one a conversation with an account is most likely
+// to have been with — a heuristic, and better than an empty timeline.
+func activityLinks(c *client, refs pipelineRefs, act demoActivity, orgID string) ([]jsonBody, error) {
+	links := []jsonBody{{"entity_type": "organization", "entity_id": orgID}}
+
+	// A note or a task is internal — it is about the account, not with anybody.
+	if act.Kind == "email" || act.Kind == "call" || act.Kind == "meeting" {
+		staff, err := staffBySeniority(c, orgID)
+		if err != nil {
+			return nil, err
+		}
+		if len(staff) > 0 {
+			links = append(links, jsonBody{"entity_type": "person", "entity_id": staff[0]})
+		}
+	}
+
+	for _, deal := range refs.dealsByCompany[strings.ToLower(act.Company)] {
+		links = append(links, jsonBody{"entity_type": "deal", "entity_id": deal})
+		break // one deal: an account with two is ambiguous, and guessing wrong is worse than not guessing
+	}
+	return links, nil
+}
+
 func findActivityBySource(c *client, sourceID string) (bool, error) {
 	var page struct {
 		Data []struct {
@@ -106,12 +140,34 @@ func findActivityBySource(c *client, sourceID string) (bool, error) {
 
 // seedLifecycle says where each account stands with us.
 //
-// It runs LAST, after the deals exist, because the two have to agree: an
-// account with a won deal is a customer and one with an open deal is at least
-// an opportunity. A demo where every company sits at the default teaches the
+// It runs after the deals exist, because the two have to agree: an account
+// with a won deal is a customer and one with an open deal is at least an
+// opportunity. A demo where every company sits at the default teaches the
 // lifecycle filter to return everything.
+//
+// A company the dataset does not place gets a default from what is true about
+// it — an open deal makes it an opportunity, otherwise it is a target. That
+// keeps a newly ingested company out of `unknown` without pretending to know
+// more than the records show, and demo.json still overrides it whenever the
+// story needs something specific.
 func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
 	changed := 0
+	placed := map[string]bool{}
+	for _, domains := range cfg.Lifecycle {
+		for _, domain := range domains {
+			placed[strings.ToLower(domain)] = true
+		}
+	}
+	for domain := range refs.orgsByDom {
+		if placed[domain] {
+			continue
+		}
+		stage := "target"
+		if len(refs.dealsByCompany[domain]) > 0 {
+			stage = "opportunity"
+		}
+		cfg.Lifecycle[stage] = append(cfg.Lifecycle[stage], domain)
+	}
 	for stage, domains := range cfg.Lifecycle {
 		for _, domain := range domains {
 			orgID, ok := refs.orgsByDom[strings.ToLower(domain)]

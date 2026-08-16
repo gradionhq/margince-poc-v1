@@ -96,11 +96,14 @@ func run() error {
 	}
 	if *dsn == "" {
 		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
-		return nil
+		return verifySeed(client, demo, modeFor(*dryRun))
 	}
 	orgIDs, err := orgIDsByDomain(client)
 	if err != nil {
 		return err
 	}
-	return seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun))
+	if err := seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun)); err != nil {
+		return err
+	}
+	return verifySeed(client, demo, modeFor(*dryRun))
 }

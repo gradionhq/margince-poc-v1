@@ -28,6 +28,9 @@ type pipelineRefs struct {
 	// contractsByRef lets the renewal read its successor's terms: a renewal
 	// inherits nothing, so every field is restated from the dataset.
 	contractsByRef []demoContract
+	// dealsByCompany is filled after the deals are seeded, so an activity can
+	// link to the deal it moved.
+	dealsByCompany map[string][]string
 	pipelineID     string
 	now            time.Time
 }
@@ -50,6 +53,7 @@ func (r pipelineRefs) timestamp(days int) string {
 func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, error) {
 	refs := pipelineRefs{
 		contractsByRef: cfg.Contracts,
+		dealsByCompany: map[string][]string{},
 		usersByRef:     map[string]string{},
 		orgsByDom:      map[string]string{},
 		stagesByNm:     map[string]string{},
@@ -183,6 +187,12 @@ func seedLeads(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 			if err := c.post("/v1/leads/"+out.ID+"/promote", jsonBody{"trigger": "human_qualify"}, nil); err != nil && !isConflict(err) {
 				return created, fmt.Errorf("promoting lead %s: %w", lead.Ref, err)
 			}
+			// Promotion mints a person but no employment, so the new contact
+			// belongs to nobody's company — an orphan the company page cannot
+			// show. The lead named an employer; the person inherits it.
+			if err := employPromoted(c, lead, refs); err != nil {
+				return created, fmt.Errorf("employing the promoted %s: %w", lead.FullName, err)
+			}
 		}
 	}
 	return created, nil
@@ -286,6 +296,40 @@ func terminalStatus(stage string) string {
 	default:
 		return ""
 	}
+}
+
+// employPromoted ties a promoted lead's person to the company the lead named.
+func employPromoted(c *client, lead demoLead, refs pipelineRefs) error {
+	orgID, ok := refs.orgsByDom[strings.ToLower(lead.Company)]
+	if !ok {
+		return nil // the lead named a company outside this dataset
+	}
+	personID, found, err := findPersonByName(c, lead.FullName)
+	if err != nil || !found {
+		return err
+	}
+	_, err = ensureEmployment(c, personID, orgID, lead.Title, false)
+	return err
+}
+
+// loadDeals records the id of every seeded deal, keyed by its company, so the
+// phases that point at a deal do not each re-search for it.
+func (r *pipelineRefs) loadDeals(c *client, cfg demoConfig) error {
+	for _, deal := range cfg.Deals {
+		orgID, ok := r.orgsByDom[strings.ToLower(deal.Company)]
+		if !ok {
+			continue
+		}
+		id, err := findDeal(c, deal.Name, orgID)
+		if err != nil {
+			return err
+		}
+		if id != "" {
+			key := strings.ToLower(deal.Company)
+			r.dealsByCompany[key] = append(r.dealsByCompany[key], id)
+		}
+	}
+	return nil
 }
 
 func findLeadBySource(c *client, ref string) (string, error) {
