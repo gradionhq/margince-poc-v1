@@ -2266,6 +2266,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activities/{id}/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Every ingress stage this message passed through, and why each did or did not run.
+         * @description The per-message half of the capture pipeline trace. Where `listMyCaptureActivity` answers
+         *     "what happened to my mail today", this answers "what happened to THIS message" — one rung
+         *     per registered stage, in the order a message meets them, each with a status and a reason
+         *     class.
+         *
+         *     A stage that did NOT run says why. That is the point of the surface: the attention
+         *     classifier reads `kind = 'email'`, so a message captured over a chat transport is never
+         *     eligible, and before this there was no way for a member to learn that.
+         *
+         *     EVERY registered stage returns a rung, including the ones this surface does not report
+         *     (`not_reported`). A ladder that silently omitted them would leave a reader unable to tell
+         *     which of the missing steps mattered, which is the defect it exists to remove.
+         *
+         *     Gated by the ACTIVITY's own row scope. Stages answered from a `capture_trace` row are
+         *     additionally the owning member's alone — a colleague reading a shared record sees those
+         *     rungs as `withheld`, keeping their place, never omitted.
+         */
+        get: operations["readActivityPipelineTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/relink": {
         parameters: {
             query?: never;
@@ -4419,6 +4457,40 @@ export interface paths {
          *     them: an admin debugging a shared channel has no business reading whose mail arrived when.
          */
         get: operations["listWorkspaceCaptureActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/traces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The same ladder, opened from a row of the capture-activity window.
+         * @description The second door onto `PipelineTrace`, keyed by a `capture_trace` row rather than by an
+         *     activity.
+         *
+         *     It exists because an internal-only drop writes NO activity row — the trace is the only
+         *     record that the message ever arrived — so the activity-keyed read cannot reach exactly the
+         *     messages a member most often comes here to ask about.
+         *
+         *     `id` is a trace row's id; the handler resolves it to the message's natural key and
+         *     assembles every rung recorded under it. Rows from the caller's own connections need no
+         *     grant. Rows from a workspace-owned binding (a Telegram bot, a Zalo OA) belong to no member
+         *     and take the `capture_trace` object. A row belonging to ANOTHER member is `404`, not `403`:
+         *     confirming it exists would disclose a colleague's mailbox traffic.
+         */
+        get: operations["readCaptureTracePipeline"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8307,6 +8379,53 @@ export interface components {
              *     is true, so a client that reads only this one still warns.
              */
             renewal_due: boolean;
+        };
+        /** @description One message's journey through the ingress pipeline, as a member reads it. Assembled from two sources: rows capture stored, and live state the pipeline's own modules already keep. Nothing here is a copy of a durable record — a copy would be a second source that can disagree with the first. */
+        PipelineTrace: {
+            /**
+             * Format: uuid
+             * @description The timeline row this message became. Null where none exists — an internal-only drop writes no activity at all — or where it moved out of the caller's row scope.
+             */
+            activity_id?: string | null;
+            /** @description The provider id that carried the message, never a display label; resolve it against `GET /channel-providers`. Empty when the trace rows have been swept. */
+            connector?: string;
+            /** @description The deployment's `capture.trace_payloads` posture. False means no rung carries `counterparty` or `subject` because the operator did not turn payload capture on — as against a rung that simply has none. */
+            payload_capture_enabled: boolean;
+            /** @description How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable`. */
+            retention_hours: number;
+            /** @description Every registered stage, ordered as a message meets them. Never a subset. */
+            stages: components["schemas"]["PipelineStageRung"][];
+        };
+        PipelineStageRung: {
+            /** @description The stage's stable key. NOT an enum: the pipeline grows, and a client that refused an unrecognised stage would hide exactly the new step nobody has explained yet. Render an unknown key from `label`. */
+            stage: string;
+            /** @description Position on the ladder. Gaps are deliberate. */
+            order: number;
+            /**
+             * @description WHAT this rung's answer is about. Required because the stages do not share a subject: the verdict is asked once per SENDER, so rendering it without saying whose would read as a claim about this one message.
+             * @enum {string}
+             */
+            subject_kind: "message" | "sender" | "domain" | "thread";
+            /**
+             * @description `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+             * @enum {string}
+             */
+            status: "done" | "skipped" | "pending" | "failed" | "not_applicable" | "withheld" | "expired" | "unknown" | "not_reported";
+            /** @description A class this installation chose, never a provider's text and never message content. Scoped by stage: the catalog key is `<stage>.<reason>`, so one code says something stage-appropriate wherever it appears. */
+            reason?: string | null;
+            /** @description Server-rendered fallback name for the stage. A client prefers its own catalog keyed on `stage`; this is what keeps a stage added by a newer server legible on an older client instead of vanishing or leaking a raw key. */
+            label?: string;
+            /** @description Server-rendered fallback sentence for `reason`, on the same contract as `label`. */
+            reason_text?: string;
+            /**
+             * Format: date-time
+             * @description When this rung happened, for the stages that know. Null rather than invented: a derived rung usually carries no timestamp of its own, and dating it from the activity would date the wrong event.
+             */
+            at?: string | null;
+            /** @description Only under the payload posture, and only from the caller's own stored rows. */
+            counterparty?: string | null;
+            /** @description Only under the payload posture, and only from the caller's own stored rows. */
+            subject?: string | null;
         };
         /**
          * @description The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
@@ -21218,6 +21337,32 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    readActivityPipelineTrace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ladder, ordered as a message meets the pipeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineTrace"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     relinkActivity: {
         parameters: {
             query?: never;
@@ -25077,6 +25222,31 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    readCaptureTracePipeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ladder, ordered as a message meets the pipeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineTrace"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listConsumerMailDomains: {

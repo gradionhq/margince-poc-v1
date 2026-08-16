@@ -3780,6 +3780,9 @@ export const vi = {
   "captureActivity.scope.workspace": "Kênh dùng chung",
   "captureActivity.scopeNote":
     "Được tính từ lúc connector chuyển tin nhắn cho CRM này. Những gì connector đã lọc ở phía nó — một biểu tượng cảm xúc, một quy tắc thư — không nằm trong đây. Bao gồm tin nhắn; việc thu thập lead không hiển thị ở đây.",
+  "captureActivity.filtered":
+    "Hiển thị {shown} trong {total} {outcome} ở khoảng thời gian này.",
+  "captureActivity.openTrace": "Xem mọi bước tin nhắn này đã đi qua",
   "captureActivity.loadMore": "Tải thêm",
   "captureActivity.empty": "không có hoạt động thu thập trong 24 giờ qua",
   "captureActivity.contentNotStored": "nội dung không được lưu",
@@ -3816,6 +3819,85 @@ export const vi = {
   "captureActivity.resolution.noise": "được xem là nhiễu",
   "captureActivity.resolution.rejected": "bị người dùng từ chối",
   "captureActivity.resolution.suppressed": "bị chặn",
+  "pipeline.title": "Tin nhắn này đã được xử lý như thế nào",
+  "pipeline.sub":
+    "Từng bước của luồng thu thập, theo đúng thứ tự tin nhắn này đi qua.",
+  "pipeline.payloadsOff":
+    "Không bước nào lưu người gửi hay tiêu đề: bản triển khai này không bật việc lưu nội dung.",
+  "pipeline.transport": "Được chuyển qua",
+  "pipeline.close": "Đóng",
+  "pipeline.unavailable": "không đọc được các bước xử lý của tin nhắn này",
+  "pipeline.status.done": "Xong",
+  "pipeline.status.skipped": "Bỏ qua",
+  "pipeline.status.pending": "Đang chờ",
+  "pipeline.status.failed": "Thất bại",
+  "pipeline.status.not_applicable": "Không áp dụng",
+  "pipeline.status.withheld": "Bạn không được xem",
+  "pipeline.status.expired": "Không còn lưu",
+  "pipeline.status.unknown": "Không rõ",
+  "pipeline.status.not_reported": "Không báo cáo ở đây",
+  "pipeline.subject.message": "về tin nhắn này",
+  "pipeline.subject.sender": "về người gửi, không riêng tin nhắn này",
+  "pipeline.subject.domain": "về tên miền của người gửi",
+  "pipeline.subject.thread": "về toàn bộ cuộc trò chuyện",
+  "pipeline.stage.connector_filter": "Lọc tại bộ kết nối",
+  "pipeline.stage.ingress_gate": "Kiểm tra tiếp nhận",
+  "pipeline.stage.erasure_check": "Kiểm tra yêu cầu xóa",
+  "pipeline.stage.internal_drop": "Kiểm tra nội bộ",
+  "pipeline.stage.activity_write": "Lưu vào dòng thời gian",
+  "pipeline.stage.tier_ladder": "Quyết định về liên hệ",
+  "pipeline.stage.person_create": "Đã tạo liên hệ",
+  "pipeline.stage.verdict": "Kết luận về người gửi",
+  "pipeline.stage.company_triage": "Kiểm tra công ty",
+  "pipeline.stage.attention_label": "Nhãn ưu tiên",
+  "pipeline.stage.material_events": "Đọc cuộc trò chuyện",
+  "pipeline.stage.claim_extraction": "Cam kết và việc còn dở",
+  "pipeline.reason.internal_only":
+    "mọi người tham gia đều thuộc tên miền của bạn",
+  "pipeline.reason.invisible_incumbent":
+    "nó khớp với một bản ghi nằm ngoài phạm vi bạn thấy",
+  "pipeline.reason.transactional_infra":
+    "người gửi là hạ tầng thư tín, không phải công ty bạn làm việc cùng",
+  "pipeline.reason.transactional_prefix":
+    "người gửi trông như hệ thống gửi tự động, không phải một người",
+  "pipeline.reason.deferral_capped":
+    "đã chạm giới hạn câu hỏi đang mở, nên sẽ không có kết luận",
+  "pipeline.reason.noise_prior":
+    "một kết luận trước đây đã xếp người gửi này là nhiễu",
+  "pipeline.reason.decided_prior": "người gửi này đã được quyết định trước đó",
+  "pipeline.reason.no_counterparty":
+    "không có người gửi nào CRM này ghi nhận được",
+  "pipeline.reason.no_granting_human":
+    "kết nối không chỉ định thành viên nào để thay mặt",
+  "pipeline.reason.derivation_failed":
+    "bước tạo liên hệ thất bại; bản thân tin nhắn không bị ảnh hưởng",
+  "pipeline.reason.not_linked_yet":
+    "chưa có liên hệ nào được gắn với tin nhắn này",
+  "pipeline.reason.no_contact_intended":
+    "quyết định về liên hệ kết luận rằng không cần tạo",
+  "pipeline.reason.awaiting_verdict": "người gửi vẫn đang chờ kết luận",
+  "pipeline.reason.verdict_reached": "đã có kết luận cho người gửi này",
+  "pipeline.reason.no_open_question":
+    "không có câu hỏi nào đang mở về người gửi này",
+  "pipeline.reason.transport_not_read":
+    "bước này chỉ đọc email, còn tin nhắn đến qua kênh khác",
+  "pipeline.reason.sender_undecided":
+    "người gửi vẫn đang chờ kết luận, nên tin nhắn bị giữ lại",
+  "pipeline.reason.archived": "tin nhắn đã được lưu trữ",
+  "pipeline.reason.not_connector_captured":
+    "tin nhắn không được thu thập bởi một bộ kết nối",
+  "pipeline.reason.awaiting_batch":
+    "nó đủ điều kiện và đang chờ đợt xử lý kế tiếp",
+  "pipeline.reason.labelled": "tin nhắn đã được gắn nhãn",
+  "pipeline.reason.not_comparable":
+    "những gì một bộ kết nối tự lọc không được tính ở đây — con số mang ý nghĩa khác nhau tùy bộ kết nối",
+  "pipeline.reason.connector_side_defect":
+    "lỗi tiếp nhận là lỗi của kết nối, không phải của một tin nhắn",
+  "pipeline.reason.would_restore_erased":
+    "báo cáo điều này sẽ khôi phục dữ liệu mà một yêu cầu xóa đã gỡ bỏ",
+  "pipeline.reason.no_writer_yet": "bước này chưa tồn tại",
+  "pipeline.reason.not_reported_yet":
+    "bước này có chạy, nhưng chưa được báo cáo ở đây",
   "settings.tab.maintenance": "Bảo trì",
   "settings.tab.license": "Giấy phép",
   "license.card.title": "Giấy phép và chỗ ngồi",

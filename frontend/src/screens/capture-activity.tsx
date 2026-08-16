@@ -18,6 +18,8 @@ import { StatStrip } from "../design-system/statstrip";
 import { SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import { CaptureActivityDrawer } from "./capture-activity-drawer";
+import { useProviderLabel } from "./channelproviders";
 import { QueryGate, throwProblem } from "./common";
 
 // Settings → Capture activity: what the pipeline did with the reader's own
@@ -45,6 +47,8 @@ const OUTCOMES = [
   "deferred",
   "fault",
 ] as const;
+
+type Outcome = (typeof OUTCOMES)[number];
 
 // The reasons this screen can render, spelled as a closed set.
 //
@@ -155,6 +159,8 @@ async function fetchWindow(
 
 function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
   const t = useT();
+  const [filter, setFilter] = useState<Outcome | null>(null);
+  const [openTrace, setOpenTrace] = useState<string | null>(null);
   // Paged, because the window is 24 hours and a busy mailbox fills more than
   // one page of it. Without this the funnel could honestly say 300 captured
   // while the list showed 50 and nothing said the rest existed.
@@ -179,13 +185,32 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
         // it comes off the first page and does not grow as more are fetched.
         const first = loaded.pages[0];
         const entries = loaded.pages.flatMap((page) => page.data);
+        const shown = filter
+          ? entries.filter((entry) => entry.outcome === filter)
+          : entries;
         return (
           <>
-            <CaptureFunnel funnel={first.funnel} />
+            <CaptureFunnel
+              funnel={first.funnel}
+              selected={filter}
+              onSelect={setFilter}
+            />
             <p className="capture-activity__scope-note">
               {t("captureActivity.scopeNote")}
             </p>
-            {entries.length === 0 ? (
+            {filter && (
+              // Both numbers, always. The funnel counts the WINDOW and this
+              // filters what is loaded, so a bare "12" under a counter reading
+              // 26 would look like the counter was wrong.
+              <p className="capture-activity__count">
+                {t("captureActivity.filtered", {
+                  shown: shown.length,
+                  total: first.funnel[filter] ?? 0,
+                  outcome: t(`captureActivity.outcome.${filter}`),
+                })}
+              </p>
+            )}
+            {shown.length === 0 ? (
               <SurfaceState
                 state="empty"
                 emptyLabel={t("captureActivity.empty")}
@@ -195,11 +220,12 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
             ) : (
               <>
                 <ul className="capture-activity__list">
-                  {entries.map((entry) => (
+                  {shown.map((entry) => (
                     <CaptureEntryRow
                       key={entry.id}
                       entry={entry}
                       payloads={first.payload_capture_enabled}
+                      onOpen={() => setOpenTrace(entry.id)}
                     />
                   ))}
                 </ul>
@@ -214,6 +240,12 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
                 )}
               </>
             )}
+            {openTrace && (
+              <CaptureActivityDrawer
+                traceId={openTrace}
+                onClose={() => setOpenTrace(null)}
+              />
+            )}
           </>
         );
       }}
@@ -221,20 +253,39 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
   );
 }
 
+// The funnel doubles as the filter, because the counters ARE the question a
+// reader arrives with: "26 waiting on a verdict — which 26?".
+//
+// It filters the rows already LOADED, not the window, so the count line beside
+// it says both numbers. A filter that silently showed 12 of 26 would be a worse
+// answer than no filter at all.
 function CaptureFunnel({
   funnel,
-}: Readonly<{ funnel: CaptureActivity["funnel"] }>) {
+  selected,
+  onSelect,
+}: Readonly<{
+  funnel: CaptureActivity["funnel"];
+  selected: Outcome | null;
+  onSelect: (outcome: Outcome | null) => void;
+}>) {
   const t = useT();
   return (
     <StatStrip testId="capture-activity-funnel">
       {OUTCOMES.map((outcome) => (
-        <StatCard
+        <button
           key={outcome}
-          label={t(`captureActivity.outcome.${outcome}`)}
-          // Zero is a reading, not an absence: "no message was dropped as
-          // internal today" is exactly what somebody comes here to confirm.
-          value={String(funnel[outcome] ?? 0)}
-        />
+          type="button"
+          className="capture-activity__funnel-slot"
+          aria-pressed={selected === outcome}
+          onClick={() => onSelect(selected === outcome ? null : outcome)}
+        >
+          <StatCard
+            label={t(`captureActivity.outcome.${outcome}`)}
+            // Zero is a reading, not an absence: "no message was dropped as
+            // internal today" is exactly what somebody comes here to confirm.
+            value={String(funnel[outcome] ?? 0)}
+          />
+        </button>
       ))}
     </StatStrip>
   );
@@ -243,21 +294,39 @@ function CaptureFunnel({
 function CaptureEntryRow({
   entry,
   payloads,
-}: Readonly<{ entry: TraceEntry; payloads: boolean }>) {
+  onOpen,
+}: Readonly<{ entry: TraceEntry; payloads: boolean; onOpen: () => void }>) {
   const { locale } = useLocale();
+  const t = useT();
+  const providerLabel = useProviderLabel();
   // The reader's own zone: a trace is read to reconcile "I sent that at 9:04"
   // against what the pipeline did, and a UTC timestamp makes them do the
   // arithmetic themselves.
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <li className="capture-activity__row" data-outcome={entry.outcome}>
-      <span className="capture-activity__when">
-        {formatDateTime(entry.occurred_at, locale, zone)}
-      </span>
-      <span className="capture-activity__connector">{entry.connector}</span>
-      <CaptureEntryOutcome entry={entry} />
-      <CaptureEntryContent entry={entry} payloads={payloads} />
-      <CaptureEntryResolution entry={entry} />
+      {/* The whole row opens the ladder. A button rather than a click handler
+          on the <li>, so it is reachable by keyboard and announces itself as
+          something that opens. */}
+      <button
+        type="button"
+        className="capture-activity__open"
+        onClick={onOpen}
+        aria-label={t("captureActivity.openTrace")}
+      >
+        <span className="capture-activity__when">
+          {formatDateTime(entry.occurred_at, locale, zone)}
+        </span>
+        {/* The provider ID resolved to a name. The contract is explicit that a
+            label is never stored — two deploys would disagree about the same
+            transport — so it is resolved here, against the registry. */}
+        <span className="capture-activity__connector">
+          {providerLabel(entry.connector)}
+        </span>
+        <CaptureEntryOutcome entry={entry} />
+        <CaptureEntryContent entry={entry} payloads={payloads} />
+        <CaptureEntryResolution entry={entry} />
+      </button>
     </li>
   );
 }

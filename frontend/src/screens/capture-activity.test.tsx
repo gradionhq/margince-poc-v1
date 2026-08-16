@@ -11,6 +11,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
@@ -44,6 +45,44 @@ function windowBody(over: Record<string, unknown> = {}) {
   };
 }
 
+// The ladder the drawer reads. Two rungs the client knows and ONE it does not,
+// because the surface's whole evolution claim is that a stage added by a newer
+// server still renders rather than vanishing.
+function ladderBody(over: Record<string, unknown> = {}) {
+  return {
+    activity_id: null,
+    connector: "gmail",
+    payload_capture_enabled: false,
+    retention_hours: 24,
+    stages: [
+      {
+        stage: "internal_drop",
+        order: 40,
+        subject_kind: "message",
+        status: "skipped",
+        reason: "internal_only",
+      },
+      {
+        stage: "attention_label",
+        order: 100,
+        subject_kind: "message",
+        status: "skipped",
+        reason: "transport_not_read",
+      },
+      {
+        stage: "a_stage_from_the_future",
+        order: 130,
+        subject_kind: "message",
+        status: "done",
+        label: "Sentiment scoring",
+        reason: "invented_reason",
+        reason_text: "the sentiment pass read it",
+      },
+    ],
+    ...over,
+  };
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -71,6 +110,21 @@ function renderTab(body: Record<string, unknown>, allow: GrantSpec = {}) {
       if (key === "GET /capture/activity") return jsonResponse(body);
       if (key === "GET /capture/activity/workspace") {
         return jsonResponse(windowBody({ data: [], funnel: {} }));
+      }
+      if (key === "GET /channel-providers") {
+        return jsonResponse({
+          data: [
+            {
+              provider: "gmail",
+              label: "Gmail",
+              credential_model: "per_member",
+              supplies_transport: true,
+            },
+          ],
+        });
+      }
+      if (key.startsWith("GET /capture/traces/")) {
+        return jsonResponse(ladderBody());
       }
       return jsonResponse({});
     }),
@@ -194,6 +248,94 @@ describe("capture activity", () => {
     renderTab(windowBody({ data: [], funnel: {} }));
     expect(
       await screen.findByText(/no capture activity in the last 24 hours/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("the pipeline drill-down", () => {
+  it("resolves a transport id to its name", async () => {
+    // The contract forbids storing a label — two deploys would disagree about
+    // the same transport — so the screen resolves it. Before this it printed
+    // `ext:dispact-connector:dispact` at a member.
+    renderTab(windowBody());
+    expect(await screen.findByText("Gmail")).toBeInTheDocument();
+    expect(screen.queryByText("gmail")).not.toBeInTheDocument();
+  });
+
+  it("says both numbers when a counter is used as a filter", async () => {
+    // The counters count the WINDOW; the filter narrows what is LOADED. A bare
+    // count under a counter reading 3 would look like the counter was wrong.
+    const user = userEvent.setup();
+    renderTab(windowBody());
+    await screen.findByText(/content not stored/i);
+    await user.click(
+      screen.getByRole("button", { name: /dropped as internal/i }),
+    );
+    expect(await screen.findByText(/showing 1 of 3/i)).toBeInTheDocument();
+  });
+
+  it("filters the rows to the outcome that was clicked", async () => {
+    const user = userEvent.setup();
+    renderTab(
+      windowBody({
+        data: [
+          ROW,
+          {
+            ...ROW,
+            id: "01930000-0000-7000-8000-00000000c002",
+            outcome: "captured",
+            reason: null,
+          },
+        ],
+      }),
+    );
+    // Settle on a row-only string: "Dropped as internal" appears in the funnel
+    // slot AND in the row, so waiting on it would be ambiguous.
+    await screen.findAllByText(/content not stored/i);
+    await user.click(screen.getByRole("button", { name: /^captured/i }));
+    const list = within(await screen.findByRole("list"));
+    expect(list.getByText("Captured")).toBeInTheDocument();
+    expect(list.queryByText("Dropped as internal")).not.toBeInTheDocument();
+  });
+
+  it("opens one message's whole path from its row", async () => {
+    const user = userEvent.setup();
+    renderTab(windowBody());
+    await user.click(
+      await screen.findByRole("button", { name: /every step this message/i }),
+    );
+    expect(
+      await screen.findByText(/how this message was handled/i),
+    ).toBeInTheDocument();
+    // The rung that motivated the whole surface: a step that DECLINED, saying
+    // why, where before there was nothing at all.
+    expect(await screen.findByText(/reads email only/i)).toBeInTheDocument();
+  });
+
+  it("renders a stage this build has never heard of", async () => {
+    // The evolution seam. A newer server adds a step; this client has no
+    // catalog entry for it and must still show it, from the server's own words
+    // — because a stage that vanished would be exactly the silence this
+    // surface exists to end.
+    const user = userEvent.setup();
+    renderTab(windowBody());
+    await user.click(
+      await screen.findByRole("button", { name: /every step this message/i }),
+    );
+    expect(await screen.findByText("Sentiment scoring")).toBeInTheDocument();
+    expect(screen.getByText(/the sentiment pass read it/i)).toBeInTheDocument();
+    // And never the raw key, which is how a missing entry shipped here once.
+    expect(screen.queryByText(/pipeline\./)).not.toBeInTheDocument();
+  });
+
+  it("says once that no step stored content, rather than per step", async () => {
+    const user = userEvent.setup();
+    renderTab(windowBody());
+    await user.click(
+      await screen.findByRole("button", { name: /every step this message/i }),
+    );
+    expect(
+      await screen.findByText(/did not turn payload capture on/i),
     ).toBeInTheDocument();
   });
 });
