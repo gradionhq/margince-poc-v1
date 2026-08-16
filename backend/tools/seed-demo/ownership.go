@@ -16,6 +16,7 @@ package main
 // the difference between a rep's view and a team lead's was invisible.
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"net/url"
@@ -179,21 +180,31 @@ func setStaffOwner(c *client, orgID, ownerID string, mode runMode) (int, error) 
 }
 
 // employeesOf lists the people the employment edges say work at a company.
+//
+// Paginated rather than capped: an employee this misses keeps whatever owner
+// they had, and a person with no owner is workspace-shared — visible at every
+// row scope. A truncated read here would quietly punch a hole in the access
+// model rather than merely miss a row.
 func employeesOf(c *client, orgID string) ([]string, error) {
-	var page struct {
-		Data []struct {
-			PersonID string `json:"person_id"`
-		} `json:"data"`
+	type edge struct {
+		PersonID string `json:"person_id"`
 	}
-	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}, "limit": {"200"}}
-	if err := c.get("/v1/relationships", query, &page); err != nil {
-		return nil, fmt.Errorf("listing employments: %w", err)
-	}
-	out := make([]string, 0, len(page.Data))
-	for _, row := range page.Data {
-		if row.PersonID != "" {
-			out = append(out, row.PersonID)
+	var out []string
+	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}}
+	err := c.getAll("/v1/relationships", query, func(raw json.RawMessage) error {
+		var rows []edge
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
 		}
+		for _, row := range rows {
+			if row.PersonID != "" {
+				out = append(out, row.PersonID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing employments: %w", err)
 	}
 	return out, nil
 }

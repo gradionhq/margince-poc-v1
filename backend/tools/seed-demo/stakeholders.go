@@ -10,6 +10,7 @@ package main
 // and 180 are not, and a rule covers the ones nobody has met yet.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -98,17 +99,23 @@ func seedStakeholders(c *client, cfg demoConfig, refs pipelineRefs, mode runMode
 
 // staffBySeniority lists a company's employees, most senior first.
 func staffBySeniority(c *client, orgID string) ([]string, error) {
-	var page struct {
-		Data []struct {
-			PersonID string `json:"person_id"`
-			Role     string `json:"role"`
-		} `json:"data"`
+	type employment struct {
+		PersonID string `json:"person_id"`
+		Role     string `json:"role"`
 	}
-	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}, "limit": {"200"}}
-	if err := c.get("/v1/relationships", query, &page); err != nil {
+	var rows []employment
+	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}}
+	err := c.getAll("/v1/relationships", query, func(raw json.RawMessage) error {
+		var page []employment
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return err
+		}
+		rows = append(rows, page...)
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("listing employments: %w", err)
 	}
-	rows := page.Data
 	// A stable sort on a stable list keeps the committee identical across
 	// runs, which is what stops a re-seed from reshuffling who the champion is.
 	for i := 1; i < len(rows); i++ {

@@ -11,6 +11,7 @@ package main
 // abandoned.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -125,6 +126,15 @@ func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, e
 // than only described.
 func seedLeads(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
 	created := 0
+	// One read for the whole phase, rather than a full lead listing per lead.
+	leadsBySource := map[string]string{}
+	if mode != modeDryRun {
+		loaded, err := loadLeadsBySource(c)
+		if err != nil {
+			return 0, err
+		}
+		leadsBySource = loaded
+	}
 	for _, lead := range cfg.Leads {
 		if mode == modeDryRun {
 			created++
@@ -151,20 +161,11 @@ func seedLeads(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 		// convergence, but the reply cannot be told apart from a create — so
 		// what is counted is whether this ref was already on file.
 		//
-		// A PROMOTED lead is the exception: promotion consumes the lead row,
-		// so the ref is gone and only the person it became remains. Finding
-		// that person is what says "this one is already done".
-		before, err := findLeadBySource(c, lead.Ref)
-		if err != nil {
-			return created, err
-		}
-		if before == "" && lead.Promote {
-			if _, found, err := findPersonByName(c, lead.FullName); err != nil {
-				return created, err
-			} else if found {
-				continue
-			}
-		}
+		// Promotion does NOT consume the lead: the contract says it marks the
+		// row `status=promoted` and archives it. So an already-promoted lead is
+		// found by its source_id like any other, as long as the lookup includes
+		// archived rows — which loadLeadsBySource does.
+		before := leadsBySource[lead.Ref]
 		var out struct {
 			ID string `json:"id"`
 		}
@@ -312,30 +313,36 @@ func employPromoted(c *client, lead demoLead, refs pipelineRefs) error {
 // loadOrganizations indexes the accounts twice: by domain, which is how the
 // dataset names them, and by id with the name a document would print.
 func (r *pipelineRefs) loadOrganizations(c *client) error {
-	var orgs struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			LegalName   string `json:"legal_name"`
-			Domains     []struct {
-				Domain string `json:"domain"`
-			} `json:"domains"`
-		} `json:"data"`
+	type orgRow struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		LegalName   string `json:"legal_name"`
+		Domains     []struct {
+			Domain string `json:"domain"`
+		} `json:"domains"`
 	}
-	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
+	err := c.getAll("/v1/organizations", nil, func(raw json.RawMessage) error {
+		var rows []orgRow
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, o := range rows {
+			// The legal name is what paper names as a party; the display name
+			// is what people call them, and only one of those belongs in a
+			// contract.
+			name := o.LegalName
+			if name == "" {
+				name = o.DisplayName
+			}
+			r.orgNameByID[o.ID] = name
+			for _, dom := range o.Domains {
+				r.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("listing organizations: %w", err)
-	}
-	for _, o := range orgs.Data {
-		// The legal name is what paper names as a party; the display name is
-		// what people call them, and only one of those belongs in a contract.
-		name := o.LegalName
-		if name == "" {
-			name = o.DisplayName
-		}
-		r.orgNameByID[o.ID] = name
-		for _, dom := range o.Domains {
-			r.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
-		}
 	}
 	return nil
 }
@@ -360,24 +367,37 @@ func (r *pipelineRefs) loadDeals(c *client, cfg demoConfig) error {
 	return nil
 }
 
-func findLeadBySource(c *client, ref string) (string, error) {
-	var page struct {
-		Data []struct {
-			ID       string `json:"id"`
-			SourceID string `json:"source_id"`
-		} `json:"data"`
+// loadLeadsBySource reads every seeded lead ONCE into a map, keyed by the
+// source_id the seeder minted.
+//
+// It replaces a per-lead search that listed all leads on every lookup, which
+// is O(leads²) over a run. It also reads the statuses that search left out:
+// a promoted or disqualified lead is still a lead the seeder created, and not
+// finding it made the run create a second one — the opposite of converging.
+// A disqualified lead is archived, so it only appears with include_archived.
+func loadLeadsBySource(c *client) (map[string]string, error) {
+	type leadRow struct {
+		ID       string `json:"id"`
+		SourceID string `json:"source_id"`
 	}
-	for _, status := range []string{"new", "working"} {
-		if err := c.get("/v1/leads", url.Values{"limit": {"200"}, "status": {status}}, &page); err != nil {
-			return "", fmt.Errorf("listing %s leads: %w", status, err)
+	bySource := map[string]string{}
+	query := url.Values{"include_archived": {"true"}}
+	err := c.getAll("/v1/leads", query, func(raw json.RawMessage) error {
+		var rows []leadRow
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
 		}
-		for _, row := range page.Data {
-			if row.SourceID == ref {
-				return row.ID, nil
+		for _, row := range rows {
+			if row.SourceID != "" {
+				bySource[row.SourceID] = row.ID
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing leads: %w", err)
 	}
-	return "", nil
+	return bySource, nil
 }
 
 func findDeal(c *client, name, orgID string) (string, error) {

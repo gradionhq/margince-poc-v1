@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -239,22 +240,26 @@ func seedFinanceLinks(ctx context.Context, conn *pgx.Conn, cfg demoConfig, orgID
 // orgIDsByDomain re-reads the seeded organizations so the finance phase can
 // map a dataset domain to the row it created.
 func orgIDsByDomain(c *client) (map[string]string, error) {
-	var page struct {
-		Data []struct {
+	out := map[string]string{}
+	err := c.getAll("/v1/organizations", nil, func(raw json.RawMessage) error {
+		var rows []struct {
 			ID      string `json:"id"`
 			Domains []struct {
 				Domain string `json:"domain"`
 			} `json:"domains"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &page); err != nil {
-		return nil, fmt.Errorf("listing organizations: %w", err)
-	}
-	out := map[string]string{}
-	for _, row := range page.Data {
-		for _, dom := range row.Domains {
-			out[strings.ToLower(dom.Domain)] = row.ID
 		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			for _, dom := range row.Domains {
+				out[strings.ToLower(dom.Domain)] = row.ID
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
 	return out, nil
 }
