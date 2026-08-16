@@ -106,12 +106,11 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.PersonKind]()
 	addr := addressColumns(spec.Address)
-	cfCols, cfHolders, cfArgs := storekit.InsertFragments(spec.Active, spec.CustomFields, 19)
-	args := []any{
+	cfCols, cfHolders, args := storekit.InsertFragments(spec.Active, spec.CustomFields, []any{
 		id, wsID, spec.FullName, spec.FirstName, spec.LastName, spec.Title, spec.OwnerID,
 		addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 		spec.Source, spec.CapturedBy, spec.Visibility, spec.Quarantined, spec.ConvertedFromLeadID,
-	}
+	})
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
 		                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
@@ -119,7 +118,7 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
 		         coalesce(NULLIF($16, ''), 'workspace'),
 		         CASE WHEN $17 THEN now() ELSE NULL END, $18`+cfHolders+`)`,
-		append(args, cfArgs...)...); err != nil {
+		args...); err != nil {
 		return ids.PersonID{}, fmt.Errorf("insert person: %w", err)
 	}
 	if err := replacePersonSocial(ctx, tx, wsID, id, spec.Social); err != nil {
@@ -232,12 +231,11 @@ func createOrganization(ctx context.Context, tx pgx.Tx, match OrganizationMatch,
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.OrganizationKind]()
 	addr := addressColumns(spec.Address)
-	cfCols, cfHolders, cfArgs := storekit.InsertFragments(spec.Active, spec.CustomFields, 21)
-	args := []any{
+	cfCols, cfHolders, args := storekit.InsertFragments(spec.Active, spec.CustomFields, []any{
 		id, wsID, spec.DisplayName, spec.LegalName, spec.Description, spec.Industry, spec.SizeBand, spec.OwnerID, spec.ParentOrgID,
 		addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 		spec.Source, spec.CapturedBy, spec.NameSource, spec.Visibility, spec.IsAnchor,
-	}
+	})
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO organization (id, workspace_id, display_name, legal_name, description, industry, size_band, owner_id, parent_org_id,
 		                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
@@ -245,7 +243,7 @@ func createOrganization(ctx context.Context, tx pgx.Tx, match OrganizationMatch,
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
 		         coalesce(NULLIF($18, ''), 'human'),
 		         coalesce(NULLIF($19, ''), 'workspace'), $20`+cfHolders+`)`,
-		append(args, cfArgs...)...); err != nil {
+		args...); err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("insert organization: %w", err)
 	}
 	if err := insertOrgDomains(ctx, tx, wsID, id, spec.Source, spec.CapturedBy, spec.Domains); err != nil {

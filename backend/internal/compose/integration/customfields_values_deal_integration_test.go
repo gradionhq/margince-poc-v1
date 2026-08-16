@@ -5,11 +5,20 @@
 
 package integration
 
-// The deal half of the custom-field VALUES coverage (CF-T05, arc 2a-ii
-// T3): the same fieldcatalog seam wired into the deals store — active
-// cf_* deal columns ride create/update writes and get/list reads like
+// The deals-store half of the custom-field VALUES coverage (CF-T05, arc
+// 2a-ii T3): the same fieldcatalog seam wired into the deals store —
+// active cf_* columns ride create/update writes and get/list reads like
 // core fields, with the same drop-on-mismatch and workspace-isolation
 // posture the person/organization suites prove.
+//
+// BOTH records this store writes are covered here, deal and project, and
+// the second one is why the pairing matters. Person, organization, lead
+// and deal each had a create-with-a-custom-field case; project had none,
+// and project was the one whose INSERT numbered its first custom
+// placeholder over its own last fixed bind — so every CreateProject
+// carrying a custom-field value failed on a bind-count mismatch, and
+// nothing said so. A record whose writer splices custom columns is not
+// covered until something creates it WITH one.
 
 import (
 	"context"
@@ -23,14 +32,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// dealCFVPerms adds the deal + pipeline grants the deal round trip needs
-// on top of the catalog-admin posture.
+// dealCFVPerms adds the grants the two round trips need on top of the
+// catalog-admin posture: deal + pipeline for the deal, and project +
+// organization for the project, which is always hung off a company.
 var dealCFVPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
 		"custom_field":          {Create: true, Read: true, Update: true, Delete: true},
 		"deal":                  {Create: true, Read: true, Update: true, Delete: true},
 		"pipeline":              {Create: true, Read: true, Update: true, Delete: true},
+		"project":               {Create: true, Read: true, Update: true, Delete: true},
+		"organization":          {Create: true, Read: true, Update: true, Delete: true},
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
@@ -112,6 +124,41 @@ func TestCustomFieldValues_DealRoundTrip(t *testing.T) {
 		t.Fatalf("ListDeals returned %d rows, want 1", len(list))
 	}
 	assertCF(t, list[0].AdditionalProperties, col, "mid-market")
+}
+
+// The project round trip, and the case the deal one above could not stand
+// in for: the two records share a store and a seam but not a statement, and
+// it was project's statement that mis-numbered its first custom placeholder.
+// Create is the assertion that matters — the write itself used to fail — and
+// the read-back is what proves the value reached its own column rather than a
+// bind that happened to accept it.
+func TestCustomFieldValues_ProjectRoundTrip(t *testing.T) {
+	f := setupDealCFV(t)
+	col := f.defineDealField(t, customfields.FieldSpec{Object: "project", Label: "Engagement Model", Type: customfields.TypeText, Source: "ui"})
+	org := f.e.SeedOrg(t, "Northwind", nil)
+
+	created, err := f.store.CreateProject(f.ctx, deals.CreateProjectInput{
+		Name: "Rollout", OrganizationID: orgIDOf(org), Source: "ui",
+		CustomFields: map[string]any{col: "retainer"},
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	assertCF(t, created.AdditionalProperties, col, "retainer")
+
+	got, err := f.store.GetProject(f.ctx, projectIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	assertCF(t, got.AdditionalProperties, col, "retainer")
+
+	updated, err := f.store.UpdateProject(f.ctx, projectIDOf(ids.UUID(created.Id)), deals.UpdateProjectInput{
+		CustomFields: map[string]any{col: "fixed-price"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProject: %v", err)
+	}
+	assertCF(t, updated.AdditionalProperties, col, "fixed-price")
 }
 
 // dealIDOf mirrors PersonIDOf/orgIDOf for the deal suites.

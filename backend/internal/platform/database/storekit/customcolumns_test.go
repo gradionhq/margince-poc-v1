@@ -68,28 +68,55 @@ func TestInsertFragments(t *testing.T) {
 		"cf_unknown": "dropped: no matching active column",
 		"cf_score":   "not-a-number", // present but wrong shape: dropped
 	}
-	cols, placeholders, args := InsertFragments(active, rawExtra, 3)
+	base := []any{"ws", "id"}
+	cols, placeholders, args := InsertFragments(active, rawExtra, base)
 	if want := `, "cf_amount", "cf_notes"`; cols != want {
 		t.Fatalf("cols = %q, want %q", cols, want)
 	}
+	// The first custom placeholder is the one AFTER the last fixed bind. A
+	// statement with two fixed binds numbers its first custom column $3 —
+	// $2 would alias the caller's own last argument, which is the shape of
+	// the CreateProject defect this signature exists to make unreachable.
 	if want := ", $3, $4"; placeholders != want {
 		t.Fatalf("placeholders = %q, want %q", placeholders, want)
 	}
-	wantArgs := []any{int64(1250), "hello"}
+	wantArgs := []any{"ws", "id", int64(1250), "hello"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("args = %v, want %v", args, wantArgs)
 	}
 }
 
+// The returned list is the caller's to hand straight to Exec, so it must not
+// share an array with the base it was built from — a base with spare capacity
+// would otherwise be written through while the caller still holds it.
+func TestInsertFragmentsLeavesTheCallersBaseArgsAlone(t *testing.T) {
+	active := []fieldcatalog.Column{col("cf_notes", fieldcatalog.TypeText)}
+	base := make([]any, 2, 8)
+	base[0], base[1] = "ws", "id"
+
+	_, _, args := InsertFragments(active, map[string]any{"cf_notes": "hello"}, base)
+
+	if len(base) != 2 || base[0] != "ws" || base[1] != "id" {
+		t.Fatalf("base was mutated: %v", base)
+	}
+	if want := []any{"ws", "id", "hello"}; !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+}
+
 func TestInsertFragments_EmptyWhenNoActiveColumnsOrNoMatches(t *testing.T) {
-	cols, placeholders, args := InsertFragments(nil, map[string]any{"cf_x": "y"}, 1)
-	if cols != "" || placeholders != "" || args != nil {
-		t.Fatalf("no active columns must yield empty fragments, got %q %q %v", cols, placeholders, args)
+	// Nothing to splice still answers the caller's own args, so the Exec that
+	// follows is written one way whether or not the workspace has custom
+	// fields — a nil here would drop every fixed bind on an install with none.
+	base := []any{"ws"}
+	cols, placeholders, args := InsertFragments(nil, map[string]any{"cf_x": "y"}, base)
+	if cols != "" || placeholders != "" || !reflect.DeepEqual(args, base) {
+		t.Fatalf("no active columns must yield empty fragments and the base args, got %q %q %v", cols, placeholders, args)
 	}
 	active := []fieldcatalog.Column{col("cf_missing", fieldcatalog.TypeText)}
-	cols, placeholders, args = InsertFragments(active, map[string]any{}, 1)
-	if cols != "" || placeholders != "" || args != nil {
-		t.Fatalf("a rawExtra with no matching key must yield empty fragments, got %q %q %v", cols, placeholders, args)
+	cols, placeholders, args = InsertFragments(active, map[string]any{}, base)
+	if cols != "" || placeholders != "" || !reflect.DeepEqual(args, base) {
+		t.Fatalf("a rawExtra with no matching key must yield empty fragments and the base args, got %q %q %v", cols, placeholders, args)
 	}
 }
 

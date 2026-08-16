@@ -66,15 +66,25 @@ func SelectSuffix(active []fieldcatalog.Column) string {
 
 // InsertFragments returns the comma-prefixed quoted-column and $N
 // placeholder fragments a literal INSERT statement splices in after its
-// fixed columns/placeholders, plus the bind args — one fragment pair per
-// active custom column present (with a type-matching value) in rawExtra.
-// nextParam is the first free bind-parameter index. A key with no
-// active-column match, or whose value shape does not match the column
-// type, is silently dropped (see the package doc's drop-on-mismatch
-// note). Empty strings when nothing matches, so the caller splices
-// unconditionally. Shared by person/organization/deal Create.
-func InsertFragments(active []fieldcatalog.Column, rawExtra map[string]any, nextParam int) (cols, placeholders string, args []any) {
+// fixed columns/placeholders, plus the complete bind-arg list — one
+// fragment pair per active custom column present (with a type-matching
+// value) in rawExtra. A key with no active-column match, or whose value
+// shape does not match the column type, is silently dropped (see the
+// package doc's drop-on-mismatch note). Empty strings when nothing
+// matches, so the caller splices unconditionally. Shared by
+// person/organization/lead/deal/project Create.
+//
+// It takes the statement's FIXED args rather than the index to number
+// from, and hands back the whole list, because the index is derivable
+// and hand-counting it is not safe. Every caller used to pass a literal
+// — 14, 17, 19, 21 — that had to equal the count of its own base binds,
+// with nothing checking the two agreed; `project` passed 11 where its
+// eleven fixed binds needed 12, so the first custom placeholder aliased
+// `captured_by` and every CreateProject carrying a custom-field value
+// failed on a bind-count mismatch. There is no number to get wrong now.
+func InsertFragments(active []fieldcatalog.Column, rawExtra map[string]any, base []any) (cols, placeholders string, args []any) {
 	var names, holders []string
+	custom := make([]any, 0, len(active))
 	for _, c := range active {
 		v, present := rawExtra[c.Name]
 		if !present {
@@ -85,12 +95,17 @@ func InsertFragments(active []fieldcatalog.Column, rawExtra map[string]any, next
 			continue
 		}
 		names = append(names, quoteColumnIdentifier(c.Name))
-		holders = append(holders, "$"+strconv.Itoa(nextParam+len(args)))
-		args = append(args, sv)
+		holders = append(holders, "$"+strconv.Itoa(len(base)+1+len(custom)))
+		custom = append(custom, sv)
 	}
 	if len(names) == 0 {
-		return "", "", nil
+		return "", "", base
 	}
+	// A fresh slice rather than append(base, ...): appending into a base
+	// with spare capacity would write through to the caller's own array,
+	// and every caller here holds that array for the Exec that follows.
+	args = make([]any, 0, len(base)+len(custom))
+	args = append(append(args, base...), custom...)
 	return ", " + strings.Join(names, ", "), ", " + strings.Join(holders, ", "), args
 }
 
