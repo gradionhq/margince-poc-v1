@@ -124,6 +124,14 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// you see it" probes cannot catch that — only asking whether the two name
 	// the same company can, which is what ensureLinksShareOrganization adds on
 	// top of the visibility gate, on create and on every patch that moves a link.
+	//
+	// That inheritance runs in the other direction too, and these entries are
+	// deliberately not where that half lives: seeing an agreement through its
+	// anchor is one question, changing one is another. Every mutating contract
+	// path goes through writableContract, which takes auth.EnsureWritable on
+	// this same anchor — so a `read` share of the deal opens the agreement and
+	// stops there (#1373). What is classified here stays the REFERENCE, which
+	// is what a foreign key is.
 	"contract.deal_id":                         "gated: auth.EnsureLinkTarget via ensureLinksVisible in createContractTx AND UpdateContract, plus ensureLinksShareOrganization (ADR-0109 §8)",
 	"contract.project_id":                      "gated: the same pair as contract.deal_id — ensureLinksVisible then ensureLinksShareOrganization, on create and on patch",
 	"lead.project_id":                          "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
