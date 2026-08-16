@@ -81,9 +81,10 @@ func (c company) displayName() string {
 	return c.Domain
 }
 
-// loadDataset reads every reviewed company, in domain order so a partial run
-// with -limit is reproducible rather than filesystem-ordered.
-func loadDataset(root string, limit int) ([]company, error) {
+// loadDataset reads the customer companies. The anchor's own read is
+// EXCLUDED: it describes the installation, and filing it as a customer too
+// would put the company in its own pipeline.
+func loadDataset(root, anchorDomain string, limit int) ([]company, error) {
 	results := filepath.Join(root, "datasets", "v1", "siteresults")
 	entries, err := os.ReadDir(results)
 	if err != nil {
@@ -100,6 +101,9 @@ func loadDataset(root string, limit int) ([]company, error) {
 
 	var out []company
 	for _, domain := range domains {
+		if domain == anchorDomain {
+			continue
+		}
 		path := filepath.Join(results, domain, "accepted.json")
 		// The dataset path is an operator-supplied flag on a developer tool,
 		// which is the whole point: the data lives in a separate private
@@ -129,6 +133,24 @@ func loadDataset(root string, limit int) ([]company, error) {
 		return nil, fmt.Errorf("no accepted companies under %s — run the dataset's accept.py first", results)
 	}
 	return out, nil
+}
+
+// loadCompany reads ONE reviewed company by domain — the anchor, whose
+// descriptive fields the installation's own company form is filled from.
+func loadCompany(root, domain string) (company, error) {
+	path := filepath.Join(root, "datasets", "v1", "siteresults", domain, "accepted.json")
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: the dataset root is a deliberate operator-supplied flag
+	if err != nil {
+		return company{}, fmt.Errorf("reading the anchor's site read at %s: %w", path, err)
+	}
+	var c company
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return company{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if c.Domain == "" {
+		c.Domain = domain
+	}
+	return c, nil
 }
 
 // splitName divides a printed name into the first/last pair the person API

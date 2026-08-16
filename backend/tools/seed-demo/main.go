@@ -44,6 +44,7 @@ func run() error {
 		email    = flag.String("email", "admin@demo.test", "account to seed as")
 		password = flag.String("password", "", "its password (or set MARGINCE_SEED_PASSWORD)")
 		limit    = flag.Int("limit", 0, "seed at most N companies (0 = all)")
+		dsn      = flag.String("dsn", "", "owner DSN for the teams and seats (or set MARGINCE_SEED_DSN); skipped when empty")
 		dryRun   = flag.Bool("dry-run", false, "report what would be created, write nothing")
 	)
 	flag.Parse()
@@ -55,7 +56,11 @@ func run() error {
 		return fmt.Errorf("no password: pass -password or set MARGINCE_SEED_PASSWORD")
 	}
 
-	companies, err := loadDataset(*dataset, *limit)
+	demo, err := loadDemoConfig(*dataset)
+	if err != nil {
+		return err
+	}
+	companies, err := loadDataset(*dataset, demo.Anchor.Domain, *limit)
 	if err != nil {
 		return err
 	}
@@ -66,5 +71,23 @@ func run() error {
 		return err
 	}
 
-	return seed(client, companies, *dryRun)
+	anchorRead, err := loadCompany(*dataset, demo.Anchor.Domain)
+	if err != nil {
+		return err
+	}
+	if err := seedAnchor(client, demo.Anchor, anchorRead, modeFor(*dryRun)); err != nil {
+		return err
+	}
+	if err := seed(client, companies, *dryRun); err != nil {
+		return err
+	}
+
+	if *dsn == "" {
+		*dsn = os.Getenv("MARGINCE_SEED_DSN")
+	}
+	if *dsn == "" {
+		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
+		return nil
+	}
+	return seedOrgWithDSN(*dsn, demo, modeFor(*dryRun))
 }
