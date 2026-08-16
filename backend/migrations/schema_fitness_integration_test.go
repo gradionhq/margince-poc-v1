@@ -104,17 +104,28 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // the map's completeness is the invariant.
 var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// Client-supplied references — visibility-gated at the store:
-	"site_read.organization_id":                "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
-	"deal.organization_id":                     "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
-	"project.organization_id":                  "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
-	"deal.partner_org_id":                      "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
-	"organization.parent_org_id":               "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
-	"activity_link.person_id":                  "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.organization_id":            "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.deal_id":                    "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.lead_id":                    "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.project_id":                 "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
-	"deal.project_id":                          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"site_read.organization_id":     "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
+	"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
+	"project.organization_id":       "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
+	"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
+	"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
+	"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.project_id":      "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
+	"deal.project_id":               "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"contract.organization_id":      "gated: auth.EnsureLinkTarget in createContractTx (H1) — the counterparty is client-supplied, so naming it is a read of it",
+	// The deal and project links carry a SECOND obligation the sibling columns
+	// above do not, and it is the reason this table's gate is not just a copy.
+	// A contract's row visibility is INHERITED from its deal (falling back to
+	// its organization), so a deal belonging to another company would publish
+	// this agreement to everyone who can see that deal. Two independent "can
+	// you see it" probes cannot catch that — only asking whether the two name
+	// the same company can, which is what ensureLinksShareOrganization adds on
+	// top of the visibility gate, on create and on every patch that moves a link.
+	"contract.deal_id":                         "gated: auth.EnsureLinkTarget via ensureLinksVisible in createContractTx AND UpdateContract, plus ensureLinksShareOrganization (ADR-0109 §8)",
+	"contract.project_id":                      "gated: the same pair as contract.deal_id — ensureLinksVisible then ensureLinksShareOrganization, on create and on patch",
 	"lead.project_id":                          "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
 	"suggestion_dismissal.organization_id":     "gated: auth.EnsureVisible in org360.Service.DismissSuggestion, inside the same transaction as the insert — dismissing advice about an account the caller cannot read would confirm it exists",
 	"org_dossier.organization_id":              "gated: the dossier is assembled only after orgdossier.Service.Get runs the caller's OWN sidecar reads, and people.ListOrganizationProfileFields opens with auth.Require + ensureOrgReadable — a company the caller cannot read has no dossier written for it, and the row is keyed on that same caller",
