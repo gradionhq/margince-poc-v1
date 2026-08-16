@@ -84,12 +84,18 @@ type Identity struct {
 	Permissions   principal.Permissions
 }
 
-// systemRoles is the seeded default role set (data-model §2.4); custom
-// roles beyond these are a code extension, not a runtime builder.
+// systemRoles is the seeded default role set (data-model §2.4, ADR-0110);
+// custom roles beyond these are a code extension, not a runtime builder.
+// The keys are wire vocabulary and diverge from the product names on
+// purpose: `manager` is the Team Lead, `rep` the Member — renaming the keys
+// would churn the contract enum, every historical migration and three
+// locales to change a string the UI already indirects through i18n.
+// Migration 0268 carries the same names to installations seeded earlier.
 var systemRoles = []struct{ key, name string }{
 	{"admin", "Admin"},
-	{"manager", "Manager"},
-	{"rep", "Rep"},
+	{"management", "Management"},
+	{"manager", "Team Lead"},
+	{"rep", "Member"},
 	{"read_only", "Read-only"},
 	{"ops", "Ops / Integrations"},
 }

@@ -112,13 +112,27 @@ var (
 // overlay→native flip executes through it), and unlike quota or
 // overlay_connection there is no per-rep read surface — the mode-flip
 // and migrate-in screens are admin surfaces.
+// managerObjects is the grid a team lead (`manager`) and the whole-organization
+// `management` seat share; only their row scope differs.
+var managerObjects = objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, crud)
+
 var defaults = map[string]Document{
 	"admin": {
 		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, writeNoDelete, crud, crud, crud, readUpdate, crud, crud, crud, readOnly, readOnly, crud),
 		RowScope: principal.RowScopeAll,
 	},
+	// management is the sales leader's seat (ADR-0110): the manager grid over
+	// EVERY row in the organization, and no admin power. Governance actions
+	// (inviting users, changing roles, editing role policy, binding another
+	// user's passport, issuing password links) key on the literal admin role,
+	// so an unbounded row scope here widens what management sees, never what
+	// it administers. The two grids are one variable so they cannot drift.
+	"management": {
+		Objects:  managerObjects,
+		RowScope: principal.RowScopeAll,
+	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, grant{Create: true, Read: true}, crud, readOnly, grant{}, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, crud),
+		Objects:  managerObjects,
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {

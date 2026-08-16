@@ -19178,7 +19178,14 @@ components:
       properties:
         email: { type: string, format: email }
         display_name: { type: string, minLength: 1, maxLength: 255 }
-        role: { type: string, enum: [admin, manager, rep, read_only, ops] }
+        role:
+          type: string
+          enum: [admin, management, manager, rep, read_only, ops]
+          description: >-
+            System role key (ADR-0110). Keys are wire vocabulary and diverge from
+            the product names on purpose — `manager` displays as "Team Lead",
+            `rep` as "Member"; `management` is the whole-organization seat that
+            holds no admin power.
 
     IssuePasswordLinkResponse:
       type: object
@@ -19203,7 +19210,7 @@ components:
       type: object
       required: [role]
       properties:
-        role: { type: string, enum: [admin, manager, rep, read_only, ops] }
+        role: { type: string, enum: [admin, management, manager, rep, read_only, ops] }
 
     DeactivateUserRequest:
       type: object

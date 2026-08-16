@@ -196,7 +196,7 @@ func TestListRolesReturnsEverySeededRoleAndRefusesANonAdmin(t *testing.T) {
 	for _, r := range rows {
 		byKey[r.Key] = r
 	}
-	for _, key := range []string{"admin", "manager", "ops", "read_only", "rep"} {
+	for _, key := range []string{"admin", "management", "manager", "ops", "read_only", "rep"} {
 		row, ok := byKey[key]
 		if !ok {
 			t.Errorf("seeded role %q is missing from the directory", key)
@@ -265,7 +265,7 @@ func TestSetRoleObjectGrantRefusesANonAdminAnUnknownRoleAndAnUnknownObject(t *te
 }
 
 // A SYSTEM role is editable, and that is the whole point: a fresh installation
-// has five seeded roles and no custom one, so refusing them would mean no role
+// has six seeded roles and no custom one, so refusing them would mean no role
 // could ever hold an extension grant. Nothing in this codebase treats a seeded
 // document as immutable — the RBAC backfill migrations write into these very
 // rows, guarding each statement so an operator's edit survives.

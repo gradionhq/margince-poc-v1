@@ -415,7 +415,14 @@ describe("UsersAdminCard", () => {
     const offered = within(screen.getByRole("listbox"))
       .getAllByRole("option")
       .map((option) => option.textContent);
-    expect(offered).toEqual(["Admin", "Manager", "Rep", "Read-only", "Ops"]);
+    expect(offered).toEqual([
+      "Admin",
+      "Management",
+      "Team Lead",
+      "Member",
+      "Read-only",
+      "Ops",
+    ]);
   });
 
   // Any choice replaces the whole set, so a member holding several roles must
@@ -450,7 +457,7 @@ describe("UsersAdminCard", () => {
     // what picking one does.
     const shown = roleShown(rowFor("Nora None"), "nora none");
     expect(shown).toMatch(/holds/i);
-    expect(shown).toContain("Manager");
+    expect(shown).toContain("Team Lead");
     expect(shown).toContain("Ops");
     expect(shown).toMatch(/replaces them all/i);
   });
@@ -463,7 +470,7 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
-    await pickOption(user, roleSelect(active, "ada active"), "Manager");
+    await pickOption(user, roleSelect(active, "ada active"), "Team Lead");
 
     await waitFor(() =>
       expect(
@@ -523,7 +530,7 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await pickOption(user, roleSelect(active, "ada active"), "Rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Member");
 
     await waitFor(() => expect(within(active).getByRole("alert")).toBeTruthy());
     expect(screen.getByText(/leave no admin/i)).toBeTruthy();
@@ -562,11 +569,11 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await pickOption(user, roleSelect(active, "ada active"), "Rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Member");
     await waitFor(() => expect(patches).toHaveLength(1));
 
     // The SAME target again — the retry the operator would make.
-    await pickOption(user, roleSelect(active, "ada active"), "Rep");
+    await pickOption(user, roleSelect(active, "ada active"), "Member");
     await waitFor(() => expect(patches).toHaveLength(2));
   });
 
@@ -617,12 +624,12 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const active = rowFor("Ada Active");
-    await pickOption(user, roleSelect(active, "ada active"), "Manager");
+    await pickOption(user, roleSelect(active, "ada active"), "Team Lead");
     await waitFor(() => expect(rosterReads).toBe(2));
 
     // Mid-flight: the row reads the role being applied and stays locked. "Admin"
     // here would be the stale cache showing through.
-    expect(roleShown(active, "ada active")).toBe("Manager");
+    expect(roleShown(active, "ada active")).toBe("Team Lead");
     expect(roleSelect(active, "ada active").disabled).toBe(true);
 
     releaseRoster();
@@ -631,7 +638,7 @@ describe("UsersAdminCard", () => {
         false,
       ),
     );
-    expect(roleShown(rowFor("Ada Active"), "ada active")).toBe("Manager");
+    expect(roleShown(rowFor("Ada Active"), "ada active")).toBe("Team Lead");
   });
 
   it("surfaces a failed invite as an inline error", async () => {

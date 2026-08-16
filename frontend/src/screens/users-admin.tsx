@@ -18,9 +18,18 @@ import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
-const ROLES: readonly Role[] = ["admin", "manager", "rep", "read_only", "ops"];
+// Wire keys, not product names: `manager` shows as Team Lead, `rep` as Member
+// (ADR-0110). The catalog carries the display names.
+const ROLES: readonly Role[] = [
+  "admin",
+  "management",
+  "manager",
+  "rep",
+  "read_only",
+  "ops",
+];
 
-// roleLabel names a held role key. The catalog covers the five system roles;
+// roleLabel names a held role key. The catalog covers the six system roles;
 // a workspace-defined key has no translation, so it reads as itself rather
 // than as a missing-translation marker — the admin still learns what is held.
 const roleLabel = (t: ReturnType<typeof useT>) => (key: string) =>

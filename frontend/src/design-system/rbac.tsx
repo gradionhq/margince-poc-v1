@@ -7,10 +7,11 @@ import { Badge } from "./atoms";
 // read on screen. Presentation ONLY — the server's admission gates are the
 // authority on what a role may do and what the wire discloses.
 
-// The five seeded system roles. A workspace-defined role key
+// The six seeded system roles (ADR-0110). A workspace-defined role key
 // outside this set renders as its raw key — honest, never invented copy.
 const ROLE_LABEL_KEYS: Record<string, MessageKey> = {
   admin: "role.admin",
+  management: "role.management",
   manager: "role.manager",
   rep: "role.rep",
   read_only: "role.readOnly",

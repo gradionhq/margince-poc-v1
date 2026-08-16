@@ -129,24 +129,7 @@ func (a *assembly) readStateStrip() error {
 			PricedCount           int                 `json:"priced_count"`
 			StalledCount          int                 `json:"stalled_count"`
 		})
-		strip.Commercial.OpenCount = in.open.OpenCount
-		strip.Commercial.StalledCount = len(in.open.Stalled)
-		strip.Commercial.PricedCount = in.open.Priced
-		// Null, not zero, when nothing could be priced: a zero would claim a
-		// pipeline that exists and is worth nothing, where the truth is that no
-		// open deal here carries a figure this page can convert (plan §4.2).
-		if in.open.Priced > 0 {
-			value := int(in.open.ValueMinorBase)
-			strip.Commercial.OpenPipelineMinorBase = &value
-			strip.Commercial.BaseCurrency = &in.open.BaseCurrency
-			strip.Commercial.ConvertedCount = in.open.Converted
-			if in.open.FXAsOf != nil {
-				strip.Commercial.FxAsOf = &openapi_types.Date{Time: *in.open.FXAsOf}
-			}
-		}
-		if in.open.NextCloseOn != nil {
-			strip.Commercial.NextCloseOn = &openapi_types.Date{Time: *in.open.NextCloseOn}
-		}
+		fillCommercialStrip(strip.Commercial, in.open)
 	}
 	if in.contracts {
 		strip.Contracts = new(struct {
@@ -181,6 +164,37 @@ func (a *assembly) readStateStrip() error {
 	}
 	a.out.StateStrip = &strip
 	return nil
+}
+
+// fillCommercialStrip writes the open-pipeline reading. Null, not zero, when
+// nothing could be priced: a zero would claim a pipeline that exists and is
+// worth nothing, where the truth is that no open deal here carries a figure
+// this page can convert (plan §4.2).
+func fillCommercialStrip(out *struct {
+	BaseCurrency          *string             `json:"base_currency,omitempty"`
+	ConvertedCount        int                 `json:"converted_count"`
+	FxAsOf                *openapi_types.Date `json:"fx_as_of,omitempty"`
+	NextCloseOn           *openapi_types.Date `json:"next_close_on,omitempty"`
+	OpenCount             int                 `json:"open_count"`
+	OpenPipelineMinorBase *int                `json:"open_pipeline_minor_base,omitempty"`
+	PricedCount           int                 `json:"priced_count"`
+	StalledCount          int                 `json:"stalled_count"`
+}, open pipeline) {
+	out.OpenCount = open.OpenCount
+	out.StalledCount = len(open.Stalled)
+	out.PricedCount = open.Priced
+	if open.Priced > 0 {
+		value := int(open.ValueMinorBase)
+		out.OpenPipelineMinorBase = &value
+		out.BaseCurrency = &open.BaseCurrency
+		out.ConvertedCount = open.Converted
+		if open.FXAsOf != nil {
+			out.FxAsOf = &openapi_types.Date{Time: *open.FXAsOf}
+		}
+	}
+	if open.NextCloseOn != nil {
+		out.NextCloseOn = &openapi_types.Date{Time: *open.NextCloseOn}
+	}
 }
 
 // readHealth decomposes the relationship into the parts a reader can act on
