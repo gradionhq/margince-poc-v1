@@ -225,13 +225,13 @@ var customFieldTypes = map[string]storekit.FieldType{
 // false for a catalog type this engine has no operators for.
 //
 // LEFT OUT rather than refused, and the difference is the blast radius. This
-// mapping runs over EVERY column of the object, so a single unmappable one
-// used to fail the whole resolution: list-create validation, membership
-// evaluation and filtered export all answered 500 for that record type,
-// whatever the filter actually named. Omitting contains the damage to the one
-// field, which is the same call `search`'s vocabulary makes next door on its
-// own stated grounds — an unasked field is a smaller failure than one that
-// answers the wrong comparison.
+// mapping runs over EVERY column of the object, so a refusal here costs the
+// whole resolution — list-create validation, membership evaluation and
+// filtered export all fail for that record type, including for filters that
+// never name the field. Omitting contains the damage to the one field, which
+// is the same call `search`'s vocabulary makes next door on its own stated
+// grounds — an unasked field is a smaller failure than one that answers the
+// wrong comparison.
 //
 // Omission does not hide anything either, because a field the vocabulary does
 // not carry is not silently dropped from a predicate: CompilePredicate refuses

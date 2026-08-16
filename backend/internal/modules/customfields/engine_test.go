@@ -6,6 +6,8 @@ package customfields
 import (
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 func TestValidate_UnsupportedObjectRejected(t *testing.T) {
@@ -306,6 +308,9 @@ func TestBuildOptionsDDL_LabelInjectionNeverReachesRawSQL(t *testing.T) {
 	}
 }
 
+// The literals, pinned against the migration's CHECK spelling — this module's
+// constants are what the DDL admits, and a typo here is a column the catalog
+// cannot write.
 func TestFieldTypes_MatchesMigrationCheckSpelling(t *testing.T) {
 	want := []string{"text", "number", "date", "currency", "picklist", "boolean"}
 	if len(FieldTypes) != len(want) {
@@ -314,6 +319,24 @@ func TestFieldTypes_MatchesMigrationCheckSpelling(t *testing.T) {
 	for i, w := range want {
 		if FieldTypes[i] != w {
 			t.Errorf("FieldTypes[%d] = %q, want %q", i, FieldTypes[i], w)
+		}
+	}
+}
+
+// This module's set and the port's are the same closed set spelled in two
+// packages — shared may not import modules, so the duplication is structural
+// and cannot be removed. What CAN be held is that they agree: every consumer
+// outside this module derives its own obligation from the port's set, so a type
+// added here and not there is a type the filter and query vocabularies will
+// never be asked about.
+func TestFieldTypes_AgreesWithThePortsClosedSet(t *testing.T) {
+	port := fieldcatalog.Types()
+	if len(port) != len(FieldTypes) {
+		t.Fatalf("fieldcatalog.Types() = %v, this module's FieldTypes = %v", port, FieldTypes)
+	}
+	for i, declared := range FieldTypes {
+		if port[i] != declared {
+			t.Errorf("index %d: port says %q, this module says %q", i, port[i], declared)
 		}
 	}
 }

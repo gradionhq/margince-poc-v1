@@ -36,6 +36,22 @@ const (
 	TypeBoolean  = "boolean"
 )
 
+// Types answers the closed set above, so a consumer that has to handle EVERY
+// field type derives that obligation instead of restating it. A gate written
+// over a hand-copied list of the six passes unchanged the day a seventh is
+// added here, which is the one moment it exists to fail.
+//
+// What such a gate protects is not uniform. Missing the segment or search
+// vocabulary costs a column its filter; missing storekit's conversion matrix
+// costs the VALUE — SQLValue and extractValue drop an unrecognised type on
+// both the write and the read.
+//
+// A fresh slice per call: the alternative is an exported package-level slice,
+// which any consumer can reorder or overwrite for every other consumer.
+func Types() []string {
+	return []string{TypeText, TypeNumber, TypeDate, TypeCurrency, TypePicklist, TypeBoolean}
+}
+
 // Column is one custom-field column for a (workspace, object) pair,
 // identified by its physical column name and its closed field type (one
 // of the Type* constants above). Whether a given Column is active,

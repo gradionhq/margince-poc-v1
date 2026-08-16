@@ -191,17 +191,16 @@ func TestNoCoreFieldNameCanBeACustomColumnName(t *testing.T) {
 	}
 }
 
-// Derived from the port's closed set, not from this file's own map: a seventh
-// catalog type fails here rather than shipping as a column nobody can filter
-// on. Mapping alone is not enough — a type that resolved to a FieldType the
+// Derived from the port's own closed set, never a copy of it: a list restated
+// here would pass unchanged the day a seventh type is added to fieldcatalog,
+// which is the one moment this test exists to fail.
+//
+// Mapping alone is not enough either — a type that resolved to a FieldType the
 // predicate engine admits no operator for would sit in the vocabulary and
 // refuse every filter written against it — so each mapping is compiled, with
 // `exists`, the one operator every type in the matrix carries.
 func TestEveryCustomFieldTypeIsFilterable(t *testing.T) {
-	for _, declared := range []string{
-		fieldcatalog.TypeText, fieldcatalog.TypeNumber, fieldcatalog.TypeDate,
-		fieldcatalog.TypeCurrency, fieldcatalog.TypePicklist, fieldcatalog.TypeBoolean,
-	} {
+	for _, declared := range fieldcatalog.Types() {
 		field, ok := customField(fieldcatalog.Column{Name: "cf_probe", Type: declared})
 		if !ok {
 			t.Errorf("custom-field type %q has no filter type, so a column of that type is unfilterable", declared)
@@ -219,10 +218,10 @@ func TestEveryCustomFieldTypeIsFilterable(t *testing.T) {
 }
 
 // The whole point of omitting rather than failing: one column this engine has
-// no operators for must cost that column its filter and nothing else. Failing
-// cost the entire resolution, so list validation, membership evaluation and
-// filtered export all answered 500 for the record type — including for lists
-// that never named the field.
+// no operators for costs that column its filter and nothing else. A refusal
+// costs the entire resolution instead — list validation, membership evaluation
+// and filtered export all fail for the record type, including for lists that
+// never name the field.
 func TestAnUnmappableCustomColumnCostsOnlyItself(t *testing.T) {
 	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
 		"person": {
