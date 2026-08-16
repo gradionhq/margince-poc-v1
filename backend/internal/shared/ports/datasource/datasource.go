@@ -189,9 +189,15 @@ type AdvanceDealInput struct {
 	// LostReason is required when the target stage's semantic is lost
 	// (deal_lost_reason); ignored otherwise.
 	LostReason *string
-	Source     string
-	CapturedBy string
-	IfVersion  *int64
+	// WonWithoutContractReason says why a win has no agreement behind it
+	// (ADR-0109 §6). Without it on this seam an assistant could not answer the
+	// win gate at all — the rule would refuse every agent-driven close of a
+	// deal that legitimately has no paper.
+	WonWithoutContractReason *string
+	WonWithoutContractDetail *string
+	Source                   string
+	CapturedBy               string
+	IfVersion                *int64
 }
 
 // MergeInput folds SourceID into TargetID (the survivor). Type is person

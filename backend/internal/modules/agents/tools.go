@@ -362,10 +362,12 @@ func (t logActivity) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 // --- advance_deal (🟢→🟡 TierDynamic) ---
 
 type advanceDealArgs struct {
-	DealID     ids.UUID `json:"deal_id"`
-	ToStageID  ids.UUID `json:"to_stage_id"`
-	LostReason *string  `json:"lost_reason"`
-	IfVersion  *int64   `json:"if_version"`
+	DealID                   ids.UUID `json:"deal_id"`
+	ToStageID                ids.UUID `json:"to_stage_id"`
+	LostReason               *string  `json:"lost_reason"`
+	WonWithoutContractReason *string  `json:"won_without_contract_reason"`
+	WonWithoutContractDetail *string  `json:"won_without_contract_detail"`
+	IfVersion                *int64   `json:"if_version"`
 }
 
 type advanceDeal struct {
@@ -384,7 +386,7 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","required":["deal_id","to_stage_id"],"properties":{
 			"deal_id":{"type":"string","format":"uuid"},
 			"to_stage_id":{"type":"string","format":"uuid"` + stageIDNote + `},
-			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},
+			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},"won_without_contract_reason":{"type":"string","enum":["imported","purchase_order","verbal","renewal_by_email","other"],"description":"Why this win has no contract behind it. Omit when the deal has a signed contract with its paper attached; a win claiming neither is refused."},"won_without_contract_detail":{"type":"string","description":"What the reason was, required when it is other"},
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
 			"additionalProperties":false}`),
@@ -430,11 +432,13 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		return nil, err
 	}
 	ref, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
-		DealID:     args.DealID,
-		ToStageID:  args.ToStageID,
-		LostReason: args.LostReason,
-		Source:     toolSource,
-		IfVersion:  pin,
+		WonWithoutContractReason: args.WonWithoutContractReason,
+		WonWithoutContractDetail: args.WonWithoutContractDetail,
+		DealID:                   args.DealID,
+		ToStageID:                args.ToStageID,
+		LostReason:               args.LostReason,
+		Source:                   toolSource,
+		IfVersion:                pin,
 	})
 	if err != nil {
 		return nil, err

@@ -175,6 +175,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 
 const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
 	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
+	won_without_contract_reason, won_without_contract_detail,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
@@ -206,9 +207,11 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var closeDateProvisional bool
 	var version int64
 
+	var wonReason *string
 	dests := []any{
 		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
 		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
+		&wonReason, &d.WonWithoutContractDetail,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,
 	}
@@ -222,6 +225,10 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	if forecastCat != nil {
 		cat := crmcontracts.DealForecastCategory(*forecastCat)
 		d.ForecastCategory = &cat
+	}
+	if wonReason != nil {
+		reason := crmcontracts.DealWonWithoutContractReason(*wonReason)
+		d.WonWithoutContractReason = &reason
 	}
 
 	d.Id = openapi_types.UUID(id)

@@ -73,11 +73,17 @@ func advanceDealInput(req crmcontracts.AdvanceDealRequest, ifVersion *int64) (Ad
 	if err := requireBodyID("to_stage_id", req.ToStageId); err != nil {
 		return AdvanceDealInput{}, err
 	}
-	return AdvanceDealInput{
-		ToStageID:  pathID[ids.StageKind](req.ToStageId),
-		LostReason: req.LostReason,
-		IfVersion:  ifVersion,
-	}, nil
+	in := AdvanceDealInput{
+		ToStageID:                pathID[ids.StageKind](req.ToStageId),
+		LostReason:               req.LostReason,
+		IfVersion:                ifVersion,
+		WonWithoutContractDetail: req.WonWithoutContractDetail,
+	}
+	if req.WonWithoutContractReason != nil {
+		reason := string(*req.WonWithoutContractReason)
+		in.WonWithoutContractReason = &reason
+	}
+	return in, nil
 }
 
 // stageCreateInput maps the create-stage body onto the store input. A stage
