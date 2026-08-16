@@ -845,6 +845,31 @@ says which file it could not read rather than answering about a document the
 model never saw. An `ollama` binding takes inline bytes only, and `anthropic`
 takes inline bytes or an `http(s)` URL it fetches itself.
 
+**What carrying a document does and does not guarantee.** Two things are worth
+knowing before you enable an attachment lane, because both run the other way
+from what a reader tends to assume:
+
+- **Which lane a file takes was decided at ingress, and carriage is not a content
+  check.** The AI lane reads the content type the file is stored with and adds no
+  second authority of its own. What that type means depends on how the file
+  arrived: a **captured** attachment carries the type *sniffed from its bytes*,
+  with a disagreeing sender claim recorded rather than obeyed — so an external
+  counterparty influences the lane only through the bytes they actually sent — while
+  a file **uploaded through the API** carries its uploader's declared type,
+  unsniffed. Either way `image/*` matches by prefix, and `input: [image]` says
+  what Margince will *carry*; it never says what the bytes *are*.
+- **The secret stripper does not reach inside an attachment.** It runs over the
+  outbound payload — the right place, and unbypassable — but an attachment rides
+  that payload **base64-encoded**, and the rules match a secret's literal text. A
+  credential inside an attached file is not there in that form for them to find,
+  while the same file arriving as text is scrubbed.
+
+The second is defensible where it stands — the alternative is decoding and
+re-encoding every attachment on every call — but it is the scope, not an
+oversight. If a deployment needs more than this for a given lane, the answer is
+the location ladder (`profile:`) or narrowing that tier with `input:`, not the
+stripper.
+
 #### `input:` — what the bound model can be given
 
 A chat tier may declare the input modalities its model accepts:
