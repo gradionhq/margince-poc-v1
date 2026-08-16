@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -172,8 +173,18 @@ func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
 // registry. Every adapter that takes a URI has to answer this — openai to pick
 // file_url over file_id, anthropic to decide whether it can send the part at
 // all — so the two answer it the same way.
+//
+// Parsed rather than prefix-matched, because both mistakes a prefix makes are
+// silent: a bare "https://" has no host to fetch and would go out as a URL, and
+// a scheme in capitals — which URLs are case-insensitive in — would be handed to
+// a file registry as if it were a handle.
 func isFetchableURL(uri string) bool {
-	return strings.HasPrefix(uri, "https://") || strings.HasPrefix(uri, "http://")
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	return (scheme == "https" || scheme == "http") && parsed.Host != ""
 }
 
 func (c *openAICompatClient) Caps() model.Capabilities {

@@ -4,8 +4,10 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -36,13 +38,47 @@ func TestAnthropicTextOnlyTurnsMarshalToBareStrings(t *testing.T) {
 	}
 }
 
-// The system prompt is Anthropic's own top-level field, so it must NOT appear as
-// a leading turn the way it does on the Ollama and OpenAI-compatible shapes —
-// sending it twice would put the instructions in the conversation as well.
-func TestAnthropicMessagesCarryNoSystemTurn(t *testing.T) {
-	msgs := anthropicMessages([]model.Message{{Role: roleUser, Content: "hello"}}, nil)
-	if len(msgs) != 1 || msgs[0].Role != roleUser {
-		t.Fatalf("want the conversation alone, got %+v", msgs)
+// The system prompt is Anthropic's own top-level field, so it must NOT also
+// appear as a leading turn the way it does on the Ollama and OpenAI-compatible
+// shapes — sending it twice would put the instructions in the conversation.
+//
+// Asserted on the assembled WIRE rather than on anthropicMessages, which is
+// never handed the system prompt at all and so would agree with itself.
+func TestAnthropicSendsTheSystemPromptAsItsOwnFieldNotATurn(t *testing.T) {
+	var sent []byte
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		sent = readBody(t, r.Body)
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "ok"}},
+		}); err != nil {
+			t.Errorf("encoding fixture response: %v", err)
+		}
+	})
+	if _, err := client.Complete(context.Background(), model.Request{
+		System:   "be brief",
+		Messages: []model.Message{{Role: roleUser, Content: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		System   string `json:"system"`
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(sent, &wire); err != nil {
+		t.Fatalf("wire not JSON: %v (%s)", err, sent)
+	}
+	if wire.System != "be brief" {
+		t.Errorf("the system prompt must ride the top-level field, got %q", wire.System)
+	}
+	for _, m := range wire.Messages {
+		if m.Role == roleSystem {
+			t.Fatalf("the conversation must carry no system turn: %s", sent)
+		}
+	}
+	if len(wire.Messages) != 1 {
+		t.Errorf("want the one user turn, got %d messages: %s", len(wire.Messages), sent)
 	}
 }
 
@@ -127,5 +163,25 @@ func TestAnthropicRefusesAnAttachmentURIItCannotResolve(t *testing.T) {
 		{MIME: "image/png", URI: "https://files.example/a.png"},
 	}); err != nil {
 		t.Errorf("an https url is fetchable and must be carried, got %v", err)
+	}
+}
+
+// Both halves of "is this a URL the vendor fetches" are decided here, and both
+// mistakes a prefix test makes are silent: a scheme with no host would go out as
+// a URL nothing can fetch, and a capitalized scheme — which URLs are
+// case-insensitive in — would be taken for a file handle.
+func TestAFetchableURLIsParsedNotPrefixMatched(t *testing.T) {
+	for uri, want := range map[string]bool{
+		"https://files.example/a.png": true,
+		"http://files.example/a.png":  true,
+		"HTTPS://files.example/a.png": true,
+		"https://":                    false,
+		"file-abc123":                 false,
+		"s3://bucket/key":             false,
+		"":                            false,
+	} {
+		if got := isFetchableURL(uri); got != want {
+			t.Errorf("isFetchableURL(%q) = %v, want %v", uri, got, want)
+		}
 	}
 }

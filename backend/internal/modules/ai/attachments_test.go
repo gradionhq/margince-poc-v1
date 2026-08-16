@@ -17,11 +17,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+// writeFixture writes a canned provider response, failing the test when the
+// write itself fails. A discarded Write turns a broken transport into a decode
+// error raised by the code under test, which is the wrong thing to read.
+func writeFixture(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Errorf("writing the fixture response: %v", err)
+	}
+}
+
 func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k") // openai_compatible reads its key from env
 	t.Setenv("ANTHROPIC_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+		writeFixture(t, w, `{"choices":[{"message":{"content":"ok"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -79,10 +89,10 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 		// serialization bug in the code under test.
 		sent, readErr = io.ReadAll(r.Body)
 		if strings.HasPrefix(r.URL.Path, "/v1/messages") {
-			_, _ = w.Write([]byte(`{"model":"m","content":[{"type":"text","text":"ok"}]}`))
+			writeFixture(t, w, `{"model":"m","content":[{"type":"text","text":"ok"}]}`)
 			return
 		}
-		_, _ = w.Write([]byte(`{"model":"m","message":{"content":"ok"},"done":true}`))
+		writeFixture(t, w, `{"model":"m","message":{"content":"ok"},"done":true}`)
 	}))
 	defer srv.Close()
 
@@ -164,7 +174,7 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 		// would otherwise surface as an unmarshal error below and read as a
 		// serialization bug in the code under test.
 		sent, readErr = io.ReadAll(r.Body)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+		writeFixture(t, w, `{"choices":[{"message":{"content":"ok"}}]}`)
 	}))
 	defer srv.Close()
 
@@ -256,7 +266,7 @@ func TestDeclaredCarriageIsWhatCapsAdvertises(t *testing.T) {
 func TestAttachmentBytesXorURIEnforced(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		writeFixture(t, w, `{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}))
 	defer srv.Close()
 	client, err := SelectBrain(ProviderConfig{Provider: "openai", BaseURL: srv.URL, Model: "m"})
@@ -285,10 +295,10 @@ func TestNativeCloudProvidersCarryPDFAttachments(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, ":generateContent") {
-			_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
+			writeFixture(t, w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)
 			return
 		}
-		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		writeFixture(t, w, `{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}))
 	defer srv.Close()
 
