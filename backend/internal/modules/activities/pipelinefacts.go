@@ -23,8 +23,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ClassifyBacklogPredicate is what makes an activity eligible for the batched
@@ -73,11 +75,15 @@ type PipelineFacts struct {
 
 // ReadPipelineFacts answers the derived rungs for one activity.
 //
-// It takes no authority of its own: the caller has already passed the activity's
-// row scope to be looking at it, and every field here is ordinary
-// workspace-scoped product state — no field carries the per-member axis the
-// trace rows do.
+// It takes the SAME object gate GetActivity takes, rather than trusting the
+// caller to have taken it. The compose assembler does take it first, and that is
+// still not sufficient: a guard the caller supplies is a guard the next caller
+// can forget, and this returns facts ABOUT a message — whether a contact was
+// made from it, what the classifier concluded — which is a read like any other.
 func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFacts, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return PipelineFacts{}, err
+	}
 	var out PipelineFacts
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var label *string

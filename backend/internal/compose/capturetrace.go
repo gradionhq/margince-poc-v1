@@ -14,6 +14,8 @@ package compose
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/pipelinetrace"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 )
 
@@ -25,7 +27,18 @@ import (
 // payload_capture_enabled, and for the same reason.
 func WithCaptureTrace(tracePayloads bool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.traceHandlers = capture.NewTraceHandlers(
-			capture.NewTraceStore(InstallationDB(pool)), tracePayloads)
+		traces := capture.NewTraceStore(InstallationDB(pool))
+		s.traceHandlers = capture.NewTraceHandlers(traces, tracePayloads)
+		// The per-message ladder is composed HERE rather than in its own Option
+		// because it answers the same question as the window above it, from the
+		// same rows and the same posture. Two options would let a deployment
+		// wire the list without the drawer it opens — a row a member can click
+		// and nothing behind it.
+		//
+		// It is the cross-module edge: capture holds the stored rungs and
+		// activities holds the label and the person link, and neither may
+		// import the other, so compose injects both.
+		s.pipelineTraceHandlers = pipelinetrace.NewHandlers(pipelinetrace.NewAssembler(
+			traces, activities.NewStore(InstallationDB(pool)), tracePayloads))
 	}
 }

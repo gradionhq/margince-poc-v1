@@ -6816,6 +6816,69 @@ func (e PersonResearchRunState) Valid() bool {
 	}
 }
 
+// Defines values for PipelineStageRungStatus.
+const (
+	PipelineStageRungStatusDone          PipelineStageRungStatus = "done"
+	PipelineStageRungStatusExpired       PipelineStageRungStatus = "expired"
+	PipelineStageRungStatusFailed        PipelineStageRungStatus = "failed"
+	PipelineStageRungStatusNotApplicable PipelineStageRungStatus = "not_applicable"
+	PipelineStageRungStatusNotReported   PipelineStageRungStatus = "not_reported"
+	PipelineStageRungStatusPending       PipelineStageRungStatus = "pending"
+	PipelineStageRungStatusSkipped       PipelineStageRungStatus = "skipped"
+	PipelineStageRungStatusUnknown       PipelineStageRungStatus = "unknown"
+	PipelineStageRungStatusWithheld      PipelineStageRungStatus = "withheld"
+)
+
+// Valid indicates whether the value is a known member of the PipelineStageRungStatus enum.
+func (e PipelineStageRungStatus) Valid() bool {
+	switch e {
+	case PipelineStageRungStatusDone:
+		return true
+	case PipelineStageRungStatusExpired:
+		return true
+	case PipelineStageRungStatusFailed:
+		return true
+	case PipelineStageRungStatusNotApplicable:
+		return true
+	case PipelineStageRungStatusNotReported:
+		return true
+	case PipelineStageRungStatusPending:
+		return true
+	case PipelineStageRungStatusSkipped:
+		return true
+	case PipelineStageRungStatusUnknown:
+		return true
+	case PipelineStageRungStatusWithheld:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PipelineStageRungSubjectKind.
+const (
+	PipelineStageRungSubjectKindDomain  PipelineStageRungSubjectKind = "domain"
+	PipelineStageRungSubjectKindMessage PipelineStageRungSubjectKind = "message"
+	PipelineStageRungSubjectKindSender  PipelineStageRungSubjectKind = "sender"
+	PipelineStageRungSubjectKindThread  PipelineStageRungSubjectKind = "thread"
+)
+
+// Valid indicates whether the value is a known member of the PipelineStageRungSubjectKind enum.
+func (e PipelineStageRungSubjectKind) Valid() bool {
+	switch e {
+	case PipelineStageRungSubjectKindDomain:
+		return true
+	case PipelineStageRungSubjectKindMessage:
+		return true
+	case PipelineStageRungSubjectKindSender:
+		return true
+	case PipelineStageRungSubjectKindThread:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PreferenceCenterPurposesState.
 const (
 	PreferenceCenterPurposesStateGranted   PreferenceCenterPurposesState = "granted"
@@ -10226,16 +10289,16 @@ func (e ListProjectsParamsPhase) Valid() bool {
 
 // Defines values for UpdatePreferencesJSONBodyChoicesState.
 const (
-	Granted   UpdatePreferencesJSONBodyChoicesState = "granted"
-	Withdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
+	UpdatePreferencesJSONBodyChoicesStateGranted   UpdatePreferencesJSONBodyChoicesState = "granted"
+	UpdatePreferencesJSONBodyChoicesStateWithdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
 )
 
 // Valid indicates whether the value is a known member of the UpdatePreferencesJSONBodyChoicesState enum.
 func (e UpdatePreferencesJSONBodyChoicesState) Valid() bool {
 	switch e {
-	case Granted:
+	case UpdatePreferencesJSONBodyChoicesStateGranted:
 		return true
-	case Withdrawn:
+	case UpdatePreferencesJSONBodyChoicesStateWithdrawn:
 		return true
 	default:
 		return false
@@ -17718,6 +17781,63 @@ type Pipeline struct {
 type PipelineListResponse struct {
 	Data []Pipeline `json:"data"`
 	Page PageInfo   `json:"page"`
+}
+
+// PipelineStageRung defines model for PipelineStageRung.
+type PipelineStageRung struct {
+	// At When this rung happened, for the stages that know. Null rather than invented: a derived rung usually carries no timestamp of its own, and dating it from the activity would date the wrong event.
+	At *time.Time `json:"at,omitempty"`
+
+	// Counterparty Only under the payload posture, and only from the caller's own stored rows.
+	Counterparty *string `json:"counterparty,omitempty"`
+
+	// Label Server-rendered fallback name for the stage. A client prefers its own catalog keyed on `stage`; this is what keeps a stage added by a newer server legible on an older client instead of vanishing or leaking a raw key.
+	Label *string `json:"label,omitempty"`
+
+	// Order Position on the ladder. Gaps are deliberate.
+	Order int `json:"order"`
+
+	// Reason A class this installation chose, never a provider's text and never message content. Scoped by stage: the catalog key is `<stage>.<reason>`, so one code says something stage-appropriate wherever it appears.
+	Reason *string `json:"reason,omitempty"`
+
+	// ReasonText Server-rendered fallback sentence for `reason`, on the same contract as `label`.
+	ReasonText *string `json:"reason_text,omitempty"`
+
+	// Stage The stage's stable key. NOT an enum: the pipeline grows, and a client that refused an unrecognised stage would hide exactly the new step nobody has explained yet. Render an unknown key from `label`.
+	Stage string `json:"stage"`
+
+	// Status `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+	Status PipelineStageRungStatus `json:"status"`
+
+	// Subject Only under the payload posture, and only from the caller's own stored rows.
+	Subject *string `json:"subject,omitempty"`
+
+	// SubjectKind WHAT this rung's answer is about. Required because the stages do not share a subject: the verdict is asked once per SENDER, so rendering it without saying whose would read as a claim about this one message.
+	SubjectKind PipelineStageRungSubjectKind `json:"subject_kind"`
+}
+
+// PipelineStageRungStatus `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+type PipelineStageRungStatus string
+
+// PipelineStageRungSubjectKind WHAT this rung's answer is about. Required because the stages do not share a subject: the verdict is asked once per SENDER, so rendering it without saying whose would read as a claim about this one message.
+type PipelineStageRungSubjectKind string
+
+// PipelineTrace One message's journey through the ingress pipeline, as a member reads it. Assembled from two sources: rows capture stored, and live state the pipeline's own modules already keep. Nothing here is a copy of a durable record — a copy would be a second source that can disagree with the first.
+type PipelineTrace struct {
+	// ActivityId The timeline row this message became. Null where none exists — an internal-only drop writes no activity at all — or where it moved out of the caller's row scope.
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+	// Connector The provider id that carried the message, never a display label; resolve it against `GET /channel-providers`. Empty when the trace rows have been swept.
+	Connector *string `json:"connector,omitempty"`
+
+	// PayloadCaptureEnabled The deployment's `capture.trace_payloads` posture. False means no rung carries `counterparty` or `subject` because the operator did not turn payload capture on — as against a rung that simply has none.
+	PayloadCaptureEnabled bool `json:"payload_capture_enabled"`
+
+	// RetentionHours How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable`.
+	RetentionHours int `json:"retention_hours"`
+
+	// Stages Every registered stage, ordered as a message meets them. Never a subset.
+	Stages []PipelineStageRung `json:"stages"`
 }
 
 // PreferenceCenter The buyer-facing preference center's per-purpose view (B-E11.32): each tracked consent purpose
@@ -29917,6 +30037,9 @@ type ServerInterface interface {
 	// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
 	// (GET /activities/{id}/meeting-brief)
 	GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// Every ingress stage this message passed through, and why each did or did not run.
+	// (GET /activities/{id}/pipeline)
+	ReadActivityPipelineTrace(w http.ResponseWriter, r *http.Request, id Id)
 	// Re-associate a captured activity to a chosen deal/entity (idempotent, source-preserving).
 	// (POST /activities/{id}/relink)
 	RelinkActivity(w http.ResponseWriter, r *http.Request, id Id, params RelinkActivityParams)
@@ -30118,6 +30241,9 @@ type ServerInterface interface {
 	// Update the workspace's capture settings (admin/ops).
 	// (PATCH /capture/settings)
 	UpdateCaptureSettings(w http.ResponseWriter, r *http.Request)
+	// The same ladder, opened from a row of the capture-activity window.
+	// (GET /capture/traces/{id})
+	ReadCaptureTracePipeline(w http.ResponseWriter, r *http.Request, id Id)
 	// List the workspace's messaging-channel connections.
 	// (GET /channel-connections)
 	ListChannelConnections(w http.ResponseWriter, r *http.Request)
@@ -31102,6 +31228,12 @@ func (_ Unimplemented) GetMeetingBrief(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Every ingress stage this message passed through, and why each did or did not run.
+// (GET /activities/{id}/pipeline)
+func (_ Unimplemented) ReadActivityPipelineTrace(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Re-associate a captured activity to a chosen deal/entity (idempotent, source-preserving).
 // (POST /activities/{id}/relink)
 func (_ Unimplemented) RelinkActivity(w http.ResponseWriter, r *http.Request, id Id, params RelinkActivityParams) {
@@ -31501,6 +31633,12 @@ func (_ Unimplemented) GetCaptureSettings(w http.ResponseWriter, r *http.Request
 // Update the workspace's capture settings (admin/ops).
 // (PATCH /capture/settings)
 func (_ Unimplemented) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The same ladder, opened from a row of the capture-activity window.
+// (GET /capture/traces/{id})
+func (_ Unimplemented) ReadCaptureTracePipeline(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -33807,6 +33945,38 @@ func (siw *ServerInterfaceWrapper) GetMeetingBrief(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMeetingBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadActivityPipelineTrace operation middleware
+func (siw *ServerInterfaceWrapper) ReadActivityPipelineTrace(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadActivityPipelineTrace(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -36303,6 +36473,38 @@ func (siw *ServerInterfaceWrapper) UpdateCaptureSettings(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCaptureSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadCaptureTracePipeline operation middleware
+func (siw *ServerInterfaceWrapper) ReadCaptureTracePipeline(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadCaptureTracePipeline(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51010,6 +51212,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/activities/{id}/meeting-brief", wrapper.GetMeetingBrief)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/activities/{id}/pipeline", wrapper.ReadActivityPipelineTrace)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/relink", wrapper.RelinkActivity)
 	})
 	r.Group(func(r chi.Router) {
@@ -51209,6 +51414,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/capture/settings", wrapper.UpdateCaptureSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/traces/{id}", wrapper.ReadCaptureTracePipeline)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/channel-connections", wrapper.ListChannelConnections)

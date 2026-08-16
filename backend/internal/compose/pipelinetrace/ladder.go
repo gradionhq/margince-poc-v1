@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -41,7 +42,7 @@ type Rung struct {
 	// At is when this rung happened, for the stages that know. A derived rung
 	// usually does not: the label carries no timestamp of its own that this read
 	// can see, and inventing one from the activity would date the wrong event.
-	At *string
+	At *time.Time
 
 	// Counterparty and Subject are populated only under the deployment's payload
 	// posture, and only from the caller's OWN stored rows.

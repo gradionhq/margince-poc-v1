@@ -246,7 +246,7 @@ func findResolution(stored capture.TraceLadder) *capture.TraceResolution {
 	return nil
 }
 
-func stamp(t time.Time) *string {
-	s := t.UTC().Format(time.RFC3339)
-	return &s
+func stamp(t time.Time) *time.Time {
+	utc := t.UTC()
+	return &utc
 }
