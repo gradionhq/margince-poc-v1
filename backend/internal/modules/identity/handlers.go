@@ -59,6 +59,13 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+	// changeFailures caps wrong-current-password attempts per account.
+	// /auth/change-password verifies the SAME secret the login path does, so
+	// leaving it uncapped would put an unthrottled guessing oracle behind any
+	// borrowed session — the login route's own cap exists for exactly that
+	// secret. Keyed by user id rather than IP: the account is what is being
+	// guessed at, and a caller who already holds a session can change IP.
+	changeFailures *ratelimit.Limiter // 10 failures/min per user
 
 	// Issuing a set-password link is authenticated and admin-only, so these
 	// two are not anti-anonymous-abuse throttles like the pair above — they
@@ -115,6 +122,7 @@ func NewHandlers(svc *Service) Handlers {
 		loginPerIP:            ratelimit.New(30, time.Minute),
 		resetPerEmail:         ratelimit.New(3, time.Hour),
 		resetPerIP:            ratelimit.New(30, time.Hour),
+		changeFailures:        ratelimit.New(10, time.Minute),
 		passwordLinkPerActor:  ratelimit.New(20, time.Hour),
 		passwordLinkPerTarget: ratelimit.New(5, time.Hour),
 	}
@@ -131,7 +139,7 @@ func NewHandlers(svc *Service) Handlers {
 // is a reset handler whose panic would reach an operator as an opaque 500 on a
 // wipe that had otherwise finished.
 func (h *Handlers) ResetRateLimits() {
-	for _, bucket := range []*ratelimit.Limiter{h.loginFailures, h.loginPerIP, h.resetPerEmail, h.resetPerIP} {
+	for _, bucket := range []*ratelimit.Limiter{h.loginFailures, h.loginPerIP, h.resetPerEmail, h.resetPerIP, h.changeFailures} {
 		if bucket != nil {
 			bucket.Reset()
 		}
@@ -331,7 +339,7 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 	// (A62/ADR-0047): a read seat may read but never mutate over REST,
 	// whatever its role grants. Method-based — the contract has no
 	// mutating GET.
-	if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
+	if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) && !isOwnCredentialRequest(r) {
 		httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
 		return
 	}

@@ -124,6 +124,24 @@ const (
 	maxPasswordLen = 256
 )
 
+// passwordLengthError is the ONE spelling of the 12–256 rule for every Go
+// caller that accepts a password. Counted in RUNES: a four-emoji password is
+// sixteen bytes and would clear a byte floor of twelve while being a quarter of
+// the length the floor intends.
+//
+// It returns the field-shaped refusal the surfaces render, so a caller does not
+// restate the numbers in prose that can drift from the check.
+func passwordLengthError(field, pw string) error {
+	if n := utf8.RuneCountInString(pw); n < minPasswordLen || n > maxPasswordLen {
+		return &values.ParseError{
+			Field:   field,
+			Code:    "length",
+			Message: fmt.Sprintf("the password must be %d–%d characters", minPasswordLen, maxPasswordLen),
+		}
+	}
+	return nil
+}
+
 func (in *BootstrapInput) normalize() error {
 	if in.Timezone == "" {
 		in.Timezone = "UTC"
@@ -150,12 +168,8 @@ func (in *BootstrapInput) normalize() error {
 	// route: without it, `"admin_password": ""` mints a loginable root account.
 	// Stated once at the point both provisioning paths converge rather than a
 	// third time at a call site.
-	if n := utf8.RuneCountInString(in.AdminPassword); n < minPasswordLen || n > maxPasswordLen {
-		return &values.ParseError{
-			Field:   "admin_password",
-			Code:    "length",
-			Message: fmt.Sprintf("the admin password must be %d–%d characters", minPasswordLen, maxPasswordLen),
-		}
+	if err := passwordLengthError("admin_password", in.AdminPassword); err != nil {
+		return err
 	}
 	return nil
 }

@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 const newMemberPassword = "a replacement password!"
@@ -81,8 +82,10 @@ func TestChangePasswordHoldsTheLengthFloor(t *testing.T) {
 
 	// Rune-counted, so a handful of multi-byte characters cannot clear a
 	// byte-length floor while being far shorter than it intends.
-	if err := e.svc.ChangePassword(ctx, memberPassword, "🔑🔑🔑🔑"); err == nil {
-		t.Fatal("a four-character password was accepted")
+	var parseErr *values.ParseError
+	err := e.svc.ChangePassword(ctx, memberPassword, "🔑🔑🔑🔑")
+	if !errors.As(err, &parseErr) || parseErr.Field != "new_password" || parseErr.Code != "length" {
+		t.Fatalf("a four-rune password gave %v, want a new_password/length refusal — sixteen bytes must not clear a twelve-CHARACTER floor", err)
 	}
 	if _, _, err := e.svc.Login(e.wsOnlyCtx(), e.member.Email, memberPassword); err != nil {
 		t.Fatalf("the original password stopped working after a refused change: %v", err)
@@ -101,6 +104,14 @@ func TestChangePasswordEndsEverySessionIncludingItsOwn(t *testing.T) {
 	_, otherToken, err := e.svc.Login(wsCtx, e.member.Email, memberPassword)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Both must work first: without this, a change that revoked nothing would
+	// still satisfy the assertions below.
+	for name, token := range map[string]string{"caller": callerToken, "other": otherToken} {
+		if _, err := e.svc.Authenticate(wsCtx, token); err != nil {
+			t.Fatalf("the %s session did not authenticate before the change: %v", name, err)
+		}
 	}
 
 	if err := e.svc.ChangePassword(withIdentity(wsCtx, id), memberPassword, newMemberPassword); err != nil {
@@ -143,5 +154,77 @@ func TestChangePasswordRefusesACallerWithNoUserBehindIt(t *testing.T) {
 	err := e.svc.ChangePassword(e.wsOnlyCtx(), memberPassword, newMemberPassword)
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("change with no bound identity = %v, want ErrPermissionDenied", err)
+	}
+}
+
+// The defences the login path already has for this same secret. Without them
+// this route is a guessing oracle behind any borrowed session — unthrottled,
+// uncounted, and leaving nothing in the trail.
+
+func TestAWrongCurrentPasswordCountsTowardTheLockout(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-lockout")
+	ctx := memberCtx(t, e)
+
+	for range 5 {
+		if err := e.svc.ChangePassword(ctx, "wrong", newMemberPassword); !errors.Is(err, ErrCurrentPasswordWrong) {
+			t.Fatalf("guess = %v, want ErrCurrentPasswordWrong", err)
+		}
+	}
+	// The §27 lock now binds HERE, not only on the login route: the same secret
+	// behind a different door must not stay open.
+	if err := e.svc.ChangePassword(ctx, memberPassword, newMemberPassword); !errors.Is(err, errAccountLocked) {
+		t.Fatalf("change while locked = %v, want errAccountLocked — the correct password got through a lockout", err)
+	}
+}
+
+func TestAFailedChangeLeavesEvidence(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-evidence")
+	ctx := memberCtx(t, e)
+
+	if err := e.svc.ChangePassword(ctx, "wrong", newMemberPassword); !errors.Is(err, ErrCurrentPasswordWrong) {
+		t.Fatal(err)
+	}
+	var n int
+	if err := database.WithInfraTx(context.Background(), e.svc.db.Pool(), func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM system_log
+			  WHERE action = 'password_change_failed' AND actor_id = $1`,
+			"human:"+e.member.UserID.String()).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("password_change_failed rows = %d, want 1 — an invisible brute force is exactly what the trail exists to catch", n)
+	}
+}
+
+func TestChangePasswordRetiresAnOutstandingResetToken(t *testing.T) {
+	e := setupRevocationEnv(t, "changepw-token")
+	ctx := memberCtx(t, e)
+
+	// The shape that makes this matter: someone else requested a reset for this
+	// account and holds the token. The member notices, signs in, and rotates
+	// their password — which the product tells them ends every credential.
+	// Minted by the real writer, so this proves something about the token the
+	// product actually issues rather than about a row shaped like one.
+	if _, _, err := e.svc.IssuePasswordLink(e.wsCtx(e.admin), e.admin, e.member.UserID); err != nil {
+		t.Fatalf("issuing the set-password link: %v", err)
+	}
+
+	if err := e.svc.ChangePassword(ctx, memberPassword, newMemberPassword); err != nil {
+		t.Fatal(err)
+	}
+
+	var live int
+	if err := database.WithInfraTx(context.Background(), e.svc.db.Pool(), func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM auth_token
+			  WHERE user_id = $1 AND purpose = 'password_reset' AND used_at IS NULL`,
+			e.member.UserID).Scan(&live)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if live != 0 {
+		t.Errorf("%d reset token(s) survived the change — whoever holds one can still take the account, after the member was told every credential was revoked", live)
 	}
 }

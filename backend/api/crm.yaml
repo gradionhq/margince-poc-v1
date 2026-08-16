@@ -379,7 +379,26 @@ paths:
       responses:
         '204': { description: 'Password changed; every credential for the account, including this session, is revoked.' }
         '401':
-          description: 'The current password does not match, or there is no session.'
+          description: >
+            No session, or an authenticated refusal the caller can act on. The machine `code`
+            separates them: `current_password_invalid` (the field is wrong) and `account_locked`
+            (the §27 lockout is in force, and waiting is the remedy). Disclosing the lock is safe
+            here and not on login — the caller already holds a session for this account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: 'The caller has no user behind it (an agent seat or system principal has no own password).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: 'The account is no longer active.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: 'Too many wrong current-password attempts for this account.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }

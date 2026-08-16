@@ -345,8 +345,24 @@ func endCredentialAuthority(ctx context.Context, tx pgx.Tx, userID ids.UserID, r
 		userID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx,
+	if _, err := tx.Exec(ctx,
 		`UPDATE passport SET revoked_at = now() WHERE on_behalf_of = $1 AND revoked_at IS NULL`,
+		userID); err != nil {
+		return err
+	}
+	// An unredeemed set-password token is a credential like any other here: it
+	// needs nothing but itself to set an arbitrary password on this account,
+	// and the three writers that mint one (a reset request, an admin's
+	// set-password link, an invite) all give it a multi-day life.
+	//
+	// Leaving it outstanding is the failure this whole function exists to
+	// prevent, and it is worst on the path that reads most like safety: someone
+	// who notices a reset mail they did not request, signs in, and rotates
+	// their password would end every session and grant while the token that
+	// prompted their alarm stayed live until its TTL.
+	_, err := tx.Exec(ctx,
+		`UPDATE auth_token SET used_at = now()
+		  WHERE user_id = $1 AND purpose = 'password_reset' AND used_at IS NULL`,
 		userID)
 	return err
 }

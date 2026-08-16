@@ -17686,7 +17686,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The current password does not match, or there is no session. */
+            /** @description No session, or an authenticated refusal the caller can act on. The machine `code` separates them: `current_password_invalid` (the field is wrong) and `account_locked` (the §27 lockout is in force, and waiting is the remedy). Disclosing the lock is safe here and not on login — the caller already holds a session for this account. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -17695,7 +17695,34 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description The caller has no user behind it (an agent seat or system principal has no own password). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account is no longer active. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
+            /** @description Too many wrong current-password attempts for this account. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     resetData: {
