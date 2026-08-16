@@ -8,6 +8,7 @@ import { navigate } from "../app/router";
 import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
+import { emailSummaryText } from "../format/emailtext";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -403,8 +404,14 @@ function timelineTitle(activity: Activity): string {
     return subject;
   }
   // Collapsed rather than trusted: a pasted multi-line message would otherwise
-  // break the row's single-line layout.
-  const body = activity.body?.replace(/\s+/g, " ").trim();
+  // break the row's single-line layout. A mail is read for its message first:
+  // titling the row from the raw body puts the From/To preamble, or a sign-off,
+  // where the reason for the mail should be.
+  const raw = activity.body ?? "";
+  const body =
+    activity.kind === "email"
+      ? emailSummaryText(raw)
+      : raw.replace(/\s+/g, " ").trim();
   if (!body) {
     return activity.kind;
   }

@@ -1118,6 +1118,8 @@ export const de = {
   "timeline.received": "Erhalten",
   "timeline.textMore": "Lesen",
   "timeline.textLess": "Weniger",
+  "timeline.tailMore": "Signatur und Zitat anzeigen",
+  "timeline.tailLess": "Signatur und Zitat ausblenden",
   "co.profileField.display_name": "Firmenname",
   "co.profileField.offer_summary": "Was sie verkaufen",
   "co.profileField.icp": "An wen sie verkaufen",

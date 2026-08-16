@@ -1131,6 +1131,8 @@ export const en = {
   "timeline.received": "Received",
   "timeline.textMore": "Read it",
   "timeline.textLess": "Show less",
+  "timeline.tailMore": "Show signature and quoted text",
+  "timeline.tailLess": "Hide signature and quoted text",
   "co.profileField.display_name": "Company name",
   "co.profileField.offer_summary": "What they sell",
   "co.profileField.icp": "Who they sell to",
