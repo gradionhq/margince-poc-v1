@@ -17260,6 +17260,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Forced rotation — the account is still using a password an OPERATOR chose (a configured bootstrap per A107/ADR-0061 §2, or a §9.1 operator reset) and reaches nothing but `POST /auth/change-password` until it is replaced (`code: password_change_required`). Reads are refused too. Unlike its 403 siblings this is a property of the ACCOUNT rather than of the operation, so any authenticated operation can answer it, and no grant of role, seat or scope lifts it. */
+        PasswordChangeRequired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description A multi-currency roll-up could not obtain an FX rate to the base currency (`code: fx_rate_unavailable`; formulas-and-rules §6.1). The report/list is not silently computed on a missing rate. */
         FxRateUnavailable: {
             headers: {

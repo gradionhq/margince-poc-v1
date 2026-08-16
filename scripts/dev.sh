@@ -452,8 +452,14 @@ up)
   # restarts (it lives in config/, not the scratch rundir dev-stop clears).
   deploy_cfg="config/margince.yaml"
   admin_pw_file="config/margince-admin-password"
+  # The OPERATOR's password, which is deliberately not the one anybody signs in
+  # with. A configured bootstrap requires the admin to replace it before the
+  # account works at all, so this value's whole life is the first login;
+  # `make seed-dev` performs that replacement and lands on the documented
+  # demo-password-123. Making them the same string would hide the step that
+  # every real configured installation has to take.
   if [[ ! -f "$admin_pw_file" ]]; then
-    printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
+    printf '%s' "${BOOTSTRAP_PASSWORD:-operator-supplied-first-password}" >"$admin_pw_file"
     chmod 600 "$admin_pw_file"
   fi
   if [[ ! -f "$deploy_cfg" ]]; then
