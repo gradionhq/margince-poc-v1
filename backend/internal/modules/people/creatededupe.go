@@ -167,7 +167,7 @@ func (m PersonResolution) recordIfReview(ctx context.Context, tx pgx.Tx, created
 // would mean the ladder and the child-row write disagree about what was
 // stored, and a review pair with no evidence is worse than a loud failure.
 func (m PersonResolution) recordSharedPhone(ctx context.Context, tx pgx.Tx, createdID ids.PersonID, source, by string) error {
-	if m.MatchedLane != lanePhone {
+	if m.MatchedLane != LanePhone {
 		// The package comment above is the argument that this cannot
 		// happen; if a lane ever does reach here it has no create-path
 		// policy, and inventing one silently is how a 409 contract or a

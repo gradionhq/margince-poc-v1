@@ -36,6 +36,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -169,6 +170,20 @@ func TestTheMessageKindVocabulariesAgree(t *testing.T) {
 	if extension.ActivityKindMessage != activities.KindMessage {
 		t.Errorf("the message kind: published %q, core %q — a unit naming the published one would have every captured message refused",
 			extension.ActivityKindMessage, activities.KindMessage)
+	}
+}
+
+// The merge-key vocabulary is a fourth restated vocabulary, and it names the
+// resolution ladder's own lanes. A unit declares which keys its provider vouches
+// for; the core admits an address to match on only from a source that declared
+// the email key, and the ladder then reports which lane routed. Drift between
+// the two spellings would not fail loudly: the declaration would simply stop
+// matching the lane it was meant to unlock, and a unit that correctly vouched
+// for its addresses would silently have them refused.
+func TestTheMergeKeyVocabulariesAgree(t *testing.T) {
+	if string(extension.MergeKeyEmail) != people.LaneEmail {
+		t.Errorf("the email merge key: published %q, ladder lane %q — a source declaring the published one would have its addresses refused",
+			extension.MergeKeyEmail, people.LaneEmail)
 	}
 }
 

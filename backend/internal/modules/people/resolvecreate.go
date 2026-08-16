@@ -100,7 +100,7 @@ type PersonSpec struct {
 // several real people, so a shared number creates and the caller records the
 // pair for review (creatededupe.go states the same policy per lane).
 func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) (ids.PersonID, error) {
-	if match.Decision == DecisionExactCollision && match.MatchedLane != lanePhone {
+	if match.Decision == DecisionExactCollision && match.MatchedLane != LanePhone {
 		return ids.PersonID{}, refusedPersonCreate(ctx, tx, match, spec)
 	}
 	wsID := workspaceID(ctx)
@@ -150,7 +150,7 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 // by a chosen address at that. The refusal still stands either way; only the
 // pointer is withheld.
 func refusedPersonCreate(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) error {
-	if match.MatchedLane == laneEmail && len(spec.Emails) > 0 {
+	if match.MatchedLane == LaneEmail && len(spec.Emails) > 0 {
 		dup := &DuplicateEmailError{Email: spec.Emails[0].Email}
 		visible, err := auth.VisibleTo(ctx, tx, entityPerson, match.PersonID.UUID)
 		if err != nil {

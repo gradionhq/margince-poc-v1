@@ -118,13 +118,19 @@ var subjectOnlyDestroyable = `
 // deal's thread is the ordinary shape of an activity with no person link at
 // all — precisely the position a litigation hold protects.
 // unlinkedSubjectChannel is the channel twin of unlinkedSubjectMail, and it
-// exists for a sharper reason than symmetry. A channel activity carries NO
-// counterparty_email, so the mail arm cannot see it; and its person link is
+// exists for a sharper reason than symmetry: a channel activity's person link is
 // written by a SEPARATE transaction after the capture commits, so an erasure
-// landing in that gap leaves an activity linked to nobody. Between them those
-// two facts mean a channel activity could be reachable by neither selector —
-// permanently, since the suppression row then guarantees the identity is never
-// recreated and no later erasure, subject-access or retention pass can find it.
+// landing in that gap leaves an activity linked to nobody.
+//
+// The mail arm rescues only some of those. It keys on counterparty_email, and a
+// channel activity carries one only when its provider knew the sender's address
+// AND that source vouched for it — never for a transport where the bot holds no
+// address for the sender, which is every core channel connector. So for those
+// the two facts still compose: reachable by neither selector, permanently, since
+// the suppression row then guarantees the identity is never recreated and no
+// later erasure, subject-access or retention pass can find it. This arm is what
+// closes that, for the addressless transports and inside the pre-link window
+// alike.
 //
 // It matches on thread_key rather than a link, because thread_key IS the
 // account: the capture writes `provider:botID:accountID`, so the third segment

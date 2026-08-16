@@ -211,6 +211,14 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 	// holds no address unless an operator enabled payloads, and what a member is
 	// told must not depend on a diagnostic posture. The activity is the member's
 	// own message, so its sender's disposition is theirs to know.
+	//
+	// MAIL rows only, and the channel_provider guard is what says so. The
+	// disposition ledger is the mail ladder's, keyed on an address; a channel
+	// message can now carry a corroborating address too, and without the guard a
+	// direct message would inherit the mail verdict pending for that same human
+	// — telling a member their captured, linked and answered conversation is
+	// "waiting on a verdict". A channel record has no ladder verdict to report,
+	// which is not the same as having one that is pending.
 	rows, err := tx.Query(ctx, storekit.SQLf(`
 		SELECT t.id, t.connector, t.outcome, coalesce(t.reason, ''), t.activity_id,
 		       d.status, coalesce(d.kind, ''), d.resolved_at,
@@ -223,6 +231,7 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		           FROM capture_pending_counterparty
 		          WHERE workspace_id = t.workspace_id
 		            AND email = a.counterparty_email
+		            AND a.channel_provider IS NULL
 		          ORDER BY resolved_at DESC NULLS FIRST
 		          LIMIT 1) d ON true
 		 WHERE %s

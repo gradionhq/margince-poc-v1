@@ -39,7 +39,7 @@ func TestResolveFindsAPersonByAClaimedAddress(t *testing.T) {
 	if out[0].Refs[0].ID != person.UUID {
 		t.Errorf("resolved to %s, want the seeded person %s", out[0].Refs[0].ID, person.UUID)
 	}
-	if out[0].Refs[0].MatchedOn != laneEmail || !out[0].Refs[0].Exact {
+	if out[0].Refs[0].MatchedOn != LaneEmail || !out[0].Refs[0].Exact {
 		t.Errorf("ref = %+v, want an exact hit on the address lane", out[0].Refs[0])
 	}
 }

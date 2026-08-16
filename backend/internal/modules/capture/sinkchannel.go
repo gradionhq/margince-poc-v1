@@ -35,14 +35,22 @@ type ChannelCounterpartyEnsurer interface {
 // EnsureChannelRequest names one inbound channel message's counterparty for the
 // resolver. It carries no OwnerID and no SuppressOrg, and the omissions are the
 // design: a workspace bot has no granting human for anything created to belong
-// to (design D2 — the person is ownerless), and a channel identity carries no
-// mail domain a company could be derived from in the first place.
+// to (design D2 — the person is ownerless), and no company is derived here even
+// when an address rides along — a corroborating address is evidence about WHO
+// this is, and reading an employer out of it would be the mail ladder's job,
+// which this path deliberately bypasses.
 type EnsureChannelRequest struct {
 	Identity    connector.ChannelIdentity
 	DisplayName string // the provider's own name for the sender — untrusted text
-	ActivityID  ids.UUID
-	Source      string
-	CapturedBy  string
+	// CorroboratingEmail is the sender's address where the provider knew one and
+	// the source declared the email merge key (admitCounterpartyKeys). It names
+	// nobody — Identity does that — and reaches only the resolution ladder and
+	// the person's own address list. Empty for a transport that holds no
+	// address, which is every core channel connector.
+	CorroboratingEmail string
+	ActivityID         ids.UUID
+	Source             string
+	CapturedBy         string
 }
 
 // WithChannelEnsurer returns a copy wired to the channel auto-create path. A
@@ -54,21 +62,29 @@ func (s *Sink) WithChannelEnsurer(ensurer ChannelCounterpartyEnsurer) *Sink {
 	return &c
 }
 
-// counterpartyShape is how a record names its human. connector.Counterparty
-// documents an address and a channel identity as mutually exclusive, and this is
-// the one place capture asks which it holds — so the question is total rather
-// than a boolean. A record carrying BOTH is malformed: classifying it as mail
-// would bind no channel identity and, because every mail gate keys off the
-// address, would record no fault either, making it the one capture outcome that
-// leaves no breadcrumb at all. The exhaustive switch is what keeps that case
-// impossible to reach by omission.
+// counterpartyShape is how a record NAMES its human, which is a different
+// question from what evidence it carries about them — and this is the one place
+// capture asks it, so the question is total rather than a boolean.
+//
+// A record holding both a channel identity and an address is named by the
+// IDENTITY. That is precedence, not a coin toss: the identity is the key a reply
+// is routed on and the one a person is bound by, while an address can only
+// corroborate. Reading it the other way round would classify the record as mail,
+// which binds no channel identity and — because every mail gate keys off the
+// address — would record no fault either, the one capture outcome that leaves no
+// breadcrumb at all. The exhaustive switch keeps that impossible to reach by
+// omission.
+//
+// Whether the record may carry that corroborating address at all is a separate
+// question, asked by admitCounterpartyKeys against the source's declaration.
+// Keeping the two apart is what lets a declared and an undeclared source agree
+// about who the message is with while disagreeing about what may be matched on.
 type counterpartyShape int
 
 const (
 	shapeNone counterpartyShape = iota
 	shapeMail
 	shapeChannel
-	shapeAmbiguous
 	shapeHalfChannel
 
 	// shapeCount bounds the enum so a walk over it derives rather than repeats
@@ -85,16 +101,18 @@ const (
 // mid-purge — the mutex would be decorative. people's ensure refuses the same
 // half-identity; refusing it here keeps the two in step.
 func counterpartyShapeOf(cp connector.Counterparty) counterpartyShape {
-	hasMail := cp.Email != ""
 	provider, account := cp.ChannelIdentity.Provider, cp.ChannelIdentity.ChannelUserID
 	switch {
-	case hasMail && (provider != "" || account != ""):
-		return shapeAmbiguous
 	case provider != "" && account != "":
+		// Precedence, and it is ordered first on purpose: a complete channel
+		// identity names the human whether or not an address rides along.
 		return shapeChannel
 	case provider != "" || account != "":
+		// Half an identity is malformed however much else the record carries —
+		// an address alongside it cannot complete it, because the missing half
+		// is what the locks and suppression keys are built from.
 		return shapeHalfChannel
-	case hasMail:
+	case cp.Email != "":
 		return shapeMail
 	default:
 		return shapeNone
@@ -121,8 +139,6 @@ func admitCounterpartyShape(shape counterpartyShape) error {
 		// Well-formed; the channel arm is gated again inside the transaction,
 		// under the account's own erasure lock.
 		return nil
-	case shapeAmbiguous:
-		return ErrCounterpartyNamedTwice
 	case shapeHalfChannel:
 		return ErrChannelIdentityIncomplete
 	default:
@@ -130,14 +146,44 @@ func admitCounterpartyShape(shape counterpartyShape) error {
 	}
 }
 
-// ErrCounterpartyNamedTwice refuses a record naming its human both by an address
-// and by a channel identity. ErrChannelIdentityIncomplete refuses half a channel
-// identity. Both are sentinels rather than bare errors so the refusal can be
-// asserted on, and so a caller can tell a malformed record from an
-// infrastructural failure.
+// admitCounterpartyKeys is the second half of admission and runs beside the
+// first, at the same edge: the shape says who the record NAMES, this says what
+// it may be MATCHED on.
+//
+// It is a sibling rather than an arm of admitCounterpartyShape because that
+// function deliberately takes the shape and not the Counterparty, so its switch
+// can be walked across the whole enum including arms no Counterparty can
+// produce. This one has to read the record itself, and merging the two would
+// cost that walk.
+//
+// The gate is narrow on purpose. It asks only about an address CORROBORATING a
+// human already named by a channel identity — never about the address a
+// mail-shaped record is named by, which is that record's identity and belongs to
+// no declaration. A source that never declared the key simply has the record
+// refused, which is the behaviour before merge keys existed.
+//
+// This runs for every caller of Upsert, not only for units. That is the point:
+// the unit-facing refusal lives in the ingress gate where it can be attributed
+// to a unit's own grammar, and this one holds the invariant for a core
+// connector, a fixture or a backfill that never passes through there.
+func admitCounterpartyKeys(cp connector.Counterparty) error {
+	if counterpartyShapeOf(cp) != shapeChannel || cp.Email == "" {
+		return nil
+	}
+	if !cp.MayCorroborateByEmail() {
+		return ErrMergeKeyNotDeclared
+	}
+	return nil
+}
+
+// ErrChannelIdentityIncomplete refuses half a channel identity.
+// ErrMergeKeyNotDeclared refuses an address offered as matching evidence by a
+// source that never vouched for one. Both are sentinels rather than bare errors
+// so the refusal can be asserted on, and so a caller can tell a malformed record
+// from an infrastructural failure.
 var (
-	ErrCounterpartyNamedTwice    = errors.New("capture: a counterparty is named by an address or by a channel identity, never both")
 	ErrChannelIdentityIncomplete = errors.New("capture: a channel identity needs both a provider and a channel account id")
+	ErrMergeKeyNotDeclared       = errors.New("capture: the record carries an address to match on, but its source declared no email merge key")
 )
 
 // refuseErasedChannelAccount excludes an Art. 17 erasure from the transaction
@@ -147,12 +193,17 @@ var (
 // never inside.
 //
 // Landing inside it is not a near miss. The activity would commit after the
-// erasure certified the subject scrubbed, and with no person link and no
-// counterparty_email it matches neither erasure selector afterwards — so no
-// later erasure, subject-access or retention pass could ever find it, while the
-// erasure's own audit tombstone records a clean scrub. The probe in people's
-// EnsureChannelCounterparty runs after this commit and its refusal is mapped to
-// nil by design, so it is the second gate and cannot be the only one.
+// erasure certified the subject scrubbed, and with no person link it matches
+// the link-walking selector afterwards — and a record from a transport that
+// holds no address, which is every core channel connector, carries no
+// counterparty_email for the mail selector to find either. So no later erasure,
+// subject-access or retention pass could ever find it, while the erasure's own
+// audit tombstone records a clean scrub. A corroborating address narrows that
+// window where one exists; it does not close it, because the transports most
+// likely to be erased on are exactly the ones with no address to carry. The
+// probe in people's EnsureChannelCounterparty runs after this commit and its
+// refusal is mapped to nil by design, so it is the second gate and cannot be
+// the only one.
 //
 // The refusal deliberately names NO identifier. For a channel record the
 // natural key embeds the account id itself (a private chat's id is the user's
@@ -205,11 +256,12 @@ func (s *Sink) decideChannelCounterparty(ctx context.Context) counterpartyDecisi
 func (s *Sink) ensureChannelCounterparty(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef, decision counterpartyDecision) {
 	cp := rec.Counterparty
 	outcome, err := s.channelEnsurer.EnsureChannelCounterparty(ctx, EnsureChannelRequest{
-		Identity:    cp.ChannelIdentity,
-		DisplayName: cp.DisplayName,
-		ActivityID:  ref.ID,
-		Source:      captureSource(rec),
-		CapturedBy:  decision.capturedBy,
+		Identity:           cp.ChannelIdentity,
+		DisplayName:        cp.DisplayName,
+		CorroboratingEmail: cp.Email,
+		ActivityID:         ref.ID,
+		Source:             captureSource(rec),
+		CapturedBy:         decision.capturedBy,
 	})
 	if err != nil {
 		s.logEnsureFault(ctx, rec, err)

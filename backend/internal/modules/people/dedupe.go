@@ -110,10 +110,16 @@ type LaneConflict struct {
 // routing precedence: an established channel binding outranks a shared
 // address, which outranks a phone number households and switchboards
 // share.
+//
+// Exported because PersonResolution.MatchedLane and LaneConflict's two lane
+// fields already hand these strings to callers, and a caller comparing against
+// a literal it spelled itself is a caller that keeps compiling after the
+// vocabulary moves. A fitness test holds LaneEmail equal to the published
+// extension.MergeKeyEmail for the same reason.
 const (
-	laneChannelIdentity = "channel_identity"
-	laneEmail           = "email"
-	lanePhone           = "phone"
+	LaneChannelIdentity = "channel_identity"
+	LaneEmail           = "email"
+	LanePhone           = "phone"
 )
 
 // exactLane is one lane's answer, in ladder order.
@@ -161,9 +167,9 @@ func exactLanes(ctx context.Context, tx pgx.Tx, c PersonCandidate) ([]exactLane,
 		return nil, err
 	}
 	return []exactLane{
-		{laneChannelIdentity, channelHit, channelFound},
-		{laneEmail, emailHit, emailFound},
-		{lanePhone, phoneHit, phoneFound},
+		{LaneChannelIdentity, channelHit, channelFound},
+		{LaneEmail, emailHit, emailFound},
+		{LanePhone, phoneHit, phoneFound},
 	}, nil
 }
 

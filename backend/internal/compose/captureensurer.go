@@ -85,15 +85,16 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 
 // EnsureChannelCounterparty is the same adaptation for an inbound channel
 // message (telegram-oa design §6.4). No company is derived and so no web
-// dossier is queued: a channel identity carries no domain, and there is nothing
-// for the enrich trigger to read a website from.
+// dossier is queued: this path derives no employer even from a corroborating
+// address, so there is nothing for the enrich trigger to read a website from.
 func (p peopleEnsurer) EnsureChannelCounterparty(ctx context.Context, in capture.EnsureChannelRequest) (capture.EnsureOutcome, error) {
 	res, err := p.store.EnsureChannelCounterparty(ctx, people.EnsureChannelCounterpartyInput{
-		Identity:    in.Identity,
-		DisplayName: in.DisplayName,
-		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
-		Source:      in.Source,
-		CapturedBy:  in.CapturedBy,
+		Identity:           in.Identity,
+		DisplayName:        in.DisplayName,
+		CorroboratingEmail: in.CorroboratingEmail,
+		ActivityID:         ids.From[ids.ActivityKind](in.ActivityID),
+		Source:             in.Source,
+		CapturedBy:         in.CapturedBy,
 	})
 	if errors.Is(err, people.ErrCounterpartySuppressed) {
 		// A13 on the channel key: an erased subject stays dead — a deliberate

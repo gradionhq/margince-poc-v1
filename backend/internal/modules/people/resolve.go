@@ -246,14 +246,14 @@ func exactPersonOwners(ctx context.Context, tx pgx.Tx, c ResolveCandidate) ([]Re
 		if err != nil {
 			return nil, err
 		}
-		keep(hit, found, laneEmail, true)
+		keep(hit, found, LaneEmail, true)
 	}
 	for _, phone := range c.Phones {
 		hit, found, err := exactPersonByPhone(ctx, tx, []string{phone})
 		if err != nil {
 			return nil, err
 		}
-		keep(hit, found, lanePhone, false)
+		keep(hit, found, LanePhone, false)
 	}
 	return out, nil
 }

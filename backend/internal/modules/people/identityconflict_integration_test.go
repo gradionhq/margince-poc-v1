@@ -109,12 +109,12 @@ func TestExactLaneConflictEnqueuesOneIdentityReviewNamingBothPersonsAndLanes(t *
 			t.Fatalf("exact-conflict evidence entry %+v names only one lane", ev)
 		}
 		lanes := map[string]bool{*ev.LeftValue: true, *ev.RightValue: true}
-		if lanes[laneChannelIdentity] && lanes[lanePhone] {
+		if lanes[LaneChannelIdentity] && lanes[LanePhone] {
 			foundLanes = true
 		}
 	}
 	if !foundLanes {
-		t.Fatalf("evidence %+v does not name both conflicting lanes (%s, %s)", evidence, laneChannelIdentity, lanePhone)
+		t.Fatalf("evidence %+v does not name both conflicting lanes (%s, %s)", evidence, LaneChannelIdentity, LanePhone)
 	}
 }
 
