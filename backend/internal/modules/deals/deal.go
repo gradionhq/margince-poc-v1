@@ -317,7 +317,7 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 	}
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		// A liveness probe, not a wire read — no custom columns needed.

@@ -244,7 +244,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePers
 	}
 	var out crmcontracts.Person
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
 		current, err := readPerson(ctx, tx, id, storekit.LiveOnly, active)
@@ -337,7 +337,7 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 	}
 	var out crmcontracts.Person
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
 		// A liveness probe, not a wire read — no custom columns needed.

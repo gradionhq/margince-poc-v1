@@ -37,7 +37,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 	}
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		if err := refuseIfAnchor(ctx, tx, id, "id", "it cannot be archived. Archive a different company, or edit this one on the company page"); err != nil {

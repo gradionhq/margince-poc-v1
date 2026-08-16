@@ -91,7 +91,7 @@ func (s *Store) UpdateDealTx(ctx context.Context, tx pgx.Tx, id ids.DealID,
 func (s *Store) updateDealInTx(ctx context.Context, tx pgx.Tx,
 	id ids.DealID, in UpdateDealInput, active []fieldcatalog.Column,
 ) (crmcontracts.Deal, error) {
-	if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, "deal", id.UUID); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	// current reads WITH active columns so the patch's audit before-image

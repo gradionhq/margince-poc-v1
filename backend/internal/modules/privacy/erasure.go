@@ -86,7 +86,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 	// hangs off must not destroy the correspondence itself below its floor.
 	floorInterval, floorAnchor := statutoryFloorArgs()
 	return e.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", subject.UUID); err != nil {
+		if err := auth.EnsureWritableForSubjectRights(ctx, tx, "person", subject.UUID); err != nil {
 			return err
 		}
 		if err := refusePersonUnderLegalHold(ctx, tx, subject); err != nil {

@@ -165,8 +165,12 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 	}
 	var out partnerRow
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// The org reference is a client-supplied FK argument (H1).
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+		// The org reference is a client-supplied FK argument (H1), probed for
+		// WRITE authority rather than sight: the object gate above says the
+		// partner grant must not become a side door onto organizations, and a
+		// `read` share of one is that same side door a level down — visibility
+		// alone would let its holder reclassify the company.
+		if err := auth.EnsureWritable(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 			return err
 		}
 		// The row lock makes the version pre-read and the upsert below one

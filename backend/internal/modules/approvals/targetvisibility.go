@@ -228,7 +228,38 @@ func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
 // too: auth.VisibleTo errors on a table it does not row-scope, so the switch
 // below — not the caller — is what keeps a made-up target_entity_type from
 // reaching it.
+// targetAuthority selects which half of the target's own rule the probe applies:
+// what the inbox may SHOW, or what a decider may CHANGE.
+//
+// They are not the same question, and until #1373 they were the same code. A
+// staged change is a mutation of the record it names — the effect writes it —
+// so a colleague handed a `read` share of that record could see the proposal
+// (right: the record is theirs to open) and also approve it, which committed a
+// write their own PATCH would have been refused.
+type targetAuthority bool
+
+const (
+	forReading  targetAuthority = false
+	forDeciding targetAuthority = true
+)
+
+// targetVisible is the READ half — what the inbox may show and what a
+// target-filtered list may page over.
 func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
+	return targetPermitted(ctx, tx, targetType, targetID, forReading)
+}
+
+// targetDecidable is the WRITE half, and the only caller is decidable(): a
+// human deciding a staged change needs the authority over the target that the
+// effect is about to spend on their behalf. It differs from targetVisible in
+// exactly the arms whose table a manual grant can widen; everything else — the
+// object-read floor, the staged-create shape, workspace config, personal state
+// — is one rule for both, because on those a grant cannot speak at all.
+func targetDecidable(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
+	return targetPermitted(ctx, tx, targetType, targetID, forDeciding)
+}
+
+func targetPermitted(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID, want targetAuthority) (bool, error) {
 	settled, visible := settledByShape(targetShape{hasType: targetType != nil, hasID: targetID != nil})
 	if targetType == nil {
 		// No type is no object to require a read grant ON, and settledByShape
@@ -262,9 +293,12 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 		// "still yours" for a row every live read path now refuses. Existence is
 		// the floor the workspace-shared arms already take; these tables carry it
 		// for the same reason, archive being the delete on all of them.
+		if want == forDeciding {
+			return probeAnswer(auth.EnsureWritableLive(ctx, tx, *targetType, *targetID))
+		}
 		return probeAnswer(auth.EnsureVisibleLive(ctx, tx, *targetType, *targetID))
 	case probeInheritedScope:
-		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
+		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID, want)
 	case probeExistence:
 		return targetExists(ctx, tx, *targetType, *targetID)
 	case probeOwnerOnly:
@@ -308,7 +342,7 @@ func objectReadable(ctx context.Context, object string) (bool, error) {
 // owner_id of their own and are visible exactly when the record they hang off
 // is — the same anchoring each one's own store applies, so a staged action
 // discloses nothing the record itself would not.
-func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
+func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID, want targetAuthority) (bool, error) {
 	if targetType == targetOffer {
 		var dealID ids.UUID
 		// BOTH rows have to be live, and the lookup carries the offer's half:
@@ -325,6 +359,9 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		}
 		if err != nil {
 			return false, err
+		}
+		if want == forDeciding {
+			return probeAnswer(auth.EnsureWritableLive(ctx, tx, tableDeal, dealID))
 		}
 		return probeAnswer(auth.EnsureVisibleLive(ctx, tx, tableDeal, dealID))
 	}
@@ -357,16 +394,24 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 	return probeAnswer(ensure(ctx, tx, targetID))
 }
 
-// probeAnswer turns a row probe's error into the visibility ANSWER the inbox
-// needs: absent or out of scope is not-visible — the two are indistinguishable
-// by design, which is what lets the inbox hide a staged row the same way the
-// record's own read hides the record — and anything else is a real failure the
-// caller surfaces rather than reads as a refusal.
+// probeAnswer turns a row probe's error into the ANSWER the inbox needs: absent
+// or out of scope is not-permitted — the two are indistinguishable by design,
+// which is what lets the inbox hide a staged row the same way the record's own
+// read hides the record — and anything else is a real failure the caller
+// surfaces rather than reads as a refusal.
+//
+// ErrPermissionDenied joins ErrNotFound here because the DECIDE probe can raise
+// it: a caller holding a `read` share of the target can see the record, so the
+// write probe has nothing left to hide and answers 403 rather than 404. Reading
+// that as a failure instead of a refusal would turn one undecidable row into a
+// 500 for the whole INBOX — every other pending approval included — which is
+// how this arrived: the first version of the decide split did exactly that, and
+// the integration suite caught it on the list call rather than the decision.
 func probeAnswer(err error) (bool, error) {
 	switch {
 	case err == nil:
 		return true, nil
-	case errors.Is(err, apperrors.ErrNotFound):
+	case errors.Is(err, apperrors.ErrNotFound), errors.Is(err, apperrors.ErrPermissionDenied):
 		return false, nil
 	default:
 		return false, err

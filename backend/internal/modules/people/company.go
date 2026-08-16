@@ -323,7 +323,7 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return ids.OrganizationID{}, false, err
 	}
-	if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, "organization", orgID.UUID); err != nil {
 		return ids.OrganizationID{}, false, err
 	}
 	tag, err := tx.Exec(ctx,

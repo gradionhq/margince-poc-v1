@@ -308,7 +308,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 
 	var out State
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, sub.entityType, sub.id); err != nil {
 			return err
 		}
 		purposeKey, requiresDOI, err := loadConsentPurpose(ctx, tx, in.PurposeID)

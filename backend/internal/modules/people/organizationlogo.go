@@ -63,7 +63,7 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The target is a KNOWN row, so row-scope is re-checked here: a leaked
 		// organization id buys nothing (existence-hiding 404).
-		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		// Lock the row before reading who holds the field. The guard is a read

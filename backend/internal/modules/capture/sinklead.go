@@ -138,8 +138,14 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 	if err != nil {
 		return ids.LeadID{}, false, fmt.Errorf("capture: lead replay lookup: %w", err)
 	}
-	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
+	// The WRITE probe: a replay resumes this lead's capture, so the connector
+	// needs the authority its granting human would need to edit the row. Both
+	// refusals are the same skip — a lead they cannot see and a lead they hold
+	// only a `read` share of are equally not the connector's to fold onto, and
+	// the difference between 404 and 403 is a distinction for a caller, which a
+	// sweep does not have.
+	if err := auth.EnsureWritable(ctx, tx, "lead", id.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
 			return ids.LeadID{}, false, skipInvisibleIncumbent(rec, "lead")
 		}
 		return ids.LeadID{}, false, err

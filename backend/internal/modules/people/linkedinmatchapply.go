@@ -152,7 +152,7 @@ func (s *Store) ApplyLinkedInMatch(ctx context.Context, connectionID, personID i
 		return err
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisibleLive(ctx, tx, entityPerson, personID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, entityPerson, personID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `

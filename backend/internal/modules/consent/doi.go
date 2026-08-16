@@ -65,7 +65,7 @@ func (s *Store) IssueDoubleOptIn(ctx context.Context, personID ids.PersonID, pur
 	}
 	var out IssuedDOI
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		var requiresDOI bool
