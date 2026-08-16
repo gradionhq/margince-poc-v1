@@ -839,7 +839,22 @@ export const vi = {
     "H\u1ee3p \u0111\u1ed3ng c\u1ea7n c\u00f3 ti\u00eau \u0111\u1ec1.",
   "contracts.form.errTermOrder":
     "K\u1ef3 h\u1ea1n kh\u00f4ng th\u1ec3 k\u1ebft th\u00fac tr\u01b0\u1edbc khi b\u1eaft \u0111\u1ea7u.",
-  "contracts.add": "Ghi nh\u1eadn h\u1ee3p \u0111\u1ed3ng",
+  "contracts.add": "Th\u00eam h\u1ee3p \u0111\u1ed3ng",
+  "contracts.rowMenu": "Thao t\u00e1c h\u1ee3p \u0111\u1ed3ng",
+  "contracts.edit": "S\u1eeda",
+  "contracts.archive": "L\u01b0u tr\u1eef",
+  "contracts.archive.title":
+    "L\u01b0u tr\u1eef h\u1ee3p \u0111\u1ed3ng n\u00e0y?",
+  "contracts.archive.body":
+    "\u201c{title}\u201d s\u1ebd r\u1eddi kh\u1ecfi danh s\u00e1ch v\u00e0 t\u1ed5ng c\u1ee7a kh\u00e1ch h\u00e0ng. B\u1ea3n ghi v\u00e0 l\u1ecbch s\u1eed v\u1eabn c\u00f2n \u2014 kh\u00f4ng c\u00f3 g\u00ec b\u1ecb x\u00f3a.",
+  "contracts.archive.confirm": "L\u01b0u tr\u1eef",
+  "contracts.form.editTitle": "S\u1eeda h\u1ee3p \u0111\u1ed3ng",
+  "contracts.form.saveEdit": "L\u01b0u thay \u0111\u1ed5i",
+  "contracts.form.file": "T\u00e0i li\u1ec7u \u0111\u00e3 k\u00fd",
+  "contracts.form.fileHint":
+    "K\u00e9o th\u1ea3 PDF \u0111\u00e3 k\u00fd v\u00e0o \u0111\u00e2y, ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn. T\u00e0i li\u1ec7u \u0111\u01b0\u1ee3c g\u1eafn v\u1edbi h\u1ee3p \u0111\u1ed3ng n\u00e0y v\u00e0 hi\u1ec7n trong t\u00e0i li\u1ec7u c\u1ee7a kh\u00e1ch h\u00e0ng.",
+  "contracts.form.fileEmpty":
+    "K\u00e9o th\u1ea3 t\u1ec7p v\u00e0o \u0111\u00e2y ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn",
   "contracts.perYear": "{amount} / n\u0103m",
   "contracts.state.title": "Đang có hợp đồng · {count} hiệu lực",
   "contracts.state.none": "Chưa có hợp đồng nào",

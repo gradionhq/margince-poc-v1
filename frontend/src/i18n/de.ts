@@ -842,7 +842,20 @@ export const de = {
   "contracts.form.errNoName": "Ein Vertrag braucht einen Titel.",
   "contracts.form.errTermOrder":
     "Eine Laufzeit kann nicht vor ihrem Beginn enden.",
-  "contracts.add": "Vertrag erfassen",
+  "contracts.add": "Vertrag hinzuf\u00fcgen",
+  "contracts.rowMenu": "Vertragsaktionen",
+  "contracts.edit": "Bearbeiten",
+  "contracts.archive": "Archivieren",
+  "contracts.archive.title": "Diesen Vertrag archivieren?",
+  "contracts.archive.body":
+    "\u201e{title}\u201c verschwindet aus den Listen und den Summen des Kontos. Der Datensatz und seine Historie bleiben erhalten \u2014 gel\u00f6scht wird nichts.",
+  "contracts.archive.confirm": "Archivieren",
+  "contracts.form.editTitle": "Vertrag bearbeiten",
+  "contracts.form.saveEdit": "\u00c4nderungen speichern",
+  "contracts.form.file": "Unterschriebenes Dokument",
+  "contracts.form.fileHint":
+    "Das unterschriebene PDF hier ablegen oder klicken, um eines auszuw\u00e4hlen. Es wird diesem Vertrag zugeordnet und erscheint bei den Dokumenten des Kontos.",
+  "contracts.form.fileEmpty": "Datei hier ablegen oder klicken",
   "contracts.perYear": "{amount} / Jahr",
   "contracts.state.title": "Unter Vertrag · {count} aktiv",
   "contracts.state.none": "Kein Vertrag hinterlegt",
