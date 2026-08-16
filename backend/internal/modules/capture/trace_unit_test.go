@@ -14,6 +14,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 func TestATraceEntryMustNameWhatItDescribes(t *testing.T) {
@@ -116,6 +117,44 @@ func TestAChannelSourceIdHashesToItselfEveryTime(t *testing.T) {
 	}
 	if plain := traceSourceID(account, false); plain != account {
 		t.Errorf("mail id = %q, want it kept verbatim", plain)
+	}
+}
+
+// One transport, one spelling. The connector column is what the screen groups
+// by and what /v1/channel-providers resolves to a label, so a connector that
+// answers two ways appears as two connectors and only one of them has a name.
+//
+// Reading the provider off the COUNTERPARTY is what split it: a channel record
+// that names its human by address alone carries no channel identity, so the
+// same connector's mentions fell through to the raw source system while its
+// direct messages answered with the provider.
+func TestOneTransportIsSpelledOneWay(t *testing.T) {
+	channelRecord := func(cp connector.Counterparty) connector.NormalizedRecord {
+		return connector.NormalizedRecord{
+			NaturalKey:   connector.NaturalKey{SourceSystem: "ext:dispact-connector:dispact", SourceID: "m-1"},
+			Counterparty: cp,
+			Fields:       ActivityFields{Kind: "message", ChannelProvider: "dispact"},
+		}
+	}
+	named := channelRecord(connector.Counterparty{
+		ChannelIdentity: connector.ChannelIdentity{Provider: "dispact", ChannelUserID: "u-1"},
+	})
+	mentioned := channelRecord(connector.Counterparty{Email: "someone@client.io"})
+	if got, want := traceConnector(named), "dispact"; got != want {
+		t.Errorf("a direct message names connector %q, want %q", got, want)
+	}
+	if got, want := traceConnector(mentioned), "dispact"; got != want {
+		t.Errorf("a mention names connector %q, want %q — the transport carried both", got, want)
+	}
+
+	// Mail arrived on no channel, so its source system IS the transport.
+	mail := connector.NormalizedRecord{
+		NaturalKey:   connector.NaturalKey{SourceSystem: "gmail", SourceID: "m-2"},
+		Counterparty: connector.Counterparty{Email: "someone@client.io"},
+		Fields:       ActivityFields{Kind: "email"},
+	}
+	if got, want := traceConnector(mail), "gmail"; got != want {
+		t.Errorf("mail names connector %q, want %q", got, want)
 	}
 }
 

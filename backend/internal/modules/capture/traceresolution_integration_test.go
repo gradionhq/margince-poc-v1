@@ -39,6 +39,25 @@ func seedDeferredRecord(ctx context.Context, t *testing.T, db *database.DB,
 	owner ids.UUID, sourceID, sender, channelProvider string, withLedger bool,
 ) {
 	t.Helper()
+	seedTracedRecord(ctx, t, db, owner, sourceID, sender, channelProvider,
+		capture.TraceDeferred, withLedger)
+}
+
+// seedTracedRecord writes one activity, its trace row, and optionally the
+// ledger's question about its sender.
+//
+// The OUTCOME is a parameter because it is what the read keys on, and the two
+// channel shapes differ by exactly it: a record named by a channel identity
+// takes decideChannelCounterparty, which opens no ledger question and so traces
+// `captured`, while a record named by an address alone runs the mail ladder and
+// can defer. Seeding a channel row as `deferred` would be a shape the sink
+// cannot produce, which is how the guard this replaced came to refuse a verdict
+// that had already landed.
+func seedTracedRecord(ctx context.Context, t *testing.T, db *database.DB,
+	owner ids.UUID, sourceID, sender, channelProvider string,
+	outcome capture.TraceOutcome, withLedger bool,
+) {
+	t.Helper()
 	activityID := ids.NewV7()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// The ledger's owner is a foreign key: a dangling one would make this a
@@ -69,10 +88,16 @@ func seedDeferredRecord(ctx context.Context, t *testing.T, db *database.DB,
 				return err
 			}
 		}
+		// The connector names the TRANSPORT, which is what the sink writes: a
+		// channel record answers with its provider, mail with its source system.
+		transport := "gmail"
+		if channelProvider != "" {
+			transport = channelProvider
+		}
 		return capture.Trace(ctx, tx, capture.TraceEntry{
 			Stage:  pipelinetrace.StageTierLadder,
-			UserID: owner, Connector: "gmail", SourceSystem: "gmail", SourceID: sourceID,
-			Outcome: capture.TraceDeferred, ActivityID: activityID,
+			UserID: owner, Connector: transport, SourceSystem: "gmail", SourceID: sourceID,
+			Outcome: outcome, ActivityID: activityID,
 		}, false)
 	}); err != nil {
 		t.Fatalf("seeding a deferred message: %v", err)
@@ -109,38 +134,90 @@ func TestAVerdictReachesEveryMessageFromThatSender(t *testing.T) {
 	}
 }
 
-// The disposition ledger is the MAIL ladder's, keyed on an address. A direct
-// message may carry that same address to be matched on, and it reaches the
-// member's trace through the same activity column — so without a guard the
-// member is told their captured, linked and answered conversation is waiting on
-// a verdict that belongs to another medium and can never resolve for it.
+// A channel record inherits no verdict it did not raise.
+//
+// The disposition ledger is the ladder's, keyed on an address. A direct message
+// names its human by a channel identity and may carry that human's address only
+// as corroboration; it opens no ledger question, so reporting one would tell a
+// member their captured, linked and answered conversation is waiting on a
+// verdict that can never resolve for it.
 //
 // The mail row is the control: it must still carry the verdict, or the guard
 // would be suppressing the ledger rather than scoping it.
-func TestOnlyAMailRowCarriesTheMailVerdict(t *testing.T) {
+func TestACapturedChannelRecordInheritsNoMailVerdict(t *testing.T) {
 	ctx, ws, db, store := traceReadWorkspace(t)
 	me := ids.NewV7()
 	memberCtx := memberContext(ctx, ws, me)
 	const sender = "both.media@client.io"
 
 	seedDeferredRecord(memberCtx, t, db, me, "m-1", sender, "", true)
-	seedDeferredRecord(memberCtx, t, db, me, "c-1", sender, "telegram", false)
+	seedTracedRecord(memberCtx, t, db, me, "c-1", sender, "telegram", capture.TraceCaptured, false)
 
-	window, err := store.ListMine(memberCtx, nil, nil)
+	entries := entriesByConnector(memberCtx, t, store, 2)
+	if entries["gmail"].Resolution == nil {
+		t.Errorf("the mail row lost its verdict — the guard scopes the ledger, it does not suppress it")
+	}
+	if got := entries["telegram"].Resolution; got != nil {
+		t.Errorf("a captured direct message reports %q, want no verdict — it opened no question", got.Status)
+	}
+}
+
+// A channel message whose sender is named by an ADDRESS runs the mail ladder
+// like any mail: the question it defers is its own, and the answer is its own
+// to report.
+//
+// This is the case a guard on activity.channel_provider could not express.
+// kind='message' forces that column non-null for every channel record, so
+// guarding on it refused the address-named ones too — and since nothing ever
+// clears a trace's verdict, they read "waiting on a verdict" for the whole
+// 24-hour window after their verdict had landed.
+func TestAnAddressNamedChannelMessageCarriesItsOwnVerdict(t *testing.T) {
+	ctx, ws, db, store := traceReadWorkspace(t)
+	me := ids.NewV7()
+	memberCtx := memberContext(ctx, ws, me)
+	const sender = "mentioned@client.io"
+
+	// The first mention raised the question; the second is the same sender
+	// again, joining it.
+	seedDeferredRecord(memberCtx, t, db, me, "x-1", sender, "telegram", true)
+	seedDeferredRecord(memberCtx, t, db, me, "x-2", sender, "telegram", false)
+
+	for _, entry := range traceEntries(memberCtx, t, store, 2) {
+		if entry.Resolution == nil {
+			t.Errorf("a mentioned sender's message still reads unresolved — the ladder deferred it, so the ladder's answer is its answer")
+			continue
+		}
+		if entry.Resolution.Status != "real" {
+			t.Errorf("resolution = %q, want the ledger's answer", entry.Resolution.Status)
+		}
+	}
+}
+
+// traceEntries reads the member's window and insists on the row count the test
+// seeded, so a later assertion is about the rows it means.
+func traceEntries(ctx context.Context, t *testing.T, store *capture.TraceStore, want int) []capture.TraceRow {
+	t.Helper()
+	window, err := store.ListMine(ctx, nil, nil)
 	if err != nil {
 		t.Fatalf("ListMine: %v", err)
 	}
+	if len(window.Entries) != want {
+		t.Fatalf("entries = %d, want %d", len(window.Entries), want)
+	}
+	return window.Entries
+}
 
-	if len(window.Entries) != 2 {
-		t.Fatalf("entries = %d, want the mail row and the channel row", len(window.Entries))
+// entriesByConnector keys the window by the transport each row names, which is
+// how a test tells two seeded rows apart: the read returns no source id, and
+// the connector is the field the seed varies.
+func entriesByConnector(ctx context.Context, t *testing.T, store *capture.TraceStore, want int) map[string]capture.TraceRow {
+	t.Helper()
+	out := make(map[string]capture.TraceRow, want)
+	for _, entry := range traceEntries(ctx, t, store, want) {
+		out[entry.Connector] = entry
 	}
-	resolved := 0
-	for _, entry := range window.Entries {
-		if entry.Resolution != nil {
-			resolved++
-		}
+	if len(out) != want {
+		t.Fatalf("connectors = %d over %d rows, want one per row", len(out), want)
 	}
-	if resolved != 1 {
-		t.Errorf("%d of 2 rows carry the mail verdict, want exactly the mail one — a channel record has no ladder verdict to report, which is not the same as having one that is pending", resolved)
-	}
+	return out
 }

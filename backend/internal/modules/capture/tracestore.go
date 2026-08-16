@@ -272,19 +272,35 @@ const traceRowColumns = `t.id, t.stage, t.connector, t.outcome, coalesce(t.reaso
 // address unless an operator enabled payloads, and what a member is told must
 // not depend on a diagnostic posture.
 //
-// MAIL rows only, and the channel_provider guard is what says so. The
-// disposition ledger is the mail ladder's, keyed on an address; a channel
-// message may carry a corroborating address, and without the guard a direct
-// message inherits whatever mail verdict is pending for that same human —
-// telling a member their captured, linked and answered conversation is
-// "waiting on a verdict". A channel record has no ladder verdict to report,
-// which is not the same as having one that is pending.
+// A channel row reports a verdict only when the LADDER ITSELF opened the
+// question, and the outcome is what says so.
+//
+// Two different channel messages reach this join, and the transport cannot tell
+// them apart. One names its human by a channel identity: it takes
+// decideChannelCounterparty, which writes no ledger row at all, so an address
+// riding along as corroboration would otherwise make it inherit whatever mail
+// verdict exists for that human — telling a member their captured, linked and
+// answered conversation is "waiting on a verdict". The other names its human by
+// an ADDRESS alone (a mention, where the address IS the identity): it runs the
+// mail ladder like any mail, and the row it defers is its own. Guarding on
+// activity.channel_provider refused both, because kind='message' forces that
+// column non-null for every channel record — so the second kind read "waiting on
+// a verdict" permanently, after its verdict had landed.
+//
+// `deferred` and `suppressed` are the outcomes the ladder records a disposition
+// for, so they are exactly the rows with a question of their own. A
+// channel-identity record traces neither. Mail is unguarded: a `captured` row
+// carrying noise_prior or decided_prior is reporting a settled PRIOR verdict,
+// which is the answer to "why did this not appear?".
 //
 // BOTH joins carry the workspace, and that is not belt-and-braces: there is no
 // RLS on these tables since 0217, an address is not unique across tenants, and
 // an unscoped `d.email = a.counterparty_email` would answer with ANOTHER
 // workspace's verdict about the same person.
-const resolutionJoin = `
+// Spelled from the TraceOutcome constants rather than as SQL literals, because
+// the two must mean the same thing: an outcome renamed in Go while the string
+// here stayed put would leave the join silently answering for no rows.
+var resolutionJoin = fmt.Sprintf(`
 		  LEFT JOIN activity a
 		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
 		  LEFT JOIN LATERAL (
@@ -292,9 +308,9 @@ const resolutionJoin = `
 		           FROM capture_pending_counterparty
 		          WHERE workspace_id = t.workspace_id
 		            AND email = a.counterparty_email
-		            AND a.channel_provider IS NULL
+		            AND (a.channel_provider IS NULL OR t.outcome IN ('%s', '%s'))
 		          ORDER BY resolved_at DESC NULLS FIRST
-		          LIMIT 1) d ON true`
+		          LIMIT 1) d ON true`, TraceDeferred, TraceSuppressed)
 
 func scanTraceRow(rows pgx.Rows) (TraceRow, error) {
 	var row TraceRow

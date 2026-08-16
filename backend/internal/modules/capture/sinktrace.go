@@ -108,6 +108,16 @@ func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
 // to a label. Everything else answers with the natural key's SOURCE SYSTEM
 // (`gmail`, `imap`, `ext:<unit>:<system>`).
 //
+// The provider is read from the RECORD's own fields — the value that becomes
+// activity.channel_provider — and not from the counterparty's channel identity.
+// They are different questions: one is how the message travelled, the other is
+// how it names its human. A connector that names a human by address alone (a
+// mention, where the address IS the identity) carries no channel identity, so
+// reading the transport off the counterparty spelled the SAME connector two
+// ways in one list — `dispact` for its direct messages and
+// `ext:dispact-connector:dispact` for its mentions — and only the first
+// resolved to a label.
+//
 // Not captureSource: that is the provenance CHANNEL, and a connector may set it
 // to `<system>:<id>` — several do — so it identifies one message rather than the
 // transport that carried it, and would put a message id in a column meant to
@@ -118,8 +128,8 @@ func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
 // binary, and two deploys' traces would disagree about the same transport with
 // no row having changed.
 func traceConnector(rec connector.NormalizedRecord) string {
-	if provider := rec.Counterparty.ChannelIdentity.Provider; provider != "" {
-		return provider
+	if fields, ok := rec.Fields.(ActivityFields); ok && fields.ChannelProvider != "" {
+		return fields.ChannelProvider
 	}
 	return rec.NaturalKey.SourceSystem
 }
