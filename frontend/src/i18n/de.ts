@@ -3797,6 +3797,8 @@ export const de = {
   "captureActivity.filtered":
     "{shown} von {total} {outcome} in diesem Zeitraum.",
   "captureActivity.openTrace": "Jeden Schritt dieser Nachricht ansehen",
+  "captureActivity.emptyFiltered":
+    "keine der geladenen Zeilen passt — laden Sie mehr, um den Rest des Zeitraums zu erreichen",
   "captureActivity.loadMore": "Mehr laden",
   "captureActivity.empty":
     "keine Erfassungsaktivität in den letzten 24 Stunden",
@@ -3848,9 +3850,9 @@ export const de = {
   "pipeline.status.pending": "Wartet",
   "pipeline.status.failed": "Fehlgeschlagen",
   "pipeline.status.not_applicable": "Nicht zutreffend",
-  "pipeline.status.withheld": "Für Sie nicht einsehbar",
-  "pipeline.status.expired": "Nicht mehr gespeichert",
-  "pipeline.status.unknown": "Unbekannt",
+  "pipeline.status.unknown": "Nicht feststellbar",
+  "pipeline.reason.record_not_available":
+    "der Eintrag zu diesem Schritt wird nicht mehr aufbewahrt, oder er ist nicht für Sie lesbar — ist der Eintrag fort, lässt sich beides nicht mehr unterscheiden",
   "pipeline.status.not_reported": "Hier nicht ausgewiesen",
   "pipeline.subject.message": "zu dieser Nachricht",
   "pipeline.subject.sender": "zum Absender, nicht nur zu dieser Nachricht",

@@ -17,6 +17,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	trace "github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
@@ -39,7 +40,10 @@ func (h Handlers) ReadActivityPipelineTrace(w http.ResponseWriter, r *http.Reque
 	}
 	ladder, err := h.assembler.ByActivityID(r.Context(), ids.UUID(id))
 	if err != nil {
-		httperr.Write(w, r, err)
+		// capture's own mapping, not httperr.Write: the store can answer with a
+		// sentinel this package does not own, and the sibling window read
+		// already turns it into a sentence rather than a bare 500.
+		capture.WriteTraceErr(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, h.wire(ladder))
@@ -54,7 +58,7 @@ func (h Handlers) ReadCaptureTracePipeline(w http.ResponseWriter, r *http.Reques
 	}
 	ladder, err := h.assembler.ByTraceID(r.Context(), ids.UUID(id))
 	if err != nil {
-		httperr.Write(w, r, err)
+		capture.WriteTraceErr(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, h.wire(ladder))

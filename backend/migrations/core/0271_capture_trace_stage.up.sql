@@ -1,4 +1,4 @@
--- 0270: which PIPELINE STAGE a capture_trace row explains.
+-- 0271: which PIPELINE STAGE a capture_trace row explains.
 --
 -- 0258 gave a member the outcomes of capture. It could not tell them which STEP
 -- produced one, and it had nothing to say about the steps that leave no trace

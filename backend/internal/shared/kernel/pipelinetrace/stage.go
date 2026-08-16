@@ -106,22 +106,22 @@ const (
 	// StatusNotApplicable means the stage does not apply to this message. Distinct
 	// from skipped: nothing declined, there was simply no question to answer.
 	StatusNotApplicable Status = "not_applicable"
-	// StatusWithheld means the reader may not see this rung. It keeps its place and
-	// says so; omitting it would state that the stage did not happen.
+	// StatusUnknown means this surface cannot establish whether the stage ran.
 	//
-	// Rendered UNCONDITIONALLY to a non-owner, whether or not a row exists.
-	// Conditional withholding is a row-existence oracle: an activity proves
+	// It is the ONE answer for every reason we cannot say, and it covers two
+	// situations on purpose: a window that has been swept, and rows that are
+	// not this reader's.
+	//
+	// Merging them is what keeps the answer CONSTANT for a non-owner, which is
+	// what stops the rung being a row-existence oracle: an activity proves
 	// capture ran, but a coexisting fault row's existence is not derivable from
-	// it, so a caller comparing two messages would learn which one faulted on a
-	// colleague's mailbox.
-	StatusWithheld Status = "withheld"
-	// StatusExpired means the stage ran and the detail has been swept. Permitted
-	// ONLY where the run is provable from durable state; where absence and
-	// never-happened are indistinguishable, StatusUnknown is the honest answer.
-	StatusExpired Status = "expired"
-	// StatusUnknown means we are outside the retention window and whether this stage ran
-	// cannot be established. Distinct from StatusNotApplicable, which claims
-	// the stage did not apply — a claim swept data cannot support.
+	// it, and a caller comparing two messages must not learn which one faulted
+	// on a colleague's mailbox. It is also the only wording true of the reader
+	// who is most often here — the message's OWN OWNER past the sweep, whose
+	// rows were deleted rather than hidden.
+	//
+	// Distinct from StatusNotApplicable, which claims the stage did not apply —
+	// a claim absent rows cannot support.
 	StatusUnknown Status = "unknown"
 	// StatusNotReported means this surface does not report this stage. The rung's
 	// reason says which kind of not-reported it is — never shown by design,
@@ -129,6 +129,29 @@ const (
 	// does not exist. Collapsing those four would tell a member the wrong one.
 	StatusNotReported Status = "not_reported"
 )
+
+// OpenDispositionStatuses are the ledger states that mean a sender's question
+// is still open.
+//
+// The trace's own spelling of it, shared by the reader that explains the
+// classifier's backlog and by the verdict rung in another module — two places
+// that were two literals. `ClassifyBacklogPredicate` still inlines the same set
+// in SQL, because it is one constant string a query embeds verbatim; the
+// agreement test over both callers is what holds those two together.
+//
+// The reason any of this is shared: a ledger status added later would otherwise
+// render as a reached verdict on a sender still being judged.
+func OpenDispositionStatuses() []string { return []string{"pending", "unsure"} }
+
+// IsOpenDisposition reports whether a ledger status means the question is open.
+func IsOpenDisposition(status string) bool {
+	for _, open := range OpenDispositionStatuses() {
+		if status == open {
+			return true
+		}
+	}
+	return false
+}
 
 // SubjectKind is WHAT a stage's answer is about.
 //

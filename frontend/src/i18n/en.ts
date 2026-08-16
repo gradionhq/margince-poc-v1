@@ -3801,6 +3801,8 @@ export const en = {
   "captureActivity.filtered":
     "Showing {shown} of {total} {outcome} in this window.",
   "captureActivity.openTrace": "See every step this message went through",
+  "captureActivity.emptyFiltered":
+    "none of the loaded rows match — load more to reach the rest of the window",
   "captureActivity.loadMore": "Load more",
   "captureActivity.empty": "no capture activity in the last 24 hours",
   "captureActivity.contentNotStored": "content not stored",
@@ -3848,9 +3850,9 @@ export const en = {
   "pipeline.status.pending": "Waiting",
   "pipeline.status.failed": "Failed",
   "pipeline.status.not_applicable": "Did not apply",
-  "pipeline.status.withheld": "Not yours to see",
-  "pipeline.status.expired": "No longer kept",
-  "pipeline.status.unknown": "Unknown",
+  "pipeline.status.unknown": "Cannot tell",
+  "pipeline.reason.record_not_available":
+    "this step's record is no longer kept, or is not yours to read — once the record is gone the two cannot be told apart",
   "pipeline.status.not_reported": "Not reported here",
   "pipeline.subject.message": "about this message",
   "pipeline.subject.sender": "about the sender, not this message alone",

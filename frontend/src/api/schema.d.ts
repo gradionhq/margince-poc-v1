@@ -8391,7 +8391,7 @@ export interface components {
             connector?: string;
             /** @description The deployment's `capture.trace_payloads` posture. False means no rung carries `counterparty` or `subject` because the operator did not turn payload capture on — as against a rung that simply has none. */
             payload_capture_enabled: boolean;
-            /** @description How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable`. */
+            /** @description How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable` — the rows are gone, so whether the stage ran can no longer be established. */
             retention_hours: number;
             /** @description Every registered stage, ordered as a message meets them. Never a subset. */
             stages: components["schemas"]["PipelineStageRung"][];
@@ -8407,10 +8407,10 @@ export interface components {
              */
             subject_kind: "message" | "sender" | "domain" | "thread";
             /**
-             * @description `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+             * @description `not_applicable` says the stage did not apply. `unknown` says this surface cannot establish what happened — past the retention window those are different claims and only one is honest. `unknown` is also what a non-owner gets, unconditionally, so that its presence discloses nothing: a swept window and rows that are not yours produce the same absence, and the reader is frequently the message's own owner whose rows were deleted rather than hidden. `not_reported` says this surface does not report the stage at all; `reason` says which kind.
              * @enum {string}
              */
-            status: "done" | "skipped" | "pending" | "failed" | "not_applicable" | "withheld" | "expired" | "unknown" | "not_reported";
+            status: "done" | "skipped" | "pending" | "failed" | "not_applicable" | "unknown" | "not_reported";
             /** @description A class this installation chose, never a provider's text and never message content. Scoped by stage: the catalog key is `<stage>.<reason>`, so one code says something stage-appropriate wherever it appears. */
             reason?: string | null;
             /** @description Server-rendered fallback name for the stage. A client prefers its own catalog keyed on `stage`; this is what keeps a stage added by a newer server legible on an older client instead of vanishing or leaking a raw key. */

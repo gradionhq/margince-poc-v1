@@ -133,7 +133,7 @@ func TestAReadWithNoMemberBehindItSaysSo(t *testing.T) {
 	// is simply no member on this invocation to have any.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/v1/capture/activity", nil)
-	TraceHandlers{store: &TraceStore{}}.writeTraceErr(w, r, errNoCallingMember)
+	WriteTraceErr(w, r, errNoCallingMember)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
 	}

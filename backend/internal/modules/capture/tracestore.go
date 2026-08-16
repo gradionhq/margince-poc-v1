@@ -193,37 +193,6 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		where += fmt.Sprintf(" AND (t.occurred_at, t.id) < ($%d, $%d)",
 			addArg(decoded.CreatedAt), addArg(decoded.ID))
 	}
-	// BOTH joins carry the workspace, and that is not belt-and-braces: there is
-	// no RLS on these tables since 0217, an address is not unique across
-	// tenants, and `d.email = a.counterparty_email` unscoped would answer with
-	// ANOTHER workspace's verdict about the same person.
-	//
-	// The ledger side is a LATERAL taking ONE row, because the ledger holds a
-	// row per address per state: a plain join fans out and the same message
-	// appears once per historical disposition. Newest resolution first, with
-	// unresolved (NULL) ahead of it — an open question is the current answer.
-	//
-	// Resolution is joined through the ACTIVITY's counterparty address, not
-	// through activity_id.
-	//
-	// The ledger keeps one open question per address and records the FIRST
-	// activity that raised it, so joining ids answers only a sender's first
-	// message: their second and later ones would read "waiting on a verdict"
-	// forever, after the verdict had landed. One sender's answer covers every
-	// message they sent, which is what this join says.
-	//
-	// Through the activity rather than through t.counterparty because the trace
-	// holds no address unless an operator enabled payloads, and what a member is
-	// told must not depend on a diagnostic posture. The activity is the member's
-	// own message, so its sender's disposition is theirs to know.
-	//
-	// MAIL rows only, and the channel_provider guard is what says so. The
-	// disposition ledger is the mail ladder's, keyed on an address; a channel
-	// message may carry a corroborating address, and without the guard a direct
-	// message inherits whatever mail verdict is pending for that same human —
-	// telling a member their captured, linked and answered conversation is
-	// "waiting on a verdict". A channel record has no ladder verdict to report,
-	// which is not the same as having one that is pending.
 	rows, err := tx.Query(ctx, storekit.SQLf(`
 		SELECT `+traceRowColumns+`
 		  FROM capture_trace t`+resolutionJoin+`
@@ -281,8 +250,7 @@ func finishTracePage(items []TraceRow, n int) ([]TraceRow, string) {
 //
 // Two spellings would be two answers: the window would say a sender is still
 // waiting while the drawer opened from it said the verdict had landed, and a
-// member comparing the two would be right to trust neither. The join's own
-// reasoning is unchanged and stated below.
+// member comparing the two would be right to trust neither.
 const traceRowColumns = `t.id, t.stage, t.connector, t.outcome, coalesce(t.reason, ''), t.activity_id,
 		       d.status, coalesce(d.kind, ''), d.resolved_at,
 		       coalesce(t.counterparty, ''), coalesce(t.subject, ''), t.occurred_at`

@@ -6819,22 +6819,18 @@ func (e PersonResearchRunState) Valid() bool {
 // Defines values for PipelineStageRungStatus.
 const (
 	PipelineStageRungStatusDone          PipelineStageRungStatus = "done"
-	PipelineStageRungStatusExpired       PipelineStageRungStatus = "expired"
 	PipelineStageRungStatusFailed        PipelineStageRungStatus = "failed"
 	PipelineStageRungStatusNotApplicable PipelineStageRungStatus = "not_applicable"
 	PipelineStageRungStatusNotReported   PipelineStageRungStatus = "not_reported"
 	PipelineStageRungStatusPending       PipelineStageRungStatus = "pending"
 	PipelineStageRungStatusSkipped       PipelineStageRungStatus = "skipped"
 	PipelineStageRungStatusUnknown       PipelineStageRungStatus = "unknown"
-	PipelineStageRungStatusWithheld      PipelineStageRungStatus = "withheld"
 )
 
 // Valid indicates whether the value is a known member of the PipelineStageRungStatus enum.
 func (e PipelineStageRungStatus) Valid() bool {
 	switch e {
 	case PipelineStageRungStatusDone:
-		return true
-	case PipelineStageRungStatusExpired:
 		return true
 	case PipelineStageRungStatusFailed:
 		return true
@@ -6847,8 +6843,6 @@ func (e PipelineStageRungStatus) Valid() bool {
 	case PipelineStageRungStatusSkipped:
 		return true
 	case PipelineStageRungStatusUnknown:
-		return true
-	case PipelineStageRungStatusWithheld:
 		return true
 	default:
 		return false
@@ -17806,7 +17800,7 @@ type PipelineStageRung struct {
 	// Stage The stage's stable key. NOT an enum: the pipeline grows, and a client that refused an unrecognised stage would hide exactly the new step nobody has explained yet. Render an unknown key from `label`.
 	Stage string `json:"stage"`
 
-	// Status `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+	// Status `not_applicable` says the stage did not apply. `unknown` says this surface cannot establish what happened — past the retention window those are different claims and only one is honest. `unknown` is also what a non-owner gets, unconditionally, so that its presence discloses nothing: a swept window and rows that are not yours produce the same absence, and the reader is frequently the message's own owner whose rows were deleted rather than hidden. `not_reported` says this surface does not report the stage at all; `reason` says which kind.
 	Status PipelineStageRungStatus `json:"status"`
 
 	// Subject Only under the payload posture, and only from the caller's own stored rows.
@@ -17816,7 +17810,7 @@ type PipelineStageRung struct {
 	SubjectKind PipelineStageRungSubjectKind `json:"subject_kind"`
 }
 
-// PipelineStageRungStatus `not_applicable` says the stage did not apply; `unknown` says we can no longer tell — past the retention window those are different claims and only one is honest. `withheld` says the reader may not see this rung, and is returned unconditionally for a non-owner so that its presence discloses nothing. `not_reported` says this surface does not report the stage; `reason` says which kind.
+// PipelineStageRungStatus `not_applicable` says the stage did not apply. `unknown` says this surface cannot establish what happened — past the retention window those are different claims and only one is honest. `unknown` is also what a non-owner gets, unconditionally, so that its presence discloses nothing: a swept window and rows that are not yours produce the same absence, and the reader is frequently the message's own owner whose rows were deleted rather than hidden. `not_reported` says this surface does not report the stage at all; `reason` says which kind.
 type PipelineStageRungStatus string
 
 // PipelineStageRungSubjectKind WHAT this rung's answer is about. Required because the stages do not share a subject: the verdict is asked once per SENDER, so rendering it without saying whose would read as a claim about this one message.
@@ -17833,7 +17827,7 @@ type PipelineTrace struct {
 	// PayloadCaptureEnabled The deployment's `capture.trace_payloads` posture. False means no rung carries `counterparty` or `subject` because the operator did not turn payload capture on — as against a rung that simply has none.
 	PayloadCaptureEnabled bool `json:"payload_capture_enabled"`
 
-	// RetentionHours How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable`.
+	// RetentionHours How long stored rungs are kept. Derived rungs answer at any age; stored ones report `unknown` past this, which is a different claim from `not_applicable` — the rows are gone, so whether the stage ran can no longer be established.
 	RetentionHours int `json:"retention_hours"`
 
 	// Stages Every registered stage, ordered as a message meets them. Never a subset.

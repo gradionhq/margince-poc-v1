@@ -53,15 +53,17 @@ const (
 	ReasonNotLinkedYet      Reason = "not_linked_yet"
 	ReasonNoContactIntended Reason = "no_contact_intended"
 
+	// Every stored stage, when this surface cannot establish what happened.
+	// One class for both causes, because the two are indistinguishable once the
+	// rows are gone: a swept window and a reader who does not own the rows
+	// produce the same absence, and naming either specifically would state a
+	// fact we do not have — or, for a non-owner, disclose one we must not.
+	ReasonRecordNotAvailable Reason = "record_not_available"
+
 	// StageVerdict.
 	ReasonAwaitingVerdict Reason = "awaiting_verdict"
 	ReasonVerdictReached  Reason = "verdict_reached"
 	ReasonNoOpenQuestion  Reason = "no_open_question"
-
-	// StageCompanyTriage.
-	ReasonTriageQueued   Reason = "triage_queued"
-	ReasonTriageDecided  Reason = "triage_decided"
-	ReasonTriageNotAsked Reason = "triage_not_asked"
 
 	// StageAttentionLabel. Four ways the backlog excludes a message, because a
 	// ladder that says "reads email only" about an ARCHIVED email gives a wrong
@@ -73,11 +75,9 @@ const (
 	ReasonAwaitingBatch        Reason = "awaiting_batch"
 	ReasonLabelled             Reason = "labelled"
 
-	// StageMaterialEvents.
-	ReasonNoThread       Reason = "no_thread"
-	ReasonThreadSettling Reason = "thread_settling"
-	ReasonThreadParked   Reason = "thread_parked"
-	ReasonThreadRead     Reason = "thread_read"
+	// StageCompanyTriage and StageMaterialEvents contribute no reasons yet: both
+	// are `planned`, so nothing produces one. Their vocabulary arrives with the
+	// derivation that emits it (#1434), rather than sitting here unproducible.
 )
 
 // Absence reasons. Why a whole STAGE reports nothing, as against why one message

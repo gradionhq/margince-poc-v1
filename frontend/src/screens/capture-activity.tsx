@@ -210,35 +210,46 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
                 })}
               </p>
             )}
-            {shown.length === 0 ? (
+            {shown.length === 0 && (
+              // A filter that matched nothing LOADED is not an empty window.
+              // The counter above may say 3 while all three sit on pages
+              // nobody has fetched, and saying "no capture activity" there
+              // would contradict the number beside it.
               <SurfaceState
                 state="empty"
-                emptyLabel={t("captureActivity.empty")}
+                emptyLabel={t(
+                  filter
+                    ? "captureActivity.emptyFiltered"
+                    : "captureActivity.empty",
+                )}
               >
                 {null}
               </SurfaceState>
-            ) : (
-              <>
-                <ul className="capture-activity__list">
-                  {shown.map((entry) => (
-                    <CaptureEntryRow
-                      key={entry.id}
-                      entry={entry}
-                      payloads={first.payload_capture_enabled}
-                      onOpen={() => setOpenTrace(entry.id)}
-                    />
-                  ))}
-                </ul>
-                {query.hasNextPage && (
-                  <Button
-                    small
-                    disabled={query.isFetchingNextPage}
-                    onClick={() => void query.fetchNextPage()}
-                  >
-                    {t("captureActivity.loadMore")}
-                  </Button>
-                )}
-              </>
+            )}
+            {shown.length > 0 && (
+              <ul className="capture-activity__list">
+                {shown.map((entry) => (
+                  <CaptureEntryRow
+                    key={entry.id}
+                    entry={entry}
+                    payloads={first.payload_capture_enabled}
+                    onOpen={() => setOpenTrace(entry.id)}
+                  />
+                ))}
+              </ul>
+            )}
+            {/* Outside the rows, so a filter matching nothing on this page can
+                still reach the pages that hold its matches. Hiding it there was
+                a dead end: the counter promised rows the reader had no way to
+                fetch. */}
+            {query.hasNextPage && (
+              <Button
+                small
+                disabled={query.isFetchingNextPage}
+                onClick={() => void query.fetchNextPage()}
+              >
+                {t("captureActivity.loadMore")}
+              </Button>
             )}
             {openTrace && (
               <CaptureActivityDrawer

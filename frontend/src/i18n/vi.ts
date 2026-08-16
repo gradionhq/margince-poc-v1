@@ -3783,6 +3783,8 @@ export const vi = {
   "captureActivity.filtered":
     "Hiển thị {shown} trong {total} {outcome} ở khoảng thời gian này.",
   "captureActivity.openTrace": "Xem mọi bước tin nhắn này đã đi qua",
+  "captureActivity.emptyFiltered":
+    "không dòng nào đã tải khớp — tải thêm để xem phần còn lại của khoảng thời gian",
   "captureActivity.loadMore": "Tải thêm",
   "captureActivity.empty": "không có hoạt động thu thập trong 24 giờ qua",
   "captureActivity.contentNotStored": "nội dung không được lưu",
@@ -3832,9 +3834,9 @@ export const vi = {
   "pipeline.status.pending": "Đang chờ",
   "pipeline.status.failed": "Thất bại",
   "pipeline.status.not_applicable": "Không áp dụng",
-  "pipeline.status.withheld": "Bạn không được xem",
-  "pipeline.status.expired": "Không còn lưu",
-  "pipeline.status.unknown": "Không rõ",
+  "pipeline.status.unknown": "Không xác định được",
+  "pipeline.reason.record_not_available":
+    "bản ghi của bước này không còn được lưu, hoặc bạn không được đọc — khi bản ghi đã mất thì không thể phân biệt hai điều đó",
   "pipeline.status.not_reported": "Không báo cáo ở đây",
   "pipeline.subject.message": "về tin nhắn này",
   "pipeline.subject.sender": "về người gửi, không riêng tin nhắn này",

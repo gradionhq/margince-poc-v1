@@ -20,6 +20,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -75,17 +76,24 @@ type PipelineFacts struct {
 
 // ReadPipelineFacts answers the derived rungs for one activity.
 //
-// It takes the SAME object gate GetActivity takes, rather than trusting the
-// caller to have taken it. The compose assembler does take it first, and that is
-// still not sufficient: a guard the caller supplies is a guard the next caller
-// can forget, and this returns facts ABOUT a message — whether a contact was
-// made from it, what the classifier concluded — which is a read like any other.
+// It takes BOTH gates readActivity takes — the object grant and the row scope —
+// rather than trusting the caller to have taken them. Anything that returns a
+// record is a read, and this returns facts ABOUT a message: whether a contact
+// was made from it, what the classifier concluded. The object grant alone would
+// answer for an activity the caller's row scope excludes.
+//
+// The compose assembler gates first as well, and that is still not sufficient:
+// a guard the caller supplies is a guard the next caller can forget, and this
+// read is reachable from two doors.
 func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFacts, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return PipelineFacts{}, err
 	}
 	var out PipelineFacts
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureActivityVisible(ctx, tx, id); err != nil {
+			return err
+		}
 		var label *string
 		var kind, capturedBy string
 		var archived, senderUndecided, eligible bool
@@ -100,10 +108,10 @@ func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFac
 			  EXISTS (SELECT 1 FROM capture_pending_counterparty p
 			           WHERE p.workspace_id = activity.workspace_id
 			             AND p.email = activity.counterparty_email
-			             AND p.status IN ('pending', 'unsure')),
+			             AND p.status = ANY($2)),
 			  (`+ClassifyBacklogPredicate+`)
 			FROM activity
-			WHERE id = $1`, id)
+			WHERE id = $1`, id, pipelinetrace.OpenDispositionStatuses())
 		if err := row.Scan(&out.HasPersonLink, &label, &kind, &capturedBy,
 			&archived, &senderUndecided, &eligible); err != nil {
 			return err
@@ -165,7 +173,13 @@ func classifyReason(in classifySubject) pipelinetrace.Reason {
 	}
 }
 
+// isConnectorCaptured mirrors the predicate's `LIKE 'connector:%'` exactly.
+//
+// HasPrefix rather than a length test: `%` matches the empty string, so a bare
+// "connector:" is eligible to the backlog. A stricter check here would call
+// that row "not captured by a connector" while the classifier queued it — the
+// reader and the rule disagreeing about one row, which is the one thing this
+// pairing exists to prevent.
 func isConnectorCaptured(capturedBy string) bool {
-	const prefix = "connector:"
-	return len(capturedBy) > len(prefix) && capturedBy[:len(prefix)] == prefix
+	return strings.HasPrefix(capturedBy, "connector:")
 }

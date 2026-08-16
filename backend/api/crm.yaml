@@ -3514,7 +3514,10 @@ paths:
 
         Gated by the ACTIVITY's own row scope. Stages answered from a `capture_trace` row are
         additionally the owning member's alone — a colleague reading a shared record sees those
-        rungs as `withheld`, keeping their place, never omitted.
+        rungs as `unknown` with reason `record_not_available`, keeping their place, never
+        omitted. That is the SAME answer the message's own owner gets once the 24-hour window has
+        swept the rows, and deliberately so: distinguishing the two would tell a colleague whether
+        a row exists.
       responses:
         '200':
           description: The ladder, ordered as a message meets the pipeline.
@@ -12976,7 +12979,8 @@ components:
           type: integer
           description: >-
             How long stored rungs are kept. Derived rungs answer at any age; stored ones report
-            `unknown` past this, which is a different claim from `not_applicable`.
+            `unknown` past this, which is a different claim from `not_applicable` — the rows are
+            gone, so whether the stage ran can no longer be established.
         stages:
           type: array
           description: Every registered stage, ordered as a message meets them. Never a subset.
@@ -13002,13 +13006,15 @@ components:
             as a claim about this one message.
         status:
           type: string
-          enum: [done, skipped, pending, failed, not_applicable, withheld, expired, unknown, not_reported]
+          enum: [done, skipped, pending, failed, not_applicable, unknown, not_reported]
           description: >-
-            `not_applicable` says the stage did not apply; `unknown` says we can no longer tell —
-            past the retention window those are different claims and only one is honest.
-            `withheld` says the reader may not see this rung, and is returned unconditionally for
-            a non-owner so that its presence discloses nothing. `not_reported` says this surface
-            does not report the stage; `reason` says which kind.
+            `not_applicable` says the stage did not apply. `unknown` says this surface cannot
+            establish what happened — past the retention window those are different claims and
+            only one is honest. `unknown` is also what a non-owner gets, unconditionally, so that
+            its presence discloses nothing: a swept window and rows that are not yours produce the
+            same absence, and the reader is frequently the message's own owner whose rows were
+            deleted rather than hidden. `not_reported` says this surface does not report the
+            stage at all; `reason` says which kind.
         reason:
           type: [string, 'null']
           description: >-

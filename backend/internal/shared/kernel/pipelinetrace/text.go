@@ -10,8 +10,9 @@ import "fmt"
 //
 // It mirrors capture's own TraceWindowHours rather than importing it — capture
 // is a module and this is a Tier-0 leaf, so the dependency can only run the
-// other way. A fitness test in capture asserts the two agree, which is the only
-// way this can be wrong and the cheapest place to catch it.
+// other way. TestTheRetentionHoursAgreeWithTheSweep in capture asserts the two
+// are equal, because they are two literals guarding one member-facing claim:
+// whether a rung says the record is gone or that it never happened.
 const RetentionHours = 24
 
 // StageLabel and ReasonText are the SERVER'S FALLBACK rendering, not the
@@ -54,34 +55,29 @@ func StageLabel(stage Stage) string {
 }
 
 var reasonTexts = map[Reason]string{
-	ReasonInternalOnly:         "every party was on your own domains",
-	ReasonInvisibleIncumbent:   "it matched a record outside what you can see",
-	ReasonTransactionalInfra:   "the sender is mail infrastructure, not a company you work with",
-	ReasonTransactionalPrefix:  "the sender looks like an automated mailer, not a person",
-	ReasonDeferralCapped:       "the open-question limit was reached, so no verdict is coming",
-	ReasonNoisePrior:           "a previous verdict judged this sender noise",
-	ReasonDecidedPrior:         "this sender was already decided",
-	ReasonNoCounterparty:       "no sender this CRM could record",
-	ReasonNoGrantingHuman:      "the connection named no member to act for",
-	ReasonDerivationFailed:     "the contact step failed; the message itself is unaffected",
-	ReasonNotLinkedYet:         "no contact is linked to this message yet",
-	ReasonNoContactIntended:    "the contact decision concluded that none was to be made",
-	ReasonAwaitingVerdict:      "the sender is still waiting on a verdict",
-	ReasonVerdictReached:       "a verdict has been reached for this sender",
-	ReasonNoOpenQuestion:       "there was no open question about this sender",
-	ReasonTriageQueued:         "the sender's domain is queued for a company check",
-	ReasonTriageDecided:        "the sender's domain has been checked",
-	ReasonTriageNotAsked:       "no company check was needed",
+	ReasonInternalOnly:        "every party was on your own domains",
+	ReasonInvisibleIncumbent:  "it matched a record outside what you can see",
+	ReasonTransactionalInfra:  "the sender is mail infrastructure, not a company you work with",
+	ReasonTransactionalPrefix: "the sender looks like an automated mailer, not a person",
+	ReasonDeferralCapped:      "the open-question limit was reached, so no verdict is coming",
+	ReasonNoisePrior:          "a previous verdict judged this sender noise",
+	ReasonDecidedPrior:        "this sender was already decided",
+	ReasonNoCounterparty:      "no sender this CRM could record",
+	ReasonNoGrantingHuman:     "the connection named no member to act for",
+	ReasonDerivationFailed:    "the contact step failed; the message itself is unaffected",
+	ReasonNotLinkedYet:        "no contact is linked to this message yet",
+	ReasonNoContactIntended:   "the contact decision concluded that none was to be made",
+	ReasonAwaitingVerdict:     "the sender is still waiting on a verdict",
+	ReasonVerdictReached:      "a verdict has been reached for this sender",
+	ReasonNoOpenQuestion:      "there was no open question about this sender",
+	ReasonRecordNotAvailable: "this step's record is no longer kept, or is not yours to read — " +
+		"once the record is gone the two cannot be told apart",
 	ReasonTransportNotRead:     "this step reads email only, and the message arrived over another transport",
 	ReasonSenderUndecided:      "the sender is still waiting on a verdict, so the message is held back",
 	ReasonArchived:             "the message is archived",
 	ReasonNotConnectorCaptured: "the message was not captured by a connector",
 	ReasonAwaitingBatch:        "it is eligible and waiting for the next batch",
 	ReasonLabelled:             "the message was labelled",
-	ReasonNoThread:             "the message carries no conversation this step could read",
-	ReasonThreadSettling:       "the conversation is still moving; it is read once it settles",
-	ReasonThreadParked:         "repeated readings of this conversation disagreed, so it is parked",
-	ReasonThreadRead:           "the conversation has been read",
 	AbsentNotComparable: "what a connector filters on its own side is not counted here — " +
 		"the numbers mean different things per connector",
 	AbsentConnectorDefect:    "admission failures are a fault of the connection, not of one message",

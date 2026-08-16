@@ -24,10 +24,10 @@ import "./pipelineladder.css";
 
 type Rung = components["schemas"]["PipelineStageRung"];
 
-// The tone each status carries. `withheld`, `unknown` and `not_reported` share
-// the quiet tone on purpose: none of them is a claim about the MESSAGE, they
-// are all statements about what this reader can be told, and giving them a
-// verdict colour would read as one.
+// The tone each status carries. `unknown` and `not_reported` share the quiet
+// tone on purpose: neither is a claim about the MESSAGE, they are statements
+// about what this surface can tell the reader, and a verdict colour would read
+// as one.
 const STATUS_TONE: Record<
   Rung["status"],
   "success" | "warn" | "danger" | undefined
@@ -37,8 +37,6 @@ const STATUS_TONE: Record<
   pending: "warn",
   failed: "danger",
   not_applicable: undefined,
-  withheld: undefined,
-  expired: undefined,
   unknown: undefined,
   not_reported: undefined,
 };
@@ -176,6 +174,13 @@ const REASON_KEYS: Partial<Record<string, MessageKey>> = {
   "verdict.awaiting_verdict": "pipeline.reason.awaiting_verdict",
   "verdict.verdict_reached": "pipeline.reason.verdict_reached",
   "verdict.no_open_question": "pipeline.reason.no_open_question",
+  "internal_drop.record_not_available": "pipeline.reason.record_not_available",
+  "activity_write.record_not_available": "pipeline.reason.record_not_available",
+  "tier_ladder.record_not_available": "pipeline.reason.record_not_available",
+  "person_create.record_not_available": "pipeline.reason.record_not_available",
+  "verdict.record_not_available": "pipeline.reason.record_not_available",
+  "attention_label.record_not_available":
+    "pipeline.reason.record_not_available",
   "attention_label.transport_not_read": "pipeline.reason.transport_not_read",
   "attention_label.sender_undecided": "pipeline.reason.sender_undecided",
   "attention_label.archived": "pipeline.reason.archived",

@@ -44,8 +44,10 @@ type Rung struct {
 	// can see, and inventing one from the activity would date the wrong event.
 	At *time.Time
 
-	// Counterparty and Subject are populated only under the deployment's payload
-	// posture, and only from the caller's OWN stored rows.
+	// Counterparty and Subject carry whatever the caller's OWN stored row held.
+	// The deployment's payload posture is applied at the WIRE (wireRung), so a
+	// row written before the posture was turned off does not leak through this
+	// struct — but nothing here has consulted it yet.
 	Counterparty string
 	Subject      string
 }
@@ -74,12 +76,64 @@ func NewAssembler(traces *capture.TraceStore, acts *activities.Store, payloads b
 }
 
 // ByTraceID answers for one row of the member's own capture-activity window.
+//
+// Owning the trace row is NOT the same as being able to read the activity it
+// points at: an activity can move out of a member's row scope after their own
+// message created it. The window read strips the link in exactly that case
+// (hideUnreadableLinks — "returning the id would make this surface an existence
+// oracle over rows the timeline itself would refuse"), and this drawer opens
+// from that same row, so it must strip it too. Without the probe below the
+// drawer would hand back the id the list beside it had just withheld, plus the
+// derived rungs read from that activity.
 func (a *Assembler) ByTraceID(ctx context.Context, id ids.UUID) (Ladder, error) {
 	stored, err := a.traces.LadderByTraceID(ctx, id, a.payloads)
 	if err != nil {
 		return Ladder{}, err
 	}
-	return a.assemble(ctx, stored, true)
+	readable, err := a.activityReadable(ctx, stored.ActivityID)
+	if err != nil {
+		return Ladder{}, err
+	}
+	if !readable && stored.ActivityID != nil {
+		// The message is theirs and the activity is not. The stored rungs still
+		// answer — they describe the member's own message — but nothing derived
+		// from the activity may, and the id itself does not travel.
+		//
+		// `hidden`, not a nil id alone: an activity that exists and cannot be
+		// opened is a different fact from one that never existed, and the rung
+		// for the activity write has to tell them apart. Collapsing them made
+		// that rung report "dropped before the write was attempted" next to a
+		// tier-ladder rung reading `captured`.
+		stored.ActivityID = nil
+		return a.assemble(ctx, view{stored: stored, owned: true, activityHidden: true})
+	}
+	return a.assemble(ctx, view{stored: stored, owned: true})
+}
+
+// view is one caller's standing against one message: which of its rungs they may
+// read, and whether an activity they cannot open sits behind it.
+type view struct {
+	stored         capture.TraceLadder
+	owned          bool
+	activityHidden bool
+}
+
+// activityReadable asks whether the caller may open the activity this trace
+// points at. A trace with no activity is not a refusal: an internal-only drop
+// never produced one.
+func (a *Assembler) activityReadable(ctx context.Context, activityID *ids.UUID) (bool, error) {
+	if activityID == nil {
+		return false, nil
+	}
+	_, err := a.activities.GetActivity(ctx,
+		ids.From[ids.ActivityKind](*activityID), storekit.IncludeArchived)
+	if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ByActivityID answers for a message on a record page.
@@ -104,7 +158,7 @@ func (a *Assembler) ByActivityID(ctx context.Context, id ids.UUID) (Ladder, erro
 		return Ladder{}, err
 	}
 	stored.ActivityID = ptr(id)
-	return a.assemble(ctx, stored, owned)
+	return a.assemble(ctx, view{stored: stored, owned: owned})
 }
 
 // storedForActivity fetches the caller's own stored rungs for this message, and
@@ -113,8 +167,8 @@ func (a *Assembler) ByActivityID(ctx context.Context, id ids.UUID) (Ladder, erro
 // Not-found is not an error here. A colleague reading a shared record owns no
 // capture rows for it, and neither does a member looking at a message older than
 // the 24-hour window. Both get an empty ladder and `owned=false`, and the
-// assembler renders the stored rungs as withheld or expired rather than
-// pretending the stages did not happen.
+// assembler reports that it cannot tell — the one answer true of both, and the
+// only one that does not disclose which of the two the reader is.
 func (a *Assembler) storedForActivity(ctx context.Context, id ids.UUID) (capture.TraceLadder, bool, error) {
 	stored, err := a.traces.LadderByActivityID(ctx, id, a.payloads)
 	if errors.Is(err, apperrors.ErrNotFound) {
@@ -132,7 +186,8 @@ func (a *Assembler) storedForActivity(ctx context.Context, id ids.UUID) (capture
 // gets a rung, because a member reading a five-rung ladder where the pipeline has
 // twelve steps cannot tell which of the missing seven mattered — and the whole
 // point of this surface is that a silent step is the defect.
-func (a *Assembler) assemble(ctx context.Context, stored capture.TraceLadder, owned bool) (Ladder, error) {
+func (a *Assembler) assemble(ctx context.Context, v view) (Ladder, error) {
+	stored := v.stored
 	facts, known, err := a.factsFor(ctx, stored.ActivityID)
 	if err != nil {
 		return Ladder{}, err
@@ -147,7 +202,7 @@ func (a *Assembler) assemble(ctx context.Context, stored capture.TraceLadder, ow
 		PayloadsEnabled: stored.PayloadsEnabled,
 	}
 	for _, reg := range trace.Registrations() {
-		out.Rungs = append(out.Rungs, a.rung(reg, stored, derived, owned))
+		out.Rungs = append(out.Rungs, a.rung(reg, v, derived))
 	}
 	return out, nil
 }

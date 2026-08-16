@@ -101,14 +101,14 @@ var registrations = []Registration{{
 	SubjectKind: SubjectMessage,
 	Sources:     []Source{SourceStored},
 	Funnel:      true,
-	Reasons:     []Reason{ReasonInternalOnly},
+	Reasons:     []Reason{ReasonInternalOnly, ReasonRecordNotAvailable},
 }, {
 	Stage:       StageActivityWrite,
 	Order:       50,
 	SubjectKind: SubjectMessage,
 	Sources:     []Source{SourceStored, SourceDerived},
 	Funnel:      true,
-	Reasons:     []Reason{ReasonInvisibleIncumbent},
+	Reasons:     []Reason{ReasonInvisibleIncumbent, ReasonRecordNotAvailable},
 }, {
 	Stage:       StageTierLadder,
 	Order:       60,
@@ -118,20 +118,23 @@ var registrations = []Registration{{
 	Reasons: []Reason{
 		ReasonTransactionalInfra, ReasonTransactionalPrefix, ReasonDeferralCapped,
 		ReasonNoisePrior, ReasonDecidedPrior, ReasonNoCounterparty,
-		ReasonNoGrantingHuman, ReasonDerivationFailed,
+		ReasonNoGrantingHuman, ReasonDerivationFailed, ReasonRecordNotAvailable,
 	},
 }, {
 	Stage:       StagePersonCreate,
 	Order:       70,
 	SubjectKind: SubjectSender,
 	Sources:     []Source{SourceDerived},
-	Reasons:     []Reason{ReasonNotLinkedYet, ReasonNoContactIntended},
+	Reasons:     []Reason{ReasonNotLinkedYet, ReasonNoContactIntended, ReasonRecordNotAvailable},
 }, {
 	Stage:       StageVerdict,
 	Order:       80,
 	SubjectKind: SubjectSender,
 	Sources:     []Source{SourceDerived},
-	Reasons:     []Reason{ReasonAwaitingVerdict, ReasonVerdictReached, ReasonNoOpenQuestion},
+	Reasons: []Reason{
+		ReasonAwaitingVerdict, ReasonVerdictReached, ReasonNoOpenQuestion,
+		ReasonRecordNotAvailable,
+	},
 }, {
 	// Runs, but not reported here yet. Its subject is a DOMAIN and this ladder
 	// is per-message, so whether the rung belongs here at all is the open half
@@ -150,6 +153,7 @@ var registrations = []Registration{{
 	Reasons: []Reason{
 		ReasonTransportNotRead, ReasonSenderUndecided, ReasonArchived,
 		ReasonNotConnectorCaptured, ReasonAwaitingBatch, ReasonLabelled,
+		ReasonRecordNotAvailable,
 	},
 }, {
 	// Runs, but not reported here yet. Worth deriving together with the
@@ -189,9 +193,12 @@ func Lookup(stage Stage) (Registration, bool) {
 }
 
 // StoredStages are the stages capture writes a row for, and therefore the only
-// values the capture_trace.stage column may hold. The database CHECK and this
-// list are asserted equal by a fitness test, so a constraint cannot admit a
-// stage the registry has never heard of.
+// values the capture_trace.stage column may hold.
+//
+// TestTheStageCheckAdmitsExactlyTheStoredStages reads the live constraint with
+// pg_get_constraintdef and asserts the two agree, so a migration cannot admit a
+// stage the registry has never heard of, and the registry cannot name one the
+// column would reject at write time.
 func StoredStages() []Stage {
 	var out []Stage
 	for _, r := range Registrations() {
