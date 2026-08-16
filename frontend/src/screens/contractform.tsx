@@ -209,6 +209,12 @@ export function ContractForm({
         )}
       </Field>
 
+      {create.error && (
+        <p className="t-caption" role="alert">
+          {create.error.message}
+        </p>
+      )}
+
       <div className="modal-actions">
         <Button onClick={onClose}>{t("create.cancel")}</Button>
         {/* The refusal travels WITH the control: a disabled button whose
@@ -217,7 +223,7 @@ export function ContractForm({
         <Button
           variant="primary"
           reason={invalid ? t(invalid) : undefined}
-          disabled={create.isPending}
+          disabled={create.isPending || invalid !== null}
           onClick={() => create.mutate(draft)}
         >
           {t("contracts.form.save")}

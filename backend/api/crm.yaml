@@ -17452,7 +17452,7 @@ components:
         An agreement between the installation and one organization. Mirrors the
         `contract` table. Carries no owner: visibility is inherited from the linked
         deal, falling back to the organization (ADR-0109 §8).
-      required: [id, organization_id, title, status, value_basis, under_contract, source, version, created_at, updated_at]
+      required: [id, organization_id, title, status, value_basis, under_contract, source, captured_by, version, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         organization_id:

@@ -71,6 +71,7 @@ function contractRow(
     organization_id: "o-1",
     title: "Agreement",
     source: "manual",
+    captured_by: "human:00000000-0000-0000-0000-000000000001",
     status: "active",
     under_contract: true,
     auto_renew: false,
