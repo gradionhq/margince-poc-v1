@@ -20,7 +20,14 @@ type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
 
 // Wire keys, not product names: `manager` shows as Team Lead, `rep` as Member
 // (ADR-0110). The catalog carries the display names.
-const ROLES: readonly Role[] = ["admin", "management", "manager", "rep", "read_only", "ops"];
+const ROLES: readonly Role[] = [
+  "admin",
+  "management",
+  "manager",
+  "rep",
+  "read_only",
+  "ops",
+];
 
 // roleLabel names a held role key. The catalog covers the six system roles;
 // a workspace-defined key has no translation, so it reads as itself rather
