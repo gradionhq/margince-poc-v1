@@ -5,27 +5,45 @@ package main
 
 import "testing"
 
-func TestLocaleFollowsTheDomain(t *testing.T) {
+// TestTheDatasetDecidesTheLanguage — the domain suffix is not enough, and
+// guessing from it is wrong for a fifth of the Automation World list. Vu Le
+// Technology is Vietnamese and DACELL is Korean, and both sit on .com.
+func TestTheDatasetDecidesTheLanguage(t *testing.T) {
+	restore := companyLocales
+	t.Cleanup(func() { companyLocales = restore })
+	companyLocales = map[string]docLocale{
+		"vuletech.com": localeVI, // Vietnamese, on a .com
+		"soragroup.vn": localeVI,
+		"dacell.com":   localeEN, // Korean, on a .com
+		"condt.co.kr":  localeEN,
+		"beckhoff.com": localeEN, // the German parent of a Vietnam exhibitor
+	}
 	for domain, want := range map[string]docLocale{
-		// The Automation World Vietnam half.
-		"vinamilk.com.vn": localeVI,
-		"viettel.vn":      localeVI,
-		"BIDV.COM.VN":     localeVI, // case must not matter
-		// Korean and regional exhibitors on the same list. Their sites are
-		// published in English, which is what a demo shown in Hanoi expects
-		// of them too.
-		"dacell.co.kr": localeEN,
-		"crevis.kr":    localeEN,
-		"example.sg":   localeEN,
-		// The K5 half, which is German whether or not it sits on a .de.
-		"trbo.com":   localeDE,
-		"adesso.de":  localeDE,
-		"atamya.ch":  localeDE,
-		"example.at": localeDE,
+		"vuletech.com": localeVI,
+		"VULETECH.COM": localeVI, // case must not matter
+		"soragroup.vn": localeVI,
+		"dacell.com":   localeEN,
+		"condt.co.kr":  localeEN,
+		// Not named by the dataset: the K5 half, German whatever its TLD.
+		"trbo.com":  localeDE,
+		"adesso.de": localeDE,
+		// A .vn nobody listed is still plainly Vietnamese.
+		"someone.com.vn": localeVI,
 	} {
 		if got := localeFor(domain); got != want {
 			t.Errorf("localeFor(%q) = %q, want %q", domain, got, want)
 		}
+	}
+}
+
+// TestAnUnknownCompanyIsGerman — the fallback has to be a real answer, not an
+// empty string that renders a document with no labels.
+func TestAnUnknownCompanyIsGerman(t *testing.T) {
+	restore := companyLocales
+	t.Cleanup(func() { companyLocales = restore })
+	companyLocales = map[string]docLocale{}
+	if got := localeFor("never-heard-of-it.example"); got != localeDE {
+		t.Errorf("an unlisted company got %q, want German", got)
 	}
 }
 

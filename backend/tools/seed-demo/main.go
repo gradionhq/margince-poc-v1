@@ -63,6 +63,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// What language each company's paper is written in. Read before anything
+	// is generated, because a contract's title and its currency both depend
+	// on it.
+	if err := loadCompanyLocales(*dataset); err != nil {
+		return err
+	}
 	companies, err := loadDataset(*dataset, demo.Anchor.Domain, *limit)
 	if err != nil {
 		return err

@@ -18,7 +18,14 @@ package main
 // company that is neither, so the choice is always a real answer rather than
 // a silent default to German.
 
-import "strings"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // docLocale is the language one company's documents are written in.
 type docLocale string
@@ -29,31 +36,63 @@ const (
 	localeEN docLocale = "en"
 )
 
-// localeFor decides a company's document language from its domain.
+// companyLocales is what the dataset SAYS each company's language is, read
+// from datasets/v1/company-locale.json. Empty until loadCompanyLocales runs;
+// a domain absent from it is German, which is the K5 default.
+var companyLocales = map[string]docLocale{}
+
+// loadCompanyLocales reads the dataset's own answer for each company.
 //
-// Domain rather than a crawled country field: the crawl fills country for
-// barely half the dataset, and a document's language cannot depend on whether
-// a website happened to print an address.
+// The domain suffix is not enough and guessing from it is wrong for a fifth
+// of the Automation World list: Vu Le Technology is Vietnamese and DACELL is
+// Korean, and both sit on .com. The dataset builds company-locale.json from
+// the exhibitor list, which is the authoritative statement of which companies
+// these are.
+//
+// A missing file is not an error. The dataset may predate it, and every
+// company then falls back to German — the same answer this code gave before
+// the file existed.
+func loadCompanyLocales(root string) error {
+	path := filepath.Join(root, "datasets", "v1", "company-locale.json")
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: the dataset root is a deliberate operator-supplied flag
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	var file struct {
+		Locales map[string]string `json:"locales"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return fmt.Errorf("parsing %s: %w", path, err)
+	}
+	for domain, locale := range file.Locales {
+		switch docLocale(locale) {
+		case localeDE, localeVI, localeEN:
+			companyLocales[strings.ToLower(domain)] = docLocale(locale)
+		default:
+			return fmt.Errorf("%s gives %s the language %q, which has no vocabulary",
+				path, domain, locale)
+		}
+	}
+	return nil
+}
+
+// localeFor decides a company's document language.
+//
+// The dataset's own answer wins. Only a company it does not name falls back to
+// the domain suffix, which is right for the K5 half — every one of those is a
+// German-speaking company, whatever TLD it sits on.
 func localeFor(domain string) docLocale {
 	domain = strings.ToLower(strings.TrimSpace(domain))
-	switch {
-	case strings.HasSuffix(domain, ".vn"), strings.HasSuffix(domain, ".com.vn"):
-		return localeVI
-	case strings.HasSuffix(domain, ".de"), strings.HasSuffix(domain, ".at"),
-		strings.HasSuffix(domain, ".ch"):
-		return localeDE
-	default:
-		// The K5 list is German companies that mostly sit on .com, so .com
-		// alone cannot mean English. The Automation World list is the only
-		// non-German source and its members are reached by the cases above or
-		// by their own regional TLDs below.
-		switch {
-		case strings.HasSuffix(domain, ".kr"), strings.HasSuffix(domain, ".co.kr"),
-			strings.HasSuffix(domain, ".sg"), strings.HasSuffix(domain, ".co.jp"):
-			return localeEN
-		}
-		return localeDE
+	if locale, ok := companyLocales[domain]; ok {
+		return locale
 	}
+	if strings.HasSuffix(domain, ".vn") || strings.HasSuffix(domain, ".com.vn") {
+		return localeVI
+	}
+	return localeDE
 }
 
 // contractWords is every label a contract page prints, per language.
