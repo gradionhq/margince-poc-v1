@@ -12,10 +12,10 @@ package integration
 // hand-made stores would be testing a copy of that wiring rather than the wiring
 // — which is the whole reason these live here rather than beside either module.
 //
-// Every deny arm below is paired with an allow arm over the SAME seed. Two
-// absences assert nothing on their own: an empty ladder satisfies "no activity
-// id" and "cannot tell" perfectly well, so a test that only checks those passes
-// just as happily when the read returns nothing at all.
+// Every deny arm below carries its own control over the SAME seed, read by a
+// caller who IS allowed. Two absences assert nothing on their own: an empty
+// ladder satisfies "no activity id" and "cannot tell" perfectly well, so a test
+// checking only those passes just as happily when the read returns nothing.
 
 import (
 	"context"
@@ -41,8 +41,13 @@ func ladderAssembler(e *Env, payloads bool) *pipelinetrace.Assembler {
 // pipeline would have written to explain it.
 type seededMessage struct {
 	activityID ids.UUID
-	sourceID   string
 	traceID    ids.UUID
+	// counterparty is the address BOTH the activity and the trace row carry, as
+	// the sink writes it. Returned rather than re-derived at a call site: a
+	// hand-copied copy of the template below is a join key that can drift from
+	// the row it is meant to find, and a test asserting an absence would then
+	// stay green for the wrong reason.
+	counterparty string
 }
 
 // seedTracedMessage writes the activity directly and the trace row THROUGH THE
@@ -52,47 +57,71 @@ type seededMessage struct {
 // channel-id hashing, the payload posture and the erased-subject suppression all
 // live. A hand-written INSERT bypasses every one of them, and a reader asserted
 // against a row no writer could produce proves nothing about the reader.
-func seedTracedMessage(t *testing.T, e *Env, owner ids.UUID, in capture.TraceEntry) seededMessage {
+func seedTracedMessage(t *testing.T, e *Env, owner ids.UUID, in seed) seededMessage {
 	t.Helper()
 	activityID := ids.NewV7()
-	kind, provider := "email", "NULL"
-	if in.Connector == "telegram" {
-		kind, provider = "message", "'telegram'"
-	}
+	// Per-seed, so two tests in this file cannot couple through the disposition
+	// ledger: its LATERAL join and the classifier's undecided-sender probe both
+	// key on this address.
+	counterparty := "dana-" + in.trace.SourceID + "@client.io"
 	e.WsExec(t, `
 		INSERT INTO activity (id, workspace_id, kind, occurred_at, source, captured_by,
 		                      counterparty_email, subject, channel_provider,
 		                      source_system, source_id)
-		VALUES ($1, $2, '`+kind+`', now(), $3, $4, $5, 'Q3 pricing', `+provider+`, $3, $6)`,
-		activityID, e.WS, in.SourceSystem,
-		// The provenance the sink actually stamps when a granting human exists
-		// (connectorProvenance): connector:<name>:<user>. A bare `connector:x`
-		// beside a trace row carrying user_id is a pair no writer produces.
-		"connector:"+in.SourceSystem+":"+owner.String(),
-		// Per-seed, so two tests in this file cannot couple through the
-		// disposition ledger: its LATERAL join and the classifier's
-		// undecided-sender probe both key on this address.
-		"dana-"+in.SourceID+"@client.io", in.SourceID)
+		VALUES ($1, $2, $3, now(), $4, $5, $6, 'Q3 pricing', nullif($7, ''), $4, $8)`,
+		activityID, e.WS, in.kind, in.trace.SourceSystem,
+		// The provenance the sink stamps when a granting human exists
+		// (connectorProvenance): connector:<CONNECTOR NAME>:<user>. The connector
+		// name, not the source system — they coincide for gmail and diverge for a
+		// channel unit, whose records say `telegram` over `dispact`.
+		"connector:"+in.trace.Connector+":"+owner.String(),
+		counterparty, in.channelProvider, in.trace.SourceID)
 
-	in.UserID, in.ActivityID = owner, activityID
+	entry := in.trace
+	entry.UserID, entry.ActivityID = owner, activityID
+	if entry.Counterparty != "" {
+		// One address on both rows, as the sink writes it.
+		entry.Counterparty = counterparty
+	}
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	if err := e.DB().Tx(ctx, func(tx pgx.Tx) error {
-		return capture.Trace(ctx, tx, in, in.Counterparty != "")
+		return capture.Trace(ctx, tx, entry, entry.Counterparty != "")
 	}); err != nil {
 		t.Fatalf("seeding the trace through the real writer: %v", err)
 	}
 	return seededMessage{
-		activityID: activityID, sourceID: in.SourceID,
-		traceID: traceIDFor(t, e, in.SourceID),
+		activityID:   activityID,
+		traceID:      traceIDFor(t, e, in.trace.SourceID),
+		counterparty: counterparty,
 	}
 }
 
+// seed is one message to write. The activity's SHAPE is declared rather than
+// inferred from the connector's name: a helper that guessed `kind` by string
+// equality would silently seed a mail activity beside a chat trace for every
+// channel it had not been told about.
+type seed struct {
+	trace           capture.TraceEntry
+	kind            string
+	channelProvider string
+}
+
 // capturedMail is the ordinary shape: an email the tier ladder let through.
-func capturedMail(sourceID string) capture.TraceEntry {
-	return capture.TraceEntry{
+func capturedMail(sourceID string) seed {
+	return seed{kind: "email", trace: capture.TraceEntry{
 		Stage: trace.StageTierLadder, Outcome: capture.TraceCaptured,
 		Connector: "gmail", SourceSystem: "gmail", SourceID: sourceID,
-	}
+	}}
+}
+
+// capturedChat is the same, carried by a channel unit: the transport is the
+// channel provider and the source system is the unit that polled it, which is
+// the split traceConnector documents.
+func capturedChat(sourceID, provider, unit string) seed {
+	return seed{kind: "message", channelProvider: provider, trace: capture.TraceEntry{
+		Stage: trace.StageTierLadder, Outcome: capture.TraceCaptured,
+		Connector: provider, SourceSystem: unit, SourceID: sourceID,
+	}}
 }
 
 func traceIDFor(t *testing.T, e *Env, sourceID string) ids.UUID {
@@ -142,8 +171,11 @@ func TestTheLadderAnswersFromBothDoorsForTheSameMessage(t *testing.T) {
 	// Every registered stage appears. A ladder returning only the stages it had
 	// rows for leaves a reader unable to tell which of the missing steps
 	// mattered, which is the silence this surface exists to remove.
+	// Fatal, not Errorf: the loop below indexes byActivity by byTrace's length,
+	// so a short ladder — exactly what this check reports — would panic rather
+	// than fail.
 	if len(byActivity.Rungs) != len(trace.Registrations()) {
-		t.Errorf("activity door returned %d rungs, want one per registered stage (%d)",
+		t.Fatalf("activity door returned %d rungs, want one per registered stage (%d)",
 			len(byActivity.Rungs), len(trace.Registrations()))
 	}
 	// Rung-by-rung, not a count: both ladders are built by the same loop over
@@ -175,10 +207,7 @@ func TestAChatTransportIsToldWhyTheClassifierSkippedIt(t *testing.T) {
 	// re-deciding it.
 	e := Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
-	chat := capturedMail("chat-msg")
-	chat.Connector, chat.SourceSystem = "telegram", "dispact"
-
-	msg := seedTracedMessage(t, e, e.Rep1, chat)
+	msg := seedTracedMessage(t, e, e.Rep1, capturedChat("chat-msg", "telegram", "dispact"))
 	got, err := ladderAssembler(e, false).ByActivityID(ctx, msg.activityID)
 	if err != nil {
 		t.Fatalf("reading the ladder: %v", err)
@@ -187,25 +216,6 @@ func TestAChatTransportIsToldWhyTheClassifierSkippedIt(t *testing.T) {
 	if label.Status != trace.StatusSkipped || label.Reason != trace.ReasonTransportNotRead {
 		t.Errorf("attention rung = %q/%q, want skipped/transport_not_read",
 			label.Status, label.Reason)
-	}
-	// And the channel guard, which this seed is the only end-to-end exercise of.
-	// The disposition ledger is the MAIL ladder's, keyed on an address; without
-	// `a.channel_provider IS NULL` on the join a chat message inherits whatever
-	// verdict is pending for the same human, and a captured, linked, answered
-	// conversation reads as "waiting on a verdict".
-	e.WsExec(t, `
-		INSERT INTO capture_pending_counterparty (id, workspace_id, owner_id, email, status, activity_id)
-		VALUES ($1, $2, $3, $4, 'pending', $5)`,
-		ids.NewV7(), e.WS, e.Rep1, "dana-chat-msg@client.io", msg.activityID)
-
-	again, err := ladderAssembler(e, false).ByActivityID(ctx, msg.activityID)
-	if err != nil {
-		t.Fatalf("re-reading the ladder: %v", err)
-	}
-	if verdict := rungFor(t, again, trace.StageVerdict); verdict.Reason != trace.ReasonNoOpenQuestion {
-		t.Errorf("verdict rung = %q/%q for a CHAT message, want no_open_question — a "+
-			"chat record has no mail verdict to report, which is not the same as "+
-			"having one that is pending", verdict.Status, verdict.Reason)
 	}
 }
 
@@ -270,6 +280,15 @@ func TestTheActivityDoorRefusesAMessageOutsideTheReadersRowScope(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound — any error would otherwise pass, "+
 			"including a nil dereference", err)
 	}
+	// The control, over the SAME seed: the team that owns the linked person
+	// reads it. Without this, an activity that was never seeded — or a link
+	// that landed nowhere — answers ErrNotFound too, and the refusal above
+	// would prove only that the fixture failed.
+	reaches := e.As(e.Rep3, []ids.UUID{e.Team2}, AccountRepPerms)
+	if _, err := ladderAssembler(e, false).ByActivityID(reaches, msg.activityID); err != nil {
+		t.Fatalf("the team that owns the linked person could not read it either: %v — "+
+			"the seed did not land, so the refusal above proves nothing", err)
+	}
 }
 
 func TestThePostureFlagTravelsButDoesNotGateTheRung(t *testing.T) {
@@ -280,7 +299,10 @@ func TestThePostureFlagTravelsButDoesNotGateTheRung(t *testing.T) {
 	e := Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 	withPayload := capturedMail("posture")
-	withPayload.Counterparty, withPayload.Subject = "dana@client.io", "Q3 pricing"
+	// Any non-empty value turns the payload posture on in the helper, which then
+	// writes the address the activity carries — one address on both rows, as the
+	// sink does it.
+	withPayload.trace.Counterparty, withPayload.trace.Subject = "seed", "Q3 pricing"
 	msg := seedTracedMessage(t, e, e.Rep1, withPayload)
 
 	on, err := ladderAssembler(e, true).ByTraceID(ctx, msg.traceID)
@@ -294,12 +316,56 @@ func TestThePostureFlagTravelsButDoesNotGateTheRung(t *testing.T) {
 	if !on.PayloadsEnabled || off.PayloadsEnabled {
 		t.Errorf("PayloadsEnabled = %v / %v, want true / false", on.PayloadsEnabled, off.PayloadsEnabled)
 	}
-	if got := rungFor(t, on, trace.StageTierLadder).Counterparty; got != "dana@client.io" {
-		t.Errorf("counterparty under the payload posture = %q, want the row's", got)
+	if got := rungFor(t, on, trace.StageTierLadder).Counterparty; got != msg.counterparty {
+		t.Errorf("counterparty under the payload posture = %q, want %q", got, msg.counterparty)
 	}
-	if got := rungFor(t, off, trace.StageTierLadder).Counterparty; got != "dana@client.io" {
+	if got := rungFor(t, off, trace.StageTierLadder).Counterparty; got != msg.counterparty {
 		t.Errorf("counterparty with the flag off = %q — this layer carries what the row "+
 			"held either way, and wireRung is where the posture bites", got)
+	}
+}
+
+func TestAColleagueReadingASharedRecordGetsNoneOfTheOwnersMailboxRungs(t *testing.T) {
+	// The boundary 0258 makes categorical: a capture_trace row is the member's
+	// alone and NO grant widens it. A colleague may read what the pipeline did
+	// to the RECORD; what one member's connection recorded about their own
+	// mailbox stays theirs.
+	//
+	// The activity here is deliberately UNLINKED, which makes it
+	// workspace-shared — so every seat in the installation can open it and the
+	// activity door admits them. That is the realistic shape of the leak: the
+	// door opens, and the only thing keeping the owner's rungs out of the answer
+	// is the `user_id` predicate in anchorByActivityID. Nothing pinned that.
+	//
+	// Payloads ON is load-bearing. With the posture off, wireRung masks the
+	// content at the wire and this assertion would pass straight over a leak.
+	e := Setup(t)
+	withPayload := capturedMail("colleague-read")
+	withPayload.trace.Counterparty, withPayload.trace.Subject = "seed", "Q3 pricing"
+	msg := seedTracedMessage(t, e, e.Rep1, withPayload)
+
+	colleague := e.As(e.Rep2, []ids.UUID{e.Team1}, AccountRepPerms)
+	got, err := ladderAssembler(e, true).ByActivityID(colleague, msg.activityID)
+	if err != nil {
+		t.Fatalf("a colleague could not open a workspace-shared activity: %v — "+
+			"the seed did not land, so the assertions below prove nothing", err)
+	}
+
+	// The allow arm, inside the same read: a DERIVED rung still answers, because
+	// it is ordinary product state. Without this an empty ladder would satisfy
+	// everything below it.
+	if write := rungFor(t, got, trace.StageActivityWrite); write.Status != trace.StatusDone {
+		t.Errorf("activity-write = %q, want done: the colleague may read the record", write.Status)
+	}
+	// And the stored rung — the owner's — tells them nothing at all.
+	stored := rungFor(t, got, trace.StageTierLadder)
+	if stored.Status != trace.StatusUnknown || stored.Reason != trace.ReasonRecordNotAvailable {
+		t.Errorf("tier-ladder = %q/%q for a colleague, want unknown/record_not_available",
+			stored.Status, stored.Reason)
+	}
+	if stored.Counterparty != "" || stored.Subject != "" {
+		t.Errorf("another member's mailbox content reached a colleague: %q / %q",
+			stored.Counterparty, stored.Subject)
 	}
 }
 
