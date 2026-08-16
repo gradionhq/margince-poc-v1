@@ -191,10 +191,17 @@ func (cfg RoutingConfig) validate() error {
 		if binding.Provider == "" {
 			return fmt.Errorf("ai: routing config: tier %s has no provider", tier)
 		}
-		// Sovereign means zero egress BY CONSTRUCTION: a cloud provider
-		// in any chat tier is a config error, not a runtime surprise.
-		if cfg.Profile == ProfileSovereign && !localProviders[binding.Provider] {
-			return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on tier %s", binding.Provider, tier)
+		// Sovereign means zero egress BY CONSTRUCTION, which takes both halves:
+		// a cloud provider in any chat tier is a config error, and so is a local
+		// provider pointed at somebody else's host (sovereignendpoint.go).
+		// Neither is a runtime surprise.
+		if cfg.Profile == ProfileSovereign {
+			if !localProviders[binding.Provider] {
+				return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on tier %s", binding.Provider, tier)
+			}
+			if err := requireSovereignEndpoint(fmt.Sprintf("tier %s", tier), binding.Provider, binding.BaseURL); err != nil {
+				return err
+			}
 		}
 		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Provider, binding.Input); err != nil {
 			return err
@@ -212,8 +219,16 @@ func (cfg RoutingConfig) validate() error {
 	if cfg.Embeddings.Input != nil {
 		return fmt.Errorf("ai: routing config: the embeddings lane takes no `input` — it sends no attachments; declare it on the chat tier that reads documents")
 	}
-	if cfg.Profile == ProfileSovereign && !localProviders[cfg.Embeddings.Provider] {
-		return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on the embeddings lane", cfg.Embeddings.Provider)
+	if cfg.Profile == ProfileSovereign {
+		if !localProviders[cfg.Embeddings.Provider] {
+			return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on the embeddings lane", cfg.Embeddings.Provider)
+		}
+		// The embed lane egresses the same text the chat lanes do — a document's
+		// content reaches it as the thing being embedded — so it carries the same
+		// endpoint rule rather than a weaker one.
+		if err := requireSovereignEndpoint("the embeddings lane", cfg.Embeddings.Provider, cfg.Embeddings.BaseURL); err != nil {
+			return err
+		}
 	}
 	return nil
 }

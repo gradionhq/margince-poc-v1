@@ -871,7 +871,19 @@ curl -s https://openrouter.ai/api/v1/models \
 ```
 
 A cloud binding is refused at startup under `profile: sovereign` (zero
-egress by construction). An editor with a YAML language server picks up
+egress by construction) — and so is a **local provider pointed at somebody
+else's host**, because the provider name alone would let a deployment declare
+zero egress and send every call over the public internet. Under that profile
+each binding's resolved `base_url` (an omitted one is the provider default,
+which is loopback) must name an address on infrastructure you control:
+loopback, link-local, or a private range (`10.x`, `172.16–31.x`, `192.168.x`,
+or an IPv6 unique-local address). **A private-range host on another machine
+counts** — your own GPU box is your own infrastructure. A **DNS name is
+refused** even when it looks internal: resolving it at boot says only where it
+pointed at boot, and a profile satisfied by an answer that can change an hour
+later is not a guarantee. Use the IP, or `localhost`.
+
+An editor with a YAML language server picks up
 [`config/ai-routing.schema.json`](../../config/ai-routing.schema.json)
 (referenced from the example's first line) for autocomplete, enum
 validation, and hover docs; the parser remains the sole runtime authority.
