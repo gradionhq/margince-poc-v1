@@ -41,6 +41,7 @@ func verifySeed(c *client, cfg demoConfig, mode runMode) error {
 		checkActivitiesReachPeople,
 		checkDealsHaveStakeholders,
 		checkLifecycleIsSet,
+		checkCoverage,
 	} {
 		found, err := check(c, cfg)
 		if err != nil {

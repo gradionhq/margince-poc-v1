@@ -33,11 +33,30 @@ type counts struct {
 // first: leads and deals, what happened on them, what was signed and quoted,
 // and who consented to what.
 func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []company, refs pipelineRefs, mode runMode) error {
+	// What each company beyond demo.json's named few should hold. Decided
+	// once, from the domains alone, so every phase below agrees about which
+	// company is a customer and which is an untouched target.
+	domains := make([]string, 0, len(companies))
+	for _, comp := range companies {
+		domains = append(domains, strings.ToLower(comp.Domain))
+	}
+	plan := planProfiles(domains, cfg)
+
 	leads, err := seedLeads(c, cfg, refs, mode)
 	if err != nil {
 		return err
 	}
+	generatedLeads, err := seedGeneratedLeads(c, refs, plan, mode)
+	if err != nil {
+		return err
+	}
 	deals, err := seedDeals(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	// Generated deals come AFTER the dataset's own, so a company demo.json
+	// names keeps the deal the story gives it and the planner adds nothing.
+	generatedDeals, err := seedGeneratedDeals(c, cfg, refs, plan, mode)
 	if err != nil {
 		return err
 	}
@@ -74,7 +93,7 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
-	lifecycles, err := seedLifecycle(c, cfg, refs, mode)
+	lifecycles, err := seedLifecycle(c, cfg, refs, plan, mode)
 	if err != nil {
 		return err
 	}
@@ -85,8 +104,8 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 		return err
 	}
 
-	fmt.Printf("leads:         %d new\n", leads)
-	fmt.Printf("deals:         %d new\n", deals)
+	fmt.Printf("leads:         %d new (%d from demo.json, %d generated)\n", leads+generatedLeads, leads, generatedLeads)
+	fmt.Printf("deals:         %d new (%d from demo.json, %d generated)\n", deals+generatedDeals, deals, generatedDeals)
 	fmt.Printf("stakeholders:  %d new\n", stakeholders)
 	fmt.Printf("activities:    %d new\n", activities)
 	fmt.Printf("contracts:     %d new\n", contracts)

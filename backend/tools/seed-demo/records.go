@@ -199,12 +199,13 @@ func loadActivitySourceIDs(c *client) (map[string]bool, error) {
 // opportunity. A demo where every company sits at the default teaches the
 // lifecycle filter to return everything.
 //
-// A company the dataset does not place gets a default from what is true about
-// it — an open deal makes it an opportunity, otherwise it is a target. That
-// keeps a newly ingested company out of `unknown` without pretending to know
-// more than the records show, and demo.json still overrides it whenever the
-// story needs something specific.
-func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+// A company the dataset does not place takes the lifecycle its PROFILE was
+// planned with, which is what spreads the accounts across customer, former
+// customer, opportunity, prospect and target instead of leaving everything at
+// two values. demo.json still overrides whenever the story needs something
+// specific, and a company with no profile at all falls back to what its
+// records show — an open deal makes it an opportunity, otherwise a target.
+func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, plan map[string]profile, mode runMode) (int, error) {
 	changed := 0
 	placed := map[string]bool{}
 	for _, domains := range cfg.Lifecycle {
@@ -216,9 +217,12 @@ func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (
 		if placed[domain] {
 			continue
 		}
-		stage := "target"
-		if len(refs.dealsByCompany[domain]) > 0 {
-			stage = "opportunity"
+		stage := plan[domain].Lifecycle
+		if stage == "" {
+			stage = "target"
+			if len(refs.dealsByCompany[domain]) > 0 {
+				stage = "opportunity"
+			}
 		}
 		cfg.Lifecycle[stage] = append(cfg.Lifecycle[stage], domain)
 	}

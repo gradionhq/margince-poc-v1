@@ -150,6 +150,18 @@ func (c *client) get(path string, query url.Values, out any) error { //craft:ign
 	return c.do(req, out)
 }
 
+// delete sends a DELETE, which for some resources is how a state is REACHED
+// rather than how a row is removed: disqualifying a lead is
+// `DELETE /v1/leads/{id}`, and it sets status=disqualified and archives the
+// row instead of deleting it.
+func (c *client) delete(path string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.base+path, nil)
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	return c.do(req, nil)
+}
+
 // pageLimit is the page size getAll asks for. The contract caps a page well
 // below the dataset's size, so the number only decides how many round trips a
 // full read costs, never whether it is complete.

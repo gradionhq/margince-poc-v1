@@ -28,7 +28,7 @@ func TestPlanCoversTheMatrix(t *testing.T) {
 	for _, size := range []int{60, 120, 200, 300} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			profiles := planProfiles(synthDomains(size), demoConfig{})
-			short := coverageShortfall(countCoverage(profiles))
+			short := coverageShortfall(planningMatrix(), countCoverage(profiles))
 			if len(short) > 0 {
 				t.Fatalf("coverage not reached at %d companies:\n  %s", size, strings.Join(short, "\n  "))
 			}
@@ -176,7 +176,7 @@ func TestSmallDatasetDoesNotPanic(t *testing.T) {
 			t.Errorf("size %d: got %d profiles", size, len(profiles))
 		}
 		// Shortfalls are expected here; the point is that it returns.
-		coverageShortfall(countCoverage(profiles))
+		coverageShortfall(planningMatrix(), countCoverage(profiles))
 	}
 }
 
@@ -187,7 +187,7 @@ func TestMinCompaniesForCoverageIsHonest(t *testing.T) {
 	}
 	// The matrix must be satisfiable at the size it claims to need.
 	profiles := planProfiles(synthDomains(need), demoConfig{})
-	if short := coverageShortfall(countCoverage(profiles)); len(short) > 0 {
+	if short := coverageShortfall(planningMatrix(), countCoverage(profiles)); len(short) > 0 {
 		t.Errorf("minCompaniesForCoverage() says %d is enough, but coverage is short:\n  %s",
 			need, strings.Join(short, "\n  "))
 	}

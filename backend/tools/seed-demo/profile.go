@@ -199,7 +199,7 @@ func baseProfile(domain string) profile {
 // and not from a counter — so a newcomer either outranks an existing promotee
 // for one cell or changes nothing at all.
 func fillCoverage(domains []string, pinned map[string]string, out map[string]profile) {
-	targets := coverageTarget()
+	targets := coverageTarget(planningMatrix())
 
 	// Lifecycle is settled BEFORE anything else, because promoting a company's
 	// lifecycle rewrites its contracts and project — a customer must own a
@@ -282,7 +282,7 @@ func wouldStarve(out map[string]profile, cell coverageCell, p profile) bool {
 		return false
 	}
 	counts := countCoverage(out)
-	targets := coverageTarget()
+	targets := coverageTarget(planningMatrix())
 	for _, value := range current {
 		// Losing this value must not drop the cell it belongs to below its
 		// floor. A value with no floor at all is free to overwrite.

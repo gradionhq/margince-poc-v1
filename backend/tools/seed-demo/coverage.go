@@ -95,12 +95,28 @@ var coverageMatrix = []coverageCell{
 	{axisLead, "promoted", 3, "became a person and a company — the path that proves promotion"},
 	{axisLead, "disqualified", 2, "archived, and only visible with include_archived — a state easy to seed wrong"},
 
-	// Projects, documents. Present so their screens are not empty.
-	{axisProject, "initiative", 2, "a project before it is pursued"},
-	{axisProject, "delivering", 3, "the phase a customer's project sits in"},
-	{axisProject, "closed", 2, "finished work, which needs a closing reason"},
+	// Documents. Paper is only useful when it is attached to the right thing.
 	{axisDocument, "contract_pdf", 8, "paper attached to its contract, not floating in Documents"},
 	{axisDocument, "loose", 5, "an NDA or a price list belongs to the account, not to a contract"},
+}
+
+// plannedOnlyMatrix is states the PLANNER assigns but no phase writes yet.
+//
+// Keeping them out of coverageMatrix is deliberate: verify reads the
+// installation, so a cell here would fail every run for work that is simply
+// not built, and a gate that always fails is a gate people learn to ignore.
+// They stay listed so the planner keeps reserving companies for them and the
+// day the phase lands the cells move up with no re-planning.
+var plannedOnlyMatrix = []coverageCell{
+	{axisProject, "initiative", 2, "a project before it is pursued — no project phase in the seeder yet"},
+	{axisProject, "delivering", 3, "the phase a customer's project sits in — no project phase in the seeder yet"},
+	{axisProject, "closed", 2, "finished work, which needs a closing reason — no project phase in the seeder yet"},
+}
+
+// planningMatrix is what the PLANNER satisfies: what verify checks, plus what
+// is planned ahead of its phase.
+func planningMatrix() []coverageCell {
+	return append(append([]coverageCell(nil), coverageMatrix...), plannedOnlyMatrix...)
 }
 
 // orderedCells is the matrix in the order the planner must satisfy it.
@@ -122,15 +138,15 @@ func orderedCells() []coverageCell {
 		axisLead:      4,
 		axisDocument:  5,
 	}
-	out := append([]coverageCell(nil), coverageMatrix...)
+	out := planningMatrix()
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Axis] < rank[out[j].Axis] })
 	return out
 }
 
-// coverageTarget is the matrix as a lookup: axis -> value -> minimum.
-func coverageTarget() map[coverageAxis]map[string]int {
+// coverageTarget is a matrix as a lookup: axis -> value -> minimum.
+func coverageTarget(cells []coverageCell) map[coverageAxis]map[string]int {
 	out := map[coverageAxis]map[string]int{}
-	for _, cell := range coverageMatrix {
+	for _, cell := range cells {
 		if out[cell.Axis] == nil {
 			out[cell.Axis] = map[string]int{}
 		}
@@ -144,9 +160,9 @@ func coverageTarget() map[coverageAxis]map[string]int {
 // It is the same function the planner uses to decide what to promote and the
 // verify pass uses to decide whether to fail, so the two can never disagree
 // about what "covered" means.
-func coverageShortfall(counts map[coverageAxis]map[string]int) []string {
+func coverageShortfall(cells []coverageCell, counts map[coverageAxis]map[string]int) []string {
 	var short []string
-	for _, cell := range coverageMatrix {
+	for _, cell := range cells {
 		got := counts[cell.Axis][cell.Value]
 		if got >= cell.Min {
 			continue
@@ -167,7 +183,7 @@ func coverageShortfall(counts map[coverageAxis]map[string]int) []string {
 // 12-company dataset is a fact about the dataset and not a bug.
 func minCompaniesForCoverage() int {
 	perAxis := map[coverageAxis]int{}
-	for _, cell := range coverageMatrix {
+	for _, cell := range planningMatrix() {
 		perAxis[cell.Axis] += cell.Min
 	}
 	worst := 0
