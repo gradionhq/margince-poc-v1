@@ -349,6 +349,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/change-password:
+    post:
+      tags: [Identity]
+      operationId: changePassword
+      security: [ { cookieAuth: [] } ]   # human session only — an agent has no own password
+      x-agent-access: human-only
+      summary: Change your own password.
+      description: >
+        The signed-in human rotates their own credential. The CURRENT PASSWORD is the
+        authority, not the session: a session is what a stolen laptop already has, and
+        letting one set a new password would turn a borrowed browser into a permanent
+        takeover. Every credential that could act as the account ends with the change —
+        sessions, OAuth grants and their refresh chains, unconsumed authorization codes,
+        locally minted passports — INCLUDING the session making the call, so the caller
+        signs in again with the password they just chose. A new password equal to the
+        current one is refused rather than accepted as a no-op. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, minLength: 1 }
+                new_password: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '204': { description: 'Password changed; every credential for the account, including this session, is revoked.' }
+        '401':
+          description: >
+            No session, or an authenticated refusal the caller can act on. The machine `code`
+            separates them: `current_password_invalid` (the field is wrong) and `account_locked`
+            (the §27 lockout is in force, and waiting is the remedy). Disclosing the lock is safe
+            here and not on login — the caller already holds a session for this account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: 'The caller has no user behind it (an agent seat or system principal has no own password).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: 'The account is no longer active.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: 'Too many wrong current-password attempts for this account.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /admin/reset-data:
     post:
       tags: [Identity]

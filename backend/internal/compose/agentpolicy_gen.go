@@ -295,6 +295,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/attachments/{id}/extraction":                               {Op: "readAttachmentForFields", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/attachments/{id}/extraction:accept":                        {Op: "acceptAttachmentExtraction", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/attachments/{id}/request-access":                           {Op: "requestAttachmentAccess", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/auth/change-password":                                      {Op: "changePassword", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/auth/forgot-password":                                      {Op: "requestPasswordReset", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/auth/login":                                                {Op: "login", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/auth/logout":                                               {Op: "logout", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: "", Scope: ""},

@@ -3476,31 +3476,46 @@ export const de = {
   // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
     "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
+  "password.title": "Passwort",
+  "password.body": "Ändere das Passwort, mit dem du dich anmeldest.",
+  "password.current": "Aktuelles Passwort",
+  "password.next": "Neues Passwort",
+  "password.confirm": "Neues Passwort bestätigen",
+  "password.hint": "Mindestens 12 Zeichen.",
+  "password.tooShort": "Zu kurz. Verwende mindestens 12 Zeichen.",
+  "password.mismatch": "Die beiden stimmen nicht überein.",
+  "password.signsYouOut":
+    "Die Änderung meldet dich überall ab, auch hier. Melde dich mit dem neuen Passwort erneut an.",
+  "password.submit": "Passwort ändern",
+  "password.changing": "Wird geändert…",
+  "password.done": "Passwort geändert. Melde dich mit dem neuen an.",
+  "password.errorGeneric":
+    "Das Passwort konnte nicht geändert werden. Versuche es erneut.",
   "setup.pageTitle": "Margince einrichten",
   "setup.title": "Diese Installation übernehmen",
   "setup.body":
-    "Diese Margince-Installation hat noch keine Organisation. Ihr Betreiber hat ein einmaliges Einrichtungs-Token aus dem Serverprotokoll.",
+    "Diese Margince-Installation hat noch keine Organisation. Dein Betreiber hat ein einmaliges Einrichtungs-Token aus dem Serverprotokoll.",
   "setup.token": "Einrichtungs-Token",
   "setup.tokenHint":
     "Aus dem Serverprotokoll beim ersten Start oder aus der Token-Datei daneben.",
   "setup.organization": "Name der Organisation",
-  "setup.adminName": "Ihr Name",
-  "setup.adminEmail": "Ihre E-Mail-Adresse",
+  "setup.adminName": "Dein Name",
+  "setup.adminEmail": "Deine E-Mail-Adresse",
   "setup.adminPassword": "Passwort wählen",
   "setup.passwordHint": "Mindestens 12 Zeichen.",
-  "setup.passwordShort": "Zu kurz. Verwenden Sie mindestens 12 Zeichen.",
+  "setup.passwordShort": "Zu kurz. Verwende mindestens 12 Zeichen.",
   "setup.rootWarning":
     "Damit entsteht das Administratorkonto für die gesamte Installation. Es hat alle Berechtigungen, einschließlich der Verwaltung aller anderen.",
   "setup.claim": "Organisation anlegen",
   "setup.claiming": "Wird angelegt…",
   "setup.errorToken":
-    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfen Sie das Serverprotokoll vom ersten Start.",
+    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfe das Serverprotokoll vom ersten Start.",
   "setup.errorAlready":
-    "Diese Installation hat bereits eine Organisation. Melden Sie sich an oder bitten Sie Ihren Betreiber um ein Zurücksetzen.",
+    "Diese Installation hat bereits eine Organisation. Melde dich an oder bitte deinen Betreiber um ein Zurücksetzen.",
   "setup.errorFields":
     "Im Formular stimmt etwas nicht. Prüfen Sie die Felder und versuchen Sie es erneut.",
   "setup.errorServer":
-    "Margince konnte die Einrichtung nicht abschließen. Es wurde nichts angelegt. Versuchen Sie es gleich noch einmal; bei wiederholtem Fehlschlag prüfen Sie das Serverprotokoll.",
+    "Margince konnte die Einrichtung nicht abschließen. Es wurde nichts angelegt. Versuche es gleich noch einmal; bei wiederholtem Fehlschlag prüfe das Serverprotokoll.",
   "setup.errorNetwork":
     "Margince war nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "auth.forgotLink": "Passwort vergessen?",

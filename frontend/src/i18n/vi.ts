@@ -3470,6 +3470,20 @@ export const vi = {
   "auth.unavailableTitle": "Bản cài đặt chưa sẵn sàng",
   "auth.unavailableBody":
     "Bản cài đặt Margince này chưa sẵn sàng để bạn đăng nhập. Cần người vận hành hoàn tất hoặc sửa lại phần thiết lập.",
+  "password.title": "Mật khẩu",
+  "password.body": "Đổi mật khẩu bạn dùng để đăng nhập.",
+  "password.current": "Mật khẩu hiện tại",
+  "password.next": "Mật khẩu mới",
+  "password.confirm": "Xác nhận mật khẩu mới",
+  "password.hint": "Ít nhất 12 ký tự.",
+  "password.tooShort": "Quá ngắn. Hãy dùng ít nhất 12 ký tự.",
+  "password.mismatch": "Hai ô này không khớp.",
+  "password.signsYouOut":
+    "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
+  "password.submit": "Đổi mật khẩu",
+  "password.changing": "Đang đổi…",
+  "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
+  "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
   "setup.pageTitle": "Thiết lập Margince",
   "setup.title": "Nhận quyền quản trị bản cài đặt này",
   "setup.body":

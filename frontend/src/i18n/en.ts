@@ -3491,6 +3491,25 @@ export const en = {
   // The first-run claim (ADR-0105). An installation with no configured admin
   // waits to be claimed; this is the only screen that creates an account
   // without one, so it names what it is creating.
+  // Changing your own password from account settings. The current password is
+  // the authority, not the session.
+  "password.title": "Password",
+  "password.body": "Change the password you sign in with.",
+  "password.current": "Current password",
+  "password.next": "New password",
+  "password.confirm": "Confirm new password",
+  "password.hint": "At least 12 characters.",
+  "password.tooShort": "Too short. Use at least 12 characters.",
+  "password.mismatch": "These two don't match.",
+  "password.signsYouOut":
+    "Changing it signs you out everywhere, including here. Sign in again with the new password.",
+  "password.submit": "Change password",
+  "password.changing": "Changing…",
+  "password.done": "Password changed. Sign in again with the new one.",
+  // Deliberately says nothing about WHICH field: this is the fallback for a
+  // refusal the server did not explain, and naming the current password would
+  // send someone hunting a mistake that may not be theirs.
+  "password.errorGeneric": "The password couldn't be changed. Try again.",
   "setup.pageTitle": "Set up Margince",
   "setup.title": "Claim this installation",
   "setup.body":

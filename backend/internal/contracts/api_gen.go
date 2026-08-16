@@ -20756,6 +20756,12 @@ type ListAuditLogParams struct {
 	To     *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// ChangePasswordJSONBody defines parameters for ChangePassword.
+type ChangePasswordJSONBody struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 // RequestPasswordResetJSONBody defines parameters for RequestPasswordReset.
 type RequestPasswordResetJSONBody struct {
 	Email openapi_types.Email `json:"email"`
@@ -23879,6 +23885,9 @@ type AcceptAttachmentExtractionJSONRequestBody = AcceptExtractionRequest
 
 // UpdateAttachmentMetadataJSONRequestBody defines body for UpdateAttachmentMetadata for application/json ContentType.
 type UpdateAttachmentMetadataJSONRequestBody = UpdateAttachmentMetadataRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody ChangePasswordJSONBody
 
 // RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
 type RequestPasswordResetJSONRequestBody RequestPasswordResetJSONBody
@@ -30139,6 +30148,9 @@ type ServerInterface interface {
 	// Which authentication methods are operational (drives the login UI).
 	// (GET /auth/capabilities)
 	GetAuthCapabilities(w http.ResponseWriter, r *http.Request)
+	// Change your own password.
+	// (POST /auth/change-password)
+	ChangePassword(w http.ResponseWriter, r *http.Request)
 	// Request a password-reset email.
 	// (POST /auth/forgot-password)
 	RequestPasswordReset(w http.ResponseWriter, r *http.Request)
@@ -31435,6 +31447,12 @@ func (_ Unimplemented) ListAuditLog(w http.ResponseWriter, r *http.Request, para
 // Which authentication methods are operational (drives the login UI).
 // (GET /auth/capabilities)
 func (_ Unimplemented) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change your own password.
+// (POST /auth/change-password)
+func (_ Unimplemented) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35420,6 +35438,26 @@ func (siw *ServerInterfaceWrapper) GetAuthCapabilities(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAuthCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangePassword(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51312,6 +51350,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/capabilities", wrapper.GetAuthCapabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/change-password", wrapper.ChangePassword)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/forgot-password", wrapper.RequestPasswordReset)

@@ -157,6 +157,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password.
+         * @description The signed-in human rotates their own credential. The CURRENT PASSWORD is the authority, not the session: a session is what a stolen laptop already has, and letting one set a new password would turn a borrowed browser into a permanent takeover. Every credential that could act as the account ends with the change — sessions, OAuth grants and their refresh chains, unconsumed authorization codes, locally minted passports — INCLUDING the session making the call, so the caller signs in again with the password they just chose. A new password equal to the current one is refused rather than accepted as a no-op. Audited.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/reset-data": {
         parameters: {
             query?: never;
@@ -17633,6 +17653,68 @@ export interface operations {
             };
             422: components["responses"]["ValidationError"];
             /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    current_password: string;
+                    new_password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Password changed; every credential for the account, including this session, is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No session, or an authenticated refusal the caller can act on. The machine `code` separates them: `current_password_invalid` (the field is wrong) and `account_locked` (the §27 lockout is in force, and waiting is the remedy). Disclosing the lock is safe here and not on login — the caller already holds a session for this account. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The caller has no user behind it (an agent seat or system principal has no own password). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The account is no longer active. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Too many wrong current-password attempts for this account. */
             429: {
                 headers: {
                     [name: string]: unknown;

@@ -147,7 +147,25 @@ func (s *Service) checkCredentials(ctx context.Context, tx pgx.Tx, email, plaint
 // because the attempt's transaction rolled back with ErrBadCredentials.
 // An unknown or non-active email still lands the audit row — an
 // invisible brute-force is exactly what the trail exists to catch.
+// failureRecordTimeout bounds a detached failure write. Short, because it is one
+// small transaction and a hung one must not outlive the request by much.
+const failureRecordTimeout = 5 * time.Second
+
+// detachedForFailure returns a context that survives the request's cancellation
+// but not forever.
+//
+// A brute-force counter that a caller can cancel is not a counter: abort the
+// connection the moment the verify fails and the attempt costs nothing, leaves
+// no evidence, and never reaches the lockout. The client is gone either way —
+// what is being written here is the installation's record of what the client
+// did, and that is not theirs to abandon.
+func detachedForFailure(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), failureRecordTimeout)
+}
+
 func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
+	ctx, cancel := detachedForFailure(ctx)
+	defer cancel()
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		outcome := "failed"
 		var userID ids.UserID

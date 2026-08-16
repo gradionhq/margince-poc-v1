@@ -195,6 +195,10 @@ func (stubs) GetAuthCapabilities(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetAuthCapabilities")
 }
 
+func (stubs) ChangePassword(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ChangePassword")
+}
+
 func (stubs) RequestPasswordReset(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "RequestPasswordReset")
 }
