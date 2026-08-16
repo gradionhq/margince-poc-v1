@@ -108,8 +108,8 @@ func anthropicMessages(msgs []model.Message, atts []model.Attachment) []anthropi
 }
 
 // anthropicImageBlock maps one attachment to an image block. Only images reach
-// it: carriage is decided by attachmentUnsupported against carriesImages, which
-// admits nothing else.
+// it: carriage is gated against this binding's own list, which is carriesImages
+// or a narrowing of it, and neither admits anything else.
 func anthropicImageBlock(a model.Attachment) anthropicBlock {
 	if a.URI != "" {
 		return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{Type: anthropicSourceURL, URL: a.URI}}
@@ -131,8 +131,8 @@ func anthropicImageBlock(a model.Attachment) anthropicBlock {
 // the Files beta header this adapter does not send — so a handle is refused
 // rather than mapped to a block the vendor would reject for a reason that names
 // the wrong thing.
-func anthropicRefuseAttachments(atts []model.Attachment) error {
-	if err := attachmentUnsupported("anthropic", atts, carriesImages); err != nil {
+func anthropicRefuseAttachments(atts []model.Attachment, declared []string) error {
+	if err := refuseNarrowedAttachments("anthropic", atts, declared, carriesImages); err != nil {
 		return err
 	}
 	for _, a := range atts {

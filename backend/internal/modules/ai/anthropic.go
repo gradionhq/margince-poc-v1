@@ -26,6 +26,11 @@ type anthropicClient struct {
 	baseURL      string
 	apiKey       string
 	defaultModel string
+	// attachmentMIMEs is what THIS binding carries: the wire's own carriage,
+	// narrowed by any `input:` the operator declared (inputmodality.go). One
+	// field, two uses — Caps() advertises it and send enforces it — so a binding
+	// cannot advertise a media type its own gate then refuses.
+	attachmentMIMEs []string
 }
 
 const anthropicAPIVersion = "2023-06-01"
@@ -223,7 +228,7 @@ func (c *anthropicClient) Caps() model.Capabilities {
 	// block exists, but which models accept one is a per-model fact this adapter
 	// cannot see, and advertising a lane a bound model refuses is worse than not
 	// advertising it at all.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: carriesImages}
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: c.attachmentMIMEs}
 }
 
 // post sends one non-streaming Messages call; postStream opens the SSE
@@ -264,7 +269,7 @@ func (c *anthropicClient) sendOnce(ctx context.Context, req model.Request, strea
 	// `document` support is model-dependent here in a way image support is not,
 	// and this adapter cannot see which model the binding named. Anything outside
 	// the declaration is refused rather than dropped (spec §3.8).
-	if err := anthropicRefuseAttachments(req.Attachments); err != nil {
+	if err := anthropicRefuseAttachments(req.Attachments, c.attachmentMIMEs); err != nil {
 		return nil, 0, err
 	}
 	wire := anthropicWire{

@@ -20,23 +20,25 @@
 #   openai            → OPENAI_API_KEY
 #   openai_compatible → OPENAI_COMPATIBLE_API_KEY
 #
-# input — NOT set here, and setting it would be a startup error. `input:`
-# declares what a bound model can be GIVEN (a scanned invoice, a photographed
-# order form), and only `openai_compatible` and `vllm` accept it: those two are
-# one adapter pointed at an operator-chosen endpoint, so whether an image may be
-# sent depends on WHICH MODEL was bound and nothing in the code can see that.
+# input — NOT set here, and it does not need to be. `input:` declares what a
+# bound model can be GIVEN (a scanned invoice, a photographed order form).
 #
 # Every tier below is gemini, whose wire carries image/* and application/pdf as
 # a fact about the wire — declared in the adapter, true for every gemini model,
-# nothing for this file to say. So documents already work on this binding, and
-# `input: [text, image]` on a gemini tier is refused rather than accepted-and-
-# ignored: a knob that silently does nothing is worse than one that says it does
-# not apply here.
+# nothing for this file to say. Documents already work on this binding.
+#
+# Setting it here would NARROW: on a provider whose carriage is fixed in code,
+# `input:` means "at most this". `input: [text]` on a gemini tier is how an
+# operator keeps scanned invoices out of an egressing model while keeping that
+# model for text — per tier and per modality, which the `profile` ladder cannot
+# express. It can only take carriage away; no declaration can hand a wire a lane
+# it does not have.
 #
 # Re-point a tier at openai_compatible (OpenRouter, a self-hosted vLLM, an EU
-# gateway) and the answer stops being knowable from code — that tier then needs
-# `input: [text, image]` or it will refuse documents however capable its model
-# is. config/ai-routing.openrouter.example.yaml is the worked example, and
+# gateway) and the answer stops being knowable from code — there the declaration
+# is the WHOLE answer, and that tier needs `input: [text, image]` or it will
+# refuse documents however capable its model is.
+# config/ai-routing.openrouter.example.yaml is the worked example, and
 # docs/reference/configuration.md has the rules.
 profile: eu_hosted
 

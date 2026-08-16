@@ -56,8 +56,9 @@ func ollamaMessages(system string, msgs []model.Message, atts []model.Attachment
 	for _, a := range atts {
 		// Bare base64: the runner decodes the entry as image bytes, so a data:
 		// prefix would be decoded as part of the image and fail there instead of
-		// here. Only images reach this — carriage is gated against carriesImages
-		// — and only inline bytes do, which ollamaRefuseAttachments enforces.
+		// here. Only images reach this — carriage is gated against this binding's
+		// own list, carriesImages or a narrowing of it — and only inline bytes do,
+		// which ollamaRefuseAttachments enforces.
 		out[idx].Images = append(out[idx].Images, base64.StdEncoding.EncodeToString(a.Bytes))
 	}
 	return out
@@ -71,8 +72,8 @@ func ollamaMessages(system string, msgs []model.Message, atts []model.Attachment
 // nor keeps a file registry a handle could name. An adapter that quietly skipped
 // such a part would be the silent drop the invariant exists to forbid, so it is
 // refused with the reason.
-func ollamaRefuseAttachments(atts []model.Attachment) error {
-	if err := attachmentUnsupported("ollama", atts, carriesImages); err != nil {
+func ollamaRefuseAttachments(atts []model.Attachment, declared []string) error {
+	if err := refuseNarrowedAttachments("ollama", atts, declared, carriesImages); err != nil {
 		return err
 	}
 	for _, a := range atts {

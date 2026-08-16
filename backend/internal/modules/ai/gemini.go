@@ -30,6 +30,9 @@ type geminiClient struct {
 	baseURL      string
 	apiKey       string
 	defaultModel string
+	// attachmentMIMEs is what THIS binding carries: the wire's own carriage,
+	// narrowed by any `input:` the operator declared (inputmodality.go).
+	attachmentMIMEs []string
 }
 
 // geminiMaxOutputDefault caps a request that didn't set MaxTokens.
@@ -235,13 +238,13 @@ func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 }
 
 func (c *geminiClient) Caps() model.Capabilities {
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: carriesImagesAndPDF}
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false, AttachmentMIMEs: c.attachmentMIMEs}
 }
 
 func (c *geminiClient) generate(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	// Gemini carries image and PDF parts natively; reject any other MIME rather
 	// than silently drop it (spec §3.8).
-	if err := attachmentUnsupported("gemini", req.Attachments, carriesImagesAndPDF); err != nil {
+	if err := refuseNarrowedAttachments("gemini", req.Attachments, c.attachmentMIMEs, carriesImagesAndPDF); err != nil {
 		return nil, err
 	}
 	// Native functionDeclarations mapping is a follow-up; reject tools rather than

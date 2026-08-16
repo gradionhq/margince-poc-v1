@@ -243,10 +243,9 @@ func errUnfetchableAttachmentURI(provider, accepts string) error {
 // against THIS binding's declaration, and restates the refusal as something the
 // operator can act on.
 //
-// Every other adapter's carriage refusal is final: its wire decides, and there
-// is nothing to change. This one's is a config line away from being a success,
-// so an error that stops at "cannot carry" sends the reader into the adapter's
-// source to find out why a capable model was refused.
+// On this wire the carriage is ALWAYS the operator's line — there is no adapter
+// answer to fall back on — so the restatement is unconditional here, where
+// refuseNarrowedAttachments makes it conditional for a wire that has one.
 func (c *openAICompatClient) refuseUnsupportedAttachments(atts []model.Attachment) error {
 	err := attachmentUnsupported("openai-compat", atts, c.attachmentMIMEs)
 	if !errors.Is(err, model.ErrAttachmentUnsupported) {
@@ -254,6 +253,24 @@ func (c *openAICompatClient) refuseUnsupportedAttachments(atts []model.Attachmen
 	}
 	return fmt.Errorf("%w; this binding carries %s — set `input:` on its tier in the routing config to what the bound model accepts",
 		err, describeCarriage(c.attachmentMIMEs))
+}
+
+// refuseNarrowedAttachments is the same invariant for an adapter whose carriage
+// is fixed in its WIRE, and whose binding may have narrowed it.
+//
+// Which of the two refusals an operator gets is the difference between a dead
+// end and an edit. A wire that cannot carry a media type has nothing to change,
+// and saying "set `input:`" there would send them after a knob that cannot help.
+// A binding that GAVE UP a lane its wire has is one config line from carrying it
+// again, and an error stopping at "cannot carry" sends them into the adapter's
+// source to find out why a capable provider refused.
+func refuseNarrowedAttachments(provider string, atts []model.Attachment, declared, wireCarries []string) error {
+	err := attachmentUnsupported(provider, atts, declared)
+	if !errors.Is(err, model.ErrAttachmentUnsupported) || slices.Equal(declared, wireCarries) {
+		return err
+	}
+	return fmt.Errorf("%w; this binding is narrowed to %s by its `input:` — %s itself carries %s, so widening or removing that line on its tier restores it",
+		err, describeCarriage(declared), provider, describeCarriage(wireCarries))
 }
 
 // describeCarriage renders a carriage set for an error message, naming the empty

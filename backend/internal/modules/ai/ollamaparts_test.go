@@ -82,7 +82,7 @@ func TestOllamaAttachmentWithNoUserTurnGetsOne(t *testing.T) {
 // nor keeps a file registry a handle could name, so a URI attachment is refused
 // rather than skipped.
 func TestOllamaRefusesAnAttachmentGivenByURI(t *testing.T) {
-	err := ollamaRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "https://files.example/a.png"}})
+	err := ollamaRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "https://files.example/a.png"}}, carriesImages)
 	if !errors.Is(err, model.ErrAttachmentUnsupported) {
 		t.Fatalf("a uri attachment must be refused as unsupported carriage, got %v", err)
 	}
@@ -91,7 +91,7 @@ func TestOllamaRefusesAnAttachmentGivenByURI(t *testing.T) {
 	}
 	if err := ollamaRefuseAttachments([]model.Attachment{
 		{MIME: "image/png", Bytes: []byte("PNG")},
-	}); err != nil {
+	}, carriesImages); err != nil {
 		t.Errorf("inline image bytes are exactly what this wire takes, got %v", err)
 	}
 }

@@ -203,7 +203,7 @@ func (cfg RoutingConfig) validate() error {
 				return err
 			}
 		}
-		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Provider, binding.Input); err != nil {
+		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Input); err != nil {
 			return err
 		}
 	}

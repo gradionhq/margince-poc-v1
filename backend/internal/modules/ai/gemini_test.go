@@ -16,11 +16,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-func newGeminiForTest(t *testing.T, handler http.HandlerFunc) *geminiClient {
+// Built through SelectBrain rather than by struct literal: carriage is decided
+// there now (the wire's own set, narrowed by any `input:`), so a hand-built
+// client would be a second, differently-configured production that proves
+// nothing about the one that ships.
+func newGeminiForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
+	t.Setenv("GEMINI_API_KEY", "gk")
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &geminiClient{http: &http.Client{}, baseURL: srv.URL, apiKey: "gk", defaultModel: "gemini-x"}
+	client, err := SelectBrain(ProviderConfig{Provider: providerGemini, BaseURL: srv.URL, Model: "gemini-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
 }
 
 func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {

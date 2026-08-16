@@ -150,7 +150,7 @@ func TestAnthropicAttachmentWithNoUserTurnGetsOne(t *testing.T) {
 // A URI this wire cannot resolve is refused as a carriage failure, not mapped to
 // a url source the vendor would reject for a reason naming the wrong thing.
 func TestAnthropicRefusesAnAttachmentURIItCannotResolve(t *testing.T) {
-	err := anthropicRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "file-abc123"}})
+	err := anthropicRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "file-abc123"}}, carriesImages)
 	if !errors.Is(err, model.ErrAttachmentUnsupported) {
 		t.Fatalf("a file handle must be refused as unsupported carriage, got %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAnthropicRefusesAnAttachmentURIItCannotResolve(t *testing.T) {
 	}
 	if err := anthropicRefuseAttachments([]model.Attachment{
 		{MIME: "image/png", URI: "https://files.example/a.png"},
-	}); err != nil {
+	}, carriesImages); err != nil {
 		t.Errorf("an https url is fetchable and must be carried, got %v", err)
 	}
 }

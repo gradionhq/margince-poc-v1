@@ -69,6 +69,17 @@ func (f *FakeClient) CarryingNothing() *FakeClient {
 	return f
 }
 
+// carrying sets what this fake declares it can be given — the offline mirror of
+// a real binding's narrowed carriage (inputmodality.go). Unexported: a test says
+// what it wants with CarryingNothing or the default; only SelectBrain translates
+// a config declaration into a carriage set.
+func (f *FakeClient) carrying(mimes []string) *FakeClient {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.carriage = mimes
+	return f
+}
+
 // Script queues completion texts returned in order by Complete/Stream.
 // When the queue runs dry the fake falls back to a deterministic
 // payload-hash response, so unscripted tests still get stable output.
@@ -135,6 +146,11 @@ func (f *FakeClient) Complete(ctx context.Context, req model.Request) (model.Res
 }
 
 func (f *FakeClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
+	// The same gate Complete runs: a lane that refuses an attachment on one
+	// method and carries it on the other is a Caps() that answers for neither.
+	if err := attachmentUnsupported("fake", req.Attachments, f.Caps().AttachmentMIMEs); err != nil {
+		return nil, err
+	}
 	payload, report, err := sendablePayload(ctx, fakeWire(req), req.SecretStripper)
 	if err != nil {
 		return nil, err

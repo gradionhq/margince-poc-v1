@@ -38,7 +38,7 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 		},
 		"an empty list is not a way to say text-only": {
 			yaml:      binding(`, input: []`),
-			wantParts: []string{"is empty", "omit the field"},
+			wantParts: []string{"is empty", "omit the field", "no attachments"},
 		},
 		// yaml decodes all three of `input:`, `input: null` and an absent key to
 		// the same nil slice. A written-but-blank key is somebody who meant to
@@ -60,14 +60,6 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 		"a binding that cannot be given text is not a binding": {
 			yaml:      binding(`, input: [image]`),
 			wantParts: []string{"must include", `"text"`},
-		},
-		"a native provider says not-supported, not meaningless": {
-			yaml: []byte(`profile: eu_hosted
-tiers:
-  premium: {provider: gemini, model: m, input: [text, image]}
-embeddings: {provider: gemini, model: e}
-`),
-			wantParts: []string{"not supported on provider", `"gemini"`, "openai_compatible and vllm"},
 		},
 		"the embeddings lane sends no attachments": {
 			yaml: []byte(`profile: eu_hosted

@@ -71,6 +71,20 @@ func WithPayloadCapture() LocalOption {
 	return func(o *localOpts) { o.capturePayloads = true }
 }
 
+// sharedFakeCarriage is what ONE injected fake can honestly claim while standing
+// in for several bindings: the intersection of what each of them declared.
+//
+// The same conservative direction Router.AttachmentMIMEs takes over a ladder,
+// and for the same reason — it is the only answer a single Caps() can give
+// truthfully for several tiers at once.
+func sharedFakeCarriage(inputs [][]string) []string {
+	carriage := narrowedCarriage(carriesImagesAndPDF, inputs[0])
+	for _, input := range inputs[1:] {
+		carriage = intersectMIMEs(carriage, narrowedCarriage(carriesImagesAndPDF, input))
+	}
+	return carriage
+}
+
 // NewLocalRouter builds a Router over an in-memory meter and no
 // Postgres — the DB-less path for dev tooling (the worker's siteread
 // debug subcommand) and the aicert lane. Calls ride the full routing,
@@ -92,13 +106,31 @@ func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 		// otherwise have filled with an untracked fresh one — matched by
 		// binding, not by client identity, since buildClients never hands
 		// back which Client instance it built.
+		var fakeInputs [][]string
+		anyDeclared := false
+		fold := func(input []string) {
+			fakeInputs = append(fakeInputs, input)
+			anyDeclared = anyDeclared || input != nil
+		}
 		for tier, binding := range cfg.Tiers {
-			if binding.Provider == ProviderFake {
-				clients[tier] = o.fakeClient
+			if binding.Provider != ProviderFake {
+				continue
 			}
+			clients[tier] = o.fakeClient
+			fold(binding.Input)
 		}
 		if cfg.Embeddings.Provider == ProviderFake {
 			embedder = o.fakeClient
+			fold(cfg.Embeddings.Input)
+		}
+		// Only when a binding actually declared something: with nothing declared
+		// the fold would land on the fake's own default and quietly undo a
+		// caller's CarryingNothing().
+		if anyDeclared {
+			// The config's narrowing has to reach the injected client too, or the
+			// one path that swaps the client is the one path where a declaration
+			// does nothing.
+			o.fakeClient.carrying(sharedFakeCarriage(fakeInputs))
 		}
 	}
 	meta := embedInclusiveMeta(cfg)

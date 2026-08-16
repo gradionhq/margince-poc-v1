@@ -24,10 +24,13 @@ type ProviderConfig struct {
 	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
 	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
 	// Input is what the bound model can be GIVEN, in the acceptedModalities
-	// vocabulary (inputmodality.go). Only the providers in inputProviders accept
-	// it, because only there is the answer a property of the model rather than of
-	// the adapter. Nil — the common case — means text-only: the binding carries no
-	// attachment parts and refuses them rather than dropping them.
+	// vocabulary (inputmodality.go). It does two jobs: on openai_compatible and
+	// vllm it IS the carriage, because only there is the answer a property of the
+	// bound model rather than of the adapter; everywhere else it NARROWS the
+	// carriage that adapter's wire already has, and can never widen it.
+	//
+	// Nil — the common case — means the provider's own answer: text-only on the
+	// two OpenAI-wire providers, whatever the wire carries on the rest.
 	Input []string `yaml:"input"`
 }
 
@@ -94,23 +97,28 @@ var knownProviders = []string{ProviderFake, providerAnthropic, providerOllama, p
 func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 	switch cfg.Provider {
 	case ProviderFake:
-		return NewFakeClient(), nil
+		// The stub narrows like any other adapter: `input:` on a fake binding
+		// that silently did nothing is the failure this field exists to remove,
+		// and an offline test of the narrowing needs a client that honours it.
+		return NewFakeClient().carrying(narrowedCarriage(carriesImagesAndPDF, cfg.Input)), nil
 	case providerAnthropic:
 		key := cloudKey(providerAnthropic)
 		if key == "" {
 			return nil, byokKeyRequired(providerAnthropic)
 		}
 		return &anthropicClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      defaulted(cfg.BaseURL, defaultAnthropicBaseURL),
-			apiKey:       key,
-			defaultModel: cfg.Model,
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         defaulted(cfg.BaseURL, defaultAnthropicBaseURL),
+			apiKey:          key,
+			defaultModel:    cfg.Model,
+			attachmentMIMEs: narrowedCarriage(carriesImages, cfg.Input),
 		}, nil
 	case providerOllama:
 		return &ollamaClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      defaulted(cfg.BaseURL, defaultOllamaBaseURL),
-			defaultModel: defaulted(cfg.Model, defaultOllamaModel),
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         defaulted(cfg.BaseURL, defaultOllamaBaseURL),
+			defaultModel:    defaulted(cfg.Model, defaultOllamaModel),
+			attachmentMIMEs: narrowedCarriage(carriesImages, cfg.Input),
 		}, nil
 	case providerVLLM:
 		return &openAICompatClient{
@@ -143,10 +151,11 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			return nil, byokKeyRequired(providerOpenAI)
 		}
 		return &openaiClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      defaulted(cfg.BaseURL, defaultOpenAIBaseURL),
-			apiKey:       key,
-			defaultModel: cfg.Model,
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         defaulted(cfg.BaseURL, defaultOpenAIBaseURL),
+			apiKey:          key,
+			defaultModel:    cfg.Model,
+			attachmentMIMEs: narrowedCarriage(carriesImagesAndPDF, cfg.Input),
 		}, nil
 	case providerGemini:
 		key := cloudKey(providerGemini)
@@ -154,10 +163,11 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			return nil, byokKeyRequired(providerGemini)
 		}
 		return &geminiClient{
-			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      defaulted(cfg.BaseURL, defaultGeminiBaseURL),
-			apiKey:       key,
-			defaultModel: cfg.Model,
+			http:            &http.Client{Timeout: requestTimeout},
+			baseURL:         defaulted(cfg.BaseURL, defaultGeminiBaseURL),
+			apiKey:          key,
+			defaultModel:    cfg.Model,
+			attachmentMIMEs: narrowedCarriage(carriesImagesAndPDF, cfg.Input),
 		}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
