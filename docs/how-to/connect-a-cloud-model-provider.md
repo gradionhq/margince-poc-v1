@@ -131,6 +131,13 @@ The refusal is bound to the provider _name_, not a config flag, so pointing
 and `fake` are sovereign-eligible. Use `eu_hosted` or `cloud_frontier` for a BYOK
 cloud binding.
 
+The endpoint is checked too, because a local provider name is not on its own a
+local endpoint: `ollama` and `vllm` take a `base_url`, and one pointed at a
+third-party host would send every call of a zero-egress deployment over the
+public internet. Under this profile each binding's resolved `base_url` must be
+loopback, link-local, or a private range — your own GPU box on your own network
+counts; a DNS name does not, since what it resolves to can change after boot.
+
 ## Troubleshooting
 
 | Symptom | Meaning / fix |
