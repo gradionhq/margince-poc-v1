@@ -845,6 +845,28 @@ says which file it could not read rather than answering about a document the
 model never saw. An `ollama` binding takes inline bytes only, and `anthropic`
 takes inline bytes or an `http(s)` URL it fetches itself.
 
+**What carrying a document does and does not guarantee.** Two things are worth
+knowing before you enable an attachment lane, because both run the other way
+from what a reader tends to assume:
+
+- **The media type is the uploader's claim, not a finding.** The lane is chosen
+  from the content type recorded when the file was captured; nothing sniffs the
+  bytes, deliberately — a second content-type authority beside the stored one
+  would be its own defect. So whoever attached the file decides which lane its
+  bytes take, **including an external counterparty on a captured email**, and
+  `image/*` matches by prefix. `input: [image]` says what Margince will *carry*;
+  it does not say what the bytes *are*.
+- **The secret stripper does not reach inside an attachment.** It runs over the
+  outbound payload — the right place, and unbypassable — but an attachment rides
+  that payload as base64, and the rules are anchored on characters base64 cannot
+  emit. A credential inside an attached file is therefore structurally
+  unmatchable, while the same file arriving as text is scrubbed.
+
+Both are defensible where they stand — the alternative to the second is decoding
+and re-encoding every attachment on every call — but they are the scope, not an
+oversight. If a deployment needs more than this, the answer is the location
+ladder (`profile:`) or narrowing the tier with `input:`, not the stripper.
+
 #### `input:` — what the bound model can be given
 
 A chat tier bound to `openai_compatible` or `vllm` may declare the input

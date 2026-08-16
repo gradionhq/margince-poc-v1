@@ -18,6 +18,16 @@ import (
 // pass through untouched, because privacy is the location ladder (A8
 // revised), and pretending a regex protects PII would be a false
 // guarantee.
+//
+// It is a TEXT-lane guarantee, and the spec says so in the same breath as the
+// rule itself (§4.2). The pass runs over the marshalled body, which is the last
+// point before egress and cannot be bypassed — but an attachment rides that body
+// as base64, and every rule below is anchored on characters base64 cannot emit
+// (`-`, `_`, `.`, `:`, `@`, whitespace). A credential inside an attached FILE is
+// therefore unmatchable here by construction, while the same file arriving as
+// text is scrubbed. Reaching it would mean decoding and re-encoding every
+// attachment on every call; the product states the scope instead of implying a
+// cover it does not have.
 func NewSecretStripper() model.SecretStripper {
 	return secretStripper{rules: stripRules}
 }

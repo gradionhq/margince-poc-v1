@@ -223,6 +223,13 @@ func (d *DocumentExtractor) sourceFor(
 	// ContentType is optional on the row; a document that never declared one
 	// takes neither lane, which is the honest answer — the alternative is
 	// sniffing bytes here, a second content-type authority beside DOC-PARAM-9's.
+	//
+	// What that decides, stated because it is easy to read the other way
+	// (ai-operational-spec §4.2): this type is the UPLOADER's claim, so whoever
+	// attached the file — an external counterparty on a captured email
+	// included — chooses which lane its bytes take. Carriage is not a content
+	// check, and a binding's `input:` says what this product will send, not what
+	// the bytes are.
 	mime := ""
 	if meta.ContentType != nil {
 		mime = strings.ToLower(strings.TrimSpace(*meta.ContentType))
