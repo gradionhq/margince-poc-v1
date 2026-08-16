@@ -236,12 +236,80 @@ describe("capture activity", () => {
         data: [{ ...ROW, outcome: "deferred", reason: "deferral_capped" }],
       }),
     );
-    // Scoped to the LIST: the funnel legitimately labels its bucket "Waiting on
-    // a verdict", because most deferrals genuinely are waiting. It is this row
-    // that is not.
     const row = within(await screen.findByRole("list"));
     expect(row.getByText(/not queued/i)).toBeInTheDocument();
     expect(row.queryByText(/waiting on a verdict/i)).not.toBeInTheDocument();
+  });
+
+  it("labels the deferred bucket with what every message in it has in common", async () => {
+    // A bucket is one number over both the settled and the still-waiting, so a
+    // tense in its label is a claim it cannot support. "Waiting on a verdict"
+    // over a strip whose rows each say the verdict landed is the same
+    // contradiction the row avoids, one level up.
+    renderTab(
+      windowBody({
+        data: [
+          {
+            ...ROW,
+            outcome: "deferred",
+            reason: null,
+            resolution: {
+              status: "real",
+              kind: "person",
+              resolved_at: "2026-08-15T09:13:00Z",
+            },
+          },
+        ],
+      }),
+    );
+    const funnel = within(await screen.findByTestId("capture-activity-funnel"));
+    expect(funnel.getByText(/sent for a verdict/i)).toBeInTheDocument();
+    expect(funnel.queryByText(/waiting on a verdict/i)).not.toBeInTheDocument();
+  });
+
+  it("does not say a settled deferral is still waiting for its verdict", async () => {
+    // The same contradiction as the capped case, from the other direction: the
+    // ledger has answered, the answer is on the row, and the outcome beside it
+    // must not still be asking the question.
+    renderTab(
+      windowBody({
+        data: [
+          {
+            ...ROW,
+            outcome: "deferred",
+            reason: null,
+            resolution: {
+              status: "real",
+              kind: "person",
+              resolved_at: "2026-08-15T09:13:00Z",
+            },
+          },
+        ],
+      }),
+    );
+    const row = within(await screen.findByRole("list"));
+    expect(row.getByText(/sent for a verdict/i)).toBeInTheDocument();
+    expect(row.getByText(/judged a real contact/i)).toBeInTheDocument();
+    expect(row.queryByText(/waiting on a verdict/i)).not.toBeInTheDocument();
+  });
+
+  it("still says a deferral with no answer yet is waiting", async () => {
+    // The control for the test above: the label is settled-vs-waiting, not
+    // "deferrals never say waiting".
+    renderTab(
+      windowBody({
+        data: [
+          {
+            ...ROW,
+            outcome: "deferred",
+            reason: null,
+            resolution: { status: "pending", kind: null, resolved_at: null },
+          },
+        ],
+      }),
+    );
+    const row = within(await screen.findByRole("list"));
+    expect(row.getByText(/waiting on a verdict/i)).toBeInTheDocument();
   });
 
   it("reports an empty window as empty rather than as a failure", async () => {
