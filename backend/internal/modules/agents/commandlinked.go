@@ -24,7 +24,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -239,10 +242,14 @@ func (r *bookMeetingResolver) Subject(ctx context.Context, cmd BookMeetingComman
 
 // Guards refuses, before anything is staged, a booking whose end does not
 // follow its start, one attached to nothing, one attached to more records than
-// a request may name, and one naming a record the caller cannot see or whose
-// authority lives elsewhere.
+// a request may name, one naming a record the caller cannot see or whose
+// authority lives elsewhere, and one onto another host's calendar by anyone
+// but an admin.
 func (r *bookMeetingResolver) Guards(ctx context.Context, cmd BookMeetingCommand) error {
 	if err := requireBookingWindow(cmd.Start, cmd.End); err != nil {
+		return err
+	}
+	if err := requireOwnCalendarOrAdmin(ctx, cmd.HostUserID); err != nil {
 		return err
 	}
 	if err := requireBookingLinks(cmd.Links); err != nil {
@@ -250,6 +257,25 @@ func (r *bookMeetingResolver) Guards(ctx context.Context, cmd BookMeetingCommand
 	}
 	_, _, err := r.links.stageable(ctx, cmd.Links)
 	return err
+}
+
+// requireOwnCalendarOrAdmin mirrors the store's rule for booking on behalf of
+// another host (activities.BookMeeting): the admin ROLE, not an unbounded row
+// scope. Asked here too because the store's refusal comes after the human's
+// one-shot approval is consumed, and a management or ops passport would
+// otherwise stage a booking that can only ever be refused.
+func requireOwnCalendarOrAdmin(ctx context.Context, host *ids.UUID) error {
+	if host == nil {
+		return nil
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return apperrors.ErrPermissionDenied
+	}
+	if *host == actor.UserID {
+		return nil
+	}
+	return auth.RequireAdmin(ctx)
 }
 
 // requireBookingWindow refuses a booking that ends before it starts.
