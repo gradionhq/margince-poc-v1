@@ -69,6 +69,17 @@ func (f *FakeClient) CarryingNothing() *FakeClient {
 	return f
 }
 
+// carrying sets what this fake declares it can be given — the offline mirror of
+// a real binding's narrowed carriage (inputmodality.go). Unexported: a test says
+// what it wants with CarryingNothing or the default; only SelectBrain translates
+// a config declaration into a carriage set.
+func (f *FakeClient) carrying(mimes []string) *FakeClient {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.carriage = mimes
+	return f
+}
+
 // Script queues completion texts returned in order by Complete/Stream.
 // When the queue runs dry the fake falls back to a deterministic
 // payload-hash response, so unscripted tests still get stable output.

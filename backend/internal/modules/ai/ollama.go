@@ -24,6 +24,9 @@ type ollamaClient struct {
 	http         *http.Client
 	baseURL      string
 	defaultModel string
+	// attachmentMIMEs is what THIS binding carries: the wire's own carriage,
+	// narrowed by any `input:` the operator declared (inputmodality.go).
+	attachmentMIMEs []string
 }
 
 type ollamaWire struct {
@@ -284,7 +287,7 @@ func (c *ollamaClient) Caps() model.Capabilities {
 	// AttachmentMIMEs is images and nothing else: the `images` array is the
 	// only attachment shape /api/chat has, and a non-vision model pulled into
 	// this binding fails visibly at the runner rather than silently here.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true, AttachmentMIMEs: carriesImages}
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true, AttachmentMIMEs: c.attachmentMIMEs}
 }
 
 // chat sends one non-streaming /api/chat call; chatStream requests the
@@ -302,7 +305,7 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 	// Images map to the per-message `images` array (ollamaparts.go); anything
 	// else is refused rather than dropped (spec §3.8, the map-or-reject
 	// invariant).
-	if err := ollamaRefuseAttachments(req.Attachments); err != nil {
+	if err := ollamaRefuseAttachments(req.Attachments, c.attachmentMIMEs); err != nil {
 		return nil, err
 	}
 	wire := ollamaWire{Model: req.Model, Stream: stream}

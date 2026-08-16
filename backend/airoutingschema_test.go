@@ -69,13 +69,16 @@ func TestTheSchemaAndTheParserAgreeOnEveryInputDeclaration(t *testing.T) {
 		yaml  string
 		legal bool
 	}{
-		// The field belongs only where carriage depends on the bound model.
+		// Every provider takes the field: on the OpenAI-compatible pair it IS the
+		// carriage, on the rest it narrows the carriage their wire already has.
 		"declared on openai_compatible": {tiered(`provider: openai_compatible, base_url: https://x, model: m, input: [text, image]`), true},
 		"declared on vllm":              {tiered(`provider: vllm, model: m, input: [text, image]`), true},
-		"declared on gemini":            {tiered(`provider: gemini, model: m, input: [text, image]`), false},
-		"declared on anthropic":         {tiered(`provider: anthropic, model: m, input: [text, image]`), false},
-		"declared on openai":            {tiered(`provider: openai, model: m, input: [text, image]`), false},
-		"declared on ollama":            {tiered(`provider: ollama, model: m, input: [text, image]`), false},
+		"declared on gemini":            {tiered(`provider: gemini, model: m, input: [text, image]`), true},
+		"declared on anthropic":         {tiered(`provider: anthropic, model: m, input: [text, image]`), true},
+		"declared on openai":            {tiered(`provider: openai, model: m, input: [text, image]`), true},
+		"declared on ollama":            {tiered(`provider: ollama, model: m, input: [text, image]`), true},
+		// The narrowing spelling: a native tier told to send no attachment.
+		"narrowed to text on gemini": {tiered(`provider: gemini, model: m, input: [text]`), true},
 		// Omitting it is the text-only default every existing config relies on.
 		"omitted on gemini":            {tiered(`provider: gemini, model: m`), true},
 		"omitted on openai_compatible": {tiered(`provider: openai_compatible, base_url: https://x, model: m`), true},

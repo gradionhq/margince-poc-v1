@@ -196,7 +196,7 @@ func (cfg RoutingConfig) validate() error {
 		if cfg.Profile == ProfileSovereign && !localProviders[binding.Provider] {
 			return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on tier %s", binding.Provider, tier)
 		}
-		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Provider, binding.Input); err != nil {
+		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Input); err != nil {
 			return err
 		}
 	}

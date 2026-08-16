@@ -63,20 +63,16 @@ func TestRoutingSchemaEnumsMatchCode(t *testing.T) {
 	assertSetEqual(t, "providers", schema.Defs.Binding.Properties.Provider.Enum, knownProviders)
 	assertSetEqual(t, "input modalities", schema.Defs.Binding.Properties.Input.Items.Enum, acceptedModalities)
 
-	// The parser refuses `input:` outside inputProviders; the schema must refuse
-	// it in the editor too, or an operator autocompletes a field that fails at
-	// boot. The conditional is asserted structurally — the enum it guards on is
-	// what drifts, and no JSON Schema validator runs in this repo to catch it.
-	var guarded []string
+	// `input:` is accepted on every provider — as the whole answer on the
+	// OpenAI-compatible wire, as a narrowing everywhere else — so the schema must
+	// not carry the conditional that once forbade it outside those two. A schema
+	// stricter than the parser is worse than no schema: it makes an editor red
+	// on a config that boots.
 	for _, clause := range schema.Defs.Binding.AllOf {
 		if clause.Else != nil {
-			guarded = clause.If.Properties.Provider.Enum
+			t.Errorf("the binding $def still forbids `input` on some providers: %v", clause.If.Properties.Provider.Enum)
 		}
 	}
-	if guarded == nil {
-		t.Fatal("the binding $def must forbid `input` outside the providers that accept it")
-	}
-	assertSetEqual(t, "providers accepting input", guarded, inputProviders)
 
 	// The embeddings lane sends no attachments, so its own $def must not offer
 	// the field at all. (The parser is what enforces this — EmbeddingsConfig

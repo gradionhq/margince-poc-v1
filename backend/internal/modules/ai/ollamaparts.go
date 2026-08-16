@@ -71,8 +71,8 @@ func ollamaMessages(system string, msgs []model.Message, atts []model.Attachment
 // nor keeps a file registry a handle could name. An adapter that quietly skipped
 // such a part would be the silent drop the invariant exists to forbid, so it is
 // refused with the reason.
-func ollamaRefuseAttachments(atts []model.Attachment) error {
-	if err := attachmentUnsupported("ollama", atts, carriesImages); err != nil {
+func ollamaRefuseAttachments(atts []model.Attachment, declared []string) error {
+	if err := attachmentUnsupported("ollama", atts, declared); err != nil {
 		return err
 	}
 	for _, a := range atts {

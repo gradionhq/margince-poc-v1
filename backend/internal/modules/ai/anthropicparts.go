@@ -131,8 +131,8 @@ func anthropicImageBlock(a model.Attachment) anthropicBlock {
 // the Files beta header this adapter does not send — so a handle is refused
 // rather than mapped to a block the vendor would reject for a reason that names
 // the wrong thing.
-func anthropicRefuseAttachments(atts []model.Attachment) error {
-	if err := attachmentUnsupported("anthropic", atts, carriesImages); err != nil {
+func anthropicRefuseAttachments(atts []model.Attachment, declared []string) error {
+	if err := attachmentUnsupported("anthropic", atts, declared); err != nil {
 		return err
 	}
 	for _, a := range atts {

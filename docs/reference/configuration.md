@@ -847,8 +847,7 @@ takes inline bytes or an `http(s)` URL it fetches itself.
 
 #### `input:` — what the bound model can be given
 
-A chat tier bound to `openai_compatible` or `vllm` may declare the input
-modalities its model accepts:
+A chat tier may declare the input modalities its model accepts:
 
 ```yaml
 premium:
@@ -858,15 +857,37 @@ premium:
   input: [text, image]
 ```
 
-Only those two providers accept the field, because only there is the answer
-unknown to the code: they are one adapter pointed at an operator-chosen
-endpoint, so whether an image may be sent depends on **which model was bound**.
-Every other provider's carriage is fixed in its own wire, and declaring it there
-is a startup error rather than a line that quietly does nothing.
+The field does two different jobs, depending on the provider under it.
 
-- **Omit it for a text-only model.** An undeclared binding carries no attachment
-  parts and *refuses* an attachment rather than dropping it — the safe default,
-  and what every binding did before this field existed.
+**On `openai_compatible` and `vllm` it is the whole answer**, because only there
+is it unknown to the code: they are one adapter pointed at an operator-chosen
+endpoint, so whether an image may be sent depends on **which model was bound**.
+Omitted there means text-only.
+
+**On every other provider it narrows.** Their carriage is fixed in the wire, and
+a declaration means *at most this* — the binding's carriage is the intersection
+of the two. So this keeps scanned invoices off an egressing model while keeping
+that model for text:
+
+```yaml
+premium:
+  provider: gemini
+  model: gemini-3.1-flash-lite
+  input: [text]        # this tier is sent no attachment at all
+```
+
+A declaration can only take carriage away. It can never give a provider a lane
+its wire lacks — `input: [text, image]` on a binding whose wire has no image
+part still carries no image. Omitted means *whatever that provider carries*,
+which is what every native binding did before this field existed.
+
+Note this governs what **Margince sends**. Like `profile:`, it is not a claim
+about what the endpoint you chose does with what it receives.
+
+- **Omit it to take the provider's own answer**; write `input: [text]` to send a
+  tier no attachments at all. An undeclared `openai_compatible`/`vllm` binding
+  carries no attachment parts and *refuses* an attachment rather than dropping
+  it — the safe default there.
 - **Accepted values are `text` and `image`**, and `text` must be present. An
   unknown modality is a startup error naming the accepted set, so a typo cannot
   silently disable the feature it was meant to enable. `pdf` is deliberately not
@@ -878,11 +899,13 @@ is a startup error rather than a line that quietly does nothing.
 - **A declaration is a claim, not a checked fact.** A binding that claims more
   than its model serves fails on the wire, visibly.
 
-**Declare it on every rung of the ladder, not just the one you had in mind.** A
-task's carriage is the *intersection* over its bound rungs, because the budget
-guardrail can demote a call to a lower rung mid-month — so one undeclared
-sibling rung vetoes the lane for the whole task. Look a candidate's own answer
-up before declaring it; on OpenRouter:
+**The ladder cuts both ways.** A task's carriage is the *intersection* over its
+bound rungs, because the budget guardrail can demote a call to a lower rung
+mid-month. So *enabling* a lane needs the declaration on **every** rung — one
+undeclared `openai_compatible` sibling vetoes it for the whole task — while
+*narrowing* one rung narrows the whole task, which is exactly what you want when
+the narrowing is the privacy intent. Look a candidate's own answer up before
+declaring it; on OpenRouter:
 
 ```sh
 curl -s https://openrouter.ai/api/v1/models \
