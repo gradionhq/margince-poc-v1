@@ -286,7 +286,7 @@ func openaiAttachmentPart(a model.Attachment) openaiInputPart {
 	switch {
 	case a.URI == "":
 		part.FileData = dataURI(a.MIME, a.Bytes)
-	case strings.HasPrefix(a.URI, "http://"), strings.HasPrefix(a.URI, "https://"):
+	case isFetchableURL(a.URI):
 		part.FileURL = a.URI
 	default:
 		part.FileID = a.URI

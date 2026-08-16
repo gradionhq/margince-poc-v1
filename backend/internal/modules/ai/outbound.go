@@ -88,25 +88,6 @@ func openAIWireEmbed(ctx context.Context, post func(context.Context, string, []b
 	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
 }
 
-// wireMessage is the lowercase JSON shape every provider speaks; the
-// port's Message deliberately carries no wire tags (the seam is not a
-// serialization contract), so adapters convert here.
-type wireMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-func wireMessages(system string, msgs []model.Message) []wireMessage {
-	out := make([]wireMessage, 0, len(msgs)+1)
-	if system != "" {
-		out = append(out, wireMessage{Role: roleSystem, Content: system})
-	}
-	for _, m := range msgs {
-		out = append(out, wireMessage{Role: m.Role, Content: m.Content})
-	}
-	return out
-}
-
 // sendablePayload marshals a provider wire body and runs the
 // per-request SecretStripper over the marshaled bytes. Every adapter —
 // cloud, local, and the fake — puts ONLY the returned bytes on the

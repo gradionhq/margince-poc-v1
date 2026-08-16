@@ -228,10 +228,34 @@ func fakeWire(req model.Request) map[string]any {
 	return map[string]any{
 		"model":       req.Model,
 		"system":      req.System,
-		"messages":    wireMessages("", req.Messages),
+		"messages":    fakeMessageWire(req.Messages),
 		"tools":       req.Tools,
 		"attachments": fakeAttachmentWire(req.Attachments),
 	}
+}
+
+// fakeMessage renders one turn as the lowercase {role, content} pair every real
+// wire is some elaboration of. It is deliberately none of them: each real
+// adapter owns its own message type because each spells a carried image
+// differently, and the fake asserts nothing about those spellings — what it
+// mirrors is that the CONTENT of a turn reaches the payload the stripper runs
+// over.
+//
+// A struct rather than a map, because field order is load-bearing here: the
+// fake's fallback completion is a hash OF THESE BYTES, and Go marshals map keys
+// in sorted order — so a map would silently re-order `role` after `content` and
+// change every deterministic answer this client gives.
+type fakeMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func fakeMessageWire(msgs []model.Message) []fakeMessage {
+	out := make([]fakeMessage, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, fakeMessage{Role: m.Role, Content: m.Content})
+	}
+	return out
 }
 
 // fakeAttachmentWire renders each carried attachment as its media type, its

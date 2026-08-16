@@ -28,7 +28,7 @@ type ollamaClient struct {
 
 type ollamaWire struct {
 	Model    string           `json:"model"`
-	Messages []wireMessage    `json:"messages"`
+	Messages []ollamaMessage  `json:"messages"`
 	Tools    []ollamaToolWire `json:"tools,omitempty"`
 	Stream   bool             `json:"stream"`
 	Options  *ollamaOptions   `json:"options,omitempty"`
@@ -96,6 +96,20 @@ const ollamaContextBucket = 4096
 // wraps around each turn, which a byte count of the content alone cannot see.
 const ollamaPerMessageOverhead = 8
 
+// ollamaPerImageTokens is the window allowance one carried image is sized at.
+//
+// An image's cost is not a function of its byte length the way text's is: the
+// vision projector downsamples to a fixed patch grid, so a 200 KB photo and a
+// 4 MB scan of the same page occupy the same context. Sizing from bytes would
+// let the JPEG quality slider pick the runner's allocation, which is the same
+// mistake ollamaMaxContext exists to prevent for text.
+//
+// The figure is the whole-page end of what the common projectors charge — llava
+// spends 576 tokens on an image, Qwen-VL around 1.3k at its default tiling —
+// rounded up so a scan that tiles into more patches than average still fits
+// rather than pushing the prompt out of the window.
+const ollamaPerImageTokens = 2048
+
 // contextWindow sizes `num_ctx` for the assembled request.
 //
 // num_ctx bounds prompt AND completion together, while num_predict bounds only
@@ -115,13 +129,17 @@ const ollamaPerMessageOverhead = 8
 // between them decide the value that actually ships.
 func (w ollamaWire) contextWindow(maxTokens int) int {
 	prompt := len(w.Format)
+	images := 0
 	for _, message := range w.Messages {
 		prompt += len(message.Content) + len(message.Role) + ollamaPerMessageOverhead
+		images += len(message.Images)
 	}
 	for _, tool := range w.Tools {
 		prompt += len(tool.Function.Name) + len(tool.Function.Description) + len(tool.Function.Parameters)
 	}
-	return ollamaWindowFor(prompt/4 + maxTokens)
+	// Images are counted in tokens directly rather than through the byte
+	// heuristic: their base64 length says nothing about what they cost the model.
+	return ollamaWindowFor(prompt/4 + images*ollamaPerImageTokens + maxTokens)
 }
 
 // ollamaWindowFor rounds a token estimate up to a window this adapter is
@@ -263,7 +281,10 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 func (c *ollamaClient) Caps() model.Capabilities {
 	// EmbedDims stays 0 (unknown): the width is a property of whichever
 	// model the deployment pulled, discovered from the first Embed call.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true, AttachmentMIMEs: carriesNothing}
+	// AttachmentMIMEs is images and nothing else: the `images` array is the
+	// only attachment shape /api/chat has, and a non-vision model pulled into
+	// this binding fails visibly at the runner rather than silently here.
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true, AttachmentMIMEs: carriesImages}
 }
 
 // chat sends one non-streaming /api/chat call; chatStream requests the
@@ -278,9 +299,10 @@ func (c *ollamaClient) chatStream(ctx context.Context, req model.Request) (io.Re
 }
 
 func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
-	// Local vision is out of scope here — reject any attachment rather than
-	// silently drop it (spec §3.8, the map-or-reject invariant).
-	if err := attachmentUnsupported("ollama", req.Attachments, carriesNothing); err != nil {
+	// Images map to the per-message `images` array (ollamaparts.go); anything
+	// else is refused rather than dropped (spec §3.8, the map-or-reject
+	// invariant).
+	if err := ollamaRefuseAttachments(req.Attachments); err != nil {
 		return nil, err
 	}
 	wire := ollamaWire{Model: req.Model, Stream: stream}
@@ -290,9 +312,7 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 	if len(req.ResponseSchema) > 0 {
 		wire.Format = req.ResponseSchema
 	}
-	// Ollama has no top-level system field; the system prompt travels as
-	// the leading message.
-	wire.Messages = wireMessages(req.System, req.Messages)
+	wire.Messages = ollamaMessages(req.System, req.Messages, req.Attachments)
 	for _, tool := range req.Tools {
 		var tw ollamaToolWire
 		tw.Type = "function"
