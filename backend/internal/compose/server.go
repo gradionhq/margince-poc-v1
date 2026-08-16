@@ -42,7 +42,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -479,22 +478,4 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// dispatch owns mode resolution; identity never imports overlay.
 	srv.authHandlers = srv.WithSorMode(srv.sorDispatch.isOverlay)
 	return srv
-}
-
-// rebuildToolRegistry rebuilds the agent tool surface from the server's
-// CURRENT state. Every option that changes what the registry composes over —
-// the reply drafter, the send configuration — calls this rather than building
-// its own registry, so applying two such options in either order lands on the
-// same surface instead of the later one dropping the earlier one's wiring.
-func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
-	// The closure captures s and reads s.vault LAZILY at request time, so
-	// rebuilding before WithKeyvault installs the vault is fine.
-	// The gate and the registry take the SAME meter pointer: one refuses on the
-	// bound, the other pays into it, and a surface where those were two
-	// counters would step an agent up against a number nothing was charging.
-	s.toolRegistry = registryWithGate(InstallationDB(pool),
-		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
-		s.retrievalEmbedder,
-		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
 }
