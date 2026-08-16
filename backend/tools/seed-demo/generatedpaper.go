@@ -34,9 +34,24 @@ func seedGeneratedContracts(c *client, refs pipelineRefs, plan map[string]profil
 			continue
 		}
 		contracts := generatedContractsFor(domain, refs, p)
+
+		// renewContract reads its successor's TERMS out of contractsByRef,
+		// which otherwise holds only demo.json's own — a generated renewal
+		// would fail with "renews_into names X, which is not in this dataset".
+		// Built fresh per company rather than appended in place, so one
+		// company's contracts can never leak into the next one's lookup.
+		local := refs
+		local.contractsByRef = append(append([]demoContract(nil), refs.contractsByRef...), contracts...)
+
 		ids := map[string]string{}
 		for _, contract := range contracts {
-			id, isNew, err := ensureContract(c, contract, refs, mode)
+			// A successor is NOT created here: renewing writes its own row,
+			// and creating it first would leave two. Same rule seedContracts
+			// applies to the dataset's own chain.
+			if isGeneratedSuccessor(contracts, contract.Ref) {
+				continue
+			}
+			id, isNew, err := ensureContract(c, contract, local, mode)
 			if err != nil {
 				return created, err
 			}
@@ -48,12 +63,27 @@ func seedGeneratedContracts(c *client, refs pipelineRefs, plan map[string]profil
 		// Driving runs after every contract of this company exists, because a
 		// renewal names a successor that is later in the list.
 		for _, contract := range contracts {
-			if err := driveContract(c, contract, ids, refs, mode); err != nil {
+			if isGeneratedSuccessor(contracts, contract.Ref) {
+				continue
+			}
+			if err := driveContract(c, contract, ids, local, mode); err != nil {
 				return created, fmt.Errorf("contract for %s: %w", domain, err)
 			}
 		}
 	}
 	return created, nil
+}
+
+// isGeneratedSuccessor reports whether this ref is the far side of a renewal
+// in the same set. Renewing writes the successor's row itself, so creating it
+// beforehand would leave two contracts where the chain wants one.
+func isGeneratedSuccessor(contracts []demoContract, ref string) bool {
+	for _, contract := range contracts {
+		if contract.RenewsInto == ref {
+			return true
+		}
+	}
+	return false
 }
 
 // generatedContractsFor turns a profile's wanted statuses into contracts.
@@ -77,7 +107,7 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 			ContractNumber:   fmt.Sprintf("V-%04d-%s", 1000+hashIndex("cnum:"+ref, 8999), strings.ToUpper(shortDomain(domain))),
 			ValueMinor:       value,
 			Currency:         "EUR",
-			ValueBasis:       "annual",
+			ValueBasis:       "annualized_12m",
 			AutoRenew:        hashIndex("autorenew:"+domain, 2) == 0,
 			NoticePeriodDays: 90,
 			Status:           status,
@@ -98,18 +128,30 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 			contract.EndsInDays = contract.StartsInDays + 365
 			// Cancelling is an EVENT, not a status: notice was given, and it
 			// takes effect after the notice period.
+			//
+			// The effective date must land INSIDE the term. The product
+			// refuses a cancellation that takes effect after the term already
+			// ran out (contract_cancellation_within_term), and rightly: it
+			// would extend a term by ending it. Notice is given part-way
+			// through, and the effect lands between notice and the end.
+			notice := contract.StartsInDays + (contract.EndsInDays-contract.StartsInDays)/2
+			remaining := contract.EndsInDays - notice
 			contract.Cancel = &demoCancelTerms{
-				NoticeInDays:    -(20 + hashIndex("notice:"+ref, 40)),
-				EffectiveInDays: 30 + hashIndex("effective:"+ref, 60),
+				NoticeInDays:    notice,
+				EffectiveInDays: notice + 1 + hashIndex("effective:"+ref, maxInt(remaining, 1)),
 			}
 		case "draft":
 			// Unsigned: no signature date, and dates that sit ahead.
 			contract.StartsInDays = 14 + hashIndex("start:"+ref, 45)
 			contract.EndsInDays = contract.StartsInDays + 365
 		case "superseded":
-			// The predecessor of a renewal. Its successor is the next entry,
-			// written by the renewal itself.
+			// The predecessor of a renewal. `superseded` is NOT assertable —
+			// the product refuses draft→superseded outright — so the record is
+			// created ACTIVE and renews_into is what supersedes it, writing
+			// the successor in the same transaction. Same shape demo.json's
+			// own renewal chain uses.
 			successorRef := fmt.Sprintf("gen-%s-%d-successor", domain, i)
+			contract.Status = "active"
 			contract.SignedInDays = -(400 + hashIndex("signed:"+ref, 200))
 			contract.StartsInDays = contract.SignedInDays + 14
 			contract.EndsInDays = contract.StartsInDays + 365
@@ -121,7 +163,7 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 				ContractNumber: contract.ContractNumber + "-R1",
 				ValueMinor:     value + value/10, // a renewal reprices upward
 				Currency:       "EUR",
-				ValueBasis:     "annual",
+				ValueBasis:     "annualized_12m",
 				Status:         "active",
 				SignedInDays:   contract.EndsInDays - 20,
 				StartsInDays:   contract.EndsInDays + 1,
