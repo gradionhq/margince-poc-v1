@@ -21,6 +21,80 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-16 — a day's issues, triaged into three piles (PRs #1455, #1456, #1459; foundation #1325, #1326)
+
+Fourteen issues raised across 2026-08-16, sorted by what each actually needed:
+built where the answer was unambiguous, specified upstream where the gap was a
+missing chapter, and assigned with a recommendation where the answer is a
+product call.
+
+**Built — and the sweep found nine live defects the comments were hiding.**
+[#1432](https://github.com/gradionhq/margince-poc-v1/issues/1432) read as a
+comment-honesty issue: core `0217` (ADR-0091 §8) dropped all 139
+tenant-isolation policies, and 76 files still credited them. It is that, but the
+sweep's finding is why the honesty matters — **nine statements had been leaning
+on the database for a bound they never wrote down, and their own comments are
+what made the gap invisible.** Each named a guarantee, so a reader checking "is
+this scoped?" read the sentence and stopped. Two of the nine take an identifier
+from OUTSIDE with no tenant predicate at all: `RecordReprojectionFailure`
+UPDATEs a mirror row by an `external_id` that arrives off the wire from the
+incumbent — and its `rbacgate_test.go` waiver cited RLS as the reason it needed
+no gate — and `usersMatchingEmail` decides mirror visibility by address while
+promising a foreign tenant's user "can never leak a cross-workspace mapping".
+The other seven are three `app_user` reads whose four siblings in the same file
+all carry the predicate, the email→person resolve behind a bearer-credential
+mint, an existence probe whose whole job is refusing an outside id, and the
+numerator and denominator of one per-message cost. All nine now state the bound.
+Every other site names what is actually load-bearing — the statement's own
+predicate, `platform/auth`'s row-scope clauses, a collapsed unique key from core
+`0225`, or A107/ADR-0061's single organization where the column is simply gone.
+`TestNoGoSourceClaimsRLSStillScopesARead` holds it at zero and **bans the claim,
+not the word**: the `rls-exempt:` marker, the BYPASSRLS role attributes and prose
+naming the retirement all stay legal. Its own pinning test earned itself
+immediately — the first pattern could not match `RLS-scoped` while reporting the
+tree clean.
+
+[#1442](https://github.com/gradionhq/margince-poc-v1/issues/1442): an aicert
+`MODEL=` override rebinds the tiers the routing rules are ABOUT, so the loaded
+file's guarantees did not survive it — a config still saying `profile: sovereign`
+could run against a cloud model with nothing said about it. The override now
+goes back through the config's own rule set. `Validate` is a one-line export over
+an **unchanged** `validate`: renaming in place pulls a pre-existing cyclop
+finding into the new-code strict pass for a rename.
+
+[#1440](https://github.com/gradionhq/margince-poc-v1/issues/1440): five adapters
+hand-roll last-user-turn attachment placement and each carries a comment
+promising they must not disagree. Now a test says so, comparing **the turn**
+rather than an index (anthropic and gemini carry the system prompt outside the
+message array, so one placement is a different index on different wires).
+Enrolment is derived from `knownProviders`, which found a **sixth** the issue's
+list of five does not name: `vllm`. Mutation-verified three ways.
+
+**Specified upstream.**
+[#1447](https://github.com/gradionhq/margince-poc-v1/issues/1447) — the capture
+pipeline trace had no entry anywhere under `specs/`; foundation
+[#1325](https://github.com/gradionhq/margince-foundation/pull/1325) writes it
+from the MERGED code (CAP-FORMULA-5's twelve-stage registry, CAP-DDL-9,
+CAP-PARAM-9, CAP-WIRE-8), because several shapes the design notes proposed did
+not survive review. [#1431](https://github.com/gradionhq/margince-poc-v1/issues/1431)
+— the counterparty identity shape and the three-lane exact tier are unratified;
+foundation [#1326](https://github.com/gradionhq/margince-foundation/pull/1326)
+specifies them for the first time as ADR-0112 / A163, recorded **PROPOSED**
+rather than DECIDED: the A-number is a founder record, and the drafting was the
+part that was blocking.
+
+**Assigned with a recommendation, not left to re-read.** #1416, #1419, #1425,
+#1433, #1434, #1439, #1444, #1449 and #1451 each turn on a product or contract
+call. Each carries a comment naming the specific decision owed and a
+recommendation, so the morning is a yes/no. Two are worth knowing about from
+here: #1451's exposure was measured rather than assumed — exactly two strip
+rules can fire inside standard base64 (`AIza` and `AKIA|ASIA`, both pure
+alphanumerics whose `\b` is satisfied by `+`, `/`, `=` or the JSON quote), and
+every other rule needs a character the alphabet does not contain; and #1439's
+three steps are **not safely separable**, because narrowing one adapter without
+a pattern-aware intersection silently deletes the document lane of any mixed
+ladder.
+
 ## 2026-08-15 — two flakes: one clock too many, one budget too small (PR #1344)
 
 #1329 and #1340, the two load-dependent flakes #1328 filed on its way through.
