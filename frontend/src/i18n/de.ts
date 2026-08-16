@@ -3859,6 +3859,7 @@ export const de = {
   "captureActivity.reason.transactional_prefix":
     "der Absender wirkt wie ein automatischer Versender, keine Person",
   "captureActivity.outcome.deferred_capped": "Nicht eingereiht",
+  "captureActivity.outcome.deferred_settled": "Zur Entscheidung vorgelegt",
   "captureActivity.resolution.pending": "wartet noch",
   "captureActivity.resolution.unsure": "an die Prüfliste gesendet",
   "captureActivity.resolution.real": "als echter Kontakt beurteilt",

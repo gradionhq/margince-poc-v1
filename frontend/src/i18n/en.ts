@@ -3863,6 +3863,7 @@ export const en = {
   "captureActivity.reason.transactional_prefix":
     "the sender looks like an automated mailer, not a person",
   "captureActivity.outcome.deferred_capped": "Not queued",
+  "captureActivity.outcome.deferred_settled": "Sent for a verdict",
   "captureActivity.resolution.pending": "still waiting",
   "captureActivity.resolution.unsure": "sent to the review queue",
   "captureActivity.resolution.real": "judged a real contact",

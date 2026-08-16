@@ -344,17 +344,23 @@ function CaptureEntryRow({
 
 // The outcome and the reason that qualifies it.
 //
-// A capped deferral is the one pair that would otherwise contradict itself: the
-// message is NOT waiting for a verdict, because the ceiling refused to ask for
-// one. So it says "Not queued", and the reason line explains why — rather than
-// leaving a heading and its own explanation arguing on screen.
+// Two deferral pairs would otherwise contradict themselves on screen, and both
+// are read the same way: "Waiting on a verdict" is only true while one is
+// actually outstanding.
+//
+// A CAPPED deferral is not waiting, because the ceiling refused to ask for a
+// verdict at all — it says "Not queued", and the reason line explains why.
+//
+// A SETTLED one is not waiting either: the ledger has answered, and the
+// resolution beside it says what the answer was. Left alone the row reads
+// "Waiting on a verdict — judged a real contact", which is the screen arguing
+// with itself. The ladder DID defer this sender, so the outcome still says so;
+// it just says it in the past tense.
 function CaptureEntryOutcome({ entry }: Readonly<{ entry: TraceEntry }>) {
   const t = useT();
   const reason = knownReason(entry.reason);
   const outcome =
-    entry.outcome === "deferred" && reason === "deferral_capped"
-      ? "deferred_capped"
-      : entry.outcome;
+    entry.outcome === "deferred" ? deferralLabel(entry, reason) : entry.outcome;
   return (
     <span className="capture-activity__outcome">
       {t(`captureActivity.outcome.${outcome}`)}
@@ -365,6 +371,26 @@ function CaptureEntryOutcome({ entry }: Readonly<{ entry: TraceEntry }>) {
       ) : null}
     </span>
   );
+}
+
+// Which of the three things a deferral can be this row is.
+//
+// `pending` is the only status that leaves a question outstanding: every other
+// one — including `unsure`, which passes it to a human — is the ledger having
+// answered. An unknown status is treated as settled rather than waiting,
+// because a status this build does not recognise is one a newer binary wrote,
+// and the one thing it cannot be is the state that has no verdict yet.
+function deferralLabel(
+  entry: TraceEntry,
+  reason: KnownReason | null,
+): "deferred" | "deferred_capped" | "deferred_settled" {
+  if (reason === "deferral_capped") {
+    return "deferred_capped";
+  }
+  if (!entry.resolution || entry.resolution.status === "pending") {
+    return "deferred";
+  }
+  return "deferred_settled";
 }
 
 // What the row can honestly show about the message itself.
