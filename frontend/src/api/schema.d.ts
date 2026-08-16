@@ -2293,7 +2293,10 @@ export interface paths {
          *
          *     Gated by the ACTIVITY's own row scope. Stages answered from a `capture_trace` row are
          *     additionally the owning member's alone — a colleague reading a shared record sees those
-         *     rungs as `withheld`, keeping their place, never omitted.
+         *     rungs as `unknown` with reason `record_not_available`, keeping their place, never
+         *     omitted. That is the SAME answer the message's own owner gets once the 24-hour window has
+         *     swept the rows, and deliberately so: distinguishing the two would tell a colleague whether
+         *     a row exists.
          */
         get: operations["readActivityPipelineTrace"];
         put?: never;

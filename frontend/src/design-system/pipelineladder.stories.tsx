@@ -102,24 +102,35 @@ export const ChatMessageNotClassified: Story = {
 };
 
 // A colleague reading a shared record. The stored rungs keep their place and
-// say they are withheld — never omitted, which would state that the steps did
-// not happen, and never conditional, which would turn their presence into a
+// say we cannot tell — never omitted, which would state that the steps did not
+// happen, and never conditional, which would turn their presence into a
 // row-existence oracle.
-export const WithheldFromANonOwner: Story = {
+//
+// Deliberately IDENTICAL to the past-the-window story below: distinguishing a
+// reader who may not be told from a record that is gone would disclose whether
+// a row exists.
+export const CannotBeToldToANonOwner: Story = {
   args: {
     stages: [
-      rung({ stage: "internal_drop", order: 40, status: "withheld" }),
+      rung({
+        stage: "internal_drop",
+        order: 40,
+        status: "unknown",
+        reason: "record_not_available",
+      }),
       rung({ stage: "activity_write", order: 50, status: "done" }),
       rung({
         stage: "tier_ladder",
         order: 60,
-        status: "withheld",
+        status: "unknown",
+        reason: "record_not_available",
         subject_kind: "sender",
       }),
       rung({
         stage: "person_create",
         order: 70,
         status: "unknown",
+        reason: "record_not_available",
         subject_kind: "sender",
       }),
       rung({
@@ -139,12 +150,18 @@ export const WithheldFromANonOwner: Story = {
 export const PastTheRetentionWindow: Story = {
   args: {
     stages: [
-      rung({ stage: "internal_drop", order: 40, status: "unknown" }),
+      rung({
+        stage: "internal_drop",
+        order: 40,
+        status: "unknown",
+        reason: "record_not_available",
+      }),
       rung({ stage: "activity_write", order: 50, status: "done" }),
       rung({
         stage: "tier_ladder",
         order: 60,
         status: "unknown",
+        reason: "record_not_available",
         subject_kind: "sender",
       }),
       rung({
@@ -220,7 +237,8 @@ export const EveryToneDark: Story = {
       rung({
         stage: "verdict",
         order: 80,
-        status: "withheld",
+        status: "unknown",
+        reason: "record_not_available",
         subject_kind: "sender",
       }),
       rung({
