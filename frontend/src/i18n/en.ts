@@ -3798,6 +3798,11 @@ export const en = {
   "captureActivity.scope.workspace": "Shared channels",
   "captureActivity.scopeNote":
     "Counted from the point a connector hands a message to this CRM. What a connector filtered on its own side — a chat reaction, a mail rule — is not included. Covers messages; lead capture is not shown here.",
+  "captureActivity.filtered":
+    "Showing {shown} of {total} {outcome} in this window.",
+  "captureActivity.openTrace": "See every step this message went through",
+  "captureActivity.emptyFiltered":
+    "none of the loaded rows match — load more to reach the rest of the window",
   "captureActivity.loadMore": "Load more",
   "captureActivity.empty": "no capture activity in the last 24 hours",
   "captureActivity.contentNotStored": "content not stored",
@@ -3832,6 +3837,83 @@ export const en = {
   "captureActivity.resolution.noise": "judged noise",
   "captureActivity.resolution.rejected": "declined by a human",
   "captureActivity.resolution.suppressed": "suppressed",
+  "pipeline.title": "How this message was handled",
+  "pipeline.sub":
+    "Every step of the capture pipeline, in the order this message met them.",
+  "pipeline.payloadsOff":
+    "No sender or subject is stored for any step: this deployment did not turn payload capture on.",
+  "pipeline.transport": "Carried by",
+  "pipeline.close": "Close",
+  "pipeline.unavailable": "this message's pipeline steps could not be read",
+  "pipeline.status.done": "Done",
+  "pipeline.status.skipped": "Skipped",
+  "pipeline.status.pending": "Waiting",
+  "pipeline.status.failed": "Failed",
+  "pipeline.status.not_applicable": "Did not apply",
+  "pipeline.status.unknown": "Cannot tell",
+  "pipeline.reason.record_not_available":
+    "this step's record is no longer kept, or is not yours to read — once the record is gone the two cannot be told apart",
+  "pipeline.status.not_reported": "Not reported here",
+  "pipeline.subject.message": "about this message",
+  "pipeline.subject.sender": "about the sender, not this message alone",
+  "pipeline.subject.domain": "about the sender's domain",
+  "pipeline.subject.thread": "about the whole conversation",
+  "pipeline.stage.connector_filter": "Connector filtering",
+  "pipeline.stage.ingress_gate": "Admission check",
+  "pipeline.stage.erasure_check": "Erasure check",
+  "pipeline.stage.internal_drop": "Internal-only check",
+  "pipeline.stage.activity_write": "Saved to the timeline",
+  "pipeline.stage.tier_ladder": "Contact decision",
+  "pipeline.stage.person_create": "Contact created",
+  "pipeline.stage.verdict": "Sender verdict",
+  "pipeline.stage.company_triage": "Company check",
+  "pipeline.stage.attention_label": "Attention label",
+  "pipeline.stage.material_events": "Conversation reading",
+  "pipeline.stage.claim_extraction": "Commitments and open loops",
+  "pipeline.reason.internal_only": "every party was on your own domains",
+  "pipeline.reason.invisible_incumbent":
+    "it matched a record outside what you can see",
+  "pipeline.reason.transactional_infra":
+    "the sender is mail infrastructure, not a company you work with",
+  "pipeline.reason.transactional_prefix":
+    "the sender looks like an automated mailer, not a person",
+  "pipeline.reason.deferral_capped":
+    "the open-question limit was reached, so no verdict is coming",
+  "pipeline.reason.noise_prior": "a previous verdict judged this sender noise",
+  "pipeline.reason.decided_prior": "this sender was already decided",
+  "pipeline.reason.no_counterparty": "no sender this CRM could record",
+  "pipeline.reason.no_granting_human":
+    "the connection named no member to act for",
+  "pipeline.reason.derivation_failed":
+    "the contact step failed; the message itself is unaffected",
+  "pipeline.reason.not_linked_yet": "no contact is linked to this message yet",
+  "pipeline.reason.no_contact_intended":
+    "the contact decision concluded that none was to be made",
+  "pipeline.reason.awaiting_verdict":
+    "the sender is still waiting on a verdict",
+  "pipeline.reason.verdict_reached":
+    "a verdict has been reached for this sender",
+  "pipeline.reason.no_open_question":
+    "there was no open question about this sender",
+  "pipeline.reason.transport_not_read":
+    "this step reads email only, and the message arrived over another transport",
+  "pipeline.reason.sender_undecided":
+    "the sender is still waiting on a verdict, so the message is held back",
+  "pipeline.reason.archived": "the message is archived",
+  "pipeline.reason.not_connector_captured":
+    "the message was not captured by a connector",
+  "pipeline.reason.awaiting_batch":
+    "it is eligible and waiting for the next batch",
+  "pipeline.reason.labelled": "the message was labelled",
+  "pipeline.reason.not_comparable":
+    "what a connector filters on its own side is not counted here — the numbers mean different things per connector",
+  "pipeline.reason.connector_side_defect":
+    "admission failures are a fault of the connection, not of one message",
+  "pipeline.reason.would_restore_erased":
+    "reporting this would restore data an erasure removed",
+  "pipeline.reason.no_writer_yet": "this step does not exist yet",
+  "pipeline.reason.not_reported_yet":
+    "this step runs, but is not reported here yet",
   "settings.tab.maintenance": "Maintenance",
   "settings.tab.license": "License",
   "license.card.title": "License and seats",

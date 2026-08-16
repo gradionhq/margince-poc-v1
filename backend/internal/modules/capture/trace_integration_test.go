@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -70,9 +71,24 @@ func traceRows(ctx context.Context, t *testing.T, db *database.DB, sourceID stri
 
 func mailTrace(sourceID string, outcome capture.TraceOutcome) capture.TraceEntry {
 	return capture.TraceEntry{
+		Stage:  stageForOutcome(outcome),
 		UserID: ids.NewV7(), Connector: "gmail", SourceSystem: "gmail",
 		SourceID: sourceID, Outcome: outcome,
 	}
+}
+
+// stageForOutcome pairs an outcome with the stage that actually writes it, so a
+// seeded row is one the pipeline could have produced.
+//
+// The column's CHECK refuses the mismatch, which is the constraint doing its
+// job rather than the test being awkward: an `internal` row filed under the tier
+// ladder is a row no writer can make, and a test seeding one would prove
+// nothing about the writer it claims to exercise.
+func stageForOutcome(outcome capture.TraceOutcome) pipelinetrace.Stage {
+	if outcome == capture.TraceInternal {
+		return pipelinetrace.StageInternalDrop
+	}
+	return pipelinetrace.StageTierLadder
 }
 
 // A re-walked region replays the same decision. The funnel must count messages,
@@ -113,6 +129,7 @@ func TestTwoMembersEachKeepTheirOwnRowForOneMessage(t *testing.T) {
 func TestWorkspaceOwnedRowsCarryNoMemberAndStillDedupe(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	entry := capture.TraceEntry{
+		Stage:     pipelinetrace.StageTierLadder,
 		Connector: "telegram", SourceSystem: "telegram", SourceID: "chat-1:42",
 		Outcome: capture.TraceCaptured, ChannelIdentity: true,
 	}
@@ -146,6 +163,7 @@ func TestAChannelAccountIdIsHashedNeverStored(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	const accountID = "chat-77:9001"
 	writeTrace(ctx, t, db, capture.TraceEntry{
+		Stage:     pipelinetrace.StageTierLadder,
 		Connector: "telegram", SourceSystem: "telegram", SourceID: accountID,
 		Outcome: capture.TraceCaptured, ChannelIdentity: true,
 	}, false)
@@ -237,6 +255,7 @@ func TestATraceWithoutANaturalKeyIsRefused(t *testing.T) {
 	ctx, db := traceWorkspace(t)
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return capture.Trace(ctx, tx, capture.TraceEntry{
+			Stage:     pipelinetrace.StageTierLadder,
 			Connector: "gmail", SourceSystem: "gmail", Outcome: capture.TraceCaptured,
 		}, false)
 	})

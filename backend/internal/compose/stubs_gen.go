@@ -51,6 +51,10 @@ func (stubs) GetMeetingBrief(w nethttp.ResponseWriter, r *nethttp.Request, id cr
 	httperr.NotImplemented(w, r, "GetMeetingBrief")
 }
 
+func (stubs) ReadActivityPipelineTrace(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReadActivityPipelineTrace")
+}
+
 func (stubs) RelinkActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RelinkActivityParams) {
 	httperr.NotImplemented(w, r, "RelinkActivity")
 }
@@ -317,6 +321,10 @@ func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) UpdateCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "UpdateCaptureSettings")
+}
+
+func (stubs) ReadCaptureTracePipeline(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReadCaptureTracePipeline")
 }
 
 func (stubs) ListChannelConnections(w nethttp.ResponseWriter, r *nethttp.Request) {

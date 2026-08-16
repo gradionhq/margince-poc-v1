@@ -1,0 +1,128 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion
+ *
+ * PipelineLadder. Every value is a token: the ladder is read in both themes,
+ * and a literal colour is the one thing that cannot be right in both.
+ */
+
+.pipeline-ladder {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The rung is a row with a rail down its left edge, so the steps read as ONE
+ * path rather than as a stack of unrelated cards. The rail is drawn by the
+ * mark's ::after rather than by a border on the row, because the last rung must
+ * not trail a line into empty space. */
+.pipeline-ladder__rung {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: auto 1fr;
+  padding-bottom: var(--space-4);
+  position: relative;
+}
+
+.pipeline-ladder__rung:last-child {
+  padding-bottom: 0;
+}
+
+.pipeline-ladder__mark {
+  background: var(--borderSubtle);
+  border-radius: 50%;
+  height: var(--space-3);
+  margin-top: var(--space-1);
+  position: relative;
+  width: var(--space-3);
+}
+
+.pipeline-ladder__mark::after {
+  background: var(--borderSubtle);
+  bottom: calc(var(--space-4) * -1);
+  content: "";
+  left: 50%;
+  position: absolute;
+  top: var(--space-3);
+  transform: translateX(-50%);
+  width: 1px;
+}
+
+.pipeline-ladder__rung:last-child .pipeline-ladder__mark::after {
+  display: none;
+}
+
+/* The mark carries the verdict at a glance, so the same three tones the badge
+ * uses appear here too. Every other status keeps the resting tone: none of them
+ * is a statement about the MESSAGE, and colouring them would read as one. */
+.pipeline-ladder__rung[data-status="done"] .pipeline-ladder__mark {
+  background: var(--online);
+}
+
+.pipeline-ladder__rung[data-status="pending"] .pipeline-ladder__mark {
+  background: var(--away);
+}
+
+.pipeline-ladder__rung[data-status="failed"] .pipeline-ladder__mark {
+  background: var(--danger);
+}
+
+.pipeline-ladder__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.pipeline-ladder__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.pipeline-ladder__stage {
+  font-weight: var(--fw-semibold);
+}
+
+/* WHOSE answer this rung is, when it is not the message's own. Quiet, because
+ * it qualifies the rung rather than competing with it — but never hidden: a
+ * sender-scoped verdict read as a per-message fact is simply the wrong fact. */
+.pipeline-ladder__subject {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+}
+
+.pipeline-ladder__reason {
+  color: var(--textSecondary);
+  margin: 0;
+}
+
+.pipeline-ladder__payload {
+  color: var(--textMeta);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--fs-sm);
+  gap: var(--space-1);
+  margin: 0;
+  min-width: 0;
+}
+
+.pipeline-ladder__from,
+.pipeline-ladder__subjectline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The posture note is a statement about the INSTALLATION, not about any rung,
+ * so it sits outside the rail rather than reading as a step of its own. */
+.pipeline-ladder__posture {
+  border-top: 1px solid var(--borderSubtle);
+  color: var(--textTertiary);
+  font-size: var(--fs-sm);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+}

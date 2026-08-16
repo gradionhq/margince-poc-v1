@@ -3794,6 +3794,11 @@ export const de = {
   "captureActivity.scope.workspace": "Gemeinsame Kanäle",
   "captureActivity.scopeNote":
     "Gezählt ab dem Moment, in dem ein Connector eine Nachricht an dieses CRM übergibt. Was ein Connector auf seiner Seite gefiltert hat — eine Chat-Reaktion, eine Mail-Regel — ist nicht enthalten. Umfasst Nachrichten; Lead-Erfassung wird hier nicht gezeigt.",
+  "captureActivity.filtered":
+    "{shown} von {total} {outcome} in diesem Zeitraum.",
+  "captureActivity.openTrace": "Jeden Schritt dieser Nachricht ansehen",
+  "captureActivity.emptyFiltered":
+    "keine der geladenen Zeilen passt — laden Sie mehr, um den Rest des Zeitraums zu erreichen",
   "captureActivity.loadMore": "Mehr laden",
   "captureActivity.empty":
     "keine Erfassungsaktivität in den letzten 24 Stunden",
@@ -3831,6 +3836,87 @@ export const de = {
   "captureActivity.resolution.noise": "als Rauschen beurteilt",
   "captureActivity.resolution.rejected": "von einer Person abgelehnt",
   "captureActivity.resolution.suppressed": "unterdrückt",
+  "pipeline.title": "Wie diese Nachricht verarbeitet wurde",
+  "pipeline.sub":
+    "Jeder Schritt der Erfassung, in der Reihenfolge, in der diese Nachricht sie durchlaufen hat.",
+  "pipeline.payloadsOff":
+    "Zu keinem Schritt sind Absender oder Betreff gespeichert: diese Installation hat die Inhaltserfassung nicht aktiviert.",
+  "pipeline.transport": "Übertragen über",
+  "pipeline.close": "Schließen",
+  "pipeline.unavailable":
+    "die Verarbeitungsschritte dieser Nachricht konnten nicht gelesen werden",
+  "pipeline.status.done": "Erledigt",
+  "pipeline.status.skipped": "Übersprungen",
+  "pipeline.status.pending": "Wartet",
+  "pipeline.status.failed": "Fehlgeschlagen",
+  "pipeline.status.not_applicable": "Nicht zutreffend",
+  "pipeline.status.unknown": "Nicht feststellbar",
+  "pipeline.reason.record_not_available":
+    "der Eintrag zu diesem Schritt wird nicht mehr aufbewahrt, oder er ist nicht für Sie lesbar — ist der Eintrag fort, lässt sich beides nicht mehr unterscheiden",
+  "pipeline.status.not_reported": "Hier nicht ausgewiesen",
+  "pipeline.subject.message": "zu dieser Nachricht",
+  "pipeline.subject.sender": "zum Absender, nicht nur zu dieser Nachricht",
+  "pipeline.subject.domain": "zur Domain des Absenders",
+  "pipeline.subject.thread": "zum gesamten Gespräch",
+  "pipeline.stage.connector_filter": "Filterung im Konnektor",
+  "pipeline.stage.ingress_gate": "Zugangsprüfung",
+  "pipeline.stage.erasure_check": "Löschprüfung",
+  "pipeline.stage.internal_drop": "Prüfung auf rein interne Nachricht",
+  "pipeline.stage.activity_write": "In der Chronik gespeichert",
+  "pipeline.stage.tier_ladder": "Kontaktentscheidung",
+  "pipeline.stage.person_create": "Kontakt angelegt",
+  "pipeline.stage.verdict": "Absenderurteil",
+  "pipeline.stage.company_triage": "Firmenprüfung",
+  "pipeline.stage.attention_label": "Aufmerksamkeits-Label",
+  "pipeline.stage.material_events": "Gesprächsauswertung",
+  "pipeline.stage.claim_extraction": "Zusagen und offene Punkte",
+  "pipeline.reason.internal_only":
+    "alle Beteiligten lagen auf Ihren eigenen Domains",
+  "pipeline.reason.invisible_incumbent":
+    "sie passte zu einem Datensatz außerhalb Ihrer Sicht",
+  "pipeline.reason.transactional_infra":
+    "der Absender ist Mail-Infrastruktur, kein Unternehmen, mit dem Sie arbeiten",
+  "pipeline.reason.transactional_prefix":
+    "der Absender wirkt wie ein automatischer Versender, nicht wie eine Person",
+  "pipeline.reason.deferral_capped":
+    "die Grenze offener Fragen war erreicht, ein Urteil kommt nicht mehr",
+  "pipeline.reason.noise_prior":
+    "ein früheres Urteil hat diesen Absender als Rauschen eingestuft",
+  "pipeline.reason.decided_prior":
+    "über diesen Absender war bereits entschieden",
+  "pipeline.reason.no_counterparty":
+    "kein Absender, den dieses CRM erfassen konnte",
+  "pipeline.reason.no_granting_human":
+    "die Verbindung nennt kein Mitglied, in dessen Namen gehandelt wird",
+  "pipeline.reason.derivation_failed":
+    "der Kontaktschritt ist fehlgeschlagen; die Nachricht selbst ist unberührt",
+  "pipeline.reason.not_linked_yet":
+    "mit dieser Nachricht ist noch kein Kontakt verknüpft",
+  "pipeline.reason.no_contact_intended":
+    "die Kontaktentscheidung ergab, dass keiner anzulegen war",
+  "pipeline.reason.awaiting_verdict": "der Absender wartet noch auf ein Urteil",
+  "pipeline.reason.verdict_reached": "für diesen Absender liegt ein Urteil vor",
+  "pipeline.reason.no_open_question":
+    "zu diesem Absender gab es keine offene Frage",
+  "pipeline.reason.transport_not_read":
+    "dieser Schritt liest nur E-Mail, und die Nachricht kam über einen anderen Kanal",
+  "pipeline.reason.sender_undecided":
+    "der Absender wartet noch auf ein Urteil, daher wird die Nachricht zurückgehalten",
+  "pipeline.reason.archived": "die Nachricht ist archiviert",
+  "pipeline.reason.not_connector_captured":
+    "die Nachricht wurde nicht von einem Konnektor erfasst",
+  "pipeline.reason.awaiting_batch":
+    "sie ist zulässig und wartet auf den nächsten Durchlauf",
+  "pipeline.reason.labelled": "die Nachricht wurde gelabelt",
+  "pipeline.reason.not_comparable":
+    "was ein Konnektor auf seiner eigenen Seite filtert, wird hier nicht gezählt — die Zahlen bedeuten je Konnektor Verschiedenes",
+  "pipeline.reason.connector_side_defect":
+    "Zugangsfehler sind ein Fehler der Verbindung, nicht einer einzelnen Nachricht",
+  "pipeline.reason.would_restore_erased":
+    "dies auszuweisen würde Daten wiederherstellen, die eine Löschung entfernt hat",
+  "pipeline.reason.no_writer_yet": "diesen Schritt gibt es noch nicht",
+  "pipeline.reason.not_reported_yet":
+    "dieser Schritt läuft, wird hier aber noch nicht ausgewiesen",
   "settings.tab.maintenance": "Wartung",
   "settings.tab.license": "Lizenz",
   "license.card.title": "Lizenz und Sitzplätze",

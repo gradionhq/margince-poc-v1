@@ -1,0 +1,170 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// Package pipelinetrace is the vocabulary of the ingress pipeline as a member
+// reads it: which stages a captured message passes through, what each can
+// honestly say about itself, and why a stage that says nothing says nothing.
+//
+// It is vocabulary and nothing else — no storage, no queries, no port. The
+// stages are answered from two different places (a trace row capture already
+// writes, or live product state a module already owns), and both the modules
+// that answer and the compose layer that assembles them import this. That is
+// why it sits in kernel rather than in either of them.
+//
+// WHAT THIS EXISTS TO PREVENT. A stage could previously decline to run and
+// leave nothing a member could read: the attention classifier reads
+// `kind = 'email'`, so a message that arrived over a chat transport was never
+// eligible, and no surface said so. The answer took a code read. A registry
+// whose gates refuse an unexplained stage is the structural fix — a list is a
+// thing to forget, and three stages had already been forgotten.
+package pipelinetrace
+
+// Stage is one step of the ingress pipeline, in the order a message meets it.
+//
+// The vocabulary is CLOSED and ordered by Registration.Order rather than by
+// declaration, because a stage inserted in the middle later must not renumber
+// the ones around it.
+type Stage string
+
+const (
+	// StageConnectorFilter is what a connector dropped before handing anything
+	// over. Never traced, and that is deliberate rather than missing: what one
+	// connector filters is not comparable to what another does, so a shared
+	// count would be a fiction.
+	StageConnectorFilter Stage = "connector_filter"
+
+	// StageIngressGate is the admission check on the call itself.
+	StageIngressGate Stage = "ingress_gate"
+
+	// StageErasureCheck refuses a message naming an erased account. It cannot be
+	// traced at all: writing the row would re-store what the erasure removed.
+	StageErasureCheck Stage = "erasure_check"
+
+	// StageInternalDrop is the colleagues-only drop. It writes NO activity row,
+	// so its trace row is the only record that the message ever existed — which
+	// is why this stage is stored rather than derived.
+	StageInternalDrop Stage = "internal_drop"
+
+	// StageActivityWrite is the single capture transaction. Its success is
+	// derived (the activity exists), but a replay whose incumbent row sits
+	// outside the reader's scope leaves a fault row and no activity, so this
+	// stage answers from both sources.
+	StageActivityWrite Stage = "activity_write"
+
+	// StageTierLadder is the T0-T4 contact decision. Stored: the decision is
+	// made in memory during capture and deliberately not re-derivable — the
+	// ladder's own comment refuses to recover it downstream, because that would
+	// be a query per captured message to learn what one function just decided.
+	StageTierLadder Stage = "tier_ladder"
+
+	// StagePersonCreate is the post-commit contact write and the nightly repair
+	// that re-runs it. Derived BY ELIMINATION from the person link and the
+	// ladder's answer; there is no stored "the ladder decided to create".
+	StagePersonCreate Stage = "person_create"
+
+	// StageVerdict is the per-SENDER disposition. Derived: the ledger already
+	// records it with an owner, a status and its timestamps, and a copy would
+	// collide with itself the moment a sender were re-judged inside the window.
+	StageVerdict Stage = "verdict"
+
+	// StageCompanyTriage is the per-DOMAIN question of whether a company record
+	// is warranted.
+	StageCompanyTriage Stage = "company_triage"
+
+	// StageAttentionLabel is the batched commitment|meeting|noise classification.
+	// This is the stage whose silence motivated the whole surface.
+	StageAttentionLabel Stage = "attention_label"
+
+	// StageMaterialEvents is the per-THREAD reading of what a conversation says.
+	StageMaterialEvents Stage = "material_events"
+
+	// StageClaimExtraction fills the commitments and open-loops cards. No
+	// automated writer exists yet, which is a state this vocabulary can express
+	// rather than an absence it renders as nothing.
+	StageClaimExtraction Stage = "claim_extraction"
+)
+
+// Status is what a stage can honestly report about one message.
+//
+// Every value here is COMPUTED AT READ TIME. None is persisted, and no writer
+// takes a Status: the stored rows carry capture's own outcome vocabulary, which
+// this package maps onto these. Offering a writer a render state is how one
+// would eventually be persisted and then contradict the state it was derived
+// from.
+type Status string
+
+const (
+	// StatusDone means the stage ran and concluded.
+	StatusDone Status = "done"
+	// StatusSkipped means the stage was reached and declined. Always carries a Reason
+	// — a skip without one is the silence this surface exists to remove.
+	StatusSkipped Status = "skipped"
+	// StatusPending means the stage has not run yet but is expected to.
+	StatusPending Status = "pending"
+	// StatusFailed means the stage ran and could not finish.
+	StatusFailed Status = "failed"
+	// StatusNotApplicable means the stage does not apply to this message. Distinct
+	// from skipped: nothing declined, there was simply no question to answer.
+	StatusNotApplicable Status = "not_applicable"
+	// StatusUnknown means this surface cannot establish whether the stage ran.
+	//
+	// It is the ONE answer for every reason we cannot say, and it covers two
+	// situations on purpose: a window that has been swept, and rows that are
+	// not this reader's.
+	//
+	// Merging them is what keeps the answer CONSTANT for a non-owner, which is
+	// what stops the rung being a row-existence oracle: an activity proves
+	// capture ran, but a coexisting fault row's existence is not derivable from
+	// it, and a caller comparing two messages must not learn which one faulted
+	// on a colleague's mailbox. It is also the only wording true of the reader
+	// who is most often here — the message's OWN OWNER past the sweep, whose
+	// rows were deleted rather than hidden.
+	//
+	// Distinct from StatusNotApplicable, which claims the stage did not apply —
+	// a claim absent rows cannot support.
+	StatusUnknown Status = "unknown"
+	// StatusNotReported means this surface does not report this stage. The rung's
+	// reason says which kind of not-reported it is — never shown by design,
+	// untraceable without breaching something, not read yet, or a step that
+	// does not exist. Collapsing those four would tell a member the wrong one.
+	StatusNotReported Status = "not_reported"
+)
+
+// OpenDispositionStatuses are the ledger states that mean a sender's question
+// is still open.
+//
+// The trace's own spelling of it, shared by the reader that explains the
+// classifier's backlog and by the verdict rung in another module — two places
+// that were two literals. `ClassifyBacklogPredicate` still inlines the same set
+// in SQL, because it is one constant string a query embeds verbatim; the
+// agreement test over both callers is what holds those two together.
+//
+// The reason any of this is shared: a ledger status added later would otherwise
+// render as a reached verdict on a sender still being judged.
+func OpenDispositionStatuses() []string { return []string{"pending", "unsure"} }
+
+// IsOpenDisposition reports whether a ledger status means the question is open.
+func IsOpenDisposition(status string) bool {
+	for _, open := range OpenDispositionStatuses() {
+		if status == open {
+			return true
+		}
+	}
+	return false
+}
+
+// SubjectKind is WHAT a stage's answer is about.
+//
+// It is required on every rung because the stages do not share a subject: the
+// verdict is asked once per sender, not per message. A rung rendering "judged a
+// real contact" without saying whose reads as a claim about this message when
+// it is a claim about the sender across all their mail.
+type SubjectKind string
+
+// The four subjects a stage's answer can be about.
+const (
+	SubjectMessage SubjectKind = "message"
+	SubjectSender  SubjectKind = "sender"
+	SubjectDomain  SubjectKind = "domain"
+	SubjectThread  SubjectKind = "thread"
+)

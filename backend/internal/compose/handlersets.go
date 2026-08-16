@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/personbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/persondraft"
 	"github.com/gradionhq/margince/backend/internal/compose/personresearch"
+	"github.com/gradionhq/margince/backend/internal/compose/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -45,6 +46,7 @@ type (
 	authHandlers           = identity.Handlers
 	channelHandlers        = capture.ChannelHandlers
 	traceHandlers          = capture.TraceHandlers
+	pipelineTraceHandlers  = pipelinetrace.Handlers
 	peopleHandlers         = people.Handlers
 	dealsHandlers          = deals.Handlers
 	contractsHandlers      = contracts.Handlers
