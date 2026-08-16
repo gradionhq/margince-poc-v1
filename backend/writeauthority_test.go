@@ -80,9 +80,12 @@ const (
 
 	// wantMinimumWriteProbes guards the way this gate fails silently: an
 	// extractor that stops recognising probes finds no sites and reports
-	// nothing, which is indistinguishable from a clean tier. Thirty-odd stand
-	// today; the floor sits well below that, so removing a mutation stays an
-	// ordinary change and only a collapse is a finding.
+	// nothing, which is indistinguishable from a clean tier. It counts DISTINCT
+	// sites — the walk reaches each one once per ancestor, so counting the raw
+	// list would put the number five times higher and let a collapse to four
+	// real probes sail past. Fifty-nine stand today; the floor sits well below
+	// that, so removing a mutation stays an ordinary change and only a collapse
+	// is a finding.
 	wantMinimumWriteProbes = 20
 )
 
@@ -219,22 +222,34 @@ func TestEveryMutationOfAShareableRecordProbesForWriteAuthority(t *testing.T) {
 	tables := shareableTables(t)
 	pkgs := writeAuthorityIndex(t, tables)
 
+	// DISTINCT sites, deduplicated by where they are. The walk reaches one probe
+	// once per ancestor that can call it, and the package-level bucket is merged
+	// into every receiver's view, so the raw list runs five times the real
+	// census — which would make the floor below vacuous: an extractor left
+	// finding four real probes would still count past twenty and report a clean
+	// tier. The floor has to measure what a reader would count.
+	seen := map[string]bool{}
 	var sites []probeSite
-	for dir, byReceiver := range pkgs {
+	for _, byReceiver := range pkgs {
 		for recv, fns := range byReceiver {
 			visible := visibleWriteAuthorityFns(byReceiver, recv)
 			for name := range fns {
-				sites = append(sites, mutatingProbesUnder(visible, name)...)
+				for _, site := range mutatingProbesUnder(visible, name) {
+					where := site.file + ":" + strconv.Itoa(site.line)
+					if seen[where] {
+						continue
+					}
+					seen[where] = true
+					sites = append(sites, site)
+				}
 			}
-			_ = dir
 		}
 	}
 	if len(sites) < wantMinimumWriteProbes {
-		t.Fatalf("only %d record-authority probes found on mutating paths in %s, want at least %d — the probe extractor lost its source",
+		t.Fatalf("only %d distinct record-authority probes found on mutating paths in %s, want at least %d — the probe extractor lost its source",
 			len(sites), modulesDir, wantMinimumWriteProbes)
 	}
 
-	reported := map[string]bool{}
 	for _, site := range sites {
 		if writeAuthorityProbes[site.spelling] {
 			continue
@@ -243,10 +258,6 @@ func TestEveryMutationOfAShareableRecordProbesForWriteAuthority(t *testing.T) {
 			continue
 		}
 		where := site.file + ":" + strconv.Itoa(site.line)
-		if reported[where] {
-			continue
-		}
-		reported[where] = true
 		named := strconv.Quote(site.table)
 		if !site.resolved {
 			named = "a record whose table this gate cannot read"

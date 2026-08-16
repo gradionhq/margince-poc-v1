@@ -334,6 +334,15 @@ func mayRevoke(ctx context.Context, tx pgx.Tx, actor principal.Principal, grant 
 	if grant.SubjectType == "user" && grant.SubjectID == actor.UserID {
 		return nil
 	}
+	// Both gates sit INSIDE this branch, and that placement is the exception
+	// working rather than a tidy-up. The object grant reads "may this role
+	// change records of this kind" — a question declining your own share does
+	// not ask, and one a read-only seat answers no to. Checking it before the
+	// self arm would have left exactly the seat most likely to be handed a
+	// share it did not want with no way to give it back.
+	if err := auth.Require(ctx, grant.RecordType, principal.ActionUpdate); err != nil {
+		return err
+	}
 	return auth.EnsureWritableLive(ctx, tx, grant.RecordType, grant.RecordID)
 }
 
@@ -353,9 +362,6 @@ func (s *Service) RevokeRecordGrant(ctx context.Context, id ids.UUID) error {
 			return apperrors.ErrNotFound
 		}
 		if err != nil {
-			return err
-		}
-		if err := auth.Require(ctx, grant.RecordType, principal.ActionUpdate); err != nil {
 			return err
 		}
 		if err := mayRevoke(ctx, tx, actor, grant); err != nil {

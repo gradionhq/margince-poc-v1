@@ -79,7 +79,10 @@ func TestAReadShareOfADealCannotRewriteItsContracts(t *testing.T) {
 		deal, e.WS, e.Rep3, pipeline, open, org)
 
 	store := contracts.NewStore(e.DB())
-	starts := time.Now().UTC()
+	// Fixed, because nothing here is about WHEN: the term's dates never reach an
+	// assertion, and a fixture reading the wall clock is one that can fail for a
+	// reason its own name does not mention.
+	starts := time.Date(2026, time.January, 5, 0, 0, 0, 0, time.UTC)
 	contract, err := store.CreateContract(owner, contracts.CreateContractInput{
 		OrganizationID: ids.From[ids.OrganizationKind](org),
 		DealID:         idPtr(ids.From[ids.DealKind](deal)),
@@ -197,6 +200,31 @@ func TestAReadShareCannotRevokeSomebodyElsesShare(t *testing.T) {
 	// one away — so the refusal above is the rule and not a broken revoke.
 	if err := svc.RevokeRecordGrant(owner, colleagues); err != nil {
 		t.Fatalf("the owner revoking a share → %v, want allowed", err)
+	}
+}
+
+// The seat the self-revocation arm exists for, and the one an object gate in
+// front of it would have locked out: a READ-ONLY member holds no person:update
+// at all, so if declining a share had to pass that check first, the person least
+// able to do anything with the record would be the only one unable to give it
+// back.
+func TestAReadOnlySeatCanStillDeclineItsOwnShare(t *testing.T) {
+	e := Setup(t)
+	svc := identity.NewService(e.Pool)
+	owner := e.As(e.Rep3, []ids.UUID{e.Team2}, grantsAtTeamScope("person"))
+	readOnly := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"read_only"},
+		Objects:  map[string]principal.ObjectGrant{"person": {Read: true}},
+		RowScope: principal.RowScopeTeam,
+	})
+
+	person := ids.NewV7()
+	e.WsExec(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, $3, 'Unwanted Share', 'manual', 'human:x')`, person, e.WS, e.Rep3)
+	shareRecord(owner, t, e, "person", person, e.Rep1, "read")
+
+	if err := svc.RevokeRecordGrant(readOnly, grantIDsFor(t, e, person, e.Rep1)); err != nil {
+		t.Fatalf("a read-only seat declining its own share → %v, want allowed", err)
 	}
 }
 
