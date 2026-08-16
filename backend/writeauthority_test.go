@@ -24,30 +24,33 @@ package backendarch
 //     without anyone remembering to; a table that never was (a list, a saved
 //     view) is out of scope because its visibility already IS its write
 //     authority.
-//   - the SITES are every single-row probe in internal/modules naming one of
-//     those tables, from inside a function that MUTATES: it reaches the storekit
-//     write shape, or it sits under an entry point that took
-//     auth.Require(update|delete) on that same table. Both are read out of the
-//     tree, so a new store inherits the obligation.
+//   - the SITES are every row probe in internal/modules naming one of those
+//     tables, from inside a function that MUTATES: it reaches the storekit write
+//     shape, or it sits under an entry point that took auth.Require(update|
+//     delete) on anything at all. Both are read out of the tree, so a new store
+//     inherits the obligation.
 //   - the OBLIGATION is that the probe is one of the write-authority spellings.
 //     Object admission does not count and is not consulted: every site this gate
 //     was written for already held auth.Require(…, ActionUpdate) and mutated on
 //     a `read` share anyway — a gate that accepted it would read green over the
 //     defect it exists for.
 //
-// Two probe families are deliberately outside the census, and neither absence
-// is an oversight:
+// One probe family is deliberately outside the census, and the absence is not
+// an oversight: auth.EnsureLinkTarget. It asks whether the caller may REFERENCE
+// a record — attach an activity, name a parent org, add a list member — and
+// whether "add" needs write authority on the thing added TO is a product
+// question UC-E11-08 E2 raises rather than settles. It is tracked as its own
+// issue rather than decided inside a security sweep.
 //
-//   - auth.EnsureLinkTarget. It asks whether the caller may REFERENCE a record —
-//     attach an activity, name a parent org, add a list member — and whether
-//     "add" needs write authority on the thing added TO is a product question
-//     UC-E11-08 E2 raises rather than settles. It is tracked as its own issue
-//     rather than decided inside a security sweep.
-//   - auth.ScopeClauseFor and auth.VisiblePredicate. They render a LIST
-//     predicate; a mutation's row gate is a single-row probe, and the sites that
-//     hold them on a write path (the project-key and duplicate-domain conflict
-//     reads) are disclosure decisions about a RIVAL row, where read authority is
-//     exactly the right question.
+// The LIST predicates (auth.ScopeClauseFor, auth.VisiblePredicate) are IN the
+// census, and that is a correction rather than a flourish. A first draft left
+// them out on the reasoning that a mutation's row gate is a single-row probe
+// and the write-path sites holding one are conflict reads about a rival row.
+// Review found the counterexample inside this gate's own tier: the contracts
+// module owns no owner_id, derives its whole row scope from its anchor through
+// a rendered clause, and used that ONE clause as the gate in front of every
+// patch, archive, status change, cancellation and renewal — so the list
+// predicate WAS the mutation's row gate, and the exclusion read green over it.
 //
 // The tier is internal/modules, for the reason composerowscope_test.go gives
 // for choosing the opposite one: a module store owns its table and is the last
@@ -117,6 +120,27 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	// spelling, so deciding #1405 is a matter of deleting entries from this map.
 	"internal/modules/activities:ensureAttachmentParentVisible": "the attachment's parent probe: an attachment has no independent authority and inherits the parent record's row scope, so this is the `add` question (#1405) and not this change's to answer",
 
+	// Refusal-disclosure clauses: rendered so a refusal may NAME the rows it
+	// collided with, and only the ones the caller could already read. The
+	// DECISION each of them feeds is unscoped on purpose — work the caller
+	// cannot see must still block the write — so narrowing the clause would not
+	// tighten the refusal, only strip a legitimate caller of the ids that tell
+	// them what to go and look at.
+	"internal/modules/deals:ensureProjectKeyFree":         "whether a key collision may name the project already holding it. The unique index is the authority that refuses either way; this clause decides only disclosure",
+	"internal/modules/deals:refuseIfOccupied":             "the stage-removal refusal's naming clause: which of the deals still sitting on the stage may be listed back. Every occupant blocks the removal, visible or not",
+	"internal/modules/people:refuseWhenBothCarryProjects": "the organization-merge precondition, and its own comment states the split this waiver rests on: the decision counts EVERY live project on both endpoints, and the clause governs only which of them the refusal may name",
+
+	// The `add` verb again (#1405), in its rendered-clause form: each of these
+	// writes the row that HANGS OFF the record — a link, a participant, an
+	// imported connection — and probes the record only to decide which ones may
+	// be touched or named.
+	"internal/modules/activities:deleteVisibleLinksOfType":     "clears an activity's links to records the caller can see, so a relink cannot silently drop an edge to a record they cannot; what it deletes is the LINK row, and its own comment already states the one bit that escapes",
+	"internal/modules/activities:repointDisplacedParticipants": "moves activity_participant rows from the displaced people to the relink target; the row written is the participant edge, never the person",
+	"internal/modules/people:matchGhostsByEmail":               "confirms the UPLOADER's own linkedin_connection rows against people they can see. The scope is there to stop the confirmed count becoming an existence oracle — a read concern, which its own comment spells out — and the row it writes is the ghost, not the person",
+
+	// Read predicates whose mutating callers take the write probe elsewhere.
+	"internal/modules/contracts:VisibleClause": "the contracts module's READ predicate, shared by the list, the single read and the company-value rollup. A contract owns no owner_id and inherits its whole row scope from its anchor, so this one clause used to stand in front of every mutation too; the patch, archive, status change, cancellation and renewal now go through writableContract, which takes auth.EnsureWritable on that same anchor",
+
 	// A gap named rather than reasoned away.
 	"internal/modules/people:applySitePersonFieldsTx": "the probe is on the ORGANIZATION whose published site was read, and it is a read of that company. The person this then fills is resolved from the org's employment edges and carries NO row-scope probe of its own — which is a separate defect, filed as #1406, not a property that makes this probe correct. This waiver goes when that issue does",
 })
@@ -136,6 +160,20 @@ var writeAuthorityProbes = map[string]bool{
 var recordAuthorityProbes = map[string]bool{
 	"EnsureVisible": true, "EnsureVisibleLive": true, "EnsureVisibleForSubjectRights": true,
 	"VisibleTo": true,
+	// The rendered list predicates. They name their table in a different
+	// argument, which tableArgIndex accounts for.
+	"ScopeClauseFor": true, "VisiblePredicate": true,
+}
+
+// tableArgIndex is where each probe names the table it is about. The single-row
+// probes take (ctx, tx, table, id); the clause renderers take (ctx, table, …).
+func tableArgIndex(spelling string) int {
+	switch spelling {
+	case "ScopeClauseFor", "VisiblePredicate":
+		return 1
+	default:
+		return 2
+	}
 }
 
 // mutationMarkers witness that a function reaches a WRITE: the storekit write
@@ -381,10 +419,14 @@ func recordAuthCall(spelling string, call *ast.CallExpr, info *writeAuthorityFn,
 		}
 		return
 	}
-	if !recordAuthorityProbes[spelling] && !writeAuthorityProbes[spelling] || len(call.Args) < 4 {
+	if !recordAuthorityProbes[spelling] && !writeAuthorityProbes[spelling] {
 		return
 	}
-	table, resolved := resolveTableArg(call.Args[2], consts)
+	names := tableArgIndex(spelling)
+	if len(call.Args) <= names {
+		return
+	}
+	table, resolved := resolveTableArg(call.Args[names], consts)
 	if resolved && !tables[table] {
 		return
 	}
@@ -477,12 +519,15 @@ func mutatingProbesUnder(fns map[string]*writeAuthorityFn, name string) []probeS
 	for _, site := range reached.probes {
 		switch {
 		case reached.byFrame[site.fn]:
-		case site.resolved && reached.requires[site.table]:
-		case !site.resolved && len(reached.requires) > 0:
-			// The table is unreadable here, so the match is on the admission
-			// alone: this path admits on update or delete of SOMETHING and
-			// probes a row on the way. Demanding the narrow spelling is right
-			// either way, since it costs nothing on a table no grant widens.
+		case len(reached.requires) > 0:
+			// The match is the ADMISSION, not the table: this path admits on
+			// update or delete of something and probes a shareable row on the
+			// way down. Insisting the two name the same table looked tighter and
+			// was wrong — a contract admits on `contract` and inherits its row
+			// scope from `deal`, so the pairing never fired over the module
+			// this gate's own review found. What the looser match costs is
+			// conflict-disclosure reads inside a write flow, which are ratified
+			// below and each say what they are deciding.
 		default:
 			continue
 		}

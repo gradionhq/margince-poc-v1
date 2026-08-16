@@ -246,7 +246,7 @@ func TestAMergeNeedsWriteAuthorityOnBothEnds(t *testing.T) {
 	// there either — and this end answers not-found rather than conflict,
 	// because the source is the record the CALLER named.
 	f.share(t, "read")
-	shareWith(t, e, f.owner, survivor, e.Rep1, "write")
+	shareWith(f.owner, t, e, survivor, e.Rep1, "write")
 	if _, err := store.MergePerson(f.holder, PersonIDOf(f.person), PersonIDOf(survivor)); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("merging away a source held on a read share → %v, want permission-denied", err)
 	}
@@ -262,14 +262,14 @@ func TestAMergeNeedsWriteAuthorityOnBothEnds(t *testing.T) {
 
 	// Read on the survivor is not enough either — it is the arm the visibility
 	// probe used to accept, and the one this change closes.
-	shareWith(t, e, f.owner, survivor, e.Rep1, "read")
+	shareWith(f.owner, t, e, survivor, e.Rep1, "read")
 	if _, err := store.MergePerson(f.holder, PersonIDOf(f.person), PersonIDOf(survivor)); !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("merging into a survivor held on a read share → %v, want conflict", err)
 	}
 
 	// Write on both: the merge goes through, so the two refusals above are the
 	// rule and not a merge that never worked.
-	shareWith(t, e, f.owner, survivor, e.Rep1, "write")
+	shareWith(f.owner, t, e, survivor, e.Rep1, "write")
 	if _, err := store.MergePerson(f.holder, PersonIDOf(f.person), PersonIDOf(survivor)); err != nil {
 		t.Fatalf("merging with write on both ends → %v, want allowed", err)
 	}
@@ -290,7 +290,7 @@ func revokeShare(t *testing.T, e *SearchEnv, record, subject ids.UUID) {
 	}
 }
 
-func shareWith(t *testing.T, e *SearchEnv, owner context.Context, record, subject ids.UUID, access string) {
+func shareWith(owner context.Context, t *testing.T, e *SearchEnv, record, subject ids.UUID, access string) {
 	t.Helper()
 	if _, err := identity.NewService(e.Pool).CreateRecordGrant(owner, identity.CreateGrantInput{
 		RecordType: "person", RecordID: record,
