@@ -104,6 +104,54 @@ func findActivityBySource(c *client, sourceID string) (bool, error) {
 	return false, nil
 }
 
+// seedLifecycle says where each account stands with us.
+//
+// It runs LAST, after the deals exist, because the two have to agree: an
+// account with a won deal is a customer and one with an open deal is at least
+// an opportunity. A demo where every company sits at the default teaches the
+// lifecycle filter to return everything.
+func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+	changed := 0
+	for stage, domains := range cfg.Lifecycle {
+		for _, domain := range domains {
+			orgID, ok := refs.orgsByDom[strings.ToLower(domain)]
+			if !ok {
+				return changed, fmt.Errorf("lifecycle names company %q, which is not seeded", domain)
+			}
+			if mode == modeDryRun {
+				changed++
+				continue
+			}
+			current, version, err := organizationLifecycle(c, orgID)
+			if err != nil {
+				return changed, err
+			}
+			if current == stage {
+				continue
+			}
+			// The write is version-checked, so a concurrent edit loses rather
+			// than being silently overwritten.
+			body := jsonBody{"lifecycle": stage, "if_version": version}
+			if err := c.patch("/v1/organizations/"+orgID, body, nil); err != nil {
+				return changed, fmt.Errorf("setting %s to %s: %w", domain, stage, err)
+			}
+			changed++
+		}
+	}
+	return changed, nil
+}
+
+func organizationLifecycle(c *client, orgID string) (stage string, version int, err error) {
+	var out struct {
+		Lifecycle string `json:"lifecycle"`
+		Version   int    `json:"version"`
+	}
+	if err := c.get("/v1/organizations/"+orgID, nil, &out); err != nil {
+		return "", 0, fmt.Errorf("reading organization %s: %w", orgID, err)
+	}
+	return out.Lifecycle, out.Version, nil
+}
+
 // seedProducts fills the rate card the offers draw their line items from.
 func seedProducts(c *client, cfg demoConfig, mode runMode) (map[string]string, int, error) {
 	ids := map[string]string{}

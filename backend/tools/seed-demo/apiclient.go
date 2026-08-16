@@ -83,6 +83,21 @@ func (c *client) put(path string, body jsonBody, out any) error { //craft:ignore
 	return c.do(req, out)
 }
 
+// patch sends a partial update — the shape a record edit takes, as opposed to
+// the whole-record replace put does.
+func (c *client) patch(path string, body jsonBody, out any) error { //craft:ignore naked-any out is any JSON shape the caller declares; json.Decode's own contract
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encoding request: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPatch, c.base+path, bytes.NewReader(encoded))
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
 // get decodes a GET into out. Query values are escaped here rather than by
 // the caller so a company name with an ampersand cannot build a broken URL.
 func (c *client) get(path string, query url.Values, out any) error { //craft:ignore naked-any out is any JSON shape the caller declares; json.Decode's own contract

@@ -535,6 +535,8 @@ place keeps the api reading a password file that is no longer written. Use
 | `MARGINCE_BENCH_TIER` | `make bench-perf` | the PERF-3/PERF-7 seed tier the perfbench suite builds — `smb` (default) or `mid_market`. An unrecognized value fails the bench loudly. |
 | `MARGINCE_BENCH_RECORD` | `make bench-perf` | set to `1` to let the PERF-3/PERF-7 tier harness WRITE its record into `docs/reference/perfbench/`, which `make perfdoc` renders into the published budgets page. Off by default because that suite also runs in the standing integration lane, and a scheduled job must never write a machine's numbers into the tree. The by-hand `bench-record`/`bench-capture`/`bench-mobile` targets need no switch — nothing but a human runs them. |
 | `MARGINCE_AITASK_DIR` | `worker aitask` | working directory for the `ai-probe` debug loop's artifacts (flag `--work-dir`, default the gitignored `.tmp/aitask/`). A fetched page carries whatever the source carried, so this stays out of the tree. |
+| `MARGINCE_SEED_PASSWORD` | `tools/seed-demo` | the password the demo seeder signs in with, so a credential never lands in a shell history or a make target. Equivalent to its `-password` flag. |
+| `MARGINCE_SEED_DSN` | `tools/seed-demo` | owner DSN for the two things the demo seeder cannot do over the API: create a team (read-only on the contract) and set a seat's password (no endpoint accepts one under 12 characters). Equivalent to its `-dsn` flag; unset skips both phases rather than failing, because the rest of the seed is useful without them. |
 
 ### `POST /v1/admin/reset-data` — non-production data reset
 

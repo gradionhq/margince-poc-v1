@@ -121,8 +121,12 @@ func ensureUsers(ctx context.Context, conn *pgx.Conn, workspace string, cfg demo
 		if isNew {
 			created++
 		}
-		if err := assignRole(ctx, conn, workspace, id, user.RoleKey); err != nil {
-			return created, err
+		// The dataset is the authority on what a seat may do, so a role that
+		// no longer matches is corrected rather than left: the CSO was seeded
+		// as admin while `management` did not exist, and re-running after it
+		// landed has to actually move her.
+		if err := reconcileRole(ctx, conn, workspace, id, user.RoleKey); err != nil {
+			return created, fmt.Errorf("seat %s: %w", user.Email, err)
 		}
 		if user.Team == "" {
 			continue
@@ -161,6 +165,22 @@ func ensureSeat(ctx context.Context, conn *pgx.Conn, workspace string, user demo
 		return "", false, fmt.Errorf("creating seat %s: %w", user.Email, err)
 	}
 	return id, true, nil
+}
+
+// reconcileRole makes a seat hold exactly the role the dataset names, dropping
+// any other. A seat with two roles holds the union of both, so leaving a
+// superseded one in place would quietly keep powers the dataset revoked.
+func reconcileRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey string) error {
+	if err := assignRole(ctx, conn, workspace, userID, roleKey); err != nil {
+		return err
+	}
+	if _, err := conn.Exec(ctx,
+		`DELETE FROM role_assignment ra USING role r
+		  WHERE ra.role_id = r.id AND ra.workspace_id = $1 AND ra.user_id = $2 AND r.key <> $3`,
+		workspace, userID, roleKey); err != nil {
+		return fmt.Errorf("dropping superseded roles: %w", err)
+	}
+	return nil
 }
 
 // assignRole gives a seat its permissions. A seat with no role_assignment has

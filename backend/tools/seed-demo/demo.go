@@ -16,18 +16,19 @@ import (
 )
 
 type demoConfig struct {
-	Anchor           anchorCompany  `json:"anchor"`
-	Teams            []demoTeam     `json:"teams"`
-	Users            []demoUser     `json:"users"`
-	UserPassword     string         `json:"user_password"`
-	Deals            []demoDeal     `json:"deals"`
-	Leads            []demoLead     `json:"leads"`
-	Activities       []demoActivity `json:"activities"`
-	Contracts        []demoContract `json:"contracts"`
-	Products         []demoProduct  `json:"products"`
-	Offers           []demoOffer    `json:"offers"`
-	Consent          []demoConsent  `json:"consent"`
-	FinanceCustomers []string       `json:"finance_customers"`
+	Anchor           anchorCompany       `json:"anchor"`
+	Teams            []demoTeam          `json:"teams"`
+	Users            []demoUser          `json:"users"`
+	UserPassword     string              `json:"user_password"`
+	Deals            []demoDeal          `json:"deals"`
+	Leads            []demoLead          `json:"leads"`
+	Activities       []demoActivity      `json:"activities"`
+	Contracts        []demoContract      `json:"contracts"`
+	Products         []demoProduct       `json:"products"`
+	Offers           []demoOffer         `json:"offers"`
+	Consent          []demoConsent       `json:"consent"`
+	FinanceCustomers []string            `json:"finance_customers"`
+	Lifecycle        map[string][]string `json:"lifecycle"`
 }
 
 // anchorCompany is the installation's own company — the record that answers

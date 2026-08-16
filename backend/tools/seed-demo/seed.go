@@ -61,6 +61,10 @@ func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineR
 	if err != nil {
 		return err
 	}
+	lifecycles, err := seedLifecycle(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("leads:         %d new\n", leads)
 	fmt.Printf("deals:         %d new\n", deals)
@@ -69,6 +73,7 @@ func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineR
 	fmt.Printf("products:      %d new\n", productsNew)
 	fmt.Printf("offers:        %d new\n", offers)
 	fmt.Printf("consent:       %d recorded\n", consents)
+	fmt.Printf("lifecycle:     %d changed\n", lifecycles)
 	return nil
 }
 
