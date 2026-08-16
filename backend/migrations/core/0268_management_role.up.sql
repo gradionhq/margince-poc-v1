@@ -26,6 +26,13 @@
 DO $$
 DECLARE ws uuid;
 BEGIN
+  -- The key was never reserved before this release. A row that already spells
+  -- it and is NOT the system role would be picked by every by-key lookup
+  -- (invite, role change) with whatever document it happens to carry, so the
+  -- upgrade stops rather than adopting it silently.
+  IF EXISTS (SELECT 1 FROM role WHERE key = 'management' AND NOT is_system) THEN
+    RAISE EXCEPTION '0268: a non-system role already uses the key ''management''; rename it before upgrading';
+  END IF;
   FOR ws IN SELECT id FROM workspace ORDER BY created_at, id LOOP
     INSERT INTO role (workspace_id, key, name, is_system, permissions)
     SELECT ws, 'management', 'Management', true,

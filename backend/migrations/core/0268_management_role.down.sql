@@ -7,15 +7,18 @@
 DO $$
 DECLARE holders integer;
 BEGIN
+  -- Lock the role row first: an assignment INSERT takes FOR KEY SHARE on
+  -- its role, so holding FOR UPDATE here serializes the count against a
+  -- concurrent assignment and the DELETE below cannot cascade one away.
+  PERFORM 1 FROM role WHERE is_system AND key = 'management' FOR UPDATE;
   SELECT count(*) INTO holders
     FROM role_assignment ra JOIN role r ON r.id = ra.role_id
-   WHERE r.key = 'management';
+   WHERE r.is_system AND r.key = 'management';
   IF holders > 0 THEN
     RAISE EXCEPTION '0268 down: % user(s) still hold the management role; reassign them before rolling back', holders;
   END IF;
+  DELETE FROM role WHERE is_system AND key = 'management';
 END $$;
-
-DELETE FROM role WHERE is_system AND key = 'management';
 
 -- Mirror of the up guard: only a name still carrying the new default goes back.
 UPDATE role SET name = 'Manager' WHERE is_system AND key = 'manager' AND name = 'Team Lead';
