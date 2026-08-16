@@ -3,7 +3,10 @@
 
 package mailmap
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // What an HTML-only mail has to read like once stored. Every case here was a
 // way the previous tag-strip produced text a person could not read: entities
@@ -124,6 +127,90 @@ func TestHTMLToText(t *testing.T) {
 				t.Errorf("htmlToText()\n got: %q\nwant: %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// What a malformed or hostile mail must not be able to do. Each of these was a
+// way the renderer lost the message a reader was supposed to see — worse than
+// the tag-strip it replaced, which at least never made text disappear.
+func TestHTMLToTextKeepsTheMessageWhenTheMarkupIsBroken(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "a self-closing skipped element does not swallow the message",
+			html: `<svg/>Sichtbare Nachricht`,
+			want: "Sichtbare Nachricht",
+		},
+		{
+			name: "an unclosed head ends where the body begins",
+			html: `<head><meta charset=utf-8><body>Rechnungsbetrag: 500 EUR</body>`,
+			want: "Rechnungsbetrag: 500 EUR",
+		},
+		{
+			name: "noscript is what a mail client actually shows",
+			html: `<noscript>Ihr Einmalcode ist 123456</noscript>`,
+			want: "Ihr Einmalcode ist 123456",
+		},
+		{
+			name: "an inline tag inside a word does not split it",
+			html: `<span>Marg</span><span>ince</span>`,
+			want: "Margince",
+		},
+		{
+			name: "an inline tag before punctuation does not split it",
+			html: `<b>can</b>'t`,
+			want: "can't",
+		},
+		{
+			name: "whitespace between inline tags is still a word boundary",
+			html: `<b>Angebot</b> <i>2026</i>`,
+			want: "Angebot 2026",
+		},
+		{
+			name: "a nested anchor keeps both addresses",
+			html: `<a href="https://outer">eins<a href="https://inner">zwei</a>drei</a>`,
+			want: "eins (https://outer) zwei (https://inner) drei",
+		},
+		{
+			name: "preformatted text keeps its columns",
+			html: "<pre>Konto  Betrag\nA         10</pre>",
+			want: "Konto  Betrag\nA         10",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := htmlToText(tc.html); got != tc.want {
+				t.Errorf("htmlToText()\n got: %q\nwant: %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A mail is written by a stranger, and only maxBodyLen of it is ever stored.
+// Neither its size nor a hidden address may decide what the reader gets.
+func TestHTMLToTextIsBoundedByWhatIsStored(t *testing.T) {
+	t.Parallel()
+	huge := "<body>" + strings.Repeat("x ", 5_000_000)
+	if got := len(htmlToText(huge)); got > maxRenderedLen {
+		t.Errorf("rendered %d bytes, want at most %d", got, maxRenderedLen)
+	}
+}
+
+func TestHTMLToTextKeepsTheMessageAheadOfATrackingAddress(t *testing.T) {
+	t.Parallel()
+	src := `<a href="https://tracker.example/` + strings.Repeat("a", 20000) +
+		`">Angebot öffnen</a><p>Angebot: 10.000 EUR, gültig bis Freitag.</p>`
+	got := htmlToText(src)
+	if !strings.Contains(got, "gültig bis Freitag") {
+		t.Errorf("the message was displaced by the tracking address: %q", got)
+	}
+	if strings.Contains(got, "tracker.example") {
+		t.Errorf("an unreadable address was written into the body: %q", got)
 	}
 }
 

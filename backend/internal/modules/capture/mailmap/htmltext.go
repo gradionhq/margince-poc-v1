@@ -19,12 +19,13 @@ import (
 // Elements whose CONTENT is not text of the message. Skipped whole rather than
 // merely unstyled: a stylesheet's rules are the largest single source of
 // nonsense in a stripped newsletter.
+// <noscript> is deliberately NOT here: a mail client renders with scripting
+// off, so its content is exactly what the reader sees.
 var skippedContent = map[atom.Atom]bool{
 	atom.Style:    true,
 	atom.Script:   true,
 	atom.Head:     true,
 	atom.Title:    true,
-	atom.Noscript: true,
 	atom.Template: true,
 	atom.Svg:      true,
 }
@@ -47,11 +48,22 @@ var paragraphBreakers = map[atom.Atom]bool{
 // textWriter assembles the rendered text. Breaks are requested rather than
 // written, so a run of nested block elements collapses to one break instead of
 // one per element, and a break before any text is dropped.
+// How much rendered text is worth building. Only maxBodyLen of it is stored, so
+// a sender cannot make this hold a hundred megabytes of repeated text in memory
+// to have all but the first few thousand characters thrown away. The margin
+// above maxBodyLen leaves tidy() something to trim without cutting the excerpt
+// short of what gets stored.
+const maxRenderedLen = 4 * maxBodyLen
+
 type textWriter struct {
 	out     strings.Builder
 	pending int
 	spaced  bool
 }
+
+// full reports that the excerpt is long enough. What follows would be truncated
+// away, so rendering it buys nothing and costs whatever the sender chose.
+func (w *textWriter) full() bool { return w.out.Len() >= maxRenderedLen }
 
 func (w *textWriter) breakLine(n int) {
 	if w.out.Len() == 0 {
@@ -114,6 +126,27 @@ func collapse(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// edgeSpace reports whether a text node began or ended on whitespace. It is the
+// only evidence of a word boundary across an inline tag: "<b>Marg</b><b>ince</b>"
+// is one word and "<b>Angebot</b> <i>2026</i>" is two, and the tags say nothing
+// about which. Guessing a space corrupts the word for search as well as reading.
+func edgeSpace(s string) (leading, trailing bool) {
+	if s == "" {
+		return false, false
+	}
+	trimmed := strings.TrimLeft(s, " \t\r\n\f")
+	if trimmed == "" {
+		return true, true
+	}
+	return trimmed != s, strings.TrimRight(s, " \t\r\n\f") != s
+}
+
+// The longest address worth writing out. A tracking link runs to thousands of
+// characters of opaque query string, and the stored body is capped: writing one
+// out spends the reader's excerpt — and the model's — on a URL nobody can read,
+// pushing out the sentence that says what the mail wanted.
+const maxWrittenHref = 120
+
 // linkText is what an anchor contributes: its own text, and the address after
 // it when the two differ. A link whose text already IS the address is written
 // once, and a mailto or a fragment adds nothing a reader can act on.
@@ -127,7 +160,7 @@ func linkText(text, href string) string {
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
 		return text
 	}
-	if strings.Contains(text, href) {
+	if len(href) > maxWrittenHref || strings.Contains(text, href) {
 		return text
 	}
 	return text + " (" + href + ")"
@@ -150,11 +183,27 @@ type anchorState struct {
 	depth int
 }
 
-func (a *anchorState) open(href string) {
-	if a.depth == 0 {
-		a.href = href
-		a.text.Reset()
+// writePre emits preformatted text as it stands. Inside <pre> the whitespace IS
+// the content — an invoice table read as one run of words has lost its columns.
+func writePre(w *textWriter, raw string) {
+	for i, line := range strings.Split(raw, "\n") {
+		if i > 0 {
+			w.pending = 1
+			w.spaced = false
+		}
+		w.write(strings.TrimRight(line, " \t\r"))
 	}
+}
+
+// open starts an anchor. An <a> inside an open <a> is malformed, and HTML
+// recovery closes the first — so the outer link is written out before the inner
+// one starts, rather than the inner address being dropped.
+func (a *anchorState) open(w *textWriter, href string) {
+	if a.depth > 0 {
+		a.flush(w)
+	}
+	a.href = href
+	a.text.Reset()
 	a.depth++
 }
 
@@ -163,8 +212,12 @@ func (a *anchorState) close(w *textWriter) {
 	if a.depth > 0 {
 		return
 	}
+	// Spaced on both sides: an anchor sits inside a sentence, and the address
+	// written after its text ends on a bracket that would otherwise run into
+	// whatever word comes next.
 	w.space()
 	w.write(linkText(a.text.String(), a.href))
+	w.space()
 	a.text.Reset()
 }
 
@@ -183,55 +236,120 @@ func (a *anchorState) flush(w *textWriter) {
 // references decoded, blocks separated by real line breaks, list items marked,
 // and the contents of style and script left out.
 func htmlToText(src string) string {
-	w := &textWriter{}
+	r := &renderer{w: &textWriter{}, a: &anchorState{}}
 	z := html.NewTokenizer(strings.NewReader(src))
-	a := &anchorState{}
-	for {
-		switch z.Next() {
+	for !r.w.full() {
+		switch token := z.Next(); token {
 		case html.ErrorToken:
 			// The tokenizer reports malformed markup as tokens, so an error
 			// here is the end of the document rather than a parse failure.
-			a.flush(w)
-			return tidy(w.String())
+			return r.finish()
 		case html.TextToken:
-			writeText(w, a, collapse(string(z.Text())))
+			r.text(string(z.Text()))
 		case html.StartTagToken, html.SelfClosingTagToken:
-			token := z.Token()
-			if skippedContent[token.DataAtom] {
-				skipContent(z, token.DataAtom)
-				continue
-			}
-			if token.DataAtom == atom.A && token.Type == html.StartTagToken {
-				a.open(attrValue(token, "href"))
-				continue
-			}
-			openTag(w, token.DataAtom)
+			r.startTag(z, token == html.SelfClosingTagToken)
 		case html.EndTagToken:
 			name, _ := z.TagName()
-			tag := atom.Lookup(name)
-			if tag == atom.A && a.depth > 0 {
-				a.close(w)
-				continue
-			}
-			closeTag(w, tag)
+			r.endTag(atom.Lookup(name))
 		}
+	}
+	return r.finish()
+}
+
+// renderer is the walk's state: what has been written, the anchor being built,
+// and whether the text arriving is preformatted.
+type renderer struct {
+	w   *textWriter
+	a   *anchorState
+	pre int
+}
+
+func (r *renderer) text(raw string) {
+	// Inside <pre> the whitespace is the content — unless an anchor is open,
+	// where the text is being buffered for the link rather than written.
+	if r.pre > 0 && r.a.depth == 0 {
+		writePre(r.w, raw)
+		return
+	}
+	writeText(r.w, r.a, raw)
+}
+
+func (r *renderer) startTag(z *html.Tokenizer, selfClosing bool) {
+	token := z.Token()
+	if skippedContent[token.DataAtom] {
+		// A self-closing form has no content, and looking for an end tag that
+		// cannot come would swallow the rest of the message.
+		if !selfClosing {
+			skipContent(z, token.DataAtom)
+		}
+		return
+	}
+	if selfClosing {
+		openTag(r.w, token.DataAtom)
+		return
+	}
+	switch token.DataAtom {
+	case atom.A:
+		r.a.open(r.w, attrValue(token, "href"))
+	case atom.Pre:
+		r.pre++
+		openTag(r.w, token.DataAtom)
+	default:
+		openTag(r.w, token.DataAtom)
 	}
 }
 
+func (r *renderer) endTag(tag atom.Atom) {
+	switch {
+	case tag == atom.A && r.a.depth > 0:
+		r.a.close(r.w)
+	case tag == atom.Pre:
+		if r.pre > 0 {
+			r.pre--
+		}
+		closeTag(r.w, tag)
+	default:
+		closeTag(r.w, tag)
+	}
+}
+
+// finish writes out an anchor the document never closed, so its text is not
+// lost with the missing end tag.
+func (r *renderer) finish() string {
+	r.a.flush(r.w)
+	return tidy(r.w.String())
+}
+
 // writeText routes a text node to the anchor being built, or to the document.
-func writeText(w *textWriter, a *anchorState, text string) {
+// A space is asked for only where the source had one, so an inline tag between
+// two halves of a word does not split it.
+func writeText(w *textWriter, a *anchorState, raw string) {
+	if len(raw) > maxRenderedLen {
+		raw = raw[:maxRenderedLen]
+	}
+	leading, trailing := edgeSpace(raw)
+	text := collapse(raw)
 	if text == "" {
+		// Whitespace between two elements is still a word boundary.
+		if leading {
+			w.space()
+		}
 		return
 	}
 	if a.depth > 0 {
-		if a.text.Len() > 0 {
+		if leading && a.text.Len() > 0 {
 			a.text.WriteString(" ")
 		}
 		a.text.WriteString(text)
 		return
 	}
-	w.space()
+	if leading {
+		w.space()
+	}
 	w.write(text)
+	if trailing {
+		w.space()
+	}
 }
 
 // openTag writes what an element contributes before its content.
@@ -262,16 +380,28 @@ func closeTag(w *textWriter, tag atom.Atom) {
 	}
 }
 
+// Where a skipped element ends even though the document never closed it. A
+// mail that opens <head> and goes straight to <body> is ordinary, and reading
+// to EOF looking for </head> loses the whole message.
+var impliedClose = map[atom.Atom]atom.Atom{atom.Head: atom.Body}
+
 // skipContent consumes an element's content up to its matching end tag, so a
-// stylesheet or a script contributes nothing.
+// stylesheet or a script contributes nothing. It also stops at the tag that
+// implicitly closes the element, because HTML does not require every end tag
+// and a mail is under no obligation to be well-formed.
 func skipContent(z *html.Tokenizer, tag atom.Atom) {
+	closer, hasCloser := impliedClose[tag]
 	depth := 1
 	for depth > 0 {
 		switch z.Next() {
 		case html.ErrorToken:
 			return
-		case html.StartTagToken:
-			if name, _ := z.TagName(); atom.Lookup(name) == tag {
+		case html.StartTagToken, html.SelfClosingTagToken:
+			name, _ := z.TagName()
+			switch found := atom.Lookup(name); {
+			case hasCloser && found == closer:
+				return
+			case found == tag:
 				depth++
 			}
 		case html.EndTagToken:
