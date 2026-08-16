@@ -277,8 +277,14 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 		// deactivated after the token was issued — the reset must refuse
 		// (same neutral answer), never consume the token around an
 		// unchanged password.
+		//
+		// It clears the forced rotation for the same reason it is set: the
+		// subject chose this password themselves, so the question the flag
+		// answers is now settled. Leaving it raised would refuse every route
+		// to someone holding a credential only they have ever known.
 		tag, err := tx.Exec(ctx,
-			`UPDATE app_user SET password_hash = $2, failed_login_count = 0, locked_until = NULL
+			`UPDATE app_user SET password_hash = $2, failed_login_count = 0, locked_until = NULL,
+			        must_change_password = false
 			 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`, userID, hash)
 		if err != nil {
 			return err
@@ -330,16 +336,31 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		return err
 	}
 	var userID ids.UserID
+	var isAgent bool
 	lookupErr := tx.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE email = lower($1) AND archived_at IS NULL`, email).Scan(&userID)
+		`SELECT id, is_agent FROM app_user WHERE email = lower($1) AND archived_at IS NULL`,
+		email).Scan(&userID, &isAgent)
 	if errors.Is(lookupErr, pgx.ErrNoRows) {
 		return fmt.Errorf("identity: no user with email %q", email)
 	}
 	if lookupErr != nil {
 		return lookupErr
 	}
+	// The agent seat carries an address, so it is reachable by this lookup, but
+	// it has no password by design (seed-and-fixtures §1.5) and giving it one
+	// would turn an identity into an authority. Refusing by name beats letting
+	// the write fail on `app_user_agent_never_forced`, which would report a
+	// constraint to an operator who asked a reasonable-looking question.
+	if isAgent {
+		return fmt.Errorf("identity: %q is the agent seat, which has no password to reset", email)
+	}
+	// An operator-chosen password is exactly the state the forced rotation
+	// exists for: the subject did not pick this credential and the operator
+	// knows it. The flag is raised here for the same reason a configured
+	// bootstrap raises it, and the subject clears it by choosing their own.
 	if _, err := tx.Exec(ctx,
-		`UPDATE app_user SET password_hash = $2, failed_login_count = 0, locked_until = NULL
+		`UPDATE app_user SET password_hash = $2, failed_login_count = 0, locked_until = NULL,
+		        must_change_password = true
 		 WHERE id = $1`, userID, hash); err != nil {
 		return err
 	}

@@ -73,28 +73,39 @@ func TestOnlyAHumanPrincipalIsGivenAnIdentity(t *testing.T) {
 	if len(callers) != 1 || callers[0] != binder {
 		t.Fatalf("withIdentity is called from %v, want exactly [%s]: an identity bound anywhere else can reach the consent read as a non-human principal", callers, binder)
 	}
-	file, err := parser.ParseFile(token.NewFileSet(), "handlers.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parsing handlers.go: %v", err)
-	}
-	body := funcBody(t, file, binder)
+	// Found wherever it lives in the package, not in a named file: the
+	// property is about the binder, and pinning it to a filename makes an
+	// ordinary split of an oversized file read as a violation.
+	body := packageFuncBody(t, binder)
 	if body == nil {
-		t.Fatalf("handlers.go has no %s — the one identity binder moved", binder)
+		t.Fatalf("this package has no %s — the one identity binder is gone", binder)
 	}
 	if !bindsHumanPrincipalType(body) {
 		t.Errorf("%s binds an identity without principal.PrincipalHuman", binder)
 	}
 }
 
-// identityBinders names every function in this package's non-test sources that
-// calls withIdentity.
-func identityBinders(t *testing.T) []string {
+// packageFuncBody finds one function's body anywhere in this package's
+// non-test sources.
+func packageFuncBody(t *testing.T, name string) *ast.BlockStmt {
+	t.Helper()
+	for _, file := range packageFiles(t) {
+		if body := funcBody(t, file, name); body != nil {
+			return body
+		}
+	}
+	return nil
+}
+
+// packageFiles parses this package's non-test sources once, so the assertions
+// above are derived from the tree rather than from a list of filenames.
+func packageFiles(t *testing.T) []*ast.File {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("reading the package directory: %v", err)
 	}
-	var callers []string
+	var files []*ast.File
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -104,6 +115,17 @@ func identityBinders(t *testing.T) []string {
 		if err != nil {
 			t.Fatalf("parsing %s: %v", name, err)
 		}
+		files = append(files, file)
+	}
+	return files
+}
+
+// identityBinders names every function in this package's non-test sources that
+// calls withIdentity.
+func identityBinders(t *testing.T) []string {
+	t.Helper()
+	var callers []string
+	for _, file := range packageFiles(t) {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			// withIdentity's own declaration is not a caller of it.

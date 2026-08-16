@@ -13,6 +13,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -79,12 +80,16 @@ func (s *Service) ChangePassword(ctx context.Context, current, next string) erro
 		if err != nil {
 			return err
 		}
-		// The §27 lockout state clears with the rotation: whoever did this just
-		// proved they hold the current password, which outranks a stale
-		// brute-force streak against the credential they have now replaced.
+		// Three things clear together, and each for its own reason. The lockout
+		// state, because whoever did this just proved they hold the current
+		// password, which outranks a stale brute-force streak against the
+		// credential they have now replaced. And must_change_password, because
+		// the account is no longer using a password somebody else chose — which
+		// is the only question that flag answers.
 		tag, err := tx.Exec(ctx,
 			`UPDATE app_user
-			    SET password_hash = $2, failed_login_count = 0, locked_until = NULL
+			    SET password_hash = $2, failed_login_count = 0, locked_until = NULL,
+			        must_change_password = false
 			  WHERE id = $1 AND status = 'active' AND archived_at IS NULL`, userID, hash)
 		if err != nil {
 			return err
@@ -224,8 +229,29 @@ func callerUserID(ctx context.Context) (ids.UserID, bool) {
 // Left inside the cap, a read seat could never rotate its own password at all,
 // which is worst on exactly the installations this route was added for: the
 // ones with no outbound email, where the reset flow is not a fallback.
+// The method is part of the test for the reason publicRequests (middleware.go)
+// gives for keying on it: this exemption punches through BOTH the seat ceiling
+// and the forced rotation, and a future mutation added at this path must not
+// inherit that by sharing an address with it.
 func isOwnCredentialRequest(r *http.Request) bool {
-	return r.URL.Path == "/v1/auth/change-password"
+	return r.Method == http.MethodPost && r.URL.Path == changePasswordPath
+}
+
+// changePasswordPath is the mounted address of the route above: the router's
+// base plus the contract's path. Spelled from its two halves because the
+// exemption, the router and the contract have to agree on it, and a drift
+// between them strands an account behind a gate whose one exit moved.
+const changePasswordPath = httpserver.BaseURL + "/auth/change-password"
+
+// forcedRotationRefusal is the answer every admission door gives an account
+// still holding a password somebody else chose. One spelling, because a client
+// branches on the code and two doors that worded it differently would make the
+// same situation look like two.
+func forcedRotationRefusal() *httperr.DetailedError {
+	return &httperr.DetailedError{
+		Status: http.StatusForbidden, Code: "password_change_required",
+		Detail: "this account must set its own password before it can be used",
+	}
 }
 
 // ChangePassword is the HTTP half. The session admits the request; the current

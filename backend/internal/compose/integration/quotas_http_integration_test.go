@@ -96,9 +96,12 @@ func demoteToRep(t *testing.T, e *apptest.AppEnv) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
+	// is_agent = false, not merely the earliest row: bootstrap writes the admin
+	// and the Agent Runner seat in ONE transaction, so now() gives them the
+	// same created_at and "first by created_at" is a coin flip between them.
 	var userID, repRoleID string
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE workspace_id = $1 ORDER BY created_at LIMIT 1`, wsID).Scan(&userID); err != nil {
+		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent = false ORDER BY created_at LIMIT 1`, wsID).Scan(&userID); err != nil {
 		t.Fatalf("admin lookup: %v", err)
 	}
 	if err := tx.QueryRow(ctx,

@@ -17,7 +17,16 @@ import type { MessageKey } from "../i18n/en";
 // connection-problem screen (network/5xx), or the installation-unavailable
 // screen (503 — pre-bootstrap or a violated singleton invariant) instead of
 // collapsing every error into login.
-export type AuthProbeKind = "unauthorized" | "connection" | "installation";
+export type AuthProbeKind =
+  | "unauthorized"
+  | "connection"
+  | "installation"
+  // The account is authenticated but still using a password its operator
+  // chose, and the server refuses every route but the one that replaces it.
+  // A distinct kind because the remedy is distinct: sending this to the login
+  // screen would loop — the credentials are correct, and using them again
+  // lands in the same refusal.
+  | "must-change-password";
 
 export class AuthProbeError extends Error {
   readonly kind: AuthProbeKind;
@@ -32,10 +41,25 @@ export class AuthProbeError extends Error {
 // the middleware's installation-not-ready answer; any other 5xx (or a
 // rejected fetch) is a connectivity problem; everything else reads as "no
 // session" — the login screen.
-function probeKindFor(status: number): AuthProbeKind {
+function probeKindFor(status: number, code?: string): AuthProbeKind {
   if (status === 503) return "installation";
   if (status >= 500) return "connection";
+  if (status === 403 && code === "password_change_required") {
+    return "must-change-password";
+  }
   return "unauthorized";
+}
+
+// codeInProblemBody reads the machine code straight off a problem BODY. The
+// exported problemCodeOf below takes a thrown ProblemError instead; here the
+// probe still holds the decoded body, and the code is what separates a refusal
+// the caller can act on from one they cannot.
+function codeInProblemBody(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const { code } = error as { code?: unknown };
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
 }
 
 // authExitNotice marks a DELIBERATE sign-out so the boundary's next 401
@@ -73,7 +97,7 @@ export function useMe() {
       const { data, error, response } = result;
       if (error) {
         throw new AuthProbeError(
-          probeKindFor(response.status),
+          probeKindFor(response.status, codeInProblemBody(error)),
           problemMessage(error),
         );
       }

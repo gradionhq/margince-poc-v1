@@ -3476,6 +3476,10 @@ export const de = {
   // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
     "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
+  "forcedPassword.pageTitle": "Passwort wählen",
+  "forcedPassword.title": "Wähle dein eigenes Passwort",
+  "forcedPassword.body":
+    "Dieses Konto nutzt noch das Passwort, das dein Betreiber eingerichtet hat. Wähle eines, das nur du kennst, bevor du fortfährst.",
   "password.title": "Passwort",
   "password.body": "Ändere das Passwort, mit dem du dich anmeldest.",
   "password.current": "Aktuelles Passwort",

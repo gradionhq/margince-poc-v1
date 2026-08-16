@@ -109,6 +109,11 @@ type revocationEnv struct {
 
 const memberPassword = "correct horse battery staple"
 
+// bootstrapPassword is the credential an OPERATOR supplies for the first
+// admin. Named, because what makes it interesting is who chose it: every
+// account holding this one owes a rotation.
+const bootstrapPassword = "a bootstrap password!"
+
 func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	t.Helper()
 	owner, pool := setupIdentityDB(t)
@@ -132,7 +137,7 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 		wsID, err = createInstallation(ctx, tx, InstallationBootstrap{
 			OrganizationName: slug,
 			AdminEmail:       adminEmail, AdminName: "Admin",
-			AdminPassword: "a bootstrap password!",
+			AdminPassword: bootstrapPassword,
 		}, originConfigured, nil)
 		return err
 	})
@@ -144,7 +149,7 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	svc := NewServiceFor(database.BindTo(pool, wsID))
 	// Login resolves the admin's full Identity (roles, permissions) the
 	// way the HTTP surface would.
-	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), adminEmail, "a bootstrap password!")
+	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), adminEmail, bootstrapPassword)
 	if err != nil {
 		t.Fatalf("admin login: %v", err)
 	}
@@ -291,7 +296,11 @@ func TestRevokedPassportRefusedOnNextCall(t *testing.T) {
 	e := setupRevocationEnv(t, "revoke-passport")
 	ctx := principal.WithWorkspaceID(context.Background(), e.admin.WorkspaceID.UUID)
 
-	issued, err := e.svc.IssuePassport(ctx, e.admin, IssuePassportInput{Scopes: []string{"read", "write"}})
+	// The MEMBER grants this one. The env's admin comes from a configured
+	// bootstrap and therefore owes a password rotation, which is itself a live
+	// cap on every passport they granted — a fresh one would be refused for
+	// that reason and prove nothing about revocation.
+	issued, err := e.svc.IssuePassport(ctx, e.member, IssuePassportInput{Scopes: []string{"read", "write"}})
 	if err != nil {
 		t.Fatal(err)
 	}
