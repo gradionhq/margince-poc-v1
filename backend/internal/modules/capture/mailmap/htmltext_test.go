@@ -201,6 +201,25 @@ func TestHTMLToTextIsBoundedByWhatIsStored(t *testing.T) {
 	}
 }
 
+// A body big enough to matter is bounded where the memory is actually taken —
+// inside the tokenizer, which buffers a token whole before returning it. A
+// single unbroken run of text would otherwise allocate whatever the sender
+// chose, no matter what the renderer did with it afterwards.
+func TestHTMLToTextBoundsOneEnormousToken(t *testing.T) {
+	t.Parallel()
+	src := "<p>Angebot: 12.000 EUR, gültig bis Freitag.</p><p>" +
+		strings.Repeat("x", maxTokenLen+1000) + "</p>"
+	got := htmlToText(src)
+	if !strings.Contains(got, "gültig bis Freitag") {
+		t.Errorf("the message before the overlong token was lost: %q", got)
+	}
+	// The budget is checked between tokens, so the last one to be written may
+	// carry the total past it — by one token, never by the sender's whole body.
+	if len(got) > maxRenderedLen+maxTokenLen {
+		t.Errorf("rendered %d bytes, want near %d", len(got), maxRenderedLen)
+	}
+}
+
 func TestHTMLToTextKeepsTheMessageAheadOfATrackingAddress(t *testing.T) {
 	t.Parallel()
 	src := `<a href="https://tracker.example/` + strings.Repeat("a", 20000) +

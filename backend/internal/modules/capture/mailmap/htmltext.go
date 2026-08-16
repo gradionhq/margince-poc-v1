@@ -55,6 +55,11 @@ var paragraphBreakers = map[atom.Atom]bool{
 // short of what gets stored.
 const maxRenderedLen = 4 * maxBodyLen
 
+// The largest single token worth buffering. A mail is written by a stranger and
+// only maxBodyLen of it is stored, so no one token needs to be bigger than the
+// whole excerpt; a token past this ends the walk with what was read so far.
+const maxTokenLen = maxRenderedLen
+
 type textWriter struct {
 	out     strings.Builder
 	pending int
@@ -238,11 +243,19 @@ func (a *anchorState) flush(w *textWriter) {
 func htmlToText(src string) string {
 	r := &renderer{w: &textWriter{}, a: &anchorState{}}
 	z := html.NewTokenizer(strings.NewReader(src))
+	// The loop's budget is checked between tokens, which bounds a document made
+	// of many tags but not ONE token holding the whole body: the tokenizer
+	// buffers a token entire before returning it, so an unbroken run of text
+	// allocates the sender's chosen size no matter what is done with it after.
+	// Capping the buffer moves the bound to where the memory is actually taken.
+	z.SetMaxBuf(maxTokenLen)
 	for !r.w.full() {
 		switch token := z.Next(); token {
 		case html.ErrorToken:
-			// The tokenizer reports malformed markup as tokens, so an error
-			// here is the end of the document rather than a parse failure.
+			// Malformed markup is reported as tokens rather than as an error,
+			// so this is the end of the document: EOF, or a token past the
+			// buffer cap. Both end the walk with what was read up to here,
+			// which is the readable part of the message.
 			return r.finish()
 		case html.TextToken:
 			r.text(string(z.Text()))
