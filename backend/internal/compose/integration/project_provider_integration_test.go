@@ -220,6 +220,7 @@ func TestTheAgentSeamAdvancesADealAndReportsTheStageSemantic(t *testing.T) {
 
 	moved, err := p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID: deal, ToStageID: won.UUID,
+		WonWithoutContractReason: WonByImport(),
 	})
 	if err != nil {
 		t.Fatalf("advance through the seam: %v", err)

@@ -58,6 +58,24 @@ var (
 		},
 		RowScope: principal.RowScopeTeam,
 	}
+	// ContractRepPerms is a rep who may read agreements as well as the account
+	// and deal they hang off. Its own fixture rather than a delta on the two
+	// above, for the reason stated there: RepPerms is read by suites as a rep
+	// who canNOT see an organization, and widening it would make those pass
+	// while proving nothing. Row scope stays team, because the interesting
+	// contract failures are row-scope ones and an unbounded admin
+	// short-circuits every clause the inherited predicate renders.
+	ContractRepPerms = principal.Permissions{
+		RoleKeys: []string{roleRep},
+		Objects: map[string]principal.ObjectGrant{
+			objOrg:             {Read: true},
+			objDeal:            {Create: true, Read: true, Update: true},
+			"contract":         {Create: true, Read: true, Update: true},
+			objPipeline:        {Read: true},
+			objInstallSettings: {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	}
 	// AccountRepPerms is the rep the account sections are read by: the
 	// organization itself, its people and deals, its activities, and the tag/list
 	// chips. It is a fixture in its own right rather than RepPerms plus a delta —
@@ -115,9 +133,13 @@ var (
 	AdminPerms       = principal.Permissions{
 		RoleKeys: []string{roleAdmin},
 		Objects: map[string]principal.ObjectGrant{
-			objPerson:   {Create: true, Read: true, Update: true, Delete: true},
-			objOrg:      {Create: true, Read: true, Update: true, Delete: true},
-			objDeal:     {Create: true, Read: true, Update: true, Delete: true},
+			objPerson: {Create: true, Read: true, Update: true, Delete: true},
+			objOrg:    {Create: true, Read: true, Update: true, Delete: true},
+			objDeal:   {Create: true, Read: true, Update: true, Delete: true},
+			// The admin role holds contracts in full (identity/internal/policy.go),
+			// mirrored here so the fixture matches production rather than a
+			// narrower admin that would make a suite pass for the wrong reason.
+			"contract":  {Create: true, Read: true, Update: true, Delete: true},
 			"lead":      {Create: true, Read: true, Update: true, Delete: true},
 			objActivity: {Create: true, Read: true, Update: true, Delete: true},
 			objPipeline: {Create: true, Read: true, Update: true, Delete: true},

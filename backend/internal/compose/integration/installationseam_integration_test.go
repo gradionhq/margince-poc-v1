@@ -48,7 +48,7 @@ func TestClosingADealFreezesAgainstTheSettingsBaseCurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.Deals.AdvanceDeal(admin,
-		ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+		ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: WonByImport()}); err != nil {
 		t.Fatalf("closing as won: %v", err)
 	}
 

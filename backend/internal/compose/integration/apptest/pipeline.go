@@ -74,7 +74,13 @@ func ExerciseDealToWon(t *testing.T, e *AppEnv, stages SeededStages) string {
 	dealID := CreateOpenDeal(t, e, stages)
 
 	var deal AnyMap
-	status := e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", AnyMap{"to_stage_id": stages.Won}, nil, &deal)
+	// The win gate (ADR-0109 §6): a won deal points at a signed agreement or
+	// says why it cannot, and a fixture has no contract in this database by
+	// construction — which is precisely what `imported` means.
+	status := e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", AnyMap{
+		"to_stage_id":                 stages.Won,
+		"won_without_contract_reason": "imported",
+	}, nil, &deal)
 	if status != http.StatusOK || deal["status"] != "won" || deal["closed_at"] == nil {
 		t.Fatalf("advance to won = %d %v", status, deal)
 	}

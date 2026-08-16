@@ -155,7 +155,7 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, fresh, org.UUID)
 	created := e.SeedDeal(t, "Brand new deal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, created, org.UUID)
-	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](before), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](before), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: integration.WonByImport()}); err != nil {
 		t.Fatalf("advancing the old deal: %v", err)
 	}
 

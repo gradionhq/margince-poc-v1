@@ -156,3 +156,18 @@ func AccountMailDirectedAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, 
 	}
 	return id
 }
+
+// WonByImport is the win-evidence answer a FIXTURE gives (ADR-0109 §6).
+//
+// A deal reaches a won stage only with a signed contract behind it or a stated
+// reason why there is none, and a test seeding a won deal has no agreement in
+// this database by construction — which is exactly what `imported` means. Every
+// suite that wins a deal to set up something else says so through this, rather
+// than each one spelling a literal that would drift from the vocabulary.
+//
+// A test ABOUT the gate does not use this: it states its own answer, because
+// the answer is the thing under test.
+func WonByImport() *string {
+	reason := "imported"
+	return &reason
+}
