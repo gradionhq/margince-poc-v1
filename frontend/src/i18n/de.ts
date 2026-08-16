@@ -3497,6 +3497,8 @@ export const de = {
     "Diese Installation hat bereits eine Organisation. Melden Sie sich an oder bitten Sie Ihren Betreiber um ein Zurücksetzen.",
   "setup.errorFields":
     "Im Formular stimmt etwas nicht. Prüfen Sie die Felder und versuchen Sie es erneut.",
+  "setup.errorServer":
+    "Margince konnte die Einrichtung nicht abschließen. Es wurde nichts angelegt. Versuchen Sie es gleich noch einmal; bei wiederholtem Fehlschlag prüfen Sie das Serverprotokoll.",
   "setup.errorNetwork":
     "Margince war nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "auth.forgotLink": "Passwort vergessen?",

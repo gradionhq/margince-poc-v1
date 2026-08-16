@@ -117,6 +117,23 @@ describe("SetupClaimScreen", () => {
     );
   });
 
+  it("says a server failure is a server failure, not a form to fix", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { status: 500 }),
+    );
+    renderClaim();
+    await fillValid(user);
+    await user.click(
+      screen.getByRole("button", { name: /create the organization/i }),
+    );
+    const alert = await screen.findByRole("alert");
+    // Telling someone to check fields that are already correct sends them
+    // hunting for a mistake they did not make.
+    expect(alert).toHaveTextContent(/nothing was created/i);
+    expect(alert).not.toHaveTextContent(/needs fixing/i);
+  });
+
   it("does not hand back to the boundary when the claim was refused", async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

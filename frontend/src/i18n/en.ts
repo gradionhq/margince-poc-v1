@@ -3512,6 +3512,8 @@ export const en = {
     "This installation already has an organization. Sign in instead, or ask your operator to reset it.",
   "setup.errorFields":
     "Something in the form needs fixing. Check the fields and try again.",
+  "setup.errorServer":
+    "Margince couldn't complete the setup. Nothing was created. Try again in a moment; if it keeps failing, check the server log.",
   "setup.errorNetwork":
     "Margince couldn't be reached. Check your connection and try again.",
   "auth.forgotLink": "Forgot password?",

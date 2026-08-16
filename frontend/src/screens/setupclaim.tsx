@@ -34,12 +34,15 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
     });
     if (!response.ok) return { claimable: false };
     const body: unknown = await response.json();
-    return {
-      claimable:
-        typeof body === "object" &&
-        body !== null &&
-        (body as SetupStatus).claimable === true,
-    };
+    // Narrowed, not asserted: this body arrives from the network, and an `as`
+    // here would promise the compiler a shape nothing checked. Anything that is
+    // not literally `true` reads as not-claimable, which is the safe direction —
+    // the cost of getting it wrong is a claim screen on an installation that
+    // cannot be claimed.
+    if (typeof body === "object" && body !== null && "claimable" in body) {
+      return { claimable: body.claimable === true };
+    }
+    return { claimable: false };
   } catch {
     return { claimable: false };
   }
@@ -103,17 +106,21 @@ export function SetupClaimScreen({
         onClaimed();
         return;
       }
-      // Each refusal means something different to the person reading it: a
-      // token that is not this installation's, a claim that arrived after
-      // someone else's, or a field to fix. Collapsing them into one message
-      // would leave the second case looking like a typo.
+      // Each refusal means something different to the person reading it, and
+      // each implies a different next action: find the right token, sign in
+      // instead, fix a field, or wait and try again. Collapsing them would
+      // leave three of the four telling someone to correct a form that is
+      // already correct — a 500 above all, which is not their fault and not
+      // theirs to fix.
       setError(
         t(
           response.status === 401
             ? "setup.errorToken"
             : response.status === 409
               ? "setup.errorAlready"
-              : "setup.errorFields",
+              : response.status >= 500
+                ? "setup.errorServer"
+                : "setup.errorFields",
         ),
       );
     } catch {

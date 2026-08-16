@@ -3491,6 +3491,8 @@ export const vi = {
     "Bản cài đặt này đã có tổ chức. Hãy đăng nhập, hoặc nhờ người vận hành đặt lại.",
   "setup.errorFields":
     "Có trường chưa hợp lệ. Hãy kiểm tra lại và thử lần nữa.",
+  "setup.errorServer":
+    "Margince không hoàn tất được thiết lập. Chưa có gì được tạo. Hãy thử lại sau giây lát; nếu vẫn lỗi, hãy kiểm tra nhật ký máy chủ.",
   "setup.errorNetwork":
     "Không kết nối được tới Margince. Hãy kiểm tra kết nối và thử lại.",
   "auth.forgotLink": "Quên mật khẩu?",

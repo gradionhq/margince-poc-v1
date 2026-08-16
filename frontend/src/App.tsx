@@ -314,13 +314,23 @@ function UnavailableOrClaimable({
     enabled: kind === "installation",
     retry: false,
   });
+  // Retry re-probes BOTH. fetchSetupStatus resolves rather than throws, so a
+  // one-off failure caches a `false` under this key — without refetching it,
+  // "Try again" would keep showing the availability screen for an installation
+  // that has been claimable all along, and only a page reload would recover.
+  const retryBoth = () => {
+    onRetry();
+    if (kind === "installation") {
+      void claimable.refetch();
+    }
+  };
   if (kind === "installation" && claimable.data?.claimable) {
     // A successful claim provisions the installation, so the same /v1/me probe
     // that sent us here now answers — the boundary re-resolves rather than this
     // screen deciding where to go next.
     return <SetupClaimScreen onClaimed={onRetry} />;
   }
-  return <AvailabilityScreen kind={kind} onRetry={onRetry} />;
+  return <AvailabilityScreen kind={kind} onRetry={retryBoth} />;
 }
 
 // AuthGate: everything behind the session probes GET /v1/me, and the

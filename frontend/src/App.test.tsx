@@ -283,6 +283,41 @@ describe("auth boundary states (login spec §4)", () => {
     ).toBeNull();
   });
 
+  it("recovers the claim screen when retry follows a failed setup probe", async () => {
+    // The probe resolves rather than throws, so a one-off failure caches a
+    // `false`. Without refetching it on retry, an installation that has been
+    // claimable all along would stay behind the availability screen until the
+    // page was reloaded.
+    let probeCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/setup/status")) {
+          probeCalls += 1;
+          if (probeCalls === 1) throw new TypeError("probe down");
+          return new Response(JSON.stringify({ claimable: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith("/v1/me")) {
+          return new Response(JSON.stringify({ code: "x" }), {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    mount();
+    expect(await screen.findByText("Installation not ready")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByRole("heading", { name: "Claim this installation" }),
+    ).toBeTruthy();
+  });
+
   it("renders the connection problem when the probe cannot reach the API at all", async () => {
     vi.stubGlobal(
       "fetch",
