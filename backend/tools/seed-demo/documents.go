@@ -190,10 +190,11 @@ func uploadContractPDF(c *client, contract seededContract, refs pipelineRefs) er
 // Vietnamese customer holding paper headed "Auftragnehmer" is not a
 // translation nit — it is a demo that cannot be shown in Hanoi.
 func contractPage(contract seededContract, refs pipelineRefs) pdfPage {
-	w := wordsFor(localeFor(refs.domainByOrgID[contract.OrganizationID]))
+	locale := localeFor(refs.domainByOrgID[contract.OrganizationID])
+	w := wordsFor(locale)
 	lines := []string{
 		w.Number + ": " + orDash(contract.ContractNumber),
-		w.Status + ": " + orDash(contract.Status),
+		w.Status + ": " + orDash(statusWord(locale, contract.Status)),
 		"",
 		w.Supplier + ": " + refs.anchorName,
 		w.Customer + ": " + refs.orgNameByID[contract.OrganizationID],

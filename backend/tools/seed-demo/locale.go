@@ -160,6 +160,36 @@ func wordsFor(locale docLocale) contractWords {
 	return contractVocabulary[localeDE]
 }
 
+// contractStatusWords translate the status VALUE, not just its label. A page
+// reading "Trang thai: active" is half-translated, which looks like a bug
+// rather than a language choice.
+var contractStatusWords = map[docLocale]map[string]string{
+	localeDE: {
+		"draft": "Entwurf", "active": "Aktiv", "expired": "Abgelaufen",
+		"cancelled": "Gekuendigt", "superseded": "Ersetzt",
+	},
+	localeVI: {
+		"draft": "Ban thao", "active": "Dang hieu luc", "expired": "Het hieu luc",
+		"cancelled": "Da huy", "superseded": "Da thay the",
+	},
+	localeEN: {
+		"draft": "Draft", "active": "Active", "expired": "Expired",
+		"cancelled": "Cancelled", "superseded": "Superseded",
+	},
+}
+
+// statusWord names a contract status in the reader's language, falling back to
+// the raw value so a status the product adds later shows up as itself rather
+// than vanishing.
+func statusWord(locale docLocale, status string) string {
+	if byStatus, ok := contractStatusWords[locale]; ok {
+		if word, ok := byStatus[status]; ok {
+			return word
+		}
+	}
+	return status
+}
+
 // documentTitles is what each kind of paper is called, per language.
 var documentTitles = map[docLocale]map[string]string{
 	localeDE: {

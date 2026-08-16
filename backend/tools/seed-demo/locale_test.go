@@ -121,6 +121,27 @@ func TestVietnameseTextIsASCII(t *testing.T) {
 	}
 }
 
+// TestStatusValuesAreTranslated — a page reading "Trang thai: active" is
+// half-translated, which reads as a bug rather than a language choice.
+func TestStatusValuesAreTranslated(t *testing.T) {
+	for _, status := range []string{"draft", "active", "expired", "cancelled", "superseded"} {
+		for _, locale := range []docLocale{localeDE, localeVI, localeEN} {
+			got := statusWord(locale, status)
+			if got == "" {
+				t.Errorf("%q has no word for status %q", locale, status)
+			}
+			if locale != localeEN && got == status {
+				t.Errorf("%q leaves status %q untranslated", locale, status)
+			}
+		}
+	}
+	// A status the product adds later must show up as itself rather than
+	// disappear from the page.
+	if got := statusWord(localeVI, "renegotiating"); got != "renegotiating" {
+		t.Errorf("an unknown status rendered %q, want the raw value", got)
+	}
+}
+
 func TestCurrencyFollowsTheLocale(t *testing.T) {
 	for locale, want := range map[docLocale]string{
 		localeVI: "VND", localeEN: "USD", localeDE: "EUR",
