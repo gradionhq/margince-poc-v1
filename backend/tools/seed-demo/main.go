@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -105,5 +106,11 @@ func run() error {
 	if err := seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun)); err != nil {
 		return err
 	}
+	facts, err := seedFacts(context.Background(), *dsn, client, companies, orgIDs, modeFor(*dryRun))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("facts:         %d applied\n", facts)
+
 	return verifySeed(client, demo, modeFor(*dryRun))
 }

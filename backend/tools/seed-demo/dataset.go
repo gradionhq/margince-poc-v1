@@ -31,10 +31,17 @@ type field struct {
 	Value string `json:"value"`
 }
 
+// fact is one thing the crawl found out about a company, with the evidence
+// that says where. The evidence is not decoration: the product only accepts a
+// fact that can point at the page it came from.
 type fact struct {
-	Category string `json:"category"`
-	Field    string `json:"field"`
-	Value    string `json:"value"`
+	Category        string  `json:"category"`
+	Field           string  `json:"field"`
+	Value           string  `json:"value"`
+	ValueKey        string  `json:"value_key"`
+	EvidenceSnippet string  `json:"evidence_snippet"`
+	SourceURL       string  `json:"source_url"`
+	Confidence      float32 `json:"confidence"`
 }
 
 // datasetPers is a person the company's own website published.
