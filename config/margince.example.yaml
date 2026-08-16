@@ -25,7 +25,11 @@ bootstrap_admin:
   # but the change-password route until the person using the account replaces
   # it. `make seed-dev` performs that first login and chooses the password the
   # docs name — so the value here is spent once and never signed in with again.
-  # Both live in scripts/seed-dev.sh; change them together.
+  #
+  # scripts/dev.sh writes this file; scripts/seed-dev.sh READS it, so changing
+  # the operator password means changing it in one place (or deleting the file
+  # and letting dev.sh reseed it). The password seed-dev then chooses is its own
+  # ADMIN_PASSWORD default.
   password_file: config/margince-admin-password
 
 # Retention posture at first boot (optional). Consumed ONCE, when the api

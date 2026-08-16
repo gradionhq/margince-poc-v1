@@ -23,8 +23,18 @@ API_BASE="${API_BASE:-http://localhost:8080}"
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-demo-workspace}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@demo.test}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-demo-password-123}"
-# What the operator put in margince.yaml (scripts/dev.sh and the CI lane write
-# it). Only ever used for the one login that replaces it.
+# What the operator put in margince.yaml. Only ever used for the one login that
+# replaces it.
+#
+# Read from the password FILE when there is one, so this follows whatever the
+# installation was actually bootstrapped with rather than a copy of the default
+# that has to be kept in step. `make dev` writes that file; a lane that keeps it
+# elsewhere (CI) passes BOOTSTRAP_PASSWORD instead, and the literal is the last
+# resort for a stack booted by hand.
+BOOTSTRAP_PASSWORD_FILE="${BOOTSTRAP_PASSWORD_FILE:-config/margince-admin-password}"
+if [ -z "${BOOTSTRAP_PASSWORD:-}" ] && [ -r "$BOOTSTRAP_PASSWORD_FILE" ]; then
+  BOOTSTRAP_PASSWORD="$(cat "$BOOTSTRAP_PASSWORD_FILE")"
+fi
 BOOTSTRAP_PASSWORD="${BOOTSTRAP_PASSWORD:-operator-supplied-first-password}"
 
 command -v jq >/dev/null 2>&1 || { echo "seed-dev: jq is required" >&2; exit 1; }

@@ -81,15 +81,19 @@ by default.
 **Log in.** Open **http://localhost:8080** — that is the app, always. The
 dev server proxies `/v1` (and the probes) to the api behind it on :18080, so
 the one port serves both the UI and the contract. Sign in as
-`admin@demo.test` / `demo-password-123` (dev-only credentials).
+`admin@demo.test`. Which password depends on whether you have seeded:
 
-That password is the one `make seed-dev` **chose**, not the one
-`config/margince.yaml` supplied. A configured bootstrap has the operator pick
-the first admin's password, and that account reaches nothing but the
-change-password screen until the person using it picks their own — so the seed
-completes that first login the way you would. Run `make dev` without
-`make seed-dev` and the app will ask you to replace
-`operator-supplied-first-password` before it lets you anywhere.
+- **After `make seed-dev`** — `demo-password-123`. That is the password the
+  seed **chose**, not one from a config file.
+- **Straight after `make dev`, unseeded** — `operator-supplied-first-password`,
+  from `config/margince-admin-password`. The app will immediately ask you to
+  replace it, and nothing else is reachable until you do.
+
+The difference is the product working as intended: a configured bootstrap has
+the *operator* pick the first admin's password, and that account reaches
+nothing but the change-password screen until the person using it picks their
+own. `make seed-dev` completes that first login the way you would, which is why
+the seeded path lands on a password no config file ever held.
 
 `make dev-fresh` is `make dev` onto a rebuilt database — use it when a
 previous session left data behind and you want the first-run experience
