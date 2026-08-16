@@ -3489,6 +3489,45 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/{id}/pipeline:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Activities]
+      operationId: readActivityPipelineTrace
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Every ingress stage this message passed through, and why each did or did not run.
+      description: |
+        The per-message half of the capture pipeline trace. Where `listMyCaptureActivity` answers
+        "what happened to my mail today", this answers "what happened to THIS message" — one rung
+        per registered stage, in the order a message meets them, each with a status and a reason
+        class.
+
+        A stage that did NOT run says why. That is the point of the surface: the attention
+        classifier reads `kind = 'email'`, so a message captured over a chat transport is never
+        eligible, and before this there was no way for a member to learn that.
+
+        EVERY registered stage returns a rung, including the ones this surface does not report
+        (`not_reported`). A ladder that silently omitted them would leave a reader unable to tell
+        which of the missing steps mattered, which is the defect it exists to remove.
+
+        Gated by the ACTIVITY's own row scope. Stages answered from a `capture_trace` row are
+        additionally the owning member's alone — a colleague reading a shared record sees those
+        rungs as `unknown` with reason `record_not_available`, keeping their place, never
+        omitted. That is the SAME answer the message's own owner gets once the 24-hour window has
+        swept the rows, and deliberately so: distinguishing the two would tell a colleague whether
+        a row exists.
+      responses:
+        '200':
+          description: The ladder, ordered as a message meets the pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineTrace' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /activities/{id}/relink:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -6703,6 +6742,37 @@ paths:
               schema: { $ref: '#/components/schemas/CaptureActivityResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /capture/traces/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Capture]
+      operationId: readCaptureTracePipeline
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The same ladder, opened from a row of the capture-activity window.
+      description: |
+        The second door onto `PipelineTrace`, keyed by a `capture_trace` row rather than by an
+        activity.
+
+        It exists because an internal-only drop writes NO activity row — the trace is the only
+        record that the message ever arrived — so the activity-keyed read cannot reach exactly the
+        messages a member most often comes here to ask about.
+
+        `id` is a trace row's id; the handler resolves it to the message's natural key and
+        assembles every rung recorded under it. Rows from the caller's own connections need no
+        grant. Rows from a workspace-owned binding (a Telegram bot, a Zalo OA) belong to no member
+        and take the `capture_trace` object. A row belonging to ANOTHER member is `404`, not `403`:
+        confirming it exists would disclose a colleague's mailbox traffic.
+      responses:
+        '200':
+          description: The ladder, ordered as a message meets the pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineTrace' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /capture/consumer-mail-domains:
     get:
@@ -12879,6 +12949,101 @@ components:
           description: |
             Expiry is within the warning window, or already past it. True whenever `in_grace`
             is true, so a client that reads only this one still warns.
+    PipelineTrace:
+      type: object
+      description: >-
+        One message's journey through the ingress pipeline, as a member reads it. Assembled from
+        two sources: rows capture stored, and live state the pipeline's own modules already keep.
+        Nothing here is a copy of a durable record — a copy would be a second source that can
+        disagree with the first.
+      required: [stages, payload_capture_enabled, retention_hours]
+      properties:
+        activity_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The timeline row this message became. Null where none exists — an internal-only drop
+            writes no activity at all — or where it moved out of the caller's row scope.
+        connector:
+          type: string
+          description: >-
+            The provider id that carried the message, never a display label; resolve it against
+            `GET /channel-providers`. Empty when the trace rows have been swept.
+        payload_capture_enabled:
+          type: boolean
+          description: >-
+            The deployment's `capture.trace_payloads` posture. False means no rung carries
+            `counterparty` or `subject` because the operator did not turn payload capture on — as
+            against a rung that simply has none.
+        retention_hours:
+          type: integer
+          description: >-
+            How long stored rungs are kept. Derived rungs answer at any age; stored ones report
+            `unknown` past this, which is a different claim from `not_applicable` — the rows are
+            gone, so whether the stage ran can no longer be established.
+        stages:
+          type: array
+          description: Every registered stage, ordered as a message meets them. Never a subset.
+          items: { $ref: '#/components/schemas/PipelineStageRung' }
+
+    PipelineStageRung:
+      type: object
+      required: [stage, order, subject_kind, status]
+      properties:
+        stage:
+          type: string
+          description: >-
+            The stage's stable key. NOT an enum: the pipeline grows, and a client that refused an
+            unrecognised stage would hide exactly the new step nobody has explained yet. Render an
+            unknown key from `label`.
+        order: { type: integer, description: 'Position on the ladder. Gaps are deliberate.' }
+        subject_kind:
+          type: string
+          enum: [message, sender, domain, thread]
+          description: >-
+            WHAT this rung's answer is about. Required because the stages do not share a subject:
+            the verdict is asked once per SENDER, so rendering it without saying whose would read
+            as a claim about this one message.
+        status:
+          type: string
+          enum: [done, skipped, pending, failed, not_applicable, unknown, not_reported]
+          description: >-
+            `not_applicable` says the stage did not apply. `unknown` says this surface cannot
+            establish what happened — past the retention window those are different claims and
+            only one is honest. `unknown` is also what a non-owner gets, unconditionally, so that
+            its presence discloses nothing: a swept window and rows that are not yours produce the
+            same absence, and the reader is frequently the message's own owner whose rows were
+            deleted rather than hidden. `not_reported` says this surface does not report the
+            stage at all; `reason` says which kind.
+        reason:
+          type: [string, 'null']
+          description: >-
+            A class this installation chose, never a provider's text and never message content.
+            Scoped by stage: the catalog key is `<stage>.<reason>`, so one code says something
+            stage-appropriate wherever it appears.
+        label:
+          type: string
+          description: >-
+            Server-rendered fallback name for the stage. A client prefers its own catalog keyed on
+            `stage`; this is what keeps a stage added by a newer server legible on an older client
+            instead of vanishing or leaking a raw key.
+        reason_text:
+          type: string
+          description: Server-rendered fallback sentence for `reason`, on the same contract as `label`.
+        at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When this rung happened, for the stages that know. Null rather than invented: a derived
+            rung usually carries no timestamp of its own, and dating it from the activity would
+            date the wrong event.
+        counterparty:
+          type: [string, 'null']
+          description: 'Only under the payload posture, and only from the caller''s own stored rows.'
+        subject:
+          type: [string, 'null']
+          description: 'Only under the payload posture, and only from the caller''s own stored rows.'
+
     CaptureSettings:
       type: object
       description: |

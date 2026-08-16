@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 )
 
 // seedDeferredMessage writes a MAIL activity from one sender, a trace row for
@@ -69,6 +70,7 @@ func seedDeferredRecord(ctx context.Context, t *testing.T, db *database.DB,
 			}
 		}
 		return capture.Trace(ctx, tx, capture.TraceEntry{
+			Stage:  pipelinetrace.StageTierLadder,
 			UserID: owner, Connector: "gmail", SourceSystem: "gmail", SourceID: sourceID,
 			Outcome: capture.TraceDeferred, ActivityID: activityID,
 		}, false)

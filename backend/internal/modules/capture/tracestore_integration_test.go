@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -59,6 +60,7 @@ func managerContext(ctx context.Context, ws, member ids.UUID) context.Context {
 func seedTrace(ctx context.Context, t *testing.T, db *database.DB, owner ids.UUID, sourceID string, age time.Duration) {
 	t.Helper()
 	entry := capture.TraceEntry{
+		Stage:  pipelinetrace.StageTierLadder,
 		UserID: owner, Connector: "gmail", SourceSystem: "gmail",
 		SourceID: sourceID, Outcome: capture.TraceCaptured,
 	}

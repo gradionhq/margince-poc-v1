@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -155,7 +156,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 			// breadcrumb above is the operator's and says nothing about whose
 			// mailbox this was; this says it was theirs and that the drop was
 			// deliberate.
-			return s.traceTx(ctx, tx, rec, TraceInternal, reasonInternalOnly)
+			return s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceInternal, reasonInternalOnly)
 		}
 
 		if err := storeRawCapture(ctx, tx, rec); err != nil {

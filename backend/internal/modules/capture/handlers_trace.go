@@ -66,15 +66,21 @@ func (h TraceHandlers) answer(w http.ResponseWriter, r *http.Request, read func(
 	}
 	window, err := read()
 	if err != nil {
-		h.writeTraceErr(w, r, err)
+		WriteTraceErr(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, traceResponse(window, h.payloadCapture))
 }
 
-// writeTraceErr maps this surface's own refusal onto the wire. Everything else
+// WriteTraceErr maps this module's own refusal onto the wire. Everything else
 // is already an apperrors sentinel and travels unchanged.
-func (h TraceHandlers) writeTraceErr(w http.ResponseWriter, r *http.Request, err error) {
+//
+// Exported so the pipeline-trace doors in compose answer identically: they read
+// the same store and can return the same sentinel, and without one mapping the
+// window read 503s with a sentence naming what is missing while the drawer
+// beside it 500s "internal" — the same condition, two answers, one of them
+// useless to whoever is reading the log.
+func WriteTraceErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, errNoCallingMember) {
 		// Not 403: the caller is not being denied their own traffic — there is
 		// simply no member on this invocation to have any.

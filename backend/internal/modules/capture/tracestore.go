@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -65,7 +66,11 @@ type TraceResolution struct {
 
 // TraceRow is one entry as a client reads it.
 type TraceRow struct {
-	ID         ids.UUID
+	ID ids.UUID
+	// Stage is which step of the pipeline recorded this row. The window reads
+	// leave it as the funnel stage they filtered to; the ladder read uses it to
+	// place each rung on the path.
+	Stage      string
 	Connector  string
 	Outcome    string
 	Reason     string
@@ -188,52 +193,9 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 		where += fmt.Sprintf(" AND (t.occurred_at, t.id) < ($%d, $%d)",
 			addArg(decoded.CreatedAt), addArg(decoded.ID))
 	}
-	// BOTH joins carry the workspace, and that is not belt-and-braces: there is
-	// no RLS on these tables since 0217, an address is not unique across
-	// tenants, and `d.email = a.counterparty_email` unscoped would answer with
-	// ANOTHER workspace's verdict about the same person.
-	//
-	// The ledger side is a LATERAL taking ONE row, because the ledger holds a
-	// row per address per state: a plain join fans out and the same message
-	// appears once per historical disposition. Newest resolution first, with
-	// unresolved (NULL) ahead of it — an open question is the current answer.
-	//
-	// Resolution is joined through the ACTIVITY's counterparty address, not
-	// through activity_id.
-	//
-	// The ledger keeps one open question per address and records the FIRST
-	// activity that raised it, so joining ids answers only a sender's first
-	// message: their second and later ones would read "waiting on a verdict"
-	// forever, after the verdict had landed. One sender's answer covers every
-	// message they sent, which is what this join says.
-	//
-	// Through the activity rather than through t.counterparty because the trace
-	// holds no address unless an operator enabled payloads, and what a member is
-	// told must not depend on a diagnostic posture. The activity is the member's
-	// own message, so its sender's disposition is theirs to know.
-	//
-	// MAIL rows only, and the channel_provider guard is what says so. The
-	// disposition ledger is the mail ladder's, keyed on an address; a channel
-	// message may carry a corroborating address, and without the guard a direct
-	// message inherits whatever mail verdict is pending for that same human —
-	// telling a member their captured, linked and answered conversation is
-	// "waiting on a verdict". A channel record has no ladder verdict to report,
-	// which is not the same as having one that is pending.
 	rows, err := tx.Query(ctx, storekit.SQLf(`
-		SELECT t.id, t.connector, t.outcome, coalesce(t.reason, ''), t.activity_id,
-		       d.status, coalesce(d.kind, ''), d.resolved_at,
-		       coalesce(t.counterparty, ''), coalesce(t.subject, ''), t.occurred_at
-		  FROM capture_trace t
-		  LEFT JOIN activity a
-		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
-		  LEFT JOIN LATERAL (
-		         SELECT status, kind, resolved_at
-		           FROM capture_pending_counterparty
-		          WHERE workspace_id = t.workspace_id
-		            AND email = a.counterparty_email
-		            AND a.channel_provider IS NULL
-		          ORDER BY resolved_at DESC NULLS FIRST
-		          LIMIT 1) d ON true
+		SELECT `+traceRowColumns+`
+		  FROM capture_trace t`+resolutionJoin+`
 		 WHERE %s
 		 ORDER BY t.occurred_at DESC, t.id DESC
 		 LIMIT %d`, where, n+1), args...)
@@ -256,12 +218,22 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 	return page, next, nil
 }
 
-// traceWhere is the window and the scope, in that order, for every query here.
+// traceWhere is the window, the scope and the funnel filter, in that order, for
+// the two WINDOW queries — the counters and the list.
+//
+// The funnel filter is here rather than at each call site because the two must
+// agree by construction: a stage outside the funnel is one rung on a message's
+// ladder, not a message of its own, so letting it into the list would show the
+// same message twice while the counters above it disagreed with the rows below.
+// The one-message ladder read deliberately does NOT use this — it wants every
+// rung, which is the whole point of it.
 func traceWhere(scope traceScope, addArg func(any) int) string {
+	funnel := addArg(pipelinetrace.StageStrings(pipelinetrace.FunnelStages()))
 	return fmt.Sprintf(
 		`t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND t.occurred_at > now() - make_interval(hours => %d)
-		   AND %s`, TraceWindowHours, scope.predicate(addArg))
+		   AND t.stage = ANY($%d)
+		   AND %s`, TraceWindowHours, funnel, scope.predicate(addArg))
 }
 
 // finishTracePage trims the lookahead row and mints the next cursor from it.
@@ -273,11 +245,62 @@ func finishTracePage(items []TraceRow, n int) ([]TraceRow, string) {
 	return items[:n], storekit.EncodeCursor(last.OccurredAt, last.ID)
 }
 
+// traceRowColumns and resolutionJoin are ONE spelling of "a trace row and what
+// became of its sender", shared by the window read and the one-message ladder.
+//
+// Two spellings would be two answers: the window would say a sender is still
+// waiting while the drawer opened from it said the verdict had landed, and a
+// member comparing the two would be right to trust neither.
+const traceRowColumns = `t.id, t.stage, t.connector, t.outcome, coalesce(t.reason, ''), t.activity_id,
+		       d.status, coalesce(d.kind, ''), d.resolved_at,
+		       coalesce(t.counterparty, ''), coalesce(t.subject, ''), t.occurred_at`
+
+// resolutionJoin reaches a message's sender's disposition.
+//
+// A LATERAL taking ONE row, because the ledger holds a row per address per
+// state: a plain join fans out and the same message appears once per historical
+// disposition. Newest resolution first, with unresolved (NULL) ahead of it — an
+// open question is the current answer.
+//
+// Joined through the ACTIVITY's counterparty address rather than through
+// activity_id: the ledger keeps one open question per address and records the
+// FIRST activity that raised it, so joining ids would answer only a sender's
+// first message and leave their later ones reading "waiting on a verdict"
+// forever after the verdict landed.
+//
+// Through the activity rather than t.counterparty because the trace holds no
+// address unless an operator enabled payloads, and what a member is told must
+// not depend on a diagnostic posture.
+//
+// MAIL rows only, and the channel_provider guard is what says so. The
+// disposition ledger is the mail ladder's, keyed on an address; a channel
+// message may carry a corroborating address, and without the guard a direct
+// message inherits whatever mail verdict is pending for that same human —
+// telling a member their captured, linked and answered conversation is
+// "waiting on a verdict". A channel record has no ladder verdict to report,
+// which is not the same as having one that is pending.
+//
+// BOTH joins carry the workspace, and that is not belt-and-braces: there is no
+// RLS on these tables since 0217, an address is not unique across tenants, and
+// an unscoped `d.email = a.counterparty_email` would answer with ANOTHER
+// workspace's verdict about the same person.
+const resolutionJoin = `
+		  LEFT JOIN activity a
+		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
+		  LEFT JOIN LATERAL (
+		         SELECT status, kind, resolved_at
+		           FROM capture_pending_counterparty
+		          WHERE workspace_id = t.workspace_id
+		            AND email = a.counterparty_email
+		            AND a.channel_provider IS NULL
+		          ORDER BY resolved_at DESC NULLS FIRST
+		          LIMIT 1) d ON true`
+
 func scanTraceRow(rows pgx.Rows) (TraceRow, error) {
 	var row TraceRow
 	var status, kind *string
 	var resolvedAt *time.Time
-	if err := rows.Scan(&row.ID, &row.Connector, &row.Outcome, &row.Reason, &row.ActivityID,
+	if err := rows.Scan(&row.ID, &row.Stage, &row.Connector, &row.Outcome, &row.Reason, &row.ActivityID,
 		&status, &kind, &resolvedAt, &row.Counterparty, &row.Subject, &row.OccurredAt); err != nil {
 		return TraceRow{}, fmt.Errorf("capture: reading the trace page: %w", err)
 	}

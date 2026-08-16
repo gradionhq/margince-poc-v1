@@ -25,22 +25,7 @@
  * surface inside a column, and a horizontally scrolling list of one's own mail
  * is a worse answer than a taller one. */
 .capture-activity__row {
-  align-items: baseline;
   border-bottom: 1px solid var(--borderSubtle);
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: minmax(9rem, auto) minmax(6rem, auto) minmax(
-      12rem,
-      1fr
-    ) 2fr auto;
-  padding: var(--space-2) 0;
-}
-
-@media (max-width: 48rem) {
-  .capture-activity__row {
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
-  }
 }
 
 .capture-activity__when,
@@ -91,4 +76,73 @@
 .capture-activity__resolution {
   color: var(--textMeta);
   font-size: var(--fs-sm);
+}
+
+/* The funnel slots are filters. A pressed button rather than a Switch: a
+ * Switch IS the action it names, and narrowing a list is not an action on the
+ * data — it changes what this reader is looking at and nothing else. */
+.capture-activity__funnel-slot {
+  all: unset;
+  cursor: pointer;
+  display: block;
+}
+
+.capture-activity__funnel-slot:focus-visible {
+  border-radius: var(--r-md);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.capture-activity__funnel-slot[aria-pressed="true"] {
+  background: var(--bgHover);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Both numbers, so a filtered view can never be read as the whole window. */
+.capture-activity__count {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+  margin: var(--space-2) 0;
+}
+
+/* The row is one button carrying the grid, so the whole row is the target and
+ * the keyboard reaches it. `all: unset` first, because a button's own chrome
+ * would otherwise fight the row's rhythm on every theme. */
+.capture-activity__open {
+  all: unset;
+  align-items: baseline;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(9rem, auto) minmax(6rem, auto) minmax(
+      12rem,
+      1fr
+    ) 2fr auto;
+  padding: var(--space-2) 0;
+  width: 100%;
+}
+
+.capture-activity__open:hover {
+  background: var(--bgHover);
+}
+
+.capture-activity__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 48rem) {
+  .capture-activity__open {
+    gap: var(--space-1);
+    grid-template-columns: 1fr;
+  }
+}
+
+.capture-activity__drawer-sub,
+.capture-activity__drawer-transport {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--space-3);
 }
