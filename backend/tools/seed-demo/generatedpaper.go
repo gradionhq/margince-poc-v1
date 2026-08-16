@@ -96,6 +96,8 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 	orgID := refs.orgsByDom[domain]
 	name := refs.orgNameByID[orgID]
 	value := generatedAmount(domain)
+	locale := localeFor(domain)
+	currency := currencyFor(locale)
 
 	var out []demoContract
 	for i, status := range p.Contracts {
@@ -103,10 +105,10 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 		contract := demoContract{
 			Ref:              ref,
 			Company:          domain,
-			Title:            generatedContractTitle(name, status, i),
+			Title:            generatedContractTitle(locale, name, status, i),
 			ContractNumber:   fmt.Sprintf("V-%04d-%s", 1000+hashIndex("cnum:"+ref, 8999), strings.ToUpper(shortDomain(domain))),
 			ValueMinor:       value,
-			Currency:         "EUR",
+			Currency:         currency,
 			ValueBasis:       "annualized_12m",
 			AutoRenew:        hashIndex("autorenew:"+domain, 2) == 0,
 			NoticePeriodDays: 90,
@@ -159,10 +161,10 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 			out = append(out, contract, demoContract{
 				Ref:            successorRef,
 				Company:        domain,
-				Title:          generatedContractTitle(name, "renewal", i),
+				Title:          generatedContractTitle(locale, name, "renewal", i),
 				ContractNumber: contract.ContractNumber + "-R1",
 				ValueMinor:     value + value/10, // a renewal reprices upward
-				Currency:       "EUR",
+				Currency:       currency,
 				ValueBasis:     "annualized_12m",
 				Status:         "active",
 				SignedInDays:   contract.EndsInDays - 20,
@@ -176,17 +178,17 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 	return out
 }
 
-func generatedContractTitle(company, status string, index int) string {
+func generatedContractTitle(locale docLocale, company, status string, index int) string {
 	switch status {
 	case "draft":
-		return company + " — Rahmenvertrag (Entwurf)"
+		return company + " — " + titleFor(locale, "contract_draft")
 	case "renewal":
-		return company + " — Rahmenvertrag, Verlängerung"
+		return company + " — " + titleFor(locale, "contract_renewal")
 	default:
 		if index > 0 {
-			return fmt.Sprintf("%s — Rahmenvertrag %d", company, index+1)
+			return fmt.Sprintf("%s — %s %d", company, titleFor(locale, "contract"), index+1)
 		}
-		return company + " — Rahmenvertrag"
+		return company + " — " + titleFor(locale, "contract")
 	}
 }
 
@@ -212,49 +214,14 @@ func shortDomain(domain string) string {
 	return name
 }
 
-// looseDocumentTitles is what an account document is called, per type. These
-// are documents that belong to the COMPANY rather than to any contract — the
-// distinction the Documents card exists to show.
-var looseDocumentTitles = map[string]struct {
-	Title    string
-	Category string
-	Body     []string
-}{
-	"nda": {
-		Title:    "Geheimhaltungsvereinbarung",
-		Category: "legal",
-		Body: []string{
-			"Gegenseitige Geheimhaltungsvereinbarung (NDA)",
-			"Laufzeit: 3 Jahre ab Unterzeichnung",
-			"Gegenstand: Austausch technischer und kaufmaennischer Informationen",
-		},
-	},
-	"price_list": {
-		Title:    "Preisliste",
-		Category: "other",
-		Body: []string{
-			"Preisliste, gueltig fuer das laufende Geschaeftsjahr",
-			"Alle Preise netto zzgl. gesetzlicher Umsatzsteuer",
-			"Staffelrabatte ab 50 Lizenzen auf Anfrage",
-		},
-	},
-	"dpa": {
-		Title:    "Auftragsverarbeitungsvertrag",
-		Category: "legal",
-		Body: []string{
-			"Auftragsverarbeitungsvertrag nach Art. 28 DSGVO",
-			"Technische und organisatorische Massnahmen als Anlage 1",
-			"Unterauftragsverarbeiter als Anlage 2",
-		},
-	},
-	"order_form": {
-		Title:    "Bestellformular",
-		Category: "other",
-		Body: []string{
-			"Bestellformular fuer zusaetzliche Lizenzen",
-			"Abrechnung anteilig bis zum Ende der laufenden Periode",
-		},
-	},
+// looseDocumentCategory files each account document under the kind the
+// product sorts by. The title and body are language-dependent and live in
+// locale.go; the category is not — `legal` is `legal` in every language.
+var looseDocumentCategory = map[string]string{
+	"nda":        "legal",
+	"price_list": "other",
+	"dpa":        "legal",
+	"order_form": "other",
 }
 
 // seedLooseDocuments uploads the account documents a profile calls for.
@@ -274,17 +241,22 @@ func seedLooseDocuments(c *client, refs pipelineRefs, plan map[string]profile, m
 		if !ok {
 			continue
 		}
+		locale := localeFor(domain)
 		for _, docType := range p.LooseDocs {
-			spec, known := looseDocumentTitles[docType]
+			category, known := looseDocumentCategory[docType]
 			if !known {
 				return uploaded, fmt.Errorf("profile for %s wants document type %q, which has no template", domain, docType)
+			}
+			body := bodyFor(locale, docType)
+			if len(body) == 0 {
+				return uploaded, fmt.Errorf("document type %q has no text in %q", docType, locale)
 			}
 			if mode == modeDryRun {
 				uploaded++
 				continue
 			}
 			company := refs.orgNameByID[orgID]
-			title := company + " — " + spec.Title
+			title := company + " — " + titleFor(locale, docType)
 			present, err := organizationHasDocument(c, orgID, title)
 			if err != nil {
 				return uploaded, err
@@ -294,7 +266,7 @@ func seedLooseDocuments(c *client, refs pipelineRefs, plan map[string]profile, m
 			}
 			page := pdfPage{
 				Title: title,
-				Lines: append([]string{company, ""}, spec.Body...),
+				Lines: append([]string{company, ""}, body...),
 			}
 			filename := sanitizeFilename(docType+"-"+shortDomain(domain)) + ".pdf"
 			attachmentID, err := c.upload("/v1/attachments", filename, renderPDF(page), map[string]string{
@@ -305,7 +277,7 @@ func seedLooseDocuments(c *client, refs pipelineRefs, plan map[string]profile, m
 				return uploaded, fmt.Errorf("uploading %s for %s: %w", docType, domain, err)
 			}
 			metadata := jsonBody{
-				"category":  spec.Category,
+				"category":  category,
 				"title":     title,
 				"doc_state": "current",
 			}

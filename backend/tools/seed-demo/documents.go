@@ -185,35 +185,36 @@ func uploadContractPDF(c *client, contract seededContract, refs pipelineRefs) er
 
 // contractPage is what the document says: the terms the record holds, in the
 // shape a one-page agreement summary takes.
+//
+// Written in the CUSTOMER's language rather than the installation's. A
+// Vietnamese customer holding paper headed "Auftragnehmer" is not a
+// translation nit — it is a demo that cannot be shown in Hanoi.
 func contractPage(contract seededContract, refs pipelineRefs) pdfPage {
+	w := wordsFor(localeFor(refs.domainByOrgID[contract.OrganizationID]))
 	lines := []string{
-		"Vertragsnummer: " + orDash(contract.ContractNumber),
-		"Status: " + orDash(contract.Status),
+		w.Number + ": " + orDash(contract.ContractNumber),
+		w.Status + ": " + orDash(contract.Status),
 		"",
-		"Auftragnehmer: " + refs.anchorName,
-		"Auftraggeber:  " + refs.orgNameByID[contract.OrganizationID],
+		w.Supplier + ": " + refs.anchorName,
+		w.Customer + ": " + refs.orgNameByID[contract.OrganizationID],
 		"",
 	}
 	if contract.ValueMinor > 0 {
-		basis := "Gesamtwert"
+		basis := w.TotalValue
 		if contract.ValueBasis == "annualized_12m" {
-			basis = "Jahreswert"
+			basis = w.AnnualValue
 		}
 		lines = append(lines, fmt.Sprintf("%s: %s %s", basis, contract.Currency, formatMinor(contract.ValueMinor)))
 	}
 	lines = append(lines,
-		"Laufzeit: "+orDash(contract.StartsOn)+" bis "+orDash(contract.EndsOn),
-		"Unterzeichnet: "+orDash(contract.SignedOn),
+		w.Term+": "+orDash(contract.StartsOn)+" "+w.TermJoiner+" "+orDash(contract.EndsOn),
+		w.Signed+": "+orDash(contract.SignedOn),
 	)
 	if contract.NoticeDays > 0 {
-		lines = append(lines, fmt.Sprintf("Kuendigungsfrist: %d Tage", contract.NoticeDays))
+		lines = append(lines, fmt.Sprintf(w.NoticeDaysFmt, w.NoticePeriod, contract.NoticeDays))
 	}
-	lines = append(lines,
-		"",
-		"----------------------------------------------------------",
-		"DEMO-DOKUMENT. Erzeugt fuer Test- und Vorfuehrzwecke.",
-		"Keine rechtliche Wirkung, keine Unterschrift, kein Angebot.",
-	)
+	lines = append(lines, "", "----------------------------------------------------------")
+	lines = append(lines, w.DemoBanner...)
 	return pdfPage{Title: contract.Title, Lines: lines}
 }
 

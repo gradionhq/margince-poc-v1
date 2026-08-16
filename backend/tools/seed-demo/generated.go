@@ -35,20 +35,6 @@ var profileStageName = map[string]string{
 	"lost":        "Lost",
 }
 
-// generatedDealName is what a generated deal is called. It names the company
-// so a board full of them still reads as a list of accounts rather than a
-// column of identical rows.
-func generatedDealName(displayName, stage string) string {
-	switch stage {
-	case "won":
-		return displayName + " — Erstvertrag"
-	case "lost":
-		return displayName + " — Evaluierung"
-	default:
-		return displayName + " — Einführung"
-	}
-}
-
 // seedGeneratedDeals files a deal for every company whose profile calls for
 // one, driving closed deals through the real /advance.
 //
@@ -80,7 +66,7 @@ func seedGeneratedDeals(c *client, cfg demoConfig, refs pipelineRefs, plan map[s
 			continue
 		}
 
-		name := generatedDealName(refs.orgNameByID[orgID], p.DealStage)
+		name := dealNameFor(localeFor(domain), refs.orgNameByID[orgID], p.DealStage)
 		existing, err := findDeal(c, name, orgID)
 		if err != nil {
 			return created, err
@@ -103,7 +89,7 @@ func seedGeneratedDeals(c *client, cfg demoConfig, refs pipelineRefs, plan map[s
 			"organization_id": orgID,
 			"source":          seedSource,
 			"amount_minor":    generatedAmount(domain),
-			"currency":        "EUR",
+			"currency":        currencyFor(localeFor(domain)),
 		}
 		if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
 			body["owner_id"] = owner

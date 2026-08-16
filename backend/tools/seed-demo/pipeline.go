@@ -35,6 +35,10 @@ type pipelineRefs struct {
 	// anchorName and orgNameByID name the parties a document prints.
 	anchorName  string
 	orgNameByID map[string]string
+	// domainByOrgID is orgsByDom backwards, so a phase holding only an id can
+	// still ask what LANGUAGE the account's paper is written in — the domain
+	// is what decides that.
+	domainByOrgID map[string]string
 	// ownerRefByDomain is who holds each account — the ONE answer ownership
 	// and activity authorship both read, so they cannot drift apart.
 	ownerRefByDomain map[string]string
@@ -63,6 +67,7 @@ func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, e
 		dealsByCompany:   map[string][]string{},
 		ownerRefByDomain: map[string]string{},
 		orgNameByID:      map[string]string{},
+		domainByOrgID:    map[string]string{},
 		anchorName:       cfg.Anchor.LegalName,
 		usersByRef:       map[string]string{},
 		orgsByDom:        map[string]string{},
@@ -370,7 +375,13 @@ func (r *pipelineRefs) loadOrganizations(c *client) error {
 			}
 			r.orgNameByID[o.ID] = name
 			for _, dom := range o.Domains {
-				r.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
+				domain := strings.ToLower(dom.Domain)
+				r.orgsByDom[domain] = o.ID
+				// First domain wins: a company with several is reached by any
+				// of them, but its paper needs one settled answer.
+				if _, seen := r.domainByOrgID[o.ID]; !seen {
+					r.domainByOrgID[o.ID] = domain
+				}
 			}
 		}
 		return nil
