@@ -30,8 +30,23 @@ func TestRoutingSchemaEnumsMatchCode(t *testing.T) {
 			Binding struct {
 				Properties struct {
 					Provider struct{ Enum []string } `json:"provider"`
+					Input    struct {
+						Items struct{ Enum []string } `json:"items"`
+					} `json:"input"`
 				} `json:"properties"`
+				AllOf []struct {
+					If struct {
+						Properties struct {
+							Provider struct{ Enum []string } `json:"provider"`
+						} `json:"properties"`
+					} `json:"if"`
+					Else map[string]any `json:"else"`
+				} `json:"allOf"` //nolint:tagliatelle // "allOf" is JSON Schema's own keyword, camelCase by spec
 			} `json:"binding"`
+			//nolint:tagliatelle // "$defs" member names are this schema's own, matching the file
+			EmbeddingsBinding struct {
+				Properties map[string]any `json:"properties"`
+			} `json:"embeddingsBinding"`
 		} `json:"$defs"`
 	}
 	if err := json.Unmarshal(raw, &schema); err != nil {
@@ -46,6 +61,30 @@ func TestRoutingSchemaEnumsMatchCode(t *testing.T) {
 	}
 	assertSetEqual(t, "tiers", schema.Properties.Tiers.PropertyNames.Enum, tierNames)
 	assertSetEqual(t, "providers", schema.Defs.Binding.Properties.Provider.Enum, knownProviders)
+	assertSetEqual(t, "input modalities", schema.Defs.Binding.Properties.Input.Items.Enum, acceptedModalities)
+
+	// The parser refuses `input:` outside inputProviders; the schema must refuse
+	// it in the editor too, or an operator autocompletes a field that fails at
+	// boot. The conditional is asserted structurally — the enum it guards on is
+	// what drifts, and no JSON Schema validator runs in this repo to catch it.
+	var guarded []string
+	for _, clause := range schema.Defs.Binding.AllOf {
+		if clause.Else != nil {
+			guarded = clause.If.Properties.Provider.Enum
+		}
+	}
+	if guarded == nil {
+		t.Fatal("the binding $def must forbid `input` outside the providers that accept it")
+	}
+	assertSetEqual(t, "providers accepting input", guarded, inputProviders)
+
+	// The embeddings lane sends no attachments, so its own $def must not offer
+	// the field at all. (The parser is what enforces this — EmbeddingsConfig
+	// embeds ProviderConfig inline, so yaml decodes `input:` there regardless —
+	// but a schema that offered it would still invite the mistake.)
+	if _, offered := schema.Defs.EmbeddingsBinding.Properties["input"]; offered {
+		t.Error("embeddingsBinding must not offer `input`")
+	}
 }
 
 func assertSetEqual(t *testing.T, label string, got, want []string) {

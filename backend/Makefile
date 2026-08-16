@@ -152,6 +152,13 @@ test: composition ## Unit tests (the root fitness tests run uncached)
 	# cache cannot key — run them uncached so a new module can never
 	# ride a stale green.
 	$(GOWORK_COMPOSED) $(GO) test -count=1 .
+	# Same reason, one module up: the ai package's config gates read
+	# ../config/ai-routing*.{json,yaml}, which live OUTSIDE this module and so
+	# are invisible to the cache. Editing the schema or an example alone
+	# therefore replays the previous pass — verified: deleting the schema's
+	# provider restriction left the gate reporting ok (cached). CI is cold and
+	# never saw it; the engineer who broke it locally would not either.
+	$(GOWORK_COMPOSED) $(GO) test -count=1 ./internal/modules/ai/
 
 # -v is load-bearing, not chattiness: `go test` only names skipped tests in
 # verbose mode, and the zero-skip teeth below grep for them. A skip in this

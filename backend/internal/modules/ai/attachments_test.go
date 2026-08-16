@@ -5,9 +5,12 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,9 +24,10 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// These adapters carry no attachment parts on their wire, so BOTH a document
-	// and an image must be rejected — accepting an image the wire can't carry
-	// would be a silent drop (the failure this test exists to prevent).
+	// None of these bindings declares carriage — ollama because its wire has
+	// none, the two OpenAI-compatible ones because they omit `input:` — so BOTH a
+	// document and an image must be rejected. Accepting an image nothing will
+	// carry is the silent drop this test exists to prevent.
 	cannotCarryAttachments := map[string]ProviderConfig{
 		"openai_compatible": {Provider: "openai_compatible", BaseURL: srv.URL, Model: "m"},
 		"ollama":            {Provider: "ollama", Model: "m", BaseURL: srv.URL},
@@ -48,6 +52,110 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The other arm of the same invariant: a binding that DECLARES `input: image`
+// must carry an image, and must still reject a PDF. Declaring is what separates
+// the two arms — the wire, the adapter and the code are identical, so a bug that
+// let the declaration decide nothing would leave the rejection arm above passing.
+func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
+	// The body is read, not discarded: "accepted" only means the gate let the
+	// call through, and a request that then dropped the attachment would look
+	// exactly the same from here. Asserting the part reached the wire is what
+	// makes this the map-or-reject test its name claims.
+	var sent []byte
+	var readErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Kept and asserted rather than dropped: a transport read failure here
+		// would otherwise surface as an unmarshal error below and read as a
+		// serialization bug in the code under test.
+		sent, readErr = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	declaresImages := map[string]ProviderConfig{
+		"openai_compatible": {Provider: "openai_compatible", BaseURL: srv.URL, Model: "m", Input: []string{"text", "image"}},
+		"vllm":              {Provider: "vllm", BaseURL: srv.URL, Model: "m", Input: []string{"text", "image"}},
+	}
+	for name, cfg := range declaresImages {
+		t.Run(name, func(t *testing.T) {
+			client, err := SelectBrain(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ask := func(att model.Attachment) error {
+				_, err := client.Complete(context.Background(), model.Request{
+					Messages:    []model.Message{{Role: "user", Content: "read this"}},
+					Attachments: []model.Attachment{att},
+				})
+				return err
+			}
+			sent, readErr = nil, nil
+			if err := ask(model.Attachment{MIME: "image/png", Bytes: []byte("PNG")}); err != nil {
+				t.Fatalf("a binding declaring image must carry image/png, got %v", err)
+			}
+			if readErr != nil {
+				t.Fatalf("reading the request body: %v", readErr)
+			}
+			var body struct {
+				Messages []struct {
+					Role    string
+					Content []struct {
+						Type     string
+						ImageURL struct{ URL string } `json:"image_url"`
+					}
+				}
+			}
+			if err := json.Unmarshal(sent, &body); err != nil {
+				t.Fatalf("the request body is not the parts shape: %v (%s)", err, sent)
+			}
+			last := body.Messages[len(body.Messages)-1]
+			if len(last.Content) == 0 || last.Content[len(last.Content)-1].Type != "image_url" {
+				t.Fatalf("the accepted image never reached the wire: %s", sent)
+			}
+			if url := last.Content[len(last.Content)-1].ImageURL.URL; !strings.HasPrefix(url, "data:image/png;base64,") {
+				t.Errorf("want the image as a data URL, got %q", url)
+			}
+			err = ask(model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")})
+			if !errors.Is(err, model.ErrAttachmentUnsupported) {
+				t.Fatalf("declaring image must not admit application/pdf, got %v", err)
+			}
+			// The refusal names the knob that fixes it: on this one adapter the
+			// carriage is a config line, so an error that stops at "cannot carry"
+			// sends the operator into the source to find out why.
+			if !strings.Contains(err.Error(), "input:") {
+				t.Errorf("refusal must point at the `input:` declaration, got %q", err)
+			}
+		})
+	}
+}
+
+// Caps() and the send-time gate must be the same list, or a binding advertises
+// carriage its own wire refuses and a caller picks a lane that cannot work.
+func TestDeclaredCarriageIsWhatCapsAdvertises(t *testing.T) {
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
+	for name, tc := range map[string]struct {
+		input []string
+		want  []string
+	}{
+		"undeclared is text-only": {input: nil, want: nil},
+		"declared image":          {input: []string{"text", "image"}, want: []string{"image/*"}},
+		"declared text only":      {input: []string{"text"}, want: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, err := SelectBrain(ProviderConfig{
+				Provider: "openai_compatible", BaseURL: "https://example.invalid", Model: "m", Input: tc.input,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := client.Caps().AttachmentMIMEs; !slices.Equal(got, tc.want) {
+				t.Fatalf("Caps().AttachmentMIMEs = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

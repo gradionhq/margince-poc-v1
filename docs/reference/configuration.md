@@ -826,6 +826,50 @@ would double it (`…/v1/v1/…` → 404). Use `https://api.mistral.ai`, not
 `https://api.mistral.ai/v1`. `gemini` is the mirror: its default base keeps the
 `/v1beta` segment and the paths are version-relative.
 
+#### `input:` — what the bound model can be given
+
+A chat tier bound to `openai_compatible` or `vllm` may declare the input
+modalities its model accepts:
+
+```yaml
+premium:
+  provider: openai_compatible
+  base_url: https://openrouter.ai/api
+  model: mistralai/mistral-large-2512
+  input: [text, image]
+```
+
+Only those two providers accept the field, because only there is the answer
+unknown to the code: they are one adapter pointed at an operator-chosen
+endpoint, so whether an image may be sent depends on **which model was bound**.
+Every other provider's carriage is fixed in its own wire, and declaring it there
+is a startup error rather than a line that quietly does nothing.
+
+- **Omit it for a text-only model.** An undeclared binding carries no attachment
+  parts and *refuses* an attachment rather than dropping it — the safe default,
+  and what every binding did before this field existed.
+- **Accepted values are `text` and `image`**, and `text` must be present. An
+  unknown modality is a startup error naming the accepted set, so a typo cannot
+  silently disable the feature it was meant to enable. `pdf` is deliberately not
+  accepted: a PDF rides a vendor-proprietary request extension on one gateway
+  and nothing at all on a self-hosted endpoint, so the word would mean different
+  things per vendor. Scanned PDFs take the text-extraction lane.
+- **The `embeddings:` binding does not take it** — that lane sends no
+  attachments.
+- **A declaration is a claim, not a checked fact.** A binding that claims more
+  than its model serves fails on the wire, visibly.
+
+**Declare it on every rung of the ladder, not just the one you had in mind.** A
+task's carriage is the *intersection* over its bound rungs, because the budget
+guardrail can demote a call to a lower rung mid-month — so one undeclared
+sibling rung vetoes the lane for the whole task. Look a candidate's own answer
+up before declaring it; on OpenRouter:
+
+```sh
+curl -s https://openrouter.ai/api/v1/models \
+  | jq '.data[] | select(.id=="<slug>") | .architecture.input_modalities'
+```
+
 A cloud binding is refused at startup under `profile: sovereign` (zero
 egress by construction). An editor with a YAML language server picks up
 [`config/ai-routing.schema.json`](../../config/ai-routing.schema.json)

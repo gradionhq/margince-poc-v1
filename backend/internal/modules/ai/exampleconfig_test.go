@@ -6,6 +6,8 @@ package ai
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 // exampleRoutingGlob matches every annotated routing example the tree ships.
@@ -56,6 +58,35 @@ func TestTheDefaultExampleRoutingConfigDeclaresTheEUHostedPosture(t *testing.T) 
 	}
 	if cfg.Profile != ProfileEUHosted {
 		t.Fatalf("default example profile = %q, want the seeded posture %q", cfg.Profile, ProfileEUHosted)
+	}
+}
+
+// A fresh install must be able to read an uploaded document without the
+// operator configuring anything. The default example binds gemini, whose
+// carriage is a fact about its wire and needs no `input:` declaration — but
+// "needs none" and "has none" look identical in the file, so the difference is
+// asserted here rather than left to a reader of the comment.
+//
+// Re-pointing the default at a provider whose carriage is model-dependent
+// (openai_compatible, vllm) without declaring `input:` would silently ship a
+// default install that refuses every document. This is the test that would say so.
+func TestTheDefaultExampleCanBeGivenADocumentOutOfTheBox(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "k")
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
+	cfg, err := LoadRoutingFile("../../../../config/ai-routing.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// document_extract is the feature that reads one, and its carriage is the
+	// intersection over its own ladder — so ask the router, not a single tier.
+	router, err := NewRouter(cfg, nil, nil, nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if carried := router.AttachmentMIMEs(TaskDocumentExtract); len(carried) == 0 {
+		t.Fatal("the default example cannot be given a document: document_extract's ladder declares no carriage")
+	} else if !model.CarriesMIME(carried, "image/png") {
+		t.Fatalf("a scanned document is the point; carriage = %v", carried)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,15 @@ type openAICompatClient struct {
 	apiKey       string // "" ⇒ send no Authorization header (local vLLM)
 	localOnly    bool   // Caps().LocalOnly — the sovereign-eligibility bit
 	defaultModel string
+	// attachmentMIMEs is what THIS binding carries, translated from the routing
+	// config's `input:` (inputmodality.go). Every other adapter answers that from
+	// a constant because its wire decides; here the served model decides, and
+	// only the operator can see which model that is. Nil ⇒ text-only, the default
+	// for an undeclared binding.
+	//
+	// One field, two uses — Caps() advertises it and sendChat enforces it — so a
+	// binding cannot advertise a media type its own wire then refuses.
+	attachmentMIMEs []string
 }
 
 // openAICompatSchemaName labels the structured-output schema; OpenAI's
@@ -36,11 +46,14 @@ type openAICompatClient struct {
 const openAICompatSchemaName = "structured_output"
 
 type openAICompatChatWire struct {
-	Model     string           `json:"model"`
-	Messages  []wireMessage    `json:"messages"`
-	Tools     []ollamaToolWire `json:"tools,omitempty"`
-	MaxTokens int              `json:"max_tokens,omitempty"`
-	Stream    bool             `json:"stream"`
+	Model string `json:"model"`
+	// Messages is this adapter's own message type rather than the wireMessage
+	// Ollama shares: only here can a turn carry attachment parts, and widening
+	// the shared type would change Ollama's wire to buy nothing.
+	Messages  []openAICompatMessage `json:"messages"`
+	Tools     []ollamaToolWire      `json:"tools,omitempty"`
+	MaxTokens int                   `json:"max_tokens,omitempty"`
+	Stream    bool                  `json:"stream"`
 	// ResponseFormat carries the OpenAI-compatible json_schema structured
 	// output (vLLM guided decoding); set only when the request asks for a
 	// schema, so ordinary free-text calls are unchanged.
@@ -134,7 +147,11 @@ var carriesImagesAndPDF = []string{"image/*", "application/pdf"}
 // certification corpus asks the first, because a fixture pinning a media type
 // no adapter accepts describes a call this build cannot make.
 //
-// Derived from the adapters' own declarations, so widening one widens this.
+// Derived from the adapters whose carriage is fixed in code, which is the whole
+// answer while `image` — the only modality a binding may declare — is a subset
+// of what those adapters already carry. A modality that widens PAST this set
+// (audio, say) would have to widen this too, or the corpus would reject a
+// fixture some binding could in fact be handed.
 func DocumentMIMEs() []string { return slices.Clone(carriesImagesAndPDF) }
 
 // isImage selects which KIND of wire part an accepted attachment becomes, once
@@ -148,11 +165,14 @@ func (c *openAICompatClient) Caps() model.Capabilities {
 	// model the deployment serves, discovered from the first Embed call.
 	// LocalOnly is the provider's trust posture (vllm true, openai_compatible
 	// false), fixed at construction — never a wire-visible property.
+	// AttachmentMIMEs is the binding's declaration, not a constant: this one
+	// adapter serves whatever model the operator pointed it at, so the answer
+	// lives in the routing config and arrives at construction.
 	return model.Capabilities{
 		Streaming:       true,
 		EmbedDims:       0,
 		LocalOnly:       c.localOnly,
-		AttachmentMIMEs: carriesNothing,
+		AttachmentMIMEs: c.attachmentMIMEs,
 	}
 }
 
@@ -178,22 +198,44 @@ func attachmentUnsupported(provider string, atts []model.Attachment, declared []
 	return nil
 }
 
+// refuseUnsupportedAttachments applies the map-or-reject invariant (spec §3.8)
+// against THIS binding's declaration, and restates the refusal as something the
+// operator can act on.
+//
+// Every other adapter's carriage refusal is final: its wire decides, and there
+// is nothing to change. This one's is a config line away from being a success,
+// so an error that stops at "cannot carry" sends the reader into the adapter's
+// source to find out why a capable model was refused.
+func (c *openAICompatClient) refuseUnsupportedAttachments(atts []model.Attachment) error {
+	err := attachmentUnsupported("openai-compat", atts, c.attachmentMIMEs)
+	if !errors.Is(err, model.ErrAttachmentUnsupported) {
+		return err // nil, or the Bytes-XOR-URI fault, which no config line fixes
+	}
+	return fmt.Errorf("%w; this binding carries %s — set `input:` on its tier in the routing config to what the bound model accepts",
+		err, describeCarriage(c.attachmentMIMEs))
+}
+
+// describeCarriage renders a carriage set for an error message, naming the empty
+// case rather than printing "[]" at an operator.
+func describeCarriage(declared []string) string {
+	if len(declared) == 0 {
+		return "no attachments"
+	}
+	return strings.Join(declared, ", ")
+}
+
 func (c *openAICompatClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
-	// This text-only chat wire carries no attachment parts, so reject every
-	// attachment rather than accept-then-drop it (spec §3.8 map-or-reject). The
-	// generic endpoint's multimodal support is model-dependent; mapping images to
-	// image_url content parts on this shared wire is issue #1324, and until it
-	// lands an honest rejection beats a silent drop.
-	if err := attachmentUnsupported("openai-compat", req.Attachments, carriesNothing); err != nil {
+	// Carriage on this wire is the BINDING's declaration, not the adapter's: one
+	// client serves whichever model the operator bound, and only images are
+	// spelled uniformly enough here to be declarable (ai-operational-spec §1.4).
+	if err := c.refuseUnsupportedAttachments(req.Attachments); err != nil {
 		return nil, err
 	}
 	wire := openAICompatChatWire{Model: req.Model, Stream: stream, MaxTokens: req.MaxTokens}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
 	}
-	// The OpenAI-compatible surface carries the system prompt as the
-	// leading message, same as Ollama's chat shape.
-	wire.Messages = wireMessages(req.System, req.Messages)
+	wire.Messages = openAICompatMessages(req.System, req.Messages, req.Attachments)
 	if len(req.ResponseSchema) > 0 {
 		// strict:false: vLLM's guided-decoding backends still constrain to the
 		// schema, but this avoids the OpenAI-exact strict rules (every object

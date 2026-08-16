@@ -21,6 +21,22 @@
 #
 #   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id=="<slug>") | .supported_parameters'
 #
+# input — what the bound model can be GIVEN. This is a property of the MODEL,
+# not of the openai_compatible adapter, which is why the binding has to say it:
+# a tier without `input:` carries no attachment parts and refuses a document
+# rather than dropping it, however capable the model actually is. Every ACTIVE
+# rung below takes images; every commented alternate is text-only, so a swap
+# means deleting that tier's `input:` line too — the modality is annotated on
+# each line for exactly that reason. Read a candidate's own answer from the same
+# catalog (values: text, image, file — `file` is not declarable here, see below):
+#
+#   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id=="<slug>") | .architecture.input_modalities'
+#
+# Only `text` and `image` are accepted. A PDF rides a proprietary
+# `plugins: [{id: file-parser}]` body on OpenRouter and nothing at all on a
+# self-hosted endpoint, so one word would mean different things per vendor;
+# scanned PDFs go down the text-extraction lane instead.
+#
 # jurisdiction — each tier ships its EU rung active, with the China and USA
 # rungs commented directly beneath. Mistral is the only EU vendor OpenRouter
 # carries, so the EU rungs are all Mistral by availability, not by taste.
@@ -41,9 +57,10 @@ tiers:
   local_small:
     provider: openai_compatible
     base_url: https://openrouter.ai/api
-    model: mistralai/ministral-8b-2512               # EU · $0.15/$0.15 · 262k
-    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2
-    # model: openai/gpt-oss-20b                      # US · $0.03/$0.13 · 131k
+    model: mistralai/ministral-8b-2512               # EU · $0.15/$0.15 · 262k · text+image
+    input: [text, image]
+    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2 · TEXT ONLY — drop `input:`
+    # model: openai/gpt-oss-20b                      # US · $0.03/$0.13 · 131k · TEXT ONLY — drop `input:`
 
   # Measured on cold_start (`make e2e-ai TASK=cold_start`, 3 runs/scenario,
   # judged by the premium rung). ministral-14b sits ON the certified/degraded
@@ -56,9 +73,10 @@ tiers:
   cheap_cloud:
     provider: openai_compatible
     base_url: https://openrouter.ai/api
-    model: mistralai/ministral-14b-2512              # EU · $0.20/$0.20 · 262k · certified (boundary)
-    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2 · certified
-    # model: openai/gpt-oss-120b                     # US · $0.037/$0.17 · 131k
+    model: mistralai/ministral-14b-2512              # EU · $0.20/$0.20 · 262k · text+image · certified (boundary)
+    input: [text, image]
+    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2 · TEXT ONLY — drop `input:` · certified
+    # model: openai/gpt-oss-120b                     # US · $0.037/$0.17 · 131k · TEXT ONLY — drop `input:`
     # model: mistralai/mistral-small-3.2-24b-instruct  # EU · $0.10/$0.30 · 256k — cheaper, but
     #   not_supported on cold_start: it answers the confirm-first staging turn with
     #   "I've set the display name to …", claiming a write this turn does not make.
@@ -78,9 +96,10 @@ tiers:
   premium:
     provider: openai_compatible
     base_url: https://openrouter.ai/api
-    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k
-    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5
-    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6
+    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k · text+image
+    input: [text, image]
+    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5 · TEXT ONLY — drop `input:`
+    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6 · TEXT ONLY — drop `input:`
     #   NOT the :free variant of that model — it serves tools but not
     #   structured_outputs, so site_extract and enrich fail on the wire.
 
@@ -95,9 +114,10 @@ tiers:
   frontier:
     provider: openai_compatible
     base_url: https://openrouter.ai/api
-    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k
-    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5
-    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6
+    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k · text+image
+    input: [text, image]
+    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5 · TEXT ONLY — drop `input:`
+    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6 · TEXT ONLY — drop `input:`
 
 # embeddings — bound separately from the chat tiers so retrieval keeps working
 # when the chat budget is exhausted. Required.

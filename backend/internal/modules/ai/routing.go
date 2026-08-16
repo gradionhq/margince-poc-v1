@@ -140,6 +140,17 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	} else if d == 0 {
 		cfg.Embeddings.Dimensions = defaultEmbedDimensions
 	}
+	// Before validate(), which sees only the decoded value and so cannot tell a
+	// blank declaration from an absent one.
+	blank, err := blankInputDeclarations(raw)
+	if err != nil {
+		return RoutingConfig{}, err
+	}
+	if len(blank) > 0 {
+		return RoutingConfig{}, fmt.Errorf(
+			"ai: routing config: %s: `input` is written with no value; omit the field to bind a text-only model, or name the modalities the bound model accepts",
+			strings.Join(blank, ", "))
+	}
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
@@ -185,9 +196,21 @@ func (cfg RoutingConfig) validate() error {
 		if cfg.Profile == ProfileSovereign && !localProviders[binding.Provider] {
 			return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on tier %s", binding.Provider, tier)
 		}
+		if err := validateInput(fmt.Sprintf("tier %s", tier), binding.Provider, binding.Input); err != nil {
+			return err
+		}
 	}
 	if cfg.Embeddings.Provider == "" {
 		return fmt.Errorf("ai: routing config: embeddings lane has no provider")
+	}
+	// EmbeddingsConfig embeds ProviderConfig INLINE, so `input:` under
+	// `embeddings:` decodes happily and would reach the embedder's client. The
+	// embedding lane sends no attachments, so the declaration could only mislead
+	// — refuse it here, where the parser is the gate. The generated schema omits
+	// it from embeddingsBinding for the same reason, but the schema is editor
+	// tooling and cannot be the thing that holds this.
+	if cfg.Embeddings.Input != nil {
+		return fmt.Errorf("ai: routing config: the embeddings lane takes no `input` — it sends no attachments; declare it on the chat tier that reads documents")
 	}
 	if cfg.Profile == ProfileSovereign && !localProviders[cfg.Embeddings.Provider] {
 		return fmt.Errorf("ai: routing config: profile sovereign forbids cloud provider %q on the embeddings lane", cfg.Embeddings.Provider)
