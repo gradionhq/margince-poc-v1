@@ -42,6 +42,13 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	}
 	plan := planProfiles(domains, cfg)
 
+	// FX first: winning a deal freezes its rate, so a non-EUR deal cannot
+	// close until one exists. Korean companies bill in USD and Vietnamese in
+	// dong, so this is load-bearing rather than tidy.
+	fxRates, err := seedFxRates(c, refs, plan, mode)
+	if err != nil {
+		return err
+	}
 	leads, err := seedLeads(c, cfg, refs, mode)
 	if err != nil {
 		return err
@@ -85,6 +92,10 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
+	surfaces, err := seedSurfaces(c, seats, cfg, refs, plan, mode)
+	if err != nil {
+		return err
+	}
 	consents, err := seedConsent(c, cfg, companies, refs, mode)
 	if err != nil {
 		return err
@@ -107,7 +118,7 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 		contracts: paper.contracts, generatedContracts: paper.generatedContracts,
 		products: productsNew, offers: offers,
 		documents: paper.documents, looseDocs: paper.looseDocs,
-		consents: consents, lifecycles: lifecycles,
+		consents: consents, lifecycles: lifecycles, surfaces: surfaces, fxRates: fxRates,
 		ownedOrgs: ownedOrgs, ownedPeople: ownedPeople,
 	})
 	return nil
@@ -155,6 +166,7 @@ type pipelineCounts struct {
 	products, offers              int
 	documents, looseDocs          int
 	consents, lifecycles          int
+	surfaces, fxRates             int
 	ownedOrgs, ownedPeople        int
 }
 
@@ -167,6 +179,8 @@ func reportPipeline(n pipelineCounts) {
 	fmt.Printf("products:      %d new\n", n.products)
 	fmt.Printf("offers:        %d new\n", n.offers)
 	fmt.Printf("documents:     %d uploaded (%d contract PDFs, %d account documents)\n", n.documents+n.looseDocs, n.documents, n.looseDocs)
+	fmt.Printf("fx rates:      %d loaded\n", n.fxRates)
+	fmt.Printf("surfaces:      %d new (tags, lists, custom fields, projects, quotas)\n", n.surfaces)
 	fmt.Printf("consent:       %d recorded\n", n.consents)
 	fmt.Printf("lifecycle:     %d changed\n", n.lifecycles)
 	fmt.Printf("owners:        %d organization(s), %d person/people\n", n.ownedOrgs, n.ownedPeople)

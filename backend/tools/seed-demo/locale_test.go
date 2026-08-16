@@ -151,3 +151,39 @@ func TestCurrencyFollowsTheLocale(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryLanguageHasACustomer — the coverage matrix guarantees counts, never
+// WHICH company holds them, and there are two Vietnamese companies among 171.
+// The hash reliably made both a prospect and a target, so the Vietnamese
+// contracts, documents and dong invoices existed in code and in tests and
+// nowhere a demo could reach. That is the same as not having built them.
+func TestEveryLanguageHasACustomer(t *testing.T) {
+	restore := companyLocales
+	t.Cleanup(func() { companyLocales = restore })
+	companyLocales = map[string]docLocale{
+		"vuletech.com": localeVI,
+		"soragroup.vn": localeVI,
+		"micube.co.kr": localeEN,
+		"dacell.com":   localeEN,
+	}
+	domains := append(synthDomains(160),
+		"vuletech.com", "soragroup.vn", "micube.co.kr", "dacell.com")
+	profiles := planProfiles(domains, demoConfig{})
+
+	for _, locale := range []docLocale{localeVI, localeEN} {
+		found := ""
+		for domain, p := range profiles {
+			if localeFor(domain) == locale && p.Lifecycle == "customer" {
+				found = domain
+				break
+			}
+		}
+		if found == "" {
+			t.Errorf("no %q company is a customer — that language's paper exists nowhere a demo can reach", locale)
+			continue
+		}
+		if len(profiles[found].Contracts) == 0 {
+			t.Errorf("%s is the %q customer but holds no contract, so there is no document to show", found, locale)
+		}
+	}
+}
