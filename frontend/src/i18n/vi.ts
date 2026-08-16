@@ -1116,6 +1116,8 @@ export const vi = {
   "timeline.received": "Đã nhận",
   "timeline.textMore": "Đọc",
   "timeline.textLess": "Thu gọn",
+  "timeline.tailMore": "Hiện chữ ký và phần trích dẫn",
+  "timeline.tailLess": "Ẩn chữ ký và phần trích dẫn",
   "co.profileField.display_name": "Tên công ty",
   "co.profileField.offer_summary": "Họ bán gì",
   "co.profileField.icp": "Họ bán cho ai",

@@ -8,7 +8,8 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { splitEmailBody } from "../format/emailtext";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -645,6 +646,40 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
   return undefined;
 }
 
+// A link inside a captured message, rendered as an element rather than as
+// markup: the body is escaped text and stays that way. The visible label is the
+// URL itself, so the destination a reader checks is the destination they get —
+// a mail we did not write is not a place to render a friendly label over a
+// different address.
+const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?]/g;
+
+function linkify(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const at = match.index;
+    if (at > last) {
+      out.push(text.slice(last, at));
+    }
+    out.push(
+      <a
+        key={`${at}-${match[0]}`}
+        href={match[0]}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className="tl-text-link"
+      >
+        {match[0]}
+      </a>,
+    );
+    last = at + match[0].length;
+  }
+  if (last < text.length) {
+    out.push(text.slice(last));
+  }
+  return out;
+}
+
 /**
  * TimelineText is the message itself, two lines by default and the whole of it
  * on request.
@@ -653,10 +688,20 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
  * rather than one application away. Collapsed by default because a timeline
  * where every row is a full email is a mailbox, and the point of the row is
  * still the sequence.
+ *
+ * On a mail row the reader gets the sentence the sender wrote. The sign-off and
+ * the quoted history below it are folded into a second control instead of being
+ * dropped, because the split is a heuristic: when it takes too much, the text is
+ * one click away rather than gone. `email` gates that, since a note may open
+ * with "Viele Grüße" or carry a "> " line as ordinary prose.
  */
-function TimelineText({ text }: Readonly<{ text: string }>) {
+function TimelineText({
+  text,
+  email = false,
+}: Readonly<{ text: string; email?: boolean }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [tailOpen, setTailOpen] = useState(false);
   // Whether the clamp is actually cutting the text off, measured rather than
   // guessed. Counting characters was wrong in the one direction that matters:
   // the clamp is two VISUAL lines at whatever width the column happens to be,
@@ -665,7 +710,25 @@ function TimelineText({ text }: Readonly<{ text: string }>) {
   // given no way to expand. Text the reader could not reach.
   const [clipped, setClipped] = useState(false);
   const bodyRef = useRef<HTMLSpanElement>(null);
-  const trimmed = text.trim();
+  // The tail is what the reader is spared; `trimmed` is what the row shows and
+  // what the clamp measures, so the split has to happen before that effect.
+  const parts = useMemo(
+    () => (email ? splitEmailBody(text) : null),
+    [email, text],
+  );
+  const trimmed = parts
+    ? [parts.header, parts.main].filter(Boolean).join("\n\n")
+    : text.trim();
+  const tail = parts?.trimmed ?? "";
+  // A row is keyed by activity id, so React keeps this component mounted when
+  // the entry it renders is replaced. Without this the next mail's signature
+  // would already be open, revealed by a click the reader made on a different
+  // message.
+  const [shownFor, setShownFor] = useState(text);
+  if (shownFor !== text) {
+    setShownFor(text);
+    setTailOpen(false);
+  }
 
   useLayoutEffect(() => {
     const el = bodyRef.current;
@@ -693,7 +756,7 @@ function TimelineText({ text }: Readonly<{ text: string }>) {
   return (
     <span className="tl-text">
       <span ref={bodyRef} className={open ? "tl-text-full" : "tl-text-clamp"}>
-        {trimmed}
+        {linkify(trimmed)}
       </span>
       {(clipped || open) && (
         <button
@@ -704,6 +767,22 @@ function TimelineText({ text }: Readonly<{ text: string }>) {
         >
           {open ? t("timeline.textLess") : t("timeline.textMore")}
         </button>
+      )}
+      {/* Offered whenever something was folded away, not only once the message
+          is expanded: a mail short enough never to clip still has a signature,
+          and gating this on the clamp would put that text out of reach. */}
+      {tail && (
+        <>
+          <button
+            type="button"
+            className="tl-text-toggle tl-text-tail-toggle"
+            aria-expanded={tailOpen}
+            onClick={() => setTailOpen(!tailOpen)}
+          >
+            {tailOpen ? t("timeline.tailLess") : t("timeline.tailMore")}
+          </button>
+          {tailOpen && <span className="tl-text-tail">{linkify(tail)}</span>}
+        </>
       )}
     </span>
   );
@@ -869,7 +948,9 @@ export function TimelineRow({
                 .tl-body is a flex column either way. */}
       <div className="tl-body">
         <span className="tl-title">{entry.title}</span>
-        {entry.body && <TimelineText text={entry.body} />}
+        {entry.body && (
+          <TimelineText text={entry.body} email={entry.kind === "email"} />
+        )}
         {entry.detail}
         <span className="tl-meta">
           {/* The direction is said in words as well as drawn, so it does

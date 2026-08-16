@@ -596,6 +596,35 @@
   text-decoration: underline;
 }
 
+/* The second control on a mail row: the sign-off and the quoted thread under
+   it. Set apart from the read/less toggle so the two are not read as one pair
+   of buttons doing the same thing. */
+.tl-text-tail-toggle {
+  display: block;
+  color: var(--textMeta);
+}
+
+/* The folded tail, once asked for. Quieter than the message and inset, because
+   it is the history behind the message rather than more of it. */
+.tl-text-tail {
+  display: block;
+  margin-top: var(--space-1);
+  padding-inline-start: var(--space-2);
+  border-inline-start: 2px solid var(--borderSubtle);
+  white-space: pre-wrap;
+  color: var(--textMeta);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* A link the sender wrote, not one we generated: it carries the address as its
+   own label so the destination is visible before the click. */
+.tl-text-link {
+  color: var(--accent);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
 /* Two tracks on one spine: what we sent, and what came back. The rail colour
    is the fast read; .tl-direction says the same thing in words, so the
    distinction never rests on telling two hues apart. */

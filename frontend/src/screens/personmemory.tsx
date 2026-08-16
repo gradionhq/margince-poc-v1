@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { components } from "../api/schema";
 import { Badge, SegmentedControl } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { emailSummaryText } from "../format/emailtext";
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
 import { ChannelReplyAction } from "./compose";
@@ -222,7 +223,10 @@ function foldActivities(
             t,
             providerLabel,
           ),
-        summary: row.body ?? "",
+        summary:
+          row.kind === "email"
+            ? emailSummaryText(row.body ?? "")
+            : (row.body ?? ""),
         status,
         statusLabel: statusLabel(status, t),
         tone: toneFor(status),

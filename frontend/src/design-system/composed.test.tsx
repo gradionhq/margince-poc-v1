@@ -229,3 +229,151 @@ describe("RecordView + timeline", () => {
     expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
   });
 });
+
+describe("TimelineText on a mail row", () => {
+  const SIGNED =
+    "From: anna@kunde.de\nTo: lars@gradion.com\n\nKönnen wir Dienstag über das Angebot sprechen?\n\nMit freundlichen Grüßen\nAnna Berger\nKunde GmbH";
+
+  const mailRow = (body: string, kind: "email" | "note" = "email") => [
+    {
+      id: "a1",
+      kind,
+      title: "Re: Angebot",
+      atIso: "2026-07-01T00:00:00Z",
+      provenance: { kind: "human" as const, self: true },
+      body,
+    },
+  ];
+
+  it("shows the message and hides the signature until asked", async () => {
+    const user = userEvent.setup();
+    render(<RecordView name="Acme" zone="UTC" timeline={mailRow(SIGNED)} />);
+
+    expect(screen.getByText(/Können wir Dienstag/)).toBeTruthy();
+    expect(screen.queryByText(/Mit freundlichen Grüßen/)).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "Show signature and quoted text" }),
+    );
+    expect(screen.getByText(/Mit freundlichen Grüßen/)).toBeTruthy();
+    expect(screen.getByText(/Kunde GmbH/)).toBeTruthy();
+  });
+
+  it("folds the signature away again", async () => {
+    const user = userEvent.setup();
+    render(<RecordView name="Acme" zone="UTC" timeline={mailRow(SIGNED)} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Show signature and quoted text" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Hide signature and quoted text" }),
+    );
+    expect(screen.queryByText(/Mit freundlichen Grüßen/)).toBeNull();
+  });
+
+  it("keeps the correspondents' addresses above the message", () => {
+    // The preamble says who wrote to whom, which is part of reading a mail on
+    // a record. It is the row TITLE that must not lead with it — see the
+    // timelineTitle rule in people.tsx — not the message body.
+    render(<RecordView name="Acme" zone="UTC" timeline={mailRow(SIGNED)} />);
+    const body = document.querySelector(".tl-text-clamp")?.textContent ?? "";
+    expect(body).toContain("anna@kunde.de");
+    expect(body).toContain("Können wir Dienstag");
+  });
+
+  it("leaves a note whose text reads like a sign-off intact", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        timeline={mailRow("Viele Grüße an das Team ausgerichtet.", "note")}
+      />,
+    );
+    expect(screen.getByText(/Viele Grüße an das Team/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Show signature and quoted text",
+      }),
+    ).toBeNull();
+  });
+
+  it("offers no reveal when a mail carries no signature or quote", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        timeline={mailRow("Kurz: ja, Dienstag passt uns gut.")}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "Show signature and quoted text",
+      }),
+    ).toBeNull();
+  });
+
+  it("renders a link with its address as the label", () => {
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        timeline={mailRow(
+          "Die Unterlagen liegen unter https://kunde.de/angebot bereit.",
+        )}
+      />,
+    );
+    const link = screen.getByRole("link", {
+      name: "https://kunde.de/angebot",
+    });
+    expect(link.getAttribute("href")).toBe("https://kunde.de/angebot");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("folds the signature again when the row is given a different mail", async () => {
+    // The row is keyed by activity id, so the component stays mounted when the
+    // entry it renders is replaced. A reveal must not carry over to a mail the
+    // reader never opened.
+    const user = userEvent.setup();
+    const { rerender } = rtlRender(
+      <LocaleProvider initial="en">
+        <RecordView name="Acme" zone="UTC" timeline={mailRow(SIGNED)} />
+      </LocaleProvider>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Show signature and quoted text" }),
+    );
+    expect(screen.getByText(/Kunde GmbH/)).toBeTruthy();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <RecordView
+          name="Acme"
+          zone="UTC"
+          timeline={mailRow("Neue Nachricht.\n\n-- \nMax Muster\nAndere GmbH")}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByText(/Andere GmbH/)).toBeNull();
+  });
+
+  it("keeps a link inside the folded signature reachable once revealed", async () => {
+    const user = userEvent.setup();
+    render(
+      <RecordView
+        name="Acme"
+        zone="UTC"
+        timeline={mailRow(
+          "Kurz: ja.\n\n-- \nAnna Berger\nhttps://kunde.de/impressum",
+        )}
+      />,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Show signature and quoted text" }),
+    );
+    expect(
+      screen.getByRole("link", { name: "https://kunde.de/impressum" }),
+    ).toBeTruthy();
+  });
+});
