@@ -90,3 +90,54 @@ func TestAStatedReasonNeedsNoContractLookup(t *testing.T) {
 		t.Fatalf("a stated reason was refused: %v", err)
 	}
 }
+
+// A detail made of invisible characters explains exactly nothing, which is the
+// state the reason vocabulary exists to refuse. A zero-width space is not
+// whitespace to Go's TrimSpace and not whitespace to Postgres's btrim either,
+// so it would otherwise satisfy both the Go check and the column's CHECK.
+func TestADetailOfInvisibleCharactersIsRefused(t *testing.T) {
+	for name, detail := range map[string]string{
+		"zero-width space":   "​",
+		"non-breaking space": " ",
+		"tab":                "\t",
+		"newline":            "\n",
+		"soft hyphen":        "­",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var needsDetail *WonReasonDetailRequiredError
+			if !errors.As(validateWonReason("other", &detail), &needsDetail) {
+				t.Errorf("%q was accepted as an explanation", detail)
+			}
+		})
+	}
+}
+
+func TestADetailWithRealWordsIsAccepted(t *testing.T) {
+	detail := "closed on a framework call-off"
+	if err := validateWonReason("other", &detail); err != nil {
+		t.Errorf("a real explanation was refused: %v", err)
+	}
+}
+
+// A draft contract has asserted nothing — it is the state an agreement is born
+// in — so paper stapled to one is the unsigned template the gate exists to
+// refuse. The query must say so, or the gate's hardest case passes.
+func TestTheEvidenceQueryRefusesADraftContract(t *testing.T) {
+	if !strings.Contains(evidenceQuery, "c.status <> 'draft'") {
+		t.Error("the evidence query admits a draft contract; an unsigned template would satisfy the gate")
+	}
+	if !strings.Contains(evidenceQuery, "c.signed_on IS NOT NULL") {
+		t.Error("the evidence query does not require a signed date")
+	}
+	if !strings.Contains(evidenceQuery, "a.archived_at IS NULL") {
+		t.Error("the evidence query admits an archived attachment; archive leaves the row in place")
+	}
+	if !strings.Contains(evidenceQuery, "doc_state IN ('current', 'final')") {
+		t.Error("the evidence query admits a draft document")
+	}
+	// The malware verdict is deliberately absent: no scanner is integrated, so
+	// requiring `clean` would reject every genuine upload.
+	if strings.Contains(evidenceQuery, "scan_status") {
+		t.Error("the evidence query tests the scan verdict, which no scanner ever sets")
+	}
+}

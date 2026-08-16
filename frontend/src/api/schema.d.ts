@@ -12269,13 +12269,6 @@ export interface components {
             /** @enum {string} */
             status?: "open" | "won" | "lost";
             lost_reason?: string | null;
-            /**
-             * @description Why this win has no agreement behind it. Omit when the deal has a signed contract with its paper attached; the server looks for one and refuses a win that claims neither (ADR-0109 §6).
-             * @enum {string|null}
-             */
-            won_without_contract_reason?: "imported" | "purchase_order" | "verbal" | "renewal_by_email" | "other" | null;
-            /** @description What the reason was, required when it is `other`. */
-            won_without_contract_detail?: string | null;
             /** @description Native→base rate to FREEZE at close. Required (server may also compute it from the FX table) when transitioning to won with a non-base currency — satisfies the deal_closed_fx CHECK (formulas §6.1). Ignored while open. */
             fx_rate_to_base?: string | null;
             /** Format: date */

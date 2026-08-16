@@ -17435,16 +17435,6 @@ components:
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost] }
         lost_reason: { type: [string, 'null'] }
-        won_without_contract_reason:
-          type: [string, 'null']
-          enum: [imported, purchase_order, verbal, renewal_by_email, other, null]
-          description: >-
-            Why this win has no agreement behind it. Omit when the deal has a signed
-            contract with its paper attached; the server looks for one and refuses a win
-            that claims neither (ADR-0109 §6).
-        won_without_contract_detail:
-          type: [string, 'null']
-          description: What the reason was, required when it is `other`.
         fx_rate_to_base: { type: [string, 'null'], description: 'Native→base rate to FREEZE at close. Required (server may also compute it from the FX table) when transitioning to won with a non-base currency — satisfies the deal_closed_fx CHECK (formulas §6.1). Ignored while open.' }
         fx_rate_date: { type: [string, 'null'], format: date }
         forecast_category: { type: [string, 'null'], enum: [null, commit, best_case, pipeline, omitted] }

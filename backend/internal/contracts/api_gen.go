@@ -8418,36 +8418,6 @@ func (e UpdateDealRequestStatus) Valid() bool {
 	}
 }
 
-// Defines values for UpdateDealRequestWonWithoutContractReason.
-const (
-	UpdateDealRequestWonWithoutContractReasonImported       UpdateDealRequestWonWithoutContractReason = "imported"
-	UpdateDealRequestWonWithoutContractReasonLessThannil    UpdateDealRequestWonWithoutContractReason = "<nil>"
-	UpdateDealRequestWonWithoutContractReasonOther          UpdateDealRequestWonWithoutContractReason = "other"
-	UpdateDealRequestWonWithoutContractReasonPurchaseOrder  UpdateDealRequestWonWithoutContractReason = "purchase_order"
-	UpdateDealRequestWonWithoutContractReasonRenewalByEmail UpdateDealRequestWonWithoutContractReason = "renewal_by_email"
-	UpdateDealRequestWonWithoutContractReasonVerbal         UpdateDealRequestWonWithoutContractReason = "verbal"
-)
-
-// Valid indicates whether the value is a known member of the UpdateDealRequestWonWithoutContractReason enum.
-func (e UpdateDealRequestWonWithoutContractReason) Valid() bool {
-	switch e {
-	case UpdateDealRequestWonWithoutContractReasonImported:
-		return true
-	case UpdateDealRequestWonWithoutContractReasonLessThannil:
-		return true
-	case UpdateDealRequestWonWithoutContractReasonOther:
-		return true
-	case UpdateDealRequestWonWithoutContractReasonPurchaseOrder:
-		return true
-	case UpdateDealRequestWonWithoutContractReasonRenewalByEmail:
-		return true
-	case UpdateDealRequestWonWithoutContractReasonVerbal:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for UpdateLeadRequestStatus.
 const (
 	UpdateLeadRequestStatusNew     UpdateLeadRequestStatus = "new"
@@ -19564,22 +19534,16 @@ type UpdateDealRequest struct {
 	FxRateDate        *openapi_types.Date                `json:"fx_rate_date,omitempty"`
 
 	// FxRateToBase Native→base rate to FREEZE at close. Required (server may also compute it from the FX table) when transitioning to won with a non-base currency — satisfies the deal_closed_fx CHECK (formulas §6.1). Ignored while open.
-	FxRateToBase   *string                  `json:"fx_rate_to_base,omitempty"`
-	LostReason     *string                  `json:"lost_reason,omitempty"`
-	Name           *string                  `json:"name,omitempty"`
-	OrganizationId *openapi_types.UUID      `json:"organization_id,omitempty"`
-	OwnerId        *openapi_types.UUID      `json:"owner_id,omitempty"`
-	PartnerOrgId   *openapi_types.UUID      `json:"partner_org_id,omitempty"`
-	ProjectId      *openapi_types.UUID      `json:"project_id,omitempty"`
-	Status         *UpdateDealRequestStatus `json:"status,omitempty"`
-	WaitUntil      *openapi_types.Date      `json:"wait_until,omitempty"`
-
-	// WonWithoutContractDetail What the reason was, required when it is `other`.
-	WonWithoutContractDetail *string `json:"won_without_contract_detail,omitempty"`
-
-	// WonWithoutContractReason Why this win has no agreement behind it. Omit when the deal has a signed contract with its paper attached; the server looks for one and refuses a win that claims neither (ADR-0109 §6).
-	WonWithoutContractReason *UpdateDealRequestWonWithoutContractReason `json:"won_without_contract_reason,omitempty"`
-	AdditionalProperties     map[string]interface{}                     `json:"-"`
+	FxRateToBase         *string                  `json:"fx_rate_to_base,omitempty"`
+	LostReason           *string                  `json:"lost_reason,omitempty"`
+	Name                 *string                  `json:"name,omitempty"`
+	OrganizationId       *openapi_types.UUID      `json:"organization_id,omitempty"`
+	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
+	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
+	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
+	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
+	WaitUntil            *openapi_types.Date      `json:"wait_until,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // UpdateDealRequestForecastCategory defines model for UpdateDealRequest.ForecastCategory.
@@ -19587,9 +19551,6 @@ type UpdateDealRequestForecastCategory string
 
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
-
-// UpdateDealRequestWonWithoutContractReason Why this win has no agreement behind it. Omit when the deal has a signed contract with its paper attached; the server looks for one and refuses a win that claims neither (ADR-0109 §6).
-type UpdateDealRequestWonWithoutContractReason string
 
 // UpdateInstallationSettingsRequest A sparse installation-settings patch (admin/ops, human-only).
 type UpdateInstallationSettingsRequest struct {
@@ -28618,22 +28579,6 @@ func (a *UpdateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "wait_until")
 	}
 
-	if raw, found := object["won_without_contract_detail"]; found {
-		err = json.Unmarshal(raw, &a.WonWithoutContractDetail)
-		if err != nil {
-			return fmt.Errorf("error reading 'won_without_contract_detail': %w", err)
-		}
-		delete(object, "won_without_contract_detail")
-	}
-
-	if raw, found := object["won_without_contract_reason"]; found {
-		err = json.Unmarshal(raw, &a.WonWithoutContractReason)
-		if err != nil {
-			return fmt.Errorf("error reading 'won_without_contract_reason': %w", err)
-		}
-		delete(object, "won_without_contract_reason")
-	}
-
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -28748,20 +28693,6 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 		object["wait_until"], err = json.Marshal(a.WaitUntil)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_until': %w", err)
-		}
-	}
-
-	if a.WonWithoutContractDetail != nil {
-		object["won_without_contract_detail"], err = json.Marshal(a.WonWithoutContractDetail)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'won_without_contract_detail': %w", err)
-		}
-	}
-
-	if a.WonWithoutContractReason != nil {
-		object["won_without_contract_reason"], err = json.Marshal(a.WonWithoutContractReason)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'won_without_contract_reason': %w", err)
 		}
 	}
 

@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 
@@ -83,6 +84,24 @@ func (e *WonReasonDetailRequiredError) FieldFault() (field, code, message string
 	return "won_without_contract_detail", "required", e.Error()
 }
 
+// saysSomething reports whether a detail carries any visible character.
+//
+// TrimSpace alone is not enough: a zero-width space is not whitespace to Go and
+// not whitespace to Postgres either, so "\u200b" would satisfy both the Go check
+// and the column's CHECK while explaining precisely nothing — which is the state
+// the whole reason vocabulary exists to refuse.
+func saysSomething(detail *string) bool {
+	if detail == nil {
+		return false
+	}
+	for _, r := range *detail {
+		if unicode.IsGraphic(r) && !unicode.IsSpace(r) && !unicode.Is(unicode.Cf, r) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureWinEvidence admits a transition to a won stage, or refuses it.
 //
 // The order matters. A stated reason is checked FIRST and, when present and
@@ -107,21 +126,51 @@ func validateWonReason(reason string, detail *string) error {
 	if !slices.Contains(WonWithoutContractReasons, reason) {
 		return &InvalidWonReasonError{Reason: reason}
 	}
-	if reason == reasonRequiringDetail && (detail == nil || strings.TrimSpace(*detail) == "") {
+	if reason == reasonRequiringDetail && !saysSomething(detail) {
 		return &WonReasonDetailRequiredError{}
 	}
 	return nil
 }
+
+// evidenceQuery is the gate's one question, named so a test can read it
+// rather than keeping a second copy that drifts.
+const evidenceQuery = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM contract c
+			JOIN attachment a ON a.contract_id = c.id
+			WHERE c.deal_id = $1
+			  AND c.archived_at IS NULL
+			  AND c.status <> 'draft'
+			  AND c.signed_on IS NOT NULL
+			  AND a.archived_at IS NULL
+			  AND a.category IN ('contract', 'legal')
+			  AND a.doc_state IN ('current', 'final')
+			FOR SHARE OF c, a
+		)`
 
 // hasSignedContract asks whether this deal has an agreement a human called
 // signed, with paper a human called current.
 //
 // THREE DELIBERATE CHOICES, each of which the obvious query gets wrong.
 //
+// The contract must have LEFT DRAFT. A draft is the state an agreement is born
+// in and has asserted nothing yet, so a draft with a file stapled to it is the
+// unsigned template this rule exists to refuse. `superseded` still counts —
+// a renewed agreement was real when the deal closed — and so does `expired` or
+// `cancelled`, because a deal won in March is not un-won when the agreement
+// later ends.
+//
 // `signed_on` is required, not merely a contract in `contract` category: the
 // category says what KIND of document a file is, and only the date says a human
-// asserted it was signed. A draft agreement with an unsigned template attached
-// would otherwise satisfy the rule the rule exists to enforce.
+// asserted it was signed.
+//
+// WHAT THIS CANNOT DO, stated plainly rather than implied: every field it reads
+// is written by the same principal who wins the deal, minutes earlier, in the
+// same session. It is a record-keeping gate, not a proof of signature — it
+// makes the honest case easy and the dishonest case deliberate, and the audit
+// trail is what distinguishes them afterwards. Treating a passing gate as proof
+// that somebody countersigned is the one reading of it that is wrong.
 //
 // The attachment must be live and in `current` or `final` state. Archive leaves
 // the row in place, so an archived cancellation letter would pass an existence
@@ -138,19 +187,7 @@ func validateWonReason(reason string, detail *string) error {
 // evidence between the two and the deal would commit as won against nothing.
 func hasSignedContract(ctx context.Context, tx pgx.Tx, dealID ids.DealID) (bool, error) {
 	var found bool
-	err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM contract c
-			JOIN attachment a ON a.contract_id = c.id
-			WHERE c.deal_id = $1
-			  AND c.archived_at IS NULL
-			  AND c.signed_on IS NOT NULL
-			  AND a.archived_at IS NULL
-			  AND a.category IN ('contract', 'legal')
-			  AND a.doc_state IN ('current', 'final')
-			FOR SHARE OF c, a
-		)`, dealID).Scan(&found)
+	err := tx.QueryRow(ctx, evidenceQuery, dealID).Scan(&found)
 	if err != nil {
 		return false, fmt.Errorf("check the deal's signed agreement: %w", err)
 	}
