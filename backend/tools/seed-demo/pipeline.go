@@ -1,0 +1,400 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package main
+
+// The invented pipeline: leads, deals, and the activities that make a company
+// record look worked rather than merely filled in.
+//
+// Dates in the dataset are OFFSETS IN DAYS from the run, so a demo seeded
+// today reads as current and one seeded three months ago does not look
+// abandoned.
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// pipelineRefs is what the seeded pipeline needs to point at: which user owns
+// what, which organization a deal hangs off, and the stage ids of the
+// workspace's own Sales pipeline.
+type pipelineRefs struct {
+	usersByRef map[string]string // demo.json ref -> app_user id
+	orgsByDom  map[string]string // company domain -> organization id
+	stagesByNm map[string]string // stage name  -> stage id
+	firstStage string            // the stage a deal is born in
+	// contractsByRef lets the renewal read its successor's terms: a renewal
+	// inherits nothing, so every field is restated from the dataset.
+	contractsByRef []demoContract
+	// dealsByCompany is filled after the deals are seeded, so an activity can
+	// link to the deal it moved.
+	dealsByCompany map[string][]string
+	// anchorName and orgNameByID name the parties a document prints.
+	anchorName  string
+	orgNameByID map[string]string
+	// ownerRefByDomain is who holds each account — the ONE answer ownership
+	// and activity authorship both read, so they cannot drift apart.
+	ownerRefByDomain map[string]string
+	pipelineID       string
+	now              time.Time
+}
+
+// dayOffset turns a dataset offset into a date. Negative is the past.
+func (r pipelineRefs) dayOffset(days int) time.Time {
+	return r.now.AddDate(0, 0, days)
+}
+
+func (r pipelineRefs) date(days int) string {
+	return r.dayOffset(days).Format("2006-01-02")
+}
+
+func (r pipelineRefs) timestamp(days int) string {
+	return r.dayOffset(days).Format(time.RFC3339)
+}
+
+// loadPipelineRefs resolves everything the pipeline phases need to reference,
+// once, so each phase is a straight write rather than a search.
+func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, error) {
+	refs := pipelineRefs{
+		contractsByRef:   cfg.Contracts,
+		dealsByCompany:   map[string][]string{},
+		ownerRefByDomain: map[string]string{},
+		orgNameByID:      map[string]string{},
+		anchorName:       cfg.Anchor.LegalName,
+		usersByRef:       map[string]string{},
+		orgsByDom:        map[string]string{},
+		stagesByNm:       map[string]string{},
+		now:              now,
+	}
+
+	var users struct {
+		Data []struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+		} `json:"data"`
+	}
+	if err := c.get("/v1/users", url.Values{"limit": {"100"}}, &users); err != nil {
+		return refs, fmt.Errorf("listing seats: %w", err)
+	}
+	byEmail := map[string]string{}
+	for _, u := range users.Data {
+		byEmail[strings.ToLower(u.Email)] = u.ID
+	}
+	for _, u := range cfg.Users {
+		if id, ok := byEmail[strings.ToLower(u.Email)]; ok {
+			refs.usersByRef[u.Ref] = id
+		}
+	}
+
+	if err := refs.loadOrganizations(c); err != nil {
+		return refs, err
+	}
+
+	var pipelines struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Stages []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"stages"`
+		} `json:"data"`
+	}
+	if err := c.get("/v1/pipelines", nil, &pipelines); err != nil {
+		return refs, fmt.Errorf("listing pipelines: %w", err)
+	}
+	if len(pipelines.Data) == 0 {
+		return refs, fmt.Errorf("the workspace has no pipeline — deals have nowhere to go")
+	}
+	refs.resolveOwners(cfg)
+	first := pipelines.Data[0]
+	refs.pipelineID = first.ID
+	for i, s := range first.Stages {
+		refs.stagesByNm[s.Name] = s.ID
+		if i == 0 {
+			refs.firstStage = s.Name
+		}
+	}
+	return refs, nil
+}
+
+// seedLeads files the unqualified names at the top of the funnel, and
+// promotes the one that converted so the promote path is exercised rather
+// than only described.
+func seedLeads(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+	created := 0
+	for _, lead := range cfg.Leads {
+		if mode == modeDryRun {
+			created++
+			continue
+		}
+		// source_system + source_id make the create idempotent server-side:
+		// re-running finds the same lead rather than filing a second one.
+		body := jsonBody{
+			"source":        seedSource,
+			"source_system": "seed",
+			"source_id":     lead.Ref,
+			"status":        lead.Status,
+		}
+		addIfSet(body, "full_name", lead.FullName)
+		addIfSet(body, "email", lead.Email)
+		addIfSet(body, "title", lead.Title)
+		addIfSet(body, "company_name", lead.Company)
+		if owner, ok := refs.usersByRef[lead.Owner]; ok {
+			body["owner_id"] = owner
+		}
+
+		// The lead API is idempotent on source_system+source_id, so a re-run
+		// answers with the SAME lead rather than refusing. That is
+		// convergence, but the reply cannot be told apart from a create — so
+		// what is counted is whether this ref was already on file.
+		//
+		// A PROMOTED lead is the exception: promotion consumes the lead row,
+		// so the ref is gone and only the person it became remains. Finding
+		// that person is what says "this one is already done".
+		before, err := findLeadBySource(c, lead.Ref)
+		if err != nil {
+			return created, err
+		}
+		if before == "" && lead.Promote {
+			if _, found, err := findPersonByName(c, lead.FullName); err != nil {
+				return created, err
+			} else if found {
+				continue
+			}
+		}
+		var out struct {
+			ID string `json:"id"`
+		}
+		if err := c.post("/v1/leads", body, &out); err != nil {
+			if _, ok := conflictingID(err); ok {
+				continue
+			}
+			return created, fmt.Errorf("lead %s: %w", lead.Ref, err)
+		}
+		if before == "" {
+			created++
+		}
+
+		if lead.Promote && out.ID != "" {
+			// A lead the previous run already promoted answers 409, which for
+			// a converging seeder is the desired state reported as a refusal.
+			if err := c.post("/v1/leads/"+out.ID+"/promote", jsonBody{"trigger": "human_qualify"}, nil); err != nil && !isConflict(err) {
+				return created, fmt.Errorf("promoting lead %s: %w", lead.Ref, err)
+			}
+			// Promotion mints a person but no employment, so the new contact
+			// belongs to nobody's company — an orphan the company page cannot
+			// show. The lead named an employer; the person inherits it.
+			if err := employPromoted(c, lead, refs); err != nil {
+				return created, fmt.Errorf("employing the promoted %s: %w", lead.FullName, err)
+			}
+		}
+	}
+	return created, nil
+}
+
+// seedDeals opens each deal and, when its target stage is terminal, advances
+// it there.
+//
+// A deal cannot be CREATED won or lost — the product refuses it outright
+// ("create open, then advance"), because winning is an event with a date and
+// a reason rather than a column you can be born in. So the two closed deals
+// are opened at the first stage and closed through the real advance, which is
+// also what puts a lost_reason on the record.
+//
+// The expected close date is constrained the same way: a deal is born open,
+// so a date already past is refused (INV-CLOSE-PAST), and the closed deals
+// carry none.
+func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+	created := 0
+	for _, deal := range cfg.Deals {
+		orgID, ok := refs.orgsByDom[strings.ToLower(deal.Company)]
+		if !ok {
+			return created, fmt.Errorf("deal %s names company %q, which is not seeded", deal.Ref, deal.Company)
+		}
+		stageID, ok := refs.stagesByNm[deal.Stage]
+		if !ok {
+			return created, fmt.Errorf("deal %s names stage %q, which this pipeline does not have", deal.Ref, deal.Stage)
+		}
+		openAt := stageID
+		if terminal := terminalStatus(deal.Stage); terminal != "" {
+			openAt = refs.stagesByNm[refs.firstStage]
+		}
+		if mode == modeDryRun {
+			created++
+			continue
+		}
+
+		existing, err := findDeal(c, deal.Name, orgID)
+		if err != nil {
+			return created, err
+		}
+		if existing != "" {
+			continue
+		}
+
+		body := jsonBody{
+			"name":            deal.Name,
+			"pipeline_id":     refs.pipelineID,
+			"stage_id":        openAt,
+			"organization_id": orgID,
+			"source":          seedSource,
+		}
+		if deal.AmountMinor > 0 {
+			body["amount_minor"] = deal.AmountMinor
+			body["currency"] = deal.Currency
+		}
+		if owner, ok := refs.usersByRef[deal.Owner]; ok {
+			body["owner_id"] = owner
+		}
+		// A deal is born open, so a close date already past is refused. A
+		// closed deal gets no date here; its close is the event that matters.
+		if deal.CloseInDays > 0 {
+			body["expected_close_date"] = refs.date(deal.CloseInDays)
+		}
+
+		var out struct {
+			ID string `json:"id"`
+		}
+		if err := c.post("/v1/deals", body, &out); err != nil {
+			return created, fmt.Errorf("deal %s: %w", deal.Ref, err)
+		}
+		created++
+
+		if terminal := terminalStatus(deal.Stage); terminal != "" {
+			advance := jsonBody{"to_stage_id": stageID, "status": terminal}
+			if terminal == "lost" {
+				// The product requires a reason for a loss, and a demo that
+				// shrugs at "why did we lose?" teaches the wrong habit.
+				reason := deal.LostReason
+				if reason == "" {
+					reason = "Kein Grund erfasst"
+				}
+				advance["lost_reason"] = reason
+			}
+			if err := c.post("/v1/deals/"+out.ID+"/advance", advance, nil); err != nil {
+				return created, fmt.Errorf("closing deal %s as %s: %w", deal.Ref, terminal, err)
+			}
+		}
+	}
+	return created, nil
+}
+
+// terminalStatus maps a stage name to the close status it represents, or ""
+// for the open stages that need no advance.
+func terminalStatus(stage string) string {
+	switch strings.ToLower(stage) {
+	case "won":
+		return "won"
+	case "lost":
+		return "lost"
+	default:
+		return ""
+	}
+}
+
+// employPromoted ties a promoted lead's person to the company the lead named.
+func employPromoted(c *client, lead demoLead, refs pipelineRefs) error {
+	orgID, ok := refs.orgsByDom[strings.ToLower(lead.Company)]
+	if !ok {
+		return nil // the lead named a company outside this dataset
+	}
+	personID, found, err := findPersonByName(c, lead.FullName)
+	if err != nil || !found {
+		return err
+	}
+	_, err = ensureEmployment(c, personID, orgID, lead.Title, false)
+	return err
+}
+
+// loadOrganizations indexes the accounts twice: by domain, which is how the
+// dataset names them, and by id with the name a document would print.
+func (r *pipelineRefs) loadOrganizations(c *client) error {
+	var orgs struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			LegalName   string `json:"legal_name"`
+			Domains     []struct {
+				Domain string `json:"domain"`
+			} `json:"domains"`
+		} `json:"data"`
+	}
+	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
+		return fmt.Errorf("listing organizations: %w", err)
+	}
+	for _, o := range orgs.Data {
+		// The legal name is what paper names as a party; the display name is
+		// what people call them, and only one of those belongs in a contract.
+		name := o.LegalName
+		if name == "" {
+			name = o.DisplayName
+		}
+		r.orgNameByID[o.ID] = name
+		for _, dom := range o.Domains {
+			r.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
+		}
+	}
+	return nil
+}
+
+// loadDeals records the id of every seeded deal, keyed by its company, so the
+// phases that point at a deal do not each re-search for it.
+func (r *pipelineRefs) loadDeals(c *client, cfg demoConfig) error {
+	for _, deal := range cfg.Deals {
+		orgID, ok := r.orgsByDom[strings.ToLower(deal.Company)]
+		if !ok {
+			continue
+		}
+		id, err := findDeal(c, deal.Name, orgID)
+		if err != nil {
+			return err
+		}
+		if id != "" {
+			key := strings.ToLower(deal.Company)
+			r.dealsByCompany[key] = append(r.dealsByCompany[key], id)
+		}
+	}
+	return nil
+}
+
+func findLeadBySource(c *client, ref string) (string, error) {
+	var page struct {
+		Data []struct {
+			ID       string `json:"id"`
+			SourceID string `json:"source_id"`
+		} `json:"data"`
+	}
+	for _, status := range []string{"new", "working"} {
+		if err := c.get("/v1/leads", url.Values{"limit": {"200"}, "status": {status}}, &page); err != nil {
+			return "", fmt.Errorf("listing %s leads: %w", status, err)
+		}
+		for _, row := range page.Data {
+			if row.SourceID == ref {
+				return row.ID, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func findDeal(c *client, name, orgID string) (string, error) {
+	var page struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	query := url.Values{"organization_id": {orgID}, "limit": {"100"}}
+	if err := c.get("/v1/deals", query, &page); err != nil {
+		return "", fmt.Errorf("listing deals for %s: %w", orgID, err)
+	}
+	for _, row := range page.Data {
+		if strings.EqualFold(row.Name, name) {
+			return row.ID, nil
+		}
+	}
+	return "", nil
+}

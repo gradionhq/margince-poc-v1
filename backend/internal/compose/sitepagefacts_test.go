@@ -9,6 +9,7 @@ package compose
 // pages, and every refusal recorded with its reason.
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -210,8 +211,8 @@ func TestGatePageFactsPeopleStayPublishedOnly(t *testing.T) {
 	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindTeam, seedURL+"/team",
 		"Anna Muster is our Chief Executive Officer and founded the automation practice. Reach her at anna@acme.example for partnership topics.")
 	reply := `{"facts":[],"people":[
-		{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","l":"https://linkedin.com/in/anna","e":"s0"},
-		{"n":"Carla Invented","r":"CTO","e":"s0"}]}`
+		{"n":"Anna Muster","r":"Chief Executive Officer","q":"Anna Muster is our Chief Executive Officer","m":"anna@acme.example","l":"https://linkedin.com/in/anna","e":"s0"},
+		{"n":"Carla Invented","r":"CTO","q":"Carla Invented, CTO","e":"s0"}]}`
 	res, dropped := gatePageFacts(reply, page, menu, idx)
 	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
 		t.Fatalf("only the published person may survive: %+v", res.people)
@@ -462,8 +463,8 @@ func TestATestimonialDoesNotBecomeALead(t *testing.T) {
 		t.Fatal("a home page still asks for people — its founders are worth having")
 	}
 	reply := `{"facts":[],"people":[
-		{"n":"Marc Costea","r":"CEO","e":"s0"},
-		{"n":"Anna Muster","r":"founder","m":"anna@acme.example","e":"s0"}]}`
+		{"n":"Marc Costea","r":"CEO","q":"Marc Costea, CEO at Qilin.Cloud","e":"s0"},
+		{"n":"Anna Muster","r":"founder","q":"Our founder Anna Muster","m":"anna@acme.example","e":"s0"}]}`
 	res, dropped := gatePageFacts(reply, page, menu, idx)
 	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
 		t.Fatalf("only the company's own contactable person survives: %+v", res.people)
@@ -479,8 +480,8 @@ func TestAPersonWithNoPublishedEmailIsNotProposed(t *testing.T) {
 	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindTeam, seedURL+"/team",
 		"Bernd Beispiel leads sales as Head of Sales. Anna Muster is our Chief Executive Officer, anna@acme.example.")
 	reply := `{"facts":[],"people":[
-		{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"},
-		{"n":"Bernd Beispiel","r":"Head of Sales","e":"s0"}]}`
+		{"n":"Anna Muster","r":"Chief Executive Officer","q":"Anna Muster is our Chief Executive Officer","m":"anna@acme.example","e":"s0"},
+		{"n":"Bernd Beispiel","r":"Head of Sales","q":"Bernd Beispiel leads sales as Head of Sales","e":"s0"}]}`
 	res, dropped := gatePageFacts(reply, page, menu, idx)
 	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
 		t.Fatalf("only the contactable person may be proposed: %+v", res.people)
@@ -506,5 +507,156 @@ func TestTheImprintIsReadForPeopleBecauseGermanLawPutsTheBoardOnIt(t *testing.T)
 	}
 	if !menu.entities {
 		t.Error("the imprint still owes the entity census its vote")
+	}
+}
+
+// A role stated ONCE over a list of officers belongs to every one of them.
+// §35a GmbHG prints exactly that, and billiger.de's imprint is the live case:
+// "Vertretungsberechtigte Geschäftsführer: Dr. Thilo Gans Bernd Vermaaten".
+func TestOneRoleLabelServesEveryOfficerListedUnderIt(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/impressum",
+		"Vertretungsberechtigte Geschaeftsfuehrer: Dr. Thilo Gans Bernd Vermaaten "+
+			"Registergericht Amtsgericht Mannheim, gans@acme.example vermaaten@acme.example.")
+	reply := `{"facts":[],"people":[
+		{"n":"Thilo Gans","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer: Dr. Thilo Gans","m":"gans@acme.example","e":"s0"},
+		{"n":"Bernd Vermaaten","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer: Dr. Thilo Gans Bernd Vermaaten","w":"Thilo Gans","m":"vermaaten@acme.example","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	got := make([]string, 0, len(res.people))
+	for _, p := range res.people {
+		got = append(got, p.Name)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"Bernd Vermaaten", "Thilo Gans"}) {
+		t.Fatalf("both officers under one label must survive: got %v, dropped %+v", got, dropped)
+	}
+}
+
+// The case every proximity rule got wrong. Both people are named in one
+// passage under their own titles, so "near" cannot separate them: Prokurist
+// is as close to Anna Muster as her own title is. Only the words between the
+// two decide it, which is what the attribution quote carries.
+func TestANameCannotTakeTheTitlePrintedForSomebodyElse(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/impressum",
+		"Geschaeftsfuehrer Anna Muster anna@acme.example Prokurist Bernd Beispiel bernd@acme.example")
+	// The only verbatim quote joining "Anna Muster" to "Prokurist" has to
+	// reach across Bernd, who holds that title.
+	reply := `{"facts":[],"people":[
+		{"n":"Anna Muster","r":"Prokurist","q":"Anna Muster anna@acme.example Prokurist Bernd Beispiel","m":"anna@acme.example","e":"s0"},
+		{"n":"Bernd Beispiel","r":"Prokurist","q":"Prokurist Bernd Beispiel","m":"bernd@acme.example","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	for _, p := range res.people {
+		if p.Name == "Anna Muster" {
+			t.Fatalf("Anna holds Geschaeftsfuehrer, not Bernd's title: %+v", p)
+		}
+	}
+	if len(res.people) != 1 || res.people[0].Name != "Bernd Beispiel" {
+		t.Fatalf("the real Prokurist must still survive: %+v", res.people)
+	}
+	if reasons := dropReasons(dropped); reasons["Anna Muster"] != dropNameRoleUnlinked {
+		t.Fatalf("Anna must drop as unlinked: %+v", dropped)
+	}
+}
+
+// The quote is checked against the page, so a role the page never ties to the
+// name cannot be smuggled in by writing a convincing sentence.
+func TestAnInventedAttributionQuoteIsRefused(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindTeam, seedURL+"/team",
+		"Anna Muster joined in 2019 and works from Berlin. Write to anna@acme.example for anything.")
+	for _, tc := range []struct{ name, quote string }{
+		{"fabricated outright", "Anna Muster, Chief Executive Officer"},
+		{"real words, invented join", "Anna Muster joined in 2019 as Chief Executive Officer"},
+		{"empty", ""},
+	} {
+		reply := fmt.Sprintf(
+			`{"facts":[],"people":[{"n":"Anna Muster","r":"Chief Executive Officer","q":%q,"m":"anna@acme.example","e":"s0"}]}`,
+			tc.quote)
+		res, dropped := gatePageFacts(reply, page, menu, idx)
+		if len(res.people) != 0 {
+			t.Fatalf("%s: a quote the page does not carry must be refused: %+v", tc.name, res.people)
+		}
+		if reasons := dropReasons(dropped); reasons["Anna Muster"] != dropNameRoleUnlinked {
+			t.Fatalf("%s: want %s, got %+v", tc.name, dropNameRoleUnlinked, dropped)
+		}
+	}
+}
+
+// The prompt asks for the WHOLE printed title, and this pins that the ask is
+// there. It is not a gate: adsmasters.de prints its team as an unpunctuated
+// run ("…Senior Amazon Account-Manager Anh Dinh Creative Amazon Designer…"),
+// so the word after any complete title is the next person's first name and no
+// text rule can tell that from a title continuing. Asking the model, which can
+// see the layout, is the check that works — a truncated role costs a wrong
+// title, never a wrong person.
+func TestThePromptAsksForTheWholePrintedTitle(t *testing.T) {
+	menu, ok := menuForKind(crmcontracts.SiteReadPageKindTeam)
+	if !ok || !menu.people {
+		t.Fatal("a team page must carry the people lane")
+	}
+	system := pageFactsSystem(menu, promptfence.New())
+	if !strings.Contains(system, "WHOLE title") {
+		t.Fatalf("the people lane must ask for the whole printed title: %q", system)
+	}
+}
+
+// The co-holder exemption must not run backwards. "Geschäftsführer Anna
+// Muster … Prokurist Bernd Beispiel" prints Bernd AFTER the Geschäftsführer
+// label too, so a rule that only asks "is this person after the label?" hands
+// him Anna's title. Anna standing between the label and Bernd is what ends
+// the list it heads.
+//
+// The claimed roles are identical here on purpose: a reply that gives
+// everybody the same wrong role leaves no second role to detect, so the
+// boundary cannot be read off the reply and has to come from the quote.
+func TestALaterPersonCannotTakeAnEarlierPersonsTitle(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/impressum",
+		"Geschaeftsfuehrer Anna Muster anna@acme.example Prokurist Bernd Beispiel bernd@acme.example")
+	reply := `{"facts":[],"people":[
+		{"n":"Bernd Beispiel","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer Anna Muster anna@acme.example Prokurist Bernd Beispiel","m":"bernd@acme.example","e":"s0"},
+		{"n":"Anna Muster","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer Anna Muster","m":"anna@acme.example","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	for _, p := range res.people {
+		if p.Name == "Bernd Beispiel" {
+			t.Fatalf("Bernd is Prokurist; Anna's title is not his to take: %+v", p)
+		}
+	}
+	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
+		t.Fatalf("the officer the label does head must survive: %+v", res.people)
+	}
+	if reasons := dropReasons(dropped); reasons["Bernd Beispiel"] != dropNameRoleUnlinked {
+		t.Fatalf("want %s, got %+v", dropNameRoleUnlinked, dropped)
+	}
+}
+
+// The declaration is checked against the rest of the reply, so buying another
+// person's title costs a self-contradiction: to hand Bernd the
+// "Geschaeftsfuehrer" label the reply must declare Anna Muster under it, and
+// the same reply then cannot report her real role or Bernd's own Prokurist
+// title.
+//
+// What this does NOT stop is a reply that mislabels Anna to match — declaring
+// her AND reporting her as Geschaeftsfuehrer. That reply is internally
+// consistent and the gate accepts Bernd. It is not reachable by a text rule:
+// on the page, "Geschaeftsfuehrer Anna … Prokurist Bernd" and an officer run
+// like "Geschaeftsfuehrer: Gans Vermaaten" are the same shape, and every
+// separator tried (punctuation, company suffixes, passage distance, repeated
+// words, quote length, companion order) accepted one only by refusing the
+// other — costing Vermaaten, the officer this gate exists to keep. Closing it
+// needs the model asked directly whether the page attributes the role, which
+// is a second call this lane does not make today.
+func TestDeclaringACompanionCostsAContradiction(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/impressum",
+		"Geschaeftsfuehrer Anna Muster anna@acme.example Prokurist Bernd Beispiel bernd@acme.example")
+	reply := `{"facts":[],"people":[
+		{"n":"Bernd Beispiel","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer Anna Muster anna@acme.example Prokurist Bernd Beispiel","w":"Anna Muster","m":"bernd@acme.example","e":"s0"},
+		{"n":"Anna Muster","r":"Geschaeftsfuehrer","q":"Geschaeftsfuehrer Anna Muster","m":"anna@acme.example","e":"s0"},
+		{"n":"Bernd Beispiel","r":"Prokurist","q":"Prokurist Bernd Beispiel","m":"bernd@acme.example","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	for _, p := range res.people {
+		if p.Name == "Bernd Beispiel" && p.Role == "Geschaeftsfuehrer" {
+			t.Fatalf("reporting Bernd's own title must sink the borrowed one: %+v", p)
+		}
+	}
+	if reasons := dropReasons(dropped); reasons["Bernd Beispiel"] == "" {
+		t.Fatalf("the borrowed-title claim must be recorded as dropped: %+v", dropped)
 	}
 }
