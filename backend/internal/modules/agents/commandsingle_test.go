@@ -25,6 +25,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -544,6 +545,47 @@ func TestTheArchiveToolRefusesARecordTypeItsOwnWritePathCannotArchive(t *testing
 			if !errors.As(err, &bad) {
 				t.Fatalf("staging an archive of %q answered %v, want a BadArgsError — an approval for it "+
 					"could never be carried out", recordType, err)
+			}
+		})
+	}
+}
+
+// Booking onto another host's calendar is the admin's alone, and the staging
+// door asks before the store does — a management or ops passport reads every
+// calendar and would otherwise spend a human's approval on a booking the
+// store can only refuse.
+func TestBookingAnotherHostStagesOnlyForAnAdmin(t *testing.T) {
+	self, host, org := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	window := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	call := func(hostID *ids.UUID) GovernedCall {
+		return NewBookMeetingCall(oneRecord(datasource.EntityOrganization, org, `{}`, 1), BookMeetingCommand{
+			HostUserID: hostID, Start: window, End: window.Add(30 * time.Minute),
+			Links: []RecordLink{{EntityType: "organization", EntityID: org}},
+		})
+	}
+	as := func(roles []string, scope principal.RowScope) context.Context {
+		return principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + self.String(), UserID: self,
+			Permissions: principal.Permissions{RoleKeys: roles, RowScope: scope},
+		})
+	}
+	cases := []struct {
+		name   string
+		ctx    context.Context
+		host   *ids.UUID
+		denied bool
+	}{
+		{"own calendar, any role", as([]string{"management"}, principal.RowScopeAll), &self, false},
+		{"no host named, any role", as([]string{"rep"}, principal.RowScopeTeam), nil, false},
+		{"another host, admin", as([]string{"admin"}, principal.RowScopeAll), &host, false},
+		{"another host, management (unbounded, not admin)", as([]string{"management"}, principal.RowScopeAll), &host, true},
+		{"another host, ops (unbounded, not admin)", as([]string{"ops"}, principal.RowScopeAll), &host, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := StageSubject(c.ctx, call(c.host))
+			if got := errors.Is(err, apperrors.ErrPermissionDenied); got != c.denied {
+				t.Fatalf("staging answered %v; want permission denied = %v", err, c.denied)
 			}
 		})
 	}
