@@ -144,6 +144,12 @@ func TestWhichHostsCountAsCustomerControlled(t *testing.T) {
 		// can change after boot, so it is refused even when it looks internal.
 		"ollama.internal":   hostIsAName,
 		"elsewhere.example": hostIsAName,
+		// A trailing dot makes a name fully qualified; it still names the same
+		// host, and `localhost.` is still the reserved loopback name.
+		"localhost.": hostIsLocal,
+		// A zone says which interface a link-local address is reached on. It
+		// cannot make that address non-local.
+		"fe80::1%eth0": hostIsLocal,
 	} {
 		if got := classifyHost(host); got != want {
 			t.Errorf("classifyHost(%q) = %s, want %s", host, verdictName(got), verdictName(want))
@@ -164,6 +170,22 @@ func TestABaseURLWithNoHostIsRefusedUnderSovereign(t *testing.T) {
 		if !strings.Contains(err.Error(), "http://127.0.0.1:11434") {
 			t.Errorf("the refusal must show the shape it wants, got %q", err)
 		}
+	}
+}
+
+// A local host behind a scheme this adapter cannot dial is not the reachable
+// local endpoint the profile was promised — it is a deployment that fails on its
+// first call with a transport error instead of at boot with a config one.
+func TestASchemeThisAdapterCannotCallIsRefusedEvenOnALocalHost(t *testing.T) {
+	for _, baseURL := range []string{"ollama://127.0.0.1:11434", "ftp://10.0.0.5:8000"} {
+		err := requireSovereignEndpoint("tier local_large", providerVLLM, baseURL)
+		if err == nil || !strings.Contains(err.Error(), "http(s)") {
+			t.Errorf("base_url %q must be refused for its scheme, got %v", baseURL, err)
+		}
+	}
+	// A bracketed IPv6 endpoint with a zone is the case this must not catch.
+	if err := requireSovereignEndpoint("tier local_large", providerVLLM, "http://[fe80::1%25eth0]:8000"); err != nil {
+		t.Errorf("a zoned link-local endpoint is local and must be accepted, got %v", err)
 	}
 }
 

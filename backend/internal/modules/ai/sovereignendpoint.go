@@ -81,6 +81,14 @@ func hostOf(baseURL string) (string, error) {
 	if host == "" {
 		return "", fmt.Errorf("base_url %q names no host; write the whole url, e.g. http://127.0.0.1:11434", baseURL)
 	}
+	// The scheme is checked HERE rather than left to the first call: a scheme
+	// this adapter cannot dial makes the endpoint unreachable, and an endpoint
+	// nothing can reach is not the local one the profile was promised — it is a
+	// deployment that fails at 3am with a transport error instead of at boot
+	// with a config one.
+	if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("base_url %q must be an http(s) url; %q is not a scheme this adapter can call", baseURL, parsed.Scheme)
+	}
 	return host, nil
 }
 
@@ -109,10 +117,16 @@ const (
 // where it pointed at boot — and a profile satisfied by an answer that can
 // change an hour later is the same false guarantee this check exists to remove.
 func classifyHost(host string) hostVerdict {
+	host = strings.TrimSuffix(host, ".") // a fully-qualified name names the same host
 	if isReservedLoopbackName(host) {
 		return hostIsLocal
 	}
-	ip := net.ParseIP(host)
+	// A zone ("fe80::1%eth0") says which interface a link-local address is
+	// reached on, and net.ParseIP does not take one. Dropped for the judgment,
+	// which is about the address: an interface cannot make a link-local address
+	// non-local.
+	address, _, _ := strings.Cut(host, "%")
+	ip := net.ParseIP(address)
 	if ip == nil {
 		return hostIsAName
 	}
