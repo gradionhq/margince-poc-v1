@@ -16,10 +16,18 @@ import (
 )
 
 type demoConfig struct {
-	Anchor       anchorCompany `json:"anchor"`
-	Teams        []demoTeam    `json:"teams"`
-	Users        []demoUser    `json:"users"`
-	UserPassword string        `json:"user_password"`
+	Anchor           anchorCompany  `json:"anchor"`
+	Teams            []demoTeam     `json:"teams"`
+	Users            []demoUser     `json:"users"`
+	UserPassword     string         `json:"user_password"`
+	Deals            []demoDeal     `json:"deals"`
+	Leads            []demoLead     `json:"leads"`
+	Activities       []demoActivity `json:"activities"`
+	Contracts        []demoContract `json:"contracts"`
+	Products         []demoProduct  `json:"products"`
+	Offers           []demoOffer    `json:"offers"`
+	Consent          []demoConsent  `json:"consent"`
+	FinanceCustomers []string       `json:"finance_customers"`
 }
 
 // anchorCompany is the installation's own company — the record that answers
@@ -109,4 +117,98 @@ func seedAnchor(c *client, anchor anchorCompany, read company, mode runMode) err
 	}
 	fmt.Printf("%-24s %-8s %s\n", anchor.Domain, outcomeNew, anchor.DisplayName+" (anchor)")
 	return nil
+}
+
+// demoDeal is one invented opportunity. Company is a domain under
+// siteresults/; Owner is a user ref. Money is in minor units, which is what
+// the API takes. CloseInDays is an offset so the demo stays current.
+type demoDeal struct {
+	Ref         string `json:"ref"`
+	Company     string `json:"company"`
+	Name        string `json:"name"`
+	Stage       string `json:"stage"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+	Owner       string `json:"owner"`
+	CloseInDays int    `json:"close_in_days"`
+	LostReason  string `json:"lost_reason"`
+}
+
+type demoLead struct {
+	Ref      string `json:"ref"`
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Title    string `json:"title"`
+	Company  string `json:"company"`
+	Status   string `json:"status"`
+	Owner    string `json:"owner"`
+	Promote  bool   `json:"promote"`
+}
+
+// demoActivity is one thing that happened on a company. DaysAgo puts it in
+// the past; DaysIn puts it in the future, which is what an open task or a
+// booked meeting is.
+type demoActivity struct {
+	Company         string `json:"company"`
+	Kind            string `json:"kind"`
+	Direction       string `json:"direction"`
+	Subject         string `json:"subject"`
+	Body            string `json:"body"`
+	DaysAgo         int    `json:"days_ago"`
+	DaysIn          int    `json:"days_in"`
+	MeetingStatus   string `json:"meeting_status"`
+	DurationSeconds int    `json:"duration_seconds"`
+	Assignee        string `json:"assignee"`
+}
+
+type demoContract struct {
+	Ref              string `json:"ref"`
+	Company          string `json:"company"`
+	Deal             string `json:"deal"`
+	Title            string `json:"title"`
+	ContractNumber   string `json:"contract_number"`
+	ValueMinor       int64  `json:"value_minor"`
+	Currency         string `json:"currency"`
+	ValueBasis       string `json:"value_basis"`
+	StartsInDays     int    `json:"starts_in_days"`
+	EndsInDays       int    `json:"ends_in_days"`
+	RenewalInDays    int    `json:"renewal_in_days"`
+	AutoRenew        bool   `json:"auto_renew"`
+	NoticePeriodDays int    `json:"notice_period_days"`
+	SignedInDays     int    `json:"signed_in_days"`
+}
+
+type demoProduct struct {
+	Ref            string `json:"ref"`
+	Name           string `json:"name"`
+	SKU            string `json:"sku"`
+	Unit           string `json:"unit"`
+	UnitPriceMinor int64  `json:"unit_price_minor"`
+	Currency       string `json:"currency"`
+	Description    string `json:"description"`
+}
+
+type demoOffer struct {
+	Ref         string          `json:"ref"`
+	Deal        string          `json:"deal"`
+	Currency    string          `json:"currency"`
+	ValidInDays int             `json:"valid_in_days"`
+	State       string          `json:"state"`
+	IntroText   string          `json:"intro_text"`
+	Lines       []demoOfferLine `json:"lines"`
+}
+
+type demoOfferLine struct {
+	Product  string `json:"product"`
+	Quantity int    `json:"quantity"`
+}
+
+// demoConsent is a consent state for one person, addressed by their position
+// in the company's accepted people list — the dataset holds real people whose
+// names may be re-read, so an index is stabler than a name copied twice.
+type demoConsent struct {
+	Company     string `json:"company"`
+	PersonIndex int    `json:"person_index"`
+	Purpose     string `json:"purpose"`
+	State       string `json:"state"`
 }

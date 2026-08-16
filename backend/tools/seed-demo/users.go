@@ -197,12 +197,20 @@ func assignRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey 
 // seedOrgWithDSN opens the one database connection this tool needs and hands
 // it to seedOrg. Kept apart from the seeding itself so the SQL exception has
 // exactly one door.
-func seedOrgWithDSN(dsn string, cfg demoConfig, mode runMode) error {
+func seedOrgWithDSN(dsn string, cfg demoConfig, orgIDs map[string]string, mode runMode) error {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("connecting for the org seed: %w", err)
 	}
 	defer func() { _ = conn.Close(ctx) }() //craft:ignore swallowed-errors closing a read-only seed connection has no failure the caller can act on
-	return seedOrg(ctx, conn, cfg, mode)
+	if err := seedOrg(ctx, conn, cfg, mode); err != nil {
+		return err
+	}
+	linked, err := seedFinanceLinks(ctx, conn, cfg, orgIDs, mode)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("finance links: %d new\n", linked)
+	return nil
 }

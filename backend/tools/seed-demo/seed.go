@@ -29,6 +29,49 @@ type counts struct {
 	links, skipped                int
 }
 
+// seedPipeline runs the phases that need companies and people to exist
+// first: leads and deals, what happened on them, what was signed and quoted,
+// and who consented to what.
+func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineRefs, mode runMode) error {
+	leads, err := seedLeads(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	deals, err := seedDeals(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	activities, err := seedActivities(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	contracts, err := seedContracts(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	products, productsNew, err := seedProducts(c, cfg, mode)
+	if err != nil {
+		return err
+	}
+	offers, err := seedOffers(c, cfg, refs, products, mode)
+	if err != nil {
+		return err
+	}
+	consents, err := seedConsent(c, cfg, companies, refs, mode)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("leads:         %d new\n", leads)
+	fmt.Printf("deals:         %d new\n", deals)
+	fmt.Printf("activities:    %d new\n", activities)
+	fmt.Printf("contracts:     %d new\n", contracts)
+	fmt.Printf("products:      %d new\n", productsNew)
+	fmt.Printf("offers:        %d new\n", offers)
+	fmt.Printf("consent:       %d recorded\n", consents)
+	return nil
+}
+
 func seed(c *client, companies []company, dryRun bool) error {
 	var total counts
 	for _, comp := range companies {

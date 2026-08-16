@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -82,6 +83,14 @@ func run() error {
 		return err
 	}
 
+	refs, err := loadPipelineRefs(client, demo, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := seedPipeline(client, demo, companies, refs, modeFor(*dryRun)); err != nil {
+		return err
+	}
+
 	if *dsn == "" {
 		*dsn = os.Getenv("MARGINCE_SEED_DSN")
 	}
@@ -89,5 +98,9 @@ func run() error {
 		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
 		return nil
 	}
-	return seedOrgWithDSN(*dsn, demo, modeFor(*dryRun))
+	orgIDs, err := orgIDsByDomain(client)
+	if err != nil {
+		return err
+	}
+	return seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun))
 }
