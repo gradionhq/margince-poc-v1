@@ -25,8 +25,11 @@ type pipelineRefs struct {
 	orgsByDom  map[string]string // company domain -> organization id
 	stagesByNm map[string]string // stage name  -> stage id
 	firstStage string            // the stage a deal is born in
-	pipelineID string
-	now        time.Time
+	// contractsByRef lets the renewal read its successor's terms: a renewal
+	// inherits nothing, so every field is restated from the dataset.
+	contractsByRef []demoContract
+	pipelineID     string
+	now            time.Time
 }
 
 // dayOffset turns a dataset offset into a date. Negative is the past.
@@ -46,10 +49,11 @@ func (r pipelineRefs) timestamp(days int) string {
 // once, so each phase is a straight write rather than a search.
 func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, error) {
 	refs := pipelineRefs{
-		usersByRef: map[string]string{},
-		orgsByDom:  map[string]string{},
-		stagesByNm: map[string]string{},
-		now:        now,
+		contractsByRef: cfg.Contracts,
+		usersByRef:     map[string]string{},
+		orgsByDom:      map[string]string{},
+		stagesByNm:     map[string]string{},
+		now:            now,
 	}
 
 	var users struct {

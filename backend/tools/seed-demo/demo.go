@@ -161,21 +161,35 @@ type demoActivity struct {
 	Assignee        string `json:"assignee"`
 }
 
+// demoContract is one agreement. Status is ASSERTED where it can be — the
+// product is explicit that a status moves because a human said so, never
+// because a date passed. Two states are not assertable and are reached by
+// doing the thing instead: Cancel records a cancellation, and RenewsInto
+// renews this contract into another in the list, which is the only way a
+// contract becomes superseded.
 type demoContract struct {
-	Ref              string `json:"ref"`
-	Company          string `json:"company"`
-	Deal             string `json:"deal"`
-	Title            string `json:"title"`
-	ContractNumber   string `json:"contract_number"`
-	ValueMinor       int64  `json:"value_minor"`
-	Currency         string `json:"currency"`
-	ValueBasis       string `json:"value_basis"`
-	StartsInDays     int    `json:"starts_in_days"`
-	EndsInDays       int    `json:"ends_in_days"`
-	RenewalInDays    int    `json:"renewal_in_days"`
-	AutoRenew        bool   `json:"auto_renew"`
-	NoticePeriodDays int    `json:"notice_period_days"`
-	SignedInDays     int    `json:"signed_in_days"`
+	Ref              string           `json:"ref"`
+	Company          string           `json:"company"`
+	Deal             string           `json:"deal"`
+	Title            string           `json:"title"`
+	ContractNumber   string           `json:"contract_number"`
+	ValueMinor       int64            `json:"value_minor"`
+	Currency         string           `json:"currency"`
+	ValueBasis       string           `json:"value_basis"`
+	StartsInDays     int              `json:"starts_in_days"`
+	EndsInDays       int              `json:"ends_in_days"`
+	RenewalInDays    int              `json:"renewal_in_days"`
+	AutoRenew        bool             `json:"auto_renew"`
+	NoticePeriodDays int              `json:"notice_period_days"`
+	SignedInDays     int              `json:"signed_in_days"`
+	Status           string           `json:"status"`
+	Cancel           *demoCancelTerms `json:"cancel"`
+	RenewsInto       string           `json:"renews_into"`
+}
+
+type demoCancelTerms struct {
+	NoticeInDays    int `json:"notice_in_days"`
+	EffectiveInDays int `json:"effective_in_days"`
 }
 
 type demoProduct struct {
