@@ -1565,17 +1565,20 @@ func (e ChangeContractStatusRequestStatus) Valid() bool {
 
 // Defines values for ChangeUserRoleRequestRole.
 const (
-	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
-	ChangeUserRoleRequestRoleManager  ChangeUserRoleRequestRole = "manager"
-	ChangeUserRoleRequestRoleOps      ChangeUserRoleRequestRole = "ops"
-	ChangeUserRoleRequestRoleReadOnly ChangeUserRoleRequestRole = "read_only"
-	ChangeUserRoleRequestRoleRep      ChangeUserRoleRequestRole = "rep"
+	ChangeUserRoleRequestRoleAdmin      ChangeUserRoleRequestRole = "admin"
+	ChangeUserRoleRequestRoleManagement ChangeUserRoleRequestRole = "management"
+	ChangeUserRoleRequestRoleManager    ChangeUserRoleRequestRole = "manager"
+	ChangeUserRoleRequestRoleOps        ChangeUserRoleRequestRole = "ops"
+	ChangeUserRoleRequestRoleReadOnly   ChangeUserRoleRequestRole = "read_only"
+	ChangeUserRoleRequestRoleRep        ChangeUserRoleRequestRole = "rep"
 )
 
 // Valid indicates whether the value is a known member of the ChangeUserRoleRequestRole enum.
 func (e ChangeUserRoleRequestRole) Valid() bool {
 	switch e {
 	case ChangeUserRoleRequestRoleAdmin:
+		return true
+	case ChangeUserRoleRequestRoleManagement:
 		return true
 	case ChangeUserRoleRequestRoleManager:
 		return true
@@ -4247,17 +4250,20 @@ func (e IngestVoiceCorpusSourceRequestRegister) Valid() bool {
 
 // Defines values for InviteUserRequestRole.
 const (
-	InviteUserRequestRoleAdmin    InviteUserRequestRole = "admin"
-	InviteUserRequestRoleManager  InviteUserRequestRole = "manager"
-	InviteUserRequestRoleOps      InviteUserRequestRole = "ops"
-	InviteUserRequestRoleReadOnly InviteUserRequestRole = "read_only"
-	InviteUserRequestRoleRep      InviteUserRequestRole = "rep"
+	InviteUserRequestRoleAdmin      InviteUserRequestRole = "admin"
+	InviteUserRequestRoleManagement InviteUserRequestRole = "management"
+	InviteUserRequestRoleManager    InviteUserRequestRole = "manager"
+	InviteUserRequestRoleOps        InviteUserRequestRole = "ops"
+	InviteUserRequestRoleReadOnly   InviteUserRequestRole = "read_only"
+	InviteUserRequestRoleRep        InviteUserRequestRole = "rep"
 )
 
 // Valid indicates whether the value is a known member of the InviteUserRequestRole enum.
 func (e InviteUserRequestRole) Valid() bool {
 	switch e {
 	case InviteUserRequestRoleAdmin:
+		return true
+	case InviteUserRequestRoleManagement:
 		return true
 	case InviteUserRequestRoleManager:
 		return true
@@ -14237,12 +14243,14 @@ type InstallationSettings struct {
 
 // InviteUserRequest Admin-supplied details for a new member. No password — the invite issues a set-password token.
 type InviteUserRequest struct {
-	DisplayName string                `json:"display_name"`
-	Email       openapi_types.Email   `json:"email"`
-	Role        InviteUserRequestRole `json:"role"`
+	DisplayName string              `json:"display_name"`
+	Email       openapi_types.Email `json:"email"`
+
+	// Role System role key (ADR-0110). Keys are wire vocabulary and diverge from the product names on purpose — `manager` displays as "Team Lead", `rep` as "Member"; `management` is the whole-organization seat that holds no admin power.
+	Role InviteUserRequestRole `json:"role"`
 }
 
-// InviteUserRequestRole defines model for InviteUserRequest.Role.
+// InviteUserRequestRole System role key (ADR-0110). Keys are wire vocabulary and diverge from the product names on purpose — `manager` displays as "Team Lead", `rep` as "Member"; `management` is the whole-organization seat that holds no admin power.
 type InviteUserRequestRole string
 
 // IssuePassportRequest defines model for IssuePassportRequest.

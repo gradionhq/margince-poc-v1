@@ -45,56 +45,57 @@ Both questions have to pass. A rep holding CRU- on deals still only reaches
 their own team's deals; a read-only auditor holding R--- reaches every deal in
 the workspace but changes none of them.
 
-## The five roles a workspace starts with
+## The six roles a workspace starts with
 
 | Role | Name in the app | Row scope |
 |---|---|---|
 | `admin` | Admin | all |
-| `manager` | Manager | team |
-| `rep` | Rep | team |
+| `management` | Management | all |
+| `manager` | Team Lead | team |
+| `rep` | Member | team |
 | `read_only` | Read-only | all |
 | `ops` | Ops / Integrations | all |
 
 ## What each role may do to each kind of record
 
-| Object | `admin` | `manager` | `rep` | `read_only` | `ops` |
-|---|---|---|---|---|---|
-| `activity` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `ai_model_rate` | CRU- | ---- | ---- | ---- | CRU- |
-| `automation` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `capture_settings` | CRU- | CR-- | CR-- | -R-- | CRU- |
-| `capture_trace` | -R-- | -R-- | ---- | ---- | -R-- |
-| `channel_connection` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `computed_field` | -R-- | -R-- | -R-- | -R-- | -R-- |
-| `contract` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `custom_field` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `deal` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `embedding_reindex` | -RU- | ---- | ---- | ---- | -RU- |
-| `finance` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `fx_rate` | CRU- | ---- | ---- | ---- | CRU- |
-| `import_run` | CRUD | ---- | ---- | ---- | CRUD |
-| `installation_settings` | -RU- | -R-- | -R-- | -R-- | -RU- |
-| `integrations` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `lead` | CRUD | CRUD | CRUD | -R-- | CRUD |
-| `license` | -R-- | ---- | ---- | ---- | -R-- |
-| `list` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `offer` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `offer_template` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `organization` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `overlay_connection` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `partner` | CRUD | CRUD | -R-- | -R-- | CRUD |
-| `person` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `pipeline` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `product` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `project` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `quota` | CRUD | -R-- | -R-- | -R-- | CRUD |
-| `relationship` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `retention_policy` | CRUD | ---- | ---- | ---- | CRUD |
-| `saved_view` | CRUD | CRUD | CRUD | CRUD | CRUD |
-| `signal` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `tag` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `voice_profile` | CRUD | CRUD | CRU- | -R-- | CRUD |
-| `webhook_subscription` | CRUD | -R-- | -R-- | -R-- | CRUD |
+| Object | `admin` | `management` | `manager` | `rep` | `read_only` | `ops` |
+|---|---|---|---|---|---|---|
+| `activity` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `ai_model_rate` | CRU- | ---- | ---- | ---- | ---- | CRU- |
+| `automation` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `capture_settings` | CRU- | CR-- | CR-- | CR-- | -R-- | CRU- |
+| `capture_trace` | -R-- | -R-- | -R-- | ---- | ---- | -R-- |
+| `channel_connection` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `computed_field` | -R-- | -R-- | -R-- | -R-- | -R-- | -R-- |
+| `contract` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `custom_field` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `deal` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `embedding_reindex` | -RU- | ---- | ---- | ---- | ---- | -RU- |
+| `finance` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `fx_rate` | CRU- | ---- | ---- | ---- | ---- | CRU- |
+| `import_run` | CRUD | ---- | ---- | ---- | ---- | CRUD |
+| `installation_settings` | -RU- | -R-- | -R-- | -R-- | -R-- | -RU- |
+| `integrations` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `lead` | CRUD | CRUD | CRUD | CRUD | -R-- | CRUD |
+| `license` | -R-- | ---- | ---- | ---- | ---- | -R-- |
+| `list` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `offer` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `offer_template` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `organization` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `overlay_connection` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `partner` | CRUD | CRUD | CRUD | -R-- | -R-- | CRUD |
+| `person` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `pipeline` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `product` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `project` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `quota` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `relationship` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `retention_policy` | CRUD | ---- | ---- | ---- | ---- | CRUD |
+| `saved_view` | CRUD | CRUD | CRUD | CRUD | CRUD | CRUD |
+| `signal` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `tag` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `voice_profile` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
+| `webhook_subscription` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
 
 ## What this page does not cover
 

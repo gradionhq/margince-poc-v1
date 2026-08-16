@@ -97,11 +97,11 @@ func TestAStatedReasonNeedsNoContractLookup(t *testing.T) {
 // so it would otherwise satisfy both the Go check and the column's CHECK.
 func TestADetailOfInvisibleCharactersIsRefused(t *testing.T) {
 	for name, detail := range map[string]string{
-		"zero-width space":   "​",
+		"zero-width space":   "\u200b",
 		"non-breaking space": " ",
 		"tab":                "\t",
 		"newline":            "\n",
-		"soft hyphen":        "­",
+		"soft hyphen":        "\u00ad",
 	} {
 		t.Run(name, func(t *testing.T) {
 			var needsDetail *WonReasonDetailRequiredError

@@ -134,7 +134,7 @@ func (s *Service) ListRoles(ctx context.Context, actor Identity) ([]roleRow, err
 // `NOT permissions->'objects' ? '<name>'` so that an operator's own edit is
 // preserved rather than clobbered. That guard only makes sense if operator
 // edits to system roles were always the expectation. Refusing them here would
-// also make the feature useless: a fresh installation has five system roles and
+// also make the feature useless: a fresh installation has six system roles and
 // nothing else, so no role could ever hold an extension grant.
 func (s *Service) SetRoleObjectGrant(ctx context.Context, actor Identity, roleKey, object string, grant storedGrant, ifVersion *int64) (roleRow, error) {
 	if !actor.hasRole(roleAdmin) {

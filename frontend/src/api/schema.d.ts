@@ -14073,8 +14073,11 @@ export interface components {
             /** Format: email */
             email: string;
             display_name: string;
-            /** @enum {string} */
-            role: "admin" | "manager" | "rep" | "read_only" | "ops";
+            /**
+             * @description System role key (ADR-0110). Keys are wire vocabulary and diverge from the product names on purpose — `manager` displays as "Team Lead", `rep` as "Member"; `management` is the whole-organization seat that holds no admin power.
+             * @enum {string}
+             */
+            role: "admin" | "management" | "manager" | "rep" | "read_only" | "ops";
         };
         /** @description A single-use set-password link, returned exactly once and never retrievable again. The server stores only the token's hash, so a lost link is re-issued, never recovered. */
         IssuePasswordLinkResponse: {
@@ -14091,7 +14094,7 @@ export interface components {
         };
         ChangeUserRoleRequest: {
             /** @enum {string} */
-            role: "admin" | "manager" | "rep" | "read_only" | "ops";
+            role: "admin" | "management" | "manager" | "rep" | "read_only" | "ops";
         };
         DeactivateUserRequest: {
             /** @description Optional operator note that rides the user.deactivated event. */

@@ -219,13 +219,15 @@ func TestNoSeededRoleGrantsAWriteWithoutRead(t *testing.T) {
 	}
 }
 
-// An unbounded row scope is held by three roles, and it is therefore not a
+// An unbounded row scope is held by four roles, and it is therefore not a
 // stand-in for "admin". Gates that conflated the two handed workspace-wide
 // governance reads to ops and read_only, so the set is pinned here: a role
 // gaining or losing `all` changes who those gates admit, and that has to be a
-// deliberate edit rather than a side effect nobody sees.
-func TestExactlyThreeSeededRolesAreUnbounded(t *testing.T) {
-	want := map[string]bool{"admin": true, "ops": true, "read_only": true}
+// deliberate edit rather than a side effect nobody sees. management (ADR-0110)
+// is the newest of the four and the sharpest case: it is manager's grid over
+// every row, and holds no governance authority at all.
+func TestExactlyFourSeededRolesAreUnbounded(t *testing.T) {
+	want := map[string]bool{"admin": true, "ops": true, "management": true, "read_only": true}
 	for roleKey, doc := range defaults {
 		unbounded := doc.RowScope == principal.RowScopeAll
 		if unbounded != want[roleKey] {

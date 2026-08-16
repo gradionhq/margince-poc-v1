@@ -111,7 +111,11 @@ var backfilledObjects = []rbacBackfill{
 	},
 }
 
-// systemRoleKeys are the five seeded role keys every backfill targets.
+// systemRoleKeys are the five seeded role keys every backfill in this table
+// targets. management (0268) is not among them: it ships with its whole
+// document and no backfill predates it, so nothing here has it to repair. A
+// backfill added after 0268 targets six roles and belongs in a table that says
+// so.
 var systemRoleKeys = []string{"admin", "ops", "manager", "rep", "read_only"}
 
 // alteredGrant is deliberately unlike every seeded default, so a fixture row

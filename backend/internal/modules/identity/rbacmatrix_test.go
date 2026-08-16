@@ -5,7 +5,7 @@ package identity
 
 // docs/reference/rbac-matrix.md is where someone who cannot read Go — an
 // auditor, a customer's security reviewer, whoever signs off the deployment —
-// finds out what the five seeded roles permit. A table maintained by hand is a
+// finds out what the six seeded roles permit. A table maintained by hand is a
 // claim about the code and ages into a lie; this one is rendered from the
 // documents the server seeds and re-checked on every unit pass, so the
 // published page is the permissions rather than a description of them.
@@ -69,7 +69,7 @@ func renderRBACMatrix(documents map[string]roleDocument) []byte {
 // from the widest authority to the narrowest — the order someone reads a
 // permission table in.
 func writeRoleTable(page *strings.Builder, documents map[string]roleDocument) {
-	page.WriteString("## The five roles a workspace starts with\n\n")
+	page.WriteString("## The six roles a workspace starts with\n\n")
 	page.WriteString("| Role | Name in the app | Row scope |\n|---|---|---|\n")
 	for _, role := range systemRoles {
 		page.WriteString("| `" + role.key + "` | " + role.name + " | " +

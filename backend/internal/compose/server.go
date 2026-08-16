@@ -3,11 +3,10 @@
 
 package compose
 
-// The contract HTTP surface: module transport handlers, aggregated by
-// embedding (the Server struct below is the inventory), together cover
-// every operation crmcontracts.ServerInterface declares. The chassis
-// (headers, correlation, panic recovery) is platform/httpserver; what
-// lives here is the wiring.
+// The contract HTTP surface: module transport handlers, aggregated by embedding
+// (the Server struct below is the inventory), together cover every operation
+// crmcontracts.ServerInterface declares. The chassis (headers, correlation,
+// panic recovery) is platform/httpserver; what lives here is the wiring.
 
 import (
 	"context"
