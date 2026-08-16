@@ -273,34 +273,45 @@ const traceRowColumns = `t.id, t.stage, t.connector, t.outcome, coalesce(t.reaso
 // not depend on a diagnostic posture.
 //
 // A channel row reports a verdict only when the LADDER ITSELF opened the
-// question, and the outcome is what says so.
+// question, and the OUTCOME is what says so, because the transport cannot.
+// kind='message' forces channel_provider non-null for every channel record, so
+// that column says "this arrived on a channel" and never which ladder decided
+// it — while two records that differ exactly there both reach this join. One
+// names its human by a channel identity and takes decideChannelCounterparty,
+// which writes no ledger row at all; an address riding along as corroboration
+// must not make it inherit a mail verdict raised by somebody else's message.
+// The other names its human by an ADDRESS alone — a mention, where the address
+// IS the identity — runs the mail ladder like any mail, and defers a question
+// that is its own to answer.
 //
-// Two different channel messages reach this join, and the transport cannot tell
-// them apart. One names its human by a channel identity: it takes
-// decideChannelCounterparty, which writes no ledger row at all, so an address
-// riding along as corroboration would otherwise make it inherit whatever mail
-// verdict exists for that human — telling a member their captured, linked and
-// answered conversation is "waiting on a verdict". The other names its human by
-// an ADDRESS alone (a mention, where the address IS the identity): it runs the
-// mail ladder like any mail, and the row it defers is its own. Guarding on
-// activity.channel_provider refused both, because kind='message' forces that
-// column non-null for every channel record — so the second kind read "waiting on
-// a verdict" permanently, after its verdict had landed.
-//
-// `deferred` and `suppressed` are the outcomes the ladder records a disposition
-// for, so they are exactly the rows with a question of their own. A
-// channel-identity record traces neither. Mail is unguarded: a `captured` row
-// carrying noise_prior or decided_prior is reporting a settled PRIOR verdict,
-// which is the answer to "why did this not appear?".
+// LadderDispositionOutcomes is therefore the discriminator, and it holds only
+// while a channel-identity record traces none of them. That is a property of a
+// module this query cannot see, so it is gated where the writer is:
+// TestChannelRecordSkipsEveryMailDomainGate drives the real Sink and asserts
+// the outcome. Mail is unguarded, so a `captured` row carrying noise_prior or
+// decided_prior still reports the settled PRIOR verdict that explains it.
 //
 // BOTH joins carry the workspace, and that is not belt-and-braces: there is no
 // RLS on these tables since 0217, an address is not unique across tenants, and
 // an unscoped `d.email = a.counterparty_email` would answer with ANOTHER
 // workspace's verdict about the same person.
-// Spelled from the TraceOutcome constants rather than as SQL literals, because
-// the two must mean the same thing: an outcome renamed in Go while the string
-// here stayed put would leave the join silently answering for no rows.
-var resolutionJoin = fmt.Sprintf(`
+//
+// The widened arm additionally requires a MEMBER, which keeps it on the
+// personal side of the read. `a.channel_provider IS NULL` used to make that
+// structural: a workspace-owned row could not reach the ledger through it at
+// all. An outcome does not carry that property, so it is stated. A ledger row's
+// owner_id is an individual, and ListWorkspace is the scope a manager holds a
+// grant for — so without this, the day a workspace-owned binding emits an
+// address-named record, that grant would start answering with dispositions
+// raised by one member's own correspondence. A workspace row losing a verdict
+// it could have shown is a gap on a screen; the other direction is a member's
+// mail becoming readable by their manager.
+//
+// The outcome list is spelled as SQL literals so both queries stay compile-time
+// constants; TestTheResolutionJoinSpellsEveryLadderDispositionOutcome holds the
+// literals equal to LadderDispositionOutcomes, so a tier that starts recording a
+// disposition cannot join that list and leave this join behind.
+const resolutionJoin = `
 		  LEFT JOIN activity a
 		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
 		  LEFT JOIN LATERAL (
@@ -308,9 +319,11 @@ var resolutionJoin = fmt.Sprintf(`
 		           FROM capture_pending_counterparty
 		          WHERE workspace_id = t.workspace_id
 		            AND email = a.counterparty_email
-		            AND (a.channel_provider IS NULL OR t.outcome IN ('%s', '%s'))
+		            AND (a.channel_provider IS NULL
+		                 OR (t.user_id IS NOT NULL
+		                     AND t.outcome IN ('deferred', 'suppressed')))
 		          ORDER BY resolved_at DESC NULLS FIRST
-		          LIMIT 1) d ON true`, TraceDeferred, TraceSuppressed)
+		          LIMIT 1) d ON true`
 
 func scanTraceRow(rows pgx.Rows) (TraceRow, error) {
 	var row TraceRow

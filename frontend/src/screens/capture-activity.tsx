@@ -270,6 +270,23 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
 // It filters the rows already LOADED, not the window, so the count line beside
 // it says both numbers. A filter that silently showed 12 of 26 would be a worse
 // answer than no filter at all.
+// A bucket counts every message that met an outcome, so its label has to hold
+// for all of them at once.
+//
+// Four of the five already do. `deferred` does not: the funnel groups by
+// outcome alone, with no ledger join, so one number covers the senders still
+// being judged AND the ones already answered — and "Waiting on a verdict — 31"
+// over rows that each say the verdict landed is the same contradiction the row
+// avoids, one level up and louder, because the strip is what a reader sees
+// first. What every message in the bucket has in common is that the ladder sent
+// it for a verdict, so that is what the bucket says.
+//
+// The ROW keeps the tense: there it is one message, and whether that one is
+// still waiting is knowable and worth saying.
+function funnelLabel(outcome: Outcome): Outcome | "deferred_sent" {
+  return outcome === "deferred" ? "deferred_sent" : outcome;
+}
+
 function CaptureFunnel({
   funnel,
   selected,
@@ -291,7 +308,7 @@ function CaptureFunnel({
           onClick={() => onSelect(selected === outcome ? null : outcome)}
         >
           <StatCard
-            label={t(`captureActivity.outcome.${outcome}`)}
+            label={t(`captureActivity.outcome.${funnelLabel(outcome)}`)}
             // Zero is a reading, not an absence: "no message was dropped as
             // internal today" is exactly what somebody comes here to confirm.
             value={String(funnel[outcome] ?? 0)}
@@ -383,14 +400,14 @@ function CaptureEntryOutcome({ entry }: Readonly<{ entry: TraceEntry }>) {
 function deferralLabel(
   entry: TraceEntry,
   reason: KnownReason | null,
-): "deferred" | "deferred_capped" | "deferred_settled" {
+): "deferred" | "deferred_capped" | "deferred_sent" {
   if (reason === "deferral_capped") {
     return "deferred_capped";
   }
   if (!entry.resolution || entry.resolution.status === "pending") {
     return "deferred";
   }
-  return "deferred_settled";
+  return "deferred_sent";
 }
 
 // What the row can honestly show about the message itself.

@@ -86,6 +86,16 @@ func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
 	stage pipelinetrace.Stage, outcome TraceOutcome, reason string,
 ) TraceEntry {
 	_, owner := capturePrincipal(ctx)
+	// Read from the COUNTERPARTY on purpose, unlike traceConnector below, and
+	// the two are not inconsistent: this flag does not ask whether the message
+	// arrived on a channel, it asks whether SourceID is a provider ACCOUNT id
+	// that has to be hashed. Which is a question about how the record names its
+	// human. Do not "correct" it to match its neighbour.
+	//
+	// It is imperfect — a connector whose natural key is a message id on BOTH
+	// branches has one branch hashed and one not (issue #1465) — but the error
+	// is toward hashing, and the fix belongs with the natural key rather than
+	// here.
 	channel := rec.Counterparty.ChannelIdentity.Provider != ""
 	return TraceEntry{
 		Stage:           stage,
@@ -110,13 +120,12 @@ func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
 //
 // The provider is read from the RECORD's own fields — the value that becomes
 // activity.channel_provider — and not from the counterparty's channel identity.
-// They are different questions: one is how the message travelled, the other is
-// how it names its human. A connector that names a human by address alone (a
-// mention, where the address IS the identity) carries no channel identity, so
-// reading the transport off the counterparty spelled the SAME connector two
-// ways in one list — `dispact` for its direct messages and
-// `ext:dispact-connector:dispact` for its mentions — and only the first
-// resolved to a label.
+// They are different questions: how the message travelled, versus how it names
+// its human. A connector may answer the second with an address alone (a
+// mention, where the address IS the identity) while carrying every message on
+// the same transport, so a counterparty-derived answer gives one connector two
+// ids, splits it into two groups in a list that groups by connector, and leaves
+// one of them unresolvable to a label.
 //
 // Not captureSource: that is the provenance CHANNEL, and a connector may set it
 // to `<system>:<id>` — several do — so it identifies one message rather than the

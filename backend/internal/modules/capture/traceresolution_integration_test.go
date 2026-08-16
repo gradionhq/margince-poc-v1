@@ -24,40 +24,71 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 )
 
+// seededRecord names one message to seed, as the sink would have written it.
+//
+// The OUTCOME is part of the shape because it is what the read keys on, and the
+// two channel shapes differ by exactly it: a record named by a channel identity
+// takes decideChannelCounterparty, which opens no ledger question and so traces
+// `captured`, while a record named by an address alone runs the mail ladder and
+// can defer. So a channel row seeded `deferred` is a mention and one seeded
+// `captured` is a direct message — the sink produces no other pairing, which
+// TestChannelRecordSkipsEveryMailDomainGate holds through the real writer.
+type seededRecord struct {
+	// SourceID is the message's natural key half, and the test's handle on it.
+	SourceID string
+	Sender   string
+	// Transport is the channel provider, or empty for mail. It decides the
+	// activity's kind, its source system and the trace's connector together —
+	// a telegram-carried message with gmail's source system is a row no
+	// connector writes, and this seed exists to write rows they do.
+	Transport string
+	Outcome   capture.TraceOutcome
+	// Ledger writes the disposition this message's sender raised. Only the
+	// first message from an address carries one: the ledger keeps one open
+	// question per address, and later messages join it.
+	Ledger bool
+	// Verdict is the status that disposition settled at, defaulting to `real`.
+	// A T2 suppression records its own answer rather than a judged one, so the
+	// two ladder outcomes that reach the join do not share a status.
+	Verdict string
+}
+
+// verdict is the disposition status to seed, defaulting to a judged sender.
+func (r seededRecord) verdict() string {
+	if r.Verdict == "" {
+		return "real"
+	}
+	return r.Verdict
+}
+
+// sourceSystem is the system the connector for this transport would name.
+func (r seededRecord) sourceSystem() string {
+	if r.Transport == "" {
+		return "gmail"
+	}
+	return r.Transport
+}
+
 // seedDeferredMessage writes a MAIL activity from one sender, a trace row for
 // it, and (on the first call for that address) the ledger's open question.
 func seedDeferredMessage(ctx context.Context, t *testing.T, db *database.DB,
 	owner ids.UUID, sourceID, sender string, withLedger bool,
 ) {
 	t.Helper()
-	seedDeferredRecord(ctx, t, db, owner, sourceID, sender, "", withLedger)
+	seedRecord(ctx, t, db, owner, seededRecord{
+		SourceID: sourceID, Sender: sender,
+		Outcome: capture.TraceDeferred, Ledger: withLedger,
+	})
 }
 
-// seedDeferredRecord is seedDeferredMessage with the transport named: empty
-// lands a mail record, a provider lands a message on that channel.
-func seedDeferredRecord(ctx context.Context, t *testing.T, db *database.DB,
-	owner ids.UUID, sourceID, sender, channelProvider string, withLedger bool,
+// seedRecord writes one activity, its trace row, and optionally the ledger's
+// question about its sender.
+func seedRecord(ctx context.Context, t *testing.T, db *database.DB,
+	owner ids.UUID, rec seededRecord,
 ) {
 	t.Helper()
-	seedTracedRecord(ctx, t, db, owner, sourceID, sender, channelProvider,
-		capture.TraceDeferred, withLedger)
-}
-
-// seedTracedRecord writes one activity, its trace row, and optionally the
-// ledger's question about its sender.
-//
-// The OUTCOME is a parameter because it is what the read keys on, and the two
-// channel shapes differ by exactly it: a record named by a channel identity
-// takes decideChannelCounterparty, which opens no ledger question and so traces
-// `captured`, while a record named by an address alone runs the mail ladder and
-// can defer. Seeding a channel row as `deferred` would be a shape the sink
-// cannot produce, which is how the guard this replaced came to refuse a verdict
-// that had already landed.
-func seedTracedRecord(ctx context.Context, t *testing.T, db *database.DB,
-	owner ids.UUID, sourceID, sender, channelProvider string,
-	outcome capture.TraceOutcome, withLedger bool,
-) {
-	t.Helper()
+	sourceID, sender, channelProvider := rec.SourceID, rec.Sender, rec.Transport
+	system := rec.sourceSystem()
 	activityID := ids.NewV7()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// The ledger's owner is a foreign key: a dangling one would make this a
@@ -74,33 +105,29 @@ func seedTracedRecord(ctx context.Context, t *testing.T, db *database.DB,
 			                      source_id, source, captured_by, counterparty_email)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        CASE WHEN $4 = '' THEN 'note' ELSE 'message' END, NULLIF($4, ''),
-			        now(), 'gmail', $2, 'gmail', 'connector:gmail', $3)`,
-			activityID, sourceID, sender, channelProvider); err != nil {
+			        now(), $5, $2, $5, 'connector:' || $5, $3)`,
+			activityID, sourceID, sender, channelProvider, system); err != nil {
 			return err
 		}
-		if withLedger {
+		if rec.Ledger {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO capture_pending_counterparty
 				       (workspace_id, email, domain, activity_id, owner_id, status, kind, resolved_at)
 				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				        $1, 'client.io', $2, $3, 'real', 'person', now())`,
-				sender, activityID, owner); err != nil {
+				        $1, 'client.io', $2, $3, $4, 'person', now())`,
+				sender, activityID, owner, rec.verdict()); err != nil {
 				return err
 			}
 		}
 		// The connector names the TRANSPORT, which is what the sink writes: a
 		// channel record answers with its provider, mail with its source system.
-		transport := "gmail"
-		if channelProvider != "" {
-			transport = channelProvider
-		}
 		return capture.Trace(ctx, tx, capture.TraceEntry{
 			Stage:  pipelinetrace.StageTierLadder,
-			UserID: owner, Connector: transport, SourceSystem: "gmail", SourceID: sourceID,
-			Outcome: outcome, ActivityID: activityID,
+			UserID: owner, Connector: system, SourceSystem: system, SourceID: sourceID,
+			Outcome: rec.Outcome, ActivityID: activityID,
 		}, false)
 	}); err != nil {
-		t.Fatalf("seeding a deferred message: %v", err)
+		t.Fatalf("seeding a traced record: %v", err)
 	}
 }
 
@@ -150,8 +177,12 @@ func TestACapturedChannelRecordInheritsNoMailVerdict(t *testing.T) {
 	memberCtx := memberContext(ctx, ws, me)
 	const sender = "both.media@client.io"
 
-	seedDeferredRecord(memberCtx, t, db, me, "m-1", sender, "", true)
-	seedTracedRecord(memberCtx, t, db, me, "c-1", sender, "telegram", capture.TraceCaptured, false)
+	seedRecord(memberCtx, t, db, me, seededRecord{
+		SourceID: "m-1", Sender: sender, Outcome: capture.TraceDeferred, Ledger: true,
+	})
+	seedRecord(memberCtx, t, db, me, seededRecord{
+		SourceID: "c-1", Sender: sender, Transport: "telegram", Outcome: capture.TraceCaptured,
+	})
 
 	entries := entriesByConnector(memberCtx, t, store, 2)
 	if entries["gmail"].Resolution == nil {
@@ -166,11 +197,11 @@ func TestACapturedChannelRecordInheritsNoMailVerdict(t *testing.T) {
 // like any mail: the question it defers is its own, and the answer is its own
 // to report.
 //
-// This is the case a guard on activity.channel_provider could not express.
-// kind='message' forces that column non-null for every channel record, so
-// guarding on it refused the address-named ones too — and since nothing ever
-// clears a trace's verdict, they read "waiting on a verdict" for the whole
-// 24-hour window after their verdict had landed.
+// The transport cannot express this. kind='message' forces channel_provider
+// non-null for every channel record, so it says only "this arrived on a
+// channel" — never which ladder decided the record. A read that keys on it
+// leaves these messages claiming to wait for an answer they already have, for
+// as long as the window keeps them.
 func TestAnAddressNamedChannelMessageCarriesItsOwnVerdict(t *testing.T) {
 	ctx, ws, db, store := traceReadWorkspace(t)
 	me := ids.NewV7()
@@ -179,8 +210,14 @@ func TestAnAddressNamedChannelMessageCarriesItsOwnVerdict(t *testing.T) {
 
 	// The first mention raised the question; the second is the same sender
 	// again, joining it.
-	seedDeferredRecord(memberCtx, t, db, me, "x-1", sender, "telegram", true)
-	seedDeferredRecord(memberCtx, t, db, me, "x-2", sender, "telegram", false)
+	seedRecord(memberCtx, t, db, me, seededRecord{
+		SourceID: "x-1", Sender: sender, Transport: "telegram",
+		Outcome: capture.TraceDeferred, Ledger: true,
+	})
+	seedRecord(memberCtx, t, db, me, seededRecord{
+		SourceID: "x-2", Sender: sender, Transport: "telegram",
+		Outcome: capture.TraceDeferred,
+	})
 
 	for _, entry := range traceEntries(memberCtx, t, store, 2) {
 		if entry.Resolution == nil {
@@ -190,6 +227,34 @@ func TestAnAddressNamedChannelMessageCarriesItsOwnVerdict(t *testing.T) {
 		if entry.Resolution.Status != "real" {
 			t.Errorf("resolution = %q, want the ledger's answer", entry.Resolution.Status)
 		}
+	}
+}
+
+// The OTHER ladder outcome that records a disposition reports it too.
+//
+// `deferred` and `suppressed` are both in LadderDispositionOutcomes, and the
+// join admits both. Only one of them being exercised would leave half the
+// predicate resting on the other half's test — and the two arms differ in more
+// than a string: a T2 suppression settles at `suppressed` rather than at a
+// judged verdict, so a read that reached only the judged statuses would look
+// correct here and report nothing in production.
+func TestAnAddressNamedChannelSuppressionCarriesItsOwnDisposition(t *testing.T) {
+	ctx, ws, db, store := traceReadWorkspace(t)
+	me := ids.NewV7()
+	memberCtx := memberContext(ctx, ws, me)
+	const sender = "noreply@sendgrid.test"
+
+	seedRecord(memberCtx, t, db, me, seededRecord{
+		SourceID: "s-1", Sender: sender, Transport: "telegram",
+		Outcome: capture.TraceSuppressed, Ledger: true, Verdict: "suppressed",
+	})
+
+	entries := traceEntries(memberCtx, t, store, 1)
+	if entries[0].Resolution == nil {
+		t.Fatal("a suppressed mention reports no disposition — the registry recorded one against this address")
+	}
+	if got := entries[0].Resolution.Status; got != "suppressed" {
+		t.Errorf("resolution = %q, want the suppression the registry recorded", got)
 	}
 }
 

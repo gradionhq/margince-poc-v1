@@ -59,6 +59,17 @@ const (
 	TraceFault      TraceOutcome = "fault"
 )
 
+// LadderDispositionOutcomes are the outcomes the tier ladder records a
+// disposition ledger row for. They are the rows with a question of their own,
+// which is what lets the trace read report a verdict to a message that raised
+// one and to no other.
+//
+// Named here, beside the outcomes themselves, because two places have to agree
+// about the list and they are in different files: the read's join
+// (tracestore.go) and the ladder that writes them (sinkensure.go). A tier that
+// starts recording a disposition joins this list, and the read follows.
+var LadderDispositionOutcomes = []TraceOutcome{TraceDeferred, TraceSuppressed}
+
 // The reasons that change what an outcome MEANS, rather than merely annotating
 // it. Each of these exists because the outcome alone would give a user a
 // confident wrong answer.

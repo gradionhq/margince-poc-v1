@@ -124,10 +124,9 @@ func TestAChannelSourceIdHashesToItselfEveryTime(t *testing.T) {
 // by and what /v1/channel-providers resolves to a label, so a connector that
 // answers two ways appears as two connectors and only one of them has a name.
 //
-// Reading the provider off the COUNTERPARTY is what split it: a channel record
-// that names its human by address alone carries no channel identity, so the
-// same connector's mentions fell through to the raw source system while its
-// direct messages answered with the provider.
+// The two records below differ only in how they name their human — an account
+// on one, an address on the other — which is the axis that must NOT reach this
+// answer. They arrived on the same transport.
 func TestOneTransportIsSpelledOneWay(t *testing.T) {
 	channelRecord := func(cp connector.Counterparty) connector.NormalizedRecord {
 		return connector.NormalizedRecord{
@@ -155,6 +154,39 @@ func TestOneTransportIsSpelledOneWay(t *testing.T) {
 	}
 	if got, want := traceConnector(mail), "gmail"; got != want {
 		t.Errorf("mail names connector %q, want %q", got, want)
+	}
+}
+
+// The join's outcome list and LadderDispositionOutcomes are one list.
+//
+// The SQL spells its literals so both queries stay compile-time constants, so
+// nothing but this makes the two agree. A tier that starts recording a
+// disposition joins the Go list and is then invisible to the read — its
+// messages would report no verdict, which is the bug the list exists to
+// prevent, in a new place.
+func TestTheResolutionJoinSpellsEveryLadderDispositionOutcome(t *testing.T) {
+	for _, outcome := range LadderDispositionOutcomes {
+		if !strings.Contains(resolutionJoin, "'"+string(outcome)+"'") {
+			t.Errorf("the resolution join does not name %q — a message with that outcome would report no verdict", outcome)
+		}
+	}
+	// And nothing BEYOND the list: an outcome added to the SQL alone widens what
+	// the join discloses with no Go declaration saying it should.
+	for _, outcome := range []TraceOutcome{TraceCaptured, TraceInternal, TraceFault} {
+		if strings.Contains(resolutionJoin, "'"+string(outcome)+"'") {
+			t.Errorf("the resolution join names %q, which records no disposition", outcome)
+		}
+	}
+}
+
+// The widened arm stays on the personal side of the read.
+//
+// A ledger row's owner is an individual member, and the workspace scope is the
+// one a manager holds a grant for. The mail arm is structurally personal
+// already; this one has to say so.
+func TestTheWidenedResolutionArmRequiresAMember(t *testing.T) {
+	if !strings.Contains(resolutionJoin, "t.user_id IS NOT NULL") {
+		t.Error("the widened arm does not require a member — a workspace-owned row could report a verdict raised by one member's own correspondence")
 	}
 }
 

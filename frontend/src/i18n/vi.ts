@@ -3844,7 +3844,7 @@ export const vi = {
   "captureActivity.reason.transactional_prefix":
     "người gửi trông như trình gửi tự động, không phải một người",
   "captureActivity.outcome.deferred_capped": "Chưa xếp hàng",
-  "captureActivity.outcome.deferred_settled": "Đã gửi để phân định",
+  "captureActivity.outcome.deferred_sent": "Đã gửi để phân định",
   "captureActivity.resolution.pending": "vẫn đang chờ",
   "captureActivity.resolution.unsure": "đã gửi vào hàng chờ duyệt",
   "captureActivity.resolution.real": "được xem là liên hệ thật",

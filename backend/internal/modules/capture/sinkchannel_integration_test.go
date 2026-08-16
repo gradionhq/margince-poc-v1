@@ -143,6 +143,37 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 		t.Fatalf("%d disposition rows for a channel record, want 0", dispositions)
 	}
 
+	// The trace says `captured`, and the trace READ depends on it.
+	//
+	// A channel-identity record opens no ledger question, so it must never
+	// report one — the join in tracestore.go decides that by the outcome, on the
+	// strength of this record never being traced `deferred` or `suppressed`.
+	// That is a property of decideChannelCounterparty three files away, and the
+	// read has no way to check it. Asserted HERE, through the real Sink, so a
+	// change that gave a channel record a deferral fails on the trace row it
+	// writes rather than by silently telling a member that their captured,
+	// linked and answered conversation is waiting on a verdict.
+	var outcomes []string
+	traceRows, err := owner.Query(ctx,
+		`SELECT outcome FROM capture_trace WHERE workspace_id = $1 ORDER BY outcome`, ws)
+	if err != nil {
+		t.Fatalf("reading the pipeline trace: %v", err)
+	}
+	defer traceRows.Close()
+	for traceRows.Next() {
+		var outcome string
+		if err := traceRows.Scan(&outcome); err != nil {
+			t.Fatalf("scanning a trace row: %v", err)
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	if err := traceRows.Err(); err != nil {
+		t.Fatalf("draining the pipeline trace: %v", err)
+	}
+	if len(outcomes) != 1 || outcomes[0] != "captured" {
+		t.Fatalf("channel record traced %v, want exactly [captured] — an outcome the ladder records a disposition for would make this record inherit a verdict it never raised", outcomes)
+	}
+
 	// And no gate breadcrumb of any kind — a suppression, a deferral cap, or a
 	// gate fault would each be a mail gate having judged this message.
 	var breadcrumbs []string
