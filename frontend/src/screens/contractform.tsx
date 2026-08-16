@@ -1,9 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { type DragEvent, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
-import { MoneyInput } from "../design-system/moneyinput";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
@@ -19,6 +18,7 @@ import { throwProblem } from "./common";
 // and leaves that state through its own transition, so a correction to a term
 // can never silently activate a contract.
 
+type Contract = components["schemas"]["Contract"];
 type ValueBasis = NonNullable<
   components["schemas"]["CreateContractRequest"]["value_basis"]
 >;
@@ -53,31 +53,51 @@ const EMPTY_DRAFT: ContractDraft = {
 
 export function ContractForm({
   orgId,
+  contract,
   open,
   onClose,
-}: Readonly<{ orgId: string; open: boolean; onClose: () => void }>) {
+}: Readonly<{
+  orgId: string;
+  contract?: Contract;
+  open: boolean;
+  onClose: () => void;
+}>) {
   const t = useT();
   const titleId = useId();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ContractDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<ContractDraft>(draftOf(contract));
+  const [file, setFile] = useState<File | undefined>();
+
+  // Re-seed when the modal opens on a DIFFERENT agreement. Without this the
+  // form keeps the previous row's values, and a reader correcting the second
+  // contract they clicked would be editing the first one's numbers.
+  useEffect(() => {
+    if (open) {
+      setDraft(draftOf(contract));
+      setFile(undefined);
+    }
+  }, [open, contract]);
 
   // The draft is a VARIABLE, never a closure over render state: a click that
   // lands before React re-arms the mutation's options would otherwise submit
   // the previous render's form — choices nobody made.
-  const create = useMutation({
-    mutationFn: async (submitted: ContractDraft) => {
-      const { data, error } = await api.POST("/contracts", {
-        body: contractBody(orgId, submitted),
-      });
-      if (error) {
-        throwProblem(error);
+  const save = useMutation({
+    mutationFn: async (submitted: { draft: ContractDraft; file?: File }) => {
+      const id = contract
+        ? await patchContract(contract, submitted.draft)
+        : await createContract(orgId, submitted.draft);
+      if (submitted.file) {
+        // A SECOND request, which can fail on its own. The agreement is saved
+        // by then, so a failure here says the FILE did not attach rather than
+        // implying the whole thing was lost.
+        await uploadSignedFile(orgId, id, submitted.file);
       }
-      return data;
+      return id;
     },
     onSuccess: () => {
-      setDraft(EMPTY_DRAFT);
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
       queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["orgDocuments", orgId] });
       onClose();
     },
   });
@@ -86,7 +106,9 @@ export function ContractForm({
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={titleId}>
-      <h2 id={titleId}>{t("contracts.form.title")}</h2>
+      <h2 id={titleId}>
+        {t(contract ? "contracts.form.editTitle" : "contracts.form.title")}
+      </h2>
 
       <Field label={t("contracts.form.name")} required>
         {(props) => (
@@ -112,10 +134,18 @@ export function ContractForm({
 
       <Field label={t("contracts.form.value")}>
         {(props) => (
-          <MoneyInput
+          <TextInput
             {...props}
-            valueMinor={draft.valueMinor}
-            onChangeMinor={(minor) => setDraft({ ...draft, valueMinor: minor })}
+            type="number"
+            min={0}
+            step="0.01"
+            value={draft.valueMinor === 0 ? "" : draft.valueMinor / 100}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                valueMinor: Math.round(Number(e.target.value || 0) * 100),
+              })
+            }
           />
         )}
       </Field>
@@ -209,9 +239,11 @@ export function ContractForm({
         )}
       </Field>
 
-      {create.error && (
+      <SignedFileField file={file} onPick={setFile} />
+
+      {save.error && (
         <p className="t-caption" role="alert">
-          {create.error.message}
+          {save.error.message}
         </p>
       )}
 
@@ -223,14 +255,160 @@ export function ContractForm({
         <Button
           variant="primary"
           reason={invalid ? t(invalid) : undefined}
-          disabled={create.isPending || invalid !== null}
-          onClick={() => create.mutate(draft)}
+          disabled={save.isPending || invalid !== null}
+          onClick={() => save.mutate({ draft, file })}
         >
-          {t("contracts.form.save")}
+          {t(contract ? "contracts.form.saveEdit" : "contracts.form.save")}
         </Button>
       </div>
     </Modal>
   );
+}
+
+// draftOf reads an existing agreement back into the form's shape, so correcting
+// one starts from what is recorded rather than from a blank the reader has to
+// retype — and might get wrong a second time.
+function draftOf(contract: Contract | undefined): ContractDraft {
+  if (!contract) {
+    return EMPTY_DRAFT;
+  }
+  return {
+    title: contract.title,
+    contractNumber: contract.contract_number ?? "",
+    valueMinor: contract.value_minor ?? 0,
+    currency: contract.currency ?? "EUR",
+    valueBasis: contract.value_basis as ValueBasis,
+    startsOn: contract.starts_on ?? "",
+    endsOn: contract.ends_on ?? "",
+    renewalOn: contract.renewal_on ?? "",
+    noticePeriodDays:
+      contract.notice_period_days == null
+        ? ""
+        : String(contract.notice_period_days),
+    signedOn: contract.signed_on ?? "",
+  };
+}
+
+/**
+ * SignedFileField takes the signed agreement by drag-and-drop or by clicking.
+ *
+ * BOTH, not one: dropping is what a reader reaches for with a PDF already in
+ * front of them, and clicking is what works from a keyboard and on a phone. A
+ * drop zone with no real input behind it is unreachable for anyone not using a
+ * mouse, which is why the input is present and merely made invisible.
+ */
+function SignedFileField({
+  file,
+  onPick,
+}: Readonly<{ file?: File; onPick: (file: File) => void }>) {
+  const t = useT();
+  const [over, setOver] = useState(false);
+
+  const take = (dropped: FileList | null) => {
+    const first = dropped?.[0];
+    if (first) {
+      onPick(first);
+    }
+  };
+
+  return (
+    <Field label={t("contracts.form.file")} hint={t("contracts.form.fileHint")}>
+      {(props) => (
+        // A LABEL, not a div: it owns the real file input, so a click or a
+        // keypress anywhere in the zone opens the picker without a handler
+        // faking it, and a screen reader announces one control rather than an
+        // interactive box of unknown purpose. Dropping is the mouse affordance
+        // layered on top of that, not a replacement for it.
+        <label
+          className={over ? "dropzone dragover" : "dropzone"}
+          onDragOver={(e: DragEvent<HTMLLabelElement>) => {
+            e.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e: DragEvent<HTMLLabelElement>) => {
+            e.preventDefault();
+            setOver(false);
+            take(e.dataTransfer.files);
+          }}
+        >
+          <input
+            {...props}
+            type="file"
+            className="dropzone-input"
+            onChange={(e) => take(e.target.files)}
+          />
+          <span className="dropzone-label">
+            {file ? file.name : t("contracts.form.fileEmpty")}
+          </span>
+        </label>
+      )}
+    </Field>
+  );
+}
+
+async function createContract(
+  orgId: string,
+  draft: ContractDraft,
+): Promise<string> {
+  const { data, error } = await api.POST("/contracts", {
+    body: contractBody(orgId, draft),
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data?.id ?? "";
+}
+
+// A correction sends nulls for the fields a human cleared: once somebody has
+// removed a value, "I typed this by mistake" and "we never agreed one" are the
+// same answer, and leaving the old value in place would keep asserting the
+// mistake.
+async function patchContract(
+  contract: Contract,
+  draft: ContractDraft,
+): Promise<string> {
+  const { error } = await api.PATCH("/contracts/{id}", {
+    params: { path: { id: contract.id } },
+    body: {
+      title: draft.title.trim(),
+      contract_number: draft.contractNumber.trim() || null,
+      value_minor: draft.valueMinor > 0 ? draft.valueMinor : null,
+      currency: draft.valueMinor > 0 ? draft.currency : null,
+      value_basis: draft.valueBasis,
+      starts_on: draft.startsOn || null,
+      ends_on: draft.endsOn || null,
+      renewal_on: draft.renewalOn || null,
+      notice_period_days: draft.noticePeriodDays
+        ? Number(draft.noticePeriodDays)
+        : null,
+      signed_on: draft.signedOn || null,
+    },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return contract.id;
+}
+
+// Sent as multipart by hand: the generated client serializes JSON bodies, and
+// this endpoint takes a file part. The document is filed against the agreement
+// AND against the company, so it also appears in the account's own library.
+async function uploadSignedFile(orgId: string, contractID: string, file: File) {
+  const body = new FormData();
+  body.append("entity_type", "organization");
+  body.append("entity_id", orgId);
+  body.append("contract_id", contractID);
+  body.append("file", file);
+  const response = await fetch("/v1/attachments", {
+    method: "POST",
+    body,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => undefined);
+    throwProblem(payload);
+  }
 }
 
 // What the form refuses before the server has to.

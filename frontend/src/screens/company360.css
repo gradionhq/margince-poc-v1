@@ -1287,3 +1287,49 @@
 .record-head:has(.co-identity-meta) {
   margin-bottom: var(--space-5);
 }
+
+/* The document and contract rows: a name that can run long, its meta held to
+   the right of it, and the row's verbs last. `docs-row` is the class both cards
+   were already asking for and nothing defined — they rendered as bare list
+   items until this landed. */
+.docs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.docs-name,
+.docs-row .co-rowlink {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+/* The verbs sit at the far end, so a reader's eye lands on the agreement rather
+   than on what can be done to it. */
+.docs-row > *:last-child {
+  margin-left: auto;
+}
+.docs-filters {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The file input covers its drop zone so a click anywhere opens the picker,
+   while staying a real focusable input for anyone not using a mouse. */
+.dropzone {
+  position: relative;
+}
+.dropzone-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.dropzone-label {
+  color: var(--textSecondary);
+  font-size: var(--fs-sm);
+}
