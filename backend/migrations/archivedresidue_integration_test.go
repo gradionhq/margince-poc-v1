@@ -22,6 +22,7 @@ package migrations
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -48,7 +49,12 @@ func gateSQL(t *testing.T) string {
 	return ""
 }
 
-// seedArchivedTenantHolding plants an archived workspace and one row it owns in
+// archivedRowsSeeded is how many rows the fixture plants, and it is deliberately
+// not one: a gate that reported "1 rows" for any amount would pass a test that
+// only ever seeded one.
+const archivedRowsSeeded = 2
+
+// seedArchivedTenantHolding plants an archived workspace and the rows it owns in
 // a table that still carries the tenant column, and returns the table's name.
 // app_user is the subject because it is the last table anything would drop and
 // so keeps this suite honest for the whole of phase D.
@@ -59,10 +65,12 @@ func seedArchivedTenantHolding(ctx context.Context, t *testing.T, conn *pgx.Conn
 		INSERT INTO workspace (slug, archived_at) VALUES ('gone-tenant', now()) RETURNING id`).Scan(&ws); err != nil {
 		t.Fatalf("seeding the archived workspace: %v", err)
 	}
-	if _, err := conn.Exec(ctx, `
-		INSERT INTO app_user (workspace_id, email, display_name)
-		VALUES ($1, 'ghost@gone.test', 'Ghost')`, ws); err != nil {
-		t.Fatalf("seeding the archived tenant's row: %v", err)
+	for i := range archivedRowsSeeded {
+		if _, err := conn.Exec(ctx, `
+			INSERT INTO app_user (workspace_id, email, display_name)
+			VALUES ($1, $2, 'Ghost')`, ws, fmt.Sprintf("ghost-%d@gone.test", i)); err != nil {
+			t.Fatalf("seeding the archived tenant's row %d: %v", i, err)
+		}
 	}
 	return "app_user"
 }
@@ -83,6 +91,12 @@ func TestTheArchivedResidueGateRefusesAndNamesWhatItFound(t *testing.T) {
 	// deploy log with no access to this test.
 	if !strings.Contains(err.Error(), table) {
 		t.Errorf("the refusal is %q, which does not name %s — an operator cannot act on a refusal that will not say what it found", err, table)
+	}
+	// The COUNT as well as the table: it is what tells an operator whether they
+	// are about to delete two rows or two hundred thousand, and a gate that
+	// counted wrong would still name the right table.
+	if want := fmt.Sprintf("%d rows", archivedRowsSeeded); !strings.Contains(err.Error(), want) {
+		t.Errorf("the refusal is %q, which does not report %q — the number is what sizes the decision it is asking for", err, want)
 	}
 }
 
@@ -111,7 +125,8 @@ func TestTheArchivedResidueGateAdmitsOnceTheResidueIsCleared(t *testing.T) {
 
 // An ARCHIVED tenant's ledger rows are not residue the operator can clear — the
 // immutability trigger forbids deleting them — so the gate must not demand it.
-// Without this, the exemption is one line of SQL nobody would notice losing.
+// BOTH ledgers, because the exemption is a two-name list and a test that drove
+// one of them would let the other be dropped from it silently.
 func TestTheArchivedResidueGateExemptsTheAppendOnlyLedgers(t *testing.T) {
 	ctx := context.Background()
 	conn := connect(t, mustOwnerDSN(t))
@@ -127,6 +142,11 @@ func TestTheArchivedResidueGateExemptsTheAppendOnlyLedgers(t *testing.T) {
 		INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
 		VALUES ($1, 'system', 'system', 'create', 'person', gen_random_uuid())`, ws); err != nil {
 		t.Fatalf("seeding the archived tenant's audit row: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO system_log (workspace_id, actor_type, actor_id, action)
+		VALUES ($1, 'system', 'system', 'retention_pass_failed')`, ws); err != nil {
+		t.Fatalf("seeding the archived tenant's system_log row: %v", err)
 	}
 
 	if _, err := conn.Exec(ctx, gateSQL(t)); err != nil {
