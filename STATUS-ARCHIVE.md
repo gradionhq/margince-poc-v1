@@ -92,13 +92,13 @@ the spec but not in the contract enum, and neither answer is enforced at the
 door), #1272 (a seventh custom-field type would 500 every list, membership read
 and export for its object, with no gate stopping it arriving — the house
 precedent for such a gate exists in `search/queryvocab.go`), #1273 (a saved
-view's filter is validated for the first time at *export* rather than at create),
-#1279 (a project custom field can be filtered and updated but not set at project
-creation, from a pre-existing parameter offset). Closing #693 also turned two
-prose promises into real pointers: #1468, the Filters & views screen that
-`AC-filters-and-views-1..8` describe and that does not exist — so no field, core
-or custom, is authorable in the product today — and #1469, `city`, which stays
-blocked until foundation#1311 lands and says what a `city` filter means.
+view's filter is validated for the first time at *export* rather than at
+create), #1279 (a project custom field can be filtered and updated but not set
+at project creation, from a pre-existing parameter offset). Closing #693 also
+turned two prose promises into real pointers: #1468, the Filters & views screen
+that `AC-filters-and-views-1..8` describe and that does not exist — so no field,
+core or custom, is authorable in the product today — and #1469, `city`, which
+stays blocked until foundation#1311 lands and says what a `city` filter means.
 
 ## 2026-08-16 — a day's issues, triaged into three piles (PRs #1455, #1456, #1459; foundation #1325, #1326)
 
