@@ -257,8 +257,18 @@ seed-demo:
 ## verify-demo — re-run the demo seeder's verify pass against a running stack,
 ## writing nothing: every row owned, every person employed, every conversation
 ## naming somebody, every deal with a committee, every account off `unknown`.
+##
+## It delegates into backend/ rather than re-entering seed-demo here, because
+## the frontend-lane parity gate reads $(MAKE) lines to find the legs it must
+## check and refuses a spelling it cannot parse — `$(MAKE) seed-demo
+## SEED_ARGS="… $(SEED_ARGS)"` is one, and a leg it silently dropped would be
+## a gate that stopped gating.
 verify-demo:
-	@$(MAKE) seed-demo SEED_ARGS="-verify-only $(SEED_ARGS)"
+	@test -f config/margince-admin-password || { \
+	  echo "no config/margince-admin-password — run make dev first" >&2; exit 1; }
+	MARGINCE_SEED_PASSWORD="$$(cat config/margince-admin-password)" \
+	MARGINCE_SEED_DSN="$(SEED_DSN)" \
+	$(MAKE) -C backend seed-demo DATASET="$(DATASET)" SEED_ARGS="-verify-only"
 
 ## verify-boot — prove a running, seeded stack end to end: seeded-admin
 ## login, seeded people visible over /v1, frontend production build.
