@@ -118,13 +118,8 @@ func (a acceptEnv) acceptRequest(keys ...string) crmcontracts.AcceptExtractionRe
 	}
 }
 
-// setupExtractionAccept seeds a deal-scoped attachment and marks it clean:
-// a fresh upload defaults to 'scanning' (0070), and the accept-write now
-// scan-gates like every other path that touches an attachment's bytes
-// (TestAcceptAttachmentExtractionRefusesWhileScanning/WhenBlocked pin that
-// gate directly) — every OTHER test in this file is exercising grants,
-// row scope, and field validation, so its fixture attachment must already
-// be past the gate.
+// setupExtractionAccept seeds a deal-scoped attachment with one finished
+// reading against it, the fixture every accept test in this file starts from.
 func setupExtractionAccept(t *testing.T) acceptEnv {
 	t.Helper()
 	e := Setup(t)
@@ -132,7 +127,6 @@ func setupExtractionAccept(t *testing.T) acceptEnv {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
-	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
 	return acceptEnv{
 		Env:     e,
 		deal:    deal,
@@ -272,8 +266,7 @@ func TestAcceptAttachmentExtractionRefusesNonDealAttachment(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	org := e.SeedOrg(t, "Non-Deal Accept Parent", &e.Rep1)
-	att := uploadScanTestAttachmentForOrg(e.Admin(), t, h, org, "org-notes.pdf", []byte("org bytes"))
-	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
+	att := uploadTestAttachmentForOrg(e.Admin(), t, h, org, "org-notes.pdf", []byte("org bytes"))
 	reading := seedExtractionReading(e.Admin(), t, e, ids.UUID(att.Id), acceptExtractionFields())
 	engine := compose.NewExtractionAccept(e.Pool)
 
@@ -406,7 +399,6 @@ func TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument(t *testing.T
 	a := setupExtractionAccept(t)
 	h := activities.NewHandlers(a.DB()).WithBlobstore(blobstore.NewMemory())
 	other := uploadDealAttachment(a.Admin(), t, h, a.deal, "other.pdf", []byte("other bytes"))
-	markAttachmentClean(a.Admin(), t, a.Env, ids.UUID(other.Id))
 	elsewhere := seedExtractionReading(a.Admin(), t, a.Env, ids.UUID(other.Id), acceptExtractionFields())
 
 	_, err := a.engine.Accept(a.Admin(), ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
@@ -426,7 +418,6 @@ func TestAcceptAttachmentExtractionRefusesWhenNothingHasReadTheDocument(t *testi
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
-	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
 
 	_, err := compose.NewExtractionAccept(e.Pool).Accept(e.Admin(), ids.UUID(att.Id),
 		crmcontracts.AcceptExtractionRequest{
@@ -434,53 +425,6 @@ func TestAcceptAttachmentExtractionRefusesWhenNothingHasReadTheDocument(t *testi
 		})
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound (nothing has read this document)", err)
-	}
-	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
-}
-
-// TestAcceptAttachmentExtractionRefusesWhileScanning proves the
-// accept-write's defense-in-depth scan gate (RD-T05): a fresh upload
-// defaults to 'scanning' (0070) and the accept must refuse it — the same
-// sentinel the raw-byte download and the extraction read answer — BEFORE
-// the extractor ever sees the bytes, with zero writes.
-func TestAcceptAttachmentExtractionRefusesWhileScanning(t *testing.T) {
-	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
-	pipeline, open, _ := DealFixture(t, e)
-	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
-	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
-	// Left at the upload default ('scanning') — never marked clean. No reading is
-	// seeded either: the scan gate fires before the accept resolves one, and a
-	// test that seeded one anyway would not notice if that order ever reversed.
-	engine := compose.NewExtractionAccept(e.Pool)
-
-	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
-		ExtractionId: openapi_types.UUID(ids.NewV7()), FieldKeys: []string{"amount_minor"},
-	})
-	if !errors.Is(err, activities.ErrScanPending) {
-		t.Fatalf("err = %v, want ErrScanPending", err)
-	}
-	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
-}
-
-// TestAcceptAttachmentExtractionRefusesWhenBlocked mirrors the scanning
-// case for a quarantined verdict — terminal, never accepted.
-func TestAcceptAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
-	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
-	pipeline, open, _ := DealFixture(t, e)
-	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
-	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
-	if _, err := e.Activities.MarkScanResult(e.Admin(), ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
-		t.Fatalf("MarkScanResult(blocked): %v", err)
-	}
-	engine := compose.NewExtractionAccept(e.Pool)
-
-	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
-		ExtractionId: openapi_types.UUID(ids.NewV7()), FieldKeys: []string{"amount_minor"},
-	})
-	if !errors.Is(err, activities.ErrAttachmentBlocked) {
-		t.Fatalf("err = %v, want ErrAttachmentBlocked", err)
 	}
 	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
 }

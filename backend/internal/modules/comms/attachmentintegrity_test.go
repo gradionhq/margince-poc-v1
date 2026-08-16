@@ -28,11 +28,13 @@ func deliveryWithFiles() Delivery {
 	return del
 }
 
-func TestDispatchParksWhenAnAttachedFileNoLongerPassesTheScan(t *testing.T) {
+// The refusal reaches the park record intact, naming the file. A sender told
+// only "an attachment cannot be sent" has to guess which of several to fix.
+func TestDispatchParksWithAReasonNamingTheRefusedFile(t *testing.T) {
 	sender := &carryingSender{}
 	store := &fakeStore{delivery: deliveryWithFiles()}
 	files := &stubAttachments{
-		reason: `"offer.pdf" did not pass the malware scan in time to be sent: attachment blocked`,
+		reason: `"offer.pdf" is no longer available to the sender; it was archived, or their access to the record holding it was withdrawn`,
 	}
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, files)
 
@@ -41,17 +43,15 @@ func TestDispatchParksWhenAnAttachedFileNoLongerPassesTheScan(t *testing.T) {
 		t.Fatalf("Dispatch: %v", err)
 	}
 	if got != OutcomeParked || sender.calls != 0 {
-		t.Fatalf("outcome=%v calls=%d, want OutcomeParked/0 — a blocked file must not leave the building", got, sender.calls)
+		t.Fatalf("outcome=%v calls=%d, want OutcomeParked/0 — a refused file must not leave the building", got, sender.calls)
 	}
-	// The reason names the file. A park record reading "an attachment cannot be
-	// sent" leaves the sender guessing which of several to fix.
 	if !strings.Contains(store.parked, "offer.pdf") {
 		t.Errorf("parked reason = %q, want it to name the file", store.parked)
 	}
 }
 
-// The sender losing access is not the same event as the scanner objecting, and
-// both have to reach this gate — the file is unchanged, the authority is not.
+// The authority's own sentence reaches the park record unaltered, so an operator
+// reads why rather than a code the dispatcher invented.
 func TestDispatchParksWhenTheSenderCanNoLongerSeeAnAttachedFile(t *testing.T) {
 	sender := &carryingSender{}
 	store := &fakeStore{delivery: deliveryWithFiles()}
@@ -79,7 +79,7 @@ func TestDispatchNeverTransmitsTheTextWithoutTheRefusedFile(t *testing.T) {
 	sender := &carryingSender{}
 	store := &fakeStore{delivery: deliveryWithFiles()}
 	d := newAttachmentDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		&stubAttachments{reason: "the file was quarantined"})
+		&stubAttachments{reason: "the sender can no longer read this file"})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -95,8 +95,9 @@ func TestDispatchNeverTransmitsTheTextWithoutTheRefusedFile(t *testing.T) {
 	}
 }
 
-// An outage is not a verdict. Parking on a failure to LEARN whether the file is
-// clean would destroy every legitimate send in flight during a database blip.
+// An outage is not a verdict. Parking on a failure to LEARN whether the sender
+// may still read the file would destroy every legitimate send in flight during a
+// database blip.
 func TestDispatchRetriesWhenTheAttachmentCheckFailsTransiently(t *testing.T) {
 	sender := &carryingSender{}
 	store := &fakeStore{delivery: deliveryWithFiles()}
@@ -108,7 +109,7 @@ func TestDispatchRetriesWhenTheAttachmentCheckFailsTransiently(t *testing.T) {
 		t.Fatal("a transient attachment fault produced no error to retry on")
 	}
 	if got != OutcomeRetry {
-		t.Errorf("outcome = %v, want OutcomeRetry — an outage is not a quarantine", got)
+		t.Errorf("outcome = %v, want OutcomeRetry — an outage is not a refusal", got)
 	}
 	if store.parked != "" {
 		t.Errorf("parked on a transient attachment fault: %q", store.parked)

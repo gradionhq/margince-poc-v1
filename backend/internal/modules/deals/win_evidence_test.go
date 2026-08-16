@@ -135,9 +135,4 @@ func TestTheEvidenceQueryRefusesADraftContract(t *testing.T) {
 	if !strings.Contains(evidenceQuery, "doc_state IN ('current', 'final')") {
 		t.Error("the evidence query admits a draft document")
 	}
-	// The malware verdict is deliberately absent: no scanner is integrated, so
-	// requiring `clean` would reject every genuine upload.
-	if strings.Contains(evidenceQuery, "scan_status") {
-		t.Error("the evidence query tests the scan verdict, which no scanner ever sets")
-	}
 }

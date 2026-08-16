@@ -841,6 +841,7 @@ export const vi = {
     "K\u1ef3 h\u1ea1n kh\u00f4ng th\u1ec3 k\u1ebft th\u00fac tr\u01b0\u1edbc khi b\u1eaft \u0111\u1ea7u.",
   "contracts.add": "Th\u00eam h\u1ee3p \u0111\u1ed3ng",
   "contracts.rowMenu": "Thao t\u00e1c h\u1ee3p \u0111\u1ed3ng",
+  "contracts.paper": "PDF \u0111\u00e3 k\u00fd",
   "contracts.edit": "S\u1eeda",
   "contracts.archive": "L\u01b0u tr\u1eef",
   "contracts.archive.title":
@@ -1702,9 +1703,6 @@ export const vi = {
   "docs.empty": "Chưa có tài liệu nào cho tài khoản này.",
   "docs.noneInCategory": "Không có tài liệu loại đó cho tài khoản này.",
   "docs.pinned": "Đã ghim",
-  "docs.download": "Tải xuống",
-  "docs.scanning": "Đang quét — chưa tải xuống được",
-  "docs.blocked": "Bị trình quét chặn",
 
   // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả
   // trong câu chữ: chưa trả lời, đã đọc và không nêu trường nào, và không đọc

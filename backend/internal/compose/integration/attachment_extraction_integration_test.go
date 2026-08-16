@@ -9,17 +9,13 @@ package integration
 // surface, gated identically to every other attachment op (parent
 // invisible/missing → 404). The extraction read is a pure evidence-or-omit
 // projection over the injected extraction.Extractor seam — honestly empty
-// when none is wired — and now shares the raw-byte download's scan gate
-// (defense-in-depth, RD-T05): 'scanning'/'blocked' refuse with the same
-// typed 409s, before the extractor ever sees the bytes. Request-access is
-// a courtesy audit note: poc-v1 has no restricted-but-disclosed attachment
-// state, so a caller who can see the row already has the only "access"
-// that exists here.
+// when none is wired. Request-access is a courtesy audit note: poc-v1 has no
+// restricted-but-disclosed attachment state, so a caller who can see the row
+// already has the only "access" that exists here.
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,11 +38,7 @@ func TestGetAttachmentExtractionOfAnUnreadDocumentIs404(t *testing.T) {
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Extraction NoOp", &e.Rep1)
-	att := uploadScanTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
-	if att.ScanStatus == nil || *att.ScanStatus != crmcontracts.AttachmentScanStatusScanning {
-		t.Fatalf("precondition: fresh upload scan_status = %v, want scanning", att.ScanStatus)
-	}
-	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
+	att := uploadTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
@@ -67,7 +59,6 @@ func TestGetAttachmentExtractionPartitionsAStoredReading(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Fixture Deal", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(ctx, t, base, deal, "quote.pdf", []byte("quote bytes"))
-	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 
 	seedExtractionReading(ctx, t, e, ids.UUID(att.Id), []extraction.ExtractedField{
 		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: $1,500.00", PageOrSection: "p.1", Confidence: "high"},
@@ -108,8 +99,7 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	org := e.SeedOrg(t, "Non-Deal Parent", &e.Rep1)
-	att := uploadScanTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
-	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
+	att := uploadTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
 	seedExtractionReading(ctx, t, e, ids.UUID(att.Id), nil)
 
 	rec := httptest.NewRecorder()
@@ -117,54 +107,6 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	h.GetAttachmentExtraction(rec, req, att.Id)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("non-deal attachment extraction read: status %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
-}
-
-// TestStartExtractionReadRefusesWhileScanning proves the scan gate (RD-T05)
-// where it now lives: at the START of a reading.
-//
-// The gate exists so unvetted bytes never reach a model, and the reading is
-// where bytes are read — so that is where it has to fire. Asserting it on the
-// POLL instead would be asserting it on an operation that touches no bytes at
-// all, and would go on passing after the gate had been removed from the one
-// path that matters.
-func TestStartExtractionReadRefusesWhileScanning(t *testing.T) {
-	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
-	ctx := e.Admin()
-	pipeline, open, _ := DealFixture(t, e)
-	deal := e.SeedDeal(t, "Scan Gate Reading", pipeline, open, &e.Rep1)
-	att := uploadDealAttachment(ctx, t, h, deal, "report.pdf", []byte("PDF-BYTES"))
-	// Left at the upload default ('scanning') — never marked clean.
-
-	_, _, err := activities.NewStore(e.DB()).StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
-	if !errors.Is(err, activities.ErrScanPending) {
-		t.Fatalf("start a reading while scanning: err = %v, want ErrScanPending", err)
-	}
-	if n := e.WsCount(t, `SELECT count(*) FROM attachment_extraction`); n != 0 {
-		t.Errorf("the refused start still created %d reading(s), want 0", n)
-	}
-}
-
-// TestStartExtractionReadRefusesWhenBlocked mirrors the scanning case for a
-// quarantined verdict — terminal, never read.
-func TestStartExtractionReadRefusesWhenBlocked(t *testing.T) {
-	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
-	ctx := e.Admin()
-	pipeline, open, _ := DealFixture(t, e)
-	deal := e.SeedDeal(t, "Blocked Gate Reading", pipeline, open, &e.Rep1)
-	att := uploadDealAttachment(ctx, t, h, deal, "malware.bin", []byte("EVIL"))
-	if _, err := e.Activities.MarkScanResult(ctx, ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
-		t.Fatalf("MarkScanResult(blocked): %v", err)
-	}
-
-	_, _, err := activities.NewStore(e.DB()).StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
-	if !errors.Is(err, activities.ErrAttachmentBlocked) {
-		t.Fatalf("start a reading while blocked: err = %v, want ErrAttachmentBlocked", err)
-	}
-	if n := e.WsCount(t, `SELECT count(*) FROM attachment_extraction`); n != 0 {
-		t.Errorf("the refused start still created %d reading(s), want 0", n)
 	}
 }
 
@@ -178,7 +120,6 @@ func TestStartExtractionReadTwiceJoinsTheOneInFlight(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Idempotent Reading", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(ctx, t, h, deal, "quote.pdf", []byte("quote bytes"))
-	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 	store := activities.NewStore(e.DB())
 
 	first, joined, err := store.StartExtractionReadQueued(ctx, ids.UUID(att.Id), "rep", nil)
@@ -205,7 +146,7 @@ func TestGetAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Extraction Target", &e.Rep1)
-	att := uploadScanTestAttachment(adminCtx, t, h, person, "secret.pdf", []byte("secret"))
+	att := uploadTestAttachment(adminCtx, t, h, person, "secret.pdf", []byte("secret"))
 
 	repCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 	rec := httptest.NewRecorder()
@@ -270,7 +211,7 @@ func TestRequestAttachmentAccessHidesAnInvisibleParent(t *testing.T) {
 	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Access Target", &e.Rep1)
-	att := uploadScanTestAttachment(adminCtx, t, h, person, "hidden.pdf", []byte("hidden"))
+	att := uploadTestAttachment(adminCtx, t, h, person, "hidden.pdf", []byte("hidden"))
 
 	repCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 	rec := httptest.NewRecorder()
@@ -287,9 +228,8 @@ func TestRequestAttachmentAccessHidesAnInvisibleParent(t *testing.T) {
 }
 
 // uploadAttachmentAs drives the real multipart handler for an arbitrary
-// entity_type — uploadScanTestAttachment (harness.go) only ever targets
-// "person", so the non-deal/deal-scoped extraction tests need their own
-// parent kind.
+// entity_type — uploadTestAttachment only ever targets "person", so the
+// non-deal/deal-scoped extraction tests need their own parent kind.
 func uploadAttachmentAs(ctx context.Context, t *testing.T, h activities.Handlers, entityType string, entityID ids.UUID, filename string, data []byte) crmcontracts.Attachment {
 	t.Helper()
 	body, ctype := multipartAttachment(t, entityType, entityID.String(), filename, data)
@@ -314,10 +254,17 @@ func uploadDealAttachment(ctx context.Context, t *testing.T, h activities.Handle
 	return uploadAttachmentAs(ctx, t, h, "deal", dealID, filename, data)
 }
 
-// uploadScanTestAttachmentForOrg mirrors uploadScanTestAttachment for an
+// uploadTestAttachment mirrors uploadAttachmentAs for the common
+// person-scoped case.
+func uploadTestAttachment(ctx context.Context, t *testing.T, h activities.Handlers, personID ids.UUID, filename string, data []byte) crmcontracts.Attachment {
+	t.Helper()
+	return uploadAttachmentAs(ctx, t, h, "person", personID, filename, data)
+}
+
+// uploadTestAttachmentForOrg mirrors uploadTestAttachment for an
 // organization-scoped attachment (proving the extraction read is valid for
 // any entity_type, not only deal).
-func uploadScanTestAttachmentForOrg(ctx context.Context, t *testing.T, h activities.Handlers, orgID ids.UUID, filename string, data []byte) crmcontracts.Attachment {
+func uploadTestAttachmentForOrg(ctx context.Context, t *testing.T, h activities.Handlers, orgID ids.UUID, filename string, data []byte) crmcontracts.Attachment {
 	t.Helper()
 	return uploadAttachmentAs(ctx, t, h, "organization", orgID, filename, data)
 }

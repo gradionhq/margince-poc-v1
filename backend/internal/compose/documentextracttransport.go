@@ -47,12 +47,8 @@ func (e *documentReadEngine) start(w http.ResponseWriter, r *http.Request, id op
 			}, documentExtractInsertOpts())
 		})
 	if err != nil {
-		// The row-scope 404, the missing-authority 403 and the scan-gate 409
-		// all ride the sentinel / typed-fault mapping.
-		if detail, ok := activities.ScanGateHTTPError(err); ok {
-			httperr.Write(w, r, detail)
-			return
-		}
+		// The row-scope 404 and the missing-authority 403 both ride the
+		// sentinel / typed-fault mapping.
 		httperr.Write(w, r, err)
 		return
 	}

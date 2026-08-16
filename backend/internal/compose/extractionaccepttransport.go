@@ -15,7 +15,6 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -46,12 +45,6 @@ func (h attachmentExtractionHandlers) AcceptAttachmentExtraction(w http.Response
 // this flow can trip (the resulting-row money pair, INV-CLOSE-PAST, the
 // CHECK-constraint net), then falls through to the sentinel registry.
 func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error) {
-	// The same typed 409 the raw download and the extraction read answer —
-	// reused via activities.ScanGateHTTPError rather than re-typed here.
-	if detail, ok := activities.ScanGateHTTPError(err); ok {
-		httperr.Write(w, r, detail)
-		return
-	}
 	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own verdicts
 	// (MessageFault / FieldFault), so the fallthrough below renders them. Do not
 	// re-spell either here: two spellings of one refusal is how the surfaces drift.

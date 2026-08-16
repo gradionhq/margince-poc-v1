@@ -119,20 +119,19 @@ type SeatAuthority interface {
 // carries may still leave the building.
 //
 // A DELIVERY IS NOT SENT WHEN IT IS STAGED. Between the human pressing send and
-// the provider call, the scanner can finish and quarantine a file that was still
-// scanning, a document can be archived, and the sender can lose the row scope
-// that let them attach it. The staging check answered all three questions about
-// a moment that has passed, so it cannot answer them about this one — a message
-// that mails a now-blocked file is exactly the outcome the scan gate exists to
-// prevent, and it would carry the sender's own address.
+// the provider call, a document can be archived and the sender can lose the row
+// scope that let them attach it. The staging check answered those questions
+// about a moment that has passed, so it cannot answer them about this one — a
+// message that mails a file its sender may no longer read would carry that
+// sender's own address out with it.
 //
 // It reports an ANSWER as (false, reason) and a FAULT as an error, the same
-// split SeatAuthority makes: a quarantine or a lost grant is a decision the
+// split SeatAuthority makes: an archived file or a lost grant is a decision the
 // dispatcher honours by parking with the reason named, while a database timeout
 // is a failure to LEARN the decision and must not destroy a legitimate send.
 type AttachmentAuthority interface {
-	// EnsureTransmittable reports whether every attachment is still clean and
-	// still visible to userID in the workspace bound on ctx. reason is empty
+	// EnsureTransmittable reports whether every attachment is still visible
+	// to userID in the workspace bound on ctx. reason is empty
 	// exactly when ok is true; when ok is false it is the sentence the delivery
 	// parks with, and it names WHICH file and WHY, because a park record
 	// reading "an attachment cannot be sent" leaves the sender guessing which

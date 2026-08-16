@@ -11170,7 +11170,7 @@ paths:
       x-agent-access: human-only
       summary: Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
       description: |
-        The bytes, the filename, the checksum and the scan state are NOT patchable here —
+        The bytes, the filename and the checksum are NOT patchable here —
         they are what arrived, and a surface that let a human edit them would make the
         record a description of itself rather than of the file.
 
@@ -11214,9 +11214,8 @@ paths:
       x-agent-access: human-only
       summary: Download an attachment's file bytes.
       description: |
-        The scan gate refuses the byte stream while `scan_status` is `scanning` or
-        `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
-        only this byte stream is withheld.
+        Gated by the attachment's parent record: a caller who cannot see the parent
+        reads 404, never 403, so the file's existence stays hidden.
       responses:
         '200':
           description: The file bytes; Content-Disposition names the file.
@@ -11224,28 +11223,6 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: The scan gate refuses the byte stream — retryable while scanning, terminal once blocked.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-              examples:
-                scanPending:
-                  summary: Virus scan still in progress — retry shortly
-                  value:
-                    type: 'https://errors.gradion.com/scan_pending'
-                    title: Scan pending
-                    status: 409
-                    code: scan_pending
-                    detail: This file is still being scanned; retry the download shortly.
-                attachmentBlocked:
-                  summary: The file failed the virus scan and is quarantined
-                  value:
-                    type: 'https://errors.gradion.com/attachment_blocked'
-                    title: Attachment blocked
-                    status: 409
-                    code: attachment_blocked
-                    detail: This file was quarantined by the virus scan and cannot be downloaded.
     delete:
       tags: [Attachments]
       operationId: deleteAttachment
@@ -11311,10 +11288,6 @@ paths:
         (idempotent per attachment), so pressing the button twice does not pay for the
         document twice.
 
-        The scan gate applies here, at the door: a `scanning` or `blocked` attachment
-        refuses with the same typed 409 the raw download answers, before any bytes could
-        reach a model.
-
         Requires UPDATE on the attachment's own parent record, which is the authority the
         attachment surface gates every write behind. Note this is not identical to the
         accept's: the accept writes a DEAL and is deal-only, so a person- or org-scoped
@@ -11330,11 +11303,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: The attachment is still being scanned, or was blocked by the scanner.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
         '501':
           description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
           content:
@@ -18035,7 +18003,7 @@ components:
         A file hung off an entity. Mirrors the `attachment` table: the row is the
         system of record and the tenant anchor; the bytes live in object storage,
         addressed by an internal object key that is never exposed on the wire.
-      required: [id, entity_type, entity_id, filename, source, captured_by, created_at, scan_status]
+      required: [id, entity_type, entity_id, filename, source, captured_by, created_at]
       properties:
         id: { type: string, format: uuid }
         entity_type: { type: string, enum: [person, organization, deal, activity, lead, project] }
@@ -18083,17 +18051,6 @@ components:
             as organization_id above, and just as deliberately not a second parent. Set at
             upload by the person filing the paper; never inferred from a filename or a date,
             which is the guess the document state exists to refuse.
-        scan_status:
-          type: string
-          enum: [scanning, clean, blocked]
-          readOnly: true
-          description: |
-            Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
-            byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
-            (retryable — scan still running) while `scanning`, and 409
-            `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
-            row itself is always disclosed regardless of scan_status; only the download
-            stream is withheld.
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
         created_at: { type: string, format: date-time }
@@ -21337,7 +21294,15 @@ components:
         record_id: { type: string, format: uuid }
         subject_type: { type: string, enum: [user, team] }
         subject_id: { type: string, format: uuid, description: 'app_user(id) or team(id) per subject_type.' }
-        access: { type: string, enum: [read, write], description: "'write' also satisfies 'read'." }
+        access:
+          type: string
+          enum: [read, write]
+          description: "'write' also satisfies 'read'."
+          # Named explicitly so the constants do not depend on whether some other
+          # schema happens to share the words: the generator prefixes an enum only
+          # when it collides, so an unrelated enum's removal would otherwise rename
+          # these to a bare `Read`/`Write` and break every authorization call site.
+          x-enum-varnames: [RecordGrantAccessRead, RecordGrantAccessWrite]
         granted_by: { type: string, format: uuid }
         reason: { type: [string, 'null'], description: 'Accountability/lawful-basis note surfaced in the audit row.' }
         expires_at: { type: [string, 'null'], format: date-time, description: 'Optional TTL; an expired grant matches no rows.' }

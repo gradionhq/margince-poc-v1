@@ -1983,14 +1983,13 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
   no per-user role, so the admin control sets a role without showing the current
   one.
 
-- **No scanner product + no boot wiring** — new uploads stay
-  `scanning`/undownloadable until an admin or test drives
-  `activities.Store.MarkScanResult`; no real scanning product is integrated
-  anywhere in this codebase. A production deployment needs a real Scanner behind
-  the seam, or an admin verdict path, before new uploads are downloadable end to
-  end. The extraction read and `extraction:accept` share the same gate — inert
-  today under the NoOp/Fixture seams, essential the moment a real extractor reads
-  unvetted content.
+- **The attachment virus scan is retired** (A162/ADR-0111, PR #1430) — this entry
+  used to record that uploads stayed `scanning` until an admin drove a verdict
+  path nothing ever drove, which meant every uploaded file was permanently
+  undownloadable. The column, the seam and the gate are gone; a download is
+  admitted by the attachment's parent record, object RBAC plus row visibility.
+  Restoring malware scanning means restoring the column TOGETHER WITH a scanner
+  that writes to it and a stated behaviour for a verdict that never arrives.
 
 - **`extraction:accept` carries no idempotency key on its notes** — the deal
   update and its per-field notes commit atomically, but a client retry on a

@@ -19,17 +19,13 @@ import { DocumentExtractionPanel } from "./documentextraction";
 // attached to, with a filename and nothing else — so "the signed contract" on an
 // account with forty files was the filename and somebody's memory.
 //
-// TWO THINGS THIS SURFACE WILL NOT DO.
+// WHAT THIS SURFACE WILL NOT DO.
 //
 // It does not infer which version is current. `doc_state` is asserted by a human
 // or by the source that produced the file; nothing here reads the newest upload
 // date or a filename containing "final" as an answer. The most recent upload is
 // very often a draft and `final-v3` is a joke everyone has made, so an inference
 // would be a confident wrong answer to the exact question the card exists for.
-//
-// It does not offer a download for a file that cannot be downloaded. Scanning
-// and blocked are states with their own words, because a download button that
-// fails on click teaches a reader to distrust the ones that work.
 
 type Attachment = components["schemas"]["Attachment"];
 type Category = NonNullable<Attachment["category"]>;
@@ -159,10 +155,19 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
             <Fragment key={doc.id}>
               <PanelRow className="docs-row">
                 {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
-                {/* The title if somebody gave it one, else the filename. A
-                  display name is what a reader looks for; the filename is
-                  what arrived. */}
-                <span className="docs-name">{doc.title || doc.filename}</span>
+                {/* The NAME is the download. A reader who wants a document
+                  clicks its title — a separate action word at the far end of
+                  the row is a second thing to find for the only thing this row
+                  does. The title if somebody gave it one, else the filename: a
+                  display name is what a reader looks for; the filename is what
+                  arrived, and it is what the saved file is called. */}
+                <a
+                  className="docs-name co-rowlink"
+                  href={`/v1/attachments/${doc.id}`}
+                  download={doc.filename}
+                >
+                  {doc.title || doc.filename}
+                </a>
                 {doc.category && (
                   <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>
                 )}
@@ -174,7 +179,6 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
                 <span className="t-caption">
                   {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
                 </span>
-                <DownloadState doc={doc} />
               </PanelRow>
               {/* The staged reading sits UNDER its own row rather than inside it:
                 what it offers is about the document above it, and a panel wedged
@@ -208,29 +212,5 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
         </PanelBody>
       )}
     </Panel>
-  );
-}
-
-// Whether the bytes can be reached, said in words.
-//
-// The scan gates the byte stream, not the row, so a file that is still scanning
-// or was blocked is LISTED — hiding it would be a claim that it does not exist —
-// but it is not offered as a download it cannot serve.
-function DownloadState({ doc }: Readonly<{ doc: Attachment }>) {
-  const t = useT();
-  if (doc.scan_status === "scanning") {
-    return <span className="t-caption">{t("docs.scanning")}</span>;
-  }
-  if (doc.scan_status === "blocked") {
-    return <span className="t-caption">{t("docs.blocked")}</span>;
-  }
-  return (
-    <a
-      className="link-button"
-      href={`/v1/attachments/${doc.id}`}
-      download={doc.filename}
-    >
-      {t("docs.download")}
-    </a>
   );
 }

@@ -7200,7 +7200,7 @@ export interface paths {
         head?: never;
         /**
          * Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
-         * @description The bytes, the filename, the checksum and the scan state are NOT patchable here —
+         * @description The bytes, the filename and the checksum are NOT patchable here —
          *     they are what arrived, and a surface that let a human edit them would make the
          *     record a description of itself rather than of the file.
          *
@@ -7225,9 +7225,8 @@ export interface paths {
         };
         /**
          * Download an attachment's file bytes.
-         * @description The scan gate refuses the byte stream while `scan_status` is `scanning` or
-         *     `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
-         *     only this byte stream is withheld.
+         * @description Gated by the attachment's parent record: a caller who cannot see the parent
+         *     reads 404, never 403, so the file's existence stays hidden.
          */
         get: operations["downloadAttachment"];
         put?: never;
@@ -7286,10 +7285,6 @@ export interface paths {
          *     reason. Re-issuing while a reading is in flight answers the SAME reading
          *     (idempotent per attachment), so pressing the button twice does not pay for the
          *     document twice.
-         *
-         *     The scan gate applies here, at the door: a `scanning` or `blocked` attachment
-         *     refuses with the same typed 409 the raw download answers, before any bytes could
-         *     reach a model.
          *
          *     Requires UPDATE on the attachment's own parent record, which is the authority the
          *     attachment surface gates every write behind. Note this is not identical to the
@@ -12961,16 +12956,6 @@ export interface components {
              * @description The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up as organization_id above, and just as deliberately not a second parent. Set at upload by the person filing the paper; never inferred from a filename or a date, which is the guess the document state exists to refuse.
              */
             readonly contract_id?: string | null;
-            /**
-             * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
-             *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
-             *     (retryable — scan still running) while `scanning`, and 409
-             *     `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
-             *     row itself is always disclosed regardless of scan_status; only the download
-             *     stream is withheld.
-             * @enum {string}
-             */
-            readonly scan_status: "scanning" | "clean" | "blocked";
             source: string;
             /** @description Server-stamped from the authenticated principal; never client-supplied. */
             readonly captured_by: string;
@@ -30399,15 +30384,6 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /** @description The scan gate refuses the byte stream — retryable while scanning, terminal once blocked. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
         };
     };
     deleteAttachment: {
@@ -30481,15 +30457,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The attachment is still being scanned, or was blocked by the scanner. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
             /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
             501: {
                 headers: {

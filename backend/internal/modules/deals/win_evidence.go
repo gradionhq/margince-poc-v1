@@ -176,12 +176,6 @@ const evidenceQuery = `
 // the row in place, so an archived cancellation letter would pass an existence
 // check, and a `draft` document is by its own definition not the agreement.
 //
-// The malware verdict is NOT part of the test. No scanner is integrated in this
-// product, so every upload sits at `scanning` forever; requiring `clean` would
-// reject every genuine file while claiming to demand evidence, and push all real
-// work through the escape hatch. The verdict still gates DOWNLOADING the bytes,
-// which is a separate rule this does not touch.
-//
 // FOR SHARE locks what it finds. The check and the write share a transaction on
 // READ COMMITTED, so without the lock a concurrent archive could remove the
 // evidence between the two and the deal would commit as won against nothing.
