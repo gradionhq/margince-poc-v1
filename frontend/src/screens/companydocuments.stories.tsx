@@ -6,11 +6,10 @@ import type { components } from "../api/schema";
 import { CompanyDocumentsCard } from "./companydocuments";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
-// The account's document library. Two rules the card is built around, both
-// invisible on a well-behaved fixture: `doc_state` is never inferred from
-// upload order, and a file that cannot be downloaded (scanning, blocked) is
-// still LISTED rather than hidden — so the story below carries at least one
-// row in each of those states, not just the clean happy path.
+// The account's document library. The rule the card is built around is
+// invisible on a well-behaved fixture: `doc_state` is asserted, never inferred
+// from upload order — so the fixture below deliberately lists its DRAFT after
+// the final one, which is the case an upload-date guess would get wrong.
 
 const meta: Meta = {
   title: "Records/Company 360/Documents",
@@ -31,7 +30,6 @@ const documents: Attachment[] = [
     category: "contract",
     doc_state: "final",
     pinned: true,
-    scan_status: "clean",
     created_at: "2026-08-01T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",
@@ -44,7 +42,6 @@ const documents: Attachment[] = [
     category: "other",
     doc_state: "draft",
     pinned: false,
-    scan_status: "scanning",
     created_at: "2026-08-02T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",
@@ -53,11 +50,11 @@ const documents: Attachment[] = [
   } as unknown as Attachment,
   {
     id: "d-3",
-    filename: "blocked.pdf",
-    category: "other",
+    filename: "Kuendigung.pdf",
+    title: "Notice of termination",
+    category: "legal",
     doc_state: "current",
     pinned: false,
-    scan_status: "blocked",
     created_at: "2026-08-03T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",

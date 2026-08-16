@@ -859,6 +859,7 @@ export const en = {
   "contracts.form.errTermOrder": "A term cannot end before it starts.",
   "contracts.add": "Add a contract",
   "contracts.rowMenu": "Contract actions",
+  "contracts.paper": "Signed PDF",
   "contracts.edit": "Edit",
   "contracts.archive": "Archive",
   "contracts.archive.title": "Archive this contract?",
@@ -1710,9 +1711,6 @@ export const en = {
   "docs.empty": "No documents on this account yet.",
   "docs.noneInCategory": "No documents of that kind on this account.",
   "docs.pinned": "Pinned",
-  "docs.download": "Download",
-  "docs.scanning": "Scanning — not yet downloadable",
-  "docs.blocked": "Blocked by the scanner",
 
   // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must
   // stay apart in the words as well as in the data: not answered yet, answered

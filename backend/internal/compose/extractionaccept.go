@@ -119,14 +119,6 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 			return zero, err
 		}
 	}
-	// Defense-in-depth (RD-T05): the same scan gate the raw download and
-	// the reading itself answer. The bytes reached a model at reading time,
-	// not here — but a document blocked since then is one whose values a
-	// human should not be persisting either.
-	if err := activities.EnsureAttachmentScanClean(att.ScanStatus); err != nil {
-		return zero, err
-	}
-
 	// The STORED reading the caller NAMES (RD-AC-N-5). Two things are load-bearing
 	// here. Re-reading the document would validate the human's choice against an
 	// answer they were never shown — two readings of one document are not

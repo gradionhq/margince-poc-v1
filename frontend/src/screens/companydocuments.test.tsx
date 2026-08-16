@@ -6,9 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { CompanyDocumentsCard } from "./companydocuments";
 
-// A document library that shows a download button which fails on click teaches
-// a reader to distrust the ones that work. That, and never inferring which
-// version is current, are what this card is for.
+// What this card is for: finding a document by the name a human gave it, and
+// never inferring which version is current from an upload date or a filename.
 
 afterEach(() => {
   cleanup();
@@ -23,7 +22,6 @@ const DOCS = [
     category: "contract",
     doc_state: "final",
     pinned: true,
-    scan_status: "clean",
     created_at: "2026-08-01T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",
@@ -36,7 +34,6 @@ const DOCS = [
     category: "other",
     doc_state: "draft",
     pinned: false,
-    scan_status: "scanning",
     created_at: "2026-08-02T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",
@@ -45,11 +42,10 @@ const DOCS = [
   },
   {
     id: "d-3",
-    filename: "blocked.pdf",
-    category: "other",
+    filename: "Kuendigung.pdf",
+    category: "legal",
     doc_state: "current",
     pinned: false,
-    scan_status: "blocked",
     created_at: "2026-08-03T09:00:00Z",
     entity_type: "organization",
     entity_id: "o-1",
@@ -94,17 +90,25 @@ describe("the account's document library", () => {
     expect(screen.queryByText("Rahmenvertrag.pdf")).toBeNull();
   });
 
-  it("offers no download for a file whose bytes cannot be served", async () => {
+  it("makes every document's name its download", async () => {
     stub(DOCS);
     show(<CompanyDocumentsCard orgId="o-1" />);
     await screen.findByText("Framework agreement — signed");
 
-    // Both are LISTED — hiding them would claim they do not exist — but the
-    // scan gates the byte stream, so neither gets a link that would 409.
-    expect(screen.getByText(/Scanning/)).toBeTruthy();
-    expect(screen.getByText(/Blocked by the scanner/)).toBeTruthy();
-    // One clean file, so exactly one download link.
-    expect(screen.getAllByRole("link", { name: "Download" })).toHaveLength(1);
+    // Every listed document is reachable: authorization is the parent record's,
+    // decided before the row was ever returned, so a row a reader can see is a
+    // file they can open. A listed row that refused on click was the defect
+    // this replaced.
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(DOCS.length);
+
+    // The name is the link, and the saved file keeps its own filename rather
+    // than the display title.
+    const signed = screen.getByRole("link", {
+      name: "Framework agreement — signed",
+    });
+    expect(signed.getAttribute("href")).toBe("/v1/attachments/d-1");
+    expect(signed.getAttribute("download")).toBe("Rahmenvertrag.pdf");
   });
 
   it("says the account has no documents rather than leaving the section blank", async () => {

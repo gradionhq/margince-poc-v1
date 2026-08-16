@@ -844,6 +844,7 @@ export const de = {
     "Eine Laufzeit kann nicht vor ihrem Beginn enden.",
   "contracts.add": "Vertrag hinzuf\u00fcgen",
   "contracts.rowMenu": "Vertragsaktionen",
+  "contracts.paper": "Unterschriebenes PDF",
   "contracts.edit": "Bearbeiten",
   "contracts.archive": "Archivieren",
   "contracts.archive.title": "Diesen Vertrag archivieren?",
@@ -1710,9 +1711,6 @@ export const de = {
   "docs.empty": "Noch keine Dokumente zu diesem Account.",
   "docs.noneInCategory": "Keine Dokumente dieser Art zu diesem Account.",
   "docs.pinned": "Angeheftet",
-  "docs.download": "Herunterladen",
-  "docs.scanning": "Wird geprüft — noch nicht herunterladbar",
-  "docs.blocked": "Vom Scanner blockiert",
 
   // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
   // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen

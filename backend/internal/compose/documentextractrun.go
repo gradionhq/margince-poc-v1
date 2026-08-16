@@ -318,9 +318,6 @@ func (d *DocumentExtractor) ask(ctx context.Context, src documentSource) ([]extr
 // one field this feature exists to make readable, and would settle a transient
 // blip as a permanent verdict.
 func unreadableDocument(err error) (terminal bool, detail string) {
-	if detail, ok := activities.ScanGateHTTPError(err); ok {
-		return true, detail.Detail
-	}
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return true, "this document is no longer available to read"
 	}

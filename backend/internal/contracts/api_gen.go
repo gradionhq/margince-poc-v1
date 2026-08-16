@@ -930,27 +930,6 @@ func (e AttachmentEntityType) Valid() bool {
 	}
 }
 
-// Defines values for AttachmentScanStatus.
-const (
-	AttachmentScanStatusBlocked  AttachmentScanStatus = "blocked"
-	AttachmentScanStatusClean    AttachmentScanStatus = "clean"
-	AttachmentScanStatusScanning AttachmentScanStatus = "scanning"
-)
-
-// Valid indicates whether the value is a known member of the AttachmentScanStatus enum.
-func (e AttachmentScanStatus) Valid() bool {
-	switch e {
-	case AttachmentScanStatusBlocked:
-		return true
-	case AttachmentScanStatusClean:
-		return true
-	case AttachmentScanStatusScanning:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for AttachmentExtractionStatus.
 const (
 	AttachmentExtractionStatusDone    AttachmentExtractionStatus = "done"
@@ -11295,16 +11274,8 @@ type Attachment struct {
 	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 
 	// Pinned Held at the top of the account's library. An assertion by a human, like the state.
-	Pinned *bool `json:"pinned,omitempty"`
-
-	// ScanStatus Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
-	// byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
-	// (retryable — scan still running) while `scanning`, and 409
-	// `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
-	// row itself is always disclosed regardless of scan_status; only the download
-	// stream is withheld.
-	ScanStatus *AttachmentScanStatus `json:"scan_status,omitempty"`
-	Source     string                `json:"source"`
+	Pinned *bool  `json:"pinned,omitempty"`
+	Source string `json:"source"`
 
 	// SupersedesId The document this one replaces. Refused when it would close a cycle.
 	SupersedesId *openapi_types.UUID `json:"supersedes_id,omitempty"`
@@ -11321,14 +11292,6 @@ type AttachmentDocState string
 
 // AttachmentEntityType defines model for Attachment.EntityType.
 type AttachmentEntityType string
-
-// AttachmentScanStatus Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
-// byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
-// (retryable — scan still running) while `scanning`, and 409
-// `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
-// row itself is always disclosed regardless of scan_status; only the download
-// stream is withheld.
-type AttachmentScanStatus string
 
 // AttachmentExtraction One reading of one attachment — its progress, the fields it grounded, and what it
 // honestly omitted. A reading that is still running carries empty lists; that is not

@@ -126,13 +126,7 @@ func (s *Store) StartExtractionReadQueued(
 		if _, err := resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate); err != nil {
 			return err
 		}
-		att, err := readAttachment(ctx, tx, attachmentID)
-		if err != nil {
-			return err
-		}
-		if err := EnsureAttachmentScanClean(att.ScanStatus); err != nil {
-			return err
-		}
+		var err error
 		readID := ids.NewV7()
 		// In-flight uniqueness is arbitrated by uq_attachment_extraction_inflight
 		// itself: DO NOTHING rather than catching the violation keeps the

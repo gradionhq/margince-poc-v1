@@ -95,16 +95,11 @@ func (a commsAttachments) EnsureTransmittable(
 		return false, reason, err
 	}
 	for _, id := range attachmentIDs {
-		meta, err := a.files.GetAttachmentMeta(senderCtx, id)
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return false, "a file attached to this message is no longer available to the sender; it was archived, or their access to the record holding it was withdrawn", nil
-		}
-		if err != nil {
+		if _, err := a.files.GetAttachmentMeta(senderCtx, id); err != nil {
+			if errors.Is(err, apperrors.ErrNotFound) {
+				return false, "a file attached to this message is no longer available to the sender; it was archived, or their access to the record holding it was withdrawn", nil
+			}
 			return false, "", fmt.Errorf("comms: reading an attached file: %w", err)
-		}
-		if scanErr := activities.EnsureAttachmentScanClean(meta.ScanStatus); scanErr != nil {
-			return false, fmt.Sprintf(
-				"%q did not pass the malware scan in time to be sent: %s", meta.Filename, scanErr), nil
 		}
 	}
 	return true, "", nil
@@ -113,10 +108,10 @@ func (a commsAttachments) EnsureTransmittable(
 // ReadForSend opens each attachment's bytes for the transmit, in the order
 // asked, under the SENDER's own authority.
 //
-// OpenAttachment carries the scan gate as well as the row-scope one, so a file
-// quarantined between staging and now cannot be read here even though
-// EnsureTransmittable ran a moment earlier — two checks of the same fact, and
-// the cheaper one is not trusted to have been recent enough.
+// OpenAttachment re-runs the row-scope gate, so access withdrawn between
+// staging and now stops the read here even though EnsureTransmittable ran a
+// moment earlier — two checks of the same fact, and the cheaper one is not
+// trusted to have been recent enough.
 //
 // A read that fails returns the error rather than a short set: the dispatcher
 // retries on error, and a message transmitted with fewer files than it claims

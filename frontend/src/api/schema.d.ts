@@ -7225,9 +7225,8 @@ export interface paths {
         };
         /**
          * Download an attachment's file bytes.
-         * @description The scan gate refuses the byte stream while `scan_status` is `scanning` or
-         *     `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
-         *     only this byte stream is withheld.
+         * @description Gated by the attachment's parent record: a caller who cannot see the parent
+         *     reads 404, never 403, so the file's existence stays hidden.
          */
         get: operations["downloadAttachment"];
         put?: never;
@@ -12961,16 +12960,6 @@ export interface components {
              * @description The agreement this document is about (CONTRACT-DDL-5) — the same kind of roll-up as organization_id above, and just as deliberately not a second parent. Set at upload by the person filing the paper; never inferred from a filename or a date, which is the guess the document state exists to refuse.
              */
             readonly contract_id?: string | null;
-            /**
-             * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
-             *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
-             *     (retryable — scan still running) while `scanning`, and 409
-             *     `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
-             *     row itself is always disclosed regardless of scan_status; only the download
-             *     stream is withheld.
-             * @enum {string}
-             */
-            readonly scan_status: "scanning" | "clean" | "blocked";
             source: string;
             /** @description Server-stamped from the authenticated principal; never client-supplied. */
             readonly captured_by: string;
@@ -30399,15 +30388,6 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /** @description The scan gate refuses the byte stream — retryable while scanning, terminal once blocked. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
         };
     };
     deleteAttachment: {

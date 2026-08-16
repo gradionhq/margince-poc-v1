@@ -251,6 +251,7 @@ function ContractRow({
         </Badge>
       )}
       <ContractTermState contract={contract} />
+      <ContractPaper contractId={contract.id} orgId={orgId} />
       {(mayWrite || mayArchive) && (
         <OverflowMenu label={t("contracts.rowMenu")}>
           {mayWrite && (
@@ -280,6 +281,64 @@ function ContractRow({
         {t("contracts.archive.body", { title: contract.title })}
       </ConfirmModal>
     </PanelRow>
+  );
+}
+
+/**
+ * ContractPaper is the signed document itself, on the row for the agreement it
+ * belongs to.
+ *
+ * The link is filed at upload as `attachment.contract_id`, so this asks the
+ * documents endpoint for exactly that agreement's paper rather than guessing
+ * from a matching title — a company with a 2024 and a 2026 framework agreement
+ * has two files whose names differ by one digit, and matching on text would
+ * hand a reader the wrong contract with full confidence.
+ *
+ * A contract with no paper renders NOTHING, not an error and not an empty
+ * word. Recording what was agreed and filing the PDF are separate acts, and a
+ * commercial record entered from an invoice is complete without a file.
+ */
+function ContractPaper({
+  contractId,
+  orgId,
+}: Readonly<{ contractId: string; orgId: string }>) {
+  const t = useT();
+  const query = useQuery({
+    queryKey: ["contractPaper", orgId, contractId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/documents", {
+        params: {
+          path: { id: orgId },
+          query: { contract_id: contractId },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data?.data ?? [];
+    },
+  });
+
+  // A failed read says nothing here. The row's own commercial facts are
+  // already on screen and are what the reader came for; an error chip next to
+  // them would report a document problem as though the agreement were doubtful.
+  const files = query.data ?? [];
+  if (files.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {files.map((file) => (
+        <a
+          key={file.id}
+          className="co-rowlink"
+          href={`/v1/attachments/${file.id}`}
+          download={file.filename}
+        >
+          {t("contracts.paper")}
+        </a>
+      ))}
+    </>
   );
 }
 
