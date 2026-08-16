@@ -823,6 +823,30 @@ version never re-runs, so they asked whether a 2026-07 repair works on a
 2026-08 schema — a question no installation puts. What the reminders do today
 is still covered by the six eligibility suites and `timescan_integration_test.go`.
 
+**An archived tenant's records are gated now, not merged silently (0272).**
+Phase D does something 0217 did not, and nothing said so until this gate. 0217
+refused more than one LIVE workspace and named the residue it accepted: an
+installation that ARCHIVED a previous tenant keeps those rows, visible once the
+policies drop. That was about VISIBILITY. Dropping the column is a different
+act — an archived tenant's person stops being a visible foreign row and becomes
+indistinguishable from ours, listing, searching, exporting and ageing out under
+our retention policy — and it is one-way, because the reverse migrations restore
+the column but backfill every row to the live workspace.
+
+So 0272 refuses while any archived workspace still holds rows in a table that
+still carries the column, names the tables and counts, and tells the operator
+the three things they may do about it. It derives its list from pg_catalog, so
+it has less to check as phase D proceeds and never less truth to tell. The
+append-only ledgers are exempt BY NAME: their immutability trigger forbids
+DELETE, so demanding a clear-out there would demand the impossible, and their
+attribution goes with audit_log's own column at the end.
+
+**Thirteen modules merged before the gate existed** — signals, collections,
+quotas, customfields, finance, comms, consent, approvals, automation, voice,
+webhooks, agents, privacy. Configuration and machinery rather than records,
+which is why the stakes were low, but low is not none and a reader should not
+have to infer it from migration numbers.
+
 **Three of the four fan-out modules are collapsed** — webhooks (#1255), agents
 (#1283) and privacy (#1337) — each landing its module's phase D columns in the
 same PR, because the suites proving the fan-out asserted isolation between two
