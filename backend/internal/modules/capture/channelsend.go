@@ -9,8 +9,9 @@ package capture
 // transmit through", keyed (user_id, provider) because capture_connection models
 // one human's grant of one connector. A channel binding is not that: an admin
 // connects a bot on behalf of the whole workspace, so there is no user id to
-// resolve by and the lookup is keyed on the workspace alone — which RLS already
-// binds.
+// resolve by and the lookup is keyed on the workspace alone — spelled as the
+// statement's own predicate against the bound GUC, since core 0217 retired the
+// policy that used to supply it.
 //
 // What does NOT change is the seat check. The human who staged the delivery is
 // still re-read at transmit time by the dispatcher's SeatAuthority; only the
@@ -200,7 +201,7 @@ func (r *Registry) liveChannelBinding(ctx context.Context, provider string) (cha
 }
 
 // liveChannelBindings is the ONE spelling of what "live binding" means:
-// connected, un-archived, this workspace's (RLS binds that). The send resolve
+// connected, un-archived, this workspace's (the query says so itself). The send resolve
 // and the pre-flight read the same predicate here rather than each carrying a
 // copy, so a binding one of them counts is a binding the other does too.
 func (r *Registry) liveChannelBindings(ctx context.Context, provider string) ([]channelBinding, error) {

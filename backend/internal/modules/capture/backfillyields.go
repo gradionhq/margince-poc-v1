@@ -32,7 +32,12 @@ type BackfillYields struct {
 //
 // A connection with no completed run returns the zero value and NO error —
 // absence is not a failure; it routes the estimate to the work-shape floor.
-// RLS-scoped to the current workspace.
+//
+// The capture_backfill read carries no workspace predicate of its own and
+// needs none: it addresses one connection_id, and that id came from
+// connectionForUser under the calling human's own user_id in the same
+// transaction. The scope is inherited from the resolve, not applied by the
+// database — core 0217 retired the policies that used to apply one.
 func (r *Registry) BackfillYields(ctx context.Context, provider string, userID ids.UserID) (BackfillYields, error) {
 	var y BackfillYields
 	err := r.db.Tx(ctx, func(tx pgx.Tx) error {

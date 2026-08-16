@@ -46,8 +46,9 @@ var contextAnchorTypes = func() string {
 // GetRecordContext shadows the generated 501 stub with the assembled
 // context graph walk (Retriever.AssembleContext): anchor profile, recent
 // touches, and related records, each item provenance-stamped. The walk
-// runs inside the request's RLS-scoped transaction, so an anchor outside
-// the caller's row scope surfaces as apperrors.ErrNotFound — the same
+// runs inside the request's workspace-bound transaction and under
+// platform/auth's row-scope clauses, so an anchor outside the caller's row
+// scope surfaces as apperrors.ErrNotFound — the same
 // existence-hiding posture as the sibling /history endpoint — never a
 // leak of another tenant's neighborhood.
 func (h Handlers) GetRecordContext(w http.ResponseWriter, r *http.Request,

@@ -36,8 +36,8 @@ type Handlers struct {
 	feedback        *FeedbackStore
 	capturePayloads bool
 	// rates is the ADR-0067 price sheet the usage read prices ai_call
-	// against at read time (price-on-read) — same pool, RLS scoped like
-	// every other tenant read.
+	// against at read time (price-on-read) — same pool, and the same
+	// workspace-bound path as every other tenant read.
 	rates *RateStore
 	// publicProfile is the minimal anonymous login-presence view. NewHandlers
 	// starts honest-unconfigured; the API composition root replaces it from
@@ -48,8 +48,8 @@ type Handlers struct {
 // NewHandlers wires the module's stores onto one pool; budget is the
 // compose-injected seat-derived policy the usage read prices against.
 // rates is the ADR-0067 price sheet the usage read prices ai_call
-// against at read time (price-on-read) — the same pool, RLS scoped like
-// every other tenant read.
+// against at read time (price-on-read) — the same pool, and the same
+// workspace-bound path as every other tenant read.
 func NewHandlers(db *database.DB, budget BudgetPolicy) Handlers {
 	return Handlers{
 		voice: NewVoiceStore(db), meter: NewMeter(db), budget: budget,

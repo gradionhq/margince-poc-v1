@@ -13,8 +13,8 @@ package backendarch
 // ingest materialization); each one is ratified below with a self-contained
 // rationale — an entry without a rationale is a finding, not a pass, and a
 // waiver that matches no remaining write is stale and fails too. SELECTs are
-// out of scope: reads are governed by RLS and the platform/auth row-scope
-// clauses, not by ownership.
+// out of scope: reads are governed by each statement's own workspace
+// predicate and the platform/auth row-scope clauses, not by ownership.
 
 import (
 	"bufio"

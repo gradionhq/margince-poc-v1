@@ -8,7 +8,7 @@ package overlay
 // post-commit delete disconnect and reconnect share). Both touch only
 // s.vault, never the pool, so both are provable with an in-memory keyvault
 // and no real Postgres — unlike the rest of connection.go's Service methods
-// (connection_integration_test.go), which need real RLS-scoped rows.
+// (connection_integration_test.go), which need real workspace-bound rows.
 
 import (
 	"context"

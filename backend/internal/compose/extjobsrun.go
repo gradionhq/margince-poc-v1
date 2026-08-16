@@ -101,9 +101,10 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// The actor is resolved BEFORE the insert, per workspace, inside that
 	// workspace's own GUC — the sanctioned shape for a fleet pass that needs
 	// tenant rows: enumerate the workspace table (which carries no tenant
-	// scope), then enter each tenant to read anything of theirs. app_user is
-	// RLS-scoped, so a single fleet-wide read of it would need a new rls-exempt
-	// site, and a job seam is not a place to widen that list.
+	// scope), then enter each tenant to read anything of theirs. Every app_user
+	// read carries a workspace predicate against the bound GUC, so a single
+	// fleet-wide read of it would need a new rls-exempt site, and a job seam is
+	// not a place to widen that list.
 	//
 	// It costs one round trip per live workspace, serially, inside the
 	// dispatcher's DECLARED wall clock — so that number is a fleet-size

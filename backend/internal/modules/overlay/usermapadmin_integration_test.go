@@ -339,7 +339,8 @@ func TestEmailSourcedMappingSkipsASeatArchivedAfterTheCandidateRead(t *testing.T
 }
 
 // The same skip covers a candidate the workspace no longer has at all (a seat
-// deleted mid-sweep, or another tenant's, which RLS makes indistinguishable):
+// deleted mid-sweep, or another tenant's, which the eligibility predicate's
+// own workspace bound makes indistinguishable):
 // there is nothing to map, and that is a row to pass over rather than a fault
 // that ends the pass.
 func TestEmailSourcedMappingSkipsACandidateTheWorkspaceNoLongerHas(t *testing.T) {

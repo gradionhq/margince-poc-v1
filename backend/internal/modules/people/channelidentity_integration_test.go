@@ -137,8 +137,8 @@ func TestTwoConcurrentResolutionsConvergeOnOnePerson(t *testing.T) {
 	}
 }
 
-// countInWorkspace runs one count under the workspace GUC, so RLS scopes it
-// to this test's own tenant.
+// countInWorkspace runs one count under the workspace GUC, which is what the
+// caller's own query predicates on to reach this test's tenant alone.
 func (e *dedupeEnv) countInWorkspace(ctx context.Context, t *testing.T, query string, args ...any) int {
 	t.Helper()
 	var n int

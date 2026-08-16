@@ -22,7 +22,7 @@ import (
 )
 
 // SearchEnv is the second EXPORTED fixture here, after Env, and lighter than it:
-// one workspace, two reps in two teams, and a search store over the RLS-bound
+// one workspace, two reps in two teams, and a search store over the workspace-bound
 // pool. (It is not the second fixture in the package — several suites still build
 // their own; it is the second one a sibling package can import.)
 //

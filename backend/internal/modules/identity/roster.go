@@ -104,6 +104,7 @@ const listUsersAllQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
+	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
@@ -112,6 +113,7 @@ const listUsersAllFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
+	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND (display_name ILIKE $2 OR email ILIKE $2)
 	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
@@ -123,11 +125,14 @@ func scanUser(r pgx.Row) (userRow, error) {
 	return u, err
 }
 
-const getUserQuery = `SELECT ` + userColumns + ` FROM app_user WHERE id = $2 AND archived_at IS NULL`
+const getUserQuery = `SELECT ` + userColumns + ` FROM app_user
+	WHERE id = $2 AND archived_at IS NULL
+	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 
-// GetUser reads one member by id regardless of status (RLS-scoped to the
-// caller's workspace) — the read every admin write returns after a mutation, so
-// it always asks for the role keys. ErrNotFound when absent or archived.
+// GetUser reads one member by id regardless of status, bounded to the bound
+// workspace by the query's own predicate — the read every admin write returns
+// after a mutation, so it always asks for the role keys. ErrNotFound when
+// absent or archived.
 func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
 	var u userRow
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -145,7 +150,8 @@ func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, erro
 }
 
 // ListUsers returns one keyset page of the caller's workspace's active
-// members (row-scoped by RLS), optionally filtered by in.Q.
+// members, bounded by each query's own workspace predicate, optionally
+// filtered by in.Q.
 func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, storekit.Page, error) {
 	plain, filtered := listUsersQuery, listUsersFilteredQuery
 	if in.IncludeInactive {
@@ -211,8 +217,8 @@ func scanTeam(r pgx.Row) (teamRow, error) {
 }
 
 // ListTeams returns one keyset page of the caller's workspace's active
-// teams (row-scoped by RLS) with each team's active-membership count,
-// optionally filtered by in.Q.
+// teams, bounded by each query's own workspace predicate, with each team's
+// active-membership count, optionally filtered by in.Q.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
 	return listRosterPage(ctx, s.db, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
 		plain:     listTeamsQuery,

@@ -38,7 +38,15 @@ func EscapeLike(value string) string {
 }
 
 // EmailSuppressed reports whether an address belongs to an erased
-// subject in the current workspace (RLS scopes the read).
+// subject in this INSTALLATION. There is no tenant predicate and there is
+// nothing for one to key on: core 0217 (ADR-0091) retired every isolation
+// policy and core 0255 dropped erasure_suppression.workspace_id outright,
+// so the list is installation-wide by construction. What makes that the
+// right scope is A107/ADR-0061 — one installation serves one organization,
+// and the server refuses to start holding more than one live workspace.
+// Naming the guarantee matters here more than most places: this is an
+// erasure gate, and the expensive mistake is a later reader assuming
+// something narrower already scoped it.
 func EmailSuppressed(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
 	var suppressed bool
 	err := tx.QueryRow(ctx,
@@ -65,9 +73,10 @@ func ChannelIdentityHash(provider, channelUserID string) string {
 }
 
 // ChannelIdentitySuppressed reports whether a channel identity belongs to
-// an erased subject in the current workspace (RLS scopes the read). It is
-// the channel twin of EmailSuppressed: an ingest path that can create or
-// re-bind a Person from an inbound message consults it first.
+// an erased subject in this installation, under exactly the scope
+// EmailSuppressed documents. It is the channel twin of EmailSuppressed: an
+// ingest path that can create or re-bind a Person from an inbound message
+// consults it first.
 func ChannelIdentitySuppressed(ctx context.Context, tx pgx.Tx, provider, channelUserID string) (bool, error) {
 	var suppressed bool
 	err := tx.QueryRow(ctx,

@@ -27,7 +27,7 @@ type Handlers struct {
 	store *Store
 }
 
-// NewHandlers wires the transport over the RLS-bound app pool.
+// NewHandlers wires the transport over the workspace-bound app pool.
 func NewHandlers(db *database.DB, baseCurrency BaseCurrencyFunc) Handlers {
 	return Handlers{store: NewStore(db, baseCurrency)}
 }

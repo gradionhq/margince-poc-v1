@@ -16,12 +16,17 @@ import (
 // unit of classify work. It absorbs batching and per-item solo re-asks (a
 // labeled row is one classified message no matter how many model calls it
 // took), so it is the right denominator for turning served classify token
-// totals into a per-message cost. RLS-scoped to the current workspace.
+// totals into a per-message cost. The count carries its own workspace
+// predicate: it is the denominator under ServedTaskTotals' numerator, and the
+// two must observe the same tenant or the cost is arithmetic between
+// unrelated populations.
 func (s *Store) LabeledCaptureCountSince(ctx context.Context, since time.Time) (int64, error) {
 	var count int64
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT count(*) FROM activity WHERE capture_labeled_at >= $1`, since,
+			`SELECT count(*) FROM activity
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND capture_labeled_at >= $1`, since,
 		).Scan(&count)
 	})
 	if err != nil {

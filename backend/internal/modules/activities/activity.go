@@ -317,8 +317,9 @@ const activityColumns = `a.id, a.workspace_id, a.kind, a.channel_provider, a.sub
 	a.thread_key, a.capture_label, a.bulk_mail_attested`
 
 // readActivity is the module's ONE single-row activity read, and it
-// carries the row scope itself. An activity has no owner_id and RLS binds
-// only the workspace, so its scope exists solely as the link-walk in
+// carries the row scope itself. An activity has no owner_id and the
+// workspace predicate bounds only the tenant, so its scope exists solely
+// as the link-walk in
 // auth.ActivityScopeClause — a probe a call site can forget, and three
 // lifecycle mutators did. Anything that returns a record is a read, so the
 // gate lives here: an out-of-scope id reads as ErrNotFound, the same answer

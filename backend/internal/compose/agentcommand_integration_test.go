@@ -195,7 +195,7 @@ func scopedArchiveAgent(t *testing.T, e *integration.Env) context.Context {
 
 // pendingApprovals counts the staged rows.
 //
-// Bound through WithWorkspaceTx: Env.Pool is the RLS-bound app role, so an
+// Bound through WithWorkspaceTx: Env.Pool is the workspace-bound app role, so an
 // unbound count resolves the policy against a NULL workspace and answers zero
 // for every row that exists — an absence-assertion that passes whether or not
 // anything was staged, which is the one thing this test may not do.

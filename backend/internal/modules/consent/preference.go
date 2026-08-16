@@ -109,8 +109,9 @@ func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (Prefe
 // preference token, minting one lazily on first use, so the send path can
 // build the List-Unsubscribe URL. An address no person carries yields no
 // token (found=false): the send would fail the consent gate anyway, so
-// nothing is disclosed. RLS scopes the email lookup to the workspace, and
-// the row-scope probe below scopes it to the caller.
+// nothing is disclosed. The lookup carries its own workspace predicate —
+// core 0217 retired the policy that used to supply one — and the row-scope
+// probe below scopes it to the caller.
 func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (token string, found bool, err error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return "", false, err
@@ -123,6 +124,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 			FROM person_email pe
 			JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
 			WHERE lower(pe.email) = $1
+			  AND p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			LIMIT 1`, email).Scan(&personID)
 		if errors.Is(lookup, pgx.ErrNoRows) {
 			return nil // not a known recipient in this workspace: no token, no header

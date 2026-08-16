@@ -9,8 +9,10 @@ package quotas
 // Always computed live — a zero target or a missing FX rate is an honest
 // typed refusal, never a cached, capped, or invented number (RD-AC-4).
 // The deal/team_membership/workspace/fx_rate SELECTs here are the
-// ratified module-local read posture: reads are
-// not ownership-gated, and RLS scopes every one to the caller's tenant.
+// ratified module-local read posture: reads are not ownership-gated, and
+// the installation holds one organization (A107/ADR-0061), so there is no
+// second tenant for them to reach — core 0217 retired the policies that
+// used to say so, and quota itself lost its workspace column in 0228.
 
 import (
 	"context"
@@ -220,8 +222,9 @@ func (s *Store) targetInBase(ctx context.Context, tx pgx.Tx, q crmcontracts.Quot
 
 // measuredOwners resolves whose closed-won deals count toward the quota:
 // the owner-quota's single owner, or every current member of the
-// team-quota's team. RLS scopes the membership read to the tenant, so
-// team_id alone is the whole predicate.
+// team-quota's team. team_id alone is the whole predicate: a team belongs
+// to one installation, and this installation holds one organization
+// (A107/ADR-0061).
 func measuredOwners(ctx context.Context, tx pgx.Tx, q crmcontracts.Quota) ([]ids.UUID, error) {
 	if q.OwnerId != nil {
 		return []ids.UUID{ids.UUID(*q.OwnerId)}, nil

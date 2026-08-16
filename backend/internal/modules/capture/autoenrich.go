@@ -9,8 +9,9 @@ package capture
 // candidate read. Compose owns the sweep worker and the deep-read enqueue; this
 // store owns the scheduling state and the atomic cap reservation so the two are
 // one transaction each. The candidate read joins organization / site_read
-// (people-owned) — reads are governed by RLS, not ownership — so all the sweep's
-// eligibility logic lives in one place.
+// (people-owned) — a read is bounded by its own workspace predicate, not by
+// which module owns the table — so all the sweep's eligibility logic lives in
+// one place.
 
 import (
 	"context"
@@ -49,8 +50,8 @@ func NewAutoEnrichStore(db *database.DB) *AutoEnrichStore { return &AutoEnrichSt
 
 // ListDueOrgs returns up to limit captured organizations that need a dossier,
 // newest first (ADR-0072): with a live primary domain, no dossier, and either
-// no cursor row or a due one under the attempt bound. RLS scopes it to the
-// current workspace.
+// no cursor row or a due one under the attempt bound. The query's own
+// workspace predicate scopes it to the bound workspace.
 //
 // name_source='domain' IS the sweep's population. ADR-0072 gives a dossier to
 // every surviving AUTO-CREATED company, and a domain-derived name is what marks

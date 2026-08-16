@@ -46,7 +46,7 @@ type Store struct {
 // handle keeps quotas free of a registry it has no other use for.
 type BaseCurrencyFunc func(context.Context, pgx.Tx) (string, error)
 
-// NewStore wires the store over the RLS-bound app pool.
+// NewStore wires the store over the workspace-bound app pool.
 func NewStore(db *database.DB, baseCurrency BaseCurrencyFunc) *Store {
 	return NewStoreWithClock(db, time.Now, baseCurrency)
 }
@@ -145,8 +145,10 @@ func (s *Store) CreateQuota(ctx context.Context, in CreateQuotaInput) (crmcontra
 }
 
 // GetQuota resolves one quota by id. No row-scope probe runs — quota is
-// workspace-shared config gated by the object grant alone (see the
-// package doc); RLS bounds the read to the caller's tenant.
+// installation-shared config gated by the object grant alone (see the
+// package doc). Nothing bounds it to a tenant and nothing can: core 0228
+// dropped quota.workspace_id, so the table is installation-wide, which
+// A107/ADR-0061 makes the same thing.
 func (s *Store) GetQuota(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Quota, error) {
 	if err := auth.Require(ctx, "quota", principal.ActionRead); err != nil {
 		return crmcontracts.Quota{}, err

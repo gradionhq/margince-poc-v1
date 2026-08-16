@@ -167,15 +167,19 @@ func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.DealID, buyerOrg
 // owner_id — it is workspace-shared config, not row-scoped data (see
 // offer_template.go's file doc) — so auth.EnsureLinkTarget (which
 // requires the target table be row-scoped) does not apply here; a plain
-// existence probe, already RLS-scoped to the caller's workspace by the
-// surrounding transaction, gives the same existence-hiding 404 without it.
+// existence probe carrying its own workspace predicate gives the same
+// existence-hiding 404 without it. The predicate is not decoration: the
+// probe's whole job is to refuse an id from outside, and since core 0217
+// nothing behind the statement supplies that bound.
 func resolveOfferTemplateRef(ctx context.Context, tx pgx.Tx, templateID *ids.OfferTemplateID) error {
 	if templateID == nil {
 		return nil
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
+		`SELECT EXISTS (SELECT 1 FROM offer_template
+		   WHERE id = $1 AND archived_at IS NULL
+		     AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)`,
 		*templateID).Scan(&exists); err != nil {
 		return fmt.Errorf("check offer_template reference: %w", err)
 	}

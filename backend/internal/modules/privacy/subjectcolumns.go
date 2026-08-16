@@ -9,9 +9,12 @@ package privacy
 // status, not the record surface's active-only slice: retiring a field
 // preserves the physical column and every value in it (the lifecycle
 // never DROPs), so a retired column still holds PII the workspace is
-// accountable for. The catalog read is workspace-scoped by RLS on
-// custom_field; every column name is catalog-derived (server-minted at
-// field creation), never client text, and is still identifier-quoted
+// accountable for. The catalog read reaches every custom_field in the
+// installation — core 0229 dropped the table's workspace column, so there
+// is nothing narrower to read, and A107/ADR-0061's one organization per
+// installation is what makes that the right set. Every column name is
+// catalog-derived (server-minted at field creation), never client text,
+// and is still identifier-quoted
 // before splicing — the same posture as storekit's customcolumns
 // mechanics.
 

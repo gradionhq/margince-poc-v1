@@ -38,7 +38,7 @@ const (
 
 // Service is the governed custom-fields engine over the catalog
 // aggregate. It rides two pools with deliberately different authority:
-// pool is the RLS-bound app pool (margince_app) every catalog-only
+// pool is the workspace-bound app pool (margince_app) every catalog-only
 // operation uses, and schemaPool is the owner-privileged schema-change
 // pool that ONLY the two DDL paths (Create, SetOptions)
 // touch — nil when the operator has not mounted the second credential,

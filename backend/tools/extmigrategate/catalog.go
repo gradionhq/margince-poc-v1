@@ -348,11 +348,11 @@ func assertGrants(ctx context.Context, conn *pgx.Conn, rel relation, namespace, 
 		case grantee == namespace:
 			continue // the owner's own entry
 		case grantee == "":
-			return fmt.Errorf("%s grants %q to PUBLIC — every role on the cluster, including ones that predate this unit and ones RLS does not bind", where, privileges)
+			return fmt.Errorf("%s grants %q to PUBLIC — every role on the cluster, including ones that predate this unit and ones this installation never provisioned", where, privileges)
 		case grantee != appRole:
 			return fmt.Errorf("%s grants %q to %q — only the owner and %s may hold privileges on an extension table", where, privileges, grantee, appRole)
 		case strings.Trim(privileges, allowed) != "":
-			return fmt.Errorf("%s grants %q to %s — only %q is allowed on this relation; TRUNCATE in particular empties every workspace's rows without consulting the policy", where, privileges, appRole, allowed)
+			return fmt.Errorf("%s grants %q to %s — only %q is allowed on this relation; TRUNCATE in particular empties the whole table, taking no predicate and honouring none", where, privileges, appRole, allowed)
 		}
 		held = privileges
 	}

@@ -5,7 +5,7 @@
 
 package capture
 
-// Field-level provenance (B-E02.12): one shared, RLS-scoped
+// Field-level provenance (B-E02.12): one shared, workspace-predicated
 // field_provenance table covers every core captured object; the
 // row-level source/captured_by stays the creation default and display
 // falls back to it (both layers coexist); human-entered and captured

@@ -25,7 +25,8 @@ import (
 // bytes, records the credential_ref, and clears auth. It is idempotent — a row
 // that already carries a ref is skipped — so a re-run or a crash-retry is
 // safe, which is what lets it run on every boot. It walks every live workspace
-// under that workspace's own GUC, since capture_connection is RLS-scoped.
+// under that workspace's own GUC, which is what capture_connection's own
+// workspace predicates read.
 // One workspace's failure must not starve the rest of the fleet (the same
 // invariant retention and the close-date sweep hold): the walk continues past
 // a failing workspace and returns the count migrated plus the joined errors.

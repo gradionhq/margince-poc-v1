@@ -277,8 +277,8 @@ func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs
 }
 
 // GmailWatchRenewArgs renews ONE connection's push watch. The workspace travels
-// with it because capture_connection is RLS-scoped and a job carries no
-// session.
+// with it because capture_connection reads are workspace-predicated and a job
+// carries no session.
 type GmailWatchRenewArgs struct {
 	Workspace    ids.UUID `json:"workspace_id"`
 	ConnectionID string   `json:"connection_id"`

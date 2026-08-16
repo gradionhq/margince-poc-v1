@@ -21,8 +21,9 @@ import (
 )
 
 // whereScope is the prefix every row-addressing statement shares: this unit,
-// this tenant. The workspace predicate duplicates what RLS already enforces —
-// deliberately, because it is also what lets the planner reach the partial
+// this tenant. The workspace predicate is the statement's OWN — core 0217
+// (ADR-0091) retired every tenant-isolation policy, so nothing behind this
+// query scopes it — and it is also what lets the planner reach the partial
 // unique indexes, which are keyed (extension_name, workspace_id, …).
 const whereScope = `
 	WHERE extension_name = $1

@@ -241,8 +241,8 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 }
 
 // seedBookingPage provisions the admin's public booking page: the
-// workspace's only user at seed time IS the bootstrap admin (RLS scopes
-// the read).
+// workspace's only user at seed time IS the bootstrap admin (the read
+// carries its own workspace predicate).
 func seedBookingPage(ctx context.Context, tx pgx.Tx) error {
 	var adminID ids.UserID
 	if err := tx.QueryRow(ctx,

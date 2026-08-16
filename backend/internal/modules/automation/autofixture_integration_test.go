@@ -10,7 +10,7 @@ package automation
 // precondition). The compose-layer harness cannot be imported here
 // (modules never see compose, tests included — backend/arch_test.go),
 // so the seeding is spelled locally: an owner connection for RLS-free
-// seeding and assertions, and the RLS-bound app pool the code under
+// seeding and assertions, and the workspace-bound app pool the code under
 // test runs on.
 
 import (

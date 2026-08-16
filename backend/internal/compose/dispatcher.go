@@ -221,7 +221,7 @@ func (d *Dispatcher) queryOverlayMode(ctx context.Context, wsID ids.UUID) (bool,
 //
 // workspace is the one non-tenant table (identity's own ResolveWorkspace doc
 // comment), so a caller with no transaction rides WithInfraTx rather than the
-// RLS-bound WithWorkspaceTx — there is no workspace_id column on workspace
+// workspace-bound WithWorkspaceTx — there is no workspace_id column on workspace
 // itself to scope by, and reading it from inside a workspace-bound transaction
 // is equally unfiltered.
 func overlayModeOf(ctx context.Context, q rowQuerier, wsID ids.UUID) (bool, error) {

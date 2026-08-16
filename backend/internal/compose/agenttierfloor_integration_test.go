@@ -213,7 +213,7 @@ func seedOrgForTierFloor(as context.Context, t *testing.T, p *Provider) ids.UUID
 // liveProjectsNamed counts the projects the call did or did not create.
 //
 // Bound through WithWorkspaceTx, not read off the pool directly. Env.Pool is the
-// RLS-bound app role, so an unbound `SELECT count(*) FROM project` resolves the
+// workspace-bound app role, so an unbound `SELECT count(*) FROM project` resolves the
 // policy expression against a NULL workspace and answers zero for every row that
 // exists — an absence-assertion that passes whether or not the write happened,
 // which is the one thing this test may not do.

@@ -167,8 +167,8 @@ type ConnectionView struct {
 }
 
 // Connections lists the CALLING human's own standing connections in the
-// current workspace (RLS scopes the read to the workspace; user_id scopes
-// it to this human — capture is per-user, RC-8).
+// current workspace (the query's own workspace predicate scopes the read to
+// the workspace; user_id scopes it to this human — capture is per-user, RC-8).
 func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
@@ -382,8 +382,9 @@ type DueConnection struct {
 // with no sidecar row yet is due immediately). Status 'error' stays in the
 // scan — degraded connections are probed on their daily cadence, never
 // tombstoned; only 'disconnected' and 'reauth_required' park a row.
-// capture_connection is RLS-scoped, so this walks each workspace under its
-// own GUC. One workspace's failure does not starve the rest.
+// A capture_connection read is scoped by the GUC its own predicate names, so
+// this walks each workspace under that workspace's GUC rather than reading the
+// fleet at once. One workspace's failure does not starve the rest.
 func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnection, error) {
 	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
 		rows, err := tx.Query(ctx, `

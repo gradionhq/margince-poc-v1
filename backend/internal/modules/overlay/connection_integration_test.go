@@ -102,7 +102,7 @@ func TestConnectSealsTheTokenAndFlipsTheWorkspaceToOverlay(t *testing.T) {
 
 	// The plaintext token must NEVER land in the incumbent_connection
 	// column — only the opaque vault ref. Reading every text column back
-	// (via the owner connection, not RLS-gated) and asserting the raw
+	// (via the owner connection, under no workspace predicate) and asserting the raw
 	// token substring is absent is the load-bearing security proof here.
 	var incumbent, region, status, credentialRef string
 	queryRowWS(ctx, t, pool,

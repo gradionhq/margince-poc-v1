@@ -158,8 +158,9 @@ LIMIT $3`
 // ListUserMap pages this workspace's users with their current mapping state,
 // in app_user id order — the same opaque keyset cursor scheme MirrorStore.List
 // uses, carrying a user id instead of an external id. It is a plain
-// workspace-scoped read (RLS confines it to the tenant); the admin-only gate
-// lives at the service entry point, with every other user-map operation.
+// workspace-scoped read, confined by its own workspace predicate; the
+// admin-only gate lives at the service entry point, with every other
+// user-map operation.
 func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string, limit int) ([]UserMapEntry, string, error) {
 	after, err := decodeMirrorCursor(cursor)
 	if err != nil {

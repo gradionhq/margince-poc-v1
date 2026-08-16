@@ -155,9 +155,9 @@ func TestSendEmailWorkerFailsARetryThatCarriesNoCause(t *testing.T) {
 	}
 }
 
-// comms_outbound is RLS-scoped, so every read and transition the dispatcher
-// makes needs the job's own workspace on the context; without it the load
-// finds nothing and the send silently never happens.
+// Every comms_outbound read and transition the dispatcher makes predicates on
+// the bound workspace, so the job's own workspace has to be on the context;
+// without it the load finds nothing and the send silently never happens.
 func TestSendEmailWorkerBindsTheJobsWorkspaceAndDelivery(t *testing.T) {
 	ws, delivery := ids.NewV7(), ids.NewV7()
 	dispatcher := &stubDispatcher{outcome: comms.OutcomeSent}

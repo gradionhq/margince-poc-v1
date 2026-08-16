@@ -195,9 +195,11 @@ func (s *Store) RecordSiteReadLogo(ctx context.Context, readID ids.UUID, claimed
 // logoUnwornByAnyOrganization is the safety proof every drop of a parked
 // reference carries, in one spelling: the reference goes only while no
 // organization names the same key, so an object a company wears is never
-// reported as collectable. Keys carry their workspace prefix and RLS scopes the
-// check to that same tenant, so a foreign record's bytes cannot be described
-// here at all. It reads the `sr` alias its statements give site_read.
+// reported as collectable. The key is the whole scope and it is enough: an
+// object key carries its workspace prefix, so two tenants cannot name the
+// same object and a foreign record's bytes cannot be described here at all.
+// Said plainly because core 0217 retired the policy that used to say it a
+// second way. It reads the `sr` alias its statements give site_read.
 const logoUnwornByAnyOrganization = `NOT EXISTS (
 		SELECT 1 FROM organization o WHERE o.logo_object_key = sr.logo_object_key)`
 

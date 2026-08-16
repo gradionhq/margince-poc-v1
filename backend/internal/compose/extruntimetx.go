@@ -82,11 +82,18 @@ func (r *callRuntime) endIngest() {
 // belongs to, and hands the callback the published seam over it.
 //
 // The pinning is database.WithWorkspaceTx — the same transaction-local
-// app.workspace_id GUC every core store binds, read by the same tenant
-// policies — rather than a second mechanism this surface invents. The
-// workspace comes from scoped, so it is the INVOCATION's and not whatever
-// tenant the handler's own ctx happens to carry: the pin is bound before fn
-// runs, and the tenant policies then hold whatever SQL fn issues.
+// app.workspace_id GUC every core store binds — rather than a second
+// mechanism this surface invents. The workspace comes from scoped, so the
+// GUC names the INVOCATION's tenant and not whatever tenant the handler's
+// own ctx happens to carry.
+//
+// What the pin does NOT do is bound fn. Core 0217 (ADR-0091) retired every
+// tenant-isolation policy, so the GUC is a value a statement may read, not a
+// fence the database applies: SQL issued here reaches whatever it names, and
+// a unit's statement carries its own workspace predicate or carries none.
+// The boundary that holds is the published seam itself — the grant surface
+// extmigrategate polices and the `ext` schema a unit owns — plus A107's
+// single-organization installation.
 func (r *callRuntime) Tx(ctx context.Context, fn func(ctx context.Context, tx extension.Tx) error) error {
 	ctx, err := r.scoped(ctx)
 	if err != nil {

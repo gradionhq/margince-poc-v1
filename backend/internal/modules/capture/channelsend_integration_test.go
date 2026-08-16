@@ -293,8 +293,8 @@ func TestASendRefusesAfterItsBotWasReplaced(t *testing.T) {
 	}
 }
 
-// RLS scopes the resolve: another workspace's live binding is not this
-// workspace's sender, whatever the global bot index says.
+// The resolve's own workspace predicate scopes it: another workspace's live
+// binding is not this workspace's sender, whatever the global bot index says.
 func TestChannelSenderForDoesNotReachAnotherWorkspacesBinding(t *testing.T) {
 	api := newFakeTelegram()
 	bound := newChannelFixture(t, api)
