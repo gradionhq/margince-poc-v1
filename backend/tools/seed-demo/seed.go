@@ -66,6 +66,10 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
+	documents, err := seedDocuments(c, refs, mode)
+	if err != nil {
+		return err
+	}
 	consents, err := seedConsent(c, cfg, companies, refs, mode)
 	if err != nil {
 		return err
@@ -88,6 +92,7 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	fmt.Printf("contracts:     %d new\n", contracts)
 	fmt.Printf("products:      %d new\n", productsNew)
 	fmt.Printf("offers:        %d new\n", offers)
+	fmt.Printf("documents:     %d uploaded\n", documents)
 	fmt.Printf("consent:       %d recorded\n", consents)
 	fmt.Printf("lifecycle:     %d changed\n", lifecycles)
 	fmt.Printf("owners:        %d organization(s), %d person/people\n", ownedOrgs, ownedPeople)

@@ -31,6 +31,9 @@ type pipelineRefs struct {
 	// dealsByCompany is filled after the deals are seeded, so an activity can
 	// link to the deal it moved.
 	dealsByCompany map[string][]string
+	// anchorName and orgNameByID name the parties a document prints.
+	anchorName  string
+	orgNameByID map[string]string
 	// ownerRefByDomain is who holds each account — the ONE answer ownership
 	// and activity authorship both read, so they cannot drift apart.
 	ownerRefByDomain map[string]string
@@ -58,6 +61,8 @@ func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, e
 		contractsByRef:   cfg.Contracts,
 		dealsByCompany:   map[string][]string{},
 		ownerRefByDomain: map[string]string{},
+		orgNameByID:      map[string]string{},
+		anchorName:       cfg.Anchor.LegalName,
 		usersByRef:       map[string]string{},
 		orgsByDom:        map[string]string{},
 		stagesByNm:       map[string]string{},
@@ -83,21 +88,8 @@ func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, e
 		}
 	}
 
-	var orgs struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Domains []struct {
-				Domain string `json:"domain"`
-			} `json:"domains"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
-		return refs, fmt.Errorf("listing organizations: %w", err)
-	}
-	for _, o := range orgs.Data {
-		for _, dom := range o.Domains {
-			refs.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
-		}
+	if err := refs.loadOrganizations(c); err != nil {
+		return refs, err
 	}
 
 	var pipelines struct {
@@ -315,6 +307,37 @@ func employPromoted(c *client, lead demoLead, refs pipelineRefs) error {
 	}
 	_, err = ensureEmployment(c, personID, orgID, lead.Title, false)
 	return err
+}
+
+// loadOrganizations indexes the accounts twice: by domain, which is how the
+// dataset names them, and by id with the name a document would print.
+func (r *pipelineRefs) loadOrganizations(c *client) error {
+	var orgs struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+			LegalName   string `json:"legal_name"`
+			Domains     []struct {
+				Domain string `json:"domain"`
+			} `json:"domains"`
+		} `json:"data"`
+	}
+	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
+		return fmt.Errorf("listing organizations: %w", err)
+	}
+	for _, o := range orgs.Data {
+		// The legal name is what paper names as a party; the display name is
+		// what people call them, and only one of those belongs in a contract.
+		name := o.LegalName
+		if name == "" {
+			name = o.DisplayName
+		}
+		r.orgNameByID[o.ID] = name
+		for _, dom := range o.Domains {
+			r.orgsByDom[strings.ToLower(dom.Domain)] = o.ID
+		}
+	}
+	return nil
 }
 
 // loadDeals records the id of every seeded deal, keyed by its company, so the
