@@ -1,7 +1,8 @@
 # Add an extension (a stable-tier unit)
 
 For shipping a bounded add-on — a **jurisdiction pack**, a **governed agent tool**, an **HTTP surface**,
-its **own tables**, its **own secrets** or a **scheduled job** — as a named, versioned unit under
+its **own tables**, its **own secrets**, a **scheduled job**, a **reaction to events**, **capture from
+its own provider**, or a **messaging transport** — as a named, versioned unit under
 `extensions/<name>/`, without editing any upstream-owned file — with one exception: a unit that ships a
 `frontend/` with npm dependencies of its own also changes the root `pnpm-lock.yaml`, and that lockfile
 diff is reviewed on the same terms as the unit's Go (see
@@ -12,16 +13,18 @@ specifically, the live capability is retention floors; the running example below
 
 An extension is its own Go module reaching the core through only the marker-allowlisted
 `backend/pkg/**` surface. **Presence under `extensions/` is the enablement** — there is no flag to
-flip. `extensions/notes` is the **reference unit** and exercises every capability below — copy it when your
-unit owns data or serves routes. `extensions/de` (a jurisdiction pack), `extensions/yogi` (one served
-agent tool) and `fixtures/extensions/crm-hello` (the walking-skeleton) are the smaller shapes.
+flip. `extensions/notes` is the **reference unit** for a unit that owns data or serves routes — copy it
+first. `extensions/dispact-connector` is the reference for a unit that faces an outside provider:
+capture, a merge-key declaration, and a transport replies leave on. `extensions/de` (a jurisdiction
+pack), `extensions/yogi` (one served agent tool) and `fixtures/extensions/crm-hello` (the
+walking-skeleton) are the smaller shapes.
 
 A unit owns **all six** surfaces, frontend included: `extensions/<name>/frontend/` is a pnpm workspace
 package whose default export the SPA mounts at `#/ext/<name>`. A unit that ships none still gets a
 route and a generic descriptor card automatically.
 
 Extension paths — the units, the `backend/pkg/**` seam, the composition stub and generator — carry
-a [CODEOWNERS](../../.github/CODEOWNERS) entry, so a PR touching them automatically requests the
+a [CODEOWNERS](../../CODEOWNERS) entry, so a PR touching them automatically requests the
 tier owner's review.
 
 ## Scaffold the unit
@@ -80,10 +83,10 @@ tier owner's review.
    	}
    }
    ```
-   **Import only `backend/pkg/**` packages carrying `//margince:extension-surface`** — `pkg/extension`
-   and `pkg/extension/jurisdiction` today. Any import of `internal/**`, `cmd/**`, an unmarked `pkg`
-   package, the composition module, or a sibling extension fails the arch test (the compiler already
-   makes `internal/**` unreachable — the test holds the rest).
+   **Import only `backend/pkg/**` packages carrying `//margince:extension-surface`** — `pkg/extension`,
+   `pkg/extension/jurisdiction` and `pkg/extension/crm` today. Any import of `internal/**`, `cmd/**`, an
+   unmarked `pkg` package, the composition module, or a sibling extension fails the arch test (the
+   compiler already makes `internal/**` unreachable — the test holds the rest).
 
 ## Stay inside the declared vocabularies
 
@@ -418,6 +421,122 @@ it cannot request an outbound scope; both are refused at boot.
 > and the count is reported as `margince_extension_job_seatless_workspaces` on the worker's
 > `/metrics`. Do not treat a silent job as a broken one without reading that gauge first.
 
+## React to events
+
+A `Subscription` names the event types the unit listens for and the function one delivery runs:
+
+```go
+Subscriptions: []extension.Subscription{
+	{Name: "withdraw_filing", Events: []string{"activity.archived"}, Handle: withdrawFiling},
+},
+```
+
+```go
+func withdrawFiling(ctx context.Context, rt extension.Runtime, d extension.Delivery) error
+```
+
+`Delivery` carries the event id, its type, when it occurred, the entity it names, and the raw payload.
+Each subscription gets its own consumer group (`cg:ext-<unit>-<subscription>`), started in the worker
+role. What to design for:
+
+- **A delivery has nobody behind it.** The caller is the zero `Caller`, so `tx.Core()` refuses. Your
+  own tables stay writable, auditable and publishable.
+- **The bus is at-least-once.** The core suppresses the redelivery it can see (the same event to the
+  same subscription), but that is a cache and it cannot cover a crash between your effect and the ack.
+  Make the handler safe to run twice, keyed on `EventID`.
+- **Your return value decides redelivery.** An error leaves the entry pending and it comes back; `nil`
+  acks it. So a delivery you can never process — a malformed payload, a subject you do not recognise —
+  returns `nil` and logs, rather than failing forever on something no retry can fix.
+- **A type nothing can route is refused at boot**, rather than registering a consumer group that never
+  delivers. You may name a core type or another unit's (`ext_<namespace>.<verb>`).
+- **The list is public.** It derives into `manifest.generated.json`, so which of the installation's
+  facts your unit consumes is readable without opening its source.
+
+## Capture records from your own provider
+
+Declare the providers you bring records in from. `System` is the unit's own stable key for the
+provider, and the core stamps it into every landed record's provenance:
+
+```go
+Ingress: []extension.IngressSource{{
+	System: "dispact",                                    // lower kebab, ≤32 chars, STABLE
+	Lands:  []extension.RecordKind{extension.KindActivity},
+	Merges: []extension.MergeKey{extension.MergeKeyEmail}, // optional; see below
+}},
+```
+
+Then hand one record at a time to the core's own capture pipeline:
+
+```go
+res, err := rt.Ingest(ctx, member, rec) // res.Disposition is Accepted or Skipped
+```
+
+You assemble no timeline entry and could not — you hand over a record and the core decides what
+becomes of it. The rules that will otherwise bite:
+
+- **`Ingest` hangs off `Runtime`, not `Tx`.** The pipeline opens its own transaction, so calling it
+  from inside yours takes a second connection while holding one — on a small pool that hangs rather
+  than fails. `ErrNestedIngest` makes it a sentence instead.
+- **Unattended only.** An ingest from an invocation that has a caller is refused
+  (`ErrAttendedIngest`): two authorities would be in play. Do it from your job tick.
+- **You act for a member, on their live authority.** The member named in `on` must currently hold one
+  of your unit's user-scoped secrets — depositing a credential is the act that says "act for me here".
+  A member demoted since they connected narrows what their connection can land, from the next call on.
+- **`Key` must be identical on every re-read.** It is the idempotency key. Derive it from the
+  provider's own id, never from a timestamp, a page position or your own row id — the failure mode is a
+  duplicate on every poll, and **nothing reports an error**.
+- **Both dispositions advance your cursor.** `Skipped` means the core deliberately kept nothing and
+  logged why (a wholly-internal message). Treating it as a failure retries a deliberate drop forever.
+- **`Merges` is what your source VOUCHES for**, and it is empty by default. Declare
+  `MergeKeyEmail` only if your provider's address for a person is authoritative — a directory your
+  administrator maintains, not a string the user typed about themselves. It lets an address carried
+  alongside a channel account be *matched* on, so a colleague already captured from mail is recognised
+  instead of becoming a second contact. Without the declaration, a record carrying both is refused at
+  the gate.
+
+Supply every field your provider gives you and decide nothing about identity: which fields the core's
+resolution ladder may match on is the core's call, read from your declaration. What each field must
+contain, and what breaks when it does not, is the connector contract in
+[explanation/ingress-gate-and-auto-capture.md](../explanation/ingress-gate-and-auto-capture.md).
+
+## Carry replies — supply a transport
+
+A `Channel` declares a messaging provider your unit can carry messages on, so a rep's reply to a
+conversation you captured leaves through your unit rather than a surface of your own:
+
+```go
+Channels: []extension.Channel{{Provider: "dispact", Send: send, Live: live}},
+```
+
+```go
+func send(ctx context.Context, rt extension.Runtime, msg extension.OutboundMessage) (extension.Receipt, error)
+func live(ctx context.Context, rt extension.Runtime, member extension.UserID) (bool, error)
+```
+
+**Your unit never sends on its own initiative — it declares a transport and the core calls it.** A
+human stages the message through the timeline reply box, the seat gate re-reads them, and the
+dispatcher then hands you an `OutboundMessage` (the member to send as, the recipient's channel
+identity, the body, what it replies to, and an idempotency key). Return a `Receipt` naming the
+provider's own message id. The tier's outbound refusals are untouched by this: you still may not spend
+an outbound cap from a tool or a job tick.
+
+- **`Provider` takes `channel_provider`'s grammar, which is SNAKE** (`^[a-z][a-z0-9_]*$`, ≤32) — not
+  the ingress system's kebab. `deal-room` is a legal ingress system and an illegal provider.
+- **`Live` is required whenever `Send` is present.** It answers, for one member and *without spending
+  the credential*, whether the connection is still usable. Answer `false` for a confirmed "no" — the
+  delivery parks where a human can see it. Return an **error** when you could not tell — it is
+  retried. Collapsing the two either strands a message or sends it twice.
+- **A nil `Send` is the capture-only case**, and it is documented rather than accidental: a reply
+  attempt is answered with the deployment fact instead of a fault.
+- **You name the transport, never the activity kind.** A message you file lands as `message` with your
+  provider on the transport column; the kind is the core's (ADR-0107/A158).
+- **You cannot shadow a core provider.** Declaring `telegram` fails the boot: every Telegram reply
+  would otherwise leave on your per-member credential instead of the workspace's bot, which looks
+  identical on screen.
+
+Set `Activity.ChannelProvider` on the records you capture on that transport — a message with no
+transport cannot be replied to on anything, and the gate refuses it.
+
 ## Write the unit's own test
 
 Each unit is its own Go module, so the backend's `./...` never reaches it — it carries its own tests,
@@ -447,12 +566,16 @@ have to regenerate the composition and run the gates:
    in the generated `Extensions()`, and a `manifest.generated.json` lands next to your unit — the
    statically derived record of the **risk tiers** it requests (the 🟢/🟡 operations and scopes an
    operator must approve under §7; a jurisdiction-only unit requests none, so its list is empty).
+   — plus what the unit **reaches**: its `secrets`, `subscriptions`, `ingress` (with the identity keys
+   the source vouches for) and `channels` (with `supplies_transport`).
    Commit it with the unit; the drift gate fails a stale or hand-edited one. Derivation reads your
-   `New()` from the AST, so the returned `extension.Extension` literal and the fields it derives
-   (`Name`, `Version`, `Tools`) must be literal values or the published `extension` constants
-   (`extension.TierAutoExecute`, `extension.ScopeRead`, …) — a computed value, or a field the
-   generator does not recognize, fails generation with the file and line rather than silently
-   dropping a request. (Every build/test lane depends on this target, so `make check` runs it for
+   `New()` from the AST, so the returned `extension.Extension` literal and every field it derives must
+   be literal values or the published `extension` constants (`extension.TierAutoExecute`,
+   `extension.ScopeRead`, `extension.MergeKeyEmail`, …) — a computed value, or a field the generator
+   does not recognize, fails generation with the file and line rather than silently dropping a
+   request. This is why a connector spells its provider string twice — once in `Ingress`, once in
+   `Channels` — rather than sharing a constant: the reader resolves none. Pin the two equal with a
+   test. (Every build/test lane depends on this target, so `make check` runs it for
    you; run it directly when you want to inspect the output.)
 2. **`make check`** — builds the composed workspace, runs the extension-tier fitness tests
    (import-boundary, marker placement, composition wiring), `make test-extensions` (your unit's own
