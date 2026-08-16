@@ -100,6 +100,7 @@ import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { OwnDomainsCard } from "./own-domains";
+import { ChangePasswordCard } from "./passwordcard";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { ProductsAdmin } from "./products";
 import { FxRatesCard, ModelCostsCard } from "./rates";
@@ -198,6 +199,7 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <IdentityCard />
+          <ChangePasswordCard />
           <EmailSignatureCard />
           <PreferencesCard />
         </>

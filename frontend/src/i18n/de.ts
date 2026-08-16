@@ -3476,6 +3476,21 @@ export const de = {
   // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
     "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
+  "password.title": "Passwort",
+  "password.body": "Ändern Sie das Passwort, mit dem Sie sich anmelden.",
+  "password.current": "Aktuelles Passwort",
+  "password.next": "Neues Passwort",
+  "password.confirm": "Neues Passwort bestätigen",
+  "password.hint": "Mindestens 12 Zeichen.",
+  "password.tooShort": "Zu kurz. Verwenden Sie mindestens 12 Zeichen.",
+  "password.mismatch": "Die beiden stimmen nicht überein.",
+  "password.signsYouOut":
+    "Die Änderung meldet Sie überall ab, auch hier. Melden Sie sich mit dem neuen Passwort erneut an.",
+  "password.submit": "Passwort ändern",
+  "password.changing": "Wird geändert…",
+  "password.done": "Passwort geändert. Melden Sie sich mit dem neuen an.",
+  "password.errorGeneric":
+    "Das Passwort konnte nicht geändert werden. Prüfen Sie das aktuelle Passwort und versuchen Sie es erneut.",
   "setup.pageTitle": "Margince einrichten",
   "setup.title": "Diese Installation übernehmen",
   "setup.body":

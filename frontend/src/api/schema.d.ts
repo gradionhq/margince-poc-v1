@@ -157,6 +157,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password.
+         * @description The signed-in human rotates their own credential. The CURRENT PASSWORD is the authority, not the session: a session is what a stolen laptop already has, and letting one set a new password would turn a borrowed browser into a permanent takeover. Every credential that could act as the account ends with the change — sessions, OAuth grants and their refresh chains, unconsumed authorization codes, locally minted passports — INCLUDING the session making the call, so the caller signs in again with the password they just chose. A new password equal to the current one is refused rather than accepted as a no-op. Audited.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/reset-data": {
         parameters: {
             query?: never;
@@ -17641,6 +17661,41 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    current_password: string;
+                    new_password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Password changed; every credential for the account, including this session, is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The current password does not match, or there is no session. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
         };
     };
     resetData: {
