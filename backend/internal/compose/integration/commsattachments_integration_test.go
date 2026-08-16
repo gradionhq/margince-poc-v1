@@ -77,7 +77,6 @@ func TestEnsureTransmittableAdmitsAFileTheSenderCanStillRead(t *testing.T) {
 	authority := compose.NewSendAttachmentAuthority(e.Pool, blob)
 	ok, reason, err := authority.EnsureTransmittable(
 		sendWorkerCtx(e.WS), ids.From[ids.UserKind](e.Rep1), []ids.UUID{ids.UUID(att.Id)})
-
 	if err != nil {
 		t.Fatalf("EnsureTransmittable: %v", err)
 	}
@@ -111,7 +110,6 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	authority := compose.NewSendAttachmentAuthority(e.Pool, blob)
 	ok, reason, err := authority.EnsureTransmittable(
 		sendWorkerCtx(e.WS), ids.From[ids.UserKind](e.Rep3), []ids.UUID{ids.UUID(att.Id)})
-
 	if err != nil {
 		t.Fatalf("EnsureTransmittable: %v", err)
 	}
