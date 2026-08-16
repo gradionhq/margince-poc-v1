@@ -1,4 +1,4 @@
--- 0269: drop attachment.scan_status — the gate never had a verdict to gate on.
+-- 0270: drop attachment.scan_status — the gate never had a verdict to gate on.
 --
 -- 0070 added the column and the download gate for a virus scanner that was
 -- never integrated. The only path off the 'scanning' default was an injected
