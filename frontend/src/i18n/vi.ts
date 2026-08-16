@@ -3470,6 +3470,10 @@ export const vi = {
   "auth.unavailableTitle": "Bản cài đặt chưa sẵn sàng",
   "auth.unavailableBody":
     "Bản cài đặt Margince này chưa sẵn sàng để bạn đăng nhập. Cần người vận hành hoàn tất hoặc sửa lại phần thiết lập.",
+  "forcedPassword.pageTitle": "Chọn mật khẩu",
+  "forcedPassword.title": "Hãy chọn mật khẩu của riêng bạn",
+  "forcedPassword.body":
+    "Tài khoản này vẫn dùng mật khẩu do người vận hành đặt. Hãy chọn một mật khẩu chỉ mình bạn biết trước khi tiếp tục.",
   "password.title": "Mật khẩu",
   "password.body": "Đổi mật khẩu bạn dùng để đăng nhập.",
   "password.current": "Mật khẩu hiện tại",

@@ -253,8 +253,13 @@ type AnyMap = map[string]any
 // it, and a non-test file cannot reach a helper declared in a _test.go one.
 func BootstrapWorkspaceSession(t *testing.T, e *AppEnv, organizationName, adminEmail, adminName string) {
 	t.Helper()
+	// The password an OPERATOR supplies, which a configured bootstrap flags for
+	// replacement. It is deliberately NOT the one the suites sign in with: the
+	// fixture completes setup below, and what the suites then use is the
+	// password the admin chose for themselves.
+	const operatorSupplied = "operator-supplied-password"
 	pwFile := filepath.Join(t.TempDir(), "admin-password")
-	if err := os.WriteFile(pwFile, []byte("correct-horse-battery"), 0o600); err != nil {
+	if err := os.WriteFile(pwFile, []byte(operatorSupplied), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := deployconfig.Config{
@@ -268,11 +273,33 @@ func BootstrapWorkspaceSession(t *testing.T, e *AppEnv, organizationName, adminE
 		t.Fatalf("bootstrap: %v", err)
 	}
 	if status := e.Call(t, "POST", "/v1/auth/login", AnyMap{
-		"email": adminEmail, "password": "correct-horse-battery",
+		"email": adminEmail, "password": operatorSupplied,
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("login → %d", status)
 	}
+	// A configured bootstrap hands the admin a password the operator chose, and
+	// the installation refuses every other route until they replace it. The
+	// fixture does what a real first login does rather than clearing the flag
+	// in SQL — a suite arranged around a state the product cannot reach would
+	// prove nothing about the product.
+	if status := e.Call(t, "POST", "/v1/auth/change-password", AnyMap{
+		"current_password": operatorSupplied, "new_password": adminPassword,
+	}, nil, nil); status != http.StatusNoContent {
+		t.Fatalf("completing setup (change-password) → %d", status)
+	}
+	// The change ended every session, this one included. Signing in again with
+	// the chosen password is what a real admin does next, and it leaves the
+	// suites holding the session they expect.
+	if status := e.Call(t, "POST", "/v1/auth/login", AnyMap{
+		"email": adminEmail, "password": adminPassword,
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("login after completing setup → %d", status)
+	}
 }
+
+// adminPassword is the credential the harness admin ends up holding — the one
+// they chose during setup, not the one the operator supplied.
+const adminPassword = "correct-horse-battery"
 
 // CloseBody closes a response body and fails the test on a dirty close: a
 // broken close can hide a truncated read, and a leaked body should be a red

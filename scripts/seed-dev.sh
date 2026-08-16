@@ -23,6 +23,19 @@ API_BASE="${API_BASE:-http://localhost:8080}"
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-demo-workspace}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@demo.test}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-demo-password-123}"
+# What the operator put in margince.yaml. Only ever used for the one login that
+# replaces it.
+#
+# Read from the password FILE when there is one, so this follows whatever the
+# installation was actually bootstrapped with rather than a copy of the default
+# that has to be kept in step. `make dev` writes that file; a lane that keeps it
+# elsewhere (CI) passes BOOTSTRAP_PASSWORD instead, and the literal is the last
+# resort for a stack booted by hand.
+BOOTSTRAP_PASSWORD_FILE="${BOOTSTRAP_PASSWORD_FILE:-config/margince-admin-password}"
+if [ -z "${BOOTSTRAP_PASSWORD:-}" ] && [ -r "$BOOTSTRAP_PASSWORD_FILE" ]; then
+  BOOTSTRAP_PASSWORD="$(cat "$BOOTSTRAP_PASSWORD_FILE")"
+fi
+BOOTSTRAP_PASSWORD="${BOOTSTRAP_PASSWORD:-operator-supplied-first-password}"
 
 command -v jq >/dev/null 2>&1 || { echo "seed-dev: jq is required" >&2; exit 1; }
 
@@ -56,24 +69,59 @@ capture_session() {
   [ -n "$SESSION" ] || fail "the server answered OK but set no crm_session cookie"
 }
 
+# A configured bootstrap has the OPERATOR choose the first admin's password, and
+# that account reaches nothing but the change route until the person using it
+# picks their own. This script is that person: it completes the first login the
+# way a human would, so everything downstream — and every credential the docs
+# name — works against an account that owns its own password.
+#
+# Convergent, because the seed is expected to be re-run: the chosen password is
+# tried FIRST, so a second run signs straight in and the rotation below never
+# happens twice.
+sign_in_as_admin() {
+  local status
+  status="$(api POST /auth/login "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')")"
+  if [ "$status" = "200" ]; then
+    capture_session
+    echo "  OK: logged in as $ADMIN_EMAIL"
+    return
+  fi
+
+  status="$(api POST /auth/login "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$BOOTSTRAP_PASSWORD" '{email:$e,password:$p}')")"
+  if [ "$status" != "200" ]; then
+    echo "  response body:" >&2
+    cat "$workdir/body" >&2
+    fail "login as $ADMIN_EMAIL returned HTTP $status for both the chosen and the operator-supplied password — the api bootstraps the demo organization at boot from its margince.yaml (make dev writes it); if the credentials changed, reset the dev database and restart the stack"
+  fi
+  capture_session
+  echo "  OK: signed in with the operator-supplied password; replacing it"
+
+  status="$(api POST /auth/change-password \
+    "$(jq -n --arg c "$BOOTSTRAP_PASSWORD" --arg n "$ADMIN_PASSWORD" '{current_password:$c,new_password:$n}')")"
+  if [ "$status" != "204" ]; then
+    echo "  response body:" >&2
+    cat "$workdir/body" >&2
+    fail "POST /v1/auth/change-password returned HTTP $status — the admin cannot replace the operator-supplied password, so nothing below can be seeded"
+  fi
+
+  # The change ends every session, including the one that made it.
+  status="$(api POST /auth/login "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')")"
+  if [ "$status" != "200" ]; then
+    echo "  response body:" >&2
+    cat "$workdir/body" >&2
+    fail "login with the newly chosen password returned HTTP $status"
+  fi
+  capture_session
+  echo "  OK: $ADMIN_EMAIL now owns its own password"
+}
+
 echo "== seed-dev: API reachability =="
 curl -fsS --max-time 10 "$API_BASE/readyz" >/dev/null 2>&1 \
   || fail "$API_BASE/readyz is not answering — start the stack first (make dev)"
 echo "  OK: $API_BASE is up"
 
 echo "== seed-dev: demo workspace ($WORKSPACE_SLUG) =="
-status="$(api POST /auth/login "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')")"
-case "$status" in
-  200)
-    capture_session
-    echo "  OK: logged in as $ADMIN_EMAIL"
-    ;;
-  *)
-    echo "  response body:" >&2
-    cat "$workdir/body" >&2
-    fail "login as $ADMIN_EMAIL returned HTTP $status — the api bootstraps the demo organization at boot from its margince.yaml (make dev writes it); if the credentials changed, reset the dev database and restart the stack"
-    ;;
-esac
+sign_in_as_admin
 
 # Demo records ride the same natural-key dedupe the product uses: a 201
 # created it, a 409 means an earlier run did — anything else is a defect.

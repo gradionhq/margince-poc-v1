@@ -927,9 +927,15 @@ jobs:
       # demo organization itself at boot; the credentials match seed-dev.sh's
       # demo defaults (admin@demo.test / demo-password-123 — throwaway CI-only
       # values, same posture as the compose stack's dev DSNs).
+      #
+      # The password written here is the OPERATOR's, and a configured bootstrap
+      # admits that account nowhere until it is replaced. `make seed-dev` below
+      # performs that first-login replacement and lands on demo-password-123,
+      # which is what verify-boot then signs in with — so this lane exercises
+      # the real first-run sequence rather than routing around it.
       - name: Write the deployment configuration
         run: |
-          printf '%s' "demo-password-123" > "$RUNNER_TEMP/admin-password"
+          printf '%s' "operator-supplied-first-password" > "$RUNNER_TEMP/admin-password"
           chmod 600 "$RUNNER_TEMP/admin-password"
           cat > "$RUNNER_TEMP/margince.yaml" <<EOF
           version: 1

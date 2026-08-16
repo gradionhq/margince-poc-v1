@@ -18,9 +18,18 @@ bootstrap_admin:
   email: admin@demo.test
   display_name: Demo Admin
   # Read at boot (must be >=12 chars). `make dev` seeds the referenced file
-  # (config/margince-admin-password) with the demo password on first run; the
-  # path is relative to the repo root the api is launched from. These defaults
-  # match scripts/seed-dev.sh — change both together if you change them.
+  # (config/margince-admin-password) on first run; the path is relative to the
+  # repo root the api is launched from.
+  #
+  # This is the OPERATOR's password, and the admin it creates reaches nothing
+  # but the change-password route until the person using the account replaces
+  # it. `make seed-dev` performs that first login and chooses the password the
+  # docs name — so the value here is spent once and never signed in with again.
+  #
+  # scripts/dev.sh writes this file; scripts/seed-dev.sh READS it, so changing
+  # the operator password means changing it in one place (or deleting the file
+  # and letting dev.sh reseed it). The password seed-dev then chooses is its own
+  # ADMIN_PASSWORD default.
   password_file: config/margince-admin-password
 
 # Retention posture at first boot (optional). Consumed ONCE, when the api

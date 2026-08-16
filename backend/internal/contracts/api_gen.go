@@ -20384,6 +20384,9 @@ type Forbidden = Problem
 // NotFound RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type NotFound = Problem
 
+// PasswordChangeRequired RFC 7807 problem+json with a stable machine `code` and structured `details`.
+type PasswordChangeRequired = Problem
+
 // PermissionDenied RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type PermissionDenied = Problem
 

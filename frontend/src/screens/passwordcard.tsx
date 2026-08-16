@@ -25,7 +25,15 @@ const EMPTY: ChangeFields = { current: "", next: "", confirm: "" };
 /** The floor the server applies, restated so the form can say it first. */
 const MIN_PASSWORD = 12;
 
-export function ChangePasswordCard() {
+export function ChangePasswordCard({
+  onChanged,
+}: Readonly<{
+  // Called after a successful change. The settings page needs nothing — the
+  // sign-out below is the whole outcome there. The forced-change boundary uses
+  // it to re-probe, because the refusal that sent the user here is exactly what
+  // the change resolves.
+  onChanged?: () => void;
+}> = {}) {
   const t = useT();
   const [fields, setFields] = useState<ChangeFields>(EMPTY);
   const [done, setDone] = useState(false);
@@ -69,6 +77,7 @@ export function ChangePasswordCard() {
         predicate: (query) => query.queryKey[0] !== "me",
       });
       await queryClient.resetQueries({ queryKey: ["me"] });
+      onChanged?.();
     },
   });
 

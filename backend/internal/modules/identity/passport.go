@@ -336,6 +336,13 @@ const agentLivenessJoins = `
 	LEFT JOIN oauth_grant  g ON (g.workspace_id, g.id)        = (p.workspace_id, p.oauth_grant_id)
 	LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)`
 
+// A human who owes a credential rotation is held to nothing over REST, and
+// "agent ≤ human" is a runtime property: their passports must therefore resolve
+// to nothing either, or the cap on the human is exactly one mint away from
+// being no cap at all. This binds mid-session like every other rule here, which
+// matters most on the path that raises the flag on an ESTABLISHED account —
+// an operator reset (§9.1) — where live passports already exist.
+//
 // A locally minted passport (oauth_grant_id IS NULL) answers to no grant and
 // is unaffected — the A1 path must keep working exactly as it did. The client
 // half is liveClientPredicate (oauth.go), the same string the issuance path
@@ -365,7 +372,8 @@ func agentAuthQuery(predicate string) string {
 		WHERE ` + predicate + `
 		  AND p.revoked_at IS NULL
 		  AND now() < p.expires_at
-		  AND u.status = 'active' AND u.archived_at IS NULL` + agentLivenessPredicate
+		  AND u.status = 'active' AND u.archived_at IS NULL
+		  AND u.must_change_password = false` + agentLivenessPredicate
 }
 
 // authenticateAgentWhere is the ONE agent-authentication query, resolving a

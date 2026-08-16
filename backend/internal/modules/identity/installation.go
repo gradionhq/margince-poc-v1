@@ -158,9 +158,11 @@ func activeWorkspaces(ctx context.Context, tx pgx.Tx) ([]ids.WorkspaceID, error)
 }
 
 // provisioningOrigin says which of ADR-0105's two paths created the
-// organization, and it decides only one thing: who the creation is attributed
-// to. It is a parameter rather than a field on InstallationBootstrap because it
-// describes how the input arrived, not what the input is.
+// organization, and it decides two things that follow from the same fact —
+// whether a human was present. Who the creation is attributed to, and whether
+// the first admin owes a password rotation, are both answers to that. It is a
+// parameter rather than a field on InstallationBootstrap because it describes
+// how the input arrived, not what the input is.
 type provisioningOrigin int
 
 const (
@@ -215,9 +217,10 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 
 	var userID ids.UserID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO app_user (workspace_id, email, password_hash, display_name, timezone)
-		 VALUES ($1, lower($2), $3, $4, $5) RETURNING id`,
-		wsID, boot.AdminEmail, hash, boot.AdminName, boot.Timezone).Scan(&userID); err != nil {
+		`INSERT INTO app_user (workspace_id, email, password_hash, display_name, timezone, must_change_password)
+		 VALUES ($1, lower($2), $3, $4, $5, $6) RETURNING id`,
+		wsID, boot.AdminEmail, hash, boot.AdminName, boot.Timezone,
+		origin == originConfigured).Scan(&userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 	if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {

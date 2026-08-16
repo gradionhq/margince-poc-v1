@@ -3493,6 +3493,12 @@ export const en = {
   // without one, so it names what it is creating.
   // Changing your own password from account settings. The current password is
   // the authority, not the session.
+  // The account whose password an operator chose. Authenticated, and
+  // able to do exactly one thing until it has a password of its own.
+  "forcedPassword.pageTitle": "Choose your password",
+  "forcedPassword.title": "Choose your own password",
+  "forcedPassword.body":
+    "This account is still using the password your operator set up. Choose one only you know before you continue.",
   "password.title": "Password",
   "password.body": "Change the password you sign in with.",
   "password.current": "Current password",

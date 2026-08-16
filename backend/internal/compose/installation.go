@@ -240,13 +240,21 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 	return settings.SeedValue(ctx, tx, privacy.RetainOnly, true)
 }
 
-// seedBookingPage provisions the admin's public booking page: the
-// workspace's only user at seed time IS the bootstrap admin (the read
-// carries its own workspace predicate).
+// seedBookingPage provisions the admin's public booking page (the read carries
+// its own workspace predicate).
+//
+// The workspace holds TWO users at seed time, not one: bootstrap writes the
+// admin and the Agent Runner seat in the same transaction, so `now()` gives
+// them the same created_at and "first by created_at" decides nothing. The
+// is_agent predicate is what names the admin — without it the page a stranger
+// books through can be provisioned against the agent seat, and which one it
+// lands on is heap order.
 func seedBookingPage(ctx context.Context, tx pgx.Tx) error {
 	var adminID ids.UserID
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE workspace_id = $1 ORDER BY created_at LIMIT 1`,
+		`SELECT id FROM app_user
+		  WHERE workspace_id = $1 AND is_agent = false
+		  ORDER BY created_at LIMIT 1`,
 		storekit.MustWorkspace(ctx)).Scan(&adminID); err != nil {
 		return err
 	}

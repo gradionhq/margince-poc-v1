@@ -34,6 +34,7 @@ import { ClientSurfaceScreen } from "./screens/client";
 import { AuthProbeError, consumeAuthExitNotice, useMe } from "./screens/common";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DedupeScreen } from "./screens/dedupe";
+import { ForcedPasswordChangeScreen } from "./screens/forcedpassword";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
@@ -405,6 +406,17 @@ function AuthedApp({
   if (me.isError) {
     const kind =
       me.error instanceof AuthProbeError ? me.error.kind : "connection";
+    // The account is authenticated; what it lacks is a password of its own.
+    // Sending it to the login screen would loop, because the credentials are
+    // correct and using them again lands in the same refusal — so the boundary
+    // renders the one thing that can resolve it.
+    if (kind === "must-change-password") {
+      return (
+        <RaillessFrame>
+          <ForcedPasswordChangeScreen onChanged={() => me.refetch()} />
+        </RaillessFrame>
+      );
+    }
     if (kind !== "unauthorized") {
       return (
         <RaillessFrame>

@@ -318,6 +318,58 @@ describe("auth boundary states (login spec §4)", () => {
     ).toBeTruthy();
   });
 
+  // The account is authenticated and its credentials are correct, so
+  // the login screen would loop — using them again lands in the same refusal.
+  it("offers the password change when the account still holds an operator's password", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(
+            JSON.stringify({ code: "password_change_required", detail: "x" }),
+            {
+              status: 403,
+              headers: { "Content-Type": "application/problem+json" },
+            },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    mount();
+    expect(
+      await screen.findByRole("heading", { name: "Choose your own password" }),
+    ).toBeTruthy();
+    // Not the login screen: the password they have is correct, and being asked
+    // for it again explains nothing.
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to Margince" }),
+    ).toBeNull();
+  });
+
+  it("still renders login for an ordinary 403 that is not a forced change", async () => {
+    // The kind is decided by the machine code, not the status: only the
+    // refusal that names itself gets the change screen.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(JSON.stringify({ code: "permission_denied" }), {
+            status: 403,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    mount();
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to Margince" }),
+    ).toBeTruthy();
+  });
+
   it("renders the connection problem when the probe cannot reach the API at all", async () => {
     vi.stubGlobal(
       "fetch",

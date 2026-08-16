@@ -19,6 +19,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// BaseURL is the prefix the contract surface is mounted under. It lives in the
+// chassis rather than at the mount site because a module that has to recognise
+// one of its own routes by address — an admission exemption, say — otherwise
+// hand-copies this string from a package it is forbidden to import, and the two
+// then drift with nothing to notice.
+const BaseURL = "/v1"
+
 // Healthz answers the unauthenticated liveness probe.
 func Healthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)

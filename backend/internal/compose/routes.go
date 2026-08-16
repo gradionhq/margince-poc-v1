@@ -72,7 +72,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// never recorded as "the" response for a key (the approved retry is
 	// the same request under the same key).
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
-		BaseURL: "/v1",
+		BaseURL: httpserver.BaseURL,
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, gate),
 			idempotency(pool, replayProbes(staging.svc, contracts.NewStore(InstallationDB(pool)))),
