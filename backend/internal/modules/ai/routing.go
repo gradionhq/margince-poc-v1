@@ -140,6 +140,17 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	} else if d == 0 {
 		cfg.Embeddings.Dimensions = defaultEmbedDimensions
 	}
+	// Before validate(), which sees only the decoded value and so cannot tell a
+	// blank declaration from an absent one.
+	blank, err := blankInputDeclarations(raw)
+	if err != nil {
+		return RoutingConfig{}, err
+	}
+	if len(blank) > 0 {
+		return RoutingConfig{}, fmt.Errorf(
+			"ai: routing config: %s: `input` is written with no value; omit the field to bind a text-only model, or name the modalities the bound model accepts",
+			strings.Join(blank, ", "))
+	}
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}

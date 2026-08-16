@@ -40,6 +40,23 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 			yaml:      binding(`, input: []`),
 			wantParts: []string{"is empty", "omit the field"},
 		},
+		// yaml decodes all three of `input:`, `input: null` and an absent key to
+		// the same nil slice. A written-but-blank key is somebody who meant to
+		// declare something and stopped — the one reading of nil that is a
+		// mistake, and the one the decoded value alone cannot see.
+		"a bare key is not the same as an absent one": {
+			yaml:      []byte("profile: eu_hosted\ntiers:\n  premium:\n    provider: openai_compatible\n    base_url: https://x\n    model: m\n    input:\nembeddings: {provider: openai_compatible, base_url: https://x, model: e}\n"),
+			wantParts: []string{"tier premium", "written with no value", "omit the field"},
+		},
+		"an explicit null is refused too": {
+			yaml:      binding(`, input: null`),
+			wantParts: []string{"tier premium", "written with no value"},
+		},
+		"a blank declaration on the embeddings lane is refused": {
+			yaml: []byte("profile: eu_hosted\ntiers:\n  premium: {provider: openai_compatible, base_url: https://x, model: m}\n" +
+				"embeddings: {provider: openai_compatible, base_url: https://x, model: e, input: null}\n"),
+			wantParts: []string{"the embeddings lane", "written with no value"},
+		},
 		"a binding that cannot be given text is not a binding": {
 			yaml:      binding(`, input: [image]`),
 			wantParts: []string{"must include", `"text"`},

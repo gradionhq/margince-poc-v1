@@ -66,8 +66,12 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 	// exactly the same from here. Asserting the part reached the wire is what
 	// makes this the map-or-reject test its name claims.
 	var sent []byte
+	var readErr error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sent, _ = io.ReadAll(r.Body)
+		// Kept and asserted rather than dropped: a transport read failure here
+		// would otherwise surface as an unmarshal error below and read as a
+		// serialization bug in the code under test.
+		sent, readErr = io.ReadAll(r.Body)
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	}))
 	defer srv.Close()
@@ -89,9 +93,12 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 				})
 				return err
 			}
-			sent = nil
+			sent, readErr = nil, nil
 			if err := ask(model.Attachment{MIME: "image/png", Bytes: []byte("PNG")}); err != nil {
 				t.Fatalf("a binding declaring image must carry image/png, got %v", err)
+			}
+			if readErr != nil {
+				t.Fatalf("reading the request body: %v", readErr)
 			}
 			var body struct {
 				Messages []struct {

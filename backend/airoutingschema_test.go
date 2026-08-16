@@ -84,6 +84,16 @@ func TestTheSchemaAndTheParserAgreeOnEveryInputDeclaration(t *testing.T) {
 		"missing text":      {tiered(`provider: vllm, model: m, input: [image]`), false},
 		"empty list":        {tiered(`provider: vllm, model: m, input: []`), false},
 		"repeated modality": {tiered(`provider: vllm, model: m, input: [text, image, image]`), false},
+		// The schema rejects a null because `input` is typed as an array; the
+		// parser has to look at the document to see the difference between a
+		// blank key and an absent one. Both forms belong here precisely because
+		// that is where the two authorities could most easily part company.
+		"explicit null": {tiered(`provider: vllm, model: m, input: null`), false},
+		"bare key":      {"profile: eu_hosted\ntiers:\n  premium:\n    provider: vllm\n    model: m\n    input:\nembeddings: {provider: gemini, model: e}\n", false},
+		"null on embeddings": {
+			"profile: eu_hosted\ntiers:\n  premium: {provider: gemini, model: m}\n" +
+				"embeddings: {provider: gemini, model: e, input: null}\n", false,
+		},
 		// The embeddings lane sends no attachments.
 		"declared on the embeddings lane": {
 			"profile: eu_hosted\ntiers:\n  premium: {provider: gemini, model: m}\n" +

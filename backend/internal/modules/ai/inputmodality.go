@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // The accepted modality words. `text` is every chat binding's baseline and
@@ -65,6 +67,45 @@ func carriageFor(input []string) []string {
 		carried = append(carried, modalityCarriage[modality]...)
 	}
 	return carried
+}
+
+// blankInputDeclarations names every binding that wrote `input:` with no value.
+//
+// yaml decodes a bare `input:`, an explicit `input: null` and an absent key all
+// to the same nil slice, so the parsed config cannot tell "text-only by
+// omission" from "I meant to declare something and left it blank". Only the
+// second is a mistake, and it is this feature's own failure mode: a declaration
+// that reads as present and does nothing. The DOCUMENT still knows the
+// difference — a written key is a !!null scalar node, an absent one is no node
+// at all — so the answer is read from there.
+//
+// Decoded without KnownFields on purpose: this pass reads one field and must
+// ignore every other, which the caller's own strict decode has already
+// validated.
+func blankInputDeclarations(raw []byte) ([]string, error) {
+	var probe struct {
+		Tiers map[Tier]struct {
+			Input yaml.Node `yaml:"input"`
+		} `yaml:"tiers"`
+		Embeddings struct {
+			Input yaml.Node `yaml:"input"`
+		} `yaml:"embeddings"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		return nil, fmt.Errorf("ai: routing config: %w", err)
+	}
+	written := func(n yaml.Node) bool { return n.Kind != 0 && n.Tag == "!!null" }
+	var blank []string
+	for tier, binding := range probe.Tiers {
+		if written(binding.Input) {
+			blank = append(blank, fmt.Sprintf("tier %s", tier))
+		}
+	}
+	if written(probe.Embeddings.Input) {
+		blank = append(blank, "the embeddings lane")
+	}
+	slices.Sort(blank) // map iteration order must not decide which error an operator sees
+	return blank, nil
 }
 
 // validateInput enforces the declaration rules at STARTUP, where an operator is

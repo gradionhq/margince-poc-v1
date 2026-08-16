@@ -865,7 +865,7 @@ guardrail can demote a call to a lower rung mid-month — so one undeclared
 sibling rung vetoes the lane for the whole task. Look a candidate's own answer
 up before declaring it; on OpenRouter:
 
-```
+```sh
 curl -s https://openrouter.ai/api/v1/models \
   | jq '.data[] | select(.id=="<slug>") | .architecture.input_modalities'
 ```
