@@ -61,6 +61,64 @@ export const Default: Story = {
   },
 };
 
+// A mail row as the timeline actually receives one: the stored body carries the
+// From/To preamble capture folds in, the sender's sign-off, and the thread they
+// replied to. The row shows the message; the sign-off and the quoted history sit
+// behind their own control, because the split that finds them is a heuristic and
+// a wrong guess has to stay one click from being visible.
+export const MailWithSignatureAndQuote: Story = {
+  args: {
+    name: "Acme GmbH",
+    subtitle: "Enterprise · Munich",
+    zone: "Europe/Berlin",
+    timeline: [
+      {
+        ...emailEntry,
+        title: "Re: Rollout-Plan",
+        body: [
+          "From: lena.fischer@acme.de",
+          "To: lars@gradion.com",
+          "",
+          "Hallo,",
+          "",
+          "der Plan sieht gut aus. Phase 1 ist realistisch, bei Phase 3 haben wir",
+          "intern noch Klärungsbedarf mit dem Händlerteam. Details stehen unter",
+          "https://acme.de/rollout bereit.",
+          "",
+          "Dienstag 14 Uhr würde bei uns passen.",
+          "",
+          "Mit freundlichen Grüßen",
+          "Lena Fischer",
+          "Acme GmbH · +49 89 123456",
+          "",
+          "Am 12.08.2026 um 09:14 schrieb Lars Jankowfsky:",
+          "> Passt ein Termin nächste Woche für die Detailabstimmung?",
+        ].join("\n"),
+      },
+      meetingEntry,
+    ],
+  },
+};
+
+// The same shape on a note, which must NOT be folded: "Viele Grüße" opens this
+// one as ordinary prose, and a quoted line is something a person typed.
+export const NoteThatReadsLikeASignOff: Story = {
+  args: {
+    name: "Acme GmbH",
+    zone: "Europe/Berlin",
+    timeline: [
+      {
+        ...noteEntry,
+        title: "Nach dem Messegespräch",
+        body: [
+          "Viele Grüße von der Messe ausgerichtet, Lena war sichtlich erfreut.",
+          "> Sie fragte nochmal nach dem Händlerportal.",
+        ].join("\n"),
+      },
+    ],
+  },
+};
+
 // The new slot: the email row carries a Reply action, the meeting row a Relink
 // action, and the note row none — the right-aligned cluster only appears where
 // an affordance is supplied.
