@@ -111,9 +111,8 @@ type ExtractionReadEnqueue func(ctx context.Context, tx pgx.Tx, read ExtractionR
 //
 // Row-scoped through the attachment's own parent gate: a document the caller
 // cannot see answers ErrNotFound, existence-hiding, exactly as every other
-// attachment operation does. The scan gate refuses a scanning or blocked row
-// here, at the door — before any bytes could reach a model, and before a
-// reading exists to explain itself later.
+// attachment operation does. That gate runs at the door — before any bytes
+// could reach a model, and before a reading exists to explain itself later.
 func (s *Store) StartExtractionReadQueued(
 	ctx context.Context, attachmentID ids.UUID, requestedBy string, enqueue ExtractionReadEnqueue,
 ) (ExtractionRead, bool, error) {
@@ -126,7 +125,6 @@ func (s *Store) StartExtractionReadQueued(
 		if _, err := resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate); err != nil {
 			return err
 		}
-		var err error
 		readID := ids.NewV7()
 		// In-flight uniqueness is arbitrated by uq_attachment_extraction_inflight
 		// itself: DO NOTHING rather than catching the violation keeps the
@@ -138,6 +136,10 @@ func (s *Store) StartExtractionReadQueued(
 			ON CONFLICT DO NOTHING
 			RETURNING `+extractionReadColumns,
 			readID, attachmentID, requestedBy)
+		// `out` is the closure's, not this block's, so the pair is assigned
+		// rather than declared — `:=` here would shadow it and the caller would
+		// receive a zero reading.
+		var err error
 		out, err = scanExtractionRead(inserted)
 		if err == nil {
 			if enqueue != nil {

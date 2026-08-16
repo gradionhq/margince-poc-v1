@@ -11170,7 +11170,7 @@ paths:
       x-agent-access: human-only
       summary: Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
       description: |
-        The bytes, the filename, the checksum and the scan state are NOT patchable here —
+        The bytes, the filename and the checksum are NOT patchable here —
         they are what arrived, and a surface that let a human edit them would make the
         record a description of itself rather than of the file.
 
@@ -11288,10 +11288,6 @@ paths:
         (idempotent per attachment), so pressing the button twice does not pay for the
         document twice.
 
-        The scan gate applies here, at the door: a `scanning` or `blocked` attachment
-        refuses with the same typed 409 the raw download answers, before any bytes could
-        reach a model.
-
         Requires UPDATE on the attachment's own parent record, which is the authority the
         attachment surface gates every write behind. Note this is not identical to the
         accept's: the accept writes a DEAL and is deal-only, so a person- or org-scoped
@@ -11307,11 +11303,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: The attachment is still being scanned, or was blocked by the scanner.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
         '501':
           description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
           content:

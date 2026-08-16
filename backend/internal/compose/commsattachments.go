@@ -80,8 +80,10 @@ func (a commsAttachments) senderCtx(ctx context.Context, userID ids.UserID) (con
 	}), "", nil
 }
 
-// EnsureTransmittable asks the two questions that can change between staging and
-// transmit, per file, and stops at the first no.
+// EnsureTransmittable asks, per file, the question that can change between
+// staging and transmit — may the sender still read it — and stops at the first
+// no. The sender's seat is checked once above, for the message rather than the
+// file.
 //
 // A file the sender can no longer SEE and one that does not exist are the same
 // answer here on purpose: GetAttachmentMeta existence-hides both as ErrNotFound,

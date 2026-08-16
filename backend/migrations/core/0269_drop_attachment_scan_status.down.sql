@@ -8,5 +8,9 @@
 ALTER TABLE attachment ADD COLUMN scan_status text NOT NULL DEFAULT 'clean'
   CHECK (scan_status IN ('scanning', 'clean', 'blocked'));
 
-CREATE INDEX idx_attachment_scan_status ON attachment (scan_status)
+-- 0070's exact index shape, workspace_id first. A down migration that restores
+-- a different index than it removed leaves the reverse-reapply chain describing
+-- a database no forward path ever built, and a tenant-scoped read needs the
+-- leading workspace_id column to use it at all.
+CREATE INDEX idx_attachment_scan_status ON attachment (workspace_id, scan_status)
   WHERE archived_at IS NULL;

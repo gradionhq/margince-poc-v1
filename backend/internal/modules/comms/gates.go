@@ -85,14 +85,14 @@ func (d *Dispatcher) gateAttachmentCarriage(ctx context.Context, del Delivery, s
 }
 
 // gateAttachmentIntegrity refuses a delivery carrying a file that may no longer
-// be sent — one the scanner has since quarantined, or one the sender has since
-// lost the right to read (ADR-0086/A131 §3).
+// be sent — one archived since staging, or one the sender has since lost the
+// right to read (ADR-0086/A131 §3).
 //
 // The staging check is NOT this check. It answered about the moment the human
 // pressed send, and a delivery sits on a retry ladder for as long as the maximum
-// age allows; a scan that finishes in between is precisely the case the scanner
-// exists to catch, and the message would carry the sender's own address out with
-// the bad file on it.
+// age allows; a grant withdrawn in between is precisely the case this exists to
+// catch, and the message would carry the sender's own address out with a file
+// they can no longer read.
 //
 // It PARKS rather than retries, and it does not strip the file and send the
 // rest, for the reason the carriage gate above spells out: a message whose

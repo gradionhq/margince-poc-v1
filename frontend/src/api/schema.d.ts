@@ -7200,7 +7200,7 @@ export interface paths {
         head?: never;
         /**
          * Set a document's category, title, state or supersedes pointer (DOC-WIRE-2).
-         * @description The bytes, the filename, the checksum and the scan state are NOT patchable here —
+         * @description The bytes, the filename and the checksum are NOT patchable here —
          *     they are what arrived, and a surface that let a human edit them would make the
          *     record a description of itself rather than of the file.
          *
@@ -7285,10 +7285,6 @@ export interface paths {
          *     reason. Re-issuing while a reading is in flight answers the SAME reading
          *     (idempotent per attachment), so pressing the button twice does not pay for the
          *     document twice.
-         *
-         *     The scan gate applies here, at the door: a `scanning` or `blocked` attachment
-         *     refuses with the same typed 409 the raw download answers, before any bytes could
-         *     reach a model.
          *
          *     Requires UPDATE on the attachment's own parent record, which is the authority the
          *     attachment surface gates every write behind. Note this is not identical to the
@@ -30461,15 +30457,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description The attachment is still being scanned, or was blocked by the scanner. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
             /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
             501: {
                 headers: {

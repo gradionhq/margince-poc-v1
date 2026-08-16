@@ -290,6 +290,52 @@ func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 	}
 }
 
+// The parent's row scope is the WHOLE gate on an attachment's bytes, so it is
+// proven here against a live database rather than argued from the read path.
+//
+// A162/ADR-0111 retired the virus scan, which used to sit in front of this check
+// on the download. Nothing about who may reach a file changed — the scan never
+// answered that question — but the row-scope gate is now the only thing between
+// a caller and somebody else's document, and an unproven sole gate is one
+// refactor away from being no gate.
+func TestOpenAttachmentHidesAnInvisibleParent(t *testing.T) {
+	e := Setup(t)
+	store, _ := attachmentStore(e)
+	// Owned by Rep1; Rep3 holds own-scope in the other team and cannot see it.
+	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
+
+	uploaded, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
+		EntityType: "person", EntityID: person, Filename: "secret.pdf", Body: []byte("secret bytes"),
+	})
+	if err != nil {
+		t.Fatalf("seeding the attachment through the real writer: %v", err)
+	}
+
+	rep3 := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
+	_, rc, err := store.OpenAttachment(rep3, ids.UUID(uploaded.Id))
+	if rc != nil {
+		defer func() {
+			if cerr := rc.Close(); cerr != nil {
+				t.Errorf("closing a reader the call should never have opened: %v", cerr)
+			}
+		}()
+		t.Error("a reader was opened for a caller who cannot see the parent record")
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("downloading through an invisible parent: err = %v, want ErrNotFound (a 403 would confirm the file exists)", err)
+	}
+
+	// The owner still reaches it, so the refusal above is the row scope talking
+	// and not a broken read that refuses everyone.
+	_, ownerRC, err := store.OpenAttachment(e.Admin(), ids.UUID(uploaded.Id))
+	if err != nil {
+		t.Fatalf("the admin cannot download the file either: %v", err)
+	}
+	if err := ownerRC.Close(); err != nil {
+		t.Errorf("closing the admin's reader: %v", err)
+	}
+}
+
 func TestErasurePurgesAttachmentObjects(t *testing.T) {
 	e := Setup(t)
 	blob := blobstore.NewMemory()
