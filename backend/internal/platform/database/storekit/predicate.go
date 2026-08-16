@@ -26,9 +26,7 @@ package storekit
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -78,6 +76,14 @@ const (
 type Field struct {
 	Expr string
 	Type FieldType
+	// Link makes this a correlated-subquery leaf rather than a base-table
+	// one: Expr names the column INSIDE the subquery, and Link is the
+	// EXISTS template — exactly one %s — the compiled comparison is
+	// substituted into. It exists because some filterable facts are link
+	// rows rather than columns (a tag lives in the polymorphic taggable
+	// join), and a link row is present or absent where a column is null
+	// or not. Empty for every base-table field.
+	Link string
 }
 
 // Predicate is the canonical filter tree (the representation
@@ -242,15 +248,16 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 		}
 	}
 
+	if field.Link != "" {
+		return compileLinkLeaf(p, field, arg)
+	}
+
 	switch p.Op {
 	case OpExists:
 		// exists carries a boolean operand: true → the value is present.
-		present, ok := p.Value.(bool)
-		if !ok {
-			return "", &PredicateError{
-				Field: p.Field, Code: CodeFilterValueInvalid,
-				Message: "exists takes true or false",
-			}
+		present, err := existsOperand(p)
+		if err != nil {
+			return "", err
 		}
 		if present {
 			return field.Expr + " IS NOT NULL", nil
@@ -277,7 +284,7 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 		// Substring match, case-insensitive (the visual builder's
 		// "contains"); LIKE metacharacters in the operand match
 		// literally — a value of "100%" finds "100%", not everything.
-		return fmt.Sprintf("%s ILIKE $%d", field.Expr, arg("%"+escapeLike(text)+"%")), nil
+		return fmt.Sprintf("%s ILIKE $%d", field.Expr, arg("%"+EscapeLike(text)+"%")), nil
 
 	default: // eq, neq, gt, gte, lt, lte — scalar comparisons.
 		value, err := scalarOperand(p.Value, field, p.Field, p.Op)
@@ -288,126 +295,50 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 	}
 }
 
-// comparisonSQL is closed over the operator constants above; compileLeaf
-// only reaches it after the operator passed the typed matrix.
-var comparisonSQL = map[string]string{
-	OpEq: "=", OpNeq: "<>", OpGt: ">", OpGte: ">=", OpLt: "<", OpLte: "<=",
-}
-
-// inOperand validates an `in` list: a non-empty, bounded array of
-// scalars each valid for the field's type, returned as a uniformly
-// typed slice pgx can bind as one array parameter.
-//
-//craft:ignore naked-any the return is a bind parameter — []float64 or []string per field type, decided at runtime by the field catalog
-func inOperand(p Predicate, field Field) (any, error) {
-	raw, ok := p.Value.([]any)
-	if !ok || len(raw) == 0 {
-		return nil, &PredicateError{
-			Field: p.Field, Code: CodeFilterValueInvalid,
-			Message: "in takes a non-empty array of values",
+// compileLinkLeaf compiles a leaf whose fact is a link row. The comparison is
+// built against the column inside the subquery and then wrapped, and a negation
+// applies to the WRAPPER: "does not carry this tag" is NOT EXISTS(… = …), where
+// EXISTS(… <> …) would answer "carries some other tag" — a different question,
+// and true for almost every record. `exists` needs no operand at all: presence
+// of any link row is the whole question, so it binds nothing and the wrapper's
+// own correlation carries it.
+func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error) {
+	var inner string
+	negate := false
+	switch p.Op {
+	case OpExists:
+		present, err := existsOperand(p)
+		if err != nil {
+			return "", err
 		}
-	}
-	if len(raw) > PredicateMaxInValues {
-		return nil, &PredicateError{
-			Field: p.Field, Code: CodeFilterTooLarge,
-			Message: fmt.Sprintf("in list exceeds the maximum of %d values", PredicateMaxInValues),
+		inner, negate = "TRUE", !present
+	case OpIn:
+		values, err := inOperand(p, field)
+		if err != nil {
+			return "", err
 		}
-	}
-	switch field.Type {
-	case FieldNumber, FieldCurrency:
-		values := make([]float64, len(raw))
-		for i, v := range raw {
-			checked, err := scalarOperand(v, field, p.Field, OpIn)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = checked.(float64)
+		inner = fmt.Sprintf("%s = ANY($%d)", field.Expr, arg(values))
+	case OpEq, OpNeq:
+		value, err := scalarOperand(p.Value, field, p.Field, p.Op)
+		if err != nil {
+			return "", err
 		}
-		return values, nil
-	default: // text, picklist, id — string-valued types (dates take no `in`).
-		values := make([]string, len(raw))
-		for i, v := range raw {
-			checked, err := scalarOperand(v, field, p.Field, OpIn)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = checked.(string)
-		}
-		return values, nil
-	}
-}
-
-// scalarOperand validates one scalar against the field type and returns
-// the value to bind. JSON numbers arrive as float64; integers are
-// accepted too so hand-built Go trees read naturally.
-//
-//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherently span the SQL scalar types
-func scalarOperand(value any, field Field, name, op string) (any, error) {
-	invalid := func(want string) error {
-		return &PredicateError{
-			Field: name, Code: CodeFilterValueInvalid,
-			Message: fmt.Sprintf("operator %q on %s field %q takes %s", op, field.Type, name, want),
-		}
-	}
-	switch field.Type {
-	case FieldText, FieldPicklist:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("a string")
-		}
-		return s, nil
-	case FieldID:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("a UUID string")
-		}
-		if _, err := ids.Parse(s); err != nil {
-			return nil, invalid("a UUID string")
-		}
-		return s, nil
-	case FieldNumber, FieldCurrency:
-		switch n := value.(type) {
-		case float64:
-			if math.IsNaN(n) || math.IsInf(n, 0) {
-				return nil, invalid("a finite number")
-			}
-			return n, nil
-		case int:
-			return float64(n), nil
-		case int64:
-			return float64(n), nil
-		default:
-			return nil, invalid("a number")
-		}
-	case FieldDate:
-		s, ok := value.(string)
-		if !ok {
-			return nil, invalid("an ISO date (YYYY-MM-DD)")
-		}
-		if _, err := time.Parse("2006-01-02", s); err != nil {
-			return nil, invalid("an ISO date (YYYY-MM-DD)")
-		}
-		return s, nil
-	case FieldBoolean:
-		b, ok := value.(bool)
-		if !ok {
-			return nil, invalid("true or false")
-		}
-		return b, nil
+		inner, negate = fmt.Sprintf("%s = $%d", field.Expr, arg(value)), p.Op == OpNeq
 	default:
-		// A vocabulary entry with an unknown type is a programming error
-		// in the caller's field map, surfaced as a validation failure
-		// rather than reaching the SQL text.
-		return nil, invalid("a value of a known field type")
+		// An operator that the link shape cannot express: the comparison
+		// builds inside an EXISTS subquery where only certain operators make
+		// sense. Reachable only if the field's operator set includes operators
+		// beyond {eq,neq,in,exists}, which the link template cannot support.
+		return "", &PredicateError{
+			Field: p.Field, Code: CodeFilterOpNotAllowed,
+			Message: fmt.Sprintf("operator %q does not apply to the linked field %q", p.Op, p.Field),
+		}
 	}
-}
-
-// escapeLike makes a user string safe as a LIKE/ILIKE operand: the
-// metacharacters % _ and the escape character \ match themselves.
-// Postgres' default LIKE escape is backslash, so no ESCAPE clause is
-// needed.
-func escapeLike(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+	sql := fmt.Sprintf(field.Link, inner)
+	if negate {
+		return "NOT " + sql, nil
+	}
+	return sql, nil
 }
 
 // Query is the one-engine executor (B-E15.10b): one resource's closed

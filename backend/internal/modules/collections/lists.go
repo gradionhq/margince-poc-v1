@@ -22,17 +22,42 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type Store struct {
 	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
 	db *database.DB
+	// catalog widens the filter vocabulary with the workspace's own cf_*
+	// columns. Optional by design: nil is the port's pass-through, and a
+	// store without one filters on core fields alone.
+	catalog fieldcatalog.FilterableReader
 }
 
 // NewStore binds the store to the pool every read and write runs through.
 func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
 }
+
+// WithFieldCatalog injects the custom-field vocabulary source. Compose calls it;
+// a caller that never filters (the workflow adapter's list writes) needs no
+// catalog and passes none.
+func (s *Store) WithFieldCatalog(r fieldcatalog.FilterableReader) *Store {
+	s.catalog = r
+	return s
+}
+
+// The two list kinds (LVS-DDL-1's list_type CHECK). A static list is an
+// explicit membership set; a dynamic one stores a filter its members are
+// derived from, so the pair decides which of the two membership paths a
+// read takes and whether a definition may be present at all.
+//
+// dynamicAddedBy carries the same string for a different question — who
+// added a computed member, not what kind a list is.
+const (
+	listTypeStatic  = "static"
+	listTypeDynamic = "dynamic"
+)
 
 // memberEntityTables is the closed polymorphic target set — the table
 // name doubles as the RBAC object and the visibility-probe table. It is
@@ -165,14 +190,14 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		return listRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	if in.ListType == "" {
-		in.ListType = "static"
+		in.ListType = listTypeStatic
 	}
 	// A dynamic segment IS its definition; a static set must not carry
 	// one — the shape rules out a half-and-half list.
-	if in.ListType == "dynamic" && len(in.Definition) == 0 {
+	if in.ListType == listTypeDynamic && len(in.Definition) == 0 {
 		return listRow{}, &BadInputError{Field: "definition", Reason: "a dynamic list needs a query definition"}
 	}
-	if in.ListType == "static" && len(in.Definition) > 0 {
+	if in.ListType == listTypeStatic && len(in.Definition) > 0 {
 		return listRow{}, &BadInputError{Field: "definition", Reason: "a static list carries no definition"}
 	}
 	// A dynamic segment's definition is a stored filter the members
@@ -180,8 +205,8 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	// entity's closed vocabulary NOW so an unknown field or an over-deep
 	// tree is rejected at creation (422) rather than at read time — a
 	// list cannot store a filter it could never evaluate.
-	if in.ListType == "dynamic" {
-		if err := validateSegmentDefinition(in.EntityType, in.Definition); err != nil {
+	if in.ListType == listTypeDynamic {
+		if err := s.validateSegmentDefinition(ctx, in.EntityType, in.Definition); err != nil {
 			return listRow{}, err
 		}
 	}
@@ -246,13 +271,16 @@ func (s *Store) ArchiveList(ctx context.Context, id ids.ListID) (listRow, error)
 	return out, err
 }
 
-// validateSegmentDefinition proves a dynamic list's definition is an
-// evaluable filter over the entity's closed vocabulary before it is
-// stored: it compiles the predicate (discarding the SQL) so an unknown
-// field, a mistyped value, or an over-deep/over-wide tree fails as a
-// PredicateError the transport maps to 422.
-func validateSegmentDefinition(entityType string, definition map[string]any) error {
-	engine, ok := segmentEngines[entityType]
+// validateSegmentDefinition proves a dynamic list's definition is an evaluable
+// filter over the entity's closed vocabulary — core fields, this workspace's
+// custom columns, and tags — before it is stored: it compiles the predicate
+// (discarding the SQL) so an unknown field, a mistyped value, or an
+// over-deep/over-wide tree fails as a PredicateError the transport maps to 422.
+func (s *Store) validateSegmentDefinition(ctx context.Context, entityType string, definition map[string]any) error {
+	engine, ok, err := s.SegmentEngine(ctx, entityType)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return &BadInputError{Field: entityTypeField, Reason: "no dynamic segment engine for " + entityType}
 	}

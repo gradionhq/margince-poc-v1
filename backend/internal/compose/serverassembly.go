@@ -71,6 +71,26 @@ func newActivitiesHandlers(pool *pgxpool.Pool) activitiesHandlers {
 		WithSenderName(identity.NewServiceFor(InstallationDB(pool)))
 }
 
+// NewCollectionsStore is the ONE spelling of "the collections store with
+// its catalogue": every site that needs a lists/tags/saved-views/export
+// store resolving cf_* columns through this workspace's custom-field
+// vocabulary calls this, never collections.NewStore directly — so a
+// wiring gate on this one constructor covers every caller, rather than
+// needing one gate per independently-built store.
+func NewCollectionsStore(pool *pgxpool.Pool) *collections.Store {
+	return collections.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
+}
+
+// newCollectionsHandlers builds the lists/tags/saved-views transport over
+// NewCollectionsStore, so dynamic-list create validation and the members
+// endpoint resolve a definition's vocabulary through collections.Store.
+// SegmentEngine exactly as export does (wireExportSurface builds its store
+// the same way) — a cf_* filter a saved list or a membership check names
+// cannot be refused here while an export of the same list accepts it.
+func newCollectionsHandlers(pool *pgxpool.Pool) collectionsHandlers {
+	return collections.NewHandlers(NewCollectionsStore(pool))
+}
+
 // wireCaptureSettingsSurface binds the workspace's own capture posture
 // controls.
 func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
@@ -94,9 +114,15 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// First-class filtered export (B-E15.13): the writer reuses the ONE
 	// predicate engine + the bundle writer's open-format rendering; the
-	// collections store resolves a saved view / dynamic list source
-	// behind its own visibility gate.
-	s.filteredExportHandlers = filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(InstallationDB(pool))}
+	// collections store resolves a saved view / dynamic list source behind
+	// its own visibility gate. WithFieldCatalog widens that same store's
+	// vocabulary with this workspace's cf_* columns, so an export cannot
+	// disagree with the list or the saved view it was built from — the same
+	// seam newPeopleHandlers wires for the record stores.
+	s.filteredExportHandlers = filteredExportHandlers{
+		writer:      NewFilteredExportWriter(pool),
+		collections: NewCollectionsStore(pool),
+	}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }
 

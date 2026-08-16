@@ -29,7 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/apps"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
-	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -400,7 +399,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.
 		consentHandlers:     consent.NewHandlers(InstallationDB(pool)).WithEraser(privacy.NewEraser(InstallationDB(pool))),
-		collectionsHandlers: collections.NewHandlers(InstallationDB(pool)),
+		collectionsHandlers: newCollectionsHandlers(pool),
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.

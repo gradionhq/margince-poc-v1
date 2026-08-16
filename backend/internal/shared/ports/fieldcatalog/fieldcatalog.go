@@ -36,9 +36,11 @@ const (
 	TypeBoolean  = "boolean"
 )
 
-// Column is one active custom-field column for a (workspace, object)
-// pair, as a record store needs to see it: its physical column name and
-// its closed field type (one of the Type* constants above).
+// Column is one custom-field column for a (workspace, object) pair,
+// identified by its physical column name and its closed field type (one
+// of the Type* constants above). Whether a given Column is active,
+// retired, or both is a question of which method returned it — Reader
+// and FilterableReader below — not of the type itself.
 type Column struct {
 	Name string
 	Type string
@@ -53,4 +55,14 @@ type Column struct {
 // custom_field catalog table.
 type Reader interface {
 	ActiveColumns(ctx context.Context, object string) ([]Column, error)
+}
+
+// FilterableReader answers the columns a FILTER may name, which is a different
+// question from the ones a write may set: a retired field keeps its column and
+// its values, so a saved segment built on it must keep evaluating, while nothing
+// may write to it again. It is its own interface rather than a second method on
+// Reader because a consumer of one has no use for the other — collections filters
+// and never writes cf_* values, and the record stores write and never filter.
+type FilterableReader interface {
+	FilterableColumns(ctx context.Context, object string) ([]Column, error)
 }

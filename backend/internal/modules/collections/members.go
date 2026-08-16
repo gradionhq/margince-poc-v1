@@ -39,35 +39,44 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, c
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	if limit <= 0 {
-		limit = 50
+	// The caller's page size reaches a make() capacity below, so it is
+	// bounded by the contract's CAP-PAGE ceiling here rather than trusted:
+	// the router binds this parameter without range validation, and the
+	// matched set is capped at PredicateRowLimit regardless, so a larger
+	// request could only ever buy an allocation nobody fills.
+	limit = storekit.ClampLimit(&limit)
+	// GetList is the module's one gated read of a list row — it takes the
+	// same auth.Require and ensureListVisible this endpoint owes, and maps a
+	// missing row to ErrNotFound so an unknown id answers 404 rather than
+	// falling through as an unclassified driver error. Its transaction has
+	// closed by the time it returns, which is what lets the dynamic branch
+	// resolve its vocabulary without one already open (see evaluateSegment).
+	list, err := s.GetList(ctx, listID)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	// A dynamic segment has no explicit members: its membership IS the
+	// live evaluation of its stored filter through the ONE engine. That
+	// evaluation composes the caller's row-scope clause itself
+	// (Query.SelectIDs), so a team-scoped caller's segment excludes the
+	// records they cannot see — the same visibility law the static path
+	// enforces with its per-member probe.
+	if list.ListType == listTypeDynamic {
+		return s.evaluateSegment(ctx, listID, list.EntityType, list.Definition, limit, cursor)
 	}
 	var out []memberRow
 	var page storekit.Page
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// Re-probed inside the transaction that discloses the rows, so the
+		// gate and the disclosure read the same list. Only the dynamic path
+		// needs its gate to commit early, and paying that cost here would
+		// widen this one for nothing.
 		if err := ensureListVisible(ctx, tx, listID); err != nil {
 			return err
 		}
-		var listEntityType, listType string
-		var definition map[string]any
-		if err := tx.QueryRow(ctx, `SELECT entity_type, list_type, definition FROM list WHERE id = $1`, listID).
-			Scan(&listEntityType, &listType, &definition); err != nil {
-			return err
-		}
-		// A dynamic segment has no explicit members: its membership IS the
-		// live evaluation of its stored filter through the ONE engine. That
-		// evaluation composes the caller's row-scope clause itself
-		// (Query.SelectIDs), so a team-scoped caller's segment excludes the
-		// records they cannot see — the same visibility law the static path
-		// enforces with its per-member probe.
-		if listType == "dynamic" {
-			var segErr error
-			out, page, segErr = s.evaluateSegment(ctx, tx, listID, listEntityType, definition, limit, cursor)
-			return segErr
-		}
-		var err error
-		out, page, err = s.listStaticMembers(ctx, tx, listID, listEntityType, limit, cursor)
-		return err
+		var listErr error
+		out, page, listErr = s.listStaticMembers(ctx, tx, listID, list.EntityType, limit, cursor)
+		return listErr
 	})
 	return out, page, err
 }
@@ -147,7 +156,7 @@ func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType str
 			Scan(&listEntityType, &listType); err != nil {
 			return err
 		}
-		if listType != "static" {
+		if listType != listTypeStatic {
 			return &BadInputError{Field: "list", Reason: "a dynamic segment computes its members; only static lists take them"}
 		}
 		if entityType != listEntityType {
@@ -193,8 +202,17 @@ const dynamicAddedBy = "dynamic"
 // which the members endpoint paginates by keyset over the entity id (a
 // computed member carries no member-row id of its own, so the record's
 // own id IS its stable member identifier).
-func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.ListID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
-	engine, ok := segmentEngines[listEntityType]
+//
+// The engine is resolved BEFORE the transaction below opens, never
+// inside it: SegmentEngine reaches the field catalog, which opens its own
+// transaction against this same store's pool, and a store-scoped
+// transaction already open cannot wait on a second connection from that
+// same pool without risking a deadlock under load.
+func (s *Store) evaluateSegment(ctx context.Context, listID ids.ListID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
+	engine, ok, err := s.SegmentEngine(ctx, listEntityType)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 	if !ok {
 		// A stored list.entity_type outside the segment set is a schema
 		// invariant break, not a client error — surface it, never guess.
@@ -204,7 +222,12 @@ func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.ListI
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	matched, err := engine.SelectIDs(ctx, tx, pred, storekit.PredicateRowLimit)
+	var matched []ids.UUID
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		var selectErr error
+		matched, selectErr = engine.SelectIDs(ctx, tx, pred, storekit.PredicateRowLimit)
+		return selectErr
+	})
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}

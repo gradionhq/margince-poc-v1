@@ -10,7 +10,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,9 +38,14 @@ type Handlers struct {
 	store *Store
 }
 
-// NewHandlers wires the transport over the installation-bound pool.
-func NewHandlers(db *database.DB) Handlers {
-	return Handlers{store: NewStore(db)}
+// NewHandlers wires the transport over a store the caller already built.
+// Taking the store rather than a pool is what keeps one spelling of "the
+// collections store with its catalogue": the transport and the export surface
+// are built through the same constructor, so their filter vocabularies cannot
+// diverge and a cf_* column cannot be accepted by one surface while the other
+// refuses it as unknown.
+func NewHandlers(store *Store) Handlers {
+	return Handlers{store: store}
 }
 
 func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmcontracts.ListListsParams) {
