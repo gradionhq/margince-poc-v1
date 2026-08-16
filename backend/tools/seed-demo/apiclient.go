@@ -53,6 +53,44 @@ func login(base, email, password string) (*client, error) {
 // everywhere.
 type jsonBody map[string]any
 
+// sessions is a pool of signed-in clients, one per demo seat.
+//
+// Most records the seeder writes are the same whoever wrote them, but an
+// activity is not: who recorded a conversation is who the product then says
+// knows that contact. Writing every mail as one account makes that colleague
+// know everybody, and "who can introduce me?" answers the same name forever.
+type sessions struct {
+	base     string
+	password string
+	byRef    map[string]*client
+	fallback *client
+}
+
+func newSessions(base, password string, fallback *client) *sessions {
+	return &sessions{base: base, password: password, byRef: map[string]*client{}, fallback: fallback}
+}
+
+// as returns a client signed in as one seat, opening the session on first use.
+//
+// A seat that cannot sign in falls back to the seeding account rather than
+// failing the run: one missing name on a network card is worth less than the
+// whole seed, and the fallback shows up plainly in what that card then says.
+func (s *sessions) as(user demoUser) *client {
+	if user.Email == "" || s.password == "" {
+		return s.fallback
+	}
+	if existing, ok := s.byRef[user.Ref]; ok {
+		return existing
+	}
+	signed, err := login(s.base, user.Email, s.password)
+	if err != nil {
+		s.byRef[user.Ref] = s.fallback
+		return s.fallback
+	}
+	s.byRef[user.Ref] = signed
+	return signed
+}
+
 // post sends a JSON body and decodes the reply into out, which is a pointer
 // to the caller's result struct, or nil to discard the response.
 func (c *client) post(path string, body jsonBody, out any) error { //craft:ignore naked-any out is any JSON shape the caller declares; json.Decode's own contract
@@ -167,6 +205,14 @@ func isConflict(err error) bool {
 		return false
 	}
 	return apiErr.Status == http.StatusConflict
+}
+
+// isNotFound reports the server hiding a record from this caller. Row scope
+// answers 404 rather than 403 on purpose — a 403 would confirm the record
+// exists — so this is as often "not yours" as "not there".
+func isNotFound(err error) bool {
+	var apiErr apiError
+	return asAPIError(err, &apiErr) && apiErr.Status == http.StatusNotFound
 }
 
 func asAPIError(err error, target *apiError) bool {

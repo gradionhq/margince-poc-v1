@@ -88,7 +88,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := seedPipeline(client, demo, companies, refs, modeFor(*dryRun)); err != nil {
+	// One signed-in client per seat, so an activity is recorded by the
+	// colleague who had the conversation rather than by whoever ran the seeder.
+	seats := newSessions(*baseURL, demo.UserPassword, client)
+	if err := seedPipeline(client, seats, demo, companies, refs, modeFor(*dryRun)); err != nil {
 		return err
 	}
 

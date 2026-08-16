@@ -37,26 +37,12 @@ import (
 // splitting a company's contacts across two reps is a state a real CRM only
 // reaches by accident.
 func assignOwners(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (orgs, people int, err error) {
-	sellers := sellerIDs(cfg, refs)
-	if len(sellers) == 0 {
+	if len(refs.ownerRefByDomain) == 0 {
 		return 0, 0, fmt.Errorf("no seats to own anything — seed the users first (-dsn)")
 	}
 
-	// An explicit owner in the dataset beats the hash. The deals carry one, so
-	// the person who works an account is the person who holds it.
-	explicit := map[string]string{}
-	for _, deal := range cfg.Deals {
-		if deal.Owner != "" {
-			explicit[strings.ToLower(deal.Company)] = deal.Owner
-		}
-	}
-
 	for domain, orgID := range refs.orgsByDom {
-		ownerRef := explicit[domain]
-		if ownerRef == "" {
-			ownerRef = sellers[hashIndex(domain, len(sellers))]
-		}
-		ownerID, ok := refs.usersByRef[ownerRef]
+		ownerID, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]
 		if !ok {
 			continue
 		}
@@ -78,6 +64,29 @@ func assignOwners(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (o
 		people += staff
 	}
 	return orgs, people, nil
+}
+
+// resolveOwners decides who owns each company, once, so ownership and the
+// activities written on an account cannot disagree about it.
+//
+// A company named by a deal takes that deal's owner; every other company is
+// hashed across the sellers. Both halves are rules, so a company ingested
+// next month lands with somebody without an edit anywhere.
+func (r *pipelineRefs) resolveOwners(cfg demoConfig) {
+	sellers := sellerIDs(cfg, *r)
+	if len(sellers) == 0 {
+		return
+	}
+	for _, deal := range cfg.Deals {
+		if deal.Owner != "" {
+			r.ownerRefByDomain[strings.ToLower(deal.Company)] = deal.Owner
+		}
+	}
+	for domain := range r.orgsByDom {
+		if _, ok := r.ownerRefByDomain[domain]; !ok {
+			r.ownerRefByDomain[domain] = sellers[hashIndex(domain, len(sellers))]
+		}
+	}
 }
 
 // sellerIDs is the seats a record may be assigned to, in a stable order.

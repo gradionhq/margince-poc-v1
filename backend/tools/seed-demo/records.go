@@ -18,7 +18,7 @@ import (
 // Every write carries source_system + source_id, which the activity API
 // treats as an idempotency key — so this phase converges without a probe of
 // its own, and a re-run neither duplicates a thread nor re-opens a task.
-func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+func seedActivities(c *client, seats *sessions, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
 	created := 0
 	for i, act := range cfg.Activities {
 		orgID, ok := refs.orgsByDom[strings.ToLower(act.Company)]
@@ -29,6 +29,11 @@ func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) 
 			created++
 			continue
 		}
+		// WHO writes this is the point, not a detail. The product records the
+		// author as a participant, and the network view reads participants to
+		// answer "who on our team knows this contact". Posting everything as
+		// one account makes that account know everybody.
+		author := seats.as(handlerOf(act, cfg, refs))
 
 		// One of the two offsets is set: DaysAgo for something that happened,
 		// DaysIn for something still to come.
@@ -80,9 +85,19 @@ func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) 
 		if err != nil {
 			return created, err
 		}
-		if err := c.post("/v1/activities", body, nil); err != nil {
+		if err := author.post("/v1/activities", body, nil); err != nil {
 			if _, ok := conflictingID(err); ok {
 				continue
+			}
+			if isNotFound(err) && act.Assignee != "" {
+				// Row scope hides an account from anyone outside the team that
+				// owns it, and hiding it means 404 rather than 403 — existence
+				// is not leaked. So a dataset entry naming a colleague on the
+				// wrong team reads as a missing company, which sends the reader
+				// looking for the wrong bug.
+				return created, fmt.Errorf(
+					"activity %d: %s cannot see %s — a colleague can only be named on an account their own team owns",
+					i, act.Assignee, act.Company)
 			}
 			return created, fmt.Errorf("activity %d (%s on %s): %w", i, act.Kind, act.Company, err)
 		}
@@ -91,6 +106,25 @@ func seedActivities(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) 
 		}
 	}
 	return created, nil
+}
+
+// handlerOf is the colleague who had this conversation.
+//
+// Derived rather than configured, so a company ingested next month is covered
+// without anyone editing a list: the dataset may name an assignee, and
+// otherwise it is whoever owns the account. Both fall back to the seeding
+// account, which is what happens for a company nobody has been assigned yet.
+func handlerOf(act demoActivity, cfg demoConfig, refs pipelineRefs) demoUser {
+	wanted := act.Assignee
+	if wanted == "" {
+		wanted = refs.ownerRefByDomain[strings.ToLower(act.Company)]
+	}
+	for _, user := range cfg.Users {
+		if user.Ref == wanted {
+			return user
+		}
+	}
+	return demoUser{}
 }
 
 // activityLinks is what one activity touched: always its company, plus the

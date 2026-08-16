@@ -31,8 +31,11 @@ type pipelineRefs struct {
 	// dealsByCompany is filled after the deals are seeded, so an activity can
 	// link to the deal it moved.
 	dealsByCompany map[string][]string
-	pipelineID     string
-	now            time.Time
+	// ownerRefByDomain is who holds each account — the ONE answer ownership
+	// and activity authorship both read, so they cannot drift apart.
+	ownerRefByDomain map[string]string
+	pipelineID       string
+	now              time.Time
 }
 
 // dayOffset turns a dataset offset into a date. Negative is the past.
@@ -52,12 +55,13 @@ func (r pipelineRefs) timestamp(days int) string {
 // once, so each phase is a straight write rather than a search.
 func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, error) {
 	refs := pipelineRefs{
-		contractsByRef: cfg.Contracts,
-		dealsByCompany: map[string][]string{},
-		usersByRef:     map[string]string{},
-		orgsByDom:      map[string]string{},
-		stagesByNm:     map[string]string{},
-		now:            now,
+		contractsByRef:   cfg.Contracts,
+		dealsByCompany:   map[string][]string{},
+		ownerRefByDomain: map[string]string{},
+		usersByRef:       map[string]string{},
+		orgsByDom:        map[string]string{},
+		stagesByNm:       map[string]string{},
+		now:              now,
 	}
 
 	var users struct {
@@ -112,6 +116,7 @@ func loadPipelineRefs(c *client, cfg demoConfig, now time.Time) (pipelineRefs, e
 	if len(pipelines.Data) == 0 {
 		return refs, fmt.Errorf("the workspace has no pipeline — deals have nowhere to go")
 	}
+	refs.resolveOwners(cfg)
 	first := pipelines.Data[0]
 	refs.pipelineID = first.ID
 	for i, s := range first.Stages {

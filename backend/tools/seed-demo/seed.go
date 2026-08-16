@@ -32,7 +32,7 @@ type counts struct {
 // seedPipeline runs the phases that need companies and people to exist
 // first: leads and deals, what happened on them, what was signed and quoted,
 // and who consented to what.
-func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineRefs, mode runMode) error {
+func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []company, refs pipelineRefs, mode runMode) error {
 	leads, err := seedLeads(c, cfg, refs, mode)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func seedPipeline(c *client, cfg demoConfig, companies []company, refs pipelineR
 	if err != nil {
 		return err
 	}
-	activities, err := seedActivities(c, cfg, refs, mode)
+	activities, err := seedActivities(c, seats, cfg, refs, mode)
 	if err != nil {
 		return err
 	}
