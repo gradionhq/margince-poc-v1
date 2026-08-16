@@ -117,8 +117,12 @@ const (
 // where it pointed at boot — and a profile satisfied by an answer that can
 // change an hour later is the same false guarantee this check exists to remove.
 func classifyHost(host string) hostVerdict {
-	host = strings.TrimSuffix(host, ".") // a fully-qualified name names the same host
-	if isReservedLoopbackName(host) {
+	// The trailing dot is dropped for the NAME check only, where it is the
+	// fully-qualified spelling of the same reserved name. It must NOT be dropped
+	// before parsing an address: `127.0.0.1.` is not an IP literal to Go's
+	// resolver either, so a dial to it goes to DNS — and trimming here would call
+	// local an endpoint the dial then resolves somewhere else entirely.
+	if isReservedLoopbackName(strings.TrimSuffix(host, ".")) {
 		return hostIsLocal
 	}
 	// A zone ("fe80::1%eth0") says which interface a link-local address is

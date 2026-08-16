@@ -144,9 +144,12 @@ func TestWhichHostsCountAsCustomerControlled(t *testing.T) {
 		// can change after boot, so it is refused even when it looks internal.
 		"ollama.internal":   hostIsAName,
 		"elsewhere.example": hostIsAName,
-		// A trailing dot makes a name fully qualified; it still names the same
-		// host, and `localhost.` is still the reserved loopback name.
+		// A trailing dot makes a NAME fully qualified, so `localhost.` is still
+		// the reserved loopback name. An ADDRESS with one is not an address at
+		// all: Go's resolver sends `127.0.0.1.` to DNS, so accepting it would
+		// call local an endpoint the dial resolves elsewhere.
 		"localhost.": hostIsLocal,
+		"127.0.0.1.": hostIsAName,
 		// A zone says which interface a link-local address is reached on. It
 		// cannot make that address non-local.
 		"fe80::1%eth0": hostIsLocal,
