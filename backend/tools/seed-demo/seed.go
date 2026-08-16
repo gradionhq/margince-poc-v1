@@ -33,11 +33,30 @@ type counts struct {
 // first: leads and deals, what happened on them, what was signed and quoted,
 // and who consented to what.
 func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []company, refs pipelineRefs, mode runMode) error {
+	// What each company beyond demo.json's named few should hold. Decided
+	// once, from the domains alone, so every phase below agrees about which
+	// company is a customer and which is an untouched target.
+	domains := make([]string, 0, len(companies))
+	for _, comp := range companies {
+		domains = append(domains, strings.ToLower(comp.Domain))
+	}
+	plan := planProfiles(domains, cfg)
+
 	leads, err := seedLeads(c, cfg, refs, mode)
 	if err != nil {
 		return err
 	}
+	generatedLeads, err := seedGeneratedLeads(c, refs, plan, mode)
+	if err != nil {
+		return err
+	}
 	deals, err := seedDeals(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
+	// Generated deals come AFTER the dataset's own, so a company demo.json
+	// names keeps the deal the story gives it and the planner adds nothing.
+	generatedDeals, err := seedGeneratedDeals(c, cfg, refs, plan, mode)
 	if err != nil {
 		return err
 	}
@@ -54,7 +73,7 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
-	contracts, err := seedContracts(c, cfg, refs, mode)
+	paper, err := seedPaper(c, cfg, refs, plan, mode)
 	if err != nil {
 		return err
 	}
@@ -66,15 +85,11 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
-	documents, err := seedDocuments(c, refs, mode)
-	if err != nil {
-		return err
-	}
 	consents, err := seedConsent(c, cfg, companies, refs, mode)
 	if err != nil {
 		return err
 	}
-	lifecycles, err := seedLifecycle(c, cfg, refs, mode)
+	lifecycles, err := seedLifecycle(c, cfg, refs, plan, mode)
 	if err != nil {
 		return err
 	}
@@ -85,18 +100,76 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 		return err
 	}
 
-	fmt.Printf("leads:         %d new\n", leads)
-	fmt.Printf("deals:         %d new\n", deals)
-	fmt.Printf("stakeholders:  %d new\n", stakeholders)
-	fmt.Printf("activities:    %d new\n", activities)
-	fmt.Printf("contracts:     %d new\n", contracts)
-	fmt.Printf("products:      %d new\n", productsNew)
-	fmt.Printf("offers:        %d new\n", offers)
-	fmt.Printf("documents:     %d uploaded\n", documents)
-	fmt.Printf("consent:       %d recorded\n", consents)
-	fmt.Printf("lifecycle:     %d changed\n", lifecycles)
-	fmt.Printf("owners:        %d organization(s), %d person/people\n", ownedOrgs, ownedPeople)
+	reportPipeline(pipelineCounts{
+		leads: leads, generatedLeads: generatedLeads,
+		deals: deals, generatedDeals: generatedDeals,
+		stakeholders: stakeholders, activities: activities,
+		contracts: paper.contracts, generatedContracts: paper.generatedContracts,
+		products: productsNew, offers: offers,
+		documents: paper.documents, looseDocs: paper.looseDocs,
+		consents: consents, lifecycles: lifecycles,
+		ownedOrgs: ownedOrgs, ownedPeople: ownedPeople,
+	})
 	return nil
+}
+
+// paperCounts is what the agreements-and-documents phases wrote.
+type paperCounts struct {
+	contracts, generatedContracts int
+	documents, looseDocs          int
+}
+
+// seedPaper files the agreements and the documents that hang off them.
+//
+// Order matters twice here. The dataset's contracts come before the generated
+// ones so a company demo.json names keeps the story's own agreement. And the
+// contract PDFs come after BOTH, because seedDocuments walks every contract
+// the installation holds — which is what gets the generated ones their paper
+// with no extra work.
+func seedPaper(c *client, cfg demoConfig, refs pipelineRefs, plan map[string]profile, mode runMode) (paperCounts, error) {
+	var n paperCounts
+	var err error
+	if n.contracts, err = seedContracts(c, cfg, refs, mode); err != nil {
+		return n, err
+	}
+	if n.generatedContracts, err = seedGeneratedContracts(c, refs, plan, mode); err != nil {
+		return n, err
+	}
+	if n.documents, err = seedDocuments(c, refs, mode); err != nil {
+		return n, err
+	}
+	if n.looseDocs, err = seedLooseDocuments(c, refs, plan, mode); err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+// pipelineCounts is what one pass created, split by whether the dataset asked
+// for it or the planner did — the two answer different questions when a
+// number looks wrong.
+type pipelineCounts struct {
+	leads, generatedLeads         int
+	deals, generatedDeals         int
+	stakeholders, activities      int
+	contracts, generatedContracts int
+	products, offers              int
+	documents, looseDocs          int
+	consents, lifecycles          int
+	ownedOrgs, ownedPeople        int
+}
+
+func reportPipeline(n pipelineCounts) {
+	fmt.Printf("leads:         %d new (%d from demo.json, %d generated)\n", n.leads+n.generatedLeads, n.leads, n.generatedLeads)
+	fmt.Printf("deals:         %d new (%d from demo.json, %d generated)\n", n.deals+n.generatedDeals, n.deals, n.generatedDeals)
+	fmt.Printf("stakeholders:  %d new\n", n.stakeholders)
+	fmt.Printf("activities:    %d new\n", n.activities)
+	fmt.Printf("contracts:     %d new (%d from demo.json, %d generated)\n", n.contracts+n.generatedContracts, n.contracts, n.generatedContracts)
+	fmt.Printf("products:      %d new\n", n.products)
+	fmt.Printf("offers:        %d new\n", n.offers)
+	fmt.Printf("documents:     %d uploaded (%d contract PDFs, %d account documents)\n", n.documents+n.looseDocs, n.documents, n.looseDocs)
+	fmt.Printf("consent:       %d recorded\n", n.consents)
+	fmt.Printf("lifecycle:     %d changed\n", n.lifecycles)
+	fmt.Printf("owners:        %d organization(s), %d person/people\n", n.ownedOrgs, n.ownedPeople)
 }
 
 func seed(c *client, companies []company, dryRun bool) error {

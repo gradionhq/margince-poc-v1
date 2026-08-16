@@ -150,6 +150,72 @@ func (c *client) get(path string, query url.Values, out any) error { //craft:ign
 	return c.do(req, out)
 }
 
+// delete sends a DELETE, which for some resources is how a state is REACHED
+// rather than how a row is removed: disqualifying a lead is
+// `DELETE /v1/leads/{id}`, and it sets status=disqualified and archives the
+// row instead of deleting it.
+func (c *client) delete(path string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.base+path, nil)
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	return c.do(req, nil)
+}
+
+// pageLimit is the page size getAll asks for. The contract caps a page well
+// below the dataset's size, so the number only decides how many round trips a
+// full read costs, never whether it is complete.
+const pageLimit = 100
+
+// getAll reads EVERY row a list endpoint has, following the cursor.
+//
+// A single `limit=200` read is a silent truncation waiting to happen: it
+// answers 200 rows and looks identical whether that is all of them or the
+// first page of a thousand. The seeder used to do exactly that in a dozen
+// places, which was survivable at 21 companies and is not at 200 — the
+// ownership pass would simply stop owning things partway down the list, and
+// an unowned row is workspace-shared, so the failure would show up as a
+// broken access model rather than as a missing row.
+//
+// The caller supplies a decode function rather than a typed slice because
+// every list endpoint returns a different row shape, and Go generics on a
+// method are not available. Each page is decoded into the caller's own struct
+// and appended by the caller.
+func (c *client) getAll(path string, query url.Values, decode func(json.RawMessage) error) error {
+	page := url.Values{}
+	for key, values := range query {
+		page[key] = values
+	}
+	page.Set("limit", fmt.Sprint(pageLimit))
+
+	// A cursor the server keeps returning unchanged would spin forever. The
+	// bound is far above any real dataset (100 pages = 10,000 rows) and turns
+	// a server-side pagination bug into an error instead of a hang.
+	const maxPages = 100
+	for i := 0; ; i++ {
+		if i == maxPages {
+			return fmt.Errorf("%s: still paginating after %d pages — the cursor is not advancing", path, maxPages)
+		}
+		var body struct {
+			Data json.RawMessage `json:"data"`
+			Page struct {
+				NextCursor string `json:"next_cursor"`
+				HasMore    bool   `json:"has_more"`
+			} `json:"page"`
+		}
+		if err := c.get(path, page, &body); err != nil {
+			return err
+		}
+		if err := decode(body.Data); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if !body.Page.HasMore || body.Page.NextCursor == "" {
+			return nil
+		}
+		page.Set("cursor", body.Page.NextCursor)
+	}
+}
+
 func (c *client) do(req *http.Request, out any) error { //craft:ignore naked-any out is any JSON shape the caller declares; json.Decode's own contract
 	resp, err := c.http.Do(req)
 	if err != nil {

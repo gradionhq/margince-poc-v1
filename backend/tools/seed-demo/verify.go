@@ -16,6 +16,7 @@ package main
 // out until it is in front of somebody.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -40,6 +41,7 @@ func verifySeed(c *client, cfg demoConfig, mode runMode) error {
 		checkActivitiesReachPeople,
 		checkDealsHaveStakeholders,
 		checkLifecycleIsSet,
+		checkCoverage,
 	} {
 		found, err := check(c, cfg)
 		if err != nil {
@@ -66,21 +68,26 @@ func verifySeed(c *client, cfg demoConfig, mode runMode) error {
 func checkEverythingIsOwned(c *client, _ demoConfig) ([]verifyFinding, error) {
 	var findings []verifyFinding
 
-	var orgs struct {
-		Data []struct {
-			DisplayName string `json:"display_name"`
-			OwnerID     string `json:"owner_id"`
-			IsAnchor    bool   `json:"is_anchor"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
-		return nil, err
+	type orgRow struct {
+		DisplayName string `json:"display_name"`
+		OwnerID     string `json:"owner_id"`
+		IsAnchor    bool   `json:"is_anchor"`
 	}
 	var unowned []string
-	for _, row := range orgs.Data {
-		if row.OwnerID == "" && !row.IsAnchor {
-			unowned = append(unowned, row.DisplayName)
+	err := c.getAll("/v1/organizations", nil, func(raw json.RawMessage) error {
+		var rows []orgRow
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
 		}
+		for _, row := range rows {
+			if row.OwnerID == "" && !row.IsAnchor {
+				unowned = append(unowned, row.DisplayName)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(unowned) > 0 {
 		findings = append(findings, verifyFinding{
@@ -89,20 +96,25 @@ func checkEverythingIsOwned(c *client, _ demoConfig) ([]verifyFinding, error) {
 		})
 	}
 
-	var people struct {
-		Data []struct {
-			FullName string `json:"full_name"`
-			OwnerID  string `json:"owner_id"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/people", url.Values{"limit": {"500"}}, &people); err != nil {
-		return nil, err
+	type personRow struct {
+		FullName string `json:"full_name"`
+		OwnerID  string `json:"owner_id"`
 	}
 	unowned = nil
-	for _, row := range people.Data {
-		if row.OwnerID == "" {
-			unowned = append(unowned, row.FullName)
+	err = c.getAll("/v1/people", nil, func(raw json.RawMessage) error {
+		var rows []personRow
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
 		}
+		for _, row := range rows {
+			if row.OwnerID == "" {
+				unowned = append(unowned, row.FullName)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(unowned) > 0 {
 		findings = append(findings, verifyFinding{
@@ -117,29 +129,44 @@ func checkEverythingIsOwned(c *client, _ demoConfig) ([]verifyFinding, error) {
 // appear in a search and on no company page, which is how a promoted lead
 // vanished from the account it came from.
 func checkPeopleAreEmployed(c *client, _ demoConfig) ([]verifyFinding, error) {
-	var people struct {
-		Data []struct {
-			ID       string `json:"id"`
-			FullName string `json:"full_name"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/people", url.Values{"limit": {"500"}}, &people); err != nil {
+	// Every employment edge in one paginated read, rather than one request per
+	// person. At 151 people the N+1 was merely slow; at the 800+ this dataset
+	// is heading for it dominated the whole verify pass.
+	employed := map[string]bool{}
+	err := c.getAll("/v1/relationships", url.Values{"kind": {"employment"}}, func(raw json.RawMessage) error {
+		var rows []struct {
+			PersonID string `json:"person_id"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			employed[row.PersonID] = true
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
+
 	var orphans []string
-	for _, person := range people.Data {
-		var rels struct {
-			Data []struct {
-				ID string `json:"id"`
-			} `json:"data"`
+	err = c.getAll("/v1/people", nil, func(raw json.RawMessage) error {
+		var rows []struct {
+			ID       string `json:"id"`
+			FullName string `json:"full_name"`
 		}
-		query := url.Values{"kind": {"employment"}, "person_id": {person.ID}, "limit": {"1"}}
-		if err := c.get("/v1/relationships", query, &rels); err != nil {
-			return nil, err
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
 		}
-		if len(rels.Data) == 0 {
-			orphans = append(orphans, person.FullName)
+		for _, person := range rows {
+			if !employed[person.ID] {
+				orphans = append(orphans, person.FullName)
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(orphans) == 0 {
 		return nil, nil
@@ -154,31 +181,35 @@ func checkPeopleAreEmployed(c *client, _ demoConfig) ([]verifyFinding, error) {
 // and nobody: the company timeline fills, every person's stays empty, and a
 // rep opening a contact sees no history of talking to them.
 func checkActivitiesReachPeople(c *client, _ demoConfig) ([]verifyFinding, error) {
-	var page struct {
-		Data []struct {
+	conversations, withPerson := 0, 0
+	err := c.getAll("/v1/activities", nil, func(raw json.RawMessage) error {
+		var rows []struct {
 			ID    string `json:"id"`
 			Kind  string `json:"kind"`
 			Links []struct {
 				EntityType string `json:"entity_type"`
 			} `json:"links"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/activities", url.Values{"limit": {"500"}}, &page); err != nil {
-		return nil, err
-	}
-	conversations, withPerson := 0, 0
-	for _, act := range page.Data {
-		// A note or a task is internal — about an account, not with anybody.
-		if act.Kind != "email" && act.Kind != "call" && act.Kind != "meeting" {
-			continue
 		}
-		conversations++
-		for _, link := range act.Links {
-			if link.EntityType == "person" {
-				withPerson++
-				break
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, act := range rows {
+			// A note or a task is internal — about an account, not with anybody.
+			if act.Kind != "email" && act.Kind != "call" && act.Kind != "meeting" {
+				continue
+			}
+			conversations++
+			for _, link := range act.Links {
+				if link.EntityType == "person" {
+					withPerson++
+					break
+				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if conversations == 0 || withPerson > 0 {
 		return nil, nil
@@ -197,38 +228,62 @@ func checkActivitiesReachPeople(c *client, _ demoConfig) ([]verifyFinding, error
 // because there is nobody to put on one — not because the seeder forgot.
 // Failing on that would train the reader to ignore this check.
 func checkDealsHaveStakeholders(c *client, _ demoConfig) ([]verifyFinding, error) {
-	var deals struct {
-		Data []struct {
+	// Three whole-table reads instead of two requests per deal: which deals
+	// have a committee, and which companies employ anybody at all.
+	hasCommittee := map[string]bool{}
+	err := c.getAll("/v1/relationships", url.Values{"kind": {"deal_stakeholder"}}, func(raw json.RawMessage) error {
+		var rows []struct {
+			DealID string `json:"deal_id"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			hasCommittee[row.DealID] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	hasStaff := map[string]bool{}
+	err = c.getAll("/v1/relationships", url.Values{"kind": {"employment"}}, func(raw json.RawMessage) error {
+		var rows []struct {
+			OrganizationID string `json:"organization_id"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			hasStaff[row.OrganizationID] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var bare []string
+	err = c.getAll("/v1/deals", nil, func(raw json.RawMessage) error {
+		var rows []struct {
 			ID             string `json:"id"`
 			Name           string `json:"name"`
 			OrganizationID string `json:"organization_id"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/deals", url.Values{"limit": {"200"}}, &deals); err != nil {
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, deal := range rows {
+			if hasCommittee[deal.ID] || !hasStaff[deal.OrganizationID] {
+				continue
+			}
+			bare = append(bare, deal.Name)
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	var bare []string
-	for _, deal := range deals.Data {
-		var rels struct {
-			Data []struct {
-				ID string `json:"id"`
-			} `json:"data"`
-		}
-		query := url.Values{"kind": {"deal_stakeholder"}, "deal_id": {deal.ID}, "limit": {"1"}}
-		if err := c.get("/v1/relationships", query, &rels); err != nil {
-			return nil, err
-		}
-		if len(rels.Data) > 0 {
-			continue
-		}
-		staff, err := employeesOf(c, deal.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-		if len(staff) == 0 {
-			continue
-		}
-		bare = append(bare, deal.Name)
 	}
 	if len(bare) == 0 {
 		return nil, nil
@@ -243,21 +298,25 @@ func checkDealsHaveStakeholders(c *client, _ demoConfig) ([]verifyFinding, error
 // whole job is "who are our customers?" returns everything when nothing has
 // been staged.
 func checkLifecycleIsSet(c *client, _ demoConfig) ([]verifyFinding, error) {
-	var orgs struct {
-		Data []struct {
+	var unknown []string
+	err := c.getAll("/v1/organizations", nil, func(raw json.RawMessage) error {
+		var rows []struct {
 			DisplayName string `json:"display_name"`
 			Lifecycle   string `json:"lifecycle"`
 			IsAnchor    bool   `json:"is_anchor"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/organizations", url.Values{"limit": {"200"}}, &orgs); err != nil {
-		return nil, err
-	}
-	var unknown []string
-	for _, row := range orgs.Data {
-		if !row.IsAnchor && (row.Lifecycle == "" || row.Lifecycle == "unknown") {
-			unknown = append(unknown, row.DisplayName)
 		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if !row.IsAnchor && (row.Lifecycle == "" || row.Lifecycle == "unknown") {
+				unknown = append(unknown, row.DisplayName)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(unknown) == 0 {
 		return nil, nil

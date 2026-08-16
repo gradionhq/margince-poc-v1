@@ -48,6 +48,7 @@ func run() error {
 		limit    = flag.Int("limit", 0, "seed at most N companies (0 = all)")
 		dsn      = flag.String("dsn", "", "owner DSN for the teams and seats (or set MARGINCE_SEED_DSN); skipped when empty")
 		dryRun   = flag.Bool("dry-run", false, "report what would be created, write nothing")
+		verify   = flag.Bool("verify-only", false, "check an already-seeded installation, write nothing")
 	)
 	flag.Parse()
 
@@ -62,6 +63,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// What language each company's paper is written in. Read before anything
+	// is generated, because a contract's title and its currency both depend
+	// on it.
+	if err := loadCompanyLocales(*dataset); err != nil {
+		return err
+	}
 	companies, err := loadDataset(*dataset, demo.Anchor.Domain, *limit)
 	if err != nil {
 		return err
@@ -70,6 +77,27 @@ func run() error {
 
 	client, err := login(*baseURL, *email, *password)
 	if err != nil {
+		return err
+	}
+
+	// -verify-only reads an installation somebody already seeded and reports
+	// what is missing. It writes NOTHING, which makes it safe to point at an
+	// installation another session is using — unlike -dry-run, which still
+	// walks the seeding phases and needs the records to be absent.
+	if *verify {
+		return verifySeed(client, demo, modeWrite)
+	}
+
+	if *dsn == "" {
+		*dsn = os.Getenv("MARGINCE_SEED_DSN")
+	}
+	// The seats come FIRST. Everything the pipeline writes is assigned to one,
+	// and loadPipelineRefs resolves them by reading /v1/users — so on a fresh
+	// installation a pipeline that ran first would assign every record to
+	// nobody and only then fail in the ownership pass.
+	if *dsn == "" {
+		fmt.Println("no -dsn given, so the teams and seats are skipped (they need SQL — see users.go)")
+	} else if err := seedSeatsWithDSN(*dsn, demo, modeFor(*dryRun)); err != nil {
 		return err
 	}
 
@@ -95,25 +123,30 @@ func run() error {
 		return err
 	}
 
-	if *dsn == "" {
-		*dsn = os.Getenv("MARGINCE_SEED_DSN")
+	if err := seedWhatNeedsCompanies(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
+		return err
 	}
-	if *dsn == "" {
-		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
-		return verifySeed(client, demo, modeFor(*dryRun))
+	return verifySeed(client, demo, modeFor(*dryRun))
+}
+
+// seedWhatNeedsCompanies runs the SQL-and-in-process phases that need the
+// companies to exist: the finance billing links, and the company facts (only a
+// crawl may create a fact, so this calls people.ApplyDeepRead in process).
+func seedWhatNeedsCompanies(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
+	if dsn == "" {
+		return nil
 	}
 	orgIDs, err := orgIDsByDomain(client)
 	if err != nil {
 		return err
 	}
-	if err := seedOrgWithDSN(*dsn, demo, orgIDs, modeFor(*dryRun)); err != nil {
+	if err := seedFinanceLinksWithDSN(dsn, demo, orgIDs, mode); err != nil {
 		return err
 	}
-	facts, err := seedFacts(context.Background(), *dsn, client, companies, orgIDs, modeFor(*dryRun))
+	facts, err := seedFacts(context.Background(), dsn, client, companies, orgIDs, mode)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("facts:         %d applied\n", facts)
-
-	return verifySeed(client, demo, modeFor(*dryRun))
+	return nil
 }

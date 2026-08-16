@@ -20,6 +20,9 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // pdfPage is what one generated document says.
@@ -101,17 +104,37 @@ func escapePDFText(s string) string {
 		"ä", "ae", "ö", "oe", "ü", "ue",
 		"Ä", "Ae", "Ö", "Oe", "Ü", "Ue", "ß", "ss",
 		"—", "-", "–", "-", "’", "'", "„", `"`, "“", `"`,
+		// Đ/đ is a LETTER of the Vietnamese alphabet, not a D with a mark, so
+		// the Unicode decomposition below leaves it whole and it would end up
+		// a dot: "Đại Việt" rendering as ".ai Viet". Every other Vietnamese
+		// vowel folds correctly on its own.
+		"Đ", "D", "đ", "d",
 	)
 	escaped := replacer.Replace(s)
 	// Anything still outside printable ASCII cannot be rendered by the base
-	// font, so it becomes a dot rather than a broken glyph.
+	// font. Accents are FOLDED to their base letter first, rather than going
+	// straight to a dot: the page is Helvetica with no embedded font, so
+	// "Thời hạn" has no glyphs to draw, and folding renders it "Thoi han"
+	// instead of "Th.i h.n". That matters now the dataset has Vietnamese
+	// companies whose names carry diacritics the copy cannot control.
+	//
+	// A dot stays the last resort for a rune with no ASCII form at all — a
+	// CJK character, an emoji — where there is nothing honest to substitute.
+	//
+	// This is a legibility floor, not Unicode support. Genuinely accented
+	// copy needs an embedded CID font, which belongs to a document service
+	// rather than to a seeder.
+	folded := norm.NFKD.String(escaped)
 	var b strings.Builder
-	for _, r := range escaped {
-		if r < 32 || r > 126 {
+	for _, r := range folded {
+		switch {
+		case unicode.Is(unicode.Mn, r):
+			continue // a combining mark the decomposition separated out
+		case r < 32 || r > 126:
 			b.WriteRune('.')
-			continue
+		default:
+			b.WriteRune(r)
 		}
-		b.WriteRune(r)
 	}
 	return b.String()
 }

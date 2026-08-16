@@ -8,6 +8,7 @@ package main
 // what it agreed to be contacted about (consent).
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -20,6 +21,17 @@ import (
 // its own, and a re-run neither duplicates a thread nor re-opens a task.
 func seedActivities(c *client, seats *sessions, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
 	created := 0
+	// One read for the phase: which source ids already exist. Counting what
+	// this run genuinely created needs the before-state, and asking per
+	// activity was the seeder's worst quadratic.
+	seenSourceIDs := map[string]bool{}
+	if mode != modeDryRun {
+		loaded, err := loadActivitySourceIDs(c)
+		if err != nil {
+			return 0, err
+		}
+		seenSourceIDs = loaded
+	}
 	for i, act := range cfg.Activities {
 		orgID, ok := refs.orgsByDom[strings.ToLower(act.Company)]
 		if !ok {
@@ -79,12 +91,9 @@ func seedActivities(c *client, seats *sessions, cfg demoConfig, refs pipelineRef
 		}
 
 		// Idempotent on source_system+source_id, so a re-run replays the same
-		// row and the reply cannot tell a create from a convergence. Probe
-		// first, and count only what was genuinely absent.
-		before, err := findActivityBySource(c, fmt.Sprintf("act-%d", i))
-		if err != nil {
-			return created, err
-		}
+		// row and the reply cannot tell a create from a convergence. The
+		// source ids present before this phase say what was genuinely absent.
+		before := seenSourceIDs[fmt.Sprintf("act-%d", i)]
 		if err := author.post("/v1/activities", body, nil); err != nil {
 			if _, ok := conflictingID(err); ok {
 				continue
@@ -155,21 +164,32 @@ func activityLinks(c *client, refs pipelineRefs, act demoActivity, orgID string)
 	return links, nil
 }
 
-func findActivityBySource(c *client, sourceID string) (bool, error) {
-	var page struct {
-		Data []struct {
+// loadActivitySourceIDs reads the source_id of every activity ONCE.
+//
+// It replaces a per-activity search that listed activities on every call and
+// stopped at 200 rows. Both halves were bugs waiting for scale: the search was
+// O(activities²) over a run, and the cap meant activity 201 was never found,
+// so a converging re-run filed a duplicate of it instead of recognising it.
+func loadActivitySourceIDs(c *client) (map[string]bool, error) {
+	seen := map[string]bool{}
+	err := c.getAll("/v1/activities", nil, func(raw json.RawMessage) error {
+		var rows []struct {
 			SourceID string `json:"source_id"`
-		} `json:"data"`
-	}
-	if err := c.get("/v1/activities", url.Values{"limit": {"200"}}, &page); err != nil {
-		return false, fmt.Errorf("listing activities: %w", err)
-	}
-	for _, row := range page.Data {
-		if row.SourceID == sourceID {
-			return true, nil
 		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if row.SourceID != "" {
+				seen[row.SourceID] = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing activities: %w", err)
 	}
-	return false, nil
+	return seen, nil
 }
 
 // seedLifecycle says where each account stands with us.
@@ -179,12 +199,13 @@ func findActivityBySource(c *client, sourceID string) (bool, error) {
 // opportunity. A demo where every company sits at the default teaches the
 // lifecycle filter to return everything.
 //
-// A company the dataset does not place gets a default from what is true about
-// it — an open deal makes it an opportunity, otherwise it is a target. That
-// keeps a newly ingested company out of `unknown` without pretending to know
-// more than the records show, and demo.json still overrides it whenever the
-// story needs something specific.
-func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+// A company the dataset does not place takes the lifecycle its PROFILE was
+// planned with, which is what spreads the accounts across customer, former
+// customer, opportunity, prospect and target instead of leaving everything at
+// two values. demo.json still overrides whenever the story needs something
+// specific, and a company with no profile at all falls back to what its
+// records show — an open deal makes it an opportunity, otherwise a target.
+func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, plan map[string]profile, mode runMode) (int, error) {
 	changed := 0
 	placed := map[string]bool{}
 	for _, domains := range cfg.Lifecycle {
@@ -196,9 +217,12 @@ func seedLifecycle(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (
 		if placed[domain] {
 			continue
 		}
-		stage := "target"
-		if len(refs.dealsByCompany[domain]) > 0 {
-			stage = "opportunity"
+		stage := plan[domain].Lifecycle
+		if stage == "" {
+			stage = "target"
+			if len(refs.dealsByCompany[domain]) > 0 {
+				stage = "opportunity"
+			}
 		}
 		cfg.Lifecycle[stage] = append(cfg.Lifecycle[stage], domain)
 	}

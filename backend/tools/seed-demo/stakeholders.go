@@ -10,8 +10,10 @@ package main
 // and 180 are not, and a rule covers the ones nobody has met yet.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -58,57 +60,80 @@ func containsAnyOf(haystack string, needles ...string) bool {
 // A deal with no stakeholders is a number with nobody attached — the page can
 // show an amount and a stage but cannot answer who wants this, who signs, or
 // who is in the way, which is most of what a deal record is for.
-func seedStakeholders(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int, error) {
+// It walks every deal the installation holds, from refs.dealsByCompany, not
+// only the ones demo.json names — a generated deal needs a committee for the
+// same reason, and the verify pass fails on it either way.
+func seedStakeholders(c *client, _ demoConfig, refs pipelineRefs, mode runMode) (int, error) {
 	created := 0
-	for _, deal := range cfg.Deals {
-		orgID, ok := refs.orgsByDom[strings.ToLower(deal.Company)]
+	for _, domain := range sortedCompanyDomains(refs.dealsByCompany) {
+		orgID, ok := refs.orgsByDom[domain]
 		if !ok {
 			continue
 		}
-		dealID, err := findDeal(c, deal.Name, orgID)
-		if err != nil {
-			return created, err
-		}
-		if dealID == "" {
-			continue
-		}
+		// One read per company rather than per deal: a company with three
+		// deals has one staff list, and it is the same list each time.
 		staff, err := staffBySeniority(c, orgID)
 		if err != nil {
 			return created, err
 		}
-		for i, personID := range staff {
-			if i >= len(buyingRoles) {
-				break
-			}
-			if mode == modeDryRun {
-				created++
-				continue
-			}
-			added, err := ensureStakeholder(c, dealID, personID, buyingRoles[i])
-			if err != nil {
-				return created, fmt.Errorf("deal %s: %w", deal.Ref, err)
-			}
-			if added {
-				created++
+		if len(staff) == 0 {
+			// The company publishes nobody. Its deals have no committee
+			// because there is no one to put on one, which the verify pass
+			// exempts on purpose.
+			continue
+		}
+		for _, dealID := range refs.dealsByCompany[domain] {
+			for i, personID := range staff {
+				if i >= len(buyingRoles) {
+					break
+				}
+				if mode == modeDryRun {
+					created++
+					continue
+				}
+				added, err := ensureStakeholder(c, dealID, personID, buyingRoles[i])
+				if err != nil {
+					return created, fmt.Errorf("deal at %s: %w", domain, err)
+				}
+				if added {
+					created++
+				}
 			}
 		}
 	}
 	return created, nil
 }
 
+// sortedCompanyDomains keeps the write order stable across runs, so the same
+// input produces the same audit trail.
+func sortedCompanyDomains(byCompany map[string][]string) []string {
+	out := make([]string, 0, len(byCompany))
+	for domain := range byCompany {
+		out = append(out, domain)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // staffBySeniority lists a company's employees, most senior first.
 func staffBySeniority(c *client, orgID string) ([]string, error) {
-	var page struct {
-		Data []struct {
-			PersonID string `json:"person_id"`
-			Role     string `json:"role"`
-		} `json:"data"`
+	type employment struct {
+		PersonID string `json:"person_id"`
+		Role     string `json:"role"`
 	}
-	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}, "limit": {"200"}}
-	if err := c.get("/v1/relationships", query, &page); err != nil {
+	var rows []employment
+	query := url.Values{"kind": {"employment"}, "organization_id": {orgID}}
+	err := c.getAll("/v1/relationships", query, func(raw json.RawMessage) error {
+		var page []employment
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return err
+		}
+		rows = append(rows, page...)
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("listing employments: %w", err)
 	}
-	rows := page.Data
 	// A stable sort on a stable list keeps the committee identical across
 	// runs, which is what stops a re-seed from reshuffling who the champion is.
 	for i := 1; i < len(rows); i++ {

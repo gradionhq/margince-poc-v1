@@ -12,7 +12,22 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+# Where the demo dataset lives. It is a SEPARATE, private repo (it carries real
+# company names and crawled pages), cloned beside this one by convention. The
+# seeder has the same default; naming it here is what lets `make seed-demo` be
+# the whole command.
+#
+# Resolved against the MAIN worktree rather than $(CURDIR), because a sibling
+# of a worktree under .tmp/worktrees/<name>/ is not a sibling of the clone. A
+# checkout with no git (a tarball, a container copy) falls back to $(CURDIR).
+DATASET_ROOT := $(or $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$$||'),$(CURDIR))
+DATASET ?= $(abspath $(DATASET_ROOT)/../margince-demo-database)
+
+# The dev stack's owner DSN. Same value scripts/dev.sh uses; overridable for a
+# DEV_SLUG stack on another port.
+SEED_DSN ?= postgres://margince_owner:dev@localhost:15432/margince
+
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-demo verify-demo seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -224,6 +239,36 @@ ext-imports:
 seed-dev:
 	./scripts/seed-dev.sh
 	$(MAKE) -C backend seed-dev-db
+
+## seed-demo — fill a running stack from the demo dataset: real companies,
+## people and facts, plus the invented commercial half. Stack must be running
+## (make dev). Converges — a second run creates nothing. DATASET= points at the
+## dataset checkout; SEED_ARGS= passes flags through (-dry-run, -limit N).
+seed-demo:
+	@test -f "$(DATASET)/datasets/v1/demo.json" || { \
+	  echo "no demo dataset at $(DATASET) — clone margince-demo-database beside this repo, or pass DATASET=<path>" >&2; \
+	  exit 1; }
+	@test -f config/margince-admin-password || { \
+	  echo "no config/margince-admin-password — run make dev first" >&2; exit 1; }
+	MARGINCE_SEED_PASSWORD="$$(cat config/margince-admin-password)" \
+	MARGINCE_SEED_DSN="$(SEED_DSN)" \
+	$(MAKE) -C backend seed-demo DATASET="$(DATASET)" SEED_ARGS="$(SEED_ARGS)"
+
+## verify-demo — re-run the demo seeder's verify pass against a running stack,
+## writing nothing: every row owned, every person employed, every conversation
+## naming somebody, every deal with a committee, every account off `unknown`.
+##
+## It delegates into backend/ rather than re-entering seed-demo here, because
+## the frontend-lane parity gate reads $(MAKE) lines to find the legs it must
+## check and refuses a spelling it cannot parse — `$(MAKE) seed-demo
+## SEED_ARGS="… $(SEED_ARGS)"` is one, and a leg it silently dropped would be
+## a gate that stopped gating.
+verify-demo:
+	@test -f config/margince-admin-password || { \
+	  echo "no config/margince-admin-password — run make dev first" >&2; exit 1; }
+	MARGINCE_SEED_PASSWORD="$$(cat config/margince-admin-password)" \
+	MARGINCE_SEED_DSN="$(SEED_DSN)" \
+	$(MAKE) -C backend seed-demo DATASET="$(DATASET)" SEED_ARGS="-verify-only"
 
 ## verify-boot — prove a running, seeded stack end to end: seeded-admin
 ## login, seeded people visible over /v1, frontend production build.
