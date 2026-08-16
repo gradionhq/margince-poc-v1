@@ -789,12 +789,28 @@ version never re-runs, so they asked whether a 2026-07 repair works on a
 2026-08 schema — a question no installation puts. What the reminders do today
 is still covered by the six eligibility suites and `timescan_integration_test.go`.
 
-**Four modules remain deferred, all for the same reason: per-tenant job
-fan-out.** The webhook retry sweep is one job row per live tenant, with a suite
-built on a second tenant's parked delivery and a fault injected through the
-workspace GUC; the agent scheduler's suite injects its fault through a trigger
-keyed on `NEW.workspace_id`. Privacy's retention sweep and search's re-embed
-fan-out are the same shape. Their tables go with the fleet loops (§5).
+**Three of the four fan-out modules are collapsed** — webhooks (#1255), agents
+(#1283) and privacy (#1337) — each landing its module's phase D columns in the
+same PR, because the suites proving the fan-out asserted isolation between two
+tenants and would otherwise assert it against a schema that has none.
+
+**Search is the fourth, and it is NOT the same shape.** The other three fanned
+out for wiring reasons: one row per tenant, each doing the same work. The
+re-embed fan-out carries the run's own BOOKKEEPING. `embed_store_binding`
+holds `reembedding_pending`, an array of workspace ids; the dispatcher seeds it
+and enqueues one child per entry, each child removes itself on completion
+(`FinishWorkspaceReembedding`), and the run RELEASES when the array empties.
+The array is not a list of jobs — it is how the system knows a run finished,
+and it is the thing a forced confirm's steal (`ReembedClaim.StealAfter`)
+recovers.
+
+So collapsing search is a change to a run LIFECYCLE, not to job wiring: the
+pending array is the tenancy artifact, and removing it means deciding what
+"this run is finished" means when there is one pass — claim, run, release, with
+the steal still able to recover a wedged run. That is a coherent piece of work
+and a different one from the three above, which is why it is written down here
+rather than started at the end of a long session. Its column drop
+(`embedding`) waits on it.
 
 **The vocabulary step is done (#1240); the first collapse hit one open
 question, and it is worth answering before writing code.** `role: worker` now
