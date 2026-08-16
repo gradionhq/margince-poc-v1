@@ -24,7 +24,7 @@ import (
 // (CUSTOM-FIELDS-PARAM-5) — the one lifecycle mutation besides Create
 // that runs DDL, so it follows the same one-transaction schema-pool
 // shape: owner ALTER first, then the downgrade to the
-// app role for the RLS-governed catalog UPDATE + one audit row.
+// app role for the catalog UPDATE + one audit row.
 func (s *Service) SetOptions(ctx context.Context, id ids.UUID, options []string) (crmcontracts.CustomField, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionUpdate); err != nil {
 		return crmcontracts.CustomField{}, err

@@ -10,7 +10,7 @@ package automation
 // a fake fieldcatalog.Reader — no database needed since fieldcatalog.Reader
 // is exactly the seam that lets this run without one. The end-to-end
 // proof — that the resulting previewDef's predicate actually matches real
-// seeded rows under storekit.CompilePredicate and RLS scope — is
+// seeded rows under storekit.CompilePredicate and the workspace scope — is
 // TestRenewalReminderPreviewMatchesTheRealSeededRows
 // (compose/integration/renewal_reminder_integration_test.go); this file
 // only proves the refusal/acceptance logic resolvePreviewRecipe runs

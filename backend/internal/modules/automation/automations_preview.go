@@ -73,7 +73,7 @@ type previewDef struct {
 	fields    map[string]storekit.Field
 	match     storekit.Predicate
 	// firedCount counts trigger occurrences since the window start —
-	// workspace-level (RLS-bounded), an estimate of event volume rather
+	// workspace-level (workspace-bounded), an estimate of event volume rather
 	// than a per-row visibility question.
 	firedCount func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error)
 	// unsupported names why this catalog key has no preview YET, when

@@ -89,11 +89,14 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 var ErrNoWorkspace = errors.New("pg: no workspace bound to context")
 
 // WithWorkspaceTx runs fn inside a transaction whose app.workspace_id GUC
-// is SET LOCAL to the context's workspace, which is what the RLS policies
-// key on. SET LOCAL is transaction-scoped — it resets at COMMIT/ROLLBACK,
-// so a pooled connection can never leak one tenant's GUC to the next
-// checkout (the §1.3 pool-reuse rule). Every domain read and write goes
-// through here; there is no raw-pool path for tenant data.
+// is SET LOCAL to the context's workspace, which is what every tenant
+// statement's OWN workspace predicate reads. Core 0217 (ADR-0091) retired
+// the policies that used to read it instead, so the GUC binds nothing on
+// its own now: a statement that omits the predicate is unscoped and no
+// longer fails closed. SET LOCAL is transaction-scoped — it resets at
+// COMMIT/ROLLBACK, so a pooled connection can never leak one tenant's GUC
+// to the next checkout (the §1.3 pool-reuse rule). Every domain read and
+// write goes through here; there is no raw-pool path for tenant data.
 func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {

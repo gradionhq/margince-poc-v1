@@ -49,8 +49,10 @@ type ServedTaskTotal struct {
 }
 
 // ServedTaskTotals returns the served ai_call slices for tasks since the given
-// instant, grouped by (task, tier, provider, model). RLS-scoped: it observes
-// only the current workspace's calls. An empty task set returns no rows.
+// instant, grouped by (task, tier, provider, model). The query's own
+// workspace predicate keeps it to the bound workspace's calls — this feeds a
+// per-message cost, so another tenant's traffic in the numerator would price
+// this one's work wrong. An empty task set returns no rows.
 func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, since time.Time) ([]ServedTaskTotal, error) {
 	// tier is carried so a since-departed slice can be repriced at the current
 	// binding of its OWN tier (recorded since migration 0088), not the ladder
@@ -62,7 +64,8 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 		       sum(tokens_out), count(*),
 		       count(*) FILTER (WHERE error_sentinel IS NULL)
 		FROM ai_call
-		WHERE occurred_at >= $1 AND NOT cache_hit
+		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		      AND occurred_at >= $1 AND NOT cache_hit
 		      AND (error_sentinel IS NULL OR error_sentinel = 'metering_failed')
 		      AND tokens_in > 0 AND task = ANY($2)
 		GROUP BY task, tier, provider, model_id`

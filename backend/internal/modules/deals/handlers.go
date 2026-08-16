@@ -35,7 +35,7 @@ type Handlers struct {
 	blob blobstore.Store
 }
 
-// NewHandlers wires the transport over the RLS-bound app pool and the
+// NewHandlers wires the transport over the workspace-bound app pool and the
 // installation's own values.
 func NewHandlers(db *database.DB, inst Installation) Handlers {
 	return Handlers{store: NewStore(db, inst)}

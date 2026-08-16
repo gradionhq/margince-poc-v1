@@ -17,7 +17,7 @@ package channels
 // it resolves has to be the one the ingress was authenticated against. Nothing
 // short of the whole leg can catch a mismatch between those.
 //
-// The Telegram Bot API is the only fake. The router, the RLS-bound pool, the
+// The Telegram Bot API is the only fake. The router, the workspace-bound pool, the
 // vault, River, the consent gate, the seat check and the dispatcher are the
 // ones the api and worker roles run.
 

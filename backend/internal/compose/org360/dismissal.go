@@ -156,8 +156,11 @@ func isFingerprint(value string) bool {
 // It asks about the candidates in hand rather than reading the whole stored set,
 // so the page read is bounded by the suggestions this account raises.
 //
-// The user_id predicate is explicit in SQL: RLS binds the workspace, so without
-// it one rep's judgment would silence their colleague's suggestions.
+// The user_id predicate is the whole scope and has to be written out: without
+// it one rep's judgment would silence their colleague's suggestions. It is
+// also sufficient — core 0225 collapsed this table's unique key to
+// (user_id, …), so a user id names one row per subject across the whole
+// installation.
 func (s *Service) dismissedFingerprints(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, candidates []string,
 ) (map[string]bool, error) {

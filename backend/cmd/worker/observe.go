@@ -177,7 +177,7 @@ func startObserveListener(ctx context.Context, cfg workerConfig, pool *pgxpool.P
 
 // workerReadyChecks are what this replica needs before it can do any work: its
 // own boot having finished, the database every job is read and written
-// through under a role RLS binds, and the bus its subscribers consume from.
+// through under the runtime app role, and the bus its subscribers consume from.
 // All of them are probed, because a worker missing any one is not doing the
 // work while answering a check of the others perfectly.
 //

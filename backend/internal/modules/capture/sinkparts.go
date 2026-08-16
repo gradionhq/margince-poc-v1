@@ -100,11 +100,12 @@ func (s *Sink) stageParts(ctx context.Context, rec connector.NormalizedRecord) (
 			Body:         part.Body,
 		})
 	}
-	// Proven, never assumed. Every other write here is covered by
-	// current_setting('app.workspace_id') with deny-on-unset, but an object
-	// store has no policy to fall back on: an unbound context would write real
-	// attachment bytes under the zero workspace, outside any tenant's reach and
-	// outside erasure's.
+	// Proven, never assumed. Every other write here names
+	// current_setting('app.workspace_id') in its own predicate, so an unbound
+	// GUC makes it write NULL and fail its NOT NULL. An object store has no
+	// such column to fail on: an unbound context would write real attachment
+	// bytes under the zero workspace, outside any tenant's reach and outside
+	// erasure's.
 	workspace, ok := principal.WorkspaceID(ctx)
 	if !ok || workspace == (ids.UUID{}) {
 		return nil, fmt.Errorf(

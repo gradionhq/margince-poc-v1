@@ -249,7 +249,7 @@ func stageArchiveOverTheToolDoor(agent context.Context, t *testing.T, e *integra
 }
 
 // pendingApprovalIDs lists what is waiting on a human, bound through
-// WithWorkspaceTx: Env.Pool is the RLS-bound app role, and an unbound read
+// WithWorkspaceTx: Env.Pool is the workspace-bound app role, and an unbound read
 // resolves the policy against a NULL workspace and answers nothing for every
 // row that exists.
 func pendingApprovalIDs(as context.Context, t *testing.T, e *integration.Env) []ids.ApprovalID {

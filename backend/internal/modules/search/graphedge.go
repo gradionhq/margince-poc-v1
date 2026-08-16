@@ -396,7 +396,7 @@ func scanEdges(rows pgx.Rows) ([]InteractionEdge, error) {
 func RebuildEdges(ctx context.Context, tx pgx.Tx) error {
 	window := fmt.Sprintf("now() - interval '%d days'", relstrength.WindowDays)
 	// Replace wholesale rather than diff: the table is derived, the workspace
-	// is RLS-bound, and a diff would be a second implementation of the fold
+	// is workspace-bound, and a diff would be a second implementation of the fold
 	// with its own way of being wrong.
 	if _, err := tx.Exec(ctx, `DELETE FROM graph_interaction_edge`); err != nil {
 		return fmt.Errorf("search: clearing the interaction projection for rebuild: %w", err)

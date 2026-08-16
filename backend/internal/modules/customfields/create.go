@@ -50,8 +50,8 @@ func lockTimedOut(err error) bool {
 // a core table. The transaction here opens as the schema pool's owner
 // role, runs the DDL first, THEN downgrades itself to exactly the
 // authority every other tenant write runs under (SET LOCAL ROLE
-// margince_app + the app.workspace_id GUC) for the RLS-governed catalog
-// insert and audit write.
+// margince_app + the app.workspace_id GUC) for the catalog insert and
+// audit write.
 func (s *Service) Create(ctx context.Context, spec FieldSpec) (crmcontracts.CustomField, error) {
 	if err := auth.Require(ctx, rbacObject, principal.ActionCreate); err != nil {
 		return crmcontracts.CustomField{}, err
@@ -266,8 +266,9 @@ func refuseTakenColumn(ctx context.Context, tx pgx.Tx, object, column string) er
 // pins both call sites (here and in options.go's setOptionsInTx):
 // deleting either one leaves the transaction on the owner role for the
 // catalog/audit write and every other test still passes, because the
-// schema pool's role is superuser in dev — FORCE RLS doesn't bite
-// behaviorally there.
+// owner role can issue those writes too. Nothing about the rows produced
+// differs — only the authority they were produced under — so no test that
+// reads the result can tell, which is why these two exist.
 func downgradeToAppRole(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE margince_app`); err != nil {
 		return fmt.Errorf("customfields: downgrading to the app role: %w", err)

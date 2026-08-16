@@ -70,8 +70,10 @@ func (d *DB) Pool() *pgxpool.Pool {
 }
 
 // Tx runs fn inside a transaction with app.workspace_id bound, which is what
-// the RLS policies key on. Same contract as WithWorkspaceTx, minus the
-// requirement that the caller have put the workspace in ctx.
+// every tenant statement's own workspace predicate reads. Same contract as
+// WithWorkspaceTx — including that the binding scopes nothing by itself since
+// core 0217 — minus the requirement that the caller have put the workspace in
+// ctx.
 func (d *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if d == nil {
 		// A store built without a handle, answered with the sentinel that

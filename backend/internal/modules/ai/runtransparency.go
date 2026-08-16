@@ -57,7 +57,7 @@ type runCall struct {
 // inspect the model calls that their own setup action caused.
 type RunTransparency struct{ db *database.DB }
 
-// NewRunTransparency constructs the RLS-bound correlated-run reader.
+// NewRunTransparency constructs the workspace-bound correlated-run reader.
 func NewRunTransparency(db *database.DB) *RunTransparency {
 	return &RunTransparency{db: db}
 }

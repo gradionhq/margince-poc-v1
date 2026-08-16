@@ -43,7 +43,7 @@ func TestAssertRuntimeRoleRefusesTheOwnerPool(t *testing.T) {
 	}
 
 	if err := compose.AssertRuntimeRole(ctx, owner); err == nil {
-		t.Fatal("AssertRuntimeRole accepted the owner pool; a role RLS does not bind must never serve runtime traffic")
+		t.Fatal("AssertRuntimeRole accepted the owner pool; a superuser/BYPASSRLS role must never serve runtime traffic")
 	}
 }
 

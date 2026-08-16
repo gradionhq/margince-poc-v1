@@ -363,9 +363,11 @@ func actingUser(ctx context.Context) (ids.UserID, error) {
 	return ids.From[ids.UserKind](p.UserID), nil
 }
 
-// baselineFor reads the caller's own mark. The user_id predicate is
-// explicit: RLS binds the workspace, so without it one rep would read
-// another rep's reading history.
+// baselineFor reads the caller's own mark. The user_id predicate is the
+// whole scope and has to be written out: without it one rep would read
+// another rep's reading history. It is also sufficient — core 0225
+// collapsed user_record_view's unique key to (user_id, entity_type,
+// entity_id).
 func (s *Service) baselineFor(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (at time.Time, visited bool, err error) {
 	userID, err := actingUser(ctx)
 	if err != nil {

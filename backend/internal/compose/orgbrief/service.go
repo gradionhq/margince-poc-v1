@@ -281,8 +281,10 @@ func wireSentences(in []Sentence) []crmcontracts.OrganizationBriefSentence {
 }
 
 // cached reads this user's brief for this account. The user_id predicate is
-// explicit in SQL: RLS binds the workspace, so without it one rep would
-// read another's brief — which was written from records they may not share.
+// the whole scope and has to be written out: without it one rep would read
+// another's brief — which was written from records they may not share. It is
+// also sufficient — core 0225 collapsed org_brief's unique key to
+// (user_id, organization_id).
 func (s *Service) cached(ctx context.Context, userID ids.UserID, orgID ids.OrganizationID) (stored, bool, error) {
 	var out stored
 	var payload []byte

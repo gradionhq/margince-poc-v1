@@ -23,7 +23,7 @@ import (
 // content into list responses.
 type CallReadStore struct{ db *database.DB }
 
-// NewCallReadStore constructs the RLS-bound AI trace read store.
+// NewCallReadStore constructs the workspace-bound AI trace read store.
 func NewCallReadStore(db *database.DB) *CallReadStore { return &CallReadStore{db: db} }
 
 // CallSummary is one terminal attempt in the newest-first trace list.

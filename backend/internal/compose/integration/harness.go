@@ -27,7 +27,7 @@ import (
 
 // Env is the migrated-database fixture every integration suite starts
 // from: one workspace, three humans (Rep1+Rep2 share Team1, Rep3 sits in
-// Team2), and the core stores over the RLS-bound app pool.
+// Team2), and the core stores over the workspace-bound app pool.
 type Env struct {
 	Pool       *pgxpool.Pool
 	People     *people.Store
@@ -137,7 +137,7 @@ func SchemaPool(t *testing.T) *pgxpool.Pool {
 }
 
 // OwnerConn opens the schema-owner connection tests use to shift
-// timestamps the app role's RLS-bound path could never touch.
+// timestamps the app role's workspace-bound path could never touch.
 func OwnerConn(t *testing.T) *pgx.Conn {
 	t.Helper()
 	dsn := os.Getenv("MARGINCE_TEST_DSN")

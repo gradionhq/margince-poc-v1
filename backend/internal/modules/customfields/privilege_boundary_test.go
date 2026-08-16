@@ -9,9 +9,9 @@ package customfields
 // role to run exactly one ALTER TABLE, then MUST drop to margince_app —
 // the DML-only role every other tenant write runs under — before the
 // catalog INSERT/UPDATE and the audit_log write. Nothing in Go's type
-// system pins that ordering, and in dev the schema pool's role is
-// superuser, so FORCE RLS does not bite behaviorally if the downgrade
-// call is deleted: every existing test still passes green. This mirrors
+// system pins that ordering, and the owner role can issue the catalog and
+// audit writes perfectly well, so deleting the downgrade call changes
+// nothing a test can read: every existing test still passes green. This mirrors
 // backend/writeshape_test.go's approach (fitness function over point
 // fix): derive "runs owner DDL, then touches a tenant table" structurally
 // — a value literally named "ddl" flowing into tx.Exec/tx.QueryRow marks

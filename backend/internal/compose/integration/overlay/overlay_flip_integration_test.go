@@ -88,7 +88,7 @@ type flipEstate struct {
 	fakeInc *fake.Adapter
 	// adminCtx is a fully-granted admin principal bound to the workspace
 	// — the direct-seam context (mirror seeding, export writer, and the
-	// RLS-scoped assertion reads).
+	// workspace-bound assertion reads).
 	adminCtx context.Context
 }
 

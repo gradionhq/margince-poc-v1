@@ -115,7 +115,7 @@ func startRunnerLogging(t *testing.T, pool *pgxpool.Pool, log *slog.Logger) (*jo
 func seedWorkspaces(t *testing.T, e *integration.Env, n int) []ids.UUID {
 	t.Helper()
 	ctx := context.Background()
-	// The OWNER connection, not e.Pool: the app pool is RLS-bound and the rows
+	// The OWNER connection, not e.Pool: the app pool is workspace-bound and the rows
 	// below are the tenant boundary itself, which no tenant may write.
 	owner := integration.OwnerConn(t)
 	seedAgentSeat(t, e.WS)

@@ -34,8 +34,9 @@ import (
 )
 
 // SendEmailArgs transmits ONE staged delivery. The workspace travels with it
-// because comms_outbound is RLS-scoped and a job carries no session: the
-// worker binds this workspace before the dispatcher reads anything.
+// because comms_outbound reads are workspace-predicated and a job carries no
+// session: the worker binds this workspace before the dispatcher reads
+// anything.
 type SendEmailArgs struct {
 	Workspace  ids.UUID `json:"workspace_id"`
 	DeliveryID string   `json:"delivery_id"`

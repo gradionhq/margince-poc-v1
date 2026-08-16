@@ -70,19 +70,23 @@ func computedFieldsVisible(ctx context.Context) bool {
 // (0065) for one organization, inside the SAME workspace transaction the
 // caller (GetOrganization) already opened. The view is
 // security_invoker=true (0065's own comment): it runs with the CALLING
-// role's privileges and RLS, so the deal rows it sums are already
-// scoped to the workspace the transaction's app.workspace_id GUC bound —
-// the same tenant-isolation policy that gates a direct SELECT on deal.
+// role's privileges, so it can read no more than a direct SELECT on deal
+// could from here.
+//
+// What bounds the SUM is the key, not the transaction. Since core 0217
+// (ADR-0091) there is no tenant-isolation policy behind either the view or
+// deal, so the GUC the transaction binds constrains this statement only
+// through predicates a statement writes for itself — and this one writes
+// none beyond organization_id. That is sufficient here and it is worth
+// saying why rather than leaving it to look like an omission: every deal
+// the view sums reaches this organization through its own foreign key, so
+// the id IS the scope, and A107/ADR-0061 gives the installation one
+// organization for that id to belong to.
 //
 // The poc-1 reference added a defense-in-depth join to
-// organization.workspace_id here because it ran this read at pool
-// level, outside any per-call GUC scope. That join would be redundant
-// in this repo: the caller reaching this function has already run
-// auth.EnsureVisible on the SAME organization id in the SAME
-// transaction — itself RLS-gated on organization.workspace_id — so orgID
-// is already proven to belong to the caller's own workspace before this
-// query runs. Adding the join would only re-derive a fact the
-// transaction already established, not add protection.
+// organization.workspace_id here because it ran this read at pool level.
+// That join would re-derive the same bound the foreign key already
+// carries, on a view that does not expose the column.
 //
 // No row (an organization with no open deals at all) is the honest
 // "nothing to sum" case: (nil, 0, nil), never an error. dealCount is the

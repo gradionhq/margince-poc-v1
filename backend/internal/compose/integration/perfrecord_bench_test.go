@@ -163,10 +163,11 @@ func benchRecordSave(t *testing.T, e *apptest.AppEnv, personID string) search.Qu
 // seedRecordBenchVolume bulk-loads background rows into the bootstrapped
 // organization's workspace through the owner connection, set-based.
 //
-// The GUC is set inside the transaction because FORCE RLS binds the table owner
-// too — an unbound INSERT here does not fail loudly, it writes rows no policy
-// will ever return, and the benchmark would then measure an empty table while
-// reporting a seeded one.
+// The GUC is set inside the transaction because the seeded rows take their
+// workspace from it — an unbound INSERT here does not fail loudly, it writes
+// rows the workspace-predicated reads under benchmark will never return, and
+// the benchmark would then measure an empty table while reporting a seeded
+// one.
 func seedRecordBenchVolume(t *testing.T, e *apptest.AppEnv) {
 	t.Helper()
 	ctx := context.Background()

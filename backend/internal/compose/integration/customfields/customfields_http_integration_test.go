@@ -10,7 +10,7 @@ package customfields
 // compose.WithSchemaPool). The store/engine-level suites
 // (customfields_integration_test.go, customfields_lifecycle_integration_test.go)
 // already prove the transaction shape, the collision resolution, and the
-// RBAC/RLS gates over the Service directly; this suite proves the
+// RBAC gates over the Service directly; this suite proves the
 // transport on top of it: request decode, the wire error shapes
 // (structural_change_refused's details.route, the multi-field
 // details.errors list), and that a server built WITHOUT the schema pool

@@ -217,9 +217,9 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 	// the re-key changes only the last of the three — that is what makes a row
 	// a CANDIDATE. Each further predicate is what makes it this message's echo:
 	//
-	//   workspace_id — RLS already binds every statement here to the GUC
-	//     workspace, and this states the same bound in the join so the query
-	//     reads as narrowly as it behaves.
+	//   workspace_id — the bound the surrounding statements all state for
+	//     themselves against the GUC; stating it in the join too keeps this
+	//     query as narrow as its siblings.
 	//   kind/direction — a message this mailbox SENT. An inbound mail, a call
 	//     or a meeting sharing the key is a fault, not an echo.
 	//   captured_by — the connector's own provenance, which the sink validates
