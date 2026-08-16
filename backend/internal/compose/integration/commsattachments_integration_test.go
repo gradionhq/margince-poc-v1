@@ -118,35 +118,76 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	if ok {
 		t.Fatal("a file outside the sender's row scope was cleared for transmit")
 	}
-	// The reason is what an operator reads off the parked delivery, so it has
-	// to say what to do. It deliberately does NOT distinguish "archived" from
-	// "you lost access": telling them apart would confirm to someone whose
-	// access was withdrawn that the document still exists.
 	if reason == "" {
 		t.Error("the refusal carries no reason, so a parked delivery explains nothing")
 	}
+
+	// ROW SCOPE is what refused this, not a missing grant. Rep3 holds
+	// person:read — the same object grant the admitted sender holds — so
+	// without this the case would pass against a sender who simply holds
+	// nothing, and would keep passing if the row-scope clause were deleted.
+	// The proof is that the SAME sender, asked about a person they own,
+	// is admitted.
+	ownPerson := e.SeedPerson(t, "Rep3's Own Person", &e.Rep3)
+	ownAtt, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
+		EntityType: "person", EntityID: ownPerson, Filename: "mine.pdf", Body: []byte("PDF"),
+	})
+	if err != nil {
+		t.Fatalf("seeding the sender's own attachment: %v", err)
+	}
+	okOwn, ownReason, err := authority.EnsureTransmittable(
+		sendWorkerCtx(e.WS), ids.From[ids.UserKind](e.Rep3), []ids.UUID{ids.UUID(ownAtt.Id)})
+	if err != nil {
+		t.Fatalf("EnsureTransmittable on the sender's own file: %v", err)
+	}
+	if !okOwn {
+		t.Errorf("the same sender was refused a file on a record they OWN (%q) — the refusal above was a missing grant, not row scope", ownReason)
+	}
 }
 
-// An attachment id that never existed is refused exactly like one the sender
-// cannot see. A send path that answered differently would let a caller probe
-// which ids are real by watching how the delivery parks.
-func TestEnsureTransmittableTreatsAnUnknownFileLikeAnInvisibleOne(t *testing.T) {
+// An attachment id that never existed is refused with the BYTE-IDENTICAL
+// reason as one the sender cannot see.
+//
+// This compares the two answers rather than checking each is non-empty,
+// because the security claim is indistinguishability and two different
+// non-empty sentences would satisfy a per-case check while leaking exactly
+// what the check exists to hide: a sender whose access was withdrawn could
+// tell "the document still exists" from "no such document" by reading the
+// park reason off their own delivery.
+func TestEnsureTransmittableRefusesAnUnknownFileIndistinguishablyFromAnInvisibleOne(t *testing.T) {
 	e := Setup(t)
-	_, blob := attachmentStore(e)
-	grantOwnScopeRepRole(t, e, e.Rep1)
+	store, blob := attachmentStore(e)
+	grantOwnScopeRepRole(t, e, e.Rep3)
+	// A real file, owned by Rep1, that Rep3 cannot see.
+	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
+	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
+		EntityType: "person", EntityID: person, Filename: "private.pdf", Body: []byte("PDF"),
+	})
+	if err != nil {
+		t.Fatalf("seeding the attachment: %v", err)
+	}
 
 	authority := compose.NewSendAttachmentAuthority(e.Pool, blob)
-	ok, reason, err := authority.EnsureTransmittable(
-		sendWorkerCtx(e.WS), ids.From[ids.UserKind](e.Rep1), []ids.UUID{ids.NewV7()})
-
+	sender := ids.From[ids.UserKind](e.Rep3)
+	okInvisible, invisible, err := authority.EnsureTransmittable(
+		sendWorkerCtx(e.WS), sender, []ids.UUID{ids.UUID(att.Id)})
+	if err != nil {
+		t.Fatalf("EnsureTransmittable on an invisible file: %v", err)
+	}
+	okUnknown, unknown, err := authority.EnsureTransmittable(
+		sendWorkerCtx(e.WS), sender, []ids.UUID{ids.NewV7()})
 	if err != nil {
 		t.Fatalf("EnsureTransmittable on an unknown id: %v", err)
 	}
-	if ok {
-		t.Fatal("an attachment id that does not exist was cleared for transmit")
+
+	if okInvisible || okUnknown {
+		t.Fatalf("cleared for transmit: invisible=%v unknown=%v — both must be refused", okInvisible, okUnknown)
 	}
-	if reason == "" {
-		t.Error("the refusal carries no reason")
+	if invisible != unknown {
+		t.Errorf("the two refusals differ, so a sender can tell a withheld file from a missing one:\n invisible = %q\n unknown   = %q", invisible, unknown)
+	}
+	if invisible == "" {
+		t.Error("the refusal carries no reason, so a parked delivery explains nothing")
 	}
 }
 
