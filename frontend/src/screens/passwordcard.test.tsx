@@ -81,9 +81,11 @@ describe("ChangePasswordCard", () => {
   });
 
   it("counts the floor in characters, not bytes", async () => {
-    // Twelve emoji are forty-eight bytes and twelve CHARACTERS. A byte count
-    // would wave four of them through as "sixteen"; a character count is the
-    // rule the server applies, so the form must apply the same one.
+    // ELEVEN emoji is the boundary that separates the two implementations:
+    // eleven characters, but twenty-two UTF-16 code units. A `.length` check
+    // sees 22 and enables the button on a password the server will reject with
+    // a 422; a code-point count sees 11 and refuses it here. A shorter sample
+    // proves nothing — four emoji is eight units, below the floor either way.
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderCard();
@@ -92,10 +94,10 @@ describe("ChangePasswordCard", () => {
       screen.getByLabelText(/current password/i),
       "old password!",
     );
-    await user.type(screen.getByLabelText(/^new password/i), "🔑".repeat(4));
+    await user.type(screen.getByLabelText(/^new password/i), "🔑".repeat(11));
     await user.type(
       screen.getByLabelText(/confirm new password/i),
-      "🔑".repeat(4),
+      "🔑".repeat(11),
     );
     expect(submitButton()).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
