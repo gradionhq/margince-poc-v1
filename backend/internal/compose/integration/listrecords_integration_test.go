@@ -38,7 +38,7 @@ func TestListRecordsNarrowsRatherThanAnsweringEveryRow(t *testing.T) {
 		`{"record_type":"deal","fields":{"name":"Narrowed out","pipeline_id":"`+
 			pipeline.String()+`","stage_id":"`+open.String()+`"}}`)
 	if _, err := registry.Invoke(ctx, "advance_deal", json.RawMessage(
-		`{"deal_id":"`+outOfStage.String()+`","to_stage_id":"`+won.String()+`"}`)); err != nil {
+		`{"deal_id":"`+outOfStage.String()+`","to_stage_id":"`+won.String()+`","won_without_contract_reason":"imported"}`)); err != nil {
 		t.Fatalf("moving the second deal out of the filtered stage: %v", err)
 	}
 

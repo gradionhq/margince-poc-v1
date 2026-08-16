@@ -152,7 +152,13 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	//
 	// It landed without this line, so the assembly issued 30 against a budget
 	// of 29 and every branch cut afterwards inherited a red gate.
-	const budget = 30
+	//
+	// 31 since the contracts block (ADR-0109/A160): one more indexed read for
+	// what the account is under contract for, gated on its own grant. It is
+	// FLAT in the size of the account like every section here — one query
+	// whether the company holds one agreement or forty — which is the property
+	// this budget exists to protect, rather than the absolute number.
+	const budget = 31
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

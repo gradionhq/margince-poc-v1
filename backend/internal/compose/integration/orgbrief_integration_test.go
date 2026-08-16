@@ -131,7 +131,7 @@ func TestOrganizationBriefCachesUntilTheAccountChanges(t *testing.T) {
 	// smaller change; the unit test in orgbrief covers that one, since it
 	// needs no second open stage to exist.)
 	if _, err := e.Deals.AdvanceDeal(e.Admin(), ids.From[ids.DealKind](deal),
-		deals.AdvanceDealInput{ToStageID: won}); err != nil {
+		deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: WonByImport()}); err != nil {
 		t.Fatalf("advancing the deal: %v", err)
 	}
 	if _, err := svc.Get(reader, org, false); err != nil {

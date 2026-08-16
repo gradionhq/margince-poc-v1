@@ -66,7 +66,7 @@ func TestReopeningAWonDealClearsTerminalFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: WonByImport()}); err != nil {
 		t.Fatalf("closing as won: %v", err)
 	}
 	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: open}); err != nil {
@@ -309,7 +309,7 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: WonByImport()}); err != nil {
 		t.Fatalf("closing amountless: %v", err)
 	}
 

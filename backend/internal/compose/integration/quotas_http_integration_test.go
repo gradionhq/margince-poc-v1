@@ -132,7 +132,12 @@ func createAndCloseQuotaDeal(t *testing.T, e *apptest.AppEnv, stages apptest.See
 		t.Fatalf("create quota deal = %d %v", status, deal)
 	}
 	dealID := deal["id"].(string)
-	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{"to_stage_id": stages.Won}, nil, &deal)
+	// This quota fixture wins a deal to make attainment non-zero; it holds no
+	// agreement, and the win gate wants that said rather than assumed.
+	status = e.Call(t, "POST", "/v1/deals/"+dealID+"/advance", apptest.AnyMap{
+		"to_stage_id":                 stages.Won,
+		"won_without_contract_reason": "imported",
+	}, nil, &deal)
 	if status != http.StatusOK || deal["status"] != "won" {
 		t.Fatalf("advance quota deal to won = %d %v", status, deal)
 	}

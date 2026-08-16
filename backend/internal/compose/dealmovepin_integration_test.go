@@ -77,6 +77,10 @@ func (p *closesDuringTheTierRead) Read(ctx context.Context, ref datasource.Entit
 	// concurrent actor's close, not a hand-made row.
 	if _, err := p.AdvanceDeal(p.as, datasource.AdvanceDealInput{
 		DealID: ref.ID, ToStageID: p.won, Source: "test",
+		// The racing actor answers the win gate the same way a fixture does:
+		// there is no agreement in this database, and saying so is what keeps
+		// the test about the version race rather than about the gate.
+		WonWithoutContractReason: integration.WonByImport(),
 	}); err != nil {
 		p.t.Fatalf("the racing close did not land, so this test is not about a race: %v", err)
 	}

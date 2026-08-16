@@ -37,7 +37,7 @@ func TestAnAgentCannotReopenAClosedDealWithoutAHuman(t *testing.T) {
 	// Created and closed as a HUMAN, which is how a won deal comes to exist.
 	deal := createDealForReopen(human, t, registry, e.Rep1, pipeline, open)
 	if _, err := registry.Invoke(human, "advance_deal",
-		json.RawMessage(`{"deal_id":"`+deal.String()+`","to_stage_id":"`+won.String()+`"}`)); err != nil {
+		json.RawMessage(`{"deal_id":"`+deal.String()+`","to_stage_id":"`+won.String()+`","won_without_contract_reason":"imported"}`)); err != nil {
 		t.Fatalf("closing the deal as won: %v", err)
 	}
 
