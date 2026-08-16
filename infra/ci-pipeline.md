@@ -207,6 +207,16 @@ Wiring details:
   upstream (an area-scoped skip produced no artifact; the scan proceeds
   without it), but a real `failure` of `deterministic-gates` skips the scan so
   it never posts a green check over a broken build.
+- On a **push** the scan additionally requires `integration` to have
+  succeeded. A push replaces main's stored analysis, main's new-code period is
+  `previous_version` (weeks of Go, not this commit's diff), and the scanner's
+  Zero Coverage Sensor scores every executable line it has no report for as
+  uncovered — so a push carrying no Go coverage would publish those weeks at
+  0% and turn the quality gate red until a later push rescanned them. A
+  docs-only merge skips every coverage producer and is the common way in. Such
+  a push now skips the scan instead, and main keeps its last real reading. On a
+  pull request the rule does not apply: new code there is the diff, and a diff
+  that skipped an area has no lines of that area to cover.
 
 ## Security posture
 
