@@ -23,6 +23,17 @@ import (
 // addresses the vendor rather than the model; switching provider drops it.
 // Empty override is a no-op: the candidate then rides base exactly like
 // the judge.
+//
+// The result goes back through ai.RoutingConfig.Validate before it is
+// returned. base arrived validated, but an override rebinds the tiers those
+// rules are ABOUT, so the loaded file's guarantees do not survive it: a
+// `profile: sovereign` config can be handed a cloud provider, and the
+// endpoint, `input:` and embed-lane rules are bypassable the same way.
+// Certifying a cloud model is a legitimate thing to want — the defect is
+// doing it against a config that still says sovereign with nothing said
+// about it, which is a run whose numbers describe a deployment nobody has.
+// So the override fails here with the reason an operator would have got at
+// boot, rather than building the client and calling it.
 func overrideForTask(base ai.RoutingConfig, task ai.Task, override string) (ai.RoutingConfig, error) {
 	if override == "" {
 		return base, nil
@@ -55,6 +66,10 @@ func overrideForTask(base ai.RoutingConfig, task ai.Task, override string) (ai.R
 	}
 	overridden := base
 	overridden.Tiers = tiers
+	if err := overridden.Validate(); err != nil {
+		return ai.RoutingConfig{}, fmt.Errorf(
+			"aicert: MARGINCE_AICERT_MODEL=%s contradicts the loaded routing config: %w", override, err)
+	}
 	return overridden, nil
 }
 
