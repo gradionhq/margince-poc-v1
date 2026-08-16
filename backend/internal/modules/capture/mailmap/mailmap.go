@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -89,8 +88,6 @@ func (m Message) Counterparty() string { return m.counterparty }
 
 // ThreadKey is the conversation identity this message belongs to.
 func (m Message) ThreadKey() string { return m.threadKey }
-
-var htmlTag = regexp.MustCompile(`(?s)<[^>]*>`)
 
 // Parse reads the headers and the text body of one message and classifies
 // its direction relative to the mailbox owner.
@@ -335,9 +332,8 @@ func domainOf(addr string) string {
 
 // extractText returns the message's plain-text body and the files it carried.
 //
-// It prefers a text/plain part, falling back to a crude tag-strip of text/html
-// only when no plain part exists, so an HTML-only newsletter still yields
-// readable text. Attachment parts are collected on the SAME walk: a MIME reader
+// It prefers a text/plain part, rendering text/html to text only when no plain
+// part exists, so an HTML-only newsletter still yields readable text. Attachment parts are collected on the SAME walk: a MIME reader
 // is single-pass, so a second walk would mean holding or re-parsing the whole
 // message to find files this one already stepped over.
 func extractText(reader *mail.Reader) (string, []Part, []PartDrop) {
@@ -401,7 +397,7 @@ func bodyText(plain, html string) string {
 		return strings.TrimSpace(plain)
 	}
 	if html != "" {
-		return strings.TrimSpace(htmlTag.ReplaceAllString(html, " "))
+		return htmlToText(html)
 	}
 	return ""
 }
