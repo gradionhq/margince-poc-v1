@@ -122,7 +122,13 @@ func pageFactsSystem(menu pageMenu, fence promptfence.Fence) string {
 		b.WriteString("facts must be empty for this page.\n")
 	}
 	if menu.people {
-		b.WriteString("people — ONLY people this page itself publishes: {\"n\":full name,\"r\":stated role,\"m\":email,\"l\":linkedin url,\"e\":passage id}. Include m or l ONLY when the page prints that exact address or URL — omit otherwise, NEVER guess. Name and role must appear in the cited passage.\n")
+		b.WriteString("people — ONLY people this page itself publishes: {\"n\":full name,\"r\":stated role,\"q\":the words tying them together,\"w\":the other people inside q,\"m\":email,\"l\":linkedin url,\"e\":passage id}. " +
+			"r is the person's WHOLE title as printed — \"Senior Amazon Account-Manager\", never just \"Senior\". " +
+			"q is a VERBATIM copy of the page, running from the role to the name or from the name to the role, unbroken — copy every word in between, change nothing, add nothing. " +
+			"A page listing several people under one heading gives each of them a q that starts at that heading, and w then names the colleagues that q reaches over. " +
+			"w is empty unless q prints somebody else; a name in q that w omits means the claim is refused. " +
+			"When the page never states that THIS person holds THIS role, leave the person out entirely rather than guessing a q. " +
+			"Include m or l ONLY when the page prints that exact address or URL — omit otherwise, NEVER guess.\n")
 	}
 	if menu.entities {
 		b.WriteString("entities — EVERY distinct legal entity this legal page names: {\"n\":entity name,\"a\":registered address,\"r\":registration/VAT/tax number,\"e\":passage id}. " +
@@ -175,10 +181,18 @@ func pageFactsSchema(menu pageMenu, snippetIDs []string) json.RawMessage {
 		props["people"] = schema.Array(schema.Object(map[string]schema.Node{
 			"n": schema.String().Describe("The person's full name as printed."),
 			"r": schema.String().Describe("The person's stated role."),
+			"q": schema.String().Describe(
+				"Copy the page's own words that give THIS person THIS role, " +
+					"from the role to the name or the name to the role, exactly as printed " +
+					"and with nothing left out in between. If the page never puts the two " +
+					"together, omit the person."),
+			"w": schema.String().Describe(
+				"Every OTHER person printed inside q, separated by '; '. " +
+					"Empty string when q names nobody else. Copy each name exactly as printed."),
 			"m": schema.String().Describe("An email ONLY if this page prints it verbatim."),
 			"l": schema.String().Describe("A LinkedIn URL ONLY if this page prints it verbatim."),
 			"e": schema.Enum(snippetIDs...).Describe("The passage id naming the person."),
-		}, "n", "r", "e"))
+		}, "n", "r", "q", "w", "e"))
 		required = append(required, "people")
 	}
 	if menu.entities {
@@ -194,19 +208,25 @@ func pageFactsSchema(menu pageMenu, snippetIDs []string) json.RawMessage {
 }
 
 // pageFactsReply is the compact JSON shape every page call answers in.
+// pageFactsPerson is one claimed person in a page-facts reply: name, stated
+// role, optional published email and LinkedIn, and the passage cited for it.
+type pageFactsPerson struct {
+	N string `json:"n"`
+	R string `json:"r"`
+	Q string `json:"q"`
+	W string `json:"w"`
+	M string `json:"m"`
+	L string `json:"l"`
+	E string `json:"e"`
+}
+
 type pageFactsReply struct {
 	Facts []struct {
 		F string `json:"f"`
 		V string `json:"v"`
 		E string `json:"e"`
 	} `json:"facts"`
-	People []struct {
-		N string `json:"n"`
-		R string `json:"r"`
-		M string `json:"m"`
-		L string `json:"l"`
-		E string `json:"e"`
-	} `json:"people"`
+	People   []pageFactsPerson `json:"people"`
 	Entities []struct {
 		N string `json:"n"`
 		A string `json:"a"`
@@ -388,61 +408,6 @@ func gatePageFactList(parsed pageFactsReply, page crawlPage, menu pageMenu, idx 
 		}
 		factIndex[factKey(fact)] = len(out)
 		out = append(out, fact)
-	}
-	return out
-}
-
-func gatePagePeople(parsed pageFactsReply, page crawlPage, idx snippetIndex, drop func(lane, field, value, reason string)) []sitePerson {
-	var out []sitePerson
-	personIndex := map[string]int{}
-	for _, p := range parsed.People {
-		name := strings.TrimSpace(p.N)
-		role := strings.TrimSpace(p.R)
-		if name == "" || role == "" {
-			drop(lanePeople, p.N, p.R, dropEmptyValue)
-			continue
-		}
-		evidence, namedOK := idx.nameInCited(p.E, name)
-		if !namedOK {
-			drop(lanePeople, name, role, dropValueNotInSnippet)
-			continue
-		}
-		if !strings.Contains(normalizeEvidence(evidence), normalizeEvidence(role)) {
-			// The passage must ASSOCIATE this name with this role, not
-			// merely name the person — otherwise one person's name pairs
-			// with another's role.
-			drop(lanePeople, name, role, dropNameRoleUnlinked)
-			continue
-		}
-		// A lead nobody can contact is not a lead. The page has to have
-		// PRINTED an address: without one the proposal asks a human to
-		// confirm a name they then have no way to act on, and every one of
-		// those crowds the queue that real proposals share.
-		//
-		// This gates what we PROPOSE, not what a lead may be — a lead
-		// created by any other route may still carry no email (LEADS-DDL,
-		// uq_lead_email_dedupe is partial for exactly that reason).
-		publishedEmail := verbatimOrEmpty(p.M, page.Text)
-		if publishedEmail == "" {
-			drop(lanePeople, name, role, dropNoPublishedEmail)
-			continue
-		}
-		person := sitePerson{
-			Name:            name,
-			Role:            role,
-			PublishedEmail:  publishedEmail,
-			LinkedinURL:     verbatimOrEmpty(p.L, page.Text),
-			EvidenceSnippet: evidence,
-			SourceURL:       page.URL,
-			Confidence:      gatedConfidence,
-		}
-		key := normalizedPersonName(name)
-		if _, dup := personIndex[key]; dup {
-			drop(lanePeople, name, role, dropDuplicate)
-			continue
-		}
-		personIndex[key] = len(out)
-		out = append(out, person)
 	}
 	return out
 }
