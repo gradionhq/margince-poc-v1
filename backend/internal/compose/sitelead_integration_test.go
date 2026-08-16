@@ -45,8 +45,8 @@ func teamDeepBrain() laneFake {
 		profileReply: `{"fields":[]}`,
 		pageReplies: map[string]string{
 			seedURL + "/team": `{"facts":[],"people":[
-				{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"},
-				{"n":"Bernd Beispiel","r":"Head of Sales","m":"bernd@acme.example","e":"s0"}]}`,
+				{"n":"Anna Muster","r":"Chief Executive Officer","q":"Anna Muster is our Chief Executive Officer","m":"anna@acme.example","e":"s0"},
+				{"n":"Bernd Beispiel","r":"Head of Sales","q":"Bernd Beispiel leads sales as Head of Sales","m":"bernd@acme.example","e":"s0"}]}`,
 		},
 	}
 }
@@ -66,7 +66,7 @@ func reflowedTeamBrain() laneFake {
 		profileReply: `{"fields":[]}`,
 		pageReplies: map[string]string{
 			seedURL + "/team": `{"facts":[],"people":[
-				{"n":"anna   MUSTER","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"}]}`,
+				{"n":"anna   MUSTER","r":"Chief Executive Officer","q":"anna   MUSTER is our Chief Executive Officer","m":"anna@acme.example","e":"s0"}]}`,
 		},
 	}
 }
