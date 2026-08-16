@@ -330,6 +330,33 @@ describe("TimelineText on a mail row", () => {
     expect(link.getAttribute("rel")).toContain("noopener");
   });
 
+  it("folds the signature again when the row is given a different mail", async () => {
+    // The row is keyed by activity id, so the component stays mounted when the
+    // entry it renders is replaced. A reveal must not carry over to a mail the
+    // reader never opened.
+    const user = userEvent.setup();
+    const { rerender } = rtlRender(
+      <LocaleProvider initial="en">
+        <RecordView name="Acme" zone="UTC" timeline={mailRow(SIGNED)} />
+      </LocaleProvider>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Show signature and quoted text" }),
+    );
+    expect(screen.getByText(/Kunde GmbH/)).toBeTruthy();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <RecordView
+          name="Acme"
+          zone="UTC"
+          timeline={mailRow("Neue Nachricht.\n\n-- \nMax Muster\nAndere GmbH")}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByText(/Andere GmbH/)).toBeNull();
+  });
+
   it("keeps a link inside the folded signature reachable once revealed", async () => {
     const user = userEvent.setup();
     render(

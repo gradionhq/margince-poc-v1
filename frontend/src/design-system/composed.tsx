@@ -720,6 +720,15 @@ function TimelineText({
     ? [parts.header, parts.main].filter(Boolean).join("\n\n")
     : text.trim();
   const tail = parts?.trimmed ?? "";
+  // A row is keyed by activity id, so React keeps this component mounted when
+  // the entry it renders is replaced. Without this the next mail's signature
+  // would already be open, revealed by a click the reader made on a different
+  // message.
+  const [shownFor, setShownFor] = useState(text);
+  if (shownFor !== text) {
+    setShownFor(text);
+    setTailOpen(false);
+  }
 
   useLayoutEffect(() => {
     const el = bodyRef.current;

@@ -165,3 +165,26 @@ describe("emailSummaryText", () => {
     expect(emailSummaryText("")).toBe("");
   });
 });
+
+describe("boundaries that must not fire", () => {
+  it("keeps a sentence that opens with mobile-client wording", () => {
+    const body =
+      "Kurzes Update:\nSent from my perspective, the contract is not ready.\nBitte noch nicht rausschicken.";
+    const parts = splitEmailBody(body);
+    expect(parts.main).toBe(body);
+    expect(parts.trimmed).toBe("");
+  });
+
+  it("still folds the real mobile-client footer", () => {
+    const parts = splitEmailBody("Passt so.\n\nSent from my iPhone");
+    expect(parts.main).toBe("Passt so.");
+    expect(parts.trimmed).toBe("Sent from my iPhone");
+  });
+
+  it("keeps a body that is nothing but the From/To preamble", () => {
+    const body = "From: a@example.com\nTo: b@example.com\n\n";
+    const parts = splitEmailBody(body);
+    expect(parts.main).not.toBe("");
+    expect(emailSummaryText(body)).not.toBe("");
+  });
+});

@@ -57,13 +57,17 @@ const SIGN_OFF_PREFIXES = [
   "warm regards",
   "many thanks",
   "thanks and regards",
-  "von meinem iphone gesendet",
-  "von meinem ipad gesendet",
-  "von meinem android",
-  "sent from my",
-  "gesendet mit",
-  "get outlook for",
   "diese e-mail wurde von avast",
+];
+
+// Mobile-client boilerplate. Matched against the WHOLE line rather than as a
+// prefix: "Sent from my perspective, the contract is not ready" opens a
+// sentence with the same three words and is the message, not the footer.
+const SIGN_OFF_LINES = [
+  /^von meinem (iphone|ipad|android|mobilteil|samsung)\b.*gesendet$/,
+  /^sent from my \w[\w\s]{0,30}$/,
+  /^gesendet mit \w[\w\s]{0,30}$/,
+  /^get outlook for \w+$/,
 ];
 
 // The short forms. A whole-line match only: "LG" opens a sentence about a
@@ -99,6 +103,9 @@ function isSignOff(line: string): boolean {
     return false;
   }
   if (SIGN_OFF_EXACT.has(normalized)) {
+    return true;
+  }
+  if (SIGN_OFF_LINES.some((pattern) => pattern.test(normalized))) {
     return true;
   }
   return SIGN_OFF_PREFIXES.some((prefix) => normalized.startsWith(prefix));
@@ -166,6 +173,13 @@ export function splitEmailBody(body: string): EmailBodyParts {
   const preamble = PREAMBLE.exec(body);
   const header = preamble ? preamble[0].trim() : "";
   const rest = preamble ? body.slice(preamble[0].length) : body;
+
+  // A body that is only a preamble has no message under it. The header is the
+  // whole of what was captured, so it IS the message: the invariant is that a
+  // non-empty body never renders as nothing.
+  if (!rest.trim()) {
+    return { header: "", main: body.trim(), trimmed: "" };
+  }
 
   const lines = rest.split("\n");
   const cut = boundaryIndex(lines);
