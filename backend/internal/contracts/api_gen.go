@@ -12669,7 +12669,9 @@ type Contract struct {
 	// CancellationEffectiveOn When the agreement actually ends. Never after `ends_on`: a cancellation cannot extend a term that already expired.
 	CancellationEffectiveOn *openapi_types.Date `json:"cancellation_effective_on,omitempty"`
 	CancellationNoticeOn    *openapi_types.Date `json:"cancellation_notice_on,omitempty"`
-	CapturedBy              *openapi_types.UUID `json:"captured_by,omitempty"`
+
+	// CapturedBy The principal that recorded this agreement, prefixed by kind ("human:<id>" / "agent:<id>"). Server-stamped from the authenticated caller, never client-supplied — an agent acting under a passport is not a row in app_user, so this is not a user id.
+	CapturedBy *string `json:"captured_by,omitempty"`
 
 	// ContractNumber Free text — an imported agreement carries whatever number the counterparty's own system gave it. Duplicates within an account are permitted: two systems reusing a number is their business, not a reason to refuse the row.
 	ContractNumber *string    `json:"contract_number,omitempty"`

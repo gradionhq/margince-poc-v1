@@ -10,6 +10,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryStates, throwProblem } from "./common";
 import { RECORD_ZONE, SectionCard } from "./company360";
+import { ContractForm } from "./contractform";
 
 // The account's agreements: what it signed, what each is worth, and when the
 // next one has to be decided.
@@ -75,6 +76,11 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
   const { locale } = useLocale();
   const mayRead = useCan("contract", "read");
   const [activeOnly, setActiveOnly] = useState(false);
+  // The create verb belongs to the section even when it is EMPTY — that is the
+  // state it most belongs to, and an account with no agreements is exactly the
+  // one somebody opened this card to fix.
+  const mayCreate = useCan("contract", "create");
+  const [creating, setCreating] = useState(false);
 
   const query = useQuery({
     queryKey: ["orgContracts", orgId, activeOnly],
@@ -95,62 +101,82 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
   const contracts = query.data ?? [];
 
   return (
-    <SectionCard
-      title={t("contracts.title")}
-      state={contractsState(
-        query.isPending,
-        query.isError,
-        mayRead,
-        contracts.length,
-      )}
-      emptyLabel={t("contracts.empty")}
-    >
-      <div className="docs-filters">
-        <Button
-          small
-          aria-pressed={!activeOnly}
-          onClick={() => setActiveOnly(false)}
-        >
-          {t("contracts.filter.all")}
-        </Button>
-        <Button
-          small
-          aria-pressed={activeOnly}
-          onClick={() => setActiveOnly(true)}
-        >
-          {t("contracts.filter.active")}
-        </Button>
-      </div>
-      <QueryStates query={query}>
-        {contracts.length === 0 ? (
-          <EmptyState>
-            {t(activeOnly ? "contracts.noneActive" : "contracts.empty")}
-          </EmptyState>
-        ) : (
-          <ul className="docs-list">
-            {contracts.map((contract) => (
-              <li key={contract.id} className="docs-row">
-                <span className="docs-name">{contract.title}</span>
-                {contract.contract_number && (
-                  <span className="t-caption">{contract.contract_number}</span>
-                )}
-                <span>
-                  {contractValue(contract, locale, (amount) =>
-                    t("contracts.perYear", { amount }),
-                  )}
-                </span>
-                {contract.status && (
-                  <Badge tone={STATUS_TONE[contract.status]}>
-                    {t(STATUS_LABELS[contract.status])}
-                  </Badge>
-                )}
-                <ContractTermState contract={contract} />
-              </li>
-            ))}
-          </ul>
+    <>
+      {/* A SIBLING of the card, not a child: SectionCard renders its children
+          only when the section is `ready`, so a modal nested inside would never
+          mount on an account with no agreements — which is the account the Add
+          button most exists for. */}
+      <ContractForm
+        orgId={orgId}
+        open={creating}
+        onClose={() => setCreating(false)}
+      />
+      <SectionCard
+        title={t("contracts.title")}
+        state={contractsState(
+          query.isPending,
+          query.isError,
+          mayRead,
+          contracts.length,
         )}
-      </QueryStates>
-    </SectionCard>
+        emptyLabel={t("contracts.empty")}
+        actions={
+          mayCreate ? (
+            <Button small onClick={() => setCreating(true)}>
+              {t("contracts.add")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="docs-filters">
+          <Button
+            small
+            aria-pressed={!activeOnly}
+            onClick={() => setActiveOnly(false)}
+          >
+            {t("contracts.filter.all")}
+          </Button>
+          <Button
+            small
+            aria-pressed={activeOnly}
+            onClick={() => setActiveOnly(true)}
+          >
+            {t("contracts.filter.active")}
+          </Button>
+        </div>
+        <QueryStates query={query}>
+          {contracts.length === 0 ? (
+            <EmptyState>
+              {t(activeOnly ? "contracts.noneActive" : "contracts.empty")}
+            </EmptyState>
+          ) : (
+            <ul className="docs-list">
+              {contracts.map((contract) => (
+                <li key={contract.id} className="docs-row">
+                  <span className="docs-name">{contract.title}</span>
+                  {contract.contract_number && (
+                    <span className="t-caption">
+                      {contract.contract_number}
+                    </span>
+                  )}
+                  <span>
+                    {contractValue(contract, locale, (amount) =>
+                      t("contracts.perYear", { amount }),
+                    )}
+                  </span>
+                  {contract.status && (
+                    <Badge tone={STATUS_TONE[contract.status]}>
+                      {t(STATUS_LABELS[contract.status])}
+                    </Badge>
+                  )}
+                  <ContractTermState contract={contract} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </QueryStates>
+      </SectionCard>
+    </>
   );
 }
 

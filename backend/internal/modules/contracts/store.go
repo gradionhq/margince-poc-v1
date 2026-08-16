@@ -105,7 +105,7 @@ func scanContract(row pgx.Row) (crmcontracts.Contract, error) {
 		dealID        *ids.UUID
 		projectID     *ids.UUID
 		supersededBy  *ids.UUID
-		capturedBy    *ids.UUID
+		capturedBy    string
 		status        string
 		basis         string
 		startsOn      *time.Time
@@ -130,7 +130,7 @@ func scanContract(row pgx.Row) (crmcontracts.Contract, error) {
 	c.DealId = uuidPtr(dealID)
 	c.ProjectId = uuidPtr(projectID)
 	c.SupersededById = uuidPtr(supersededBy)
-	c.CapturedBy = uuidPtr(capturedBy)
+	c.CapturedBy = &capturedBy
 	c.ValueBasis = crmcontracts.ContractValueBasis(basis)
 	contractStatus := crmcontracts.ContractStatus(status)
 	c.Status = &contractStatus
