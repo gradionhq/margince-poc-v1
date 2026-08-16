@@ -140,7 +140,7 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	} else if d == 0 {
 		cfg.Embeddings.Dimensions = defaultEmbedDimensions
 	}
-	// Before validate(), which sees only the decoded value and so cannot tell a
+	// Before Validate(), which sees only the decoded value and so cannot tell a
 	// blank declaration from an absent one.
 	blank, err := blankInputDeclarations(raw)
 	if err != nil {
@@ -172,6 +172,21 @@ var localProviders = map[string]bool{providerOllama: true, providerVLLM: true, P
 func ProviderIsLocal(provider string) bool {
 	return localProviders[provider]
 }
+
+// Validate runs the same rule set ParseRouting applies — the profile, the
+// tier bindings, the sovereign endpoint rule, the `input:` declarations and
+// the embed lane — over a config that reached its bindings some other way.
+//
+// It exists for one caller and would not otherwise be exported: the aicert
+// runner's MARGINCE_AICERT_MODEL override rebinds a task's ladder AFTER the
+// file was parsed, so the loaded file's guarantees do not survive it. A config
+// that never comes back through here can carry a cloud provider under
+// `profile: sovereign` with nothing said about it. Same reasoning as
+// TaskLadder and ProviderIsLocal above: the smallest export that stops a
+// caller outside this package re-encoding a rule this package owns.
+//
+// Pure over the receiver, so running it twice costs nothing.
+func (cfg RoutingConfig) Validate() error { return cfg.validate() }
 
 func (cfg RoutingConfig) validate() error {
 	switch cfg.Profile {

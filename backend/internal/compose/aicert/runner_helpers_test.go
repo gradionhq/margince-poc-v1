@@ -171,6 +171,63 @@ func TestOverrideForTaskKeepsAVariantSuffixedModelSlugWhole(t *testing.T) {
 	}
 }
 
+// sovereignRoutingConfig is a base bound the way a sovereign customer binds
+// one: every chat tier and the embed lane on same-host inference, with no
+// base_url, so each resolves to its provider's loopback default.
+func sovereignRoutingConfig() ai.RoutingConfig {
+	local := ai.ProviderConfig{Provider: "ollama", Model: "llama3.1:8b"}
+	return ai.RoutingConfig{
+		Profile: ai.ProfileSovereign,
+		Tiers: map[ai.Tier]ai.ProviderConfig{
+			ai.TierLocalSmall: local,
+			ai.TierCheapCloud: local,
+			ai.TierPremium:    local,
+		},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: local, Dimensions: 1024},
+	}
+}
+
+// An override rebinds the tiers the profile rule is ABOUT, so the loaded
+// file's guarantees do not survive it. Certifying a cloud model is a
+// legitimate thing to want; doing it against a config that still says
+// sovereign, with nothing said about it, produces numbers describing a
+// deployment nobody has.
+func TestOverrideForTaskRefusesACloudModelUnderASovereignProfile(t *testing.T) {
+	base := sovereignRoutingConfig()
+	if err := base.Validate(); err != nil {
+		t.Fatalf("the fixture base must itself be valid, or this proves nothing: %v", err)
+	}
+
+	_, err := overrideForTask(base, ai.TaskColdStart, "anthropic:claude-cert-test")
+	if err == nil {
+		t.Fatal("a cloud override under profile sovereign was accepted; the run would have built the client and called api.anthropic.com")
+	}
+	// The refusal has to name both halves or it is unactionable: WHICH knob
+	// caused it, and WHAT rule it broke.
+	if !strings.Contains(err.Error(), "MARGINCE_AICERT_MODEL=anthropic:claude-cert-test") {
+		t.Errorf("the refusal must name the override that caused it, got %q", err)
+	}
+	if !strings.Contains(err.Error(), "profile sovereign forbids cloud provider") {
+		t.Errorf("the refusal must carry the rule the config's own boot would have given, got %q", err)
+	}
+}
+
+// The other arm, and the one that stops the check above from passing for the
+// wrong reason: re-validating must not refuse an override the profile allows.
+func TestOverrideForTaskAcceptsALocalModelUnderASovereignProfile(t *testing.T) {
+	base := sovereignRoutingConfig()
+
+	overridden, err := overrideForTask(base, ai.TaskColdStart, "ollama:qwen3:14b")
+	if err != nil {
+		t.Fatalf("a local override under profile sovereign must run, got %v", err)
+	}
+	for _, tier := range ai.TaskLadder(ai.TaskColdStart) {
+		if got := overridden.Tiers[tier].Model; got != "qwen3:14b" {
+			t.Errorf("tier %s model = %q, want the override's model", tier, got)
+		}
+	}
+}
+
 func TestGroupByTaskFiltersAndSortedTasksOrdersDeterministically(t *testing.T) {
 	scenarios := []Scenario{
 		{Name: "a", Task: string(ai.TaskSummarize)},
