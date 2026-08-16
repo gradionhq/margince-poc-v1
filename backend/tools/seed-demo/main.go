@@ -82,6 +82,19 @@ func run() error {
 		return verifySeed(client, demo, modeWrite)
 	}
 
+	if *dsn == "" {
+		*dsn = os.Getenv("MARGINCE_SEED_DSN")
+	}
+	// The seats come FIRST. Everything the pipeline writes is assigned to one,
+	// and loadPipelineRefs resolves them by reading /v1/users — so on a fresh
+	// installation a pipeline that ran first would assign every record to
+	// nobody and only then fail in the ownership pass.
+	if *dsn == "" {
+		fmt.Println("no -dsn given, so the teams and seats are skipped (they need SQL — see users.go)")
+	} else if err := seedSeatsWithDSN(*dsn, demo, modeFor(*dryRun)); err != nil {
+		return err
+	}
+
 	anchorRead, err := loadCompany(*dataset, demo.Anchor.Domain)
 	if err != nil {
 		return err
@@ -104,33 +117,24 @@ func run() error {
 		return err
 	}
 
-	if *dsn == "" {
-		*dsn = os.Getenv("MARGINCE_SEED_DSN")
-	}
-	if err := seedWhatNeedsSQL(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
+	if err := seedWhatNeedsCompanies(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
 		return err
 	}
 	return verifySeed(client, demo, modeFor(*dryRun))
 }
 
-// seedWhatNeedsSQL runs the two phases that cannot go through the API: the
-// teams and seats (teams are read-only on the contract, and no endpoint
-// accepts a four-character password) and the company facts (only a crawl may
-// create one, so this calls people.ApplyDeepRead in process).
-//
-// With no DSN it says what it skipped rather than failing. The ownership pass
-// that follows fails clearly enough on its own — "no seats to own anything" —
-// and a run against an installation somebody else seeded is legitimate.
-func seedWhatNeedsSQL(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
+// seedWhatNeedsCompanies runs the SQL-and-in-process phases that need the
+// companies to exist: the finance billing links, and the company facts (only a
+// crawl may create a fact, so this calls people.ApplyDeepRead in process).
+func seedWhatNeedsCompanies(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
 	if dsn == "" {
-		fmt.Println("\nno -dsn given, so the teams and seats were skipped (they need SQL — see users.go)")
 		return nil
 	}
 	orgIDs, err := orgIDsByDomain(client)
 	if err != nil {
 		return err
 	}
-	if err := seedOrgWithDSN(dsn, demo, orgIDs, mode); err != nil {
+	if err := seedFinanceLinksWithDSN(dsn, demo, orgIDs, mode); err != nil {
 		return err
 	}
 	facts, err := seedFacts(context.Background(), dsn, client, companies, orgIDs, mode)

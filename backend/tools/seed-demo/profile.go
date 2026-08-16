@@ -55,10 +55,6 @@ type profile struct {
 	Project   string   `json:"project,omitempty"`
 }
 
-// hasContract reports whether any contract is planned, which is what decides
-// whether a won deal needs a won_without_contract_reason.
-func (p profile) hasContract() bool { return len(p.Contracts) > 0 }
-
 // axisValues is the profile as coverage cells, so counting is one function
 // rather than one per axis.
 func (p profile) axisValues() map[coverageAxis][]string {

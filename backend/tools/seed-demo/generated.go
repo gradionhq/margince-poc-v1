@@ -127,11 +127,11 @@ func seedGeneratedDeals(c *client, cfg demoConfig, refs pipelineRefs, plan map[s
 		if terminal == "lost" {
 			advance["lost_reason"] = p.LostReason
 		}
-		if terminal == "won" && !p.hasContract() {
-			// ADR-0109 §6: a win with no signed paper behind it has to say
-			// why. The product stores this today and is expected to enforce
-			// it, so sending it now keeps the seeder working either way.
-			advance["won_without_contract_reason"] = "Rahmenvertrag liegt beim Kunden"
+		if terminal == "won" {
+			// Every win needs this, contract planned or not: the contracts
+			// phase runs after this one, so no paper is attached yet. See
+			// wonWithoutContractReason.
+			advance["won_without_contract_reason"] = wonWithoutContractReason
 		}
 		if err := c.post("/v1/deals/"+out.ID+"/advance", advance, nil); err != nil {
 			return created, fmt.Errorf("closing deal for %s as %s: %w", domain, terminal, err)
@@ -184,54 +184,72 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 		if !ok {
 			continue
 		}
-		sourceID := "gen-lead-" + domain
-		if existing[sourceID] != "" {
-			continue
-		}
-
-		company := refs.orgNameByID[orgID]
 		first, last := generatedLeadName(domain)
-		body := jsonBody{
-			"source":        seedSource,
-			"source_system": "seed",
-			"source_id":     sourceID,
-			"status":        leadCreateStatus(p.LeadState),
-			"full_name":     first + " " + last,
-			"email":         strings.ToLower(first+"."+last) + "@" + domain,
-			"company_name":  company,
-			"title":         generatedLeadTitle(domain),
-		}
-		if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
-			body["owner_id"] = owner
+		title := generatedLeadTitle(domain)
+		sourceID := "gen-lead-" + domain
+
+		if existing[sourceID] == "" {
+			body := jsonBody{
+				"source":        seedSource,
+				"source_system": "seed",
+				"source_id":     sourceID,
+				"status":        leadCreateStatus(p.LeadState),
+				"full_name":     first + " " + last,
+				"email":         strings.ToLower(first+"."+last) + "@" + domain,
+				"company_name":  refs.orgNameByID[orgID],
+				"title":         title,
+			}
+			if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
+				body["owner_id"] = owner
+			}
+			var out struct {
+				ID string `json:"id"`
+			}
+			if err := c.post("/v1/leads", body, &out); err != nil {
+				if _, conflict := conflictingID(err); !conflict {
+					return created, fmt.Errorf("lead for %s: %w", domain, err)
+				}
+			} else {
+				created++
+				if err := driveLeadTo(c, out.ID, p.LeadState, domain); err != nil {
+					return created, err
+				}
+			}
 		}
 
-		var out struct {
-			ID string `json:"id"`
-		}
-		if err := c.post("/v1/leads", body, &out); err != nil {
-			if _, conflict := conflictingID(err); conflict {
-				continue
-			}
-			return created, fmt.Errorf("lead for %s: %w", domain, err)
-		}
-		created++
-
-		switch p.LeadState {
-		case "promoted":
-			// Promotion mints a person and archives the lead. A re-run finds
-			// the archived row by source_id and skips, so this happens once.
-			if err := c.post("/v1/leads/"+out.ID+"/promote", jsonBody{"trigger": "human_qualify"}, nil); err != nil && !isConflict(err) {
-				return created, fmt.Errorf("promoting lead for %s: %w", domain, err)
-			}
-		case "disqualified":
-			// There is no /disqualify: DELETE is the operation, and it sets
-			// status=disqualified and archives rather than removing the row.
-			if err := c.delete("/v1/leads/" + out.ID); err != nil && !isConflict(err) {
-				return created, fmt.Errorf("disqualifying lead for %s: %w", domain, err)
+		// The employment is ensured on EVERY run, not only when the lead is
+		// created. Promotion mints a person with no employer, and a person
+		// with no employer inherits no owner — so a run that promoted before
+		// this repair existed would keep three contacts orphaned and
+		// workspace-shared forever. ensureEmployment is a read-before-write,
+		// so repeating it costs one request and changes nothing.
+		if p.LeadState == "promoted" {
+			if err := employPromotedPerson(c, first+" "+last, title, orgID); err != nil {
+				return created, fmt.Errorf("employing the promoted lead for %s: %w", domain, err)
 			}
 		}
 	}
 	return created, nil
+}
+
+// driveLeadTo moves a freshly created lead to the state its profile asks for.
+// Only promoted and disqualified need an action; the rest are creatable.
+func driveLeadTo(c *client, leadID, state, domain string) error {
+	switch state {
+	case "promoted":
+		// Promotion mints a person and archives the lead, so a re-run finds
+		// the archived row by source_id and never repeats this.
+		if err := c.post("/v1/leads/"+leadID+"/promote", jsonBody{"trigger": "human_qualify"}, nil); err != nil && !isConflict(err) {
+			return fmt.Errorf("promoting lead for %s: %w", domain, err)
+		}
+	case "disqualified":
+		// There is no /disqualify: DELETE is the operation, and it sets
+		// status=disqualified and archives rather than removing the row.
+		if err := c.delete("/v1/leads/" + leadID); err != nil && !isConflict(err) {
+			return fmt.Errorf("disqualifying lead for %s: %w", domain, err)
+		}
+	}
+	return nil
 }
 
 // leadCreateStatus is the status a lead may be CREATED with. Promoted and

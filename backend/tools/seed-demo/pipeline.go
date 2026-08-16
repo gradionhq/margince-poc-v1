@@ -275,6 +275,9 @@ func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 				}
 				advance["lost_reason"] = reason
 			}
+			if terminal == "won" {
+				advance["won_without_contract_reason"] = wonWithoutContractReason
+			}
 			if err := c.post("/v1/deals/"+out.ID+"/advance", advance, nil); err != nil {
 				return created, fmt.Errorf("closing deal %s as %s: %w", deal.Ref, terminal, err)
 			}
@@ -282,6 +285,24 @@ func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 	}
 	return created, nil
 }
+
+// wonWithoutContractReason is what EVERY win the seeder closes reports.
+//
+// ADR-0109 §6 (deals/win_evidence.go) refuses a won deal that has neither a
+// signed contract with its paper ATTACHED nor a stated reason. The seeder
+// cannot satisfy the first half at close time whatever the dataset says: deals
+// close in the pipeline phase and contracts and their PDFs are written after
+// it, so the evidence does not exist yet when the deal is won.
+//
+// The field is a CLOSED vocabulary — imported, purchase_order, verbal,
+// renewal_by_email, other — because a free-text answer cannot be counted, and
+// counting them is why the exit is allowed at all. Free text is a 422.
+// purchase_order is the honest member here.
+//
+// The contracts phase still files the real agreement afterwards, so the
+// account shows its paper; what this records is that the WIN was booked before
+// that paper existed, which is true of how the seeder works.
+const wonWithoutContractReason = "purchase_order"
 
 // terminalStatus maps a stage name to the close status it represents, or ""
 // for the open stages that need no advance.
@@ -302,11 +323,24 @@ func employPromoted(c *client, lead demoLead, refs pipelineRefs) error {
 	if !ok {
 		return nil // the lead named a company outside this dataset
 	}
-	personID, found, err := findPersonByName(c, lead.FullName)
+	return employPromotedPerson(c, lead.FullName, lead.Title, orgID)
+}
+
+// employPromotedPerson gives the person a promotion minted the job the lead
+// described.
+//
+// Promotion creates a person and NOTHING else: no employment edge, so the new
+// contact belongs to no company. They then show on no company page, and the
+// ownership pass leaves them unowned because ownership is inherited from the
+// employer — and an unowned row is workspace-shared, visible at every scope.
+// Both verify rules catch it, which is how the generated leads were found
+// doing exactly this.
+func employPromotedPerson(c *client, fullName, title, orgID string) error {
+	personID, found, err := findPersonByName(c, fullName)
 	if err != nil || !found {
 		return err
 	}
-	_, err = ensureEmployment(c, personID, orgID, lead.Title, false)
+	_, err = ensureEmployment(c, personID, orgID, title, false)
 	return err
 }
 
@@ -349,22 +383,32 @@ func (r *pipelineRefs) loadOrganizations(c *client) error {
 
 // loadDeals records the id of every seeded deal, keyed by its company, so the
 // phases that point at a deal do not each re-search for it.
-func (r *pipelineRefs) loadDeals(c *client, cfg demoConfig) error {
-	for _, deal := range cfg.Deals {
-		orgID, ok := r.orgsByDom[strings.ToLower(deal.Company)]
-		if !ok {
-			continue
+// It reads the installation's OWN deals rather than walking demo.json,
+// because the generated deals are deals too: a phase that only knew the
+// dataset's own left every generated deal without a buying committee, and
+// left activities unable to link to one.
+func (r *pipelineRefs) loadDeals(c *client, _ demoConfig) error {
+	domainByOrg := map[string]string{}
+	for domain, orgID := range r.orgsByDom {
+		domainByOrg[orgID] = domain
+	}
+	return c.getAll("/v1/deals", nil, func(raw json.RawMessage) error {
+		var rows []struct {
+			ID             string `json:"id"`
+			OrganizationID string `json:"organization_id"`
 		}
-		id, err := findDeal(c, deal.Name, orgID)
-		if err != nil {
+		if err := json.Unmarshal(raw, &rows); err != nil {
 			return err
 		}
-		if id != "" {
-			key := strings.ToLower(deal.Company)
-			r.dealsByCompany[key] = append(r.dealsByCompany[key], id)
+		for _, row := range rows {
+			domain, ok := domainByOrg[row.OrganizationID]
+			if !ok {
+				continue
+			}
+			r.dealsByCompany[domain] = append(r.dealsByCompany[domain], row.ID)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // loadLeadsBySource reads every seeded lead ONCE into a map, keyed by the

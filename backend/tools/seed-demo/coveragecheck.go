@@ -93,19 +93,25 @@ func tallyLifecycles(c *client, tally tallyFunc) error {
 // tallyDeals counts a deal by its STAGE while it is open and by its STATUS
 // once closed, which is how the matrix names them: a board column is a stage,
 // but "won" and "lost" are not columns anybody works.
+// A deal carries stage_id, not a stage name — the list response has no nested
+// stage object — so the pipeline's stages are read first and the ids resolved
+// against them. Reading a `stage.name` that does not exist counted every open
+// deal as "" and reported four stages as empty while the board was full.
 func tallyDeals(c *client, tally tallyFunc) error {
+	stageNames, err := stageNamesByID(c)
+	if err != nil {
+		return err
+	}
 	return c.getAll("/v1/deals", nil, func(raw json.RawMessage) error {
 		var rows []struct {
-			Status string `json:"status"`
-			Stage  struct {
-				Name string `json:"name"`
-			} `json:"stage"`
+			Status  string `json:"status"`
+			StageID string `json:"stage_id"`
 		}
 		if err := json.Unmarshal(raw, &rows); err != nil {
 			return err
 		}
 		for _, row := range rows {
-			value := row.Stage.Name
+			value := stageNames[row.StageID]
 			if row.Status == "won" || row.Status == "lost" {
 				value = row.Status
 			}
@@ -113,6 +119,28 @@ func tallyDeals(c *client, tally tallyFunc) error {
 		}
 		return nil
 	})
+}
+
+// stageNamesByID maps every stage id in the installation to its name.
+func stageNamesByID(c *client) (map[string]string, error) {
+	var page struct {
+		Data []struct {
+			Stages []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"stages"`
+		} `json:"data"`
+	}
+	if err := c.get("/v1/pipelines", nil, &page); err != nil {
+		return nil, fmt.Errorf("listing pipelines: %w", err)
+	}
+	out := map[string]string{}
+	for _, pipeline := range page.Data {
+		for _, stage := range pipeline.Stages {
+			out[stage.ID] = stage.Name
+		}
+	}
+	return out, nil
 }
 
 // tallyLeads counts the funnel, archived rows included.

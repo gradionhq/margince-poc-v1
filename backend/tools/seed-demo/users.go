@@ -214,19 +214,36 @@ func assignRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey 
 	return nil
 }
 
-// seedOrgWithDSN opens the one database connection this tool needs and hands
-// it to seedOrg. Kept apart from the seeding itself so the SQL exception has
-// exactly one door.
-func seedOrgWithDSN(dsn string, cfg demoConfig, orgIDs map[string]string, mode runMode) error {
+// seedSeatsWithDSN creates the teams and the seats people log in as.
+//
+// It runs BEFORE the pipeline phases, and that order is load-bearing. Every
+// record the pipeline writes is assigned to a seat, and loadPipelineRefs
+// resolves those seats by reading /v1/users. On a fresh installation the demo
+// seats do not exist until this has run — so with the phases the other way
+// round, a full run wrote every company, person, deal and lead assigned to
+// nobody, and only then failed in the ownership pass with "no seats to own
+// anything". An ownerless row is workspace-shared, so that is not a cosmetic
+// ordering preference.
+func seedSeatsWithDSN(dsn string, cfg demoConfig, mode runMode) error {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
-		return fmt.Errorf("connecting for the org seed: %w", err)
+		return fmt.Errorf("connecting for the seat seed: %w", err)
 	}
 	defer func() { _ = conn.Close(ctx) }() //craft:ignore swallowed-errors closing a read-only seed connection has no failure the caller can act on
-	if err := seedOrg(ctx, conn, cfg, mode); err != nil {
-		return err
+	return seedOrg(ctx, conn, cfg, mode)
+}
+
+// seedFinanceLinksWithDSN provisions the billing relationships the finance
+// mirror reads to generate its ledgers. It needs the companies on file, so it
+// runs after them rather than with the seats.
+func seedFinanceLinksWithDSN(dsn string, cfg demoConfig, orgIDs map[string]string, mode runMode) error {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connecting for the finance links: %w", err)
 	}
+	defer func() { _ = conn.Close(ctx) }() //craft:ignore swallowed-errors closing a read-only seed connection has no failure the caller can act on
 	linked, err := seedFinanceLinks(ctx, conn, cfg, orgIDs, mode)
 	if err != nil {
 		return err
