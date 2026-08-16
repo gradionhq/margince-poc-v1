@@ -271,6 +271,65 @@ func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	}
 }
 
+// A saved view's filter is checked when it is WRITTEN, not when someone finally
+// exports it: a view naming a field that is not filterable is refused by the
+// surface that accepts it, rather than by an export the author reaches much
+// later, if ever.
+//
+// Both write paths, because a create-time gate one PATCH walks around is not a
+// gate. The other obligation these paths carry — that the vocabulary is
+// resolved BEFORE the write transaction opens — is NOT pinned here and cannot
+// be: this store is built without a field catalogue, so SegmentEngine returns
+// the core vocabulary without ever reaching for a second connection.
+// dynamicsegment_singleconn_integration_test.go holds that one, with a real
+// catalogue over a pool capped at one connection.
+func TestSavedView_filterIsValidatedWhenWrittenNotWhenExported(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	unfilterable := map[string]any{"field": "secret_salary", "op": "eq", "value": "x"}
+
+	assertRefused := func(what string, err error) {
+		t.Helper()
+		var pe *storekit.PredicateError
+		if !errors.As(err, &pe) {
+			t.Fatalf("%s: err = %v, want a PredicateError (422)", what, err)
+		}
+		if pe.Code != storekit.CodeFilterFieldNotAllowed {
+			t.Errorf("%s: code = %q, want %q", what, pe.Code, storekit.CodeFilterFieldNotAllowed)
+		}
+		if pe.Field != "secret_salary" {
+			t.Errorf("%s: field = %q, want the offending field named", what, pe.Field)
+		}
+	}
+
+	_, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Overpaid", Query: map[string]any{"filter": unfilterable},
+	})
+	assertRefused("create", err)
+
+	// A view saved with a good filter cannot be PATCHed onto a bad one.
+	good, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Mine",
+		Query: map[string]any{"filter": map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}},
+	})
+	if err != nil {
+		t.Fatalf("create a valid view: %v", err)
+	}
+	replacement := map[string]any{"filter": unfilterable}
+	_, err = store.UpdateSavedView(rep, good.ID, collections.UpdateSavedViewInput{Query: &replacement})
+	assertRefused("update", err)
+
+	// And the refusal left the stored view alone.
+	reloaded, err := store.GetSavedView(rep, good.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !jsonEqual(t, good.Query, reloaded.Query) {
+		t.Errorf("the refused update still changed the stored query: %v", reloaded.Query)
+	}
+}
+
 // jsonEqual compares two values by their canonical JSON encoding, so a
 // jsonb round-trip (which re-types numbers/arrays) does not defeat the
 // exact-restore assertion.

@@ -6,6 +6,7 @@ package collections
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -247,10 +248,19 @@ func customField(column fieldcatalog.Column) (storekit.Field, bool) {
 	return storekit.Field{Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(), Type: fieldType}, true
 }
 
-// predicateFromDefinition decodes a dynamic list's stored `definition`
-// jsonb into the canonical predicate tree. The definition IS the filter
-// tree (and/or/field/op/value) — no wrapper — so the round-trip is a
-// direct re-marshal into storekit.Predicate.
+// errNotAFilterTree is what a jsonb value that does not decode into the
+// canonical predicate comes back as. It deliberately carries no wire field:
+// which field to name — or whether to name one at all — is the caller's
+// question, not this decoder's. The same tree arrives under `definition` from
+// a dynamic list, inside `query` from a saved view, and from neither on an
+// export or a membership read, where the caller sent only an id and a field
+// error would tell them to fix something they never wrote.
+var errNotAFilterTree = errors.New("not a valid filter tree")
+
+// predicateFromDefinition decodes a stored filter tree jsonb into the
+// canonical predicate. The stored value IS the tree (and/or/field/op/value) —
+// no wrapper — so the round-trip is a direct re-marshal into
+// storekit.Predicate.
 func predicateFromDefinition(def map[string]any) (storekit.Predicate, error) {
 	raw, err := json.Marshal(def)
 	if err != nil {
@@ -258,7 +268,17 @@ func predicateFromDefinition(def map[string]any) (storekit.Predicate, error) {
 	}
 	var p storekit.Predicate
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return storekit.Predicate{}, &BadInputError{Field: "definition", Reason: "is not a valid filter tree"}
+		return storekit.Predicate{}, errNotAFilterTree
 	}
 	return p, nil
+}
+
+// asFieldFault dresses an undecodable tree as the 422 naming the caller's own
+// wire field. Everything else passes through untouched: the tree's SHAPE is
+// the only part of this a caller can fix.
+func asFieldFault(err error, field string) error {
+	if errors.Is(err, errNotAFilterTree) {
+		return &BadInputError{Field: field, Reason: "is not a valid filter tree"}
+	}
+	return err
 }

@@ -75,6 +75,11 @@ var memberEntityTables = func() map[string]bool {
 // points at.
 const entityTypeField = "entity_type"
 
+// definitionField names the body key a dynamic list carries its filter tree
+// under — the counterpart to a saved view's viewQueryField, and the reason a
+// decode refusal takes the name from its caller rather than assuming one.
+const definitionField = "definition"
+
 // entityIDField names its sibling — the polymorphic TARGET a member or a tag
 // application points at. Named beside entity_type because the two travel
 // together in every body on this surface, and a refusal has to name the wire
@@ -284,9 +289,26 @@ func (s *Store) validateSegmentDefinition(ctx context.Context, entityType string
 	if !ok {
 		return &BadInputError{Field: entityTypeField, Reason: "no dynamic segment engine for " + entityType}
 	}
-	pred, err := predicateFromDefinition(definition)
+	return compileForValidation(engine, definition, definitionField)
+}
+
+// compileForValidation is the proof itself, shared by the two stored filters
+// this module accepts — a dynamic list's definition and a saved view's filter
+// state. It decodes the tree and compiles it against the resolved vocabulary,
+// throwing the SQL away: the point is the refusal, not the statement. An
+// unknown field, a mistyped value, or an over-deep/over-wide tree comes back as
+// a PredicateError the transport maps to 422.
+//
+// Two things differ between the callers and both are parameters rather than
+// branches here. The ENGINE RESOLUTION, which is why the split falls at this
+// seam: a list names its entity type outright and has none if the type is not
+// filterable, while a view names a plural resource that may have no engine at
+// all and legitimately carry no filter. And the WIRE FIELD a decode failure
+// names, because the two surfaces carry the tree under different keys.
+func compileForValidation(engine storekit.Query, tree map[string]any, field string) error {
+	pred, err := predicateFromDefinition(tree)
 	if err != nil {
-		return err
+		return asFieldFault(err, field)
 	}
 	discard := 0
 	arg := func(any) int { discard++; return discard }

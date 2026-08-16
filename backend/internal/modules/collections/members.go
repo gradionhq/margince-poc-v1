@@ -218,9 +218,14 @@ func (s *Store) evaluateSegment(ctx context.Context, listID ids.ListID, listEnti
 		// invariant break, not a client error — surface it, never guess.
 		return nil, storekit.Page{}, fmt.Errorf("no dynamic segment engine for entity_type %q", listEntityType)
 	}
+	// A stored definition that no longer decodes is a schema invariant break in
+	// the same class as the missing engine above, not a client error: the tree
+	// was compiled before it was stored, and the reader of this list sent only
+	// its id. Surfaced as its own error rather than as a field fault, so nobody
+	// is told to fix a `definition` they never sent.
 	pred, err := predicateFromDefinition(definition)
 	if err != nil {
-		return nil, storekit.Page{}, err
+		return nil, storekit.Page{}, fmt.Errorf("stored definition for list %s: %w", listID, err)
 	}
 	var matched []ids.UUID
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
