@@ -21,12 +21,14 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -188,6 +190,47 @@ func TestThePersonLinkIsWhatThePersonCreationRungReads(t *testing.T) {
 		if facts.HasPersonLink != want {
 			t.Errorf("HasPersonLink for %s = %v, want %v", id, facts.HasPersonLink, want)
 		}
+	}
+}
+
+func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
+	// The object grant and the row scope are two different gates, and the
+	// sibling below only removes the first. Every principal there is
+	// RowScopeAll, against which EnsureActivityVisible is a no-op by
+	// construction — so deleting that call left nothing red.
+	//
+	// This is the other half: the grant is HELD, and the activity is linked to a
+	// person another owner holds, so only the link-walk can refuse.
+	e := setupFacts(t)
+	id := e.seed(t, capturedRow{kind: "email"})
+	other := ids.NewV7()
+	e.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Other')`,
+		other, e.ws, "other-"+other.String()+"@facts.test")
+	person := ids.NewV7()
+	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by, owner_id)
+		VALUES ($1, $2, 'Theirs', 'test', 'connector:gmail', $3)`, person, e.ws, other)
+	e.exec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`, e.ws, id, person)
+
+	// The allow arm over the same seed: unbounded scope reads it. Without this,
+	// a link that failed to land would make the refusal below meaningless.
+	if _, err := e.store.ReadPipelineFacts(e.as(), id); err != nil {
+		t.Fatalf("an unbounded reader could not read the seed: %v", err)
+	}
+
+	scoped := principal.WithActor(
+		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + e.user.String(), UserID: e.user,
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"rep"},
+				Objects:  map[string]principal.ObjectGrant{"activity": {Read: true}},
+				RowScope: principal.RowScopeOwn,
+			},
+		})
+	if _, err := e.store.ReadPipelineFacts(scoped, id); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound — the grant is held, so only the row "+
+			"scope can refuse, and it must hide existence rather than deny", err)
 	}
 }
 

@@ -110,6 +110,60 @@ func TestALadderCarriesEveryRungIncludingTheOnesTheWindowHides(t *testing.T) {
 	}
 }
 
+func TestOneMessageToTwoColleaguesKeepsTheirRungsApart(t *testing.T) {
+	// One email addressed to two colleagues is two trace rows under the SAME
+	// natural key with different owners — the routine case, which is why
+	// user_id is in the unique index at all.
+	//
+	// readRungs keys on that natural key, so without its owner predicate a
+	// member's ladder splices in their colleague's rungs: their decline reasons,
+	// and under the payload posture their stored sender and subject. findRung
+	// takes the first match, so the rung one member reads could be the other's
+	// decision presented as their own.
+	ctx, db := traceWorkspace(t)
+	mine, theirs := ids.NewV7(), ids.NewV7()
+
+	for owner, outcome := range map[ids.UUID]capture.TraceOutcome{
+		mine:   capture.TraceCaptured,
+		theirs: capture.TraceSuppressed,
+	} {
+		entry := mailTrace("m-two-colleagues", outcome)
+		entry.UserID = owner
+		entry.Reason = ""
+		if outcome == capture.TraceSuppressed {
+			entry.Reason = "transactional_infra"
+		}
+		writeTrace(ctx, t, db, entry, false)
+	}
+
+	store := capture.NewTraceStore(db)
+	got, err := store.LadderByTraceID(asMember(ctx, mine), myTraceID(ctx, t, db, "m-two-colleagues", mine), false)
+	if err != nil {
+		t.Fatalf("reading my own ladder: %v", err)
+	}
+	if len(got.Rungs) != 1 {
+		t.Fatalf("rungs = %d, want only my own — the other row belongs to a colleague", len(got.Rungs))
+	}
+	if got.Rungs[0].Outcome != string(capture.TraceCaptured) {
+		t.Errorf("outcome = %q, want my own (captured), not my colleague's", got.Rungs[0].Outcome)
+	}
+}
+
+// myTraceID reads back the id of the row belonging to one member, so a test
+// with two rows under one natural key can ask for the right one.
+func myTraceID(ctx context.Context, t *testing.T, db *database.DB, sourceID string, owner ids.UUID) ids.UUID {
+	t.Helper()
+	var id ids.UUID
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT id FROM capture_trace WHERE source_id = $1 AND user_id = $2`,
+			sourceID, owner).Scan(&id)
+	}); err != nil {
+		t.Fatalf("reading back %s for %s: %v", sourceID, owner, err)
+	}
+	return id
+}
+
 func TestAnInvocationWithNoMemberReadsNoLadder(t *testing.T) {
 	// A job tick has no member. Answering "the caller's own rows" for a caller
 	// with no id would be answering for whoever owns a NULL-owner row.
