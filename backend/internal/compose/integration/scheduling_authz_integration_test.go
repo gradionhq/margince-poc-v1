@@ -5,10 +5,11 @@
 
 package integration
 
-// Scheduling is calendar access, so it carries the row-scope posture:
-// booking another host's calendar needs an unbounded scope, and the
-// availability busy-read shows a caller only the meetings their
-// timeline would — a stranger's calendar never leaks through free/busy.
+// Scheduling is calendar access: booking another host's calendar is the
+// admin's alone — an unbounded row scope reads every calendar and writes
+// none but its own — and the availability busy-read shows a caller only
+// the meetings their timeline would; a stranger's calendar never leaks
+// through free/busy.
 
 import (
 	"context"
@@ -21,7 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func TestBookingAnotherHostNeedsUnboundedScope(t *testing.T) {
+func TestBookingAnotherHostNeedsTheAdminRole(t *testing.T) {
 	e := Setup(t)
 	slotStart := time.Date(2026, 7, 7, 10, 0, 0, 0, time.UTC)
 
@@ -36,8 +37,16 @@ func TestBookingAnotherHostNeedsUnboundedScope(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("booking rep2's calendar as rep1 → %v, want ErrPermissionDenied", err)
 	}
-	// An unbounded scope may book on behalf — and hits the conflict
-	// guard like anyone else.
+	// An unbounded row scope is not a delegate: ops reads every calendar
+	// and still books only its own.
+	ops := e.As(ids.NewV7(), nil, OpsPerms)
+	if _, err := e.Activities.BookMeeting(ops, activities.BookMeetingInput{
+		Host: ids.From[ids.UserKind](e.Rep2), Start: slotStart, End: slotStart.Add(time.Hour),
+	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("booking rep2's calendar as ops → %v, want ErrPermissionDenied", err)
+	}
+	// The admin may book on behalf — and hits the conflict guard like
+	// anyone else.
 	admin := e.Admin()
 	if _, err := e.Activities.BookMeeting(admin, activities.BookMeetingInput{
 		Host: ids.From[ids.UserKind](e.Rep2), Start: slotStart, End: slotStart.Add(time.Hour),

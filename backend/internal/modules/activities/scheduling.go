@@ -250,15 +250,19 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 		return crmcontracts.Activity{}, err
 	}
 	// Booking writes onto the host's calendar; a caller may commit their
-	// OWN slots, and only an unbounded (admin) scope may book on behalf
-	// of another host — the spec's calendar_delegate grant (features/04
-	// §1) is not yet adopted in this build.
+	// OWN slots, and only the admin role may book on behalf of another host
+	// — the spec's calendar_delegate grant (features/04 §1) is not yet
+	// adopted in this build. The admin ROLE, not an unbounded row scope:
+	// ops, read_only and management all read every row, and none of them is
+	// thereby a calendar delegate for everyone in the organization.
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
 	}
-	if in.Host.UUID != actor.UserID && !auth.Unbounded(actor) {
-		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
+	if in.Host.UUID != actor.UserID {
+		if err := auth.RequireAdmin(ctx); err != nil {
+			return crmcontracts.Activity{}, err
+		}
 	}
 	if !in.End.After(in.Start) {
 		return crmcontracts.Activity{}, errBookingEndNotAfterStart
