@@ -33,6 +33,10 @@ vendors:
   # integration test loads api/public-events.yaml through it to assert wire
   # shapes conform to the contract schema.
   kinopenapi: { in: github.com/getkin/** }
+  # the JSON Schema validator: airoutingschema_test.go runs the GENERATED
+  # config/ai-routing.schema.json against the same acceptance matrix the parser
+  # enforces, so the editor's answer and the runtime's cannot drift apart.
+  jsonschema: { in: github.com/santhosh-tekuri/** }
   river:  { in: github.com/riverqueue/** }
   minio:  { in: github.com/minio/** }
   fpdf:   { in: github.com/go-pdf/** }
@@ -223,9 +227,13 @@ deps:
     # aitaskcensus_test.go builds compose.NewTaskCensus: the AI
     # invocation-site census is assembled in the composition layer, so the
     # fitness function that holds it to the task contract has to construct
-    # it. Root carries test files only, so this grants no production edge.
-    mayDependOn: [contracts, compose]
-    canUse: [yaml]
+    # it. airoutingschema_test.go calls ai.ParseRouting and compiles the
+    # generated routing schema, because "what the editor accepts" and "what
+    # boots" is one claim and only the root package may hold both halves —
+    # the ai module itself must not gain a JSON Schema dependency for it.
+    # Root carries test files only, so this grants no production edge.
+    mayDependOn: [contracts, compose, ai]
+    canUse: [yaml, jsonschema]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, contracts, platform, migrations]
     canUse: [pgx, redis, xterm, composition]
