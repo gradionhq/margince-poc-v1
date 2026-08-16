@@ -3488,6 +3488,36 @@ export const en = {
   "auth.unavailableTitle": "Installation not ready",
   "auth.unavailableBody":
     "This Margince installation isn't ready to sign you in. An operator needs to complete or repair the setup.",
+  // The first-run claim (ADR-0105). An installation with no configured admin
+  // waits to be claimed; this is the only screen that creates an account
+  // without one, so it names what it is creating.
+  "setup.pageTitle": "Set up Margince",
+  "setup.title": "Claim this installation",
+  "setup.body":
+    "This Margince installation has no organization yet. Your operator has a one-time setup token from the server log.",
+  "setup.token": "Setup token",
+  "setup.tokenHint":
+    "From the server log on first start, or the token file beside it.",
+  "setup.organization": "Organization name",
+  "setup.adminName": "Your name",
+  "setup.adminEmail": "Your email",
+  "setup.adminPassword": "Choose a password",
+  "setup.passwordHint": "At least 12 characters.",
+  "setup.passwordShort": "Too short. Use at least 12 characters.",
+  "setup.rootWarning":
+    "This creates the administrator account for the whole installation. It has every permission, including managing everyone else.",
+  "setup.claim": "Create the organization",
+  "setup.claiming": "Creating…",
+  "setup.errorToken":
+    "That setup token isn't valid for this installation. Check the server log for the token issued at first start.",
+  "setup.errorAlready":
+    "This installation already has an organization. Sign in instead, or ask your operator to reset it.",
+  "setup.errorFields":
+    "Something in the form needs fixing. Check the fields and try again.",
+  "setup.errorServer":
+    "Margince couldn't complete the setup. Nothing was created. Try again in a moment; if it keeps failing, check the server log.",
+  "setup.errorNetwork":
+    "Margince couldn't be reached. Check your connection and try again.",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
   // Two sentences, sentence-cased, with no dash. VOICE-RULE-5 forbids an em or

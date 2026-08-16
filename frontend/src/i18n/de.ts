@@ -3476,6 +3476,33 @@ export const de = {
   // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
     "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
+  "setup.pageTitle": "Margince einrichten",
+  "setup.title": "Diese Installation übernehmen",
+  "setup.body":
+    "Diese Margince-Installation hat noch keine Organisation. Ihr Betreiber hat ein einmaliges Einrichtungs-Token aus dem Serverprotokoll.",
+  "setup.token": "Einrichtungs-Token",
+  "setup.tokenHint":
+    "Aus dem Serverprotokoll beim ersten Start oder aus der Token-Datei daneben.",
+  "setup.organization": "Name der Organisation",
+  "setup.adminName": "Ihr Name",
+  "setup.adminEmail": "Ihre E-Mail-Adresse",
+  "setup.adminPassword": "Passwort wählen",
+  "setup.passwordHint": "Mindestens 12 Zeichen.",
+  "setup.passwordShort": "Zu kurz. Verwenden Sie mindestens 12 Zeichen.",
+  "setup.rootWarning":
+    "Damit entsteht das Administratorkonto für die gesamte Installation. Es hat alle Berechtigungen, einschließlich der Verwaltung aller anderen.",
+  "setup.claim": "Organisation anlegen",
+  "setup.claiming": "Wird angelegt…",
+  "setup.errorToken":
+    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfen Sie das Serverprotokoll vom ersten Start.",
+  "setup.errorAlready":
+    "Diese Installation hat bereits eine Organisation. Melden Sie sich an oder bitten Sie Ihren Betreiber um ein Zurücksetzen.",
+  "setup.errorFields":
+    "Im Formular stimmt etwas nicht. Prüfen Sie die Felder und versuchen Sie es erneut.",
+  "setup.errorServer":
+    "Margince konnte die Einrichtung nicht abschließen. Es wurde nichts angelegt. Versuchen Sie es gleich noch einmal; bei wiederholtem Fehlschlag prüfen Sie das Serverprotokoll.",
+  "setup.errorNetwork":
+    "Margince war nicht erreichbar. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "auth.forgotLink": "Passwort vergessen?",
   "auth.forgotTitle": "Passwort zurücksetzen",
   // "gibt", nicht "existiert" (Amtsdeutsch), und das Feld will eine Adresse, keine

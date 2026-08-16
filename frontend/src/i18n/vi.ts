@@ -3470,6 +3470,33 @@ export const vi = {
   "auth.unavailableTitle": "Bản cài đặt chưa sẵn sàng",
   "auth.unavailableBody":
     "Bản cài đặt Margince này chưa sẵn sàng để bạn đăng nhập. Cần người vận hành hoàn tất hoặc sửa lại phần thiết lập.",
+  "setup.pageTitle": "Thiết lập Margince",
+  "setup.title": "Nhận quyền quản trị bản cài đặt này",
+  "setup.body":
+    "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn có mã thiết lập dùng một lần trong nhật ký máy chủ.",
+  "setup.token": "Mã thiết lập",
+  "setup.tokenHint":
+    "Lấy từ nhật ký máy chủ ở lần khởi động đầu tiên, hoặc tệp mã đặt cạnh đó.",
+  "setup.organization": "Tên tổ chức",
+  "setup.adminName": "Tên của bạn",
+  "setup.adminEmail": "Email của bạn",
+  "setup.adminPassword": "Chọn mật khẩu",
+  "setup.passwordHint": "Ít nhất 12 ký tự.",
+  "setup.passwordShort": "Quá ngắn. Hãy dùng ít nhất 12 ký tự.",
+  "setup.rootWarning":
+    "Thao tác này tạo tài khoản quản trị cho toàn bộ bản cài đặt. Tài khoản đó có mọi quyền, kể cả quản lý tất cả người khác.",
+  "setup.claim": "Tạo tổ chức",
+  "setup.claiming": "Đang tạo…",
+  "setup.errorToken":
+    "Mã thiết lập không hợp lệ với bản cài đặt này. Hãy kiểm tra nhật ký máy chủ ở lần khởi động đầu tiên.",
+  "setup.errorAlready":
+    "Bản cài đặt này đã có tổ chức. Hãy đăng nhập, hoặc nhờ người vận hành đặt lại.",
+  "setup.errorFields":
+    "Có trường chưa hợp lệ. Hãy kiểm tra lại và thử lần nữa.",
+  "setup.errorServer":
+    "Margince không hoàn tất được thiết lập. Chưa có gì được tạo. Hãy thử lại sau giây lát; nếu vẫn lỗi, hãy kiểm tra nhật ký máy chủ.",
+  "setup.errorNetwork":
+    "Không kết nối được tới Margince. Hãy kiểm tra kết nối và thử lại.",
   "auth.forgotLink": "Quên mật khẩu?",
   "auth.forgotTitle": "Đặt lại mật khẩu",
   // Two sentences, sentence-cased, with no dash. VOICE-RULE-5 forbids an em or

@@ -336,7 +336,7 @@ export function Wordmark({
 
 // usePageTitle stamps the document title for the unauthenticated surface
 // (§7.1) and restores the product name on unmount.
-function usePageTitle(title: string) {
+export function usePageTitle(title: string) {
   useEffect(() => {
     const previous = document.title;
     document.title = title;
@@ -1024,7 +1024,7 @@ function Notice({
   );
 }
 
-function Field({
+export function Field({
   id,
   label,
   labelEnd,

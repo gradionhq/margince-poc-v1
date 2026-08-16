@@ -125,6 +125,11 @@ export default defineConfig({
     // product's port, and the api's own is an implementation detail.
     proxy: {
       "/v1": { target: proxyTarget, changeOrigin: false, secure: false },
+      // The claim surface (ADR-0105). It sits beside the probes rather than
+      // under /v1 because it must answer before an organization exists, so it
+      // needs its own proxy entry — without one the SPA's first-run screen
+      // gets the dev server's index.html instead of the api.
+      "/setup": { target: proxyTarget, changeOrigin: false, secure: false },
       "/readyz": { target: proxyTarget, changeOrigin: false, secure: false },
       "/healthz": { target: proxyTarget, changeOrigin: false, secure: false },
       "/metrics": { target: proxyTarget, changeOrigin: false, secure: false },

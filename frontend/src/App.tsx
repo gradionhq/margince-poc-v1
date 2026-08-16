@@ -1,4 +1,5 @@
 import { extensionScreens as composedScreens } from "@composition/screens";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ReactNode,
   useCallback,
@@ -47,6 +48,7 @@ import { PreferenceCenterScreen } from "./screens/preferences";
 import { ReportsScreen } from "./screens/reports";
 import { SearchScreen } from "./screens/search";
 import { SettingsScreen } from "./screens/settings";
+import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 import { ShareScreen } from "./screens/share";
 import { TasksScreen } from "./screens/tasks";
 
@@ -291,6 +293,46 @@ export function App() {
   return <AuthedApp route={route} />;
 }
 
+// UnavailableOrClaimable splits the 503 the boundary already reached into its
+// two product states. "Not ready" is true of both, but only one of them has
+// something the person in front of the browser can do: an installation that
+// holds no organization and is WAITING to be claimed (ADR-0105) gets the claim
+// screen; anything else keeps the availability message.
+//
+// The probe runs only on this branch, and only for the installation kind: a
+// connectivity failure says nothing about whether a claim is possible, and
+// asking would replace a true message with a guess. While it is in flight the
+// availability screen stands — it is the honest answer until the probe says
+// otherwise, and it is what the user would have seen anyway.
+function UnavailableOrClaimable({
+  kind,
+  onRetry,
+}: Readonly<{ kind: "connection" | "installation"; onRetry: () => void }>) {
+  const claimable = useQuery({
+    queryKey: ["setup-status"],
+    queryFn: fetchSetupStatus,
+    enabled: kind === "installation",
+    retry: false,
+  });
+  // Retry re-probes BOTH. fetchSetupStatus resolves rather than throws, so a
+  // one-off failure caches a `false` under this key — without refetching it,
+  // "Try again" would keep showing the availability screen for an installation
+  // that has been claimable all along, and only a page reload would recover.
+  const retryBoth = () => {
+    onRetry();
+    if (kind === "installation") {
+      void claimable.refetch();
+    }
+  };
+  if (kind === "installation" && claimable.data?.claimable) {
+    // A successful claim provisions the installation, so the same /v1/me probe
+    // that sent us here now answers — the boundary re-resolves rather than this
+    // screen deciding where to go next.
+    return <SetupClaimScreen onClaimed={onRetry} />;
+  }
+  return <AvailabilityScreen kind={kind} onRetry={retryBoth} />;
+}
+
 // AuthGate: everything behind the session probes GET /v1/me, and the
 // boundary branches on the TYPED failure (§4 of the login spec):
 // 401 → login, network/5xx → connection problem, 503 → installation
@@ -366,7 +408,7 @@ function AuthedApp({
     if (kind !== "unauthorized") {
       return (
         <RaillessFrame>
-          <AvailabilityScreen kind={kind} onRetry={() => me.refetch()} />
+          <UnavailableOrClaimable kind={kind} onRetry={() => me.refetch()} />
         </RaillessFrame>
       );
     }
