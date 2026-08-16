@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -41,9 +42,9 @@ func (s *Sink) WithTracePayloads(on bool) *Sink {
 // that is impossible — a decision whose transaction is doomed — go through
 // traceAfterRollback below instead.
 func (s *Sink) traceTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord,
-	outcome TraceOutcome, reason string,
+	stage pipelinetrace.Stage, outcome TraceOutcome, reason string,
 ) error {
-	return Trace(ctx, tx, s.traceEntry(ctx, rec, outcome, reason), s.tracePayloads)
+	return Trace(ctx, tx, s.traceEntry(ctx, rec, stage, outcome, reason), s.tracePayloads)
 }
 
 // traceInvisibleIncumbent records the one decision whose own transaction did
@@ -63,7 +64,10 @@ func (s *Sink) traceInvisibleIncumbent(ctx context.Context, rec connector.Normal
 	if !errors.Is(cause, errInvisibleIncumbent) {
 		return
 	}
-	entry := s.traceEntry(ctx, rec, TraceFault, TraceReasonInvisibleIncumbent)
+	// The ACTIVITY WRITE stage, not the ladder: this is the capture transaction
+	// refusing a replay whose incumbent row sits outside the reader's scope, and
+	// the ladder never got to decide anything about it.
+	entry := s.traceEntry(ctx, rec, pipelinetrace.StageActivityWrite, TraceFault, TraceReasonInvisibleIncumbent)
 	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return Trace(ctx, tx, entry, s.tracePayloads)
 	}); err != nil {
@@ -79,11 +83,12 @@ func (s *Sink) traceInvisibleIncumbent(ctx context.Context, rec connector.Normal
 // member's mailbox traffic. The difference is one fallback and the whole
 // access-control axis of the feature.
 func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
-	outcome TraceOutcome, reason string,
+	stage pipelinetrace.Stage, outcome TraceOutcome, reason string,
 ) TraceEntry {
 	_, owner := capturePrincipal(ctx)
 	channel := rec.Counterparty.ChannelIdentity.Provider != ""
 	return TraceEntry{
+		Stage:           stage,
 		UserID:          owner,
 		Connector:       traceConnector(rec),
 		SourceSystem:    rec.NaturalKey.SourceSystem,
@@ -145,7 +150,7 @@ func (s *Sink) traceActivity(ctx context.Context, tx pgx.Tx, rec connector.Norma
 	if outcome == "" {
 		outcome = TraceCaptured
 	}
-	entry := s.traceEntry(ctx, rec, outcome, decision.traceReason)
+	entry := s.traceEntry(ctx, rec, pipelinetrace.StageTierLadder, outcome, decision.traceReason)
 	entry.ActivityID = activityID
 	return Trace(ctx, tx, entry, s.tracePayloads)
 }

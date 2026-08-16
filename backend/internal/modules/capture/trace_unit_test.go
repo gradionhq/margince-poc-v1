@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 )
 
 func TestATraceEntryMustNameWhatItDescribes(t *testing.T) {
@@ -24,10 +25,32 @@ func TestATraceEntryMustNameWhatItDescribes(t *testing.T) {
 		entry TraceEntry
 		want  string
 	}{
-		{"no connector", TraceEntry{SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured}, "connector"},
-		{"no source system", TraceEntry{Connector: "gmail", SourceID: "m-1", Outcome: TraceCaptured}, "natural key"},
-		{"no source id", TraceEntry{Connector: "gmail", SourceSystem: "gmail", Outcome: TraceCaptured}, "natural key"},
-		{"no outcome", TraceEntry{Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1"}, "outcome"},
+		{"no connector", TraceEntry{
+			Stage:        pipelinetrace.StageTierLadder,
+			SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
+		}, "connector"},
+		{"no source system", TraceEntry{
+			Stage:     pipelinetrace.StageTierLadder,
+			Connector: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
+		}, "natural key"},
+		{"no source id", TraceEntry{
+			Stage:     pipelinetrace.StageTierLadder,
+			Connector: "gmail", SourceSystem: "gmail", Outcome: TraceCaptured,
+		}, "natural key"},
+		{"no outcome", TraceEntry{
+			Stage:     pipelinetrace.StageTierLadder,
+			Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1",
+		}, "outcome"},
+		{"no stage", TraceEntry{
+			Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
+		}, "pipeline stage"},
+		// A stage the registry answers by DERIVING would violate the column's
+		// CHECK and fail the whole capture. Refusing it here names which stage
+		// was wrong; a constraint violation names nothing a caller can act on.
+		{"a derived stage", TraceEntry{
+			Stage:     pipelinetrace.StageAttentionLabel,
+			Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
+		}, "not a stage this pipeline stores"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.entry.validate()
@@ -43,10 +66,27 @@ func TestATraceEntryMustNameWhatItDescribes(t *testing.T) {
 
 func TestAValidEntryPasses(t *testing.T) {
 	entry := TraceEntry{
+		Stage:     pipelinetrace.StageTierLadder,
 		Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
 	}
 	if err := entry.validate(); err != nil {
 		t.Errorf("validate() = %v for a complete entry, want nil", err)
+	}
+}
+
+func TestEveryStageCaptureWritesIsOneTheColumnAccepts(t *testing.T) {
+	// The three writers name their stage as a constant, and the column's CHECK
+	// admits exactly the registry's stored set. This walks the registry rather
+	// than listing the three, so a stage added to one side without the other
+	// fails here instead of at an INSERT that takes a capture down with it.
+	for _, stage := range pipelinetrace.StoredStages() {
+		entry := TraceEntry{
+			Stage:     stage,
+			Connector: "gmail", SourceSystem: "gmail", SourceID: "m-1", Outcome: TraceCaptured,
+		}
+		if err := entry.validate(); err != nil {
+			t.Errorf("validate() refused stored stage %q: %v", stage, err)
+		}
 	}
 }
 

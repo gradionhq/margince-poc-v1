@@ -30,6 +30,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 )
 
 // TraceOutcome is what the pipeline did with one MESSAGE.
@@ -101,6 +102,12 @@ const (
 
 // TraceEntry is one decision, as its call site knows it.
 type TraceEntry struct {
+	// Stage is which step of the pipeline produced this decision. It is what
+	// lets a member read the row as a rung on a path rather than as a bare
+	// outcome, and it decides whether the row counts in the funnel — a stage
+	// that has not opted in does not touch the metric.
+	Stage pipelinetrace.Stage
+
 	// UserID is the member whose credential produced the record, and zero for a
 	// workspace-owned connection. That difference IS the access-control axis:
 	// a zero here makes the row readable by a manager, so a call site that
@@ -179,18 +186,18 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
-		                           outcome, reason, activity_id, counterparty, subject)
+		                           stage, outcome, reason, activity_id, counterparty, subject)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9)
+		        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10)
 		-- The conflict target SPELLS the index's expression, COALESCE and all: a
 		-- bare column list does not match an expression index, and Postgres
 		-- answers that with an error on every insert -- which, on the capture
 		-- transaction, would fail every capture in the deployment.
 		ON CONFLICT (workspace_id, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid),
-		             source_system, source_id, outcome) DO NOTHING`,
+		             source_system, source_id, stage, outcome) DO NOTHING`,
 		nullableID(in.UserID), in.Connector, in.SourceSystem,
 		traceSourceID(in.SourceID, in.ChannelIdentity),
-		string(in.Outcome), in.Reason, nullableID(in.ActivityID),
+		string(in.Stage), string(in.Outcome), in.Reason, nullableID(in.ActivityID),
 		counterparty, subject)
 	if err != nil {
 		return fmt.Errorf("capture: recording the pipeline trace: %w", err)
@@ -204,7 +211,15 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 	// It still counts a decision this transaction later abandons: a counter
 	// cannot un-count, which is the honest limit of a process counter and part
 	// of why the member's screen reads the table instead.
-	if tag.RowsAffected() > 0 {
+	//
+	// And only FUNNEL stages count. The gate is structural rather than a
+	// convention because the alternative is undetectable: every stage writing
+	// through here is a funnel stage today, so an unconditional count is
+	// correct today and silently wrong the first time a stage that is not part
+	// of the member's five outcomes writes a row — inflating
+	// margince_capture_outcomes_total with no diff to any metric code and no
+	// test failing. Opt-in in the registry is what an operator's alert rests on.
+	if tag.RowsAffected() > 0 && pipelinetrace.CountsInFunnel(in.Stage) {
 		countTraced(in.Outcome)
 	}
 	return nil
@@ -265,6 +280,13 @@ func (in TraceEntry) validate() error {
 		return fmt.Errorf("capture: a trace entry carries no natural key (outcome %q)", in.Outcome)
 	case in.Outcome == "":
 		return fmt.Errorf("capture: a trace entry names no outcome")
+	case in.Stage == "":
+		return fmt.Errorf("capture: a trace entry names no pipeline stage (outcome %q)", in.Outcome)
+	case !pipelinetrace.CanStore(in.Stage):
+		// A stage the registry does not list as stored would violate the
+		// column's CHECK at the database and fail the whole capture. Naming it
+		// here says which stage was wrong; the constraint violation would not.
+		return fmt.Errorf("capture: %q is not a stage this pipeline stores", in.Stage)
 	}
 	return nil
 }

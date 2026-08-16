@@ -41,13 +41,7 @@ func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int
 		rows, err := tx.Query(ctx, `
 			SELECT id, coalesce(subject, ''), coalesce(left(body, $1), '')
 			FROM activity
-			WHERE capture_label IS NULL AND captured_by LIKE 'connector:%' AND kind = 'email'
-			  AND archived_at IS NULL
-			  AND NOT EXISTS (
-			    SELECT 1 FROM capture_pending_counterparty p
-			     WHERE p.workspace_id = activity.workspace_id
-			       AND p.email = activity.counterparty_email
-			       AND p.status IN ('pending', 'unsure'))
+			WHERE `+ClassifyBacklogPredicate+`
 			ORDER BY occurred_at
 			LIMIT $2`, bodyLimit, limit)
 		if err != nil {
