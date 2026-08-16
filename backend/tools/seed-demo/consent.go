@@ -234,7 +234,44 @@ func seedFinanceLinks(ctx context.Context, conn *pgx.Conn, cfg demoConfig, orgID
 		}
 		linked += int(tag.RowsAffected())
 	}
+
+	if err := requestFinanceSync(ctx, conn); err != nil {
+		return linked, err
+	}
 	return linked, nil
+}
+
+// requestFinanceSync asks the worker to mirror the ledger now.
+//
+// Without this the demo has customers and no money. The links are only READ
+// by the sync, which the sweep fires every six hours — so a seed that lands
+// just after a sweep leaves every revenue card empty until the next one, and
+// the run reports success while the finance half of the product shows
+// nothing. That is exactly what happened: the sweep ran at 10:55, the seeder
+// wrote the links at 11:03, and 200 invoices existed only after the job was
+// enqueued by hand.
+//
+// A row on River's queue is how the sweep itself asks, so this asks the same
+// way rather than reaching into the finance module. The worker picks it up
+// within seconds; if no worker is running the row simply waits, which is the
+// right outcome for a stack that is not fully up.
+func requestFinanceSync(ctx context.Context, conn *pgx.Conn) error {
+	var workspaceID string
+	if err := conn.QueryRow(ctx, `SELECT id FROM workspace LIMIT 1`).Scan(&workspaceID); err != nil {
+		return fmt.Errorf("resolving the workspace for the finance sync: %w", err)
+	}
+	// Idempotent by intent rather than by key: an already-queued pass makes a
+	// second one a no-op that costs one job row, and the mirror writes nothing
+	// when the ledger has not changed.
+	_, err := conn.Exec(ctx,
+		`INSERT INTO river_job (state, kind, queue, priority, max_attempts, args, scheduled_at)
+		 VALUES ('available', 'finance_sync', 'default', 1, 3, jsonb_build_object('workspace_id', $1::text), now())`,
+		workspaceID)
+	if err != nil {
+		return fmt.Errorf("requesting a finance sync: %w", err)
+	}
+	fmt.Println("finance sync:  requested — invoices and payments arrive with the next worker pass")
+	return nil
 }
 
 // orgIDsByDomain re-reads the seeded organizations so the finance phase can
