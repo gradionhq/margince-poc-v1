@@ -141,6 +141,13 @@ var carriesNothing []string
 // whose wires take document parts natively.
 var carriesImagesAndPDF = []string{"image/*", "application/pdf"}
 
+// carriesImages is the declaration of an adapter whose wire takes images and
+// nothing else. Anthropic and Ollama both spell an image part uniformly — one
+// `image` block, one `images` array — while a PDF is model-dependent on the
+// first wire and absent from the second, so the honest declaration stops at
+// images rather than claiming a document lane one bound model may not serve.
+var carriesImages = []string{"image/*"}
+
 // DocumentMIMEs is every media type some adapter in this build carries as an
 // input part. It answers "could any binding have been handed this", which is a
 // different question from "will THIS binding take it" (that is Caps()) — the
@@ -196,6 +203,20 @@ func attachmentUnsupported(provider string, atts []model.Attachment, declared []
 		}
 	}
 	return nil
+}
+
+// errUnfetchableAttachmentURI refuses an attachment whose MIME the wire carries
+// but whose URI it cannot resolve — a vendor file handle on an endpoint with no
+// such registry, or a URL on a wire that takes inline bytes only.
+//
+// It is the carriage sentinel rather than a bare error because that is what it
+// is: this binding cannot be handed this part, and a caller that falls back to
+// another lane on ErrAttachmentUnsupported should fall back here too. The URI
+// itself is not echoed — it can be a signed URL, and an error message is the
+// wrong place for one.
+func errUnfetchableAttachmentURI(provider, accepts string) error {
+	return fmt.Errorf("ai: %s: an attachment given by uri cannot be sent on this wire, which takes %s: %w",
+		provider, accepts, model.ErrAttachmentUnsupported)
 }
 
 // refuseUnsupportedAttachments applies the map-or-reject invariant (spec §3.8)

@@ -228,10 +228,24 @@ func fakeWire(req model.Request) map[string]any {
 	return map[string]any{
 		"model":       req.Model,
 		"system":      req.System,
-		"messages":    wireMessages("", req.Messages),
+		"messages":    fakeMessageWire(req.Messages),
 		"tools":       req.Tools,
 		"attachments": fakeAttachmentWire(req.Attachments),
 	}
+}
+
+// fakeMessageWire renders the turns as the lowercase {role, content} pair every
+// real wire is some elaboration of. It is deliberately none of them: each real
+// adapter owns its own message type because each spells a carried image
+// differently, and the fake asserts nothing about those spellings — what it
+// mirrors is that the CONTENT of a turn reaches the payload the stripper runs
+// over.
+func fakeMessageWire(msgs []model.Message) []map[string]any {
+	out := make([]map[string]any, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, map[string]any{"role": m.Role, "content": m.Content})
+	}
+	return out
 }
 
 // fakeAttachmentWire renders each carried attachment as its media type, its
