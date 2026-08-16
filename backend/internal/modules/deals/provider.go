@@ -196,9 +196,11 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 
 func (p *Provider) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInput) (datasource.EntityRef, error) {
 	v, err := p.store.AdvanceDeal(ctx, ids.From[ids.DealKind](in.DealID), AdvanceDealInput{
-		ToStageID:  ids.From[ids.StageKind](in.ToStageID),
-		LostReason: in.LostReason,
-		IfVersion:  in.IfVersion,
+		WonWithoutContractReason: in.WonWithoutContractReason,
+		WonWithoutContractDetail: in.WonWithoutContractDetail,
+		ToStageID:                ids.From[ids.StageKind](in.ToStageID),
+		LostReason:               in.LostReason,
+		IfVersion:                in.IfVersion,
 	})
 	return ref(datasource.EntityDeal, v.Id), err
 }

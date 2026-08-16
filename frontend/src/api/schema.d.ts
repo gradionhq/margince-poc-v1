@@ -12180,6 +12180,13 @@ export interface components {
             status: "open" | "won" | "lost";
             /** @description Required when status=lost. */
             lost_reason?: string | null;
+            /**
+             * @description Why this deal was won with no contract behind it (ADR-0109 §6). NULL on a won deal that HAS one — the two are distinguishable, which is what makes "how many won deals have no paper, and why" answerable. Cleared on reopen and on any transition away from won.
+             * @enum {string|null}
+             */
+            readonly won_without_contract_reason?: "imported" | "purchase_order" | "verbal" | "renewal_by_email" | "other" | null;
+            /** @description Required when the reason is `other`, which explains nothing on its own. */
+            readonly won_without_contract_detail?: string | null;
             /** @enum {string|null} */
             forecast_category?: null | "commit" | "best_case" | "pipeline" | "omitted";
             /**
@@ -12291,6 +12298,13 @@ export interface components {
             status?: "open" | "won" | "lost";
             /** @description Required if status=lost. */
             lost_reason?: string | null;
+            /**
+             * @description Why this win has no agreement behind it (ADR-0109 §6). Omit when the deal has a signed contract with its paper attached — the server looks for one, and refuses a win that offers neither. Both answers are legitimate; recording which is what makes the gap countable.
+             * @enum {string|null}
+             */
+            won_without_contract_reason?: "imported" | "purchase_order" | "verbal" | "renewal_by_email" | "other" | null;
+            /** @description What the reason was. Required when it is `other`, which explains nothing alone. */
+            won_without_contract_detail?: string | null;
         };
         DealListResponse: {
             data: components["schemas"]["Deal"][];

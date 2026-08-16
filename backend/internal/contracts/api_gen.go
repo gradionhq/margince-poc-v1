@@ -363,6 +363,36 @@ func (e AdvanceDealRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for AdvanceDealRequestWonWithoutContractReason.
+const (
+	AdvanceDealRequestWonWithoutContractReasonImported       AdvanceDealRequestWonWithoutContractReason = "imported"
+	AdvanceDealRequestWonWithoutContractReasonLessThannil    AdvanceDealRequestWonWithoutContractReason = "<nil>"
+	AdvanceDealRequestWonWithoutContractReasonOther          AdvanceDealRequestWonWithoutContractReason = "other"
+	AdvanceDealRequestWonWithoutContractReasonPurchaseOrder  AdvanceDealRequestWonWithoutContractReason = "purchase_order"
+	AdvanceDealRequestWonWithoutContractReasonRenewalByEmail AdvanceDealRequestWonWithoutContractReason = "renewal_by_email"
+	AdvanceDealRequestWonWithoutContractReasonVerbal         AdvanceDealRequestWonWithoutContractReason = "verbal"
+)
+
+// Valid indicates whether the value is a known member of the AdvanceDealRequestWonWithoutContractReason enum.
+func (e AdvanceDealRequestWonWithoutContractReason) Valid() bool {
+	switch e {
+	case AdvanceDealRequestWonWithoutContractReasonImported:
+		return true
+	case AdvanceDealRequestWonWithoutContractReasonLessThannil:
+		return true
+	case AdvanceDealRequestWonWithoutContractReasonOther:
+		return true
+	case AdvanceDealRequestWonWithoutContractReasonPurchaseOrder:
+		return true
+	case AdvanceDealRequestWonWithoutContractReasonRenewalByEmail:
+		return true
+	case AdvanceDealRequestWonWithoutContractReasonVerbal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdvanceProjectPhaseRequestToPhase.
 const (
 	AdvanceProjectPhaseRequestToPhaseClosed     AdvanceProjectPhaseRequestToPhase = "closed"
@@ -3621,6 +3651,36 @@ func (e DealStatus) Valid() bool {
 	case DealStatusOpen:
 		return true
 	case DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DealWonWithoutContractReason.
+const (
+	DealWonWithoutContractReasonImported       DealWonWithoutContractReason = "imported"
+	DealWonWithoutContractReasonLessThannil    DealWonWithoutContractReason = "<nil>"
+	DealWonWithoutContractReasonOther          DealWonWithoutContractReason = "other"
+	DealWonWithoutContractReasonPurchaseOrder  DealWonWithoutContractReason = "purchase_order"
+	DealWonWithoutContractReasonRenewalByEmail DealWonWithoutContractReason = "renewal_by_email"
+	DealWonWithoutContractReasonVerbal         DealWonWithoutContractReason = "verbal"
+)
+
+// Valid indicates whether the value is a known member of the DealWonWithoutContractReason enum.
+func (e DealWonWithoutContractReason) Valid() bool {
+	switch e {
+	case DealWonWithoutContractReasonImported:
+		return true
+	case DealWonWithoutContractReasonLessThannil:
+		return true
+	case DealWonWithoutContractReasonOther:
+		return true
+	case DealWonWithoutContractReasonPurchaseOrder:
+		return true
+	case DealWonWithoutContractReasonRenewalByEmail:
+		return true
+	case DealWonWithoutContractReasonVerbal:
 		return true
 	default:
 		return false
@@ -8789,31 +8849,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -9209,22 +9269,22 @@ func (e VoiceProfileVersionStatus) Valid() bool {
 
 // Defines values for WebhookDeliveryStatus.
 const (
-	WebhookDeliveryStatusDeadLettered WebhookDeliveryStatus = "dead_lettered"
-	WebhookDeliveryStatusDelivered    WebhookDeliveryStatus = "delivered"
-	WebhookDeliveryStatusPending      WebhookDeliveryStatus = "pending"
-	WebhookDeliveryStatusRetrying     WebhookDeliveryStatus = "retrying"
+	DeadLettered WebhookDeliveryStatus = "dead_lettered"
+	Delivered    WebhookDeliveryStatus = "delivered"
+	Pending      WebhookDeliveryStatus = "pending"
+	Retrying     WebhookDeliveryStatus = "retrying"
 )
 
 // Valid indicates whether the value is a known member of the WebhookDeliveryStatus enum.
 func (e WebhookDeliveryStatus) Valid() bool {
 	switch e {
-	case WebhookDeliveryStatusDeadLettered:
+	case DeadLettered:
 		return true
-	case WebhookDeliveryStatusDelivered:
+	case Delivered:
 		return true
-	case WebhookDeliveryStatusPending:
+	case Pending:
 		return true
-	case WebhookDeliveryStatusRetrying:
+	case Retrying:
 		return true
 	default:
 		return false
@@ -10722,10 +10782,19 @@ type AdvanceDealRequest struct {
 
 	// ToStageId Target stage (must belong to the deal's pipeline).
 	ToStageId openapi_types.UUID `json:"to_stage_id"`
+
+	// WonWithoutContractDetail What the reason was. Required when it is `other`, which explains nothing alone.
+	WonWithoutContractDetail *string `json:"won_without_contract_detail,omitempty"`
+
+	// WonWithoutContractReason Why this win has no agreement behind it (ADR-0109 §6). Omit when the deal has a signed contract with its paper attached — the server looks for one, and refuses a win that offers neither. Both answers are legitimate; recording which is what makes the gap countable.
+	WonWithoutContractReason *AdvanceDealRequestWonWithoutContractReason `json:"won_without_contract_reason,omitempty"`
 }
 
 // AdvanceDealRequestStatus Set when advancing into a terminal stage.
 type AdvanceDealRequestStatus string
+
+// AdvanceDealRequestWonWithoutContractReason Why this win has no agreement behind it (ADR-0109 §6). Omit when the deal has a signed contract with its paper attached — the server looks for one, and refuses a win that offers neither. Both answers are legitimate; recording which is what makes the gap countable.
+type AdvanceDealRequestWonWithoutContractReason string
 
 // AdvanceProjectPhaseRequest defines model for AdvanceProjectPhaseRequest.
 type AdvanceProjectPhaseRequest struct {
@@ -13508,8 +13577,14 @@ type Deal struct {
 	Version *RowVersion `json:"version,omitempty"`
 
 	// WaitUntil 'Customer asked us to wait until' date; suppresses the stalled flag but not the overdue close-date flag.
-	WaitUntil            *openapi_types.Date    `json:"wait_until,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
+	WaitUntil *openapi_types.Date `json:"wait_until,omitempty"`
+
+	// WonWithoutContractDetail Required when the reason is `other`, which explains nothing on its own.
+	WonWithoutContractDetail *string `json:"won_without_contract_detail,omitempty"`
+
+	// WonWithoutContractReason Why this deal was won with no contract behind it (ADR-0109 §6). NULL on a won deal that HAS one — the two are distinguishable, which is what makes "how many won deals have no paper, and why" answerable. Cleared on reopen and on any transition away from won.
+	WonWithoutContractReason *DealWonWithoutContractReason `json:"won_without_contract_reason,omitempty"`
+	AdditionalProperties     map[string]interface{}        `json:"-"`
 }
 
 // DealForecastCategory defines model for Deal.ForecastCategory.
@@ -13517,6 +13592,9 @@ type DealForecastCategory string
 
 // DealStatus defines model for Deal.Status.
 type DealStatus string
+
+// DealWonWithoutContractReason Why this deal was won with no contract behind it (ADR-0109 §6). NULL on a won deal that HAS one — the two are distinguishable, which is what makes "how many won deals have no paper, and why" answerable. Cleared on reopen and on any transition away from won.
+type DealWonWithoutContractReason string
 
 // DealCoverage defines model for DealCoverage.
 type DealCoverage struct {
@@ -25842,6 +25920,22 @@ func (a *Deal) UnmarshalJSON(b []byte) error {
 		delete(object, "wait_until")
 	}
 
+	if raw, found := object["won_without_contract_detail"]; found {
+		err = json.Unmarshal(raw, &a.WonWithoutContractDetail)
+		if err != nil {
+			return fmt.Errorf("error reading 'won_without_contract_detail': %w", err)
+		}
+		delete(object, "won_without_contract_detail")
+	}
+
+	if raw, found := object["won_without_contract_reason"]; found {
+		err = json.Unmarshal(raw, &a.WonWithoutContractReason)
+		if err != nil {
+			return fmt.Errorf("error reading 'won_without_contract_reason': %w", err)
+		}
+		delete(object, "won_without_contract_reason")
+	}
+
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]interface{})
 		for fieldName, fieldBuf := range object {
@@ -26036,6 +26130,20 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		object["wait_until"], err = json.Marshal(a.WaitUntil)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_until': %w", err)
+		}
+	}
+
+	if a.WonWithoutContractDetail != nil {
+		object["won_without_contract_detail"], err = json.Marshal(a.WonWithoutContractDetail)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'won_without_contract_detail': %w", err)
+		}
+	}
+
+	if a.WonWithoutContractReason != nil {
+		object["won_without_contract_reason"], err = json.Marshal(a.WonWithoutContractReason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'won_without_contract_reason': %w", err)
 		}
 	}
 

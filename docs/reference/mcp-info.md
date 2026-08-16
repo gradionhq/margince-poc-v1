@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 39 |
 | Resources | 8 |
-| Tool catalog | 109.6 KB |
+| Tool catalog | 110.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28835 |
+| Approx. wire tokens | 28932 |
 | Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 46.1 KB | 42% | **No** — a result's shape, never listed to a model |
+| Output schemas | 46.1 KB | 41% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 29.2 KB | 26% | Yes, every step |
-| Input schemas | 26.0 KB | 23% | Yes, every step |
+| Input schemas | 26.4 KB | 24% | Yes, every step |
 | _Names, annotations, punctuation_ | 8.3 KB | 7% | Partly |
-| **Description + input schema** | **55.2 KB** | **50%** | **the recurring cost** |
+| **Description + input schema** | **55.6 KB** | **50%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -60,7 +60,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
-| [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 2.9 KB |
+| [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
@@ -514,6 +514,21 @@ Move a deal to a different stage of its pipeline. The stage is named by id, not 
     "to_stage_id": {
       "description": "The target stage, by id — obtain it from list_pipelines, since a deal you have read carries only the stage it is already IN. That stage's semantic decides what happens next: open executes immediately, won or lost is staged for a human's approval.",
       "format": "uuid",
+      "type": "string"
+    },
+    "won_without_contract_detail": {
+      "description": "What the reason was, required when it is other",
+      "type": "string"
+    },
+    "won_without_contract_reason": {
+      "description": "Why this win has no contract behind it. Omit when the deal has a signed contract with its paper attached; a win claiming neither is refused.",
+      "enum": [
+        "imported",
+        "purchase_order",
+        "verbal",
+        "renewal_by_email",
+        "other"
+      ],
       "type": "string"
     }
   },

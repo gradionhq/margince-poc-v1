@@ -29,6 +29,11 @@ type AdvanceDealInput struct {
 	ToStageID  ids.StageID
 	LostReason *string
 	IfVersion  *int64
+	// WonWithoutContractReason says why this win has no agreement behind it
+	// (ADR-0109 §6). Absent means the deal claims one, and the store looks for
+	// it — a win that claims nothing and offers no reason is what gets refused.
+	WonWithoutContractReason *string
+	WonWithoutContractDetail *string
 }
 
 // StagePipelineMismatchError maps to 422: the target stage exists but
@@ -97,6 +102,14 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		semantic, winProbability, err := resolveAdvanceTarget(ctx, tx, in.ToStageID, current)
 		if err != nil {
 			return err
+		}
+		// Checked inside the transaction that writes the transition, and
+		// checked BEFORE the patch is built, so a refusal costs nothing and a
+		// concurrent archive cannot remove the evidence between the two.
+		if StageSemantic(semantic) == SemanticWon {
+			if err := ensureWinEvidence(ctx, tx, id, in); err != nil {
+				return err
+			}
 		}
 
 		p, status, err := s.stageTransitionPatch(ctx, tx, current, in, semantic)
@@ -229,6 +242,18 @@ func (s *Store) stageTransitionPatch(ctx context.Context, tx pgx.Tx,
 	// refuses that state (issue #483).
 	if DealStatus(status) == DealLost && in.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, *in.LostReason)
+	}
+	// The won-without-contract reason is written only on a win, and cleared on
+	// every other landing — including a re-decided lost deal, which is the case
+	// the lost_reason CHECK above misses. A reason describing a previous close
+	// is worse than none: it answers the report with a fact about a different
+	// outcome.
+	if DealStatus(status) == DealWon {
+		p.Set("won_without_contract_reason", current.WonWithoutContractReason, in.WonWithoutContractReason)
+		p.Set("won_without_contract_detail", current.WonWithoutContractDetail, in.WonWithoutContractDetail)
+	} else {
+		p.Set("won_without_contract_reason", current.WonWithoutContractReason, nil)
+		p.Set("won_without_contract_detail", current.WonWithoutContractDetail, nil)
 	}
 	// Closing with an amount freezes today's FX rate so base-currency
 	// roll-ups stay reproducible (deal_closed_fx).

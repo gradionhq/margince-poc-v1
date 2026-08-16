@@ -10,16 +10,16 @@
   "totals": {
     "tools": 39,
     "resources": 8,
-    "tool_catalog_bytes": 112232,
+    "tool_catalog_bytes": 112621,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 28835,
+    "approx_wire_tokens_total": 28932,
     "largest_tool_bytes": 4639,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 29874,
-      "input_schema_bytes": 26646,
+      "input_schema_bytes": 27035,
       "output_schema_bytes": 47191,
-      "description_plus_input_schema_bytes": 56520
+      "description_plus_input_schema_bytes": 56909
     }
   },
   "tools": {
@@ -273,6 +273,21 @@
             "to_stage_id": {
               "description": "The target stage, by id — obtain it from list_pipelines, since a deal you have read carries only the stage it is already IN. That stage's semantic decides what happens next: open executes immediately, won or lost is staged for a human's approval.",
               "format": "uuid",
+              "type": "string"
+            },
+            "won_without_contract_detail": {
+              "description": "What the reason was, required when it is other",
+              "type": "string"
+            },
+            "won_without_contract_reason": {
+              "description": "Why this win has no contract behind it. Omit when the deal has a signed contract with its paper attached; a win claiming neither is refused.",
+              "enum": [
+                "imported",
+                "purchase_order",
+                "verbal",
+                "renewal_by_email",
+                "other"
+              ],
               "type": "string"
             }
           },

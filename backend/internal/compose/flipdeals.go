@@ -78,7 +78,14 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 			reason := "imported closed-lost from the incumbent estate"
 			lostReason = &reason
 		}
-		if _, err := w.deals.AdvanceDeal(ctx, dealID, deals.AdvanceDealInput{ToStageID: *placement.closedStage, LostReason: lostReason}); err != nil {
+		if _, err := w.deals.AdvanceDeal(ctx, dealID, deals.AdvanceDealInput{
+			ToStageID: *placement.closedStage, LostReason: lostReason,
+			// A deal adopted from the incumbent estate has no agreement in
+			// Margince, by construction — the paper, if any, lives in the system
+			// it came from. `imported` is the true answer, and supplying it is
+			// what keeps the gap countable instead of exempting the whole import.
+			WonWithoutContractReason: importedWinReason(placement.closedSemantic),
+		}); err != nil {
 			return migration.EnsureResult{}, fmt.Errorf("flip import: closing imported deal %s: %w", row.ExternalID, err)
 		}
 	}
@@ -127,6 +134,7 @@ func (w *flipWriters) settleAdoptedDeal(ctx context.Context, dealID ids.DealID, 
 	}
 	if _, err := w.deals.AdvanceDeal(ctx, dealID, deals.AdvanceDealInput{
 		ToStageID: *placement.closedStage, LostReason: lostReason,
+		WonWithoutContractReason: importedWinReason(placement.closedSemantic),
 	}); err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: closing adopted deal %s: %w", row.ExternalID, err)
 	}
@@ -141,4 +149,15 @@ func (w *flipWriters) settleAdoptedDeal(ctx context.Context, dealID ids.DealID, 
 // while skipping an open one leaves the estate's revenue wrong.
 func adoptedDealNeedsClosing(placement flipPlacement, nativeStatus deals.DealStatus) bool {
 	return placement.closedStage != nil && nativeStatus == deals.DealOpen
+}
+
+// importedWinReason answers the win gate for a deal adopted from an incumbent
+// system: `imported` on a win, nothing on a loss. The gate only asks on a win,
+// and a reason on a lost deal would be refused by the column's own CHECK.
+func importedWinReason(semantic string) *string {
+	if semantic == stageSemanticLost {
+		return nil
+	}
+	reason := "imported"
+	return &reason
 }

@@ -17367,6 +17367,19 @@ components:
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost], default: open }
         lost_reason: { type: [string, 'null'], description: Required when status=lost. }
+        won_without_contract_reason:
+          type: [string, 'null']
+          enum: [imported, purchase_order, verbal, renewal_by_email, other, null]
+          readOnly: true
+          description: >-
+            Why this deal was won with no contract behind it (ADR-0109 §6). NULL on a won
+            deal that HAS one — the two are distinguishable, which is what makes "how many
+            won deals have no paper, and why" answerable. Cleared on reopen and on any
+            transition away from won.
+        won_without_contract_detail:
+          type: [string, 'null']
+          readOnly: true
+          description: Required when the reason is `other`, which explains nothing on its own.
         forecast_category: { type: [string, 'null'], enum: [null, commit, best_case, pipeline, omitted] }
         expected_close_date: { type: [string, 'null'], format: date, description: 'INV-CLOSE-PAST (formulas §11): an open deal never claims a past close date — saving one is rejected 422 (close_date_past); one that ages into the past is corrected by the nightly run.' }
         close_date_provisional: { type: boolean, readOnly: true, description: 'True while the close date is a machine-computed replacement awaiting human confirmation (formulas §11 🟡 tier); a provisional deal stays out of Commit/Best-case. Cleared when a human sets the date.' }
@@ -17437,6 +17450,17 @@ components:
         to_stage_id: { type: string, format: uuid, description: Target stage (must belong to the deal's pipeline). }
         status: { type: string, enum: [open, won, lost], description: Set when advancing into a terminal stage. }
         lost_reason: { type: [string, 'null'], description: Required if status=lost. }
+        won_without_contract_reason:
+          type: [string, 'null']
+          enum: [imported, purchase_order, verbal, renewal_by_email, other, null]
+          description: >-
+            Why this win has no agreement behind it (ADR-0109 §6). Omit when the deal has a
+            signed contract with its paper attached — the server looks for one, and refuses
+            a win that offers neither. Both answers are legitimate; recording which is what
+            makes the gap countable.
+        won_without_contract_detail:
+          type: [string, 'null']
+          description: What the reason was. Required when it is `other`, which explains nothing alone.
 
     DealListResponse:
       type: object
