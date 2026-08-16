@@ -167,6 +167,15 @@ func DocumentMIMEs() []string { return slices.Clone(carriesImagesAndPDF) }
 // two answers drift apart.
 func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
 
+// isFetchableURL reports whether an attachment's URI is a URL the vendor can
+// fetch for itself, as opposed to a handle scoped to some provider's own file
+// registry. Every adapter that takes a URI has to answer this — openai to pick
+// file_url over file_id, anthropic to decide whether it can send the part at
+// all — so the two answer it the same way.
+func isFetchableURL(uri string) bool {
+	return strings.HasPrefix(uri, "https://") || strings.HasPrefix(uri, "http://")
+}
+
 func (c *openAICompatClient) Caps() model.Capabilities {
 	// EmbedDims stays 0 (unknown): the width is a property of whichever
 	// model the deployment serves, discovered from the first Embed call.
@@ -215,7 +224,7 @@ func attachmentUnsupported(provider string, atts []model.Attachment, declared []
 // itself is not echoed — it can be a signed URL, and an error message is the
 // wrong place for one.
 func errUnfetchableAttachmentURI(provider, accepts string) error {
-	return fmt.Errorf("ai: %s: an attachment given by uri cannot be sent on this wire, which takes %s: %w",
+	return fmt.Errorf("ai: %s: this attachment's uri is not one this wire can resolve; it takes %s: %w",
 		provider, accepts, model.ErrAttachmentUnsupported)
 }
 

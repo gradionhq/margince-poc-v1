@@ -15,7 +15,6 @@ package ai
 import (
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -27,6 +26,10 @@ import (
 const (
 	anthropicBlockText  = "text"
 	anthropicBlockImage = "image"
+	// The two spellings an image block's source takes: bytes the request
+	// carries, or a URL the API fetches for itself.
+	anthropicSourceBase64 = "base64"
+	anthropicSourceURL    = "url"
 )
 
 type anthropicMessage struct {
@@ -109,10 +112,10 @@ func anthropicMessages(msgs []model.Message, atts []model.Attachment) []anthropi
 // admits nothing else.
 func anthropicImageBlock(a model.Attachment) anthropicBlock {
 	if a.URI != "" {
-		return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{Type: "url", URL: a.URI}}
+		return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{Type: anthropicSourceURL, URL: a.URI}}
 	}
 	return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{
-		Type:      "base64",
+		Type:      anthropicSourceBase64,
 		MediaType: a.MIME,
 		Data:      base64.StdEncoding.EncodeToString(a.Bytes),
 	}}
@@ -138,10 +141,4 @@ func anthropicRefuseAttachments(atts []model.Attachment) error {
 		}
 	}
 	return nil
-}
-
-// isFetchableURL reports whether a URI is one a vendor that fetches its own
-// attachments can resolve, as opposed to a handle scoped to some other provider.
-func isFetchableURL(uri string) bool {
-	return strings.HasPrefix(uri, "https://") || strings.HasPrefix(uri, "http://")
 }

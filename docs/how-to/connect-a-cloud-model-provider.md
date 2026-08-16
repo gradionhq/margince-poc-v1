@@ -13,7 +13,7 @@ for the full provider matrix. For the no-cloud path, see
 
 | `provider` | Use it for | Key env var | `base_url` |
 |---|---|---|---|
-| `anthropic` | Claude (native Messages API) | `ANTHROPIC_API_KEY` | optional (default `api.anthropic.com`) |
+| `anthropic` | Claude (native Messages API — image input) | `ANTHROPIC_API_KEY` | optional (default `api.anthropic.com`) |
 | `openai` | GPT (native Responses API — reasoning effort, prompt-cache + reasoning token usage, image/PDF input) | `OPENAI_API_KEY` | optional (default `api.openai.com`) |
 | `gemini` | Gemini (native `generateContent` — thinking level, thought-signature continuity, image/PDF input) | `GEMINI_API_KEY` | optional (default `…/v1beta`) |
 | `openai_compatible` | the OpenAI-wire long tail — Mistral, DeepSeek, Groq, Together, OpenRouter, a self-hosted gateway, … | `OPENAI_COMPATIBLE_API_KEY` | **required** |
@@ -23,7 +23,9 @@ environment**, read from the var above at boot (12-factor; a stray `api_key:` in
 the config is a startup error). Secrets never touch a config file.
 
 Reach for a **native** adapter (`openai`/`gemini`) when you want that vendor's
-reasoning/thinking knobs, document attachments, or itemized usage. Reach for
+reasoning/thinking knobs, itemized usage, or a PDF handed to the model whole —
+`anthropic` carries images but not PDFs, and `openai_compatible` carries only
+what its binding declares. Reach for
 `openai_compatible` for any vendor that speaks `/v1/chat/completions` and isn't
 worth a dedicated adapter — it is the correct default for everything that is not
 Anthropic, OpenAI, or Gemini.
