@@ -159,8 +159,7 @@ func admitCounterpartyShape(shape counterpartyShape) error {
 // The gate is narrow on purpose. It asks only about an address CORROBORATING a
 // human already named by a channel identity — never about the address a
 // mail-shaped record is named by, which is that record's identity and belongs to
-// no declaration. A source that never declared the key simply has the record
-// refused, which is the behaviour before merge keys existed.
+// no declaration. A source that never declared the key has the record refused.
 //
 // This runs for every caller of Upsert, not only for units. That is the point:
 // the unit-facing refusal lives in the ingress gate where it can be attributed

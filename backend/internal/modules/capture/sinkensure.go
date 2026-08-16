@@ -382,6 +382,14 @@ const priorKnownNonPerson = "known_nonperson"
 // an earlier verdict, a human typing them in, an import — counts as `real`:
 // what matters is that the address is already a known counterparty, not which
 // path made it one.
+//
+// With ONE exception, and it is the reason person_email.from_correspondence
+// exists: an address a channel connector's directory vouched for, on a human
+// reached on another medium, is not a verdict about mail. Reading it as one
+// would let a single direct message from a stranger settle their address as
+// known correspondence — auto-creating every later bulk mail from it and
+// switching off the noise sweep for it for good. It still identifies the
+// person; it just does not speak here.
 func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) (string, error) {
 	normalized := normalizeEmail(email)
 	if normalized == "" {
@@ -392,7 +400,8 @@ func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) 
 		SELECT CASE
 		         WHEN EXISTS (
 		           SELECT 1 FROM person_email pe JOIN person p ON p.id = pe.person_id
-		            WHERE pe.email = $1 AND p.archived_at IS NULL) THEN 'real'
+		            WHERE pe.email = $1 AND p.archived_at IS NULL
+		              AND pe.from_correspondence) THEN 'real'
 		         ELSE coalesce((
 		           -- A real-status row whose KIND names no human is not an
 		           -- instruction to create one. role_mailbox and

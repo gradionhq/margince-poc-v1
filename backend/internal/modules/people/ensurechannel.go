@@ -95,6 +95,13 @@ func (s *Store) EnsureChannelCounterparty(ctx context.Context, in EnsureChannelC
 		return EnsureChannelCounterpartyResult{},
 			errors.New("people: a channel counterparty needs both a provider and a channel user id")
 	}
+	// Normalized once, here, because four things downstream key on this address
+	// and they must agree on what "the same address" is: the subject lock, the
+	// suppression probe, the resolution ladder, and the row written onto the
+	// person. A provider that pads or capitalizes would otherwise mint a
+	// person_email row no later mail capture can match — the duplicate this path
+	// exists to prevent, reintroduced by whitespace.
+	in.CorroboratingEmail = normalizeEmail(in.CorroboratingEmail)
 	var res EnsureChannelCounterpartyResult
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
@@ -119,9 +126,16 @@ func (s *Store) ensureChannelCounterpartyTx(ctx context.Context, tx pgx.Tx, in E
 	// is partial on archived_at IS NULL, so nothing in the database refuses that
 	// second binding — and the erasure writes by person_id, so the rival it
 	// never named keeps the erased human's account and name for good.
-	if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
-		{Provider: in.Identity.Provider, ChannelUserID: in.Identity.ChannelUserID},
-	}); err != nil {
+	if err := storekit.LockSubjectKeys(ctx, tx,
+		[]storekit.ChannelIdentityKey{
+			{Provider: in.Identity.Provider, ChannelUserID: in.Identity.ChannelUserID},
+		},
+		// The address is locked too, and it is the half that covers the subject
+		// this path can otherwise reach mid-erasure: a human known only from
+		// mail holds no channel account, so an eraser locking accounts alone
+		// takes no lock, and the bind below would land inside their purge.
+		correspondingEmails(in.CorroboratingEmail),
+	); err != nil {
 		return EnsureChannelCounterpartyResult{}, err
 	}
 
@@ -169,24 +183,6 @@ func (s *Store) channelSubjectSuppressed(ctx context.Context, tx pgx.Tx, in Ensu
 	return storekit.EmailSuppressed(ctx, tx, in.CorroboratingEmail)
 }
 
-// channelCandidate is what the ladder is asked about: the account that NAMES the
-// human, and the address that merely corroborates them.
-//
-// Both go in together because the ladder's precedence is the answer to the
-// question a caller would otherwise have to ask itself — an established channel
-// binding outranks a shared address (dedupe.go) — and because a later lane
-// naming a different person is a report only the ladder can produce.
-func channelCandidate(in EnsureChannelCounterpartyInput, name string) PersonCandidate {
-	c := PersonCandidate{
-		FullName:          name,
-		ChannelIdentities: []connector.ChannelIdentity{in.Identity},
-	}
-	if in.CorroboratingEmail != "" {
-		c.Emails = []string{in.CorroboratingEmail}
-	}
-	return c
-}
-
 // resolveChannelPerson runs PO-F-1 over the channel identity and, when nothing
 // resolves, offers a new person — speculatively, because the bind is the
 // arbiter of the identity race, not this lookup.
@@ -214,6 +210,15 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 		// routing is this function's whole job, and design §7.3/D8 puts the
 		// identity-review decision one layer up, where a failure to raise it
 		// can be logged without risking the routing this message needs.
+		//
+		// A corroborating address is deliberately not written onto this person.
+		// The binding already names them, so the address buys no routing, and
+		// writing it per message would need its own add-if-absent guard and its
+		// own audit gate to avoid claiming a change on every message that
+		// changed nothing. A person bound here but holding no address is one
+		// minted before their source vouched for one; the ladder still reads the
+		// address on every message, so nothing is lost that a later mail capture
+		// would not also supply.
 		res.PersonID = match.PersonID
 		res.Conflict = match.Conflict
 		return nil
@@ -252,55 +257,6 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 	return nil
 }
 
-// adoptEmailRoutedIncumbent binds this account to the human the ADDRESS found —
-// someone already captured from mail, who holds no binding for this account yet.
-//
-// It is a sibling of offerChannelPerson rather than a branch inside the
-// resolver: both settle who the person is and bind the account to them, and the
-// difference — one mints, one adopts — is exactly what a reader needs held
-// apart.
-//
-// Nothing writes the address here. The email lane MATCHED, so it is already on
-// the incumbent by definition; an insert would collide with uq_person_email_dedupe
-// on every message from this sender, and an audit row would claim a change that
-// did not happen.
-//
-// Visibility is deliberately left alone. A mail-captured incumbent is
-// owner-visible, and adopting does not widen that: a stranger's direct message
-// must not be able to publish a rep's privately captured contact to the whole
-// workspace.
-func (s *Store) adoptEmailRoutedIncumbent(
-	ctx context.Context, tx pgx.Tx, in EnsureChannelCounterpartyInput,
-	match PersonResolution, res *EnsureChannelCounterpartyResult,
-) error {
-	// The ladder read is not the last word on WHICH row this is: a merge
-	// committing between that read and this write retires the incumbent, and a
-	// binding left on the retired row is a reply route nobody opens while the
-	// activity link — settled separately by linkActivityToPerson — points at the
-	// survivor. One hop is enough; a merge repoints rather than chains.
-	var canonical ids.PersonID
-	if err := tx.QueryRow(ctx,
-		`SELECT coalesce(merged_into_id, id) FROM person WHERE id = $1 FOR UPDATE`,
-		match.PersonID).Scan(&canonical); err != nil {
-		return fmt.Errorf("people: settling the person this channel account belongs to: %w", err)
-	}
-	bound, err := ResolveOrCreateChannelIdentity(ctx, tx, canonical, in.Identity)
-	if err != nil {
-		return err
-	}
-	// A concurrent first message from the same sender may have bound this
-	// account elsewhere while this transaction was working. The database is the
-	// arbiter, so the account's real owner is what came back — never the row
-	// this call proposed.
-	res.PersonID = bound
-	res.Conflict = match.Conflict
-	if bound != canonical {
-		return nil
-	}
-	return auditChannelIdentityChange(ctx, tx, canonical,
-		nil, map[string]any{fieldChannelIdentity: in.Identity.Provider})
-}
-
 // offerChannelPerson writes the ownerless person, binds the identity to it, and
 // reports which person the binding actually named — id when this call won, the
 // incumbent when a concurrent first message got there first. A fuzzy near-match
@@ -321,8 +277,8 @@ func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChan
 		FullName: name,
 		// The address the provider vouched for, written with the person rather
 		// than after it, so the person-create audit and event cover it — the
-		// mail path's own shape. Without this the record is minted addressless
-		// and the NEXT mail from this human mints a second one.
+		// mail path's own shape. An addressless record is one the next mail from
+		// this human cannot match, so it mints a second one.
 		Emails:     channelPersonEmails(in.CorroboratingEmail),
 		Visibility: visibilityWorkspace,
 		Source:     in.Source,
@@ -360,7 +316,15 @@ func channelPersonEmails(email string) []PersonEmailInput {
 	if email == "" {
 		return nil
 	}
-	return []PersonEmailInput{{Email: email, EmailType: emailTypeWork, IsPrimary: true}}
+	// Vouched, not corresponded: the provider's directory says this is their
+	// address, and nobody here has ever exchanged mail with it. Recording that
+	// is what keeps one direct message from a stranger out of the mail ladder's
+	// verdict, where it would mark the address a known counterparty for good and
+	// switch off the noise sweep for it permanently.
+	return []PersonEmailInput{{
+		Email: email, EmailType: emailTypeWork, IsPrimary: true,
+		VouchedNotCorresponded: true,
+	}}
 }
 
 // recordChannelDedupeCandidate stores the fuzzy pair the review queue renders,

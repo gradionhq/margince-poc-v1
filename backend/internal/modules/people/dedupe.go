@@ -111,15 +111,14 @@ type LaneConflict struct {
 // address, which outranks a phone number households and switchboards
 // share.
 //
-// Exported because PersonResolution.MatchedLane and LaneConflict's two lane
-// fields already hand these strings to callers, and a caller comparing against
-// a literal it spelled itself is a caller that keeps compiling after the
-// vocabulary moves. A fitness test holds LaneEmail equal to the published
-// extension.MergeKeyEmail for the same reason.
+// LaneEmail alone is exported, and only because the published
+// extension.MergeKeyEmail must equal it: a source declares that key to have an
+// address reach this lane, and a fitness test outside this package reads both to
+// hold them equal. The other two name no vocabulary beyond this module.
 const (
-	LaneChannelIdentity = "channel_identity"
+	laneChannelIdentity = "channel_identity"
 	LaneEmail           = "email"
-	LanePhone           = "phone"
+	lanePhone           = "phone"
 )
 
 // exactLane is one lane's answer, in ladder order.
@@ -167,9 +166,9 @@ func exactLanes(ctx context.Context, tx pgx.Tx, c PersonCandidate) ([]exactLane,
 		return nil, err
 	}
 	return []exactLane{
-		{LaneChannelIdentity, channelHit, channelFound},
+		{laneChannelIdentity, channelHit, channelFound},
 		{LaneEmail, emailHit, emailFound},
-		{LanePhone, phoneHit, phoneFound},
+		{lanePhone, phoneHit, phoneFound},
 	}, nil
 }
 

@@ -16,8 +16,10 @@ package connector
 // the address is evidence the resolution ladder may match against. Which is
 // which is settled once, by capture's counterpartyShapeOf. DisplayName is the
 // header's human name (may be empty or hostile — untrusted text); Domain is
-// the lowercased mail domain (empty for a channel record); Direction is
-// relative to the mailbox/bot owner (DirectionInbound | DirectionOutbound).
+// the lowercased mail domain, and stays empty on a channel record even when one
+// corroborates, because every gate that reads it is a mail gate the channel
+// shape short-circuits past; Direction is relative to the mailbox/bot owner
+// (DirectionInbound | DirectionOutbound).
 type Counterparty struct {
 	Email       string
 	DisplayName string

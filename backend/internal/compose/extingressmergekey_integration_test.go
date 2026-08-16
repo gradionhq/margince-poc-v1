@@ -37,7 +37,6 @@ func setupVouchingIngress(t *testing.T) *ingressEnv {
 func corroboratedChannelMessage(key, senderEmail, account string) extension.Record {
 	rec := aChannelMessage(key, senderEmail, account)
 	rec.Counterparty.Email = senderEmail
-	rec.Counterparty.Domain = "gmail.com"
 	return rec
 }
 
@@ -47,19 +46,18 @@ func (e *ingressEnv) ingest(t *testing.T, rec extension.Record) error {
 	return err
 }
 
-// Issue #1382, end to end through the real ingress, capture and resolution
-// path: a human already captured from mail sends a direct message and must not
-// become a second contact.
+// End to end through the real ingress, capture and resolution path: a human
+// already captured from mail sends a direct message and must not become a second
+// contact.
 //
 // The incumbent is created by the REAL writer — a mail-shaped record from the
 // same unit, resolved by the ladder's personal-domain tier — rather than
 // inserted by the test, so what this proves is what production does.
 //
 // The count is the assertion that matters. One person, holding both keys: the
-// address they were already known by, and the account they can now be answered
-// at. Before this the channel record could not carry the address at all, so the
-// ladder never saw it and minted a twin nobody noticed until a human opened the
-// Duplicates surface.
+// address they were already known by, and the account they can be answered at.
+// Without the address the ladder cannot see the incumbent and mints a twin,
+// which nobody notices until a human opens the Duplicates surface.
 func TestADirectMessageFindsTheHumanAlreadyCapturedFromMail(t *testing.T) {
 	e := setupVouchingIngress(t)
 	registerProbeTransport(t, e)

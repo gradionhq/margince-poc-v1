@@ -74,6 +74,8 @@ func TestAdoptingTheIncumbentTwiceWritesNothingTheSecondTime(t *testing.T) {
 	if _, err := e.store.EnsureChannelCounterparty(ctx, e.corroboratedInput(t, ci, "Dung", email)); err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
+	auditsAfterFirst := e.countInWorkspace(ctx, t,
+		`SELECT count(*) FROM audit_log WHERE entity_type = $1 AND entity_id = $2`, entityPerson, incumbent)
 	second, err := e.store.EnsureChannelCounterparty(ctx, e.corroboratedInput(t, ci, "Dung", email))
 	if err != nil {
 		t.Fatalf("second ensure: %v", err)
@@ -89,11 +91,21 @@ func TestAdoptingTheIncumbentTwiceWritesNothingTheSecondTime(t *testing.T) {
 	if n := e.countInWorkspace(ctx, t, `SELECT count(*) FROM person_email WHERE person_id = $1`, incumbent); n != 1 {
 		t.Fatalf("%d address rows after a replay, want 1", n)
 	}
+	// An audit row per replayed message would claim a change on every message
+	// that changed nothing — the same noise as a duplicate write, in the form
+	// nobody notices until they are reading the trail for a reason. Compared
+	// against the first ensure rather than a fixed number, so the assertion is
+	// about what the REPLAY wrote and not about how the incumbent was seeded.
+	if n := e.countInWorkspace(ctx, t,
+		`SELECT count(*) FROM audit_log WHERE entity_type = $1 AND entity_id = $2`,
+		entityPerson, incumbent); n != auditsAfterFirst {
+		t.Errorf("audit rows went %d -> %d across a replay; a message that changed nothing must write nothing", auditsAfterFirst, n)
+	}
 }
 
-// A source that vouched for the address and whose provider knew one mints the
-// person WITH it. Without this the record is created addressless and the next
-// mail from the same human mints a second record — the defect in #1382.
+// A source that vouched for the address, whose provider knew one, mints the
+// person WITH it. An addressless record is one the next mail from the same human
+// cannot match, so it mints a second record.
 func TestAMintedChannelPersonKeepsTheCorroboratingAddress(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.asChannelConnector()
@@ -119,10 +131,10 @@ func TestAMintedChannelPersonKeepsTheCorroboratingAddress(t *testing.T) {
 	}
 }
 
-// A13 on the ADDRESS key. The channel path only ever probed the channel key,
-// because it never held an address; once one flows, an erasure keyed on the
-// address must still stick — otherwise the subject's next direct message, naming
-// them by an account the suppression list never heard of, quietly recreates them.
+// A13 on the ADDRESS key: an erasure keyed on an address must stick even though
+// this path is entered by account. Otherwise the subject's next direct message,
+// naming them by an account the suppression list never heard of, quietly
+// recreates them.
 func TestAnErasedAddressIsNotResurrectedByADirectMessage(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.asChannelConnector()
@@ -145,5 +157,107 @@ func TestAnErasedAddressIsNotResurrectedByADirectMessage(t *testing.T) {
 	if n := e.countInWorkspace(ctx, t,
 		`SELECT count(*) FROM person_channel_identity WHERE channel_user_id = $1`, ci.ChannelUserID); n != 0 {
 		t.Errorf("%d bindings for an erased subject, want 0", n)
+	}
+}
+
+// The one disagreement the resolver cannot report for itself.
+//
+// This is the LOST BIND RACE, and it is reachable only between two statements:
+// the ladder's channel lane reads before a rival's binding exists — so it routes
+// on the address alone and reports no conflict — and by the time the bind runs,
+// the rival owns the account. The committed state is then two records describing
+// one human, and nothing downstream would say so, because compose raises the
+// identity review only when a conflict comes back.
+//
+// The race is driven by calling the adopt step with exactly the resolution the
+// ladder returns when only the email lane hit, against a rival binding that has
+// since committed. Everything else is the real thing: the real bind path decides
+// the winner, and the real database arbitrates.
+func TestLosingTheBindRaceStillRaisesTheIdentityReview(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.asChannelConnector()
+	const email = "shared@acme.example"
+	incumbent := e.seedPerson(e.as(), t, "Mail Captured", []string{email}, nil)
+	rival := e.seedPerson(e.as(), t, "Channel Captured", nil, nil)
+	ci := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "990501", Username: "shared"}
+	// The rival commits its binding in the window the ladder had already read
+	// past.
+	e.bindIdentity(ctx, t, rival, ci)
+
+	var res EnsureChannelCounterpartyResult
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return e.store.adoptEmailRoutedIncumbent(ctx, tx,
+			e.corroboratedInput(t, ci, "Shared", email),
+			// What DedupePerson returns when the channel lane missed and the
+			// address routed: a collision on the email lane, and no conflict,
+			// because at read time no rival binding existed to disagree.
+			PersonResolution{
+				Decision:    DecisionExactCollision,
+				PersonID:    incumbent,
+				MatchedLane: LaneEmail,
+			}, &res)
+	}); err != nil {
+		t.Fatalf("adopting the incumbent: %v", err)
+	}
+
+	if res.PersonID != rival {
+		t.Fatalf("landed on %s, want the account's real owner %s — the binding is the arbiter, not the address", res.PersonID, rival)
+	}
+	if res.Conflict == nil {
+		t.Fatal("no conflict reported — the address names one person and the account another, and nothing downstream would ever surface it")
+	}
+	if res.Conflict.RoutedTo != rival || res.Conflict.Rival != incumbent {
+		t.Errorf("conflict = routed %s / rival %s, want routed %s / rival %s",
+			res.Conflict.RoutedTo, res.Conflict.Rival, rival, incumbent)
+	}
+	if res.Conflict.RoutedLane != laneChannelIdentity || res.Conflict.RivalLane != LaneEmail {
+		t.Errorf("conflict lanes = %s/%s, want %s/%s — the binding outranks the address",
+			res.Conflict.RoutedLane, res.Conflict.RivalLane, laneChannelIdentity, LaneEmail)
+	}
+}
+
+// An address a connector's directory vouched for identifies the person, and it
+// must not also settle the MAIL ladder's question about that address.
+//
+// The ladder reads "a live person holds this address" as a verdict of `real`,
+// and the noise sweep refuses to touch an address a person holds. That reading
+// is sound for correspondence and for a human typing a contact in; it is not
+// sound for a stranger who sent one direct message. Left indistinguishable, that
+// stranger's address would be auto-created on every later bulk mail and made
+// permanently unsweepable — by messaging a member once.
+func TestAVouchedAddressIsNotEvidenceOfCorrespondence(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.asChannelConnector()
+	const vouched = "stranger@spamco.example"
+	ci := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "990601", Username: "stranger"}
+
+	res, err := e.store.EnsureChannelCounterparty(ctx, e.corroboratedInput(t, ci, "A Stranger", vouched))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	// Collected: the person is identified by it, which is what it is for.
+	if n := e.countInWorkspace(ctx, t,
+		`SELECT count(*) FROM person_email WHERE person_id = $1 AND email = $2`, res.PersonID, vouched); n != 1 {
+		t.Fatalf("%d address rows on the minted person, want the vouched address collected", n)
+	}
+	// But not as correspondence, which is what the mail ladder reads.
+	if n := e.countInWorkspace(ctx, t,
+		`SELECT count(*) FROM person_email WHERE person_id = $1 AND from_correspondence`, res.PersonID); n != 0 {
+		t.Errorf("%d of the minted person's addresses count as correspondence — one direct message would settle the mail ladder's verdict on a stranger's address", n)
+	}
+}
+
+// The control that makes the case above mean something: an address this
+// workspace really did correspond with still counts, or the flag would be
+// switching the ladder off rather than scoping it.
+func TestAMailCapturedAddressStillCountsAsCorrespondence(t *testing.T) {
+	e := setupDedupe(t)
+	const known = "real.contact@client.io"
+	person := e.seedPerson(e.as(), t, "Real Contact", []string{known}, nil)
+
+	if n := e.countInWorkspace(e.as(), t,
+		`SELECT count(*) FROM person_email WHERE person_id = $1 AND from_correspondence`, person); n != 1 {
+		t.Errorf("%d of a normally created person's addresses count as correspondence, want 1", n)
 	}
 }

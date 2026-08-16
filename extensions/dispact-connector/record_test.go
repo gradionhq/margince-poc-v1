@@ -81,8 +81,8 @@ func TestARecordCarriesWhatTheCoreDecidesWith(t *testing.T) {
 	// core admit it.
 	case rec.Counterparty.Email != "outside@example.com":
 		t.Errorf("email = %q on a direct message, want the sender's address carried as matching evidence", rec.Counterparty.Email)
-	case rec.Counterparty.Domain != "example.com":
-		t.Errorf("domain = %q, want the address's own domain", rec.Counterparty.Domain)
+	case rec.Counterparty.Domain != "":
+		t.Errorf("domain = %q on a direct message — every consumer of it is a mail gate the channel shape never reaches", rec.Counterparty.Domain)
 	case rec.Counterparty.ChannelIdentity.ChannelUserID == "":
 		t.Error("a direct message carries no account id — the address must not become the thing that names the sender")
 	case string(rec.Raw) != string(item.Raw):

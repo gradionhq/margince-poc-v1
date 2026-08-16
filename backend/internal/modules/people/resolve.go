@@ -253,7 +253,7 @@ func exactPersonOwners(ctx context.Context, tx pgx.Tx, c ResolveCandidate) ([]Re
 		if err != nil {
 			return nil, err
 		}
-		keep(hit, found, LanePhone, false)
+		keep(hit, found, lanePhone, false)
 	}
 	return out, nil
 }

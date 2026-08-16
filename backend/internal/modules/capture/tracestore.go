@@ -214,9 +214,9 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 	//
 	// MAIL rows only, and the channel_provider guard is what says so. The
 	// disposition ledger is the mail ladder's, keyed on an address; a channel
-	// message can now carry a corroborating address too, and without the guard a
-	// direct message would inherit the mail verdict pending for that same human
-	// — telling a member their captured, linked and answered conversation is
+	// message may carry a corroborating address, and without the guard a direct
+	// message inherits whatever mail verdict is pending for that same human —
+	// telling a member their captured, linked and answered conversation is
 	// "waiting on a verdict". A channel record has no ladder verdict to report,
 	// which is not the same as having one that is pending.
 	rows, err := tx.Query(ctx, storekit.SQLf(`

@@ -100,7 +100,7 @@ type PersonSpec struct {
 // several real people, so a shared number creates and the caller records the
 // pair for review (creatededupe.go states the same policy per lane).
 func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) (ids.PersonID, error) {
-	if match.Decision == DecisionExactCollision && match.MatchedLane != LanePhone {
+	if match.Decision == DecisionExactCollision && match.MatchedLane != lanePhone {
 		return ids.PersonID{}, refusedPersonCreate(ctx, tx, match, spec)
 	}
 	wsID := workspaceID(ctx)

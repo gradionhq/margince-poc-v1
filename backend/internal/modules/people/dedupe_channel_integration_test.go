@@ -175,9 +175,9 @@ func TestLadderPrefersChannelIdentityOverEmail(t *testing.T) {
 	if r.Conflict == nil {
 		t.Fatal("two lanes named different people and no conflict was reported")
 	}
-	if r.Conflict.RoutedLane != LaneChannelIdentity || r.Conflict.RivalLane != LaneEmail {
+	if r.Conflict.RoutedLane != laneChannelIdentity || r.Conflict.RivalLane != LaneEmail {
 		t.Fatalf("conflict lanes = %s over %s, want %s over %s",
-			r.Conflict.RoutedLane, r.Conflict.RivalLane, LaneChannelIdentity, LaneEmail)
+			r.Conflict.RoutedLane, r.Conflict.RivalLane, laneChannelIdentity, LaneEmail)
 	}
 	if r.Conflict.Rival != byEmail {
 		t.Fatalf("rival = %s, want the email lane's person %s", r.Conflict.Rival, byEmail)
@@ -242,8 +242,8 @@ func TestLaneConflictRoutesDeterministicallyAndReportsRival(t *testing.T) {
 		t.Fatalf("conflict = routed %s / rival %s, want routed %s / rival %s",
 			r.Conflict.RoutedTo, r.Conflict.Rival, personA, personB)
 	}
-	if r.Conflict.RoutedLane != LaneChannelIdentity || r.Conflict.RivalLane != LanePhone {
+	if r.Conflict.RoutedLane != laneChannelIdentity || r.Conflict.RivalLane != lanePhone {
 		t.Fatalf("conflict lanes = %s over %s, want %s over %s",
-			r.Conflict.RoutedLane, r.Conflict.RivalLane, LaneChannelIdentity, LanePhone)
+			r.Conflict.RoutedLane, r.Conflict.RivalLane, laneChannelIdentity, lanePhone)
 	}
 }
