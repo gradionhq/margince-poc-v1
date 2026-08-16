@@ -57,6 +57,7 @@ const schemaTemplate = `{
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
+          "contains": { "const": "text" },
           "items": { "enum": ["text", "image"] }
         }
       },

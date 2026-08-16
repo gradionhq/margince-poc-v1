@@ -32,6 +32,10 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 			yaml:      binding(`, input: [text, vision]`),
 			wantParts: []string{`"vision"`, "accepted: text, image"},
 		},
+		"a repeat is refused rather than deduped": {
+			yaml:      binding(`, input: [text, image, image]`),
+			wantParts: []string{`"image"`, "listed twice"},
+		},
 		"an empty list is not a way to say text-only": {
 			yaml:      binding(`, input: []`),
 			wantParts: []string{"is empty", "omit the field"},
@@ -94,6 +98,30 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 	// kind — declaring it must not widen carriage.
 	if got := carriageFor([]string{"text"}); got != nil {
 		t.Fatalf("text alone carries nothing, got %v", got)
+	}
+}
+
+// openAICompatImagePart builds an image_url part for whatever it is handed, and
+// what keeps that honest is that `image` is the only modality a binding can
+// declare. That is an obligation on the VOCABULARY, not on the builder: add a
+// modality carrying application/pdf or audio/* and a document would ship as an
+// image_url part — the silent mis-carriage this whole feature exists to prevent.
+// So widening modalityCarriage past images fails here, and the builder grows a
+// branch before the vocabulary grows the word.
+func TestEveryDeclarableCarriageIsImageShaped(t *testing.T) {
+	for modality, carried := range modalityCarriage {
+		for _, mime := range carried {
+			if !isImage(mime) {
+				t.Errorf("modality %q declares %q, which openAICompatImagePart would still ship as an image_url part", modality, mime)
+			}
+			// DocumentMIMEs() answers "could any binding have been handed this"
+			// from the code-fixed adapters alone. A declarable media type outside
+			// that set would make the certification corpus reject a fixture some
+			// binding can in fact be given.
+			if !slices.Contains(carriesImagesAndPDF, mime) {
+				t.Errorf("modality %q declares %q, which DocumentMIMEs() does not list", modality, mime)
+			}
+		}
 	}
 }
 

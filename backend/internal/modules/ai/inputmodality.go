@@ -84,10 +84,18 @@ func validateInput(label, provider string, input []string) error {
 	if len(input) == 0 {
 		return fmt.Errorf("ai: routing config: %s: `input` is empty; omit the field to bind a text-only model", label)
 	}
-	for _, modality := range input {
+	for i, modality := range input {
 		if !slices.Contains(acceptedModalities, modality) {
 			return fmt.Errorf("ai: routing config: %s: unknown input modality %q (accepted: %s)",
 				label, modality, strings.Join(acceptedModalities, ", "))
+		}
+		// A repeat is not additive — carriageFor concatenates, so the duplicate
+		// reaches Caps(), the ladder intersection and the operator's own error
+		// message as a doubled pattern. Refuse the input rather than dedupe it:
+		// the operator meant something by writing it twice, and neither reading
+		// is one this field has.
+		if slices.Contains(input[:i], modality) {
+			return fmt.Errorf("ai: routing config: %s: input modality %q is listed twice", label, modality)
 		}
 	}
 	if !slices.Contains(input, modalityText) {

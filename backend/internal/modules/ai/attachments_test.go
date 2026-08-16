@@ -5,7 +5,9 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -59,7 +61,13 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 // let the declaration decide nothing would leave the rejection arm above passing.
 func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
+	// The body is read, not discarded: "accepted" only means the gate let the
+	// call through, and a request that then dropped the attachment would look
+	// exactly the same from here. Asserting the part reached the wire is what
+	// makes this the map-or-reject test its name claims.
+	var sent []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent, _ = io.ReadAll(r.Body)
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	}))
 	defer srv.Close()
@@ -81,8 +89,28 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 				})
 				return err
 			}
+			sent = nil
 			if err := ask(model.Attachment{MIME: "image/png", Bytes: []byte("PNG")}); err != nil {
 				t.Fatalf("a binding declaring image must carry image/png, got %v", err)
+			}
+			var body struct {
+				Messages []struct {
+					Role    string
+					Content []struct {
+						Type     string
+						ImageURL struct{ URL string } `json:"image_url"`
+					}
+				}
+			}
+			if err := json.Unmarshal(sent, &body); err != nil {
+				t.Fatalf("the request body is not the parts shape: %v (%s)", err, sent)
+			}
+			last := body.Messages[len(body.Messages)-1]
+			if len(last.Content) == 0 || last.Content[len(last.Content)-1].Type != "image_url" {
+				t.Fatalf("the accepted image never reached the wire: %s", sent)
+			}
+			if url := last.Content[len(last.Content)-1].ImageURL.URL; !strings.HasPrefix(url, "data:image/png;base64,") {
+				t.Errorf("want the image as a data URL, got %q", url)
 			}
 			err = ask(model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")})
 			if !errors.Is(err, model.ErrAttachmentUnsupported) {

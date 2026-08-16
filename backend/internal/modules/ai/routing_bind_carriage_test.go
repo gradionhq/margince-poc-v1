@@ -8,19 +8,6 @@ import (
 	"testing"
 )
 
-// newLadderRouter builds a Router through the real construction path —
-// cfg.buildClients() is what a live process runs — so the carriage under test is
-// the one SelectBrain actually put on each rung, not a hand-set field a fake
-// could get wrong. The metering, budget and call-store seams are unused by
-// AttachmentMIMEs and stay nil.
-func newLadderRouter(cfg RoutingConfig) (*Router, error) {
-	clients, embedder, err := cfg.buildClients()
-	if err != nil {
-		return nil, err
-	}
-	return assembleRouter(clients, embedder, cfg.Profile, nil, nil, nil, embedInclusiveMeta(cfg), false, nil), nil
-}
-
 // The trap `input:` sets for an operator, held here rather than only in the
 // docs. A task's carriage is the INTERSECTION over its bound rungs, because the
 // budget guardrail can demote a call mid-month — so declaring the modality on
@@ -52,7 +39,7 @@ func TestDeclaringInputOnOneRungOfATwoRungLadderCarriesNothing(t *testing.T) {
 	}
 
 	t.Run("one rung declared is not enough", func(t *testing.T) {
-		router, err := newLadderRouter(routing(nil))
+		router, err := NewRouter(routing(nil), nil, nil, nil, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +49,7 @@ func TestDeclaringInputOnOneRungOfATwoRungLadderCarriesNothing(t *testing.T) {
 	})
 
 	t.Run("both rungs declared carries the modality", func(t *testing.T) {
-		router, err := newLadderRouter(routing([]string{"text", "image"}))
+		router, err := NewRouter(routing([]string{"text", "image"}), nil, nil, nil, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

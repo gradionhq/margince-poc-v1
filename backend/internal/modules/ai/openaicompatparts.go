@@ -70,8 +70,11 @@ func openAICompatMessages(system string, msgs []model.Message, atts []model.Atta
 	if len(atts) == 0 {
 		return out
 	}
-	idx := lastIndexOfRole(len(out), func(i int) string { return out[i].Role }, roleUser)
-	if idx == -1 {
+	idx := len(out) - 1
+	for idx >= 0 && out[idx].Role != roleUser {
+		idx--
+	}
+	if idx < 0 {
 		out = append(out, openAICompatMessage{Role: roleUser})
 		idx = len(out) - 1
 	}
@@ -97,17 +100,4 @@ func openAICompatImagePart(a model.Attachment) openAICompatContentPart {
 		url = dataURI(a.MIME, a.Bytes)
 	}
 	return openAICompatContentPart{Type: "image_url", ImageURL: &openAICompatImageURL{URL: url}}
-}
-
-// lastIndexOfRole finds the last item whose role matches, or -1. It takes the
-// length and an accessor rather than a slice so the two adapters' differently
-// typed message lists share the search without sharing a type — the part
-// building below and openai.go's differ, the search does not.
-func lastIndexOfRole(n int, roleAt func(int) string, want string) int {
-	for i := n - 1; i >= 0; i-- {
-		if roleAt(i) == want {
-			return i
-		}
-	}
-	return -1
 }

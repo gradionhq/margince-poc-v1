@@ -20,13 +20,17 @@ func TestATextOnlyTurnMarshalsToABareStringNotAPartsArray(t *testing.T) {
 	got, err := json.Marshal(openAICompatMessages("be brief", []model.Message{
 		{Role: roleUser, Content: "hello"},
 		{Role: roleAssistant, Content: "hi"},
+		// An empty body is the case a shape change is most likely to alter: the
+		// old string field carried no omitempty, so "" went on the wire as "".
+		{Role: roleUser, Content: ""},
 	}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	const want = `[{"role":"system","content":"be brief"},` +
 		`{"role":"user","content":"hello"},` +
-		`{"role":"assistant","content":"hi"}]`
+		`{"role":"assistant","content":"hi"},` +
+		`{"role":"user","content":""}]`
 	if string(got) != want {
 		t.Fatalf("text-only wire changed shape\n got: %s\nwant: %s", got, want)
 	}
