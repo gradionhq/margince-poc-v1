@@ -235,7 +235,7 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	wsID := workspaceID(ctx)
 	// The target is a KNOWN row; row-scope is re-checked here so a
 	// leaked org id buys nothing (existence-hiding 404).
-	if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 		return err
 	}
 	// Taken here when — and only when — this apply carries a name, on the same

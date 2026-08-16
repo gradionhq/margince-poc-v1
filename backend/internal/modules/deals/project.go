@@ -180,7 +180,7 @@ func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion 
 	}
 	var out crmcontracts.Project
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, projectObject, id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, projectObject, id.UUID); err != nil {
 			return err
 		}
 		// A liveness probe, not a wire read — no custom columns needed.

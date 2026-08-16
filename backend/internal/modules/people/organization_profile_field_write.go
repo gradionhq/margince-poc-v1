@@ -28,7 +28,7 @@ import (
 // refusal does not depend on whether the corrected field happens to have a
 // canonical column behind it.
 func ensureOrgWritable(ctx context.Context, tx pgx.Tx, id ids.OrganizationID) error {
-	return auth.EnsureVisibleLive(ctx, tx, "organization", id.UUID)
+	return auth.EnsureWritableLive(ctx, tx, "organization", id.UUID)
 }
 
 // canonicalOrgColumn maps a profile field onto the organization column that

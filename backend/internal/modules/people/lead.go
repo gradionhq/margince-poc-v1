@@ -369,7 +369,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 	}
 	var out crmcontracts.Lead
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "lead", id.UUID); err != nil {
 			return err
 		}
 		// The row lock makes the status read and the update below one

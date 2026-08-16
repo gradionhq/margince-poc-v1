@@ -107,7 +107,7 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 		// counter that survived the retry would tell the caller more claims
 		// landed than exist — and put that inflated number in the audit row.
 		saved = 0
-		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		for _, claim := range claims {

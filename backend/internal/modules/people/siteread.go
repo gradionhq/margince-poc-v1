@@ -196,7 +196,7 @@ func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.Organizatio
 	var joined bool
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		if orgID != nil {
-			if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
+			if err := auth.EnsureWritable(ctx, tx, "organization", orgID.UUID); err != nil {
 				return err
 			}
 		}

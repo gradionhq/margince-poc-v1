@@ -93,7 +93,7 @@ func (s *Store) RecordConversationClaim(ctx context.Context, in ClaimInput) (crm
 
 	var out crmcontracts.ConversationClaim
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisibleLive(ctx, tx, "person", in.PersonID.UUID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, "person", in.PersonID.UUID); err != nil {
 			return err
 		}
 		// Activities are reachability-scoped rather than row-scoped, so they

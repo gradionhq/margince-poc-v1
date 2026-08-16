@@ -142,7 +142,7 @@ func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 		// probe's query entirely, so an archived or erased subject would keep
 		// accruing verdicts — and a corrected_value is human-typed text about
 		// them that the profile-fields read would then render.
-		if err := auth.EnsureVisibleLive(ctx, tx, in.SubjectType, in.SubjectID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, in.SubjectType, in.SubjectID); err != nil {
 			return err
 		}
 		id, err := upsertVerdict(ctx, tx, in, key, capturedBy)

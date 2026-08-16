@@ -55,7 +55,7 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 
 	var out crmcontracts.Project
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, projectObject, id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, projectObject, id.UUID); err != nil {
 			return err
 		}
 		// A decision read, not a wire read — no custom columns needed.

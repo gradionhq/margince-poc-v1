@@ -135,7 +135,7 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInpu
 // caller's transaction. active names the workspace's custom-field columns
 // (fetched before the tx opened).
 func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in UpdateLeadInput, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
-	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	current, err := readLead(ctx, tx, id, storekit.LiveOnly, active)

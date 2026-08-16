@@ -80,7 +80,7 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, i
 		// The target is a KNOWN row — an enrichment never creates or resolves
 		// by domain. Row-scope is re-checked here so a leaked org id buys
 		// nothing (existence-hiding 404).
-		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
 		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
