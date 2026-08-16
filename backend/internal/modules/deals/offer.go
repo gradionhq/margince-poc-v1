@@ -257,6 +257,12 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived store
 // concurrent editors — or an edit racing a send — linearize and the
 // stored totals can never miss a committed line. The returned witness
 // lets the caller patch under the held lock (storekit.ApplyLocked).
+//
+// It also asks the harder authority question, and that is what makes it the
+// mutation spelling rather than merely the locked one. An offer inherits its
+// deal's row scope in both directions: visibleOffer proves the caller may READ
+// that deal, and an edit needs write-level authority over it — so a colleague
+// handed a `read` share of the deal cannot rewrite its offer.
 func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, storekit.RowLock, error) {
 	lock, err := storekit.LockRow(ctx, tx, "offer", id.UUID, storekit.LiveOnly)
 	if err != nil {
@@ -264,6 +270,9 @@ func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived
 	}
 	offer, err := visibleOffer(ctx, tx, id, archived)
 	if err != nil {
+		return crmcontracts.Offer{}, storekit.RowLock{}, err
+	}
+	if err := auth.EnsureWritable(ctx, tx, "deal", ids.UUID(offer.DealId)); err != nil {
 		return crmcontracts.Offer{}, storekit.RowLock{}, err
 	}
 	return offer, lock, nil

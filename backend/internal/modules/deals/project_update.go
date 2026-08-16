@@ -51,7 +51,7 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 	}
 	var out crmcontracts.Project
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, projectObject, id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, projectObject, id.UUID); err != nil {
 			return err
 		}
 		// current reads WITH active columns so the patch's audit

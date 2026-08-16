@@ -131,7 +131,7 @@ func (s *Store) UpdateContract(ctx context.Context, id ids.ContractID, in crmcon
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// The patch is a write, so the row must first be visible as a read —
 		// otherwise a caller learns a contract exists by patching it.
-		existing, err := readContract(ctx, tx, id, s.today())
+		existing, err := writableContract(ctx, tx, id, s.today())
 		if err != nil {
 			return err
 		}
@@ -181,7 +181,7 @@ func (s *Store) ArchiveContract(ctx context.Context, id ids.ContractID) error {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		existing, err := readContract(ctx, tx, id, s.today())
+		existing, err := writableContract(ctx, tx, id, s.today())
 		if err != nil {
 			return err
 		}

@@ -87,7 +87,7 @@ func (s *Store) ChangeStatus(ctx context.Context, id ids.ContractID, to string, 
 
 	var out crmcontracts.Contract
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		existing, err := readContract(ctx, tx, id, s.today())
+		existing, err := writableContract(ctx, tx, id, s.today())
 		if err != nil {
 			return err
 		}
@@ -172,7 +172,7 @@ func (s *Store) Cancel(ctx context.Context, id ids.ContractID, noticeOn, effecti
 
 	var out crmcontracts.Contract
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		existing, err := readContract(ctx, tx, id, s.today())
+		existing, err := writableContract(ctx, tx, id, s.today())
 		if err != nil {
 			return err
 		}
@@ -220,7 +220,7 @@ func (s *Store) Renew(ctx context.Context, id ids.ContractID, successor CreateCo
 
 	var out crmcontracts.Contract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		predecessor, err := readContract(ctx, tx, id, s.today())
+		predecessor, err := writableContract(ctx, tx, id, s.today())
 		if err != nil {
 			return err
 		}

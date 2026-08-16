@@ -312,14 +312,21 @@ GOLANGCI_LINT ?= $(shell test -x $(GOLANGCI_LINT_BIN) && echo $(GOLANGCI_LINT_BI
 # baseline (the depguard DAG lives there and must never be diff-scoped);
 # .golangci.strict.yml is the expanded strict set, gated to new
 # code via new-from-merge-base so the pre-existing backlog is not a burn-down.
+#
+# Both go through ../scripts/run-golangci.sh, the wrapper `make lint-modules`
+# also uses: golangci's analysis cache is machine-wide and content-keyed, so in
+# a tree worked in several worktrees at once it re-reports another checkout's
+# issues — with that checkout's path, and therefore without the //nolint: and
+# path-anchored waivers that path carried. This lane is exposed to it exactly
+# as the module lane is, so it is guarded in the same place rather than twice.
 lint: composition ## golangci-lint: repo-wide baseline + new-code strict set
 	@test -n "$(GOLANGCI_LINT)" || { \
 		echo "lint: golangci-lint not found — run 'make tools' (installs $(GOLANGCI_LINT_VERSION) to $$($(GO) env GOPATH)/bin)"; \
 		exit 1; \
 	}
-	$(GOWORK_COMPOSED) $(GOLANGCI_LINT) run ./...
+	$(GOWORK_COMPOSED) GOLANGCI_LINT="$(GOLANGCI_LINT)" ../scripts/run-golangci.sh run ./...
 	@if git rev-parse --verify -q origin/main >/dev/null; then \
-		$(GOWORK_COMPOSED) $(GOLANGCI_LINT) run --config .golangci.strict.yml ./...; \
+		$(GOWORK_COMPOSED) GOLANGCI_LINT="$(GOLANGCI_LINT)" ../scripts/run-golangci.sh run --config .golangci.strict.yml ./...; \
 	else \
 		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
 	fi

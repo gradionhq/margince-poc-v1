@@ -454,9 +454,11 @@ func defaultOccurredAt(occurredAt time.Time) time.Time {
 
 // skipInvisibleIncumbent refuses a record whose incumbent row — the lead an
 // address collides with, the activity a replayed natural key already landed
-// as — lies outside the granting human's row scope. Resolving it is not the
-// connector's to do: returning the ref would disclose a row the caller cannot
-// read, and writing a second row anyway would fork the record across scopes.
+// as — lies outside the granting human's authority over it. Resolving it is not
+// the connector's to do: returning the ref would disclose a row the caller
+// cannot read, folding the capture onto a row they hold only a `read` share of
+// would let the connector make a change they could not make themselves, and
+// writing a second row anyway would fork the record across scopes.
 // The natural key names the skip, never the captured address or the
 // incumbent's id — a skip must re-store neither PII nor an existence proof.
 func skipInvisibleIncumbent(rec connector.NormalizedRecord, object string) error {
@@ -470,4 +472,4 @@ func skipInvisibleIncumbent(rec connector.NormalizedRecord, object string) error
 // can see in their own mailbox simply never arrives and they deserve to know
 // why. The erased-channel skip is NOT traced -- writing one would re-store what
 // the erasure just removed.
-var errInvisibleIncumbent = errors.New("the incumbent row is outside the granting human's row scope")
+var errInvisibleIncumbent = errors.New("the incumbent row is outside the granting human's authority over it")

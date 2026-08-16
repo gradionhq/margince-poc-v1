@@ -85,7 +85,7 @@ func (s *Store) SetLeadManualSignal(ctx context.Context, leadID ids.LeadID, in S
 
 	var out crmcontracts.LeadManualSignal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisibleLive(ctx, tx, "lead", leadID.UUID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, "lead", leadID.UUID); err != nil {
 			return err
 		}
 		// The auto value wins (ADR-0105 §4), so a factor the model already
@@ -149,7 +149,7 @@ func (s *Store) ClearLeadManualSignal(ctx context.Context, leadID ids.LeadID, fa
 		return &UnknownLeadFactorError{Factor: factor}
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisibleLive(ctx, tx, "lead", leadID.UUID); err != nil {
+		if err := auth.EnsureWritableLive(ctx, tx, "lead", leadID.UUID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx,

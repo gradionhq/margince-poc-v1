@@ -31,18 +31,13 @@ cd "$(dirname "$0")/.."
 CONFIG="$PWD/backend/.golangci.yml"
 COMPOSED_WORK="$PWD/build/composition/go.work"
 
-# Prefer the version-pinned install from `make tools` over whatever is on PATH,
-# for the reason backend/Makefile spells out: a Homebrew golangci-lint would
-# silently lint at a version CI does not run.
-PINNED="$(go env GOPATH)/bin/golangci-lint"
-if [[ -x "$PINNED" ]]; then
-  GOLANGCI="$PINNED"
-elif command -v golangci-lint >/dev/null 2>&1; then
-  GOLANGCI="$(command -v golangci-lint)"
-else
-  echo "FAIL: golangci-lint not found — run 'make tools'"
-  exit 1
-fi
+# Every golangci invocation in this repo goes through the wrapper. It resolves
+# the version-pinned install from `make tools` over whatever is on PATH — for the
+# reason backend/Makefile spells out, that a Homebrew golangci-lint would
+# silently lint at a version CI does not run — and it refuses to let an issue the
+# machine-wide analysis cache remembers from ANOTHER worktree read as one of this
+# checkout's. scripts/run-golangci.sh says what that looks like unguarded.
+RUN_GOLANGCI="$PWD/scripts/run-golangci.sh"
 
 # The composed workspace resolves the extension units against the product
 # module. It is generated, so a caller who has never run a build lane has no
@@ -93,7 +88,7 @@ fi
 # looks like it passed and did not run.
 members="$(sed -n 's#^[[:space:]]*\.\./\.\./##p' "$COMPOSED_WORK")"
 
-# THREE ways this gate can fail, kept apart, because they are three different
+# FOUR ways this gate can fail, kept apart, because they are four different
 # questions for whoever reads the output and only one of them is about the code.
 #
 # golangci exits 1 when it RAN and found issues, and non-1 when it could not run
@@ -104,11 +99,19 @@ members="$(sed -n 's#^[[:space:]]*\.\./\.\./##p' "$COMPOSED_WORK")"
 # findings that did not exist. So the cd gets a reserved status of its own, well
 # outside the range golangci uses, and the run's exit is read rather than merely
 # tested.
+#
+# The fourth is the same shape one layer down, and reaches here as the wrapper's
+# own status: golangci RAN, and reported issues its machine-wide cache remembers
+# from a different worktree — against that worktree's paths, and so without the
+# waivers those paths carry. Findings in files this checkout does not contain,
+# under module names it does.
 readonly CANNOT_ENTER=90
+readonly STALE_CACHE=40
 
 findings=""
 unenterable=""
 broken=""
+stale=""
 count=0
 for mod in $modules; do
   count=$((count + 1))
@@ -125,16 +128,33 @@ for mod in $modules; do
   rc=0
   (
     cd "$mod" || exit "$CANNOT_ENTER"
-    GOWORK="$work" exec "$GOLANGCI" run --config "$CONFIG" \
+    GOWORK="$work" exec "$RUN_GOLANGCI" run --config "$CONFIG" \
       --max-same-issues=0 --max-issues-per-linter=0 ./...
   ) || rc=$?
   case "$rc" in
     0) ;;
     1) findings="$findings $mod" ;;
     "$CANNOT_ENTER") unenterable="$unenterable $mod" ;;
+    # The cache is machine-wide, so every module still to come is reading the
+    # same poisoned entries. Carrying on would print the same unactionable
+    # diagnosis once per module and close with a summary naming all of them.
+    "$STALE_CACHE")
+      stale="$mod"
+      break
+      ;;
     *) broken="$broken $mod(exit $rc)" ;;
   esac
 done
+
+if [[ -n "$stale" ]]; then
+  echo
+  echo "FAIL: lint-modules stopped at $stale — golangci answered from another checkout."
+  echo
+  echo "Its diagnosis is directly above, and it is not about this branch: clear the cache"
+  echo "as it says and run the gate again. Nothing before $stale is summarised either —"
+  echo "the same cache answered those modules, so their verdicts are worth no more."
+  exit 1
+fi
 
 if [[ -n "$unenterable" ]]; then
   echo

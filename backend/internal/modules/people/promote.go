@@ -295,7 +295,7 @@ func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenc
 // disqualified (archived, unpromoted) lead stays 404 like any archived
 // row.
 func promotableLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput) (crmcontracts.Lead, error) {
-	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	// An internal read that builds the promoted person; its result is not
@@ -360,13 +360,15 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		return ids.PersonID{}, nil, err
 	}
 	if match.Decision == DecisionExactCollision {
-		// Merging returns the person, so it is a read: a match the
-		// promoter cannot see answers a bare conflict, not the record.
-		visible, verr := auth.VisibleTo(ctx, tx, "person", match.PersonID.UUID)
+		// Merging CHANGES the matched person — the lead's fields land on it —
+		// and returns it, so the probe asks for write authority and the refusal
+		// still discloses nothing: a match the promoter cannot change answers a
+		// bare conflict, not the record, exactly as one they cannot see does.
+		writable, verr := auth.WritableBy(ctx, tx, "person", match.PersonID.UUID)
 		if verr != nil {
 			return ids.PersonID{}, nil, verr
 		}
-		if !visible {
+		if !writable {
 			return ids.PersonID{}, nil, apperrors.ErrConflict
 		}
 		*merged = true

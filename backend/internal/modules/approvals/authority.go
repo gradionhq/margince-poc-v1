@@ -354,7 +354,7 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 			return false, nil
 		}
 	}
-	return targetVisible(ctx, tx, a.TargetType, a.TargetID)
+	return targetDecidable(ctx, tx, a.TargetType, a.TargetID)
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {

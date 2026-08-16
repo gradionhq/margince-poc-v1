@@ -132,18 +132,23 @@ func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.PersonID) (crmc
 	return crmcontracts.Person{}, (*ids.UUID)(p.MergedIntoId), apperrors.ErrNotFound
 }
 
-// mergePair resolves and validates both ends. The source must be live and
-// visible; a source that was already merged away answers 409 with the
-// pointer (the caller just proved they can address the row, so the
-// outcome discloses nothing new — the AlreadyPromoted precedent). The
-// target must be live too: merging is a read of the survivor it returns,
-// so an out-of-scope target answers a bare conflict, and an archived one
-// can survive nothing.
+// mergePair resolves and validates both ends. A merge CHANGES both of them —
+// the source is archived onto the survivor, the survivor absorbs it — so both
+// ends carry the write-authority probe rather than the visibility one: a
+// colleague handed a `read` share of either record may not spend it on a merge.
+//
+// The source must be live and writable; a source that was already merged away
+// answers 409 with the pointer (the caller just proved they can address the
+// row, so the outcome discloses nothing new — the AlreadyPromoted precedent).
+// The target must be live too, and a target the caller cannot change answers a
+// bare conflict rather than naming itself, exactly as an out-of-scope one does:
+// merging returns the survivor, so the refusal must disclose no more than the
+// caller could already read. An archived target can survive nothing.
 func mergePair[T any, K ids.EntityKind](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.ID[K],
 	read func(context.Context, pgx.Tx, ids.ID[K]) (T, *ids.UUID, error),
 ) (source, target T, err error) {
 	var zero T
-	if err := auth.EnsureVisible(ctx, tx, kind, sourceID.UUID); err != nil {
+	if err := auth.EnsureWritable(ctx, tx, kind, sourceID.UUID); err != nil {
 		return zero, zero, err
 	}
 	source, mergedInto, err := read(ctx, tx, sourceID)
@@ -154,11 +159,11 @@ func mergePair[T any, K ids.EntityKind](ctx context.Context, tx pgx.Tx, kind str
 		return zero, zero, err
 	}
 
-	visible, err := auth.VisibleTo(ctx, tx, kind, targetID.UUID)
+	writable, err := auth.WritableBy(ctx, tx, kind, targetID.UUID)
 	if err != nil {
 		return zero, zero, err
 	}
-	if !visible {
+	if !writable {
 		return zero, zero, apperrors.ErrConflict
 	}
 	target, _, err = read(ctx, tx, targetID)

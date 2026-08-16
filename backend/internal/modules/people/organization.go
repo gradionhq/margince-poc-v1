@@ -206,7 +206,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 	}
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active)

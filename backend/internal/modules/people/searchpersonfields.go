@@ -70,7 +70,7 @@ func (s *Store) ApplyDiscoveredFields(ctx context.Context, personID ids.PersonID
 	}
 	var applied []string
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		out, err := fillDiscoveredFields(ctx, tx, personID, by, fields)

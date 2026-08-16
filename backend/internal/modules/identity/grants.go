@@ -313,6 +313,39 @@ func refuseWriteGrantToReadSeat(ctx context.Context, tx pgx.Tx, in CreateGrantIn
 	return nil
 }
 
+// mayRevoke answers who may take a share away, and it is deliberately not the
+// same question as who may see the record.
+//
+// Revoking is administration OF the sharing, so it wants the same authority
+// asserting one does (ADR-0039's scope-intersection rule, EnsureCanGrant):
+// otherwise anyone the record was ever shared with — read-only — could delete a
+// colleague's `write` grant on it, which is not an escalation but is a way to
+// take work away from people who are doing it. The write probe is what stops
+// that, and it keeps the read half's 404 first, so a caller who cannot see the
+// record still learns nothing from the shape of the refusal.
+//
+// The one arm that is NOT about authority over the record is a subject
+// declining their own share. That was possible before this rule and stays
+// possible: the grant names them, taking it away costs nobody anything, and
+// nothing else in the product lets a person get out from under a share they did
+// not ask for. A TEAM grant is not covered — its subject is the team, not the
+// member reading it — so removing one is the record's business.
+func mayRevoke(ctx context.Context, tx pgx.Tx, actor principal.Principal, grant grantRow) error {
+	if grant.SubjectType == "user" && grant.SubjectID == actor.UserID {
+		return nil
+	}
+	// Both gates sit INSIDE this branch, and that placement is the exception
+	// working rather than a tidy-up. The object grant reads "may this role
+	// change records of this kind" — a question declining your own share does
+	// not ask, and one a read-only seat answers no to. Checking it before the
+	// self arm would have left exactly the seat most likely to be handed a
+	// share it did not want with no way to give it back.
+	if err := auth.Require(ctx, grant.RecordType, principal.ActionUpdate); err != nil {
+		return err
+	}
+	return auth.EnsureWritableLive(ctx, tx, grant.RecordType, grant.RecordID)
+}
+
 func (s *Service) RevokeRecordGrant(ctx context.Context, id ids.UUID) error {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
@@ -331,10 +364,7 @@ func (s *Service) RevokeRecordGrant(ctx context.Context, id ids.UUID) error {
 		if err != nil {
 			return err
 		}
-		if err := auth.Require(ctx, grant.RecordType, principal.ActionUpdate); err != nil {
-			return err
-		}
-		if err := auth.EnsureLinkTarget(ctx, tx, grant.RecordType, grant.RecordID); err != nil {
+		if err := mayRevoke(ctx, tx, actor, grant); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM record_grant WHERE id = $1`, id); err != nil {

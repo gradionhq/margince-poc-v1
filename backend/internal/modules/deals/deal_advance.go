@@ -79,7 +79,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
+		if err := auth.EnsureWritable(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		// A decision read (stage/amount snapshot for the transition patch
