@@ -108,14 +108,6 @@ func TestTheRecordGrammarRefusesWhatCannotBeLandedHonestly(t *testing.T) {
 		"a channel display name over the cap": namedByAccount(extension.ChannelIdentity{
 			Provider: "dispact", ChannelUserID: "G-1", DisplayName: strings.Repeat("n", extension.MaxDisplayNameRunes+1),
 		}),
-		// Named TWICE — the address KEPT this time. The core refuses it
-		// (ErrCounterpartyNamedTwice) because an address and a channel account
-		// resolve through different ladders, and the published grammar refuses it
-		// here so a unit reads the reason rather than an unattributable "the core
-		// could not land this record".
-		"a counterparty named by an address and by an account": func(r *extension.Record) {
-			r.Counterparty.ChannelIdentity = extension.ChannelIdentity{Provider: "dispact", ChannelUserID: "G-1"}
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := aValidRecord()
@@ -261,5 +253,22 @@ func TestTheDispositionsAreTheTwoTheCoreCanHonestlyReport(t *testing.T) {
 		if strings.TrimSpace(string(d)) == "" {
 			t.Errorf("a disposition renders as empty, which a unit cannot log or branch on")
 		}
+	}
+}
+
+// TestAChannelIdentityMayCarryACorroboratingAddress pins that the published
+// grammar admits what the core decides about.
+//
+// The address alongside a channel identity is not a second way of naming the
+// human — the core reads the identity as the name and the address as evidence
+// for its resolution ladder, and admits the evidence only from a source that
+// declared the email merge key. Refusing the shape HERE would refuse it for
+// every source alike, which is the decision this package is not the one to take.
+func TestAChannelIdentityMayCarryACorroboratingAddress(t *testing.T) {
+	rec := aValidRecord()
+	rec.Counterparty.ChannelIdentity = extension.ChannelIdentity{Provider: "dispact", ChannelUserID: "G-1"}
+
+	if err := rec.Validate(); err != nil {
+		t.Fatalf("the grammar refused a channel identity carrying an address: %v", err)
 	}
 }

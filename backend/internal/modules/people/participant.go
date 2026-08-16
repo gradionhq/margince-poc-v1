@@ -34,7 +34,8 @@ import (
 // actually used, which need not be the one the record was created from.
 //
 // It is deliberately forgiving about finding nothing. A manually logged
-// activity has no address-only rows; a channel message has no address at all;
+// activity has no address-only rows; a channel message has one only when its
+// provider knew an address and its source vouched for it, so most carry none;
 // a replayed capture already promoted its row on the first pass. None of those
 // is an error, and none should fail an ensure that has otherwise succeeded.
 func namePersonAmongParticipants(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, personID ids.PersonID) error {

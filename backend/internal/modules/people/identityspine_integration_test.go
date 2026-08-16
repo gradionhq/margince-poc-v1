@@ -233,7 +233,7 @@ func TestARaceOnAClaimedAddressStillAnswersTheDuplicateContract(t *testing.T) {
 
 	err = e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, cerr := createPerson(ctx, tx, PersonResolution{
-			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: incumbentID,
+			Decision: DecisionExactCollision, MatchedLane: LaneEmail, PersonID: incumbentID,
 		}, PersonSpec{
 			FullName:   "Ida Kranz",
 			Emails:     []PersonEmailInput{{Email: "ida@kranz.test", EmailType: "work", IsPrimary: true}},
@@ -276,7 +276,7 @@ func TestTheChokepointRefusalHidesARecordTheCallerCannotRead(t *testing.T) {
 	stranger := e.asRowScope(principal.RowScopeOwn)
 	err = e.store.tx(stranger, func(tx pgx.Tx) error {
 		_, cerr := createPerson(stranger, tx, PersonResolution{
-			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: hiddenID,
+			Decision: DecisionExactCollision, MatchedLane: LaneEmail, PersonID: hiddenID,
 		}, PersonSpec{
 			FullName:   "Mara Steiner",
 			Emails:     []PersonEmailInput{{Email: "mara@steiner.test", EmailType: "work", IsPrimary: true}},
@@ -459,7 +459,7 @@ func TestTheChokepointRefusesToMintOverAnExactCollision(t *testing.T) {
 	var people int
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, personRefusal = createPerson(ctx, tx, PersonResolution{
-			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: ids.New[ids.PersonKind](),
+			Decision: DecisionExactCollision, MatchedLane: LaneEmail, PersonID: ids.New[ids.PersonKind](),
 		}, PersonSpec{FullName: "Ghost", Source: "manual", CapturedBy: "human:test"})
 		return tx.QueryRow(ctx, `SELECT count(*) FROM person`).Scan(&people)
 	}); err != nil {

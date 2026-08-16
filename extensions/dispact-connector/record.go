@@ -110,15 +110,16 @@ var directMessageTypes = map[string]bool{
 	"dm_thread_reply": true,
 }
 
-// counterpartyOf names the human at the other end, ONE way — by the account
-// they can be answered at, or by their address, and never both.
+// counterpartyOf names the human at the other end, and the shape decides which
+// ladder resolves them.
 //
-// The exclusivity is the core's rule (capture's ErrCounterpartyNamedTwice) and
-// it is a real choice rather than a formality: the two are different resolution
-// ladders. An address goes through the mail ladder, where a corporate domain is
-// DEFERRED to the pending inbox and only a freemail sender mints a person; a
-// channel account goes through the channel ladder, which binds the account to a
-// person the reply path can then resolve.
+// The two ladders are different, which is why the shape is a real choice rather
+// than a formality. An address alone goes through the mail ladder, where a
+// corporate domain is DEFERRED to the pending inbox and only a freemail sender
+// mints a person. An account goes through the channel ladder, which binds the
+// account to a person the reply path can then resolve — and there the address,
+// where this unit holds one, rides along as matching evidence rather than as a
+// second way of naming anybody.
 //
 // A DIRECT MESSAGE is named by the SENDER'S OWN ACCOUNT ID, not by the channel
 // the message arrived in. The core keys the binding on (provider, account id)
@@ -152,13 +153,22 @@ func counterpartyOf(item inboxItem, sender providerUser) extension.Counterparty 
 			ChannelUserID: sender.ID,
 			DisplayName:   sender.name(),
 		},
+		// The address is CARRIED, not used to name anybody: the account above
+		// names the sender and the core prefers it. What this buys is the
+		// colleague already captured from mail being recognised as the same
+		// human instead of quietly becoming a second contact — this unit knows
+		// the address, and dropping it would throw away evidence only this side
+		// has. The core admits it because the ingress source declares the email
+		// merge key; without that declaration this record would be refused.
+		Email: sender.Email,
 	}
 }
 
 // mailDomain is the lower-cased domain half of an address, or empty when there
-// is not one. The core's suppression gates key on it, and a unit that left it
-// empty would not be opting out of them — it would be failing to answer, which
-// those gates read as "keep".
+// is not one. It is for the MAIL shape alone: the core's suppression gates key
+// on it, and a unit that left it empty there would not be opting out of them —
+// it would be failing to answer, which those gates read as "keep". A channel
+// record short-circuits past every one of those gates, so it names no domain.
 func mailDomain(email string) string {
 	at := strings.LastIndex(email, "@")
 	if at < 0 || at == len(email)-1 {

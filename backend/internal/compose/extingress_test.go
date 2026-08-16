@@ -319,7 +319,7 @@ func TestAMemberIdThatIsNotAnIdIsRefusedBeforeAnyQuery(t *testing.T) {
 // rather than by this side remembering to keep the two equal.
 func TestProvenanceIsStampedFromTheUnitAndItsDeclaredSource(t *testing.T) {
 	rt := ingestingRuntime(t)
-	normalized := rt.normalized(aRecord())
+	normalized := rt.normalized(aRecord(), extension.IngressSource{})
 
 	if want := "ext:probe-unit:probe-system"; normalized.Source != want {
 		t.Errorf("source = %q, want %q", normalized.Source, want)
@@ -351,7 +351,7 @@ func TestProvenanceIsStampedFromTheUnitAndItsDeclaredSource(t *testing.T) {
 // bridge test exists for.
 func TestTheConversionCarriesAWholeRecord(t *testing.T) {
 	rec := aRecord()
-	normalized := ingestingRuntime(t).normalized(rec)
+	normalized := ingestingRuntime(t).normalized(rec, extension.IngressSource{})
 
 	// NormalizedRecord.Fields is the envelope's `any` — one shape per entity
 	// type — so what a landed activity is made of is only readable after this

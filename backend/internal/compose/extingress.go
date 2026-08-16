@@ -53,15 +53,19 @@ const ingressPrincipalPrefix = "connector:ext:"
 // is, then the record's own shape, and only then the two that cost a query —
 // the member's consent and their live authority.
 func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec extension.Record) (extension.Result, error) {
-	// The declared source is resolved rather than read: what comes back is
-	// unused today and that is a fact about the vocabulary, not an oversight.
-	// A source declares which KINDS it lands, and exactly one kind is landable
-	// (extension.KindActivity), which the declaration grammar already enforces
-	// at generation and at boot — while a Record carries one Activity and has
-	// no field a second kind could arrive in. So there is no call this side
-	// could refuse for landing an undeclared kind. When a second kind is
-	// published, the gate belongs here, against Lands.
-	if _, err := r.declaredIngress(rec.System); err != nil {
+	// The declared source decides what this record may contribute to identity.
+	//
+	// Lands is still not gated here, and that is a fact about the vocabulary
+	// rather than an oversight: exactly one kind is landable
+	// (extension.KindActivity), the declaration grammar already enforces it at
+	// generation and at boot, and a Record carries one Activity with no field a
+	// second kind could arrive in. When a second kind is published, that gate
+	// belongs here too.
+	declared, err := r.declaredIngress(rec.System)
+	if err != nil {
+		return extension.Result{}, err
+	}
+	if err := refuseUndeclaredMergeKey(declared, rec.Counterparty); err != nil {
 		return extension.Result{}, err
 	}
 	// An invocation with a caller has two authorities in play — the caller's
@@ -95,7 +99,7 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if sink == nil {
 		return extension.Result{}, errIngressUnwired
 	}
-	ctx, err := r.scoped(ctx)
+	ctx, err = r.scoped(ctx)
 	if err != nil {
 		return extension.Result{}, err
 	}
@@ -103,7 +107,7 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 	if err != nil {
 		return extension.Result{}, err
 	}
-	return r.landRecord(runCtx, sink, rec)
+	return r.landRecord(runCtx, sink, rec, declared)
 }
 
 // landRecord performs the one write and maps its outcome onto the published
@@ -115,8 +119,8 @@ func (r *callRuntime) Ingest(ctx context.Context, on extension.UserID, rec exten
 // connector's watermark. Reporting that to a unit as a failure would have the
 // unit retry a deliberate drop on every poll, forever, so it is a success here
 // with a disposition that says what happened.
-func (r *callRuntime) landRecord(ctx context.Context, sink *capture.Sink, rec extension.Record) (extension.Result, error) {
-	ref, err := sink.Upsert(ctx, r.normalized(rec))
+func (r *callRuntime) landRecord(ctx context.Context, sink *capture.Sink, rec extension.Record, declared extension.IngressSource) (extension.Result, error) {
+	ref, err := sink.Upsert(ctx, r.normalized(rec, declared))
 	switch {
 	case errors.Is(err, connector.ErrSkip):
 		return extension.Result{Disposition: extension.DispositionSkipped}, nil
@@ -185,7 +189,7 @@ func (r *callRuntime) ingressAuthority(ctx context.Context, on extension.UserID)
 // another one" check pass by construction rather than by the unit getting it
 // right.
 
-func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecord {
+func (r *callRuntime) normalized(rec extension.Record, declared extension.IngressSource) connector.NormalizedRecord {
 	return connector.NormalizedRecord{
 		EntityType: datasource.EntityActivity,
 		NaturalKey: r.naturalKey(rec),
@@ -200,34 +204,82 @@ func (r *callRuntime) normalized(rec extension.Record) connector.NormalizedRecor
 			OccurredAt:      rec.Activity.OccurredAt,
 			Direction:       rec.Activity.Direction,
 		},
-		Source:     r.sourceSystem(rec.System),
-		CapturedBy: ingressPrincipalPrefix + r.unit,
-		ThreadKey:  rec.ThreadKey,
-		Addresses:  rec.Addresses,
-		Raw:        rec.Raw,
-		Counterparty: connector.Counterparty{
-			Email:       rec.Counterparty.Email,
-			DisplayName: rec.Counterparty.DisplayName,
-			Domain:      rec.Counterparty.Domain,
-			Direction:   rec.Counterparty.Direction,
-			// The binding that makes the record repliable, held to the same
-			// declared set the activity's own transport is (refuseUnitIdentity):
-			// a unit that could bind an identity under a core connector's
-			// provider would be writing into the table the workspace's own
-			// reply path resolves its recipients from.
-			//
-			// DisplayName lands on Username, which is the core's display-only
-			// field for exactly this: a handle nothing routes, authorizes or
-			// deduplicates on. The two names differ because the core's is
-			// Telegram-shaped and the published one is not, and renaming either
-			// would be a change at a security-sensitive identity for a word.
-			ChannelIdentity: connector.ChannelIdentity{
-				Provider:      rec.Counterparty.ChannelIdentity.Provider,
-				ChannelUserID: rec.Counterparty.ChannelIdentity.ChannelUserID,
-				Username:      rec.Counterparty.ChannelIdentity.DisplayName,
-			},
-		},
+		Source:       r.sourceSystem(rec.System),
+		CapturedBy:   ingressPrincipalPrefix + r.unit,
+		ThreadKey:    rec.ThreadKey,
+		Addresses:    rec.Addresses,
+		Raw:          rec.Raw,
+		Counterparty: counterpartyOf(rec.Counterparty, declared),
 	}
+}
+
+// counterpartyOf maps the published counterparty onto the core's and stamps what
+// the SOURCE declared onto it.
+//
+// The declaration is stamped, never taken from the record — the rule Source and
+// CapturedBy already follow, for the same reason: a unit that could state its own
+// trust could widen it per record, which is the whole thing a declaration exists
+// to bound. It is reduced to the one question the core asks (may this address
+// corroborate?) rather than carried as the key list, which belongs to the
+// manifest an operator reads.
+func counterpartyOf(cp extension.Counterparty, declared extension.IngressSource) connector.Counterparty {
+	return connector.Counterparty{
+		Email:       cp.Email,
+		DisplayName: cp.DisplayName,
+		Domain:      cp.Domain,
+		Direction:   cp.Direction,
+		// The binding that makes the record repliable, held to the same
+		// declared set the activity's own transport is (refuseUnitIdentity):
+		// a unit that could bind an identity under a core connector's
+		// provider would be writing into the table the workspace's own
+		// reply path resolves its recipients from.
+		//
+		// DisplayName lands on Username, which is the core's display-only
+		// field for exactly this: a handle nothing routes, authorizes or
+		// deduplicates on. The two names differ because the core's is
+		// Telegram-shaped and the published one is not, and renaming either
+		// would be a change at a security-sensitive identity for a word.
+		ChannelIdentity: connector.ChannelIdentity{
+			Provider:      cp.ChannelIdentity.Provider,
+			ChannelUserID: cp.ChannelIdentity.ChannelUserID,
+			Username:      cp.ChannelIdentity.DisplayName,
+		},
+	}.WithDeclaredEmailMerge(declaresMergeKey(declared, extension.MergeKeyEmail))
+}
+
+// declaresMergeKey reports whether a source vouched for one identity key.
+func declaresMergeKey(declared extension.IngressSource, key extension.MergeKey) bool {
+	for _, got := range declared.Merges {
+		if got == key {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseUndeclaredMergeKey is the unit-facing half of the merge-key gate: a
+// source may offer an address to MATCH on only if it vouched for one.
+//
+// It is the attributable refusal — a unit author reads their own grammar rather
+// than an unattributable "the core could not land this record" — and it is not
+// the invariant. Capture's own admitCounterpartyKeys holds that, for every
+// caller of Upsert including the ones that never pass through here. Two layers,
+// the way refuseUndeclaredTransport and refuseUnitIdentity are two layers, not
+// two spellings of one rule.
+//
+// It asks only about an address CORROBORATING a human named by a channel
+// identity. A mail-shaped record's address IS that record's identity, belongs to
+// no declaration, and is untouched.
+func refuseUndeclaredMergeKey(declared extension.IngressSource, cp extension.Counterparty) error {
+	namedByChannel := cp.ChannelIdentity.Provider != "" && cp.ChannelIdentity.ChannelUserID != ""
+	if !namedByChannel || cp.Email == "" {
+		return nil
+	}
+	if declaresMergeKey(declared, extension.MergeKeyEmail) {
+		return nil
+	}
+	return fmt.Errorf("%w: ingress source %q carries a counterparty address to match on but declares no %q merge key",
+		extension.ErrInvalid, declared.System, string(extension.MergeKeyEmail))
 }
 
 // refuseUndeclaredTransport holds the kind/transport pairing on ANY of a unit's

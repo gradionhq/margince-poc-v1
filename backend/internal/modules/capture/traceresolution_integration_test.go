@@ -23,10 +23,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// seedDeferredMessage writes an activity from one sender, a trace row for it,
-// and (on the first call for that address) the ledger's open question.
+// seedDeferredMessage writes a MAIL activity from one sender, a trace row for
+// it, and (on the first call for that address) the ledger's open question.
 func seedDeferredMessage(ctx context.Context, t *testing.T, db *database.DB,
 	owner ids.UUID, sourceID, sender string, withLedger bool,
+) {
+	t.Helper()
+	seedDeferredRecord(ctx, t, db, owner, sourceID, sender, "", withLedger)
+}
+
+// seedDeferredRecord is seedDeferredMessage with the transport named: empty
+// lands a mail record, a provider lands a message on that channel.
+func seedDeferredRecord(ctx context.Context, t *testing.T, db *database.DB,
+	owner ids.UUID, sourceID, sender, channelProvider string, withLedger bool,
 ) {
 	t.Helper()
 	activityID := ids.NewV7()
@@ -41,11 +50,12 @@ func seedDeferredMessage(ctx context.Context, t *testing.T, db *database.DB,
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, occurred_at, source_system, source_id,
-			                      source, captured_by, counterparty_email)
+			INSERT INTO activity (id, workspace_id, kind, channel_provider, occurred_at, source_system,
+			                      source_id, source, captured_by, counterparty_email)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'note', now(), 'gmail', $2, 'gmail', 'connector:gmail', $3)`,
-			activityID, sourceID, sender); err != nil {
+			        CASE WHEN $4 = '' THEN 'note' ELSE 'message' END, NULLIF($4, ''),
+			        now(), 'gmail', $2, 'gmail', 'connector:gmail', $3)`,
+			activityID, sourceID, sender, channelProvider); err != nil {
 			return err
 		}
 		if withLedger {
@@ -94,5 +104,41 @@ func TestAVerdictReachesEveryMessageFromThatSender(t *testing.T) {
 		if entry.Resolution.Status != "real" {
 			t.Errorf("resolution = %q, want the ledger's answer", entry.Resolution.Status)
 		}
+	}
+}
+
+// The disposition ledger is the MAIL ladder's, keyed on an address. A direct
+// message may carry that same address to be matched on, and it reaches the
+// member's trace through the same activity column — so without a guard the
+// member is told their captured, linked and answered conversation is waiting on
+// a verdict that belongs to another medium and can never resolve for it.
+//
+// The mail row is the control: it must still carry the verdict, or the guard
+// would be suppressing the ledger rather than scoping it.
+func TestOnlyAMailRowCarriesTheMailVerdict(t *testing.T) {
+	ctx, ws, db, store := traceReadWorkspace(t)
+	me := ids.NewV7()
+	memberCtx := memberContext(ctx, ws, me)
+	const sender = "both.media@client.io"
+
+	seedDeferredRecord(memberCtx, t, db, me, "m-1", sender, "", true)
+	seedDeferredRecord(memberCtx, t, db, me, "c-1", sender, "telegram", false)
+
+	window, err := store.ListMine(memberCtx, nil, nil)
+	if err != nil {
+		t.Fatalf("ListMine: %v", err)
+	}
+
+	if len(window.Entries) != 2 {
+		t.Fatalf("entries = %d, want the mail row and the channel row", len(window.Entries))
+	}
+	resolved := 0
+	for _, entry := range window.Entries {
+		if entry.Resolution != nil {
+			resolved++
+		}
+	}
+	if resolved != 1 {
+		t.Errorf("%d of 2 rows carry the mail verdict, want exactly the mail one — a channel record has no ladder verdict to report, which is not the same as having one that is pending", resolved)
 	}
 }

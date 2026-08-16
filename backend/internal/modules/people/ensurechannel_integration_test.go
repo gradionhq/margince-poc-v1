@@ -154,7 +154,11 @@ func TestEnsureChannelCounterpartyCreatesAnOwnerlessPerson(t *testing.T) {
 	}
 }
 
-func TestEnsureChannelCounterpartyWritesNoEmailRow(t *testing.T) {
+// A transport that holds no address for the sender — every core channel
+// connector — still mints an addressless person. The record's only key is its
+// identity satellite, and inventing an address would be a lie the dedupe ladder
+// then treats as an exact key.
+func TestEnsureChannelCounterpartyWritesNoEmailRowWithoutOne(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.asChannelConnector()
 	ci := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "880201", Username: "noaddress"}
@@ -164,8 +168,6 @@ func TestEnsureChannelCounterpartyWritesNoEmailRow(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 
-	// A fabricated address would be a lie the dedupe ladder then treats as an
-	// exact key — the identity satellite is this record's only key.
 	if n := e.countInWorkspace(ctx, t, `SELECT count(*) FROM person_email WHERE person_id = $1`, res.PersonID); n != 0 {
 		t.Fatalf("%d email rows on a channel-created person, want 0", n)
 	}

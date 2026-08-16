@@ -102,11 +102,17 @@ type subscriptionRequest struct {
 }
 
 // ingressSource is one declared provider a unit lands records from: the unit's
-// own key for it and the record kinds it produces, both sorted so the encoding
-// does not depend on declaration order.
+// own key for it, the record kinds it produces, and the identity keys its
+// provider vouches for — all sorted so the encoding does not depend on
+// declaration order.
+//
+// Merges is omitempty for the reason Secrets and Subscriptions above are: a
+// field a unit does not use must not rewrite its committed manifest, which is
+// what lets this land without a schema bump.
 type ingressSource struct {
 	System string   `json:"system"`
 	Lands  []string `json:"lands"`
+	Merges []string `json:"merges,omitempty"`
 }
 
 // declaredChannel is one messaging transport the unit supplies, as an operator

@@ -109,9 +109,35 @@ type ChannelIdentityKey struct {
 // resolve that by killing one of them — an erasure or a customer's message
 // lost to an ordering nobody chose.
 func LockChannelIdentities(ctx context.Context, tx pgx.Tx, keys []ChannelIdentityKey) error {
-	hashes := make([]string, 0, len(keys))
+	return LockSubjectKeys(ctx, tx, keys, nil)
+}
+
+// LockSubjectKeys is the same mutex over EVERY identifier one subject can be
+// recognised by — their channel accounts and their addresses alike.
+//
+// Both families are needed because either one alone leaves the other unguarded,
+// and the gap is not symmetric. An erasure reads the subject's own identifiers:
+// a mail-only subject holds no channel account, so locking accounts alone makes
+// the eraser take no lock at all, and an inbound message naming that subject by
+// ADDRESS then serializes against nothing. It can bind a live channel account to
+// the subject mid-purge; the erasure works from its pre-erasure read, so that
+// binding is neither purged nor suppressed, and the account outranks the address
+// in the resolution ladder — so the certified-erased subject stays reachable and
+// no later erasure can find them by the address that has already been destroyed.
+//
+// The two families share ONE ordering, which is why they share one function.
+// Locking accounts in one function and addresses in another would let two
+// transactions take the same pair in opposite orders, and Postgres resolves that
+// by killing one of them — an erasure or a customer's message lost to an
+// ordering nobody chose. Hashing both into a single sorted, deduplicated set
+// makes that impossible to express.
+func LockSubjectKeys(ctx context.Context, tx pgx.Tx, keys []ChannelIdentityKey, emails []string) error {
+	hashes := make([]string, 0, len(keys)+len(emails))
 	for _, key := range keys {
 		hashes = append(hashes, ChannelIdentityHash(key.Provider, key.ChannelUserID))
+	}
+	for _, email := range emails {
+		hashes = append(hashes, SuppressionHash(email))
 	}
 	slices.Sort(hashes)
 	for _, hash := range slices.Compact(hashes) {
@@ -119,7 +145,7 @@ func LockChannelIdentities(ctx context.Context, tx pgx.Tx, keys []ChannelIdentit
 			SELECT pg_advisory_xact_lock(hashtextextended(
 				coalesce(current_setting('app.workspace_id', true), '') || ':' || $1, 0))`,
 			hash); err != nil {
-			return fmt.Errorf("storekit: locking a channel identity against a concurrent erasure: %w", err)
+			return fmt.Errorf("storekit: locking a subject identifier against a concurrent erasure: %w", err)
 		}
 	}
 	return nil

@@ -98,9 +98,10 @@ func parsePersonContacts(emails []PersonEmailInput, phones []PersonPhoneInput) e
 func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, personID ids.PersonID, source, by string, emails []PersonEmailInput) error {
 	for _, e := range emails {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
-			 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8)`,
-			wsID, personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by); err != nil {
+			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by, from_correspondence)
+			 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8, $9)`,
+			wsID, personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by,
+			!e.VouchedNotCorresponded); err != nil {
 			if name, ok := storekit.UniqueViolation(err); ok {
 				if name == "uq_person_email_dedupe" {
 					return &DuplicateEmailError{Email: e.Email}
