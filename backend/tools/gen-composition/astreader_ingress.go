@@ -66,6 +66,8 @@ func (r *unitReader) readIngressSource(elt ast.Expr, ext string) (ingressSource,
 			src.System, err = r.stringLit(kv.Value, "IngressSource.System")
 		case "Lands":
 			src.Lands, err = r.readRecordKinds(kv.Value, ext)
+		case "Merges":
+			src.Merges, err = r.readMergeKeys(kv.Value, ext)
 		default:
 			err = r.errAt(kv, "IngressSource field %s is not derivable by this generator", k.Name)
 		}
@@ -77,6 +79,7 @@ func (r *unitReader) readIngressSource(elt ast.Expr, ext string) (ingressSource,
 		return ingressSource{}, r.errPos(lit, "%v", err)
 	}
 	sort.Strings(src.Lands)
+	sort.Strings(src.Merges)
 	return src, nil
 }
 
@@ -100,6 +103,26 @@ func (r *unitReader) readRecordKinds(expr ast.Expr, ext string) ([]string, error
 	return out, nil
 }
 
+// readMergeKeys reads the Merges slice literal, the identity keys a source
+// vouches for. It is readRecordKinds' twin rather than a widening of it: the two
+// read different vocabularies, and one function serving both would resolve a
+// record kind where a merge key was written and call it derived.
+func (r *unitReader) readMergeKeys(expr ast.Expr, ext string) ([]string, error) {
+	lit, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil, r.errAt(expr, "IngressSource.Merges must be a slice literal")
+	}
+	out := make([]string, 0, len(lit.Elts))
+	for _, elt := range lit.Elts {
+		key, err := r.constValue(elt, ext)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, key)
+	}
+	return out, nil
+}
+
 // declaredIngressSource rebuilds the published type from what was read, so the
 // generator runs the unit's own grammar rather than a second copy of it.
 func declaredIngressSource(src ingressSource) extension.IngressSource {
@@ -107,5 +130,9 @@ func declaredIngressSource(src ingressSource) extension.IngressSource {
 	for _, kind := range src.Lands {
 		lands = append(lands, extension.RecordKind(kind))
 	}
-	return extension.IngressSource{System: src.System, Lands: lands}
+	merges := make([]extension.MergeKey, 0, len(src.Merges))
+	for _, key := range src.Merges {
+		merges = append(merges, extension.MergeKey(key))
+	}
+	return extension.IngressSource{System: src.System, Lands: lands, Merges: merges}
 }

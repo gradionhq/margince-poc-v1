@@ -175,9 +175,9 @@ func TestLadderPrefersChannelIdentityOverEmail(t *testing.T) {
 	if r.Conflict == nil {
 		t.Fatal("two lanes named different people and no conflict was reported")
 	}
-	if r.Conflict.RoutedLane != laneChannelIdentity || r.Conflict.RivalLane != laneEmail {
+	if r.Conflict.RoutedLane != laneChannelIdentity || r.Conflict.RivalLane != LaneEmail {
 		t.Fatalf("conflict lanes = %s over %s, want %s over %s",
-			r.Conflict.RoutedLane, r.Conflict.RivalLane, laneChannelIdentity, laneEmail)
+			r.Conflict.RoutedLane, r.Conflict.RivalLane, laneChannelIdentity, LaneEmail)
 	}
 	if r.Conflict.Rival != byEmail {
 		t.Fatalf("rival = %s, want the email lane's person %s", r.Conflict.Rival, byEmail)

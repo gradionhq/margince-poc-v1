@@ -202,25 +202,28 @@ func TestTheSinkIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 	}
 }
 
-// A counterparty is named by an address OR by a channel identity. Classifying a
-// record carrying both as mail binds no channel identity and, because every mail
-// gate keys off the address, records no fault either — the one capture outcome
-// with no breadcrumb. No in-tree producer emits this shape, so these two cases
-// are the only thing holding the gate up and they assert the specific refusal:
-// "some error occurred" would keep passing if the gate were deleted and an
-// unrelated fault took its place.
-func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
+// An address alongside a channel identity is matching evidence, and a source may
+// only offer it if it declared the email merge key. Telegram declares none — a
+// bot knows no address for the sender — so this record is refused at the edge,
+// before the transaction opens.
+//
+// The refusal is asserted BY NAME rather than as "some error occurred", which
+// would keep passing if the gate were deleted and an unrelated fault took its
+// place. It matters that nothing commits: admitting the address without the
+// declaration would feed an unvouched-for key to the resolution ladder, which is
+// how one human silently becomes bound to another's record.
+func TestTheSinkRefusesAnUndeclaredCorroboratingAddress(t *testing.T) {
 	e := integration.Setup(t)
 
-	rec := inboundChannelRecord("20304", "named twice")
+	rec := inboundChannelRecord("20304", "undeclared merge key")
 	rec.Counterparty.Email = "someone@example.com"
 
 	_, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec)
-	if !errors.Is(err, capture.ErrCounterpartyNamedTwice) {
-		t.Fatalf("Upsert returned %v, want ErrCounterpartyNamedTwice", err)
+	if !errors.Is(err, capture.ErrMergeKeyNotDeclared) {
+		t.Fatalf("Upsert returned %v, want ErrMergeKeyNotDeclared", err)
 	}
-	if n := activityBodyCount(t, e, "named twice"); n != 0 {
-		t.Errorf("%d activities were committed for a malformed counterparty; want 0", n)
+	if n := activityBodyCount(t, e, "undeclared merge key"); n != 0 {
+		t.Errorf("%d activities were committed for an undeclared merge key; want 0", n)
 	}
 }
 

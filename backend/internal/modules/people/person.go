@@ -40,6 +40,15 @@ type PersonEmailInput struct {
 	EmailType string
 	IsPrimary bool
 	Position  int
+	// VouchedNotCorresponded marks an address a provider's directory supplied
+	// for a human reached on another medium, rather than one this workspace has
+	// ever exchanged mail with.
+	//
+	// It identifies the person, which is what it is stored for, and it proves
+	// nothing about mail — so the mail ladder must not read it as a settled
+	// verdict about the address. False for every writer that has correspondence
+	// or a human's own assertion behind it, which is every writer but one.
+	VouchedNotCorresponded bool
 }
 
 type PersonPhoneInput struct {

@@ -110,9 +110,14 @@ type LaneConflict struct {
 // routing precedence: an established channel binding outranks a shared
 // address, which outranks a phone number households and switchboards
 // share.
+//
+// LaneEmail alone is exported, and only because the published
+// extension.MergeKeyEmail must equal it: a source declares that key to have an
+// address reach this lane, and a fitness test outside this package reads both to
+// hold them equal. The other two name no vocabulary beyond this module.
 const (
 	laneChannelIdentity = "channel_identity"
-	laneEmail           = "email"
+	LaneEmail           = "email"
 	lanePhone           = "phone"
 )
 
@@ -162,7 +167,7 @@ func exactLanes(ctx context.Context, tx pgx.Tx, c PersonCandidate) ([]exactLane,
 	}
 	return []exactLane{
 		{laneChannelIdentity, channelHit, channelFound},
-		{laneEmail, emailHit, emailFound},
+		{LaneEmail, emailHit, emailFound},
 		{lanePhone, phoneHit, phoneFound},
 	}, nil
 }

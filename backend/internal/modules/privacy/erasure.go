@@ -97,11 +97,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			return err
 		}
 		// Taken before the first statement that purges or suppresses by
-		// channel identity, and held until the commit: an inbound message
-		// from one of these accounts must land entirely before this erasure
-		// or entirely after it, never inside it — storekit.LockChannelIdentities
-		// states what landing inside it costs.
-		if err := storekit.LockChannelIdentities(ctx, tx, channelIdentityLockKeys(identities)); err != nil {
+		// identifier, and held to the commit: an inbound message naming this
+		// subject by ANY key they can be recognised by lands entirely before
+		// this erasure or entirely after it, never inside it. Addresses as well
+		// as accounts, because a mail-only subject holds no account for the
+		// account half to cover — storekit.LockSubjectKeys states the cost.
+		if err := storekit.LockSubjectKeys(ctx, tx, channelIdentityLockKeys(identities), emails); err != nil {
 			return err
 		}
 		// Refused BEFORE the first destructive statement: everything below

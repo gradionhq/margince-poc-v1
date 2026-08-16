@@ -49,10 +49,20 @@ const fieldChannelUsername = "channel_username"
 
 // EnsureChannelCounterpartyInput is one inbound channel message's counterparty.
 // There is no OwnerID and no Domain: the created person is ownerless by design,
-// and a channel identity carries no domain to derive a company from.
+// and this path derives no employer even when an address rides along — reading
+// one out of a mail domain is the mail ladder's job, which this path bypasses.
 type EnsureChannelCounterpartyInput struct {
 	Identity    connector.ChannelIdentity
 	DisplayName string // the provider's own name for the sender — untrusted text
+	// CorroboratingEmail is the sender's address, where the provider knew one
+	// and its source declared the email merge key. It NAMES nobody: Identity
+	// does that, and the ladder below prefers it. What this buys is the human
+	// already captured from mail being recognised as the same human, instead of
+	// becoming a second record nobody notices.
+	//
+	// Empty for every transport that holds no address, which is every core
+	// channel connector.
+	CorroboratingEmail string
 
 	ActivityID ids.ActivityID // the captured activity to link
 	Source     string         // provenance channel, e.g. "telegram:<bot>:<chat>:<msg>"
@@ -85,6 +95,13 @@ func (s *Store) EnsureChannelCounterparty(ctx context.Context, in EnsureChannelC
 		return EnsureChannelCounterpartyResult{},
 			errors.New("people: a channel counterparty needs both a provider and a channel user id")
 	}
+	// Normalized once, here, because four things downstream key on this address
+	// and they must agree on what "the same address" is: the subject lock, the
+	// suppression probe, the resolution ladder, and the row written onto the
+	// person. A provider that pads or capitalizes would otherwise mint a
+	// person_email row no later mail capture can match — the duplicate this path
+	// exists to prevent, reintroduced by whitespace.
+	in.CorroboratingEmail = normalizeEmail(in.CorroboratingEmail)
 	var res EnsureChannelCounterpartyResult
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
@@ -109,9 +126,16 @@ func (s *Store) ensureChannelCounterpartyTx(ctx context.Context, tx pgx.Tx, in E
 	// is partial on archived_at IS NULL, so nothing in the database refuses that
 	// second binding — and the erasure writes by person_id, so the rival it
 	// never named keeps the erased human's account and name for good.
-	if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
-		{Provider: in.Identity.Provider, ChannelUserID: in.Identity.ChannelUserID},
-	}); err != nil {
+	if err := storekit.LockSubjectKeys(ctx, tx,
+		[]storekit.ChannelIdentityKey{
+			{Provider: in.Identity.Provider, ChannelUserID: in.Identity.ChannelUserID},
+		},
+		// The address is locked too, and it is the half that covers the subject
+		// this path can otherwise reach mid-erasure: a human known only from
+		// mail holds no channel account, so an eraser locking accounts alone
+		// takes no lock, and the bind below would land inside their purge.
+		correspondingEmails(in.CorroboratingEmail),
+	); err != nil {
 		return EnsureChannelCounterpartyResult{}, err
 	}
 
@@ -119,7 +143,7 @@ func (s *Store) ensureChannelCounterpartyTx(ctx context.Context, tx pgx.Tx, in E
 	// This is EnsureCounterpartyTx's EmailSuppressed probe in its channel
 	// spelling — an erased subject whose only identifier was a Telegram id must
 	// not be re-created by their next message.
-	suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, in.Identity.Provider, in.Identity.ChannelUserID)
+	suppressed, err := s.channelSubjectSuppressed(ctx, tx, in)
 	if err != nil {
 		return EnsureChannelCounterpartyResult{}, err
 	}
@@ -140,6 +164,25 @@ func (s *Store) ensureChannelCounterpartyTx(ctx context.Context, tx pgx.Tx, in E
 	return res, nil
 }
 
+// channelSubjectSuppressed asks both keys the subject can have been erased by.
+//
+// The channel key is the one this path always has. The address is asked only
+// when the record carries one, and asking it is not optional politeness: an
+// erasure keyed on an address would otherwise be undone by the subject's next
+// direct message, which arrives naming them by an account the suppression list
+// has never heard of. A13 says deletion sticks; it has to stick on every key the
+// record can be recognised by, not on the one this path happened to start with.
+func (s *Store) channelSubjectSuppressed(ctx context.Context, tx pgx.Tx, in EnsureChannelCounterpartyInput) (bool, error) {
+	suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, in.Identity.Provider, in.Identity.ChannelUserID)
+	if err != nil || suppressed {
+		return suppressed, err
+	}
+	if in.CorroboratingEmail == "" {
+		return false, nil
+	}
+	return storekit.EmailSuppressed(ctx, tx, in.CorroboratingEmail)
+}
+
 // resolveChannelPerson runs PO-F-1 over the channel identity and, when nothing
 // resolves, offers a new person — speculatively, because the bind is the
 // arbiter of the identity race, not this lookup.
@@ -148,12 +191,18 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 		return err
 	}
 	name := channelCounterpartyName(in.DisplayName, in.Identity)
-	match, err := DedupePerson(ctx, tx, PersonCandidate{
-		FullName:          name,
-		ChannelIdentities: []connector.ChannelIdentity{in.Identity},
-	})
+	match, err := DedupePerson(ctx, tx, channelCandidate(in, name))
 	if err != nil {
 		return err
+	}
+	if match.Decision == DecisionExactCollision && match.MatchedLane == LaneEmail {
+		// The address found a human the channel lane could not, which means
+		// they exist from mail capture and hold no binding for this account
+		// yet. Routing alone would leave them unbound — unreachable for a
+		// reply, invisible to a channel-keyed erasure, and re-resolved by
+		// address on every later message. Adopting them is what makes the two
+		// captures one person rather than one person and one alias.
+		return s.adoptEmailRoutedIncumbent(ctx, tx, in, match, res)
 	}
 	if match.Decision == DecisionExactCollision {
 		// A live binding already names this human; every later message from the
@@ -161,6 +210,15 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 		// routing is this function's whole job, and design §7.3/D8 puts the
 		// identity-review decision one layer up, where a failure to raise it
 		// can be logged without risking the routing this message needs.
+		//
+		// A corroborating address is deliberately not written onto this person.
+		// The binding already names them, so the address buys no routing, and
+		// writing it per message would need its own add-if-absent guard and its
+		// own audit gate to avoid claiming a change on every message that
+		// changed nothing. A person bound here but holding no address is one
+		// minted before their source vouched for one; the ladder still reads the
+		// address on every message, so nothing is lost that a later mail capture
+		// would not also supply.
 		res.PersonID = match.PersonID
 		res.Conflict = match.Conflict
 		return nil
@@ -216,7 +274,12 @@ func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChan
 	// display name naming a DIFFERENT domain than the message arrived from —
 	// are statements about a mail domain this record does not have.
 	id, err := createPerson(ctx, tx, match, PersonSpec{
-		FullName:   name,
+		FullName: name,
+		// The address the provider vouched for, written with the person rather
+		// than after it, so the person-create audit and event cover it — the
+		// mail path's own shape. An addressless record is one the next mail from
+		// this human cannot match, so it mints a second one.
+		Emails:     channelPersonEmails(in.CorroboratingEmail),
 		Visibility: visibilityWorkspace,
 		Source:     in.Source,
 		CapturedBy: in.CapturedBy,
@@ -243,6 +306,25 @@ func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChan
 		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
 	return id, id, recorded, nil
+}
+
+// channelPersonEmails is the address list a minted channel person starts with:
+// the corroborating address when there is one, and nothing at all when there is
+// not. It is primary because it is the only one — a person with a single address
+// and no primary reads as a person nobody can be sure how to write to.
+func channelPersonEmails(email string) []PersonEmailInput {
+	if email == "" {
+		return nil
+	}
+	// Vouched, not corresponded: the provider's directory says this is their
+	// address, and nobody here has ever exchanged mail with it. Recording that
+	// is what keeps one direct message from a stranger out of the mail ladder's
+	// verdict, where it would mark the address a known counterparty for good and
+	// switch off the noise sweep for it permanently.
+	return []PersonEmailInput{{
+		Email: email, EmailType: emailTypeWork, IsPrimary: true,
+		VouchedNotCorresponded: true,
+	}}
 }
 
 // recordChannelDedupeCandidate stores the fuzzy pair the review queue renders,

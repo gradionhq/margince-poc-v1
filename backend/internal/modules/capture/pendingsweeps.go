@@ -242,7 +242,8 @@ const noiseMailScope = `
 	       AND c.direction = 'outbound' AND c.counterparty_outbound_attested)
 	  AND NOT EXISTS (
 	    SELECT 1 FROM person_email pe JOIN person pr ON pr.id = pe.person_id
-	     WHERE pe.email = p.email AND pr.archived_at IS NULL)`
+	     WHERE pe.email = p.email AND pr.archived_at IS NULL
+	       AND pe.from_correspondence)`
 
 // noiseVerdictReach bounds how far past its own verdict a `noise` disposition
 // may reach forward in time.

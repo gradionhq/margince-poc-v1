@@ -114,6 +114,9 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	if err := admitCounterpartyShape(counterpartyShapeOf(rec.Counterparty)); err != nil {
 		return datasource.EntityRef{}, err
 	}
+	if err := admitCounterpartyKeys(rec.Counterparty); err != nil {
+		return datasource.EntityRef{}, err
+	}
 
 	var ref datasource.EntityRef
 	var dedupeHit *ids.LeadID

@@ -163,8 +163,6 @@ func (s *Sink) replyOriginForShape(ctx context.Context, tx pgx.Tx, cp connector.
 		return withContact(replyOrigin{channel: cp.ChannelIdentity.Provider}, contact, found), true, nil
 	case shapeNone:
 		return replyOrigin{}, false, nil
-	case shapeAmbiguous:
-		return replyOrigin{}, false, ErrCounterpartyNamedTwice
 	case shapeHalfChannel:
 		return replyOrigin{}, false, ErrChannelIdentityIncomplete
 	default:

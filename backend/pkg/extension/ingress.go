@@ -67,6 +67,15 @@ type IngressSource struct {
 	// second Record field, and the gate that a unit may land only what it
 	// declared arrives with it, in the core.
 	Lands []RecordKind
+
+	// Merges are the identity keys this source's provider VOUCHES for, and the
+	// core admits no other from it. A unit fills every field its provider gives
+	// it; which of those the resolution ladder may treat as identity is read
+	// from here rather than from whatever a record happens to carry.
+	//
+	// Empty — the default — means this source contributes no identity key. A
+	// source that says nothing gets no power it did not ask for.
+	Merges []MergeKey
 }
 
 // systemGrammar bounds the declared system key to what can sit inside a
@@ -100,6 +109,12 @@ func (s IngressSource) Validate() error {
 				s.System, string(kind), string(KindActivity))
 		}
 	}
+	for _, key := range s.Merges {
+		if key != MergeKeyEmail {
+			return fmt.Errorf("extension: ingress source %q declares merge key %q — the only identity key a source may vouch for is %q",
+				s.System, string(key), string(MergeKeyEmail))
+		}
+	}
 	return nil
 }
 
@@ -113,11 +128,16 @@ const (
 
 // Counterparty is the party on the other side of one captured message.
 //
-// It is identified by EMAIL, and that is the whole of the identity this surface
-// offers. The core also knows a channel-identity shape for providers that have
-// no address at all, and it is deliberately absent here: it keys a core table
-// whose provider vocabulary is a closed set, so a unit reaching it would be an
-// extension name entering a list the core maintains.
+// It is identified by EMAIL or by a channel identity, and which one NAMES the
+// human is the core's decision, not a unit's: a channel identity outranks an
+// address, because it is the key a reply is routed on and the one a person is
+// bound by. A record may carry both — the address then corroborates rather than
+// names, and the core admits it only from a source that declared
+// MergeKeyEmail.
+//
+// So a unit supplies every field its provider gives it and decides nothing
+// about identity. Dropping an address it holds, to fit a shape, would discard
+// evidence the resolution ladder is entitled to.
 //
 // DisplayName is untrusted text — whatever the provider says the human calls
 // themselves — and is bounded and stripped by the core before it is stored.
@@ -349,15 +369,11 @@ func (c Counterparty) validate() error {
 		return fmt.Errorf("extension: %q is not a direction (%q, %q, or empty for a record with no honest direction)",
 			c.Direction, DirectionInbound, DirectionOutbound)
 	}
-	// A counterparty is named by an address OR by a channel identity, never
-	// both — the core's own rule (capture's ErrCounterpartyNamedTwice), restated
-	// here so a unit learns it from its own grammar rather than from an
-	// unattributable "the core could not land this record". The two are
-	// different resolution ladders that mint the person differently, and a
-	// record supplying both is asking which one it meant.
-	if c.Email != "" && (c.ChannelIdentity.Provider != "" || c.ChannelIdentity.ChannelUserID != "") {
-		return errors.New("extension: the counterparty is named by an address AND by a channel identity — a record names its human one way, because the two resolve through different ladders and nothing here can decide which was meant")
-	}
+	// A counterparty carrying BOTH is well-formed here, and deliberately so: the
+	// channel identity NAMES the human and the address CORROBORATES them, which
+	// is a shape only the core can admit or refuse, because only the core knows
+	// which merge keys this source declared. Refusing it here would refuse it
+	// for every source alike and put the decision in the wrong place.
 	return c.ChannelIdentity.validate()
 }
 

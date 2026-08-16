@@ -34,6 +34,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -134,6 +135,79 @@ func TestErasureIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 	}
 	if !suppressed(t, e, "10109") {
 		t.Error("the erased account is not suppressed")
+	}
+}
+
+// seedMailOnlySubject creates a person holding one address and no channel
+// account — the shape whose erasure takes no account lock at all, which is what
+// makes the address half of the mutex load-bearing. Written through the real
+// store, so the identifiers the eraser reads are the ones production writes.
+func seedMailOnlySubject(t *testing.T, e *integration.Env, name, email string) ids.UUID {
+	t.Helper()
+	person, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{
+		FullName: name, Source: "manual",
+		Emails: []people.PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("seeding %s: %v", name, err)
+	}
+	return ids.UUID(person.Id)
+}
+
+// eraseWhileAddressIsLocked is the twin of eraseWhileAccountIsLocked for the
+// other half of the mutex: it holds the subject lock on an ADDRESS across a
+// whole erasure.
+func eraseWhileAddressIsLocked(t *testing.T, e *integration.Env, person ids.UUID, lockedEmail string) error {
+	t.Helper()
+	eraser := privacy.NewEraser(database.BindTo(lockWaitBoundedPool(t), ids.From[ids.WorkspaceKind](e.WS)))
+	admin := e.Admin()
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	var eraseErr error
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		if err := storekit.LockSubjectKeys(ctx, tx, nil, []string{lockedEmail}); err != nil {
+			return err
+		}
+		eraseErr = eraser.ErasePerson(admin, person, "test")
+		return nil
+	}); err != nil {
+		t.Fatalf("holding the address lock: %v", err)
+	}
+	return eraseErr
+}
+
+// The address half of the same mutex, and it covers the subject the account
+// half cannot: a human known only from mail holds NO channel account, so an
+// erasure locking accounts alone takes no lock at all and serializes against
+// nothing.
+//
+// A channel message naming that human by an account while corroborating them by
+// their address can then land inside the purge. Its binding is written after the
+// erasure's own pre-erasure read, so nothing deletes or suppresses it, and the
+// account outranks the address in the resolution ladder — leaving a
+// certified-erased subject reachable, and unerasable a second time because the
+// address the next erasure would need has already been destroyed.
+func TestErasureWaitsForAnInFlightDeliveryCorroboratedByTheSubjectsAddress(t *testing.T) {
+	e := integration.Setup(t)
+	const email = "mail.only.subject@client.io"
+	person := seedMailOnlySubject(t, e, "Mail Only Subject", email)
+
+	err := eraseWhileAddressIsLocked(t, e, person, email)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgerrcode.LockNotAvailable {
+		t.Fatalf("ErasePerson returned %v, want a lock-wait timeout — it did not take the subject's address lock, so a message corroborated by that address can bind an account inside the erasure", err)
+	}
+}
+
+// The negative control: the lock is per ADDRESS, so an unrelated human's
+// message never delays an erasure, and the failure above is the lock rather
+// than the bounded pool.
+func TestErasureIsUnaffectedByALockOnAnotherAddress(t *testing.T) {
+	e := integration.Setup(t)
+	person := seedMailOnlySubject(t, e, "Unrelated Mail Subject", "erased@client.io")
+
+	if err := eraseWhileAddressIsLocked(t, e, person, "somebody.else@client.io"); err != nil {
+		t.Fatalf("ErasePerson: %v — an unrelated address must not block an erasure", err)
 	}
 }
 

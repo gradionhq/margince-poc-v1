@@ -52,11 +52,11 @@ func TestEveryCounterpartyShapeIsAnsweredByBothSwitches(t *testing.T) {
 	}
 }
 
-// TestAdmissionRefusesTheTwoMalformedShapesByName pins WHICH refusal each
-// malformed shape earns. The walk above proves only that no shape falls
-// through; a caller telling a record that names its human twice from one that
-// names it by half a channel identity needs the sentinels to stay distinct.
-func TestAdmissionRefusesTheTwoMalformedShapesByName(t *testing.T) {
+// TestAdmissionRefusesTheMalformedShapeByName pins WHICH refusal a malformed
+// shape earns. The walk above proves only that no shape falls through; a caller
+// telling half a channel identity from an undeclared merge key needs the
+// sentinels to stay distinct.
+func TestAdmissionRefusesTheMalformedShapeByName(t *testing.T) {
 	for _, tc := range []struct {
 		shape counterpartyShape
 		want  error
@@ -64,7 +64,6 @@ func TestAdmissionRefusesTheTwoMalformedShapesByName(t *testing.T) {
 		{shapeNone, nil},
 		{shapeMail, nil},
 		{shapeChannel, nil},
-		{shapeAmbiguous, ErrCounterpartyNamedTwice},
 		{shapeHalfChannel, ErrChannelIdentityIncomplete},
 	} {
 		if err := admitCounterpartyShape(tc.shape); !errors.Is(err, tc.want) {
@@ -108,14 +107,6 @@ func TestReplyOriginOf_RefusesMalformedAndUnnamedCounterparties(t *testing.T) {
 			// medium to answer on and nobody to answer, so no reply origin.
 			name: "no counterparty names no origin",
 			cp:   connector.Counterparty{},
-		},
-		{
-			name: "an address and a channel identity together are refused",
-			cp: connector.Counterparty{
-				Email:           "alice@example.com",
-				ChannelIdentity: connector.ChannelIdentity{Provider: "telegram", ChannelUserID: "77"},
-			},
-			wantErr: ErrCounterpartyNamedTwice,
 		},
 		{
 			name:    "half a channel identity is refused",
