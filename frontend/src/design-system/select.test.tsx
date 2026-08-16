@@ -431,6 +431,74 @@ describe("committing a choice", () => {
   });
 });
 
+// WCAG 2.2 AA 3.1.2 (Language of Parts). A language picker is the case the
+// criterion is about: the names are proper nouns and stay untranslated, so every
+// option is deliberately in a different language from the document around it.
+// Without `lang` a screen reader reads "Tiếng Việt" with the phonemes of
+// whatever locale the page is currently in.
+const LANGUAGES: readonly SelectOption[] = [
+  { value: "en", label: "English", lang: "en" },
+  { value: "vi", label: "Tiếng Việt", lang: "vi" },
+  // No `lang`: this one IS in the document's language, so declaring anything
+  // would be a claim the option does not make.
+  { value: "auto", label: "Match my browser" },
+];
+
+function renderLanguageSelect(value: string) {
+  render(
+    <Select
+      aria-label="Language"
+      options={LANGUAGES}
+      value={value}
+      onChange={() => {}}
+    />,
+  );
+  return screen.getByRole("combobox", { name: "Language" });
+}
+
+function labelOf(optionName: string): HTMLElement {
+  const label = screen
+    .getByRole("option", { name: optionName })
+    .querySelector<HTMLElement>(".select-option-label");
+  if (!label) {
+    throw new Error(`option "${optionName}" rendered no label element`);
+  }
+  return label;
+}
+
+describe("an option written in a language of its own", () => {
+  it("declares that language on the option, and claims nothing for an option that carries none", async () => {
+    const user = userEvent.setup();
+    const trigger = renderLanguageSelect("en");
+
+    await user.click(trigger);
+
+    expect(labelOf("Tiếng Việt").getAttribute("lang")).toBe("vi");
+    expect(labelOf("English").getAttribute("lang")).toBe("en");
+    expect(labelOf("Match my browser").hasAttribute("lang")).toBe(false);
+  });
+
+  // The trigger face is the same passage as the option that produced it, and it
+  // is the one a reader hears every time the control is announced — a `lang` that
+  // stopped at the popup would fix only the moment the list is open.
+  it("carries the same declaration onto the trigger face", () => {
+    const trigger = renderLanguageSelect("vi");
+
+    const face = trigger.querySelector<HTMLElement>(".select-face");
+
+    expect(face?.textContent).toBe("Tiếng Việt");
+    expect(face?.getAttribute("lang")).toBe("vi");
+  });
+
+  it("claims no language on a face showing a placeholder or an option that declares none", () => {
+    const trigger = renderLanguageSelect("auto");
+
+    expect(trigger.querySelector(".select-face")?.hasAttribute("lang")).toBe(
+      false,
+    );
+  });
+});
+
 describe("the keyboard", () => {
   it("opens on Enter, Space, ArrowDown and ArrowUp", async () => {
     const user = userEvent.setup();

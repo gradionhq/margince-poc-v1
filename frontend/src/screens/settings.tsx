@@ -846,9 +846,16 @@ function PreferencesCard() {
                     setLocale(picked);
                   }
                 }}
+                // Language names are proper nouns and deliberately not
+                // translated, so every option here is in a different language
+                // from the page around it — WCAG 2.2 AA 3.1.2, the same reason
+                // the login footer's switcher carries `lang` on each name. Our
+                // locale codes are BCP 47 language subtags, so the code IS the
+                // value `lang` wants.
                 options={LOCALES.map((option) => ({
                   value: option,
                   label: t(localeNameKey(option)),
+                  lang: option,
                 }))}
               />
             )}

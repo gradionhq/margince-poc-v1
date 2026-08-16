@@ -47,6 +47,16 @@ export type SelectOption = Readonly<{
   value: string;
   label: string;
   disabled?: boolean;
+  /**
+   * A BCP 47 tag when this option's LABEL is written in a language other than
+   * the document's — a language picker's endonyms, a locale name, a quoted
+   * foreign title. WCAG 2.2 AA 3.1.2 (Language of Parts): without it a screen
+   * reader reads "Tiếng Việt" with the phonemes of whichever locale the page is
+   * currently in. Omit it when the label is in the page's own language; an
+   * attribute that merely repeats the document's is noise, and one that is
+   * wrong is worse than one that is absent.
+   */
+  lang?: string;
 }>;
 
 export type SelectProps = Readonly<{
@@ -658,6 +668,11 @@ function SelectTrigger({
         className={
           selected ? "select-face" : "select-face select-face-placeholder"
         }
+        // The face is the selected option's label repeated, so it inherits that
+        // option's language declaration. A placeholder is our own copy and is
+        // therefore in the document's language, which is why this reads from the
+        // selected option rather than from the face string.
+        lang={selected?.lang}
       >
         {face}
       </span>
@@ -723,7 +738,9 @@ function SelectPopup({
               option.disabled ? undefined : () => listbox.hover(index)
             }
           >
-            <span className="select-option-label">{option.label}</span>
+            <span className="select-option-label" lang={option.lang}>
+              {option.label}
+            </span>
             {option.value === value && (
               <Check className="select-option-check" size={14} aria-hidden />
             )}
