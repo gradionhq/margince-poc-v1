@@ -19,10 +19,15 @@ describe("the rail and a composed unit", () => {
   });
 
   // The regression the rail row used to prevent, now prevented differently: a
-  // unit screen still has no row of its own, so without an answer here the
-  // rail would mark nothing current and the page would read as if it sat
-  // outside the app. Settings is where the unit is offered and where the
-  // reader came from.
+  // unit screen still has no row of its own, so without an answer here the rail
+  // would mark nothing current and the page would read as if it sat outside the
+  // app. Settings is where the unit is offered and where the reader came from.
+  //
+  // This is the DATA half only. `settings` is a string, and whether any element
+  // on screen resolves it is a different question that reads identically from
+  // here — the Settings door is what answers it, and shell.test.tsx asserts
+  // that at render. Neither half is sufficient alone; this file has shipped the
+  // half-truth before.
   it("marks Settings current on a unit's route", () => {
     const [primary] = railTrail({ screen: "ext", id: "notes" });
     expect(primary.activeId).toBe("settings");

@@ -228,21 +228,38 @@ function ConnectionCard() {
         )}
       </QueryStates>
 
-      {/* Only once the read has ANSWERED. An empty deposit form drawn while
-          the status is still in flight says "nothing is connected" before
-          anything has established that, and what it invites is pasting a token
-          over a connection that is already working. `status.data` is undefined
-          for both the in-flight and the failed read, which are exactly the two
-          states with nothing to say about the member's account. */}
+      {/* Only once the read has ANSWERED ONCE. An empty deposit form drawn
+          before then says "nothing is connected" before anything established
+          it, and what that invites is pasting a token over a connection that is
+          already working — so `status.data` is the gate, and it stays undefined
+          until a read succeeds, whether the first one is still in flight or
+          failed.
+
+          After a success it is the LAST GOOD answer and react-query keeps it
+          through a failing poll. That is deliberate rather than tolerated: a
+          poll that stops answering has not withdrawn the member's connection,
+          and blanking the form every twenty seconds on a flaky network is the
+          same false claim in the other direction. What the member sees is the
+          state that was last true, with QueryStates saying the read is
+          failing. */}
       {canConnect && status.data ? (
         <>
-          {/* Keyed by the connection it was opened over, so the fields'
-              starting values come from that record and are re-seeded when it
-              changes. Deriving them at render instead would need a second rule
-              for "edited" versus "as stored", and the two readings would
-              disagree the first time a member cleared the field. */}
+          {/* Keyed by everything the form SEEDS FROM, not by the record's
+              identity. The id is not enough: connect upserts on (workspace,
+              member), so changing the deployment keeps the same row — a form
+              keyed on the id alone would hold the URL it opened with while the
+              stored one moved underneath it, and the next "Replace token" would
+              submit the stale URL. That is not a cosmetic staleness: the
+              server treats a different base_url as a DEPLOYMENT change and
+              resets high_water_mark to 0, so the silent revert also wipes the
+              member's read cursor and re-reads their history.
+
+              Re-seeding through the key rather than deriving the fields at
+              render, because a derived value would need a second rule for
+              "edited" versus "as stored" and the two readings would disagree
+              the first time a member cleared the field. */}
           <CredentialForm
-            key={status.data.connection?.id ?? "absent"}
+            key={connectionSeed(status.data.connection)}
             connection={status.data.connection}
             connect={connect}
           />
@@ -293,6 +310,22 @@ function ConnectionCard() {
  * contract can express is a whole replacement — which is what the button says,
  * in the words of what it does.
  */
+/**
+ * The identity of what the deposit form seeds itself from.
+ *
+ * Every stored value the form takes a starting value from belongs here, so a
+ * change to one of them remounts the form over the new record. Today that is
+ * the deployment URL beside the row's own id; a field seeded from something
+ * else later has to join it, or the form will keep a value the server no
+ * longer holds.
+ */
+function connectionSeed(connection?: Connection): string {
+  if (!connection) {
+    return "absent";
+  }
+  return `${connection.id}:${connection.base_url}`;
+}
+
 function CredentialForm({
   connection,
   connect,

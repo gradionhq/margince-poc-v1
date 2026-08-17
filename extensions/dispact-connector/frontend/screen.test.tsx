@@ -372,6 +372,74 @@ describe("the Dispact connector screen", () => {
     });
   });
 
+  // The deployment can move under an open screen — connect upserts on
+  // (workspace, member), so a URL change keeps the SAME row id. A form that
+  // re-seeded only on the id would keep showing the URL it opened with, and the
+  // next "Replace token" would submit that stale one. The server reads a
+  // different base_url as a DEPLOYMENT change and resets high_water_mark to 0,
+  // so the silent revert would also wipe the member's read cursor.
+  //
+  // The re-read is driven by a connect's own invalidation rather than by the
+  // 20s poll: what is under test is that a CHANGED base_url re-seeds the form,
+  // and waiting on a real interval would buy the same assertion at the price of
+  // a wall-clock test.
+  it("re-seeds the deployment when it moves under the same connection", async () => {
+    let moved = false;
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => ({
+        connected: true,
+        connection: {
+          ...CONNECTED.connection,
+          base_url: moved
+            ? "https://moved.example.com"
+            : CONNECTED.connection.base_url,
+        },
+      }),
+      "/ext/dispact-connector/connect": () => CONNECTED.connection,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    const urlField = () =>
+      screen.getByLabelText("Dispact URL") as HTMLInputElement;
+
+    renderScreen();
+    await screen.findByText("Connected");
+    expect(urlField().value).toBe("https://workspace.example.com");
+
+    // The same row, a different deployment — as another tab would leave it.
+    moved = true;
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Replace token" }));
+    await user.type(screen.getByLabelText("Access token"), "pat_first");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The form re-seeds off the re-read the connect triggered, and comes back
+    // in its stored state — the deployment the server now holds, and a token
+    // field that is masked again rather than still open over the old one.
+    await waitFor(() => {
+      expect(urlField().value).toBe("https://moved.example.com");
+    });
+    expect(
+      (screen.getByLabelText("Access token") as HTMLInputElement).disabled,
+    ).toBe(true);
+
+    // And the next replacement travels with the deployment on screen, never
+    // the one this screen was opened with.
+    await user.click(screen.getByRole("button", { name: "Replace token" }));
+    await user.type(screen.getByLabelText("Access token"), "pat_second");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => {
+      const sent = calls.filter(
+        (call) => call.path === "/ext/dispact-connector/connect",
+      );
+      expect(sent.at(-1)?.body).toEqual({
+        base_url: "https://moved.example.com",
+        token: "pat_second",
+      });
+    });
+  });
+
   // A read that has said nothing yet must not draw a deposit form: an empty
   // form claims "not connected" before anything established it, and that claim
   // is the one that gets a working credential overwritten.

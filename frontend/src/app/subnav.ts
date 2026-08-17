@@ -107,9 +107,10 @@ export function navTrail(
   // Which of the top level's rows the route makes current. It defaults to the
   // route's screen, which is what a primary entry's id is for every
   // destination the PRODUCT owns — and is passed explicitly by the caller that
-  // knows better: a composed unit's row is `ext/<unit>` while its route's
-  // screen is `ext`, so deriving it here would mark nothing current on every
-  // unit route.
+  // knows better: a composed unit's route has screen `ext` and no row of its
+  // own, so it names `settings`, the door it is offered from. Nothing in this
+  // level renders that id; the shell's Settings door reads the activeId and
+  // claims the page itself (app/shell.tsx).
   activeId: string = route.screen,
 ): readonly NavTrailLevel[] {
   const trail: NavTrailLevel[] = [{ ...top, activeId }];

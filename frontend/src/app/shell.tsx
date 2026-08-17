@@ -223,15 +223,21 @@ function SkipToContent({
 // settings level could only be entered through the account menu's popover — you
 // could walk out of the level and never back into it.
 //
-// It carries no active state and no `aria-current`, deliberately: inside the
-// section the level itself is on screen with the reader's own entry current, and
-// the document must claim exactly ONE current page.
+// It claims the current page ONLY when the level on screen cannot, which is
+// what `current` carries. Inside the section the level itself is on screen with
+// the reader's own entry current and this stays quiet; on a route that marks
+// Settings current without rendering a row for it — a composed unit's screen,
+// which lives under Settings without being one of its tabs — this is the only
+// element that can say so. The document still claims exactly ONE current page,
+// which is the invariant, not the silence.
 function RailSettingsDoor({
   collapsed,
+  current,
   tipOpen,
   onTip,
 }: Readonly<{
   collapsed: boolean;
+  current: boolean;
   tipOpen: boolean;
   onTip: (key: string | null) => void;
 }>) {
@@ -241,7 +247,10 @@ function RailSettingsDoor({
   const href = routeHash({ screen: SETTINGS_SCREEN });
   return (
     <a
-      className="navitem railsettings"
+      className={
+        current ? "navitem railsettings active" : "navitem railsettings"
+      }
+      aria-current={current ? "page" : undefined}
       href={href}
       aria-label={label}
       // This link is the walk INTO the section, so it hands its focus on to the
@@ -434,6 +443,24 @@ export function WorkspaceRail({
     (item) => item.screen === route.screen && !MOBILE_PRIMARY.has(item.screen),
   );
 
+  // Whether the Settings door is the thing that says where you are.
+  //
+  // A route can mark `settings` current while no ROW on screen carries that id:
+  // a composed unit's screen does exactly that (nav.ts's activeRowFor), because
+  // a unit lives under Settings without being one of its tabs. The door is then
+  // the only element that can claim the page, and without this the rail marks
+  // NOTHING current on every unit route.
+  //
+  // Derived from the level rather than from a list of routes, so it stays true
+  // for whatever else comes to mark Settings current — and so it cannot produce
+  // a second current element: the moment a rendered row carries the id, this is
+  // false and the row answers instead.
+  const settingsIsCurrent =
+    level.shown.activeId === SETTINGS_SCREEN &&
+    !level.shown.groups.some((group) =>
+      group.items.some((item) => item.id === SETTINGS_SCREEN),
+    );
+
   return (
     <>
       {/* The scrim dims the page the sheet covers and gives the eye the layer
@@ -530,6 +557,7 @@ export function WorkspaceRail({
             offer it and the bar has no room for a sixth control. */}
           <RailSettingsDoor
             collapsed={collapsed}
+            current={settingsIsCurrent}
             tipOpen={tip === SETTINGS_TIP_KEY}
             onTip={setTip}
           />
@@ -812,8 +840,10 @@ export function PageHead({
   // than yielding to a surface that will not name itself either.
   //
   // No crumb, unlike a record: a record's trail leads back to its list, and
-  // there is no `#/ext` index to lead back to. A unit's place in the
-  // rail is the primary level's Units group (nav.ts); what would go HERE is a
+  // there is no `#/ext` index to lead back to. A unit has no row in the rail at
+  // all — it is offered from Settings, on the page holding the credential it is
+  // configured with (screens/extension-units.tsx), and the Settings door is
+  // what the rail marks current while one is open. What would go HERE is a
   // level a unit publishes BELOW its own screen, and none does.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;

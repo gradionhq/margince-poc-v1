@@ -28,6 +28,7 @@ import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import { setTheme, THEMES, useTheme } from "../app/theme";
@@ -496,7 +497,16 @@ export function useSettingsEntryVisibility(
     // here, so an entry this narrow would strand whoever follows it on the Account
     // fallback — the overlay read every seeded role holds is what keeps that link
     // honest, and it is a live grant rather than an exemption.
-    integrations: webhook || overlay,
+    //
+    // The composed units are the third card, and they open the entry on their
+    // own PRESENCE rather than on a grant: this page is the only place a
+    // workspace-scoped unit is offered at all — it has no rail row and the
+    // palette never carried one — so a role holding neither read would lose the
+    // unit itself, not merely the two cards above it. Presence is the honest
+    // predicate because the card asks for no grant; the unit's own screen is
+    // what refuses, on the object it declares.
+    integrations:
+      webhook || overlay || unitsForSecretScope("workspace").length > 0,
     // Everything that defines the shape a record takes: the field editor, the
     // pipeline designer, the product list, the offer templates. Any one of their
     // reads opens the page; the authoring controls inside each ask for their own

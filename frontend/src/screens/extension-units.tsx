@@ -8,6 +8,7 @@ import {
   unitsForSecretScope,
 } from "../app/extensions";
 import { Card } from "../design-system/atoms";
+import { useTruncationTooltip } from "../design-system/tooltip";
 import { useT } from "../i18n";
 import "./extension-units.css";
 
@@ -52,25 +53,38 @@ export function ExtensionUnitsCard({
     <Card title={t(`extUnits.${scope}.title`)} sub={t(`extUnits.${scope}.sub`)}>
       <ul className="extunits-list">
         {units.map((unit) => (
-          <li key={unit.name}>
-            {/* The unit's NAME is the link, rather than a name beside an
-                "Open" button: a list of identical "Open" links reads as
-                "Open, Open, Open" to a screen reader, and the one word that
-                distinguishes them is the one the link should be named by. */}
-            <a
-              className="extunits-row"
-              href={`#/${EXTENSION_SCREEN}/${unit.name}`}
-            >
-              <Blocks aria-hidden />
-              {/* Untranslated: it is the INSTALLATION's text, and a catalogue
-                  this program ships cannot hold a string for a unit it has
-                  never seen. */}
-              <span className="extunits-name">{unit.name}</span>
-              <ChevronRight aria-hidden />
-            </a>
-          </li>
+          <UnitRow key={unit.name} name={unit.name} />
         ))}
       </ul>
     </Card>
+  );
+}
+
+/**
+ * One unit, as a row that leads to its screen.
+ *
+ * The unit's NAME is the link, rather than a name beside an "Open" button: a
+ * list of identical "Open" links reads as "Open, Open, Open" to a screen
+ * reader, and the one word that distinguishes them is the one the link should
+ * be named by.
+ */
+function UnitRow({ name }: Readonly<{ name: string }>) {
+  // A unit name is a directory name and can be any length, while the row is one
+  // line — so the whole of it is on hover and on focus, and a name that already
+  // fits gets no tooltip at all.
+  const tip = useTruncationTooltip<HTMLSpanElement>(name);
+  return (
+    <li>
+      <a className="extunits-row" href={`#/${EXTENSION_SCREEN}/${name}`}>
+        <Blocks aria-hidden />
+        {/* Untranslated: it is the INSTALLATION's text, and a catalogue this
+            program ships cannot hold a string for a unit it has never seen. */}
+        <span className="extunits-name" ref={tip.ref} {...tip.trigger}>
+          {name}
+          {tip.tip}
+        </span>
+        <ChevronRight aria-hidden />
+      </a>
+    </li>
   );
 }
