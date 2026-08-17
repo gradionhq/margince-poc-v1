@@ -153,5 +153,19 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     // Playwright owns e2e/ — vitest must not collect its specs
     exclude: ["**/node_modules/**", "e2e/**"],
+    // The lcov report is written for ONE reader, the SonarCloud scanner, and
+    // the scanner resolves an `SF:` path against ITS base directory — the repo
+    // root. Vitest's root is frontend/, so the default report says
+    // `SF:src/App.tsx`, which names no file the scanner can find. Nothing
+    // reports the mismatch: the report parses, every record resolves to
+    // nothing, and the project carries backend coverage only while every
+    // frontend file sits outside the measurement entirely. `projectRoot` is
+    // what the lcov reporter writes those paths relative to, so naming the
+    // repo root here is what makes the file addressable by the tool that
+    // consumes it. frontend/scripts/check-lcov-paths.sh holds the invariant.
+    coverage: {
+      provider: "v8",
+      reporter: [["lcov", { projectRoot: resolve(frontendRoot, "..") }]],
+    },
   },
 });
