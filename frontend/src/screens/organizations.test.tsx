@@ -696,6 +696,12 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
     await waitFor(() =>
       expect(urls.some((url) => url.includes("limit=50"))).toBe(true),
     );
+
+    // A new page size restarts the keyset walk. Carrying the old cursor over
+    // would continue a walk taken at the previous size, so the reader would
+    // resume mid-list while believing they were on page one.
+    const resized = urls.filter((url) => url.includes("limit=50"));
+    expect(resized.every((url) => !url.includes("cursor="))).toBe(true);
   });
 });
 
