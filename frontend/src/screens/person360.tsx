@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Card, Disclosure, SectionHeader } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Card,
+  Disclosure,
+  SectionHeader,
+} from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
 import { FactList } from "../design-system/factlist";
 import type { ConfidenceLevel } from "../design-system/trust";
@@ -103,15 +109,18 @@ export function ThinState({
           })}
         </p>
         <p style={{ margin: "10px 0 0", lineHeight: 1.55 }}>{remediation}</p>
+        {/* A bare `.btn` names no variant, and the variants are what carry the
+            fill, the border and the ink — so this rendered transparent,
+            borderless and unreadable against the plate behind it. It is the one
+            move this surface offers, so it is the primary. */}
         {onLogActivity && (
-          <button
-            type="button"
-            className="btn"
-            style={{ marginTop: "var(--space-3)" }}
+          <Button
+            variant="primary"
+            className="thin-log-first"
             onClick={onLogActivity}
           >
             {t("person.thin.logFirst")}
-          </button>
+          </Button>
         )}
       </div>
     </Card>

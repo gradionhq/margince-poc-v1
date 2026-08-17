@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Card, SectionHeader } from "../design-system/atoms";
+import { Badge, Button, Card, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 
@@ -215,15 +215,20 @@ function NodeList({
     >
       {nodes.map((node) => (
         <li key={node.id}>
-          <button
-            type="button"
-            className="btn-ghost btn-small"
+          {/* The design system's Button. This was
+              `className="btn-ghost btn-small"` — a class list naming a variant
+              with no base `.btn` beside it, and a size class that exists in no
+              stylesheet in the tree (the real one is `.btn-sm`). So the control
+              rendered with none of a button's chrome at all: Tailwind's
+              preflight had already stripped the browser's own. */}
+          <Button
+            small
             aria-pressed={selected === node.id}
             onClick={() => onSelect(node.id)}
           >
             {node.label}
             {node.sublabel ? ` · ${node.sublabel}` : ""}
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

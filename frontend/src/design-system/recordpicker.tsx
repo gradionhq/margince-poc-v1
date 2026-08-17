@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import { SearchField } from "./atoms";
+import { Button, SearchField } from "./atoms";
 
 // The shared debounced search→candidate-list→pick pattern: this used to live
 // duplicated, near-identically, inline in MergeAction (screens/merge.tsx) and
@@ -130,9 +130,8 @@ export function RecordPicker({
         <ul className="recordpicker-options">
           {candidates.map((candidate) => (
             <li key={candidate.id}>
-              <button
-                type="button"
-                className="btn btn-ghost recordpicker-option"
+              <Button
+                className="recordpicker-option"
                 aria-pressed={selected?.id === candidate.id}
                 disabled={disabled}
                 onClick={() => {
@@ -144,7 +143,7 @@ export function RecordPicker({
                 }}
               >
                 {candidate.name}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

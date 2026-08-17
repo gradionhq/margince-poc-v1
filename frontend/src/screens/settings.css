@@ -5,8 +5,8 @@
 
 /* EVERY settings page's vertical rhythm, owned in one place.
    `.wrap > .card + .card` (app/shell.css) is the shell's default and it matches a
-   card FOLLOWING a card. After the eleven-entry merge most settings pages are no
-   longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
+   card FOLLOWING a card. Since the entries were merged, most settings pages are
+   no longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
    People holds two flex wrappers; Data model holds a block, a card and two
    heading-plus-table pairs — so that rule silently missed and the gap between two
    unrelated surfaces was ZERO. Two hairlines touching read as one card.
