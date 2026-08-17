@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { routeHash } from "../app/router";
 import { Avatar, Badge, Disclosure } from "../design-system/atoms";
 import { AvatarStack } from "../design-system/avatarstack";
 import { EvidenceMark } from "../design-system/evidencemark";
@@ -321,7 +322,14 @@ function PersonRow({ contact }: Readonly<{ contact: Contact }>) {
     <>
       <Avatar name={contact.full_name} />
       <span className="co-person-id">
-        <span className="co-person-name">{contact.full_name}</span>
+        {/* Same target the People tab offers, and the same reach: the row is
+            the link, not the eight characters of a short name. */}
+        <a
+          className="co-rowlink co-person-name co-rowcover"
+          href={routeHash({ screen: "contacts", id: contact.person_id })}
+        >
+          {contact.full_name}
+        </a>
         {/* The same fallback the tab makes, because a rail that disagreed
             with the tab about somebody's role is worse than neither showing
             one. The server decides the precedence; both surfaces read it.

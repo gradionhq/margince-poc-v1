@@ -9,7 +9,7 @@ import {
 } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { navigate } from "../app/router";
+import { navigate, routeHash } from "../app/router";
 import {
   Avatar,
   Badge,
@@ -801,15 +801,17 @@ function ContactRow({
         <Avatar name={contact.full_name} />
       </span>
       <span className="co-person-body">
-        <button
-          type="button"
-          className="co-rowlink co-person-name"
-          onClick={() =>
-            navigate({ screen: "contacts", id: contact.person_id })
-          }
+        {/* A real href, and it covers the whole row: a name is a small target
+            beside the face and the badges that describe the same person, and
+            a reader aiming at any of them means "open this contact". The
+            verbs at the row's end sit above the cover, so they still act on
+            the row rather than opening it. */}
+        <a
+          className="co-rowlink co-person-name co-rowcover"
+          href={routeHash({ screen: "contacts", id: contact.person_id })}
         >
           {contact.full_name}
-        </button>
+        </a>
         {subline && (
           <span className="co-person-sub">
             {/* ONE mark, on the whole line, and only where the title was

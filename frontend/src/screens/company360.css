@@ -138,10 +138,23 @@
   border-radius: var(--r-sm);
 }
 
+/* A link that claims its whole row as the target. The cover is a pseudo
+   element rather than an anchor wrapped around the row, so the row keeps one
+   link with one accessible name — the person's — instead of reading the
+   badges and the verbs beside them as part of it. The row it covers must be
+   the positioning context, and anything meant to stay clickable inside the
+   row must sit above the cover. */
+.co-rowcover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
 /* A contact row: the avatar and the identity it names on the left, coverage
    and the verbs that touch this person on the right — a person is a face and
    a name first, and everything the page can tell or do about them second. */
 .co-person-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -162,7 +175,10 @@
   font-size: 12px;
   color: var(--textMeta);
 }
+/* Above the row's link cover: these are verbs about the person, and clicking
+   one must do the verb rather than leave the page for their record. */
 .co-person-end {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px; /* ds:ignore matches .co-row-meta, the same row-end chip rhythm */
@@ -1027,6 +1043,7 @@
 /* A roster row: the monogram, the name over the title, and, where the graph
    read supports it, who here already talks to them, pushed to the far end. */
 .co-person-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
