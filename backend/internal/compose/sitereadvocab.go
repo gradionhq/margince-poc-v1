@@ -29,7 +29,13 @@ const (
 // "Name — short description" value spelling NormalizeFactValueKey
 // dedupes on.
 var categoryGuidance = map[string]string{
-	companyWord: "founded_year is the year the company was founded; employee_range a stated headcount or range; " +
+	companyWord: "founded_year is the year the company was founded; " +
+		"employee_range is THIS company's OWN headcount, exactly as printed — \"400 Mitarbeiter\", " +
+		"\"800+ employees\", \"rund 130\", \"team of 20\". Take it wherever it appears, including a " +
+		"homepage key-figures strip or an about page, and record the phrase rather than a rounded band. " +
+		"It is NOT company_size, which is a market fact about the size of company they SELL TO, and it is " +
+		"not a count of partners, customers, offices or locations — 550+ enterprises and around 500 partners " +
+		"are neither. " +
 		"phone and contact_email the company's own contact details; location one entry per office or site the " +
 		"company states (city and country as printed).",
 	"offering": "service and product name what THIS company sells, at the level it sells them — the page's own subject, as a buyer would name it on an order. " +
@@ -40,7 +46,8 @@ var categoryGuidance = map[string]string{
 		"however deeply the page describes working with it. " +
 		"capability names a delivery or technical capability the company declares about ITSELF — what it can do for any client — never an implementation detail, " +
 		"configuration, or feature bullet of one project, page or engagement. One entry per item, repeating the field name.",
-	"market": "served_industry, company_size, geography and language describe markets the company explicitly says it serves — one entry per grounded item, repeating the field name.",
+	"market": "served_industry, company_size, geography and language describe markets the company explicitly says it serves — one entry per grounded item, repeating the field name. " +
+		"company_size here is the size of the customers they sell TO (\"we work with mid-sized retailers\"), never their own headcount, which is employee_range under company.",
 	"signal": "certification names a held certification or standard; partner a named business partner; " +
 		"named_customer a customer the site names; technology a platform, product or stack the company says it " +
 		"works with or builds on; quantified_outcome preserves an exact measurable customer or case-study result " +

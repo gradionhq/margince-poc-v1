@@ -74,3 +74,31 @@ func TestSizeBandFromEmployeeRangeMapsOnlyUnambiguousPhrasings(t *testing.T) {
 		}
 	}
 }
+
+// TestAFloorAboveTheTopBandIsPlaceable — a comparison states a bound the
+// mapping usually cannot place, and "over 500" really is 501 or 50,000. But a
+// floor already above the open top band's boundary has only one answer, and
+// refusing it dropped adesso.de's homepage headcount ("Über 11500
+// Mitarbeitende") between the fact and the column.
+func TestAFloorAboveTheTopBandIsPlaceable(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		band string
+		ok   bool
+	}{
+		{"Über 11500 Mitarbeitende", "5000+", true},
+		{"over 8000 employees", "5000+", true},
+		{"more than 5000 employees", "5000+", true},
+		// Still refused: the floor sits inside the banded range, so the
+		// company could be in any band above it.
+		{"over 500 employees", "", false},
+		{"mehr als 200 Mitarbeiter", "", false},
+		{"up to 50 employees", "", false},
+	} {
+		band, ok := sizeBandFromEmployeeRange(tc.text)
+		if ok != tc.ok || band != tc.band {
+			t.Errorf("sizeBandFromEmployeeRange(%q) = (%q, %v), want (%q, %v)",
+				tc.text, band, ok, tc.band, tc.ok)
+		}
+	}
+}
