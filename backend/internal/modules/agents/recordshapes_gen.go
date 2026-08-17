@@ -11,7 +11,7 @@ var createRecordShapes = map[string]string{
 	"organization": "{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \"1-10\"|\"11-50\"|\"51-200\"|\"201-500\"|\"501-1000\"|\"1001-5000\"|\"5000+\", source?: string}",
 	"deal":         "{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, name: string, organization_id?: uuid, owner_id?: uuid, pipeline_id: uuid, project_id?: uuid, source?: string, stage_id: uuid}",
 	"lead":         "{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, linkedin_url?: string, owner_id?: uuid, project_id?: uuid, source?: string, source_id?: string, source_system?: string, status?: \"new\"|\"working\"|\"promoted\"|\"disqualified\", title?: string}",
-	"activity":     "{assignee_id?: uuid, body?: string, channel_provider?: string, direction?: \"inbound\"|\"outbound\", due_at?: rfc3339, duration_seconds?: integer, kind: \"email\"|\"call\"|\"meeting\"|\"note\"|\"task\"|\"message\", links?: [{entity_id: uuid, entity_type: \"person\"|\"organization\"|\"deal\"|\"lead\"}], meeting_status?: \"booked\"|\"held\"|\"no_show\"|\"canceled\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}",
+	"activity":     "{assignee_id?: uuid, body?: string, channel_provider?: string, direction?: \"inbound\"|\"outbound\", due_at?: rfc3339, duration_seconds?: integer, kind: \"email\"|\"call\"|\"meeting\"|\"note\"|\"task\"|\"message\", links?: [{entity_id: uuid, entity_type: \"person\"|\"organization\"|\"deal\"|\"lead\"|\"project\"}], meeting_status?: \"booked\"|\"held\"|\"no_show\"|\"canceled\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}",
 	"project":      "{description?: string, key?: string, name: string, organization_id: uuid, owner_id?: uuid, source?: string, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}",
 	"relationship": "{counterparty_org_id?: uuid, deal_id?: uuid, ended_at?: YYYY-MM-DD, is_current_primary?: boolean, kind: \"employment\"|\"deal_stakeholder\"|\"project_stakeholder\"|\"partner_of\"|\"referred_by\"|\"co_sell_with\", organization_id?: uuid, person_id?: uuid, project_id?: uuid, role?: string, source?: string, started_at?: YYYY-MM-DD}",
 }
@@ -31,7 +31,7 @@ var updateRecordShapes = map[string]string{
 
 const activityKindEnum = `["email","call","meeting","note","task","message"]`
 
-const activityLinkEntityTypeEnum = `["person","organization","deal","lead"]`
+const activityLinkEntityTypeEnum = `["person","organization","deal","lead","project"]`
 
 // listRecordFilters is the CONTRACT half of what list_records may be asked to
 // filter by, per record_type: each list operation's OWN declared query

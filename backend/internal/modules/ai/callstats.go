@@ -64,8 +64,7 @@ func (s *CallReadStore) ServedTaskTotals(ctx context.Context, tasks []Task, sinc
 		       sum(tokens_out), count(*),
 		       count(*) FILTER (WHERE error_sentinel IS NULL)
 		FROM ai_call
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		      AND occurred_at >= $1 AND NOT cache_hit
+		WHERE occurred_at >= $1 AND NOT cache_hit
 		      AND (error_sentinel IS NULL OR error_sentinel = 'metering_failed')
 		      AND tokens_in > 0 AND task = ANY($2)
 		GROUP BY task, tier, provider, model_id`

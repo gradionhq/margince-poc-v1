@@ -30,9 +30,10 @@ const (
 // one field to one indexed column on the base table (the join-backed and
 // full-text list params — organization_id-via-employment, q,
 // entity_type+entity_id — are list-query surface, not predicate leaves,
-// and are deliberately out of the segment vocabulary). Only the four
-// list entity types carry a segment engine; list.entity_type constrains
-// membership to exactly these tables.
+// and are deliberately out of the segment vocabulary). Every list entity
+// type carries a segment engine; list.entity_type constrains membership to
+// exactly these tables, and the map below is the authority the export
+// object's own vocabulary answers to.
 // projectEntity is this file's spelling of the project record type, named
 // once so the engine key, the table and the column prefix cannot drift.
 const projectEntity = "project"
@@ -48,26 +49,22 @@ const tagFilterField = "tag"
 const ownerIDField = "owner_id"
 
 // The record types taggable.entity_type admits (LVS-DDL-2), named through the
-// contract's own enum rather than as strings where the enum has a member: a
-// renamed member fails to compile here instead of silently dropping a tag
-// filter. The tag vocabulary below is built from this set and the fitness
-// test reads the same one, so a type dropped here loses its filter visibly.
-// project is spelled through projectEntity rather than a contract constant:
-// the generated TaggableEntityType enum has no project member even though
-// the DDL's CHECK and the spec both admit it (a known, separately tracked
-// contract/spec divergence) — projectEntity is this file's own constant for
-// the same value, not a stand-in for a missing generated one.
+// contract's own enum rather than as strings: a renamed member fails to compile
+// here instead of silently dropping a tag filter. The tag vocabulary below is
+// built from this set and the fitness test reads the same one, so a type
+// dropped here loses its filter visibly.
 //
 // This list is hand-maintained: it catches a member named here without a
 // matching vocabulary entry (the loop test below), but it cannot by itself
 // notice a type that becomes taggable in the schema and is never added here.
+// The integration lane closes that side by comparing the DDL's own CHECK.
 func taggableEntityTypes() []string {
 	return []string{
 		string(crmcontracts.TaggableEntityTypePerson),
 		string(crmcontracts.TaggableEntityTypeOrganization),
 		string(crmcontracts.TaggableEntityTypeDeal),
 		string(crmcontracts.TaggableEntityTypeLead),
-		projectEntity,
+		string(crmcontracts.TaggableEntityTypeProject),
 	}
 }
 

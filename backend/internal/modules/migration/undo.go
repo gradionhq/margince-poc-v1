@@ -260,7 +260,7 @@ func (s *RunStore) beginUndo(ctx context.Context, id RunID) (Run, UndoReport, er
 		row := tx.QueryRow(ctx, `
 			SELECT id, connector, status, checkpoint, undo_report
 			  FROM import_run
-			 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			 WHERE id = $1
 			 FOR UPDATE`, id)
 		if err := row.Scan(&run.ID, &run.Connector, &run.Status, &run.Checkpoint, &undoReportRaw); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -292,7 +292,7 @@ func (s *RunStore) beginUndo(ctx context.Context, id RunID) (Run, UndoReport, er
 		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE import_run SET status = $2, checkpoint = $3, undo_report = $4, updated_at = now()
-			 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			 WHERE id = $1`,
 			id, StatusUndoing, run.Checkpoint, encoded)
 		if err != nil {
 			return fmt.Errorf("starting import run %s undo: %w", id, err)
@@ -321,7 +321,6 @@ func (s *RunStore) mapRowsForRun(ctx context.Context, id RunID, skip, limit int)
 			SELECT object, native_id
 			  FROM import_record_map
 			 WHERE import_run_id = $1
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			 ORDER BY created_at, external_id
 			 OFFSET $2 LIMIT $3`, id, skip, limit)
 		if err != nil {
@@ -369,12 +368,10 @@ func (s *RunStore) humanTouchedSince(ctx context.Context, id RunID, rows []mapRo
 				SELECT m.native_id
 				  FROM import_record_map m
 				 WHERE m.import_run_id = $1 AND m.object = $2
-				   AND m.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 				   AND m.native_id = ANY($3)
 				   AND EXISTS (
 				     SELECT 1 FROM audit_log a
-				      WHERE a.workspace_id = m.workspace_id
-				        AND a.entity_type = $2 AND a.entity_id = m.native_id
+				      WHERE a.entity_type = $2 AND a.entity_id = m.native_id
 				        AND a.actor_type = 'human' AND a.occurred_at > m.created_at)`,
 				id, object, nativeIDs)
 			if err != nil {
@@ -415,7 +412,7 @@ func (s *RunStore) advanceUndoCheckpoint(ctx context.Context, id RunID, checkpoi
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE import_run SET checkpoint = $2, undo_report = $3, updated_at = now()
-			 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			 WHERE id = $1
 			   AND status = $4 AND checkpoint <= $2`, id, checkpoint, encoded, StatusUndoing)
 		if err != nil {
 			return fmt.Errorf("advancing import run %s undo checkpoint: %w", id, err)
@@ -436,7 +433,7 @@ func (s *RunStore) completeUndo(ctx context.Context, id RunID, rep UndoReport) e
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE import_run SET status = $2, undo_report = $3, updated_at = now()
-			 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			 WHERE id = $1
 			   AND status = $4`, id, StatusUndone, encoded, StatusUndoing)
 		if err != nil {
 			return fmt.Errorf("completing import run %s undo: %w", id, err)

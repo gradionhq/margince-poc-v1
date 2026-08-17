@@ -193,6 +193,7 @@ const (
 	CreateActivityRequestLinksEntityTypeLead         CreateActivityRequestLinksEntityType = "lead"
 	CreateActivityRequestLinksEntityTypeOrganization CreateActivityRequestLinksEntityType = "organization"
 	CreateActivityRequestLinksEntityTypePerson       CreateActivityRequestLinksEntityType = "person"
+	CreateActivityRequestLinksEntityTypeProject      CreateActivityRequestLinksEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestLinksEntityType enum.
@@ -205,6 +206,8 @@ func (e CreateActivityRequestLinksEntityType) Valid() bool {
 	case CreateActivityRequestLinksEntityTypeOrganization:
 		return true
 	case CreateActivityRequestLinksEntityTypePerson:
+		return true
+	case CreateActivityRequestLinksEntityTypeProject:
 		return true
 	default:
 		return false

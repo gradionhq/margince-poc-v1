@@ -58,6 +58,13 @@ var (
 // sizeBandFromEmployeeRange maps a stated headcount phrase onto the
 // size_band enum, reporting false whenever the phrasing does not land
 // cleanly in exactly one band.
+// topBand is the only band with no ceiling, and topBandFloor the headcount
+// above which nothing else can contain a company.
+const (
+	topBand      = "5000+"
+	topBandFloor = 5000
+)
+
 func sizeBandFromEmployeeRange(text string) (string, bool) {
 	trimmed := strings.TrimSpace(text)
 	for _, band := range sizeBands {
@@ -68,8 +75,21 @@ func sizeBandFromEmployeeRange(text string) (string, bool) {
 	// A leading minus is a parse artifact ("-5"), not a headcount.
 	if strings.HasPrefix(trimmed, "-") ||
 		employeeRangeMagnitude.MatchString(trimmed) ||
-		employeeRangeComparison.MatchString(trimmed) ||
 		employeeRangeRegister.MatchString(trimmed) {
+		return "", false
+	}
+	// A comparison states a FLOOR, and a floor places the company in one band
+	// only when it already sits above the open top band's boundary: "über
+	// 11500 Mitarbeitende" cannot be anything but 5000+, however far above it
+	// reaches. Every other bound stays refused for the reason the pattern was
+	// written — "over 500" is 501 or 50,000 and the mapping cannot tell.
+	//
+	// This is why adesso.de's homepage headcount was read, filed and then
+	// dropped on the way to the column.
+	if employeeRangeComparison.MatchString(trimmed) {
+		if numbers, ok := employeeRangeNumbers(trimmed); ok && len(numbers) == 1 && numbers[0] >= topBandFloor {
+			return topBand, true
+		}
 		return "", false
 	}
 	numbers, ok := employeeRangeNumbers(trimmed)
@@ -79,8 +99,8 @@ func sizeBandFromEmployeeRange(text string) (string, bool) {
 	// "200+" states a floor with no ceiling: only the open top band can
 	// contain all of it.
 	if strings.Contains(trimmed, "+") {
-		if len(numbers) == 1 && numbers[0] > 5000 {
-			return "5000+", true
+		if len(numbers) == 1 && numbers[0] >= topBandFloor {
+			return topBand, true
 		}
 		return "", false
 	}

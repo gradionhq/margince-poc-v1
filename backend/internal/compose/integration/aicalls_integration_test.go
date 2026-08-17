@@ -34,21 +34,21 @@ func seedAiCallTrace(t *testing.T, e *apptest.AppEnv) seededAiCalls {
 	logical := ids.NewV7()
 	base := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
 	insert := `INSERT INTO ai_call (
-		id, workspace_id, task, tier, provider, model_id, request_fingerprint,
+		id, task, tier, provider, model_id, request_fingerprint,
 		tokens_in, tokens_out, latency_ms, error_sentinel, logical_call_id,
 		attempt, is_terminal, attempt_reason, served_model, occurred_at)
-		VALUES ($1,$2,$3,'cheap_cloud','gemini','gemini-2.5-flash',$4,$5,$6,$7,$8,$9,$10,$11,$12,'gemini-2.5-flash',$13)`
-	if _, err := e.Owner.Exec(context.Background(), insert, retry, workspaceID,
+		VALUES ($1,$2,'cheap_cloud','gemini','gemini-2.5-flash',$3,$4,$5,$6,$7,$8,$9,$10,$11,'gemini-2.5-flash',$12)`
+	if _, err := e.Owner.Exec(context.Background(), insert, retry,
 		"capture_classify", "retry", 100, 0, 400, "provider_unavailable", logical,
 		1, false, "", base.Add(-time.Minute)); err != nil {
 		t.Fatalf("seed retry: %v", err)
 	}
-	if _, err := e.Owner.Exec(context.Background(), insert, newest, workspaceID,
+	if _, err := e.Owner.Exec(context.Background(), insert, newest,
 		"capture_classify", "terminal", 100, 20, 900, nil, logical,
 		2, true, "retry_on_5xx", base); err != nil {
 		t.Fatalf("seed terminal: %v", err)
 	}
-	if _, err := e.Owner.Exec(context.Background(), insert, older, workspaceID,
+	if _, err := e.Owner.Exec(context.Background(), insert, older,
 		"enrich", "older", 40, 8, 120, nil, older,
 		1, true, "", base.Add(-2*time.Hour)); err != nil {
 		t.Fatalf("seed older call: %v", err)
@@ -56,14 +56,14 @@ func seedAiCallTrace(t *testing.T, e *apptest.AppEnv) seededAiCalls {
 	// A task whose ONLY row is non-terminal (an in-flight first attempt) must
 	// never reach the trace filter's task set — the list is terminal-only, so
 	// the option would filter to an empty page.
-	if _, err := e.Owner.Exec(context.Background(), insert, ids.NewV7(), workspaceID,
+	if _, err := e.Owner.Exec(context.Background(), insert, ids.NewV7(),
 		"draft_reply", "inflight", 10, 0, 50, "provider_unavailable", ids.NewV7(),
 		1, false, "", base.Add(-3*time.Hour)); err != nil {
 		t.Fatalf("seed non-terminal-only call: %v", err)
 	}
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload)
-		VALUES ($1, $2, $3, $4)`, workspaceID, newest,
+		INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload)
+		VALUES ($1, $2, $3)`, newest,
 		`{"system":"classify safely","messages":[{"role":"user","content":"hello"}]}`,
 		`"commitment"`); err != nil {
 		t.Fatalf("seed payload: %v", err)

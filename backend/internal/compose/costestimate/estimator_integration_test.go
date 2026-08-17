@@ -173,13 +173,13 @@ type callRow struct {
 // insertCall seeds one served ai_call row (occurred_at inWindow, no cache hit).
 // errorSentinel defaults to NULL; set it to 'metering_failed' to seed a call the
 // model served (tokens spent) whose only failure was the meter write.
-func (e *estEnv) insertCall(t *testing.T, ws ids.UUID, c callRow) {
+func (e *estEnv) insertCall(t *testing.T, c callRow) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
+		INSERT INTO ai_call (task, tier, provider, model_id, request_fingerprint,
 		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id, error_sentinel)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,NULLIF($13,''))`,
-		ws, string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,false,$10,$11,NULLIF($12,''))`,
+		string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
 		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, inWindow, ids.NewV7(), c.errorSentinel); err != nil {
 		t.Fatalf("insert call %+v: %v", c, err)
 	}
@@ -198,13 +198,13 @@ func (e *estEnv) insertLabeledActivity(t *testing.T, ws ids.UUID) {
 
 // insertRate seeds one ai_model_rate for a fake-provider model (every fixture
 // here rates the offline fake router's bindings, so the provider is fixed).
-func (e *estEnv) insertRate(t *testing.T, ws ids.UUID, model string, in, out int64) {
+func (e *estEnv) insertRate(t *testing.T, model string, in, out int64) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
+		INSERT INTO ai_model_rate (provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
-		VALUES ($1,$2,$3,$4,$5,0,0,$6)`,
-		ws, ai.ProviderFake, model, in, out, rateDay); err != nil {
+		VALUES ($1,$2,$3,$4,0,0,$5)`,
+		ai.ProviderFake, model, in, out, rateDay); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -225,14 +225,14 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	e.seedBackfill(t, connID, 6, 100, 80, 10, 2)
 
 	// Rates: cloud + embed priced, local a real $0.
-	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
-	e.insertRate(t, ws, "embed-model", 500_000, 0)
-	e.insertRate(t, ws, "local-model", 0, 0)
+	e.insertRate(t, "cloud-model", 1_000_000, 2_000_000)
+	e.insertRate(t, "embed-model", 500_000, 0)
+	e.insertRate(t, "local-model", 0, 0)
 
 	// One served slice per task (Calls=1 each), plus four labeled messages.
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
-	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 500_000, tokensOut: 50_000})
-	e.insertCall(t, ws, callRow{task: ai.TaskEmbeddings, tier: ai.TierEmbedLane, provider: ai.ProviderFake, model: "embed-model", tokensIn: 1_000_000})
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
+	e.insertCall(t, callRow{task: ai.TaskEnrich, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 500_000, tokensOut: 50_000})
+	e.insertCall(t, callRow{task: ai.TaskEmbeddings, tier: ai.TierEmbedLane, provider: ai.ProviderFake, model: "embed-model", tokensIn: 1_000_000})
 	for i := 0; i < 4; i++ {
 		e.insertLabeledActivity(t, ws)
 	}
@@ -280,13 +280,13 @@ func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	connID := e.seedConnection(t, user, "gmail")
 	e.seedBackfill(t, connID, 6, 100, 80, 0, 0) // people/orgs 0: the run minted no counterparty
 
-	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
-	e.insertRate(t, ws, "embed-model", 500_000, 0)
-	e.insertRate(t, ws, "local-model", 1_000_000, 0) // enrich floor prices at the local head
+	e.insertRate(t, "cloud-model", 1_000_000, 2_000_000)
+	e.insertRate(t, "embed-model", 500_000, 0)
+	e.insertRate(t, "local-model", 1_000_000, 0) // enrich floor prices at the local head
 
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
-	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 500_000, tokensOut: 50_000})
-	e.insertCall(t, ws, callRow{task: ai.TaskEmbeddings, tier: ai.TierEmbedLane, provider: ai.ProviderFake, model: "embed-model", tokensIn: 1_000_000})
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 200_000})
+	e.insertCall(t, callRow{task: ai.TaskEnrich, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 500_000, tokensOut: 50_000})
+	e.insertCall(t, callRow{task: ai.TaskEmbeddings, tier: ai.TierEmbedLane, provider: ai.ProviderFake, model: "embed-model", tokensIn: 1_000_000})
 	for i := 0; i < 4; i++ {
 		e.insertLabeledActivity(t, ws)
 	}
@@ -322,10 +322,10 @@ func TestEstimatorExcludesRatelessModelAndFlagsHeuristic(t *testing.T) {
 	e.seedBackfill(t, connID, 6, 100, 100, 0, 0)
 
 	// local-model priced; cloud-model deliberately UNrated.
-	e.insertRate(t, ws, "local-model", 1_000_000, 0)
+	e.insertRate(t, "local-model", 1_000_000, 0)
 
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 1_000_000, tokensOut: 0})
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 4_000_000, tokensOut: 0})
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierLocalSmall, provider: ai.ProviderFake, model: "local-model", tokensIn: 1_000_000, tokensOut: 0})
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 4_000_000, tokensOut: 0})
 	for i := 0; i < 2; i++ {
 		e.insertLabeledActivity(t, ws)
 	}
@@ -366,8 +366,8 @@ func TestEstimatorCountsMeteringFailedRows(t *testing.T) {
 	connID := e.seedConnection(t, user, "gmail")
 	e.seedBackfill(t, connID, 6, 100, 100, 0, 0)
 
-	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 0, errorSentinel: "metering_failed"})
+	e.insertRate(t, "cloud-model", 1_000_000, 0)
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 0, errorSentinel: "metering_failed"})
 	e.insertLabeledActivity(t, ws)
 
 	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
@@ -403,13 +403,13 @@ func TestEstimatorEnrichMeteringFailedRetryDoesNotInflateDenominator(t *testing.
 
 	// ONLY cloud-model is rated: enrich (served on cheap_cloud) prices; classify's
 	// and embeddings' floor heads (local-model, embed-model) stay unrated → $0.
-	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
+	e.insertRate(t, "cloud-model", 1_000_000, 0)
 
 	// One clean enrich call + one metering_failed retry, same (tier, provider,
 	// model) so they group into a single slice: TokensIn=1_000_000, Calls=2,
 	// CompletedCalls=1.
-	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0})
-	e.insertCall(t, ws, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0, errorSentinel: "metering_failed"})
+	e.insertCall(t, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0})
+	e.insertCall(t, callRow{task: ai.TaskEnrich, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 500_000, tokensOut: 0, errorSentinel: "metering_failed"})
 
 	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
@@ -440,9 +440,9 @@ func TestEstimatorRepricesSinceUnboundSlice(t *testing.T) {
 
 	// The router binds cheap_cloud → cloud-model (rated) and local → local-model
 	// ($0). The served slice ran on old-cloud-model, now departed.
-	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
-	e.insertRate(t, ws, "local-model", 0, 0)
-	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "old-cloud-model", tokensIn: 2_000_000, tokensOut: 0})
+	e.insertRate(t, "cloud-model", 1_000_000, 0)
+	e.insertRate(t, "local-model", 0, 0)
+	e.insertCall(t, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "old-cloud-model", tokensIn: 2_000_000, tokensOut: 0})
 	e.insertLabeledActivity(t, ws)
 
 	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
@@ -468,7 +468,7 @@ func TestEstimatorNoHistoryUsesFloor(t *testing.T) {
 	user := e.seedUser(t, ws)
 	e.seedConnection(t, user, "gmail")
 	// Rate the floor's classify head (local-model) so the floor prices honestly.
-	e.insertRate(t, ws, "local-model", 1_000_000, 0)
+	e.insertRate(t, "local-model", 1_000_000, 0)
 
 	got, err := e.newEstimator(ws).EstimateBackfill(wsCtx, "gmail", user, 100)
 	if err != nil {
@@ -494,7 +494,7 @@ func TestEstimatorConnectionScopedYields(t *testing.T) {
 	e.seedBackfill(t, gmailConn, 12, 1000, 900, 200, 50) // a rich yield on gmail
 	e.seedConnection(t, user, "imap")                    // imap has NO completed run
 
-	e.insertRate(t, ws, "local-model", 1_000_000, 0)
+	e.insertRate(t, "local-model", 1_000_000, 0)
 
 	est := e.newEstimator(ws)
 	imap, err := est.EstimateBackfill(wsCtx, "imap", user, 100)

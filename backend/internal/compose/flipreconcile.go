@@ -96,8 +96,7 @@ func (w *flipWriters) orphanedIdentities(ctx context.Context, object string) ([]
 			SELECT n.id, right(n.source, -length($1::text)) AS external_id
 			FROM %s n
 			LEFT JOIN import_record_map m
-			  ON m.workspace_id = n.workspace_id
-			 AND m.source_system = $2
+			  ON m.source_system = $2
 			 AND m.object = $3
 			 AND m.external_id = right(n.source, -length($1::text))
 			-- Scoped to the workspace this run imports into. Tenant isolation

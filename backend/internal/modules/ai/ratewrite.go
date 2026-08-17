@@ -232,11 +232,11 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 	)
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO ai_model_rate (
-			workspace_id, provider, model_id,
+			provider, model_id,
 			input_per_mtok_microusd, output_per_mtok_microusd,
 			cache_read_per_mtok_microusd, cache_write_per_mtok_microusd,
 			effective_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (provider, model_id, effective_date)
 		DO UPDATE SET
 			input_per_mtok_microusd       = EXCLUDED.input_per_mtok_microusd,
@@ -245,7 +245,7 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 			cache_write_per_mtok_microusd = EXCLUDED.cache_write_per_mtok_microusd
 		RETURNING id, provider, model_id, input_per_mtok_microusd, output_per_mtok_microusd,
 		          cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date`,
-		storekit.MustWorkspace(ctx), p.provider, p.modelID,
+		p.provider, p.modelID,
 		p.input, p.output, p.cacheRead, p.cacheWrite, effDate,
 	).Scan(&id, &provOut, &modelOut, &inMicro, &outMicro, &crMicro, &cwMicro, &eff); err != nil {
 		return ModelRateRow{}, fmt.Errorf("upsert ai_model_rate: %w", err)

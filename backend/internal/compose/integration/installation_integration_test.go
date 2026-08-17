@@ -194,7 +194,7 @@ func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
 	}
 
 	var total int
-	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id = $1`, wsID).Scan(&total); err != nil {
+	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate`).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
 	want := len(ai.SeedModelRates(time.Now().UTC()))
@@ -202,15 +202,6 @@ func TestBootstrapSeedsTheAiModelRatePriceSheet(t *testing.T) {
 		t.Fatalf("ai_model_rate rows for the bootstrapped workspace = %d, want %d (len(SeedModelRates))", total, want)
 	}
 
-	// Every seeded row belongs to the ONE workspace the bootstrap created
-	// — no cross-tenant leakage from a missing/blank workspace_id.
-	var other int
-	if err := e.Owner.QueryRow(ctx, `SELECT count(*) FROM ai_model_rate WHERE workspace_id != $1`, wsID).Scan(&other); err != nil {
-		t.Fatal(err)
-	}
-	if other != 0 {
-		t.Fatalf("ai_model_rate carries %d rows outside the bootstrapped workspace, want 0", other)
-	}
 }
 
 // TestBootBindsWithoutReadingASpentBootstrapSecret is the restart an operator

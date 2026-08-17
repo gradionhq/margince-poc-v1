@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 110.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28932 |
+| Approx. wire tokens | 28930 |
 | Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -29,7 +29,7 @@ budget in `agenttooldescriptions_test.go`.
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
 | Output schemas | 46.1 KB | 41% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 29.2 KB | 26% | Yes, every step |
+| Descriptions (incl. governance clause) | 29.1 KB | 26% | Yes, every step |
 | Input schemas | 26.4 KB | 24% | Yes, every step |
 | _Names, annotations, punctuation_ | 8.3 KB | 7% | Partly |
 | **Description + input schema** | **55.6 KB** | **50%** | **the recurring cost** |
@@ -1142,7 +1142,7 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
 
 **Book a meeting**
 
-Hold a slot in the host's calendar and record the meeting against the people, accounts or deals it is about. It requires at least one link saying what the meeting is about and is refused without one. The slot is taken and the meeting becomes a real commitment, so a person approves it before it is booked. It takes no attendee list: who is invited, and whether an invitation is delivered at all, is the deployment's calendar connection rather than this call. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope "send".)
+Hold a slot in the host's calendar and record the meeting against the records it is about. It requires at least one link saying what the meeting is about and is refused without one. The slot is taken and the meeting becomes a real commitment, so a person approves it before it is booked. It takes no attendee list: who is invited, and whether an invitation is delivered at all, is the deployment's calendar connection rather than this call. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope "send".)
 
 <details><summary>Input schema</summary>
 
@@ -1183,7 +1183,8 @@ Hold a slot in the host's calendar and record the meeting against the people, ac
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }
@@ -3108,7 +3109,7 @@ Enumerate the people, organizations, deals, leads or projects that meet exact co
 
 **Log an activity**
 
-Record something that happened — a call, a meeting, a note, a message — on the timeline of the people, accounts and deals it was about. It writes history, and changes nothing else: logging a call does not move a deal, update a field or notify anyone. An activity logged without links is stored attached to nothing and appears on no timeline. Use progress_deal when the same event also moves a deal forward, so the move and the note are one act rather than two. The activity id comes back in the result; keep it — draft_email, send_email and send_message all identify a conversation by it. (Governance: runs immediately; requires passport scope "write".)
+Record something that happened — a call, a meeting, a note, a message — on the timeline of the records it was about. It writes history, and changes nothing else: logging a call does not move a deal, update a field or notify anyone. An activity logged without links is stored attached to nothing and appears on no timeline. Use progress_deal when the same event also moves a deal forward, so the move and the note are one act rather than two. The activity id comes back in the result; keep it — draft_email, send_email and send_message all identify a conversation by it. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -3165,7 +3166,8 @@ Record something that happened — a call, a meeting, a note, a message — on t
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }
@@ -6348,7 +6350,8 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }

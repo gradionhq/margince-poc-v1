@@ -404,9 +404,8 @@ func TestBootstrapTakesItsRetentionPostureFromTheDeploymentConfiguration(t *test
 func seedEmbedCallWithPayload(t *testing.T, e *Env, daysBack int, embeddedText string) ids.UUID {
 	t.Helper()
 	callID := seedEmbedCall(t, e, daysBack)
-	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-	e.WsExec(t, `INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload, occurred_at)
-		VALUES (`+wsClause+`, $1, jsonb_build_object('inputs', jsonb_build_array($2::text)), '{}'::jsonb,
+	e.WsExec(t, `INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload, occurred_at)
+		VALUES ($1, jsonb_build_object('inputs', jsonb_build_array($2::text)), '{}'::jsonb,
 		        now() - make_interval(days => $3))`,
 		callID, embeddedText, daysBack)
 	return callID

@@ -194,7 +194,7 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 	}
 }
 
-func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
+func TestIdentityMapIsIdempotentAndRefusesAnUnknownRun(t *testing.T) {
 	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
 	s := NewRunStore(dbA)
 	run, err := s.Create(ctxA, CreateRunInput{Connector: ConnectorMirror, SourceRef: "snap-a", Source: "overlay:flip"})
@@ -220,42 +220,28 @@ func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
 		t.Fatalf("a same-id DEAL resolved to the person's identity (found=%v, err=%v)", found, err)
 	}
 
-	// Another workspace neither sees that identity nor may reference the
-	// run: the composite FK rejects a cross-workspace run at the
-	// database, not merely through RLS visibility.
-	// Workspace B asks through a store of its own: the workspace a statement
-	// runs in is the handle's, so driving A's store with B's ctx would answer
-	// A's rows and this fence would prove nothing.
-	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
-	sB := NewRunStore(dbB)
-	if _, found, err := sB.LookupIdentity(ctxB, "hubspot", "person", "p-1"); err != nil || found {
-		t.Fatalf("workspace B resolved workspace A's identity (found=%v, err=%v)", found, err)
-	}
-	// Rejected AND existence-hiding: a bare constraint error would tell
-	// workspace B that A's run id is real, which is the thing row scope
-	// is supposed to withhold.
-	err = sB.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7())
+	// A run id that names no run is refused, and refused as not-found. The
+	// statement resolves its run rather than trusting the argument, so this is
+	// the path a caller with a stale or invented id takes — and it must not come
+	// back as a foreign-key error, which would answer with the name of a table
+	// the caller has no business hearing about.
+	err = s.RecordIdentity(ctxA, RunID(ids.NewV7()), "hubspot", "person", "p-9", ids.NewV7())
 	if err == nil {
-		t.Fatal("recording an identity against ANOTHER workspace's run must be rejected by the database")
+		t.Fatal("recording an identity against a run that does not exist must be refused")
 	}
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("cross-workspace RecordIdentity err = %v, want ErrNotFound", err)
+		t.Errorf("RecordIdentity against an unknown run = %v, want ErrNotFound", err)
 	}
 	if strings.Contains(err.Error(), "import_record_map") || strings.Contains(err.Error(), "_on_update_import_run") {
 		t.Errorf("err %q names the database shape it was rejected by", err)
 	}
 }
 
-func TestRunStoreForeignWorkspaceReadsNotFound(t *testing.T) {
-	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
-	s := NewRunStore(dbA)
-	run, err := s.Create(ctxA, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
-	if _, err := NewRunStore(dbB).Get(ctxB, run.ID); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("foreign-workspace Get err = %v, want ErrNotFound (existence-hiding)", err)
+// A run id that names no run reads as not-found rather than as a scan error on
+// zero rows — the read is keyed, so this is the only answer it can honestly give.
+func TestRunStoreReadOfAnUnknownRunIsNotFound(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	if _, err := NewRunStore(db).Get(ctx, RunID(ids.NewV7())); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("Get of an unknown run = %v, want ErrNotFound", err)
 	}
 }

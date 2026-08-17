@@ -215,10 +215,9 @@ func upsertVerdict(ctx context.Context, tx pgx.Tx, in RecordInput, key, captured
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO ai_feedback
-		  (workspace_id, subject_type, subject_id, claim_kind, claim_key,
+		  (subject_type, subject_id, claim_kind, claim_key,
 		   verdict, corrected_value, note, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6, $7, 'human', $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'human', $8)
 		ON CONFLICT (subject_type, subject_id, claim_kind, claim_key)
 		DO UPDATE SET verdict = EXCLUDED.verdict,
 		              corrected_value = EXCLUDED.corrected_value,
