@@ -71,23 +71,43 @@ func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 		}
 	}()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	// The DISPATCHER is the right kind to wait on here, unlike the close-date
 	// case above: what this proves is that the branch registered the job at
 	// all. No overlay-mode workspace is seeded, so there is no workspace child
 	// to wait for — the fan-out is legitimately empty.
-	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileArgs{}.Kind())
+	awaitKindCompleted(t, sub, OverlayReconcileArgs{}.Kind())
 }
 
+// awaitBudget is how long ONE wait in this package gets. It is spelled here and
+// read by every wait helper, so the three of them cannot drift into three
+// different answers to the same question.
+//
+// What it has to outlast is a single River job's queue wait plus its run on a
+// CONTENDED runner, which is why it is generous against the ~1s these jobs take
+// on an idle machine. Whatever it is, it belongs to one wait: see
+// awaitKindCompleted.
+const awaitBudget = 30 * time.Second
+
 // awaitKindCompleted blocks until a job of the given kind reports completion,
-// or the context deadline fires. No polling, no sleep.
-func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {
+// or its own deadline fires. No polling, no sleep.
+//
+// It derives that deadline ITSELF rather than taking a context, and the missing
+// parameter is the point: a caller used to be able to hand one context to three
+// sequential awaits, which is not 30s each but 30s BETWEEN them — whatever the
+// first spent, the second went without. That starved the second kind and failed
+// a test that passes in ~4s on an idle machine (#1538). With no parameter to
+// share, the shape cannot be written again.
+//
+// This also puts the helper back in line with its two siblings, awaitRows and
+// waitUntil, which have always owned their own clocks.
+func awaitKindCompleted(t *testing.T, sub <-chan *river.Event, kind string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), awaitBudget)
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
-			t.Fatalf("timed out waiting for %q to complete: %v", kind, ctx.Err())
+			t.Fatalf("timed out waiting for %q to complete within %s: %v", kind, awaitBudget, ctx.Err())
 		case ev := <-sub:
 			if ev != nil && ev.Job != nil && ev.Job.Kind == kind {
 				return
@@ -132,9 +152,7 @@ func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
 	// close-date WORKSPACE job to complete, then assert the same outcome the
 	// direct per-workspace pass produces. Waiting on the dispatcher would race
 	// the work: a dispatcher completes as soon as its fan-out is enqueued.
-	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, CloseDateWorkspaceArgs{}.Kind())
+	awaitKindCompleted(t, sub, CloseDateWorkspaceArgs{}.Kind())
 
 	swept := e.readSwept(t, id)
 	if swept.expectedClose == nil || swept.expectedClose.Before(today()) {
