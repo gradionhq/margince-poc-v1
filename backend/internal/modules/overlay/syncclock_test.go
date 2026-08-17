@@ -23,5 +23,5 @@ import (
 )
 
 func TestEverySweepScheduleWriteTakesTheDatabaseClock(t *testing.T) {
-	gatekit.RequireDatabaseClock(t, ".", "next_sweep_at")
+	gatekit.DatabaseClock{Dir: ".", Column: "next_sweep_at"}.Require(t)
 }

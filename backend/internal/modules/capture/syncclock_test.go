@@ -28,5 +28,5 @@ import (
 )
 
 func TestEverySyncScheduleWriteTakesTheDatabaseClock(t *testing.T) {
-	gatekit.RequireDatabaseClock(t, ".", "next_sync_at")
+	gatekit.DatabaseClock{Dir: ".", Column: "next_sync_at"}.Require(t)
 }
