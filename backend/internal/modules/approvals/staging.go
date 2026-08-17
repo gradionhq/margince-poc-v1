@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -383,27 +384,36 @@ func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInp
 		in.TargetVersion = &current
 	}
 	id := ids.New[ids.ApprovalKind]()
-	// Compute ONE absolute expiry and use it for BOTH the persisted row and
-	// the payload — deriving the row's expires_at from the DB now() while the
-	// payload used the app clock let approval.requested.data.expires_at drift
-	// from what the approval row actually stored.
-	expiresAt := s.now().UTC().Add(ttlFor(in.Kind, in.TTL))
 	evidence, err := marshalEvidence(in.Evidence)
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	if _, err := tx.Exec(ctx,
+	// The TTL is a DELAY the database applies to its own clock, and the stored
+	// deadline comes back out. Every reader of this column — effectiveStatus,
+	// the decide path, the expiry sweep — compares it against Postgres now(),
+	// so a deadline bound from the app process is a cross-clock comparison, and
+	// an approval that outlives or predeceases its stated window is an
+	// authorization decision rather than a pacing one.
+	//
+	// RETURNING is what keeps the emitted payload honest, and it is the reason
+	// one clock is now enough. The event carries expires_at and it has to be
+	// the value the row actually holds; computing the same instant a second
+	// time in Go is what let the two drift apart before.
+	var expiresAt time.Time
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO approval (id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
 			                       summary, proposed_change, diff_hash, expires_at, bundle_id,
 			                       evidence)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now() + $12::interval, $13, $14)
+			 RETURNING expires_at`,
 		id, in.Kind, p.ID, nullUUID(p.OnBehalfOf), nullUUID(p.PassportID),
 		nullStr(in.TargetType), nullUUID(in.TargetID), in.TargetVersion,
-		nullStr(in.Summary), in.ProposedChange, in.DiffHash, expiresAt,
-		nullUUID(in.BundleID), evidence); err != nil {
+		nullStr(in.Summary), in.ProposedChange, in.DiffHash, ttlFor(in.Kind, in.TTL).String(),
+		nullUUID(in.BundleID), evidence).Scan(&expiresAt); err != nil {
 		return ids.ApprovalID{}, err
 	}
+	expiresAt = expiresAt.UTC()
 	auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{
 		approvalKeyKind: in.Kind, "summary": in.Summary, "diff_hash": in.DiffHash,
 	})
