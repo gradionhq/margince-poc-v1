@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -1060,6 +1060,43 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
   // lead page.
   const entries = history.data?.pages.flatMap((page) => page?.data ?? []) ?? [];
   const row = entries.find((entry) => entry.action === "promote");
+
+  // The history is served OLDEST FIRST, 20 to a page, and `promote` is the
+  // LAST thing that ever happens to a lead — it retires the record. So a lead
+  // worked long enough to collect 20 earlier audit rows carries its promotion
+  // on a later page, and reading only the first one found nothing and reported
+  // the outcome as unknowable on exactly the leads someone worked hardest.
+  //
+  // Paging on until it turns up is the client half of the fix. The server half
+  // — an `action` filter on the history endpoint, so this is one row rather
+  // than a walk — needs a contract change, filed as issue 1611.
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = history;
+  const pagesRead = history.data?.pages.length ?? 0;
+  // Two things end the walk besides finding the row, and each is a way it
+  // would otherwise never end:
+  //
+  //   - a later page FAILING. The pages already read stay cached, so
+  //     `hasNextPage` stays true and `isFetchingNextPage` falls back to false
+  //     the moment the failure settles — which re-arms the effect and retries
+  //     forever, while `pending` masks the error the panel should be showing.
+  //   - a history long enough that the walk is itself the problem, or a server
+  //     bug handing back a cursor that never advances. The cap is generous
+  //     against a real lead and finite against a pathological one; stopping
+  //     early reports the outcome as unavailable, which is true.
+  const WALK_PAGE_CAP = 25;
+  const seeking =
+    promoted &&
+    !row &&
+    hasNextPage &&
+    !isFetchingNextPage &&
+    !history.isError &&
+    pagesRead < WALK_PAGE_CAP;
+  useEffect(() => {
+    if (seeking) {
+      fetchNextPage();
+    }
+  }, [seeking, fetchNextPage]);
+
   const after = (row?.after ?? {}) as Record<string, unknown>;
   const str = (key: string) =>
     typeof after[key] === "string" ? (after[key] as string) : undefined;
@@ -1069,7 +1106,14 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
       recorded === "merged" || recorded === "created" ? recorded : "unknown",
     trigger: str("trigger"),
     evidenceNote: str("evidence_note"),
-    pending: promoted && history.isPending,
+    // Still walking is still pending: reporting "we cannot tell" while pages
+    // are in flight is the same false certainty as reporting "created".
+    // A FAILED read is never pending — the panel checks pending first, so
+    // leaving both true renders a waiting line over an error nobody ever sees.
+    pending:
+      promoted &&
+      !history.isError &&
+      (history.isPending || Boolean(seeking) || isFetchingNextPage),
     failed: promoted && history.isError,
   };
 }
@@ -1471,6 +1515,14 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["lead", id] });
+      // The promotion WROTE the audit row this page reads its outcome from. A
+      // reader who opened the History tab before promoting holds a cached last
+      // page saying there is nothing more to fetch, so without this the panel
+      // walks no further and reports the outcome unavailable while the row
+      // sits one page away.
+      queryClient.invalidateQueries({
+        queryKey: ["record-history", "lead", id],
+      });
       setPromoteOpen(false);
       navigate({ screen: "contacts", id: result.person.id });
     },

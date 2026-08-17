@@ -296,6 +296,166 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(screen.queryByText(/Disqualified — this lead/)).toBeNull();
   });
 
+  it("finds the promotion when earlier audit rows push it onto a later page", async () => {
+    // The history is served OLDEST FIRST, 20 to a page, and `promote` is the
+    // LAST thing that happens to a lead. So a lead worked long enough to
+    // collect a page of earlier rows carries its promotion on a later one, and
+    // reading only the first page reported "we cannot tell" on exactly the
+    // leads someone worked hardest.
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      actor_type: "human",
+      actor_id: "human:u-9",
+      action: "update",
+      occurred_at: "2026-06-01T08:00:00Z",
+      after: { status: "working" },
+    }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        // The second page is asked for by cursor; the first hands one back.
+        if (url.includes("cursor=")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "a-99",
+                actor_type: "human",
+                actor_id: "human:u-9",
+                action: "promote",
+                occurred_at: "2026-06-20T08:00:00Z",
+                after: {
+                  dedupe_outcome: "merged",
+                  trigger: "inbound_reply",
+                },
+              },
+            ],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({
+          data: filler,
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "This lead merged into a contact we already knew — no duplicate was created.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("stops walking when a later page fails, and says so", async () => {
+    // The pages already read stay cached, so hasNextPage stays true and
+    // isFetchingNextPage falls back to false the moment the failure settles.
+    // Without a stop that re-arms the walk forever — and `pending` outranking
+    // `failed` would hide the error behind a waiting line the whole time.
+    let historyCalls = 0;
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      actor_type: "human",
+      actor_id: "human:u-9",
+      action: "update",
+      occurred_at: "2026-06-01T08:00:00Z",
+      after: { status: "working" },
+    }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        historyCalls += 1;
+        if (url.includes("cursor=")) {
+          return jsonResponse({ title: "boom" }, 500);
+        }
+        return jsonResponse({
+          data: filler,
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "We cannot show whether this merged or created a contact.",
+      ),
+    ).toBeTruthy();
+    // And it stopped rather than hammering the endpoint: page 1 plus a bounded
+    // number of failed attempts, not an unbounded retry storm.
+    expect(historyCalls).toBeLessThan(6);
+  });
+
+  it("re-reads the history after promoting, so the new audit row is not missed", async () => {
+    // A reader who opened the History tab BEFORE promoting holds a cached last
+    // page saying there is nothing more to fetch. Promotion writes the audit
+    // row the panel reads its outcome from, so without invalidating that cache
+    // the panel walks no further and reports the outcome unavailable while the
+    // row sits one page away.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidated: unknown[] = [];
+    const realInvalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((filters?: { queryKey?: unknown }) => {
+      invalidated.push(filters?.queryKey);
+      return realInvalidate(filters as never);
+    }) as typeof client.invalidateQueries;
+
+    stubFetch(async (input: RequestInfo | URL, method: string) => {
+      const url = String(input);
+      if (method === "POST" && url.includes("/promote")) {
+        return jsonResponse({
+          person: { id: "p-42", full_name: "Jonas Petersen" },
+          merged: true,
+          lead_id: "l-1",
+        });
+      }
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(lead);
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <LeadScreen id="l-1" />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+
+    await waitFor(() =>
+      expect(
+        invalidated.some(
+          (key) =>
+            Array.isArray(key) &&
+            key[0] === "record-history" &&
+            key[1] === "lead",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("says it cannot tell the outcome rather than guessing 'created'", async () => {
     // An empty, unreadable, or unrecognised audit row is not a merge and not a
     // creation. Reporting one would be a confident claim about something
