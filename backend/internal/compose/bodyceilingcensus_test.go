@@ -30,6 +30,8 @@ import (
 
 // contractPaths is the slice of the OpenAPI document these gates read: which
 // operation each path's POST is, and whether its body is a file.
+//
+//nolint:tagliatelle // these are OpenAPI's OWN field names, and they are camelCase; a snake_case tag here would decode a document that does not exist.
 type contractPaths struct {
 	Paths map[string]struct {
 		Post *struct {

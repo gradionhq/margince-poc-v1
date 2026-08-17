@@ -292,8 +292,8 @@ func WithUploadLimits(limits deployconfig.UploadLimits) Option {
 		s.uploadLimits = limits
 		s.activitiesHandlers = s.activitiesHandlers.WithUploadLimit(limits.Attachment)
 		s.peopleHandlers = s.peopleHandlers.WithUploadLimit(limits.LinkedInImport)
-		s.importHandlers.uploadLimit = limits.CSVImport
-		s.installationSettingsHandlers.maxUploadBytes = limits.Attachment
+		s.uploadLimit = limits.CSVImport
+		s.maxUploadBytes = limits.Attachment
 	}
 }
 

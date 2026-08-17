@@ -279,6 +279,7 @@ func lineOf(externalID string) int {
 // a refusal rather than a file silently cut in half.
 func readImportUpload(w http.ResponseWriter, r *http.Request, limit int64) (string, []byte, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	//nolint:gosec // G120 wants a bound here, and the bound is the MaxBytesReader above: this argument is only the in-memory/spill threshold, and it is deliberately far below the ceiling so the parse spills rather than holding the upload resident.
 	if err := r.ParseMultipartForm(importSpillBytes); err != nil {
 		// The cap is DERIVED, never spelled again in prose: this sentence said
 		// "10 MB" while the constant beside it decided the real answer, and the

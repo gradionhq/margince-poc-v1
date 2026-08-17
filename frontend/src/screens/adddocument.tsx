@@ -254,7 +254,12 @@ export function AddDocumentDialog({
     onClose();
   }
 
-  const refusal = uploadRefusal(file, permitted, upload.isPending, maxUploadBytes);
+  const refusal = uploadRefusal(
+    file,
+    permitted,
+    upload.isPending,
+    maxUploadBytes,
+  );
 
   return (
     <Modal open={open} onClose={closeAndClear} labelledBy={titleId}>
@@ -328,7 +333,9 @@ export function AddDocumentDialog({
           not, and the wait is one request long. */}
       <FileDropzone
         label={t("docs.add.file")}
-        hint={limitLabel ? t("docs.add.fileHint", { size: limitLabel }) : undefined}
+        hint={
+          limitLabel ? t("docs.add.fileHint", { size: limitLabel }) : undefined
+        }
         emptyLabel={t("docs.add.fileEmpty")}
         file={file}
         onPick={setFile}

@@ -70,6 +70,7 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, h.uploadLimit)
+	//nolint:gosec // G120 wants a bound here, and the bound is the MaxBytesReader above: this argument is only the in-memory/spill threshold, and it is deliberately far below the ceiling so the parse spills rather than holding the upload resident.
 	if err := r.ParseMultipartForm(linkedInSpillBytes); err != nil {
 		httperr.WriteMultipartRefusal(w, r, err, h.uploadLimit)
 		return

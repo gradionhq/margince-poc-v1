@@ -58,6 +58,7 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	// It can only ever tighten — a MaxBytesReader cannot widen a body an outer
 	// one already bounded — so the two agreeing is the point, not a redundancy.
 	r.Body = http.MaxBytesReader(w, r.Body, h.uploadLimit)
+	//nolint:gosec // G120 wants a bound here, and the bound is the MaxBytesReader above: this argument is only the in-memory/spill threshold, and it is deliberately far below the ceiling so the parse spills rather than holding the upload resident.
 	if err := r.ParseMultipartForm(multipartSpillBytes); err != nil {
 		httperr.WriteMultipartRefusal(w, r, err, h.uploadLimit)
 		return
