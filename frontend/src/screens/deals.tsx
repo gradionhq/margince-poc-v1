@@ -69,7 +69,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
-import { activityTimeline } from "./people";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { ShareAction } from "./share";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance

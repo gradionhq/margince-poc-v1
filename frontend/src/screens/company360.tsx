@@ -70,7 +70,7 @@ import {
 } from "./coverage";
 import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
-import { activityTimeline } from "./people";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { TaskCompleteCheck, type useTaskUpdate } from "./taskactions";
 
 // The company view's data layer and its right-rail cards.

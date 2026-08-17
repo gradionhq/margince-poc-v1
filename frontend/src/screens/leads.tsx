@@ -15,6 +15,8 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
+import type { ListChip } from "../design-system/listtable";
+import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -37,12 +39,14 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab } from "./history";
+import { LogActivity } from "./logactivity";
 import {
   type ListPage,
   type ListQuery,
   ListTable,
   useListQuery,
 } from "./listquery";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { ShareAction } from "./share";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
@@ -217,6 +221,56 @@ const leadStatusFilterOptions = [
   { value: "disqualified", label: "lead.statusDisqualified" },
 ] as const;
 
+// The score bands a reader triages by. `min_score` is a floor, so each band
+// names the bottom of a range rather than a bucket — "60+" and "80+" overlap
+// on purpose, because that is what the parameter means.
+const LEAD_SCORE_BANDS = [
+  { value: "80", label: "lead.filterScoreHot" },
+  { value: "60", label: "lead.filterScoreWarm" },
+  { value: "40", label: "lead.filterScoreCool" },
+] as const;
+
+/**
+ * useLeadOwnerChips is the owner dial listLeads can actually answer.
+ *
+ * The shared `useOwnerChips` offers team and unassigned entries under
+ * `owner_team_id` and `unassigned`; listLeads takes neither, so those options
+ * would 422 rather than narrow. Until the endpoint learns that vocabulary the
+ * honest dial is the one question it does answer: mine, or anyone's.
+ */
+function useLeadOwnerChips(): readonly ListChip[] {
+  const t = useT();
+  const me = useMe();
+  const viewerId = me.data?.user.id;
+  if (!viewerId) {
+    return [];
+  }
+  return [
+    {
+      key: "owner_id",
+      label: t("list.owner"),
+      allLabel: t("list.filterOwnerAll"),
+      options: [{ value: viewerId, label: t("list.filterOwnerMe") }],
+    },
+  ];
+}
+
+/**
+ * statusLabel is the ONE spelling of a lead status for a reader.
+ *
+ * Read from the filter options rather than a second table: the chips and the
+ * cells naming the same status differently is exactly how a German UI came to
+ * print the chip "In Bearbeitung" beside a cell reading the raw enum
+ * "working".
+ */
+function statusLabel(status: Lead["status"]): MessageKey {
+  const option = leadStatusFilterOptions.find((o) => o.value === status);
+  // A status the contract adds and this list has not learned yet renders as
+  // itself rather than blank — wrong-looking, which is the point, instead of
+  // an empty badge nobody can diagnose.
+  return option?.label ?? ("lead.status" as MessageKey);
+}
+
 async function createLead(
   values: Record<string, string>,
   customFields: Record<string, unknown>,
@@ -232,6 +286,7 @@ async function createLead(
 }
 
 export function LeadsScreen() {
+  const ownerChips = useLeadOwnerChips();
   const t = useT();
   const viewerId = useViewerId();
   const cf = useObjectCustomFields("lead");
@@ -289,7 +344,7 @@ export function LeadsScreen() {
           {
             key: "status",
             header: t("lead.status"),
-            cell: (lead: Lead) => <Badge>{lead.status}</Badge>,
+            cell: (lead: Lead) => <Badge>{t(statusLabel(lead.status))}</Badge>,
           },
           {
             key: "provenance",
@@ -310,7 +365,19 @@ export function LeadsScreen() {
             allLabel: "lead.filterStatusAll",
             options: leadStatusFilterOptions.map((option) => ({ ...option })),
           },
+          {
+            key: "min_score",
+            label: "lead.filterScore",
+            allLabel: "lead.filterScoreAll",
+            options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
+          },
         ]}
+        // Owner is a DATA chip: its options are people, read at runtime.
+        // Deliberately not the shared `useOwnerChips` dial, which also offers
+        // team and unassigned options spelled `owner_team_id`/`unassigned` —
+        // parameters listLeads does not take, so those choices would 422
+        // rather than narrow the list.
+        dataChips={ownerChips}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
           { label: "list.viewHighestScore", sort: "-score" },
@@ -934,7 +1001,7 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
         {t("lead.score")}: {lead.score}
       </Badge>
       {lead.score_override_reason && <Badge>{t("lead.overriddenBadge")}</Badge>}
-      <Badge>{lead.status}</Badge>
+      <Badge>{t(statusLabel(lead.status))}</Badge>
       {lead.company_name && <Badge>{lead.company_name}</Badge>}
       {terminal && <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>}
       <ProvenanceTag provenance={provenanceOf(lead.captured_by, viewerId)} />
@@ -1065,6 +1132,13 @@ function LeadOverviewPane({
           Hiding the whole body left the page blank below the tab bar, which
           reads as a broken render rather than a closed lead. The controls
           inside it are individually disabled by their own state. */}
+      {/* Working the lead (ADR-0118/A169): a note or a task about the
+          prospect, in the one composer the person and deal pages use. Absent
+          on a terminal lead, whose record is closed, and in overlay, where
+          the mirror owns the activity. */}
+      {!lead.archived_at && !overlay && (
+        <LogActivity entityType="lead" entityId={id} />
+      )}
       <LeadLifecycle
         lead={lead}
         id={id}
@@ -1218,6 +1292,11 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  // A lead's own activities: what we already did about this prospect
+  // (ADR-0118/A169). `activity_link` has carried the lead arm since migration
+  // 0038; only the screen was missing.
+  const timelineQuery = useRecordTimeline("lead", id);
+  const viewerId = useViewerId();
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [trigger, setTrigger] = useState<PromoteTrigger>("human_qualify");
   const [note, setNote] = useState("");
@@ -1298,9 +1377,16 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               />
             }
             actionsInline
-            // Required by the shell for timeline timestamps; this page passes
-            // no timeline, so the viewer's own zone is the honest default.
+            // The shell stamps timeline rows in this zone. The viewer's own is
+            // the honest default for a prospect: a lead carries no workspace
+            // location of its own to prefer over where the reader is.
             zone={Intl.DateTimeFormat().resolvedOptions().timeZone}
+            timeline={
+              timelineQuery.isSuccess
+                ? activityTimeline(timelineQuery.data.data, viewerId)
+                : []
+            }
+            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
             // The readings ride the band, above the columns: they describe the
             // PROSPECT, and a strip that vanished on the History tab would
             // move the tab bar and re-flow the page under the reader.

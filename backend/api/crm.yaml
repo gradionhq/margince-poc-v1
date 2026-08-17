@@ -3406,7 +3406,7 @@ paths:
           schema: { $ref: '#/components/schemas/ProviderRef' }
         - name: entity_type
           in: query
-          schema: { type: string, enum: [person, organization, deal] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
           description: Filter to activities linked to an entity type (with entity_id).
         - name: entity_id
           in: query

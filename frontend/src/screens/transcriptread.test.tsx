@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { activityTimeline } from "./people";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { isTranscriptActivity, TranscriptReadCard } from "./transcriptread";
 
 // Reading a meeting transcript for the next steps it states (S-E04.3).

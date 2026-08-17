@@ -118,7 +118,7 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { activityTimeline } from "./people";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
