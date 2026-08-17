@@ -58,13 +58,39 @@ func TestTheRefusalNamesTheLimitItActuallyEnforced(t *testing.T) {
 		want  string
 	}{
 		{25_000_000, "25 MB"},   // the shipped default: whole, prints whole
-		{8 << 20, "8.4 MB"},     // a binary constant is not a whole decimal MB
-		{10 << 20, "10.5 MB"},   // and neither is this one
+		{8 << 20, "8.3 MB"},     // a binary constant is not a whole decimal MB
+		{10 << 20, "10.4 MB"},   // and neither is this one
 		{12_500_000, "12.5 MB"}, // an operator may configure a half
 		{900_000, "0.9 MB"},     // below a megabyte still describes itself
 	} {
 		if got := httperr.Megabytes(tc.limit); got != tc.want {
 			t.Errorf("a %d-byte ceiling reads as %q, want %q", tc.limit, got, tc.want)
+		}
+	}
+}
+
+// A stated limit may fall short of the enforced one; it may never exceed it.
+// A reader who trusts a rounded-up figure sends a file the same sentence then
+// refuses — the one failure mode a friendly unit can introduce on its own.
+func TestTheStatedLimitNeverExceedsTheEnforcedOne(t *testing.T) {
+	for _, limit := range []int64{
+		999_999,    // rounds to "1.0 MB" to nearest, which is over the real bound
+		1_099_999,  // and this to "1.1 MB"
+		8 << 20,    // the LinkedIn constant
+		10 << 20,   // the import constant
+		25_000_000, // and a whole one, which must still be exact
+		1,          // a degenerate bound is still not allowed to overstate
+	} {
+		stated := httperr.Megabytes(limit)
+		var value float64
+		if _, err := fmt.Sscanf(stated, "%f MB", &value); err != nil {
+			t.Fatalf("a %d-byte ceiling rendered as %q, which is not a number of MB: %v",
+				limit, stated, err)
+		}
+		if int64(value*1_000_000) > limit {
+			t.Errorf("a %d-byte ceiling is stated as %q, which is MORE than it "+
+				"enforces — a file sized to that sentence is refused by it",
+				limit, stated)
 		}
 	}
 }

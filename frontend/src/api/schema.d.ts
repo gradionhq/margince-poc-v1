@@ -31089,7 +31089,12 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
-            /** @description The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read. */
+            /**
+             * @description The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+             *     set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+             *     configured number rather than one compiled in, and it is a distinct refusal, never a
+             *     truncated read that imports half an estate and reports success.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;

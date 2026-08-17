@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -164,55 +165,68 @@ func censusProblems(contract map[string]string, declared map[string]int64) []str
 	return problems
 }
 
-// TestEveryMultipartParseServesADeclaredUploadRoute is the tree-side backstop:
-// a handler can only reach a multipart parse if its package implements one of
-// the contract's declared upload operations.
+// TestEveryMultipartParseNamesItsRoute is the tree-side gate: every place in
+// the product that parses a file body says WHICH route it is parsing for, and
+// those routes are exactly the ones with a ceiling.
 //
-// It works by package rather than by file because the parse does not always sit
-// in the handler — the CSV import reads its body in a helper beside it — and a
-// gate that insisted on the same file would be describing today's layout rather
-// than the obligation.
-func TestEveryMultipartParseServesADeclaredUploadRoute(t *testing.T) {
-	parsers := packagesMatching(t, "ParseMultipartForm(")
-	if len(parsers) == 0 {
+// It counts parse sites against markers per FILE and compares the marker set
+// against the declared routes, rather than asking which package a parse lives
+// in. Package membership was the first version of this and it had a hole big
+// enough to drive the original bug through: `internal/compose` already serves a
+// declared upload operation, so a second, undeclared multipart parse added
+// anywhere in that package answered "yes, this package serves an upload" and
+// rode the 1 MiB bound in silence.
+//
+// A marker is not documentation — it is the parse site's half of a two-sided
+// obligation, and the other side is derived from the contract.
+func TestEveryMultipartParseNamesItsRoute(t *testing.T) {
+	sites, markers := parseSitesAndMarkers(t)
+	if len(sites) == 0 {
 		t.Fatal("found no multipart parse anywhere — the walk is broken, and a " +
 			"walk that finds nothing passes this test for the wrong reason")
 	}
-	servers := map[string]bool{}
-	for _, op := range uploadOperations(t) {
-		method := strings.ToUpper(op[:1]) + op[1:]
-		for pkg := range packagesMatching(t, ") "+method+"(w http.ResponseWriter") {
-			servers[pkg] = true
+	for file, count := range sites {
+		if got := len(markers[file]); got != count {
+			t.Errorf("%s parses a multipart body %d time(s) but names a route %d "+
+				"time(s) — an unnamed parse rides the JSON bound, so whatever cap "+
+				"it declares is dead code", file, count, got)
 		}
 	}
-	for pkg := range parsers {
-		if !servers[pkg] {
-			t.Errorf("%s parses a multipart body but implements no declared "+
-				"upload operation — whatever route it serves rides the JSON "+
-				"bound, so its own cap is dead code", pkg)
+	named := map[string]bool{}
+	for _, routes := range markers {
+		for _, route := range routes {
+			named[route] = true
 		}
 	}
-	for pkg := range servers {
-		if !parsers[pkg] {
-			t.Errorf("%s implements a declared upload operation but nothing in "+
-				"it parses a multipart body", pkg)
+	declared := uploadCeilings(testLimits)
+	for route := range named {
+		if _, ok := declared[route]; !ok {
+			t.Errorf("a parse names route %q, which has no ceiling — it will be "+
+				"read under the JSON bound", route)
+		}
+	}
+	for route := range declared {
+		if !named[route] {
+			t.Errorf("route %q has a ceiling but nothing parses a file body for "+
+				"it — either the grant is stale or the parse lost its marker", route)
 		}
 	}
 }
 
-// packagesMatching returns every backend package holding a hand-written source
-// file that contains the given literal.
-func packagesMatching(t *testing.T, literal string) map[string]bool {
+// uploadRouteMarker is the comment a parse site carries to name its route.
+var uploadRouteMarker = regexp.MustCompile(`// upload:route (\S+)`)
+
+// parseSitesAndMarkers walks the hand-written tree and returns, per file, how
+// many multipart parses it performs and which routes it names.
+func parseSitesAndMarkers(t *testing.T) (map[string]int, map[string][]string) {
 	t.Helper()
-	found := map[string]bool{}
+	sites := map[string]int{}
+	markers := map[string][]string{}
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		// Generated files are skipped: the contract's router and its interface
-		// restate every handler signature, so a generated package would answer
-		// "implements this operation" for all of them while parsing nothing.
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") ||
 			strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") {
 			return nil
@@ -221,13 +235,16 @@ func packagesMatching(t *testing.T, literal string) map[string]bool {
 		if readErr != nil {
 			return readErr
 		}
-		if strings.Contains(string(source), literal) {
-			found[filepath.Dir(path)] = true
+		if n := strings.Count(string(source), "ParseMultipartForm("); n > 0 {
+			sites[path] = n
+		}
+		for _, match := range uploadRouteMarker.FindAllStringSubmatch(string(source), -1) {
+			markers[path] = append(markers[path], match[1])
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walking the backend tree: %v", err)
 	}
-	return found
+	return sites, markers
 }

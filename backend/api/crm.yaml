@@ -11734,7 +11734,8 @@ paths:
   # Every one is human-only (IEM-WIRE-7 / A139): an import is the least
   # reversible write in the product, and a confirm-first gate over a
   # thousand-row dry-run report is a rubber stamp that manufactures evidence of
-  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (10 MB, import only).
+  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (import only, 10 MB by
+  # default and set per installation — `uploads.csv_import_mb`, OPS-CFG-12).
   # =========================================================================
   /imports/sources:
     post:
@@ -11777,7 +11778,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '413':
-          description: 'The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read.'
+          description: |
+            The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+            set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+            configured number rather than one compiled in, and it is a distinct refusal, never a
+            truncated read that imports half an estate and reports success.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }

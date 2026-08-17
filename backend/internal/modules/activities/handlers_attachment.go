@@ -22,6 +22,10 @@ import (
 // spills, so concurrent uploads scale resident memory by their own size with no
 // admission control anywhere. The body is bounded by the MaxBytesReader above
 // it either way; this only decides where the bytes live while being read.
+//
+// So a file this size or smaller IS held in memory, by design: below a
+// megabyte the spill costs more than it saves. What the threshold removes is
+// the case that scales — a handful of concurrent uploads at the ceiling.
 const multipartSpillBytes = 1 << 20
 
 // errUploadLimitUnset reports that this composition never told the handler what
@@ -58,6 +62,9 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	// It can only ever tighten — a MaxBytesReader cannot widen a body an outer
 	// one already bounded — so the two agreeing is the point, not a redundancy.
 	r.Body = http.MaxBytesReader(w, r.Body, h.uploadLimit)
+	// upload:route /v1/attachments — the ceiling this parse runs under is granted to that
+	// path in compose.uploadCeilings, and TestEveryMultipartParseNamesItsRoute
+	// holds the two together.
 	//nolint:gosec // G120 wants a bound here, and the bound is the MaxBytesReader above: this argument is only the in-memory/spill threshold, and it is deliberately far below the ceiling so the parse spills rather than holding the upload resident.
 	if err := r.ParseMultipartForm(multipartSpillBytes); err != nil {
 		httperr.WriteMultipartRefusal(w, r, err, h.uploadLimit)

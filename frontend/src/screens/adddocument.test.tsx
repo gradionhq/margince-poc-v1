@@ -570,7 +570,7 @@ describe("adding a document from the account", () => {
     expect(uploads(calls)).toHaveLength(0);
   });
 
-  it("takes a file exactly at the limit", async () => {
+  it("sends a file exactly at the limit rather than refusing it here", async () => {
     const user = userEvent.setup();
     const calls = stubApi(FULL_SEAT, { maxUploadBytes: 3_000_000 });
     show();
@@ -579,8 +579,15 @@ describe("adding a document from the account", () => {
     await user.upload(screen.getByLabelText(/File/), fileOf(3_000_000));
     await pressUpload(user);
 
-    // The boundary belongs to the accepting side: a form that refused the exact
-    // limit would contradict the sentence beside it.
+    // What this proves is that the CLIENT does not refuse it — not that the
+    // server takes it. The ceiling bounds the whole request, so a file within a
+    // few hundred bytes of the limit is still refused by the server once part
+    // framing is counted, and that refusal names the same number.
+    //
+    // Erring this way on purpose. Subtracting a margin here would refuse files
+    // the installation would have accepted, over a number the reader was never
+    // shown; letting the last fraction of a percent through costs one wasted
+    // request and produces an honest message from the side that decides.
     await waitFor(() => expect(uploads(calls)).toHaveLength(1));
   });
 

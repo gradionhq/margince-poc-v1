@@ -42,17 +42,25 @@ func MultipartRefusal(err error, limit int64) *DetailedError {
 }
 
 // Megabytes renders a byte ceiling the way the person it just refused will
-// measure their own file: in decimal MB, exactly.
+// measure their own file: in decimal MB.
 //
-// Exactly is the whole point. Truncating division reads a 8,388,608-byte
-// ceiling as "8 MB" and refuses an 8.2 MB file the sentence said would fit —
-// and any ceiling below a megabyte as "0 MB", which describes nothing at all.
-// So a whole number prints whole, and anything else keeps one decimal.
+// Two rules, and the second is the one that matters. A whole number prints
+// whole — every configured ceiling is a whole number of decimal MB, so this is
+// the case that actually ships. Anything else keeps one decimal ROUNDED DOWN,
+// never to nearest, because a stated limit must never exceed the enforced one:
+// rounding 999,999 up to "1.0 MB" invites a 1,000,000-byte file that is then
+// refused by the sentence that welcomed it. Understating by less than 0.1 MB
+// costs the reader nothing; overstating by a byte costs them a whole upload.
+//
+// The version this replaces divided and truncated to whole MB, which read a
+// 8,388,608-byte ceiling as "8 MB" — refusing an 8.2 MB file the sentence said
+// would fit — and any ceiling below a megabyte as "0 MB".
 func Megabytes(limit int64) string {
 	if limit%bytesPerMB == 0 {
 		return fmt.Sprintf("%d MB", limit/bytesPerMB)
 	}
-	return fmt.Sprintf("%.1f MB", float64(limit)/bytesPerMB)
+	tenths := limit * 10 / bytesPerMB
+	return fmt.Sprintf("%d.%d MB", tenths/10, tenths%10)
 }
 
 // bytesPerMB is the decimal megabyte every upload ceiling is denominated in

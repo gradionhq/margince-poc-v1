@@ -16,6 +16,8 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,9 +95,22 @@ func postUpload(t *testing.T, e *apptest.AppEnv, path string, form *bytes.Buffer
 	return resp.StatusCode, string(raw)
 }
 
-// attachmentForm builds an upload of `size` bytes against the installation's
-// own organization, which every bootstrapped workspace has.
-func attachmentForm(t *testing.T, e *apptest.AppEnv, size int) (*bytes.Buffer, string) {
+// fileOf is `size` bytes that are not all the same byte.
+//
+// Non-uniform on purpose: a run of zeroes hashes to a fixed value, so a digest
+// bug that returned a constant would agree with the expected checksum for every
+// test that used one.
+func fileOf(size int) []byte {
+	content := make([]byte, size)
+	for i := range content {
+		content[i] = byte(i%251 + 1)
+	}
+	return content
+}
+
+// attachmentForm builds an upload of the given bytes against an organization
+// the product itself created.
+func attachmentForm(t *testing.T, e *apptest.AppEnv, content []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	form := multipart.NewWriter(&buf)
@@ -111,7 +126,7 @@ func attachmentForm(t *testing.T, e *apptest.AppEnv, size int) (*bytes.Buffer, s
 	if err != nil {
 		t.Fatalf("creating the file part: %v", err)
 	}
-	if _, err := part.Write(make([]byte, size)); err != nil {
+	if _, err := part.Write(content); err != nil {
 		t.Fatalf("writing the file part: %v", err)
 	}
 	if err := form.Close(); err != nil {
@@ -152,7 +167,7 @@ func importForm(t *testing.T, size int) (*bytes.Buffer, string) {
 // by the chassis with a message about a JSON body nobody sent.
 func TestAnUploadOverTheJSONBoundReachesTheHandler(t *testing.T) {
 	e := appWithUploads(t)
-	form, contentType := attachmentForm(t, e, 2<<20)
+	form, contentType := attachmentForm(t, e, fileOf(2<<20))
 
 	code, body := postUpload(t, e, "/v1/attachments", form, contentType)
 	if code != http.StatusCreated {
@@ -166,7 +181,7 @@ func TestAnUploadOverTheJSONBoundReachesTheHandler(t *testing.T) {
 // in that sentence sends the reader off to shrink a file against the wrong bar.
 func TestAnOversizeUploadIsRefusedWithTheConfiguredNumber(t *testing.T) {
 	e := appWithUploads(t)
-	form, contentType := attachmentForm(t, e, 4_000_000)
+	form, contentType := attachmentForm(t, e, fileOf(4_000_000))
 
 	code, body := postUpload(t, e, "/v1/attachments", form, contentType)
 	if code != http.StatusRequestEntityTooLarge {
@@ -202,7 +217,7 @@ func TestTheInstallationReadPublishesTheConfiguredCeiling(t *testing.T) {
 func TestEachUploadRouteIsBoundedSeparately(t *testing.T) {
 	e := appWithUploads(t)
 
-	form, contentType := attachmentForm(t, e, betweenTheCeilings)
+	form, contentType := attachmentForm(t, e, fileOf(betweenTheCeilings))
 	if code, body := postUpload(t, e, "/v1/attachments", form, contentType); code != http.StatusCreated {
 		t.Fatalf("a %d-byte upload under the %d MB attachment ceiling answered %d: %s",
 			betweenTheCeilings, testAttachmentMB, code, body)
@@ -229,7 +244,8 @@ func TestEachUploadRouteIsBoundedSeparately(t *testing.T) {
 func TestAStoredUploadKeepsItsOwnSizeAndChecksum(t *testing.T) {
 	e := appWithUploads(t)
 	const size = 2 << 20
-	form, contentType := attachmentForm(t, e, size)
+	content := fileOf(size)
+	form, contentType := attachmentForm(t, e, content)
 
 	code, body := postUpload(t, e, "/v1/attachments", form, contentType)
 	if code != http.StatusCreated {
@@ -241,6 +257,15 @@ func TestAStoredUploadKeepsItsOwnSizeAndChecksum(t *testing.T) {
 	}
 	if stored.ByteSize == nil || *stored.ByteSize != size {
 		t.Errorf("the row records %v bytes for a %d-byte file", stored.ByteSize, size)
+	}
+	// The checksum is asserted, not merely mentioned. It is written from the
+	// hashing pass and the object from a second read of the same reader, so a
+	// digest that ran on the wrong bytes — or on none, after a rewind that did
+	// not happen — is exactly what this compares against.
+	want := sha256.Sum256(content)
+	if stored.Checksum == nil || *stored.Checksum != hex.EncodeToString(want[:]) {
+		t.Errorf("the row records checksum %v for content that hashes to %s",
+			stored.Checksum, hex.EncodeToString(want[:]))
 	}
 
 	var downloaded bytes.Buffer
@@ -258,8 +283,9 @@ func TestAStoredUploadKeepsItsOwnSizeAndChecksum(t *testing.T) {
 	if _, err := io.Copy(&downloaded, resp.Body); err != nil {
 		t.Fatalf("reading the download: %v", err)
 	}
-	if downloaded.Len() != size {
-		t.Errorf("downloaded %d bytes of a %d-byte file — the object and the row "+
-			"it is described by disagree", downloaded.Len(), size)
+	if !bytes.Equal(downloaded.Bytes(), content) {
+		t.Errorf("downloaded %d bytes of a %d-byte file, and not the same ones — "+
+			"the stored object and the row describing it disagree",
+			downloaded.Len(), size)
 	}
 }
