@@ -33,20 +33,20 @@ import (
 
 // BookingPage is the slug's resolution: which workspace, whose calendar.
 type BookingPage struct {
-	WorkspaceID ids.WorkspaceID
-	HostUserID  ids.UserID
+	HostUserID ids.UserID
 }
 
-// ResolveBookingPage answers the slug→tenant lookup the public
-// middleware binds the workspace from. booking_page is deliberately
-// outside RLS (it IS the resolver — 0036); an unknown or revoked slug
-// reads as absent.
+// ResolveBookingPage answers the slug→host lookup the public middleware runs
+// before it may do anything else. The slug names the HOST, and only the host:
+// the installation the request lands in is resolved from the installation
+// itself, not read off a row an anonymous caller chose. An unknown or revoked
+// slug reads as absent.
 func (s *Store) ResolveBookingPage(ctx context.Context, slug string) (BookingPage, error) {
 	var page BookingPage
 	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
-			`SELECT workspace_id, host_user_id FROM booking_page WHERE slug = $1 AND revoked_at IS NULL`,
-			slug).Scan(&page.WorkspaceID, &page.HostUserID)
+			`SELECT host_user_id FROM booking_page WHERE slug = $1 AND revoked_at IS NULL`,
+			slug).Scan(&page.HostUserID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -69,8 +69,8 @@ func SeedBookingPageTx(ctx context.Context, tx pgx.Tx, hostUserID ids.UserID) (s
 	}
 	slug := base64.RawURLEncoding.EncodeToString(buf[:])
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO booking_page (workspace_id, host_user_id, slug)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)`,
+		INSERT INTO booking_page (host_user_id, slug)
+		VALUES ($1, $2)`,
 		hostUserID, slug); err != nil {
 		return "", fmt.Errorf("activities: seed booking page: %w", err)
 	}
