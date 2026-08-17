@@ -95,6 +95,10 @@ type Handlers struct {
 	// deployconfig or compose. False ⟹ production, the fail-closed
 	// default for any role that wired no posture (hides the action).
 	nonProduction bool
+	// dataResetAvailable is operations.allow_data_reset — whether this
+	// installation armed the destructive reset at all. Distinct from the
+	// posture above: a dev deployment that never armed it offers nothing.
+	dataResetAvailable bool
 	// mcpResource is the canonical MCP server URL (public_base_url +
 	// "/mcp"), injected by the composition root from deployment config.
 	// The RFC 9728 protected-resource document advertises this verbatim
@@ -340,8 +344,9 @@ func (h Handlers) meResponse(
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
-		NonProduction:     h.nonProduction,
-		AdminPasswordLink: adminPasswordLink,
+		NonProduction:      h.nonProduction,
+		DataResetAvailable: &h.dataResetAvailable,
+		AdminPasswordLink:  adminPasswordLink,
 		Authorization: &crmcontracts.Authorization{
 			SeatType: contractSeatType(id.SeatType),
 			Objects:  contractObjectGrants(id.Permissions.Objects),

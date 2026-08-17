@@ -1726,14 +1726,15 @@ const IDLE_JOB_HEALTH = {
 };
 
 // The danger-zone Reset data action: server-driven, gated on the literal admin
-// role AND me.non_production. A dedicated backend per test so the role/posture
-// combination is explicit rather than layered on the shared settingsBackend
+// role AND me.data_reset_available — the switch a deployment arms, not the
+// posture it happens to run under. A dedicated backend per test so the
+// role/capability combination is explicit rather than layered on the shared
 // default. `allow` defaults to the reindex write that opens the Maintenance
 // entry the card lives on — a test about the card should not also have to argue
 // its way onto the entry, and one that wants it CLOSED says so with `{}`.
 function resetDataBackend(opts: {
   roles: string[];
-  nonProduction: boolean;
+  dataResetAvailable: boolean;
   allow?: GrantSpec;
   onReset?: (body: unknown) => void;
   resetStatus?: number;
@@ -1753,7 +1754,7 @@ function resetDataBackend(opts: {
         ...me,
         user: { ...me.user, email: "ada@acme.test" },
         workspace_name: "Acme Inc",
-        non_production: opts.nonProduction,
+        data_reset_available: opts.dataResetAvailable,
       });
     }
     // The job report is the danger zone's neighbour on this entry, and an admin
@@ -1788,7 +1789,7 @@ describe("ResetDataCard (danger zone)", () => {
   it("shows the Reset data control for an admin in a non-production posture", async () => {
     vi.stubGlobal(
       "fetch",
-      resetDataBackend({ roles: ["admin"], nonProduction: true }),
+      resetDataBackend({ roles: ["admin"], dataResetAvailable: true }),
     );
     render(<SettingsScreen tab="maintenance" />);
     expect(await screen.findByText(/reset data/i)).toBeTruthy();
@@ -1797,7 +1798,7 @@ describe("ResetDataCard (danger zone)", () => {
   it("hides Reset data for an admin in a production posture", async () => {
     vi.stubGlobal(
       "fetch",
-      resetDataBackend({ roles: ["admin"], nonProduction: false }),
+      resetDataBackend({ roles: ["admin"], dataResetAvailable: false }),
     );
     render(<SettingsScreen tab="maintenance" />);
     // The job report is the entry's own card, so its heading proves Maintenance
@@ -1815,7 +1816,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       // A rep is no admin and holds no embedding_reindex grant, so Maintenance
       // is not theirs to reach in the first place.
-      resetDataBackend({ roles: ["rep"], nonProduction: true, allow: {} }),
+      resetDataBackend({ roles: ["rep"], dataResetAvailable: true, allow: {} }),
     );
     render(<SettingsScreen tab="maintenance" />);
     // With no member grant, the rep falls back to Account — proven here by
@@ -1832,7 +1833,7 @@ describe("ResetDataCard (danger zone)", () => {
   it("reaches Maintenance as ops but never sees Reset data", async () => {
     vi.stubGlobal(
       "fetch",
-      resetDataBackend({ roles: ["ops"], nonProduction: true }),
+      resetDataBackend({ roles: ["ops"], dataResetAvailable: true }),
     );
     render(<SettingsScreen tab="maintenance" />);
     await waitFor(() =>
@@ -1849,7 +1850,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       resetDataBackend({
         roles: ["admin"],
-        nonProduction: true,
+        dataResetAvailable: true,
         onReset: (body) => posted.push(body),
       }),
     );
@@ -1882,7 +1883,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       resetDataBackend({
         roles: ["admin"],
-        nonProduction: true,
+        dataResetAvailable: true,
         resetStatus: 422,
         resetBody: {
           detail:
@@ -1920,14 +1921,14 @@ describe("ResetDataCard (danger zone)", () => {
     drain_timed_out: false,
   };
 
-  // Fixed precondition for every summary test below: admin + non_production,
+  // Fixed precondition for every summary test below: admin + the armed reset,
   // on the Maintenance entry that hosts the card.
   function renderSettingsAsAdmin(opts: { resetResponse: unknown }) {
     vi.stubGlobal(
       "fetch",
       resetDataBackend({
         roles: ["admin"],
-        nonProduction: true,
+        dataResetAvailable: true,
         resetBody: opts.resetResponse,
       }),
     );
@@ -2012,7 +2013,7 @@ describe("ResetDataCard (danger zone)", () => {
           return jsonResponse({
             ...me,
             workspace_name: "Acme Inc",
-            non_production: true,
+            data_reset_available: true,
           });
         }
         if (url.includes("/admin/job-health")) {
@@ -2079,7 +2080,7 @@ function mergedEntryBackend(opts: {
   roles: string[];
   seat?: "full" | "read";
   allow?: GrantSpec;
-  nonProduction?: boolean;
+  dataResetAvailable?: boolean;
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -2092,7 +2093,7 @@ function mergedEntryBackend(opts: {
       return jsonResponse({
         ...me,
         workspace_name: "Acme Inc",
-        non_production: opts.nonProduction ?? false,
+        data_reset_available: opts.dataResetAvailable ?? false,
       });
     }
     if (url.includes("/passports")) {
@@ -2260,7 +2261,7 @@ describe("SettingsScreen restructured entries", () => {
         allow: { embedding_reindex: ["read", "update"] },
         // The posture the danger zone's second gate asks for, so the ROLE is
         // the only thing left holding it back below.
-        nonProduction: true,
+        dataResetAvailable: true,
       }),
     );
     renderSettings("maintenance");

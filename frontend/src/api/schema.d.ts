@@ -14303,8 +14303,13 @@ export interface components {
             user: components["schemas"]["User"];
             /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
             workspace_name: string;
-            /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
+            /**
+             * @deprecated
+             * @description True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+             */
             non_production: boolean;
+            /** @description True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included. */
+            data_reset_available?: boolean;
             /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
             admin_password_link: boolean;
             /** @description Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact. */

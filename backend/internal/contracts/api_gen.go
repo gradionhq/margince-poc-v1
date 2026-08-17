@@ -14770,7 +14770,11 @@ type MeResponse struct {
 	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
 	Authorization *Authorization `json:"authorization,omitempty"`
 
-	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
+	// DataResetAvailable True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included.
+	DataResetAvailable *bool `json:"data_reset_available,omitempty"`
+
+	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	NonProduction bool `json:"non_production"`
 
 	// Passport Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.

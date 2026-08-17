@@ -22,8 +22,8 @@ import (
 // the admin RoleKeys that RequireAdmin gates on.
 func TestResetDataOverHTTP(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t,
-		compose.WithDataReset(nil, deployconfig.Seeds{}, runtimeenv.Development),
-		compose.WithNonProduction(runtimeenv.Development),
+		compose.WithDataReset(nil, deployconfig.Seeds{}, true),
+		compose.WithNonProduction(true),
 	)
 	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 
