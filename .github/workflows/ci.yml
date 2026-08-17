@@ -1039,7 +1039,7 @@ jobs:
       # vanilla lane alone cannot catch a descriptor shape the SPA no longer
       # compiles against. This is the only one of the three that composes, which
       # is why the unit and bundle jobs below carry no Go setup.
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
