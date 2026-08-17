@@ -39,7 +39,7 @@ var workerPublic = map[string]bool{
 }
 
 // workerConfigItems is this role's whole configurable surface.
-func workerConfigItems(fs *flag.FlagSet, env *cliflags.Env) ([]config.Item, error) {
+func workerConfigItems(fs *flag.FlagSet, env *cliflags.Env) (*config.Registry, error) {
 	registry, err := config.NewRegistry(
 		env.Items(fs, config.RoleWorker, workerPublic),
 		blobstore.ConfigItems(),
@@ -52,7 +52,7 @@ func workerConfigItems(fs *flag.FlagSet, env *cliflags.Env) ([]config.Item, erro
 	if err != nil {
 		return nil, err
 	}
-	return registry.Items(), nil
+	return registry, nil
 }
 
 // workerUnflaggedItems are the variables this role reads with no flag behind

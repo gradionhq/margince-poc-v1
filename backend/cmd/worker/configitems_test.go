@@ -12,6 +12,7 @@ package main
 // not exist yet (internal/platform/config).
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
@@ -26,11 +27,11 @@ func workerSurface(t *testing.T) (*cliflags.Env, []config.Item) {
 	if err != nil {
 		t.Fatalf("building the worker flag set: %v", err)
 	}
-	items, err := workerConfigItems(fs, env)
+	registry, err := workerConfigItems(fs, env)
 	if err != nil {
 		t.Fatalf("assembling the worker registry: %v", err)
 	}
-	return env, items
+	return env, registry.Items()
 }
 
 func TestEveryWorkerFlagBoundVariableIsDeclared(t *testing.T) {
@@ -71,5 +72,27 @@ func TestTheWorkerMarksItsCredentials(t *testing.T) {
 		if secret[name] {
 			t.Errorf("%s is marked Secret but authenticates nothing; hiding it only makes a boot harder to debug", name)
 		}
+	}
+}
+
+// TestAMisspelledVariableReachesTheBootReport is the wiring, not the rule: the
+// rule is proven in platform/config, and this proves the role actually asks.
+// Without it, deleting the assignment in parseWorkerFlags breaks nothing.
+func TestAMisspelledVariableReachesTheBootReport(t *testing.T) {
+	// Assembled rather than written whole: it is a MISSPELLING, and the
+	// tree-wide documentation gate reads a quoted MARGINCE_* literal as a real
+	// variable somebody must document.
+	const misspelled = "MARGINCE_" + "REDDIS"
+	t.Setenv(misspelled, "localhost:6379")
+	cfg, err := parseWorkerFlags([]string{"--dsn", "postgres://user@localhost:5432/db"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !slices.Contains(cfg.unknownVars, misspelled) {
+		t.Errorf("unknownVars = %v; the misspelling never reached the boot report", cfg.unknownVars)
+	}
+	// And a real variable does not appear, or the report would name everything.
+	if slices.Contains(cfg.unknownVars, "MARGINCE_DSN") {
+		t.Error("a variable this role reads was reported as unread")
 	}
 }
